@@ -2044,7 +2044,8 @@ var ENV_FLAGS = {
     legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
   },
   worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" }
+  debug: { name: "CC_SAFETY_NET_DEBUG" },
+  experimentalSecretProtection: { name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION" }
 };
 function getCCSafetyNetEnvModes() {
   const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
@@ -6348,6 +6349,188 @@ function excerpt(text, maxLen) {
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
 }
 
+// src/core/secret-protection.ts
+var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
+var COMMAND_PATH_OPERANDS = new Set([
+  "awk",
+  "cat",
+  "chmod",
+  "chown",
+  "cp",
+  "grep",
+  "head",
+  "less",
+  "ln",
+  "more",
+  "mv",
+  "rg",
+  "rm",
+  "rsync",
+  "scp",
+  "sed",
+  "tail",
+  "tar",
+  "touch",
+  "zip"
+]);
+var PATH_LIKE_KEYS = new Set([
+  "file",
+  "file_path",
+  "filepath",
+  "glob",
+  "notebook_path",
+  "path",
+  "pattern"
+]);
+var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
+function findSensitivePathTarget(targets, _cwd = process.cwd()) {
+  for (const target of targets) {
+    if (isAllowedSensitiveTemplate(target)) {
+      continue;
+    }
+    if (isSensitivePath(target)) {
+      return { target };
+    }
+  }
+  return null;
+}
+function findSensitiveTargetInCommand(command2, cwd = process.cwd()) {
+  return findSensitivePathTarget(extractCommandPathTargets(command2), cwd);
+}
+function findSensitiveTargetInToolInput(input, cwd = process.cwd()) {
+  const command2 = getCommandFromToolInput(input);
+  if (command2) {
+    const commandTarget = findSensitiveTargetInCommand(command2, cwd);
+    if (commandTarget)
+      return commandTarget;
+  }
+  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd);
+}
+function getCommandFromToolInput(input) {
+  if (!input || typeof input !== "object") {
+    return;
+  }
+  const command2 = input.command;
+  return typeof command2 === "string" && command2 !== "" ? command2 : undefined;
+}
+function extractPathLikeToolValues(input) {
+  if (!input || typeof input !== "object") {
+    return [];
+  }
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPathLikeToolValues(value));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (typeof value === "string" && PATH_LIKE_KEYS.has(normalizeToolInputKey(key))) {
+      return [value];
+    }
+    if (value && typeof value === "object") {
+      return extractPathLikeToolValues(value);
+    }
+    return [];
+  });
+}
+function extractCommandPathTargets(command2) {
+  if (hasUnclosedQuotes(command2)) {
+    return [];
+  }
+  const targets = [];
+  const tokens = $parse(command2.replace(/\n/g, " ; "), {});
+  let segment = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (isOperator2(token)) {
+      if (segment.length > 0) {
+        targets.push(...extractSegmentPathTargets(segment));
+        segment = [];
+      }
+      continue;
+    }
+    if (isRedirectOp(token)) {
+      const target = getCommandTokenText(tokens[i + 1]);
+      if (target)
+        targets.push(target);
+      i++;
+      continue;
+    }
+    const tokenText = getCommandTokenText(token);
+    if (tokenText !== null) {
+      segment.push(tokenText);
+    }
+  }
+  if (segment.length > 0) {
+    targets.push(...extractSegmentPathTargets(segment));
+  }
+  return targets;
+}
+function extractSegmentPathTargets(tokens) {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return [];
+  }
+  const command2 = basename(stripped[commandIndex] ?? "").toLowerCase();
+  if (!COMMAND_PATH_OPERANDS.has(command2)) {
+    return [];
+  }
+  return stripped.slice(commandIndex + 1).filter((token) => isFileOperand(command2, token));
+}
+function stripLeadingWrappersAndEnvAssignments(tokens) {
+  const firstCommandIndex = tokens.findIndex((token) => !isWrapperToken(token) && !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+  return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
+}
+function isWrapperToken(token) {
+  return token === "env" || token === "command" || token === "builtin" || token === "sudo";
+}
+function isFileOperand(command2, token) {
+  if (token === "--") {
+    return false;
+  }
+  if (command2 === "tar") {
+    return !token.startsWith("-") && !/\.(?:tar|tgz|tar\.gz|zip)$/i.test(token);
+  }
+  if (command2 === "zip") {
+    return !token.startsWith("-") && !/\.zip$/i.test(token);
+  }
+  return !token.startsWith("-");
+}
+function isSensitivePath(target) {
+  const normalized = normalizeCandidatePath(target);
+  if (!normalized) {
+    return false;
+  }
+  if (matchesEnvFile(normalized)) {
+    return true;
+  }
+  if (normalized === "secrets" || normalized.startsWith("secrets/") || normalized.includes("/secrets/")) {
+    return true;
+  }
+  return normalized.startsWith("~/.ssh/") || normalized === "~/.ssh" || normalized.startsWith("~/.aws/") || normalized === "~/.aws" || normalized.startsWith("~/.config/gcloud/") || normalized === "~/.config/gcloud" || normalized === "~/.kube/config" || normalized === "~/.docker/config.json" || normalized === "~/.npmrc" || normalized === "~/.pypirc" || normalized === "~/.netrc" || normalized === "~/.git-credentials" || normalized === "~/.config/gh/hosts.yml";
+}
+function isAllowedSensitiveTemplate(target) {
+  const filename = normalizeCandidatePath(target).split("/").pop() ?? "";
+  return filename === ".env.example" || filename === ".env.sample" || filename === ".env.template" || filename === ".env.defaults" || filename.startsWith(".env.example.") || filename.startsWith(".env.sample.");
+}
+function matchesEnvFile(normalized) {
+  const filename = normalized.split("/").pop() ?? "";
+  return filename === ".env" || filename === ".env.local" || filename === ".env.development" || filename === ".env.production" || filename === ".env.test" || /^\.env\..+\.local$/.test(filename);
+}
+function normalizeCandidatePath(target) {
+  return target.trim().replace(/\\/g, "/").replace(/\/+$/g, "").replace(/^\.\//, "");
+}
+function basename(token) {
+  return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
+}
+function normalizeToolInputKey(key) {
+  return key.replace(/-/g, "_").toLowerCase();
+}
+function isOperator2(token) {
+  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS2.has(token.op);
+}
+function isRedirectOp(token) {
+  return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
+}
+
 // src/bin/hook/common.ts
 var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly.";
 function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice) {
@@ -6390,6 +6573,18 @@ function analyzeHookCommand(command2, cwd) {
     worktreeMode: envTruthy(ENV_FLAGS.worktree)
   });
 }
+function handleSecretProtection(toolInput, cwd, toolName, outputDeny) {
+  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection)) {
+    return false;
+  }
+  const match = findSensitiveTargetInToolInput(toolInput, cwd);
+  if (!match) {
+    return false;
+  }
+  const descriptor = toolName ? `${toolName} ${match.target}` : match.target;
+  outputDeny(REASON_SECRET_PROTECTION, descriptor, descriptor, false);
+  return true;
+}
 function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny) {
   let result;
   try {
@@ -6420,17 +6615,34 @@ async function runHookAdapter(adapter) {
   if (!adapter.isSupported(input)) {
     return;
   }
-  const command2 = adapter.getCommand(input, adapter.outputDeny);
+  const cwd = adapter.getCwd(input) ?? process.cwd();
+  const toolInput = adapter.getToolInput(input, adapter.outputDeny);
+  const toolName = getToolName(input);
+  if (handleSecretProtection(toolInput, cwd, toolName, adapter.outputDeny)) {
+    return;
+  }
+  const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
   if (!command2) {
     return;
   }
-  handleBlockedHookCommand(command2, adapter.getCwd(input) ?? process.cwd(), adapter.getSessionId(input), adapter.outputDeny);
+  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny);
+}
+function getToolName(input) {
+  if (!input || typeof input !== "object") {
+    return "";
+  }
+  const record = input;
+  return stringField(record.tool_name) ?? stringField(record.toolName) ?? "";
+}
+function stringField(value) {
+  return typeof value === "string" ? value : undefined;
 }
 async function runConfiguredHookAdapter(adapter) {
   const outputDeny = (reason, command2, segment, manualPermissionAdvice) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason));
   await runHookAdapter({
     outputDeny,
     isSupported: adapter.isSupported,
+    getToolInput: adapter.getToolInput,
     getCommand: adapter.getCommand,
     getCwd: adapter.getCwd,
     getSessionId: adapter.getSessionId
@@ -6439,11 +6651,8 @@ async function runConfiguredHookAdapter(adapter) {
 
 // src/bin/hook/constants.ts
 var CLAUDE_CODE_HOOK_EVENT = "PreToolUse";
-var CLAUDE_CODE_TOOL_NAME = "Bash";
 var GEMINI_CLI_HOOK_EVENT = "BeforeTool";
-var GEMINI_CLI_TOOL_NAME = "run_shell_command";
 var KIMI_CODE_HOOK_EVENT = "PreToolUse";
-var KIMI_CODE_TOOL_NAME = "Bash";
 
 // src/bin/hook/claude-code.ts
 async function runClaudeCodeHook() {
@@ -6456,8 +6665,8 @@ async function runClaudeCodeHook() {
       }
     }),
     getManualPermissionAdvice: (reason) => reason.includes("rule sync") ? false : undefined,
-    isSupported: (input) => input.tool_name === CLAUDE_CODE_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
+    isSupported: (input) => input.hook_event_name === CLAUDE_CODE_HOOK_EVENT,
+    getToolInput: (input) => input.tool_input,
     getCwd: (input) => input.cwd,
     getSessionId: (input) => input.session_id
   });
@@ -6470,8 +6679,8 @@ async function runCopilotCliHook() {
       permissionDecision: "deny",
       permissionDecisionReason: message
     }),
-    isSupported: (input) => input.toolName === "bash",
-    getCommand: (input, outputDeny) => parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.")?.command,
+    isSupported: () => true,
+    getToolInput: (input, outputDeny) => parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON."),
     getCwd: (input) => input.cwd,
     getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`
   });
@@ -6485,8 +6694,8 @@ async function runGeminiCLIHook() {
       reason: message,
       systemMessage: message
     }),
-    isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT && input.tool_name === GEMINI_CLI_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
+    isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT,
+    getToolInput: (input) => input.tool_input,
     getCwd: (input) => input.cwd,
     getSessionId: (input) => input.session_id
   });
@@ -6497,13 +6706,13 @@ async function runKimiCodeHook() {
   await runConfiguredHookAdapter({
     createDenyOutput: (message) => ({
       hookSpecificOutput: {
-        hookEventName: "PreToolUse",
+        hookEventName: KIMI_CODE_HOOK_EVENT,
         permissionDecision: "deny",
         permissionDecisionReason: message
       }
     }),
-    isSupported: (input) => input.hook_event_name === KIMI_CODE_HOOK_EVENT && input.tool_name === KIMI_CODE_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
+    isSupported: (input) => input.hook_event_name === KIMI_CODE_HOOK_EVENT,
+    getToolInput: (input) => input.tool_input,
     getCwd: (input) => input.cwd,
     getSessionId: (input) => input.session_id
   });
@@ -6871,6 +7080,11 @@ var ENV_VARS = [
     flag: ENV_FLAGS.debug,
     description: "Log allowed hook commands for debugging",
     defaultBehavior: "off"
+  },
+  {
+    flag: ENV_FLAGS.experimentalSecretProtection,
+    description: "Experimental best-effort sensitive path protection",
+    defaultBehavior: "off; not a sandbox"
   }
 ];
 function getEnvironmentInfo() {
@@ -9470,7 +9684,7 @@ function formatCommandSummary(cmd, maxUsageWidth) {
   return `${INDENT}${usage.padEnd(maxUsageWidth + 2)}${cmd.description}`;
 }
 function formatEnvironmentVariable(name, description) {
-  return `${INDENT}${name.padEnd(40)}${description}`;
+  return `${INDENT}${name.padEnd(Math.max(40, name.length + 2))}${description}`;
 }
 function printCommandHelp(command2) {
   const lines = [];
@@ -9535,6 +9749,7 @@ function printHelp() {
   lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Block interpreter one-liners"));
   lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`, "Allow local git discards in linked worktrees"));
   lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, "Log allowed hook commands for debugging"));
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.experimentalSecretProtection.name}=1`, "Experimental best-effort sensitive path protection"));
   lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME", "Override rule config home directory"));
   console.log(lines.join(`
 `));
@@ -9649,9 +9864,9 @@ function removeArrayRangeItem(content, item) {
 var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code";
 var KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
-matcher = "Bash"
+matcher = "*"
 command = "${KIMI_HOOK_COMMAND}"`;
-var KIMI_INLINE_HOOK = `{ event = "PreToolUse", matcher = "Bash", command = "${KIMI_HOOK_COMMAND}" }`;
+var KIMI_INLINE_HOOK = `{ event = "PreToolUse", matcher = "*", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
   return join12(process.env.KIMI_CODE_HOME ?? join12(homeDir, ".kimi-code"), "config.toml");
 }

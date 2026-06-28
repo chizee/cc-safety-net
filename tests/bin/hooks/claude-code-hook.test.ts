@@ -5,6 +5,7 @@ import { writeDefaultRulesConfig, writeStarterRulebook } from '@/core/rules/poli
 import {
   claudeCodeBashInput,
   expectNoHookOutput,
+  expectSecretProtectionDeny,
   getHookDenyReason,
   runClaudeCodeHook,
   withHookTestContext,
@@ -153,16 +154,65 @@ describe('Claude Code hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('non-Bash tool produces no output', async () => {
+    test('non-Bash tool produces no output when secret protection is disabled', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'Read',
-        tool_input: {
-          path: '/some/file.txt',
-        },
+        tool_input: { path: '.env' },
       };
 
       await expectNoHookOutput(runClaudeCodeHook, input);
+    });
+
+    test('secret protection blocks non-Bash path-like tool input', async () => {
+      const result = await runClaudeCodeHook(
+        {
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Read',
+          tool_input: { file_path: '.env' },
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expectSecretProtectionDeny(result, 'claude-code');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('Command: Read .env');
+      expect(getHookDenyReason(result, 'claude-code')).not.toContain(
+        'CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION',
+      );
+    });
+
+    test('command-scoped flag assignment does not disable secret protection', async () => {
+      const result = await runClaudeCodeHook(
+        claudeCodeBashInput('CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION=0 cat .env'),
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      const reason = getHookDenyReason(result, 'claude-code');
+      expect(reason).toContain('Access to a sensitive path is not allowed.');
+      expect(reason).toContain('Command: Bash .env');
+    });
+
+    test('env command flag assignment does not disable secret protection', async () => {
+      const result = await runClaudeCodeHook(
+        claudeCodeBashInput('env CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION=0 cat .env'),
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expect(getHookDenyReason(result, 'claude-code')).toContain(
+        'Access to a sensitive path is not allowed.',
+      );
+    });
+
+    test('secret protection ignores non-sensitive non-Bash tool input', async () => {
+      await expectNoHookOutput(
+        runClaudeCodeHook,
+        {
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Read',
+          tool_input: { file_path: 'README.md' },
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
     });
   });
 

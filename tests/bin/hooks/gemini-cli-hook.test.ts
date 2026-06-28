@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   expectNoHookOutput,
+  expectSecretProtectionDeny,
   geminiShellInput,
   getHookDenyReason,
   runGeminiHook,
@@ -35,14 +36,27 @@ describe('Gemini CLI hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-shell tools', async () => {
+    test('ignores non-shell tools when secret protection is disabled', async () => {
       const input = {
         hook_event_name: 'BeforeTool',
         tool_name: 'write_file',
-        tool_input: { path: '/etc/passwd' },
+        tool_input: { path: '.env' },
       };
 
       await expectNoHookOutput(runGeminiHook, input);
+    });
+
+    test('secret protection blocks path-like non-shell tool input', async () => {
+      const result = await runGeminiHook(
+        {
+          hook_event_name: 'BeforeTool',
+          tool_name: 'write_file',
+          tool_input: { path: '.env' },
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expectSecretProtectionDeny(result, 'gemini-cli');
     });
   });
 

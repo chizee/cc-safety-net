@@ -6,10 +6,10 @@ import { runCli } from './hook-helpers';
 
 const KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
-matcher = "Bash"
+matcher = "*"
 command = "npx -y cc-safety-net hook --kimi-code"`;
 const KIMI_INLINE_HOOK =
-  '{ event = "PreToolUse", matcher = "Bash", command = "npx -y cc-safety-net hook --kimi-code" }';
+  '{ event = "PreToolUse", matcher = "*", command = "npx -y cc-safety-net hook --kimi-code" }';
 
 function makeTempHome(name: string) {
   const dir = join(tmpdir(), `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`);

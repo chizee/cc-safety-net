@@ -3,6 +3,7 @@ import {
   copilotBashInput,
   copilotRawToolArgsInput,
   expectNoHookOutput,
+  expectSecretProtectionDeny,
   getHookDenyReason,
   runCopilotHook,
 } from './hook-helpers';
@@ -36,15 +37,29 @@ describe('Copilot CLI hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-bash tools', async () => {
+    test('ignores non-bash tools when secret protection is disabled', async () => {
       const input = {
         timestamp: Date.now(),
         cwd: process.cwd(),
         toolName: 'write_file',
-        toolArgs: JSON.stringify({ path: '/etc/passwd' }),
+        toolArgs: JSON.stringify({ path: '.env' }),
       };
 
       await expectNoHookOutput(runCopilotHook, input);
+    });
+
+    test('secret protection blocks path-like non-bash tool args', async () => {
+      const result = await runCopilotHook(
+        {
+          timestamp: Date.now(),
+          cwd: process.cwd(),
+          toolName: 'write_file',
+          toolArgs: JSON.stringify({ path: '.env' }),
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expectSecretProtectionDeny(result, 'copilot-cli');
     });
   });
 

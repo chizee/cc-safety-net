@@ -2,6 +2,11 @@ import { analyzeCommand, loadConfig } from '@/core/analyze';
 import { redactSecrets, writeAuditLog } from '@/core/audit';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { formatBlockedMessage } from '@/core/format';
+import {
+  findSensitiveTargetInToolInput,
+  getCommandFromToolInput,
+  REASON_SECRET_PROTECTION,
+} from '@/core/secret-protection';
 
 export const REASON_SAFETY_NET_FAILED_CLOSED =
   'CC Safety Net failed closed because command analysis failed unexpectedly.';
@@ -18,7 +23,8 @@ type HookDenyOutputWithAdvice = (
 type HookAdapter<T> = {
   outputDeny: HookDenyOutput;
   isSupported: (input: T) => boolean;
-  getCommand: (input: T, outputDeny: HookDenyOutput) => string | undefined;
+  getToolInput: (input: T, outputDeny: HookDenyOutput) => unknown;
+  getCommand?: (toolInput: unknown) => string | undefined;
   getCwd: (input: T) => string | undefined;
   getSessionId: (input: T) => string | undefined;
 };
@@ -92,6 +98,29 @@ function analyzeHookCommand(command: string, cwd: string) {
   });
 }
 
+function handleSecretProtection(
+  toolInput: unknown,
+  cwd: string,
+  toolName: string,
+  outputDeny: (
+    reason: string,
+    command?: string,
+    segment?: string,
+    manualPermissionAdvice?: boolean,
+  ) => void,
+): boolean {
+  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection)) {
+    return false;
+  }
+  const match = findSensitiveTargetInToolInput(toolInput, cwd);
+  if (!match) {
+    return false;
+  }
+  const descriptor = toolName ? `${toolName} ${match.target}` : match.target;
+  outputDeny(REASON_SECRET_PROTECTION, descriptor, descriptor, false);
+  return true;
+}
+
 /** @internal - exported for direct test coverage */
 export function handleBlockedHookCommand(
   command: string,
@@ -134,17 +163,31 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     return;
   }
 
-  const command = adapter.getCommand(input, adapter.outputDeny);
+  const cwd = adapter.getCwd(input) ?? process.cwd();
+  const toolInput = adapter.getToolInput(input, adapter.outputDeny);
+  const toolName = getToolName(input);
+  if (handleSecretProtection(toolInput, cwd, toolName, adapter.outputDeny)) {
+    return;
+  }
+
+  const command = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
   if (!command) {
     return;
   }
 
-  handleBlockedHookCommand(
-    command,
-    adapter.getCwd(input) ?? process.cwd(),
-    adapter.getSessionId(input),
-    adapter.outputDeny,
-  );
+  handleBlockedHookCommand(command, cwd, adapter.getSessionId(input), adapter.outputDeny);
+}
+
+function getToolName(input: unknown): string {
+  if (!input || typeof input !== 'object') {
+    return '';
+  }
+  const record = input as Record<string, unknown>;
+  return stringField(record.tool_name) ?? stringField(record.toolName) ?? '';
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 export async function runConfiguredHookAdapter<T>(
@@ -162,6 +205,7 @@ export async function runConfiguredHookAdapter<T>(
   await runHookAdapter<T>({
     outputDeny,
     isSupported: adapter.isSupported,
+    getToolInput: adapter.getToolInput,
     getCommand: adapter.getCommand,
     getCwd: adapter.getCwd,
     getSessionId: adapter.getSessionId,

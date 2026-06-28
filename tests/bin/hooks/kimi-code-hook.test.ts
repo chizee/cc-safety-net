@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { expectNoHookOutput, getHookDenyReason, kimiShellInput, runKimiHook } from './hook-helpers';
+import {
+  expectNoHookOutput,
+  expectSecretProtectionDeny,
+  getHookDenyReason,
+  kimiShellInput,
+  runKimiHook,
+} from './hook-helpers';
 
 describe('Kimi Code hook', () => {
   describe('blocked commands', () => {
@@ -21,14 +27,27 @@ describe('Kimi Code hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-Bash tools', async () => {
+    test('ignores non-Bash tools when secret protection is disabled', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'ReadFile',
-        tool_input: { file_path: '/etc/passwd' },
+        tool_input: { file_path: '.env' },
       };
 
       await expectNoHookOutput(runKimiHook, input);
+    });
+
+    test('secret protection blocks path-like non-Bash tool input', async () => {
+      const result = await runKimiHook(
+        {
+          hook_event_name: 'PreToolUse',
+          tool_name: 'ReadFile',
+          tool_input: { file_path: '.env' },
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expectSecretProtectionDeny(result, 'kimi-code');
     });
   });
 

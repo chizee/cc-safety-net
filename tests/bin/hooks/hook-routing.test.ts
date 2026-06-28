@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
 import { claudeCodeBashInput, geminiShellInput, kimiShellInput, runCli } from './hook-helpers';
 
 describe('hook command routing', () => {
+  test('Claude Code hook manifest uses wildcard PreToolUse matcher', () => {
+    const manifest = JSON.parse(readFileSync(join(process.cwd(), 'hooks/hooks.json'), 'utf-8'));
+
+    expect(manifest.hooks.PreToolUse[0].matcher).toBe('*');
+  });
+
   test('top-level Claude Code long flag routes to hook command for compatibility', async () => {
     const { stdout, exitCode } = await runCli(
       ['--claude-code'],

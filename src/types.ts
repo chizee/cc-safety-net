@@ -52,9 +52,10 @@ export interface HookInput {
   permission_mode?: string;
   hook_event_name: string;
   tool_name: string;
-  tool_input: {
-    command: string;
+  tool_input?: {
+    command?: string;
     description?: string;
+    [key: string]: unknown;
   };
   tool_use_id?: string;
 }

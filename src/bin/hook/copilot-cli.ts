@@ -7,13 +7,13 @@ export async function runCopilotCliHook(): Promise<void> {
       permissionDecision: 'deny',
       permissionDecisionReason: message,
     }),
-    isSupported: (input) => input.toolName === 'bash',
-    getCommand: (input, outputDeny) =>
+    isSupported: () => true,
+    getToolInput: (input, outputDeny) =>
       parseHookJson<{ command?: string }>(
         input.toolArgs,
         outputDeny,
         'Failed to parse toolArgs JSON.',
-      )?.command,
+      ),
     getCwd: (input) => input.cwd,
     getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`,
   });

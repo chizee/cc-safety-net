@@ -2,6 +2,7 @@
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 - ALWAYS use `bun run check` to verify changes. This runs typecheck, knip, biome lint, and tests together. Do not run these separately.
 - Ignore the dist folder, it will get auto rebuilt by husky's precommit hook.
+- Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 
 ## Style Guide
 

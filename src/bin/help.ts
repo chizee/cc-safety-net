@@ -44,7 +44,7 @@ function formatCommandSummary(cmd: Command, maxUsageWidth: number): string {
 }
 
 function formatEnvironmentVariable(name: string, description: string): string {
-  return `${INDENT}${name.padEnd(40)}${description}`;
+  return `${INDENT}${name.padEnd(Math.max(40, name.length + 2))}${description}`;
 }
 
 /**
@@ -162,6 +162,12 @@ export function printHelp(): void {
     formatEnvironmentVariable(
       `${ENV_FLAGS.debug.name}=1`,
       'Log allowed hook commands for debugging',
+    ),
+  );
+  lines.push(
+    formatEnvironmentVariable(
+      `${ENV_FLAGS.experimentalSecretProtection.name}=1`,
+      'Experimental best-effort sensitive path protection',
     ),
   );
   lines.push(

@@ -13,6 +13,7 @@ export const ENV_FLAGS = {
   },
   worktree: { name: 'CC_SAFETY_NET_WORKTREE', legacyName: 'SAFETY_NET_WORKTREE' },
   debug: { name: 'CC_SAFETY_NET_DEBUG' },
+  experimentalSecretProtection: { name: 'CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION' },
 } as const satisfies Record<string, EnvFlag>;
 
 export function getCCSafetyNetEnvModes() {

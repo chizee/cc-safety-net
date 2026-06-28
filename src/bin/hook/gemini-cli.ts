@@ -1,5 +1,5 @@
 import { runConfiguredHookAdapter } from '@/bin/hook/common';
-import { GEMINI_CLI_HOOK_EVENT, GEMINI_CLI_TOOL_NAME } from '@/bin/hook/constants';
+import { GEMINI_CLI_HOOK_EVENT } from '@/bin/hook/constants';
 import type { GeminiHookInput, GeminiHookOutput } from '@/types';
 
 export async function runGeminiCLIHook(): Promise<void> {
@@ -10,9 +10,8 @@ export async function runGeminiCLIHook(): Promise<void> {
       reason: message,
       systemMessage: message,
     }),
-    isSupported: (input) =>
-      input.hook_event_name === GEMINI_CLI_HOOK_EVENT && input.tool_name === GEMINI_CLI_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
+    isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT,
+    getToolInput: (input) => input.tool_input,
     getCwd: (input) => input.cwd,
     getSessionId: (input) => input.session_id,
   });

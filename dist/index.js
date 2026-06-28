@@ -1988,7 +1988,8 @@ var ENV_FLAGS = {
     legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
   },
   worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" }
+  debug: { name: "CC_SAFETY_NET_DEBUG" },
+  experimentalSecretProtection: { name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION" }
 };
 function getCCSafetyNetEnvModes() {
   const paranoidAll = envTruthy(ENV_FLAGS.paranoid);

@@ -26,6 +26,9 @@ export declare const ENV_FLAGS: {
     readonly debug: {
         readonly name: "CC_SAFETY_NET_DEBUG";
     };
+    readonly experimentalSecretProtection: {
+        readonly name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION";
+    };
 };
 export declare function getCCSafetyNetEnvModes(): {
     strict: boolean;

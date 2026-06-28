@@ -99,6 +99,7 @@ ENVIRONMENT VARIABLES:
   CC_SAFETY_NET_PARANOID_INTERPRETERS=1   Block interpreter one-liners
   CC_SAFETY_NET_WORKTREE=1                Allow local git discards in linked worktrees
   CC_SAFETY_NET_DEBUG=1                   Log allowed hook commands for debugging
+  CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION=1  Experimental best-effort sensitive path protection
   CC_SAFETY_NET_HOME                      Override rule config home directory
 `);
     });

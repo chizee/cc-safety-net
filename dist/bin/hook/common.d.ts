@@ -3,7 +3,8 @@ type HookDenyOutput = (reason: string, command?: string, segment?: string) => vo
 type HookAdapter<T> = {
     outputDeny: HookDenyOutput;
     isSupported: (input: T) => boolean;
-    getCommand: (input: T, outputDeny: HookDenyOutput) => string | undefined;
+    getToolInput: (input: T, outputDeny: HookDenyOutput) => unknown;
+    getCommand?: (toolInput: unknown) => string | undefined;
     getCwd: (input: T) => string | undefined;
     getSessionId: (input: T) => string | undefined;
 };
