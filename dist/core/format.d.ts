@@ -3,6 +3,7 @@ export interface FormatBlockedMessageInput {
     reason: string;
     command?: string;
     segment?: string;
+    toolName?: string;
     maxLen?: number;
     redact?: RedactFn;
     manualPermissionAdvice?: boolean;

@@ -16,6 +16,22 @@ describe('formatBlockedMessage', () => {
     expect(result).toContain('Command: rm -rf /');
   });
 
+  test('includes tool name when provided', () => {
+    const result = formatBlockedMessage({
+      reason: 'test reason',
+      command: 'rm -rf /',
+      toolName: 'Bash',
+    });
+    expect(result).toContain('Tool: Bash');
+    expect(result.indexOf('Reason:')).toBeLessThan(result.indexOf('Tool: Bash'));
+    expect(result.indexOf('Tool: Bash')).toBeLessThan(result.indexOf('Command:'));
+  });
+
+  test('omits tool line when tool name is absent', () => {
+    const result = formatBlockedMessage({ reason: 'test reason' });
+    expect(result).not.toContain('Tool:');
+  });
+
   test('includes segment when provided', () => {
     const result = formatBlockedMessage({
       reason: 'test reason',

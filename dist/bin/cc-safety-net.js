@@ -6320,12 +6320,17 @@ function redactSecrets(text) {
 
 // src/core/format.ts
 function formatBlockedMessage(input) {
-  const { reason, command: command2, segment } = input;
+  const { reason, command: command2, segment, toolName } = input;
   const maxLen = input.maxLen ?? 200;
   const redact = input.redact ?? ((t) => t);
   let message = `BLOCKED by CC Safety Net
 
 Reason: ${reason}`;
+  if (toolName) {
+    message += `
+
+Tool: ${toolName}`;
+  }
   if (command2) {
     const safeCommand = redact(command2);
     message += `
@@ -6533,11 +6538,12 @@ function isRedirectOp(token) {
 
 // src/bin/hook/common.ts
 var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly.";
-function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice) {
+function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName) {
   console.log(JSON.stringify(createDenyOutput(formatBlockedMessage({
     reason,
     command: command2,
     segment,
+    toolName,
     redact: redactSecrets,
     manualPermissionAdvice
   }))));
@@ -6573,7 +6579,7 @@ function analyzeHookCommand(command2, cwd) {
     worktreeMode: envTruthy(ENV_FLAGS.worktree)
   });
 }
-function handleSecretProtection(toolInput, cwd, toolName, outputDeny) {
+function handleSecretProtection(toolInput, cwd, sessionId, toolName, outputDeny) {
   if (!envTruthy(ENV_FLAGS.experimentalSecretProtection)) {
     return false;
   }
@@ -6581,8 +6587,11 @@ function handleSecretProtection(toolInput, cwd, toolName, outputDeny) {
   if (!match) {
     return false;
   }
-  const descriptor = toolName ? `${toolName} ${match.target}` : match.target;
-  outputDeny(REASON_SECRET_PROTECTION, descriptor, descriptor, false);
+  const command2 = getCommandFromToolInput(toolInput) ?? match.target;
+  if (sessionId) {
+    writeAuditLog(sessionId, command2, match.target, REASON_SECRET_PROTECTION, cwd);
+  }
+  outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName);
   return true;
 }
 function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny) {
@@ -6618,7 +6627,7 @@ async function runHookAdapter(adapter) {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
-  if (handleSecretProtection(toolInput, cwd, toolName, adapter.outputDeny)) {
+  if (handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny)) {
     return;
   }
   const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
@@ -6638,7 +6647,7 @@ function stringField(value) {
   return typeof value === "string" ? value : undefined;
 }
 async function runConfiguredHookAdapter(adapter) {
-  const outputDeny = (reason, command2, segment, manualPermissionAdvice) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason));
+  const outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason), toolName);
   await runHookAdapter({
     outputDeny,
     isSupported: adapter.isSupported,

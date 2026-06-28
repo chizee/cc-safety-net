@@ -175,7 +175,8 @@ describe('Claude Code hook', () => {
       );
 
       expectSecretProtectionDeny(result, 'claude-code');
-      expect(getHookDenyReason(result, 'claude-code')).toContain('Command: Read .env');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('Command: .env');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('Tool: Read');
       expect(getHookDenyReason(result, 'claude-code')).not.toContain(
         'CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION',
       );
@@ -189,7 +190,9 @@ describe('Claude Code hook', () => {
 
       const reason = getHookDenyReason(result, 'claude-code');
       expect(reason).toContain('Access to a sensitive path is not allowed.');
-      expect(reason).toContain('Command: Bash .env');
+      expect(reason).toContain('cat .env');
+      expect(reason).toContain('Segment: .env');
+      expect(reason).toContain('Tool: Bash');
     });
 
     test('env command flag assignment does not disable secret protection', async () => {
@@ -213,6 +216,21 @@ describe('Claude Code hook', () => {
         },
         { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
       );
+    });
+
+    test('secret protection blocks directory targets', async () => {
+      const result = await runClaudeCodeHook(
+        {
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Read',
+          tool_input: { file_path: '~/.ssh' },
+        },
+        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+      );
+
+      expectSecretProtectionDeny(result, 'claude-code');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('Command: ~/.ssh');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('Tool: Read');
     });
   });
 

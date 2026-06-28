@@ -6264,12 +6264,17 @@ function redactSecrets(text) {
 
 // src/core/format.ts
 function formatBlockedMessage(input) {
-  const { reason, command: command2, segment } = input;
+  const { reason, command: command2, segment, toolName } = input;
   const maxLen = input.maxLen ?? 200;
   const redact = input.redact ?? ((t) => t);
   let message = `BLOCKED by CC Safety Net
 
 Reason: ${reason}`;
+  if (toolName) {
+    message += `
+
+Tool: ${toolName}`;
+  }
   if (command2) {
     const safeCommand = redact(command2);
     message += `

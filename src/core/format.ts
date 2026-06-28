@@ -4,17 +4,22 @@ export interface FormatBlockedMessageInput {
   reason: string;
   command?: string;
   segment?: string;
+  toolName?: string;
   maxLen?: number;
   redact?: RedactFn;
   manualPermissionAdvice?: boolean;
 }
 
 export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
-  const { reason, command, segment } = input;
+  const { reason, command, segment, toolName } = input;
   const maxLen = input.maxLen ?? 200;
   const redact = input.redact ?? ((t: string) => t);
 
   let message = `BLOCKED by CC Safety Net\n\nReason: ${reason}`;
+
+  if (toolName) {
+    message += `\n\nTool: ${toolName}`;
+  }
 
   if (command) {
     const safeCommand = redact(command);
