@@ -6,10 +6,10 @@ import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
 import { claudeCodeBashInput, geminiShellInput, kimiShellInput, runCli } from './hook-helpers';
 
 describe('hook command routing', () => {
-  test('Claude Code hook manifest uses wildcard PreToolUse matcher', () => {
+  test('Claude Code hook manifest does not use explicit PreToolUse matcher', () => {
     const manifest = JSON.parse(readFileSync(join(process.cwd(), 'hooks/hooks.json'), 'utf-8'));
 
-    expect(manifest.hooks.PreToolUse[0].matcher).toBe('*');
+    expect(manifest.hooks.PreToolUse[0]).not.toHaveProperty('matcher');
   });
 
   test('top-level Claude Code long flag routes to hook command for compatibility', async () => {
