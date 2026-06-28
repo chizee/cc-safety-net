@@ -6378,6 +6378,21 @@ var COMMAND_PATH_OPERANDS = new Set([
   "touch",
   "zip"
 ]);
+var PATTERN_FIRST_COMMANDS = new Set(["grep", "rg"]);
+var PATTERN_FILE_SHORT = "f";
+var PATTERN_FILE_LONG = "file";
+var PATTERNLESS_FILES_LONG = "files";
+var PATTERN_SUPPLY_SHORT = new Set(["e", "f"]);
+var PATTERN_SUPPLY_LONG = new Set(["regexp", "file"]);
+var PATTERN_ARG_SHORT = new Set(["e", "f", "A", "B", "C", "m"]);
+var PATTERN_ARG_LONG = new Set([
+  "regexp",
+  "file",
+  "after-context",
+  "before-context",
+  "context",
+  "max-count"
+]);
 var PATH_LIKE_KEYS = new Set([
   "file",
   "file_path",
@@ -6390,9 +6405,6 @@ var PATH_LIKE_KEYS = new Set([
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 function findSensitivePathTarget(targets, _cwd = process.cwd()) {
   for (const target of targets) {
-    if (isAllowedSensitiveTemplate(target)) {
-      continue;
-    }
     if (isSensitivePath(target)) {
       return { target };
     }
@@ -6478,7 +6490,84 @@ function extractSegmentPathTargets(tokens) {
   if (!COMMAND_PATH_OPERANDS.has(command2)) {
     return [];
   }
-  return stripped.slice(commandIndex + 1).filter((token) => isFileOperand(command2, token));
+  const post = stripped.slice(commandIndex + 1);
+  if (PATTERN_FIRST_COMMANDS.has(command2)) {
+    return extractPatternCommandTargets(post);
+  }
+  return post.filter((token) => isFileOperand(command2, token));
+}
+function extractPatternCommandTargets(tokens) {
+  const optionFileTargets = [];
+  const positionals = [];
+  let patternFromOption = false;
+  let patternlessMode = false;
+  let afterDashDash = false;
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined)
+      break;
+    if (!afterDashDash && token === "--") {
+      afterDashDash = true;
+      continue;
+    }
+    if (afterDashDash) {
+      positionals.push(token);
+      continue;
+    }
+    const longOption = /^--([^=]+)(?:=(.*))?$/.exec(token);
+    if (longOption !== null) {
+      const name = longOption[1] ?? "";
+      const inlineValue = longOption[2];
+      if (name === PATTERNLESS_FILES_LONG)
+        patternlessMode = true;
+      if (PATTERN_SUPPLY_LONG.has(name))
+        patternFromOption = true;
+      if (inlineValue !== undefined) {
+        if (name === PATTERN_FILE_LONG)
+          optionFileTargets.push(inlineValue);
+        continue;
+      }
+      if (PATTERN_ARG_LONG.has(name)) {
+        const next = tokens[i + 1];
+        if (name === PATTERN_FILE_LONG && next !== undefined)
+          optionFileTargets.push(next);
+        i++;
+      }
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      const flags = token.slice(1);
+      let consumerChar = "";
+      let consumerInline = "";
+      for (let j = 0;j < flags.length; j++) {
+        const flag = flags[j] ?? "";
+        if (PATTERN_SUPPLY_SHORT.has(flag))
+          patternFromOption = true;
+        if (PATTERN_ARG_SHORT.has(flag)) {
+          consumerChar = flag;
+          consumerInline = flags.slice(j + 1);
+          break;
+        }
+      }
+      if (consumerChar !== "") {
+        if (consumerInline.length > 0) {
+          if (consumerChar === PATTERN_FILE_SHORT)
+            optionFileTargets.push(consumerInline);
+        } else {
+          const next = tokens[i + 1];
+          if (consumerChar === PATTERN_FILE_SHORT && next !== undefined) {
+            optionFileTargets.push(next);
+          }
+          i++;
+        }
+      }
+      continue;
+    }
+    positionals.push(token);
+  }
+  const dropFirstPositional = !patternFromOption && !patternlessMode;
+  const positionalFiles = dropFirstPositional ? positionals.slice(1) : positionals;
+  return [...optionFileTargets, ...positionalFiles];
 }
 function stripLeadingWrappersAndEnvAssignments(tokens) {
   const firstCommandIndex = tokens.findIndex((token) => !isWrapperToken(token) && !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
@@ -6499,26 +6588,94 @@ function isFileOperand(command2, token) {
   }
   return !token.startsWith("-");
 }
+var SENSITIVE_BASENAMES = new Set([
+  ".env",
+  ".npmrc",
+  ".pypirc",
+  ".netrc",
+  ".git-credentials",
+  "id_rsa",
+  "id_ed25519",
+  "id_ecdsa",
+  "credentials"
+]);
+var SENSITIVE_BASENAME_PREFIXES = ["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+var PUBLIC_KEY_BASENAMES = new Set(["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"]);
+var ENV_PREFIX = ".env.";
+var ENV_EXEMPTION_BASENAMES = new Set([
+  ".env.example",
+  ".env.sample",
+  ".env.template",
+  ".env.defaults"
+]);
+var ENV_EXEMPTION_PREFIXES = [".env.example.", ".env.sample."];
+var SENSITIVE_DOT_VARIANT_SUFFIXES = [
+  ".bak",
+  ".backup",
+  ".copy",
+  ".disabled",
+  ".key",
+  ".old",
+  ".orig",
+  ".pem",
+  ".save",
+  ".tmp"
+];
+var SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set(SENSITIVE_DOT_VARIANT_SUFFIXES);
+var SENSITIVE_HOME_PATH_SUFFIXES = [
+  [".ssh"],
+  [".aws"],
+  [".gcp"],
+  [".config", "gcloud"],
+  [".kube", "config"],
+  [".docker", "config.json"],
+  [".config", "gh", "hosts.yml"]
+];
+var SENSITIVE_DIR_NAME = "secrets";
 function isSensitivePath(target) {
   const normalized = normalizeCandidatePath(target);
   if (!normalized) {
     return false;
   }
-  if (matchesEnvFile(normalized)) {
-    return true;
+  const comparableName = comparable(normalized.split("/").pop() ?? "");
+  const comparablePath = comparable(normalized);
+  if (isAllowedSensitiveTemplate(comparableName))
+    return false;
+  for (const suffixParts of SENSITIVE_HOME_PATH_SUFFIXES) {
+    if (matchesHomePathSuffix(comparablePath, suffixParts.join("/")))
+      return true;
   }
-  if (normalized === "secrets" || normalized.startsWith("secrets/") || normalized.includes("/secrets/")) {
+  if (isSensitiveDirSegment(comparablePath))
     return true;
+  if (PUBLIC_KEY_BASENAMES.has(comparableName))
+    return false;
+  if (SENSITIVE_BASENAMES.has(comparableName))
+    return true;
+  if (comparableName.startsWith(ENV_PREFIX))
+    return true;
+  for (const prefix of SENSITIVE_BASENAME_PREFIXES) {
+    if (comparableName.length > prefix.length && comparableName.startsWith(prefix)) {
+      const variant = comparableName.slice(prefix.length);
+      const next = variant[0];
+      if (next === "-" || next === "_")
+        return true;
+      if (next === "." && SENSITIVE_DOT_VARIANT_SUFFIX_SET.has(variant))
+        return true;
+    }
   }
-  return normalized.startsWith("~/.ssh/") || normalized === "~/.ssh" || normalized.startsWith("~/.aws/") || normalized === "~/.aws" || normalized.startsWith("~/.config/gcloud/") || normalized === "~/.config/gcloud" || normalized === "~/.kube/config" || normalized === "~/.docker/config.json" || normalized === "~/.npmrc" || normalized === "~/.pypirc" || normalized === "~/.netrc" || normalized === "~/.git-credentials" || normalized === "~/.config/gh/hosts.yml";
+  return false;
 }
-function isAllowedSensitiveTemplate(target) {
-  const filename = normalizeCandidatePath(target).split("/").pop() ?? "";
-  return filename === ".env.example" || filename === ".env.sample" || filename === ".env.template" || filename === ".env.defaults" || filename.startsWith(".env.example.") || filename.startsWith(".env.sample.");
+function matchesHomePathSuffix(comparablePath, suffix) {
+  return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
-function matchesEnvFile(normalized) {
-  const filename = normalized.split("/").pop() ?? "";
-  return filename === ".env" || filename === ".env.local" || filename === ".env.development" || filename === ".env.production" || filename === ".env.test" || /^\.env\..+\.local$/.test(filename);
+function isSensitiveDirSegment(comparablePath) {
+  return comparablePath === SENSITIVE_DIR_NAME || comparablePath.startsWith(`${SENSITIVE_DIR_NAME}/`) || comparablePath.includes(`/${SENSITIVE_DIR_NAME}/`);
+}
+function isAllowedSensitiveTemplate(comparableName) {
+  return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
+}
+function comparable(value) {
+  return value.toLowerCase();
 }
 function normalizeCandidatePath(target) {
   return target.trim().replace(/\\/g, "/").replace(/\/+$/g, "").replace(/^\.\//, "");
