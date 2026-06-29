@@ -45,10 +45,12 @@ describe('rule command docs', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
     expect(result.output).toContain('cc-safety-net rule');
+    expect(result.output).toContain('wrapper add <command>');
+    expect(result.output).toContain('--example');
     expect(result.output).toContain('--delete-source');
   });
 
-  test('initializes project rules and sibling cache in the canonical layout', async () => {
+  test('initializes inert project rule config and sibling cache layout', async () => {
     await withTempDir('safety-net-rule-init-', async (tempDir) => {
       const result = await runCCSafetyNetCli(
         ['rule', 'init'],
@@ -57,11 +59,11 @@ describe('rule command docs', () => {
       );
 
       expectSuccessfulCli(result);
-      expectCanonicalRulesLayout(tempDir, 'project-rules');
+      expectInertRulesLayout(tempDir);
     });
   });
 
-  test('initializes global rules and sibling cache in the canonical layout', async () => {
+  test('initializes inert global rule config and sibling cache layout', async () => {
     await withTempDir('safety-net-rule-init-global-', async (tempDir) => {
       const result = await runCCSafetyNetCli(['rule', 'init', '--global'], {
         CC_SAFETY_NET_HOME: join(tempDir, '.cc-safety-net'),
@@ -69,45 +71,25 @@ describe('rule command docs', () => {
       });
 
       expectSuccessfulCli(result);
-      expectCanonicalRulesLayout(tempDir, 'user-rules');
+      expectInertRulesLayout(tempDir);
     });
   });
 
-  test('reinitializes project rules after removing the default source', async () => {
-    await withTempDir('safety-net-rule-init-removed-', async (tempDir) => {
+  test('initialization is idempotent and does not add a default source', async () => {
+    await withTempDir('safety-net-rule-init-idempotent-', async (tempDir) => {
       const env = { HOME: join(tempDir, 'home') };
 
-      expect((await runCCSafetyNetCli(['rule', 'init'], env, tempDir)).exitCode).toBe(0);
-      expect(
-        (await runCCSafetyNetCli(['rule', 'remove', 'project-rules'], env, tempDir)).exitCode,
-      ).toBe(0);
+      const firstResult = await runCCSafetyNetCli(['rule', 'init'], env, tempDir);
       const result = await runCCSafetyNetCli(['rule', 'init'], env, tempDir);
 
+      expect(firstResult.exitCode).toBe(0);
       expectSuccessfulCli(result);
-      expectProjectRulesConfigRules(tempDir, ['project-rules']);
-      expectCanonicalRulesLayout(tempDir, 'project-rules');
+      expectProjectRulesConfigRules(tempDir, []);
+      expect(existsSync(join(tempDir, '.cc-safety-net', 'rules', 'project-rules'))).toBe(false);
     });
   });
 
-  test('reinitializes global rules after removing the default source', async () => {
-    await withTempDir('safety-net-rule-init-global-removed-', async (tempDir) => {
-      const env = globalRuleEnv(tempDir);
-
-      expect((await runCCSafetyNetCli(['rule', 'init', '--global'], env)).exitCode).toBe(0);
-      expect(
-        (await runCCSafetyNetCli(['rule', 'remove', 'user-rules', '--global'], env)).exitCode,
-      ).toBe(0);
-      const result = await runCCSafetyNetCli(['rule', 'init', '--global'], env);
-
-      expectSuccessfulCli(result);
-      expect(readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json')).rules).toEqual([
-        'user-rules',
-      ]);
-      expectCanonicalRulesLayout(tempDir, 'user-rules');
-    });
-  });
-
-  test('initialization preserves existing sources and appends the default source', async () => {
+  test('initialization preserves existing config without appending a default source', async () => {
     await withTempDir('safety-net-rule-init-existing-', async (tempDir) => {
       writeLocalRulebook(
         join(tempDir, '.cc-safety-net', 'rules', 'team-rules', 'rulebook.json'),
@@ -134,7 +116,7 @@ describe('rule command docs', () => {
       expectSuccessfulCli(result);
       expect(readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
         version: 1,
-        rules: ['team-rules', 'project-rules'],
+        rules: ['team-rules'],
         overrides: {
           'team-rules/team-rules-rule': 'off',
         },
@@ -143,22 +125,46 @@ describe('rule command docs', () => {
     });
   });
 
-  test('initialization does not duplicate an existing default source', async () => {
-    await withTempDir('safety-net-rule-init-no-duplicate-', async (tempDir) => {
+  test('initialization can create an inactive example rulebook', async () => {
+    await withTempDir('safety-net-rule-init-example-', async (tempDir) => {
       const result = await runCCSafetyNetCli(
-        ['rule', 'init'],
+        ['rule', 'init', '--example'],
         { HOME: join(tempDir, 'home') },
         tempDir,
       );
-      const secondResult = await runCCSafetyNetCli(
-        ['rule', 'init'],
+
+      expectSuccessfulCli(result);
+      expectProjectRulesConfigRules(tempDir, []);
+      expect(
+        readRulebook(join(tempDir, '.cc-safety-net', 'rules', 'example-rules', 'rulebook.json')),
+      ).toEqual(
+        expect.objectContaining({
+          name: 'example-rules',
+          allowed_commands: ['docker'],
+        }),
+      );
+    });
+  });
+
+  test('initialization example does not overwrite an existing example rulebook', async () => {
+    await withTempDir('safety-net-rule-init-example-existing-', async (tempDir) => {
+      const examplePath = join(
+        tempDir,
+        '.cc-safety-net',
+        'rules',
+        'example-rules',
+        'rulebook.json',
+      );
+      writeLocalRulebook(examplePath, 'example-rules');
+
+      const result = await runCCSafetyNetCli(
+        ['rule', 'init', '--example'],
         { HOME: join(tempDir, 'home') },
         tempDir,
       );
 
       expect(result.exitCode).toBe(0);
-      expect(secondResult.exitCode).toBe(0);
-      expectProjectRulesConfigRules(tempDir, ['project-rules']);
+      expect(readRulebook(examplePath).rules).toEqual([legacyRule('example-rules-rule', 'echo')]);
     });
   });
 });
@@ -183,6 +189,7 @@ describe('rule list', () => {
           overrides: {
             'user-rules/user-rules-rule': 'off',
           },
+          transparent_wrappers: ['rtk'],
         }),
       );
       writeFileSync(
@@ -193,6 +200,7 @@ describe('rule list', () => {
           overrides: {
             'project-rules/project-rules-rule': { reason: 'Ask before echo danger.' },
           },
+          transparent_wrappers: ['wrap'],
         }),
       );
       expect((await runCCSafetyNetCli(['rule', 'sync', '--global'], env, tempDir)).exitCode).toBe(
@@ -214,6 +222,9 @@ describe('rule list', () => {
       expect(result.output).toContain('Disabled rules (1):');
       expect(result.output).toContain('user-rules/user-rules-rule');
       expect(result.output).toContain('Reason overrides (1):');
+      expect(result.output).toContain('Transparent wrappers (2):');
+      expect(result.output).toContain('rtk');
+      expect(result.output).toContain('wrap');
       expect(result.output).toContain('Issues: (none)');
     });
   });
@@ -255,8 +266,7 @@ describe('rule list', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
-      expect(result.output).toContain('Active sources (1):');
-      expect(result.output).toContain('[user] user-rules 1.0.0');
+      expect(result.output).toContain('Active sources: (none)');
       expect(result.output).not.toContain('[project] user-rules 1.0.0');
       expect(result.output).not.toContain('duplicate active rulebook name');
     });
@@ -272,8 +282,98 @@ describe('rule list', () => {
       expect(result.output).toContain('Active rules: (none)');
       expect(result.output).toContain('Disabled rules: (none)');
       expect(result.output).toContain('Reason overrides: (none)');
+      expect(result.output).toContain('Transparent wrappers: (none)');
       expect(result.output).toContain('Issues: (none)');
     });
+  });
+});
+
+describe('rule wrapper', () => {
+  test('adds transparent wrapper to missing project config', async () => {
+    await withTempDir('safety-net-rule-wrapper-add-', async (tempDir) => {
+      const result = await runProjectRuleWrapper(tempDir, 'add');
+
+      expectSuccessfulCli(result);
+      expectProjectRulesConfig(tempDir, [], ['rtk']);
+    });
+  });
+
+  test('adds transparent wrapper idempotently while preserving config', async () => {
+    await withTempDir('safety-net-rule-wrapper-add-existing-', async (tempDir) => {
+      writeProjectRulesConfig(tempDir, ['project-rules'], ['rtk']);
+
+      const result = await runProjectRuleWrapper(tempDir, 'add');
+
+      expectSuccessfulCli(result);
+      expectProjectRulesConfig(tempDir, ['project-rules'], ['rtk']);
+    });
+  });
+
+  test('removes transparent wrapper while preserving config', async () => {
+    await withTempDir('safety-net-rule-wrapper-remove-', async (tempDir) => {
+      writeProjectRulesConfig(tempDir, ['project-rules'], ['rtk', 'wrap']);
+
+      const result = await runProjectRuleWrapper(tempDir, 'remove');
+
+      expectSuccessfulCli(result);
+      expectProjectRulesConfig(tempDir, ['project-rules'], ['wrap']);
+    });
+  });
+
+  test('removing missing transparent wrapper is successful', async () => {
+    await withTempDir('safety-net-rule-wrapper-remove-missing-', async (tempDir) => {
+      const result = await runProjectRuleWrapper(tempDir, 'remove');
+
+      expectSuccessfulCli(result);
+      expectProjectRulesConfig(tempDir, [], []);
+    });
+  });
+
+  test('lists transparent wrappers for selected scope', async () => {
+    await withTempDir('safety-net-rule-wrapper-list-', async (tempDir) => {
+      const env = globalRuleEnv(tempDir);
+      expect(
+        (await runCCSafetyNetCli(['rule', 'wrapper', 'add', 'rtk', '--global'], env)).exitCode,
+      ).toBe(0);
+
+      const result = await runCCSafetyNetCli(['rule', 'wrapper', 'list', '--global'], env);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.output).toContain('Transparent wrappers (1):');
+      expect(result.output).toContain('rtk');
+    });
+  });
+
+  test('rejects invalid transparent wrapper without changing config', async () => {
+    await withTempDir('safety-net-rule-wrapper-invalid-', async (tempDir) => {
+      writeProjectRulesConfig(tempDir, [], ['rtk']);
+
+      const result = await runCCSafetyNetCli(
+        ['rule', 'wrapper', 'add', 'bad command'],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('transparent wrapper must match command pattern');
+      expect(
+        readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json')).transparent_wrappers,
+      ).toEqual(['rtk']);
+    });
+  });
+
+  test('rejects malformed wrapper commands', async () => {
+    const missingAction = await runCCSafetyNetCli(['rule', 'wrapper']);
+    const missingCommand = await runCCSafetyNetCli(['rule', 'wrapper', 'add']);
+    const unknownAction = await runCCSafetyNetCli(['rule', 'wrapper', 'enable', 'rtk']);
+
+    expect(missingAction.exitCode).toBe(1);
+    expect(missingAction.stderr).toContain('rule wrapper requires add, remove, or list');
+    expect(missingCommand.exitCode).toBe(1);
+    expect(missingCommand.stderr).toContain('rule wrapper add requires a command');
+    expect(unknownAction.exitCode).toBe(1);
+    expect(unknownAction.stderr).toContain('Unknown rule wrapper action: enable');
   });
 });
 
@@ -287,12 +387,7 @@ describe('rule remove', () => {
         const result = await runCCSafetyNetCli(['rule', 'remove', 'project-rules'], env, tempDir);
 
         expectSuccessfulCli(result);
-        expect(readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
-          version: 1,
-          rules: [],
-          overrides: {},
-          transparent_wrappers: ['rtk'],
-        });
+        expectProjectRulesConfig(tempDir, [], ['rtk']);
         expect(
           existsSync(join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json')),
         ).toBe(true);
@@ -433,7 +528,12 @@ async function withInitializedProjectRules(
 ) {
   await withTempDir(prefix, async (tempDir) => {
     const env = projectRuleEnv(tempDir);
-    expect((await runCCSafetyNetCli(['rule', 'init'], env, tempDir)).exitCode).toBe(0);
+    writeLocalRulebook(
+      join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json'),
+      'project-rules',
+    );
+    writeProjectRulesConfig(tempDir, ['project-rules']);
+    expect((await runCCSafetyNetCli(['rule', 'sync'], env, tempDir)).exitCode).toBe(0);
     await fn(tempDir, env);
   });
 }
@@ -444,7 +544,21 @@ async function withInitializedGlobalRules(
 ) {
   await withTempDir(prefix, async (tempDir) => {
     const env = globalRuleEnv(tempDir);
-    expect((await runCCSafetyNetCli(['rule', 'init', '--global'], env)).exitCode).toBe(0);
+    writeLocalRulebook(
+      join(tempDir, '.cc-safety-net', 'rules', 'user-rules', 'rulebook.json'),
+      'user-rules',
+    );
+    mkdirSync(join(tempDir, '.cc-safety-net', 'rules'), { recursive: true });
+    writeFileSync(
+      join(tempDir, '.cc-safety-net', 'rules', 'rule.json'),
+      JSON.stringify({
+        version: 1,
+        rules: ['user-rules'],
+        overrides: {},
+        transparent_wrappers: [],
+      }),
+    );
+    expect((await runCCSafetyNetCli(['rule', 'sync', '--global'], env)).exitCode).toBe(0);
     await fn(tempDir, env);
   });
 }
@@ -660,12 +774,15 @@ describe('rule verify', () => {
   });
 });
 
-function expectCanonicalRulesLayout(dir: string, rulebookName: string): void {
+function expectInertRulesLayout(dir: string): void {
   expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'rule.json'))).toBe(true);
   expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'rule.lock'))).toBe(true);
-  expect(existsSync(join(dir, '.cc-safety-net', 'rules', rulebookName, 'rulebook.json'))).toBe(
-    true,
-  );
+  expect(readRulesConfig(join(dir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
+    version: 1,
+    rules: [],
+    overrides: {},
+    transparent_wrappers: [],
+  });
   expect(existsSync(join(dir, '.cc-safety-net', 'cache', 'rulebooks'))).toBe(true);
   expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'cache'))).toBe(false);
 }
@@ -677,6 +794,23 @@ function expectSuccessfulCli(result: Awaited<ReturnType<typeof runCCSafetyNetCli
 
 function expectProjectRulesConfigRules(dir: string, rules: string[]): void {
   expect(readRulesConfig(join(dir, '.cc-safety-net', 'rules', 'rule.json')).rules).toEqual(rules);
+}
+
+function expectProjectRulesConfig(
+  dir: string,
+  rules: string[],
+  transparentWrappers: string[],
+): void {
+  expect(readRulesConfig(join(dir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
+    version: 1,
+    rules,
+    overrides: {},
+    transparent_wrappers: transparentWrappers,
+  });
+}
+
+function runProjectRuleWrapper(dir: string, action: 'add' | 'remove') {
+  return runCCSafetyNetCli(['rule', 'wrapper', action, 'rtk'], { HOME: join(dir, 'home') }, dir);
 }
 
 function writeLegacyConfig(path: string, name: string, command: string): void {

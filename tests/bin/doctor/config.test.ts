@@ -38,7 +38,7 @@ function writeRulebook(dir: string, name = 'project-rules') {
 describe('getConfigInfo', () => {
   test('handles missing config files', async () => {
     await withTempDir('doctor-test-', (tmpDir) => {
-      const info = getConfigInfo(tmpDir);
+      const info = getIsolatedConfigInfo(tmpDir);
       expect(info.projectConfig.exists).toBe(false);
       expect(info.effectiveRules).toEqual([]);
       expect(info.shadowedRules).toEqual([]);
@@ -50,7 +50,7 @@ describe('getConfigInfo', () => {
       writeRulebook(tmpDir);
       expect((await syncRulesConfig({ cwd: tmpDir })).ok).toBe(true);
 
-      const info = getConfigInfo(tmpDir);
+      const info = getIsolatedConfigInfo(tmpDir);
 
       expect(info.projectConfig.exists).toBe(true);
       expect(info.projectConfig.valid).toBe(true);
@@ -60,6 +60,7 @@ describe('getConfigInfo', () => {
           source: 'project',
           name: 'project-rules/test-rule',
           command: 'test',
+          subcommand: undefined,
           blockArgs: ['--dangerous'],
           reason: 'Test reason',
         },
@@ -72,7 +73,7 @@ describe('getConfigInfo', () => {
       mkdirSync(join(tmpDir, '.cc-safety-net', 'rules'), { recursive: true });
       writeFileSync(join(tmpDir, '.cc-safety-net', 'rules', 'rule.json'), '{ "version": 2 }');
 
-      const info = getConfigInfo(tmpDir);
+      const info = getIsolatedConfigInfo(tmpDir);
 
       expect(info.projectConfig.exists).toBe(true);
       expect(info.projectConfig.valid).toBe(false);
@@ -85,10 +86,16 @@ describe('getConfigInfo', () => {
     await withTempDir('doctor-test-', (tmpDir) => {
       writeFileSync(join(tmpDir, '.safety-net.json'), JSON.stringify({ version: 1, rules: [] }));
 
-      const info = getConfigInfo(tmpDir);
+      const info = getIsolatedConfigInfo(tmpDir);
 
       expect(info.projectConfig.exists).toBe(false);
       expect(info.effectiveRules).toEqual([]);
     });
   });
 });
+
+function getIsolatedConfigInfo(tmpDir: string) {
+  return getConfigInfo(tmpDir, {
+    userConfigPath: join(tmpDir, 'home', '.cc-safety-net', 'rules', 'rule.json'),
+  });
+}

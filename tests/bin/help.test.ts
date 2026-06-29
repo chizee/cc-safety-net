@@ -80,7 +80,7 @@ Blocks destructive git and filesystem commands before execution.
 COMMANDS:
   cc-safety-net doctor [options]             Run diagnostic checks to verify installation and configuration
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
-  cc-safety-net rule <subcommand>            Manage CC Safety Net rulebook sources
+  cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
   cc-safety-net hook <coding cli>            Run as an agent CLI hook (reads JSON from stdin)
   cc-safety-net statusline <coding cli>      Print status line with mode indicators for shell integration
 

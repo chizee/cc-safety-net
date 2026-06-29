@@ -99,6 +99,7 @@ export function printRulesListReport(
     override.key,
     `  Reason: ${(override.value as { reason: string }).reason}`,
   ]);
+  printListSection('Transparent wrappers', policy.transparent_wrappers, (wrapper) => [wrapper]);
   printListSection('Issues', policy.errors, (error) => [error]);
 }
 

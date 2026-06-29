@@ -7081,15 +7081,18 @@ var hookCommand = {
 // src/bin/commands/rule.ts
 var ruleCommand = {
   name: "rule",
-  description: "Manage CC Safety Net rulebook sources",
+  description: "Manage CC Safety Net rule config and rulebook sources",
   usage: "rule <subcommand>",
   subcommands: [
-    { usage: "init", description: "Create starter rule config and rulebook files" },
+    { usage: "init [--example]", description: "Create inert rule config" },
     { usage: "add <source>", description: "Add a rulebook source and sync" },
     { usage: "remove <source>", description: "Remove a rulebook source and sync" },
     { usage: "update [source]", description: "Refresh rulebook lock/cache state" },
     { usage: "sync", description: "Sync configured rulebooks" },
     { usage: "list", description: "List active rulebooks" },
+    { usage: "wrapper add <command>", description: "Trust a transparent command wrapper" },
+    { usage: "wrapper remove <command>", description: "Remove a transparent command wrapper" },
+    { usage: "wrapper list", description: "List transparent command wrappers" },
     { usage: "test [source]", description: "Run rulebook fixtures" },
     { usage: "migrate [--cleanup]", description: "Migrate legacy inline rules" },
     { usage: "doc", description: "Print the rulebook authoring guide" },
@@ -7100,10 +7103,13 @@ var ruleCommand = {
     { flags: "--check", description: "Check without changing lock/cache state" },
     { flags: "--cleanup", description: "Delete legacy files after rule migrate verifies them" },
     { flags: "--delete-source", description: "Delete clean local source directory on remove" },
+    { flags: "--example", description: "Create an inactive example rulebook with rule init" },
     { flags: "-h, --help", description: "Show this help" }
   ],
   examples: [
     "cc-safety-net rule init",
+    "cc-safety-net rule init --example",
+    "cc-safety-net rule wrapper add rtk",
     "cc-safety-net rule add project-rules",
     "cc-safety-net rule sync",
     "cc-safety-net rule migrate --cleanup",
@@ -8892,21 +8898,17 @@ import { existsSync as existsSync15 } from "node:fs";
 import { resolve as resolve8 } from "node:path";
 function getConfigSource(options2) {
   const projectPath = getProjectRulesConfigPath(options2?.cwd);
-  let invalidProjectPath = null;
   if (existsSync15(projectPath)) {
     const validation = validateRulesConfigFile(projectPath);
     if (validation.errors.length === 0) {
       return { configSource: projectPath, configValid: true };
     }
-    invalidProjectPath = projectPath;
+    return { configSource: projectPath, configValid: false };
   }
   const userPath = options2?.userConfigPath ?? getUserRulesConfigPath(options2);
   if (existsSync15(userPath)) {
     const validation = validateRulesConfigFile(userPath);
     return { configSource: userPath, configValid: validation.errors.length === 0 };
-  }
-  if (invalidProjectPath) {
-    return { configSource: invalidProjectPath, configValid: false };
   }
   return { configSource: null, configValid: true };
 }
@@ -10297,8 +10299,8 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { existsSync as existsSync19 } from "node:fs";
-import { join as join15 } from "node:path";
+import { existsSync as existsSync19, mkdirSync as mkdirSync5 } from "node:fs";
+import { dirname as dirname12, join as join15 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = `# Custom Rules Reference
@@ -10313,7 +10315,7 @@ Agent reference for generating CC Safety Net rulebook configuration.
 | Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`.cc-safety-net/cache/rulebooks/\` | Higher |
 | GitHub source | Listed in a local \`rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` in the source repository | Consumer local cache | Source order |
 
-Use \`cc-safety-net rule init\` to create a starter local config and rulebook. Use \`--global\` for user scope.
+Use \`cc-safety-net rule init\` to create an inert local config. Use \`--global\` for user scope. Use \`cc-safety-net rule init --example\` to also create an inactive example rulebook.
 
 Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files are not loaded at runtime. Convert them with \`cc-safety-net rule migrate\`.
 
@@ -10339,6 +10341,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
 - \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
 - Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
+- Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.
 
 ## Rulebook Sources
 
@@ -10425,11 +10428,14 @@ Every rule must have at least one blocked fixture. Add allowed fixtures for clos
 
 ## Workflow
 
-1. Run \`cc-safety-net rule init\` or create \`rule.json\` and \`rulebook.json\` manually.
-2. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
-3. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
-4. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
-5. Run \`cc-safety-net rule list\` to inspect active rulebooks.
+1. Run \`cc-safety-net rule init\` or create \`rule.json\` manually.
+2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
+3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
+4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source.
+5. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
+6. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
+7. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
+8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
 
 Invalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with \`cc-safety-net rule sync\`.
 `;
@@ -10500,6 +10506,7 @@ function printRulesListReport(policy, sourceDisplayMaps) {
     override.key,
     `  Reason: ${override.value.reason}`
   ]);
+  printListSection("Transparent wrappers", policy.transparent_wrappers, (wrapper) => [wrapper]);
   printListSection("Issues", policy.errors, (error) => [error]);
 }
 function printListSection(title, items, format) {
@@ -10985,11 +10992,13 @@ var RULE_SUBCOMMANDS = new Set([
   "update",
   "sync",
   "list",
+  "wrapper",
   "test",
   "migrate",
   "doc",
   "verify"
 ]);
+var RULE_WRAPPER_ACTIONS = new Set(["add", "remove", "list"]);
 async function runRuleCommand(args) {
   const flags = parseRuleFlags(args);
   if (flags.errors.length > 0) {
@@ -11011,11 +11020,11 @@ async function runRuleCommand(args) {
   if (subcommand === "init") {
     const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
     const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    const rulebookName = flags.global ? "user-rules" : "project-rules";
-    ensureDefaultRulebookSource(configPath, rulebookName);
-    const rulebookPath = join15(dir, rulebookName, "rulebook.json");
-    if (!existsSync19(rulebookPath))
-      writeStarterRulebook(rulebookPath, rulebookName);
+    ensureRulesConfig(configPath);
+    mkdirSync5(join15(dirname12(dir), "cache", "rulebooks"), { recursive: true });
+    const rulebookPath = join15(dir, "example-rules", "rulebook.json");
+    if (flags.example && !existsSync19(rulebookPath))
+      writeStarterRulebook(rulebookPath, "example-rules");
     const result = await syncRulesConfig(options2);
     printRuleChangeResult(result, "Rule config initialized.");
     return result.ok ? 0 : 1;
@@ -11057,6 +11066,9 @@ async function runRuleCommand(args) {
     });
     return policy.errors.length > 0 ? 1 : 0;
   }
+  if (subcommand === "wrapper") {
+    return runRuleWrapperCommand(flags);
+  }
   if (subcommand === "test") {
     const sources = value ? [value] : [];
     const result = await testRulebookSources(sources, options2);
@@ -11081,6 +11093,7 @@ function parseRuleFlags(args) {
     check: false,
     cleanup: false,
     deleteSource: false,
+    example: false,
     help: false,
     positionals: [],
     errors: []
@@ -11094,6 +11107,8 @@ function parseRuleFlags(args) {
       flags.deleteSource = true;
     } else if (arg === "--cleanup") {
       flags.cleanup = true;
+    } else if (arg === "--example") {
+      flags.example = true;
     } else if (arg === "-h" || arg === "--help") {
       flags.help = true;
     } else if (arg.startsWith("-")) {
@@ -11120,6 +11135,9 @@ function validateRuleFlags(flags) {
   if (flags.cleanup && subcommand !== "migrate") {
     flags.errors.push(unknownRuleOption(subcommand, "--cleanup"));
   }
+  if (flags.example && subcommand !== "init") {
+    flags.errors.push(unknownRuleOption(subcommand, "--example"));
+  }
   if (subcommand === "migrate") {
     if (flags.global)
       flags.errors.push("Unknown option for rule migrate: --global");
@@ -11128,6 +11146,8 @@ function validateRuleFlags(flags) {
     if (flags.positionals.length > 1) {
       flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
     }
+  } else if (subcommand === "wrapper") {
+    validateRuleWrapperFlags(flags);
   } else if (flags.positionals.length > 2) {
     flags.errors.push(`Unexpected rule argument: ${flags.positionals[2]}`);
   }
@@ -11140,20 +11160,93 @@ function unknownRuleOption(subcommand, option) {
     return `Unknown option for rule migrate: ${option}`;
   return `Unknown rule option: ${option}`;
 }
-function ensureDefaultRulebookSource(configPath, rulebookName) {
+function validateRuleWrapperFlags(flags) {
+  const action = flags.positionals[1];
+  const command2 = flags.positionals[2];
+  if (!action) {
+    flags.errors.push("rule wrapper requires add, remove, or list");
+    return;
+  }
+  if (!RULE_WRAPPER_ACTIONS.has(action)) {
+    flags.errors.push(`Unknown rule wrapper action: ${action}`);
+    return;
+  }
+  if (action === "list") {
+    if (command2)
+      flags.errors.push(`Unexpected rule wrapper argument: ${command2}`);
+    return;
+  }
+  if (!command2) {
+    flags.errors.push(`rule wrapper ${action} requires a command`);
+    return;
+  }
+  if (flags.positionals.length > 3) {
+    flags.errors.push(`Unexpected rule wrapper argument: ${flags.positionals[3]}`);
+  }
+}
+function ensureRulesConfig(configPath) {
   if (!existsSync19(configPath)) {
-    writeDefaultRulesConfig(configPath, [rulebookName]);
+    writeDefaultRulesConfig(configPath);
     return;
   }
   const loaded = readRulesConfig(configPath);
-  if (!loaded.config || loaded.config.rules.includes(rulebookName))
+  if (!loaded.config)
     return;
   writeJsonAtomic(configPath, {
     version: 1,
-    rules: [...loaded.config.rules, rulebookName],
+    rules: loaded.config.rules,
     overrides: loaded.config.overrides ?? {},
     transparent_wrappers: loaded.config.transparent_wrappers ?? []
   });
+}
+async function runRuleWrapperCommand(flags) {
+  const action = flags.positionals[1];
+  const command2 = flags.positionals[2];
+  const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
+  if (action === "list") {
+    const loaded2 = readRulesConfig(configPath);
+    if (loaded2.errors.length > 0) {
+      for (const error of loaded2.errors)
+        console.error(error);
+      return 1;
+    }
+    printTransparentWrappers(loaded2.config?.transparent_wrappers ?? []);
+    return 0;
+  }
+  if (!command2 || !COMMAND_PATTERN.test(command2)) {
+    console.error("transparent wrapper must match command pattern");
+    return 1;
+  }
+  const loaded = readRulesConfig(configPath);
+  if (loaded.errors.length > 0) {
+    for (const error of loaded.errors)
+      console.error(error);
+    return 1;
+  }
+  const config = loaded.config ?? {
+    version: 1,
+    rules: [],
+    overrides: {},
+    transparent_wrappers: []
+  };
+  const wrappers2 = action === "add" ? [...new Set([...config.transparent_wrappers ?? [], command2])] : (config.transparent_wrappers ?? []).filter((wrapper) => wrapper !== command2);
+  writeJsonAtomic(configPath, {
+    version: 1,
+    rules: config.rules,
+    overrides: config.overrides ?? {},
+    transparent_wrappers: wrappers2
+  });
+  console.log(action === "add" ? `Added transparent wrapper: ${command2}` : `Removed transparent wrapper: ${command2}`);
+  return 0;
+}
+function printTransparentWrappers(wrappers2) {
+  if (wrappers2.length === 0) {
+    console.log("Transparent wrappers: (none)");
+    return;
+  }
+  console.log(`Transparent wrappers (${wrappers2.length}):`);
+  for (const wrapper of wrappers2)
+    console.log(`  - ${wrapper}`);
 }
 
 // src/bin/statusline.ts

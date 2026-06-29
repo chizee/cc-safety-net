@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { ruleCommand } from '@/bin/commands/rule';
 import { printCommandHelp } from '@/bin/help';
 import { RULE_DOC } from '@/bin/rule/doc';
@@ -26,12 +26,14 @@ import {
   writeStarterRulebook,
 } from '@/core/rules/policy';
 import { writeJsonAtomic } from '@/core/rules/policy/config-file';
+import { COMMAND_PATTERN } from '@/types';
 
 interface RuleFlags {
   global: boolean;
   check: boolean;
   cleanup: boolean;
   deleteSource: boolean;
+  example: boolean;
   help: boolean;
   positionals: string[];
   errors: string[];
@@ -44,11 +46,13 @@ const RULE_SUBCOMMANDS = new Set([
   'update',
   'sync',
   'list',
+  'wrapper',
   'test',
   'migrate',
   'doc',
   'verify',
 ]);
+const RULE_WRAPPER_ACTIONS = new Set(['add', 'remove', 'list']);
 
 export async function runRuleCommand(args: readonly string[]): Promise<number> {
   const flags = parseRuleFlags(args);
@@ -72,10 +76,11 @@ export async function runRuleCommand(args: readonly string[]): Promise<number> {
   if (subcommand === 'init') {
     const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
     const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    const rulebookName = flags.global ? 'user-rules' : 'project-rules';
-    ensureDefaultRulebookSource(configPath, rulebookName);
-    const rulebookPath = join(dir, rulebookName, 'rulebook.json');
-    if (!existsSync(rulebookPath)) writeStarterRulebook(rulebookPath, rulebookName);
+    ensureRulesConfig(configPath);
+    mkdirSync(join(dirname(dir), 'cache', 'rulebooks'), { recursive: true });
+    const rulebookPath = join(dir, 'example-rules', 'rulebook.json');
+    if (flags.example && !existsSync(rulebookPath))
+      writeStarterRulebook(rulebookPath, 'example-rules');
     const result = await syncRulesConfig(options);
     printRuleChangeResult(result, 'Rule config initialized.');
     return result.ok ? 0 : 1;
@@ -122,6 +127,10 @@ export async function runRuleCommand(args: readonly string[]): Promise<number> {
     return policy.errors.length > 0 ? 1 : 0;
   }
 
+  if (subcommand === 'wrapper') {
+    return runRuleWrapperCommand(flags);
+  }
+
   if (subcommand === 'test') {
     const sources = value ? [value] : [];
     const result = await testRulebookSources(sources, options);
@@ -151,6 +160,7 @@ function parseRuleFlags(args: readonly string[]): RuleFlags {
     check: false,
     cleanup: false,
     deleteSource: false,
+    example: false,
     help: false,
     positionals: [],
     errors: [],
@@ -165,6 +175,8 @@ function parseRuleFlags(args: readonly string[]): RuleFlags {
       flags.deleteSource = true;
     } else if (arg === '--cleanup') {
       flags.cleanup = true;
+    } else if (arg === '--example') {
+      flags.example = true;
     } else if (arg === '-h' || arg === '--help') {
       flags.help = true;
     } else if (arg.startsWith('-')) {
@@ -193,12 +205,17 @@ function validateRuleFlags(flags: RuleFlags): void {
   if (flags.cleanup && subcommand !== 'migrate') {
     flags.errors.push(unknownRuleOption(subcommand, '--cleanup'));
   }
+  if (flags.example && subcommand !== 'init') {
+    flags.errors.push(unknownRuleOption(subcommand, '--example'));
+  }
   if (subcommand === 'migrate') {
     if (flags.global) flags.errors.push('Unknown option for rule migrate: --global');
     if (flags.check) flags.errors.push('Unknown option for rule migrate: --check');
     if (flags.positionals.length > 1) {
       flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
     }
+  } else if (subcommand === 'wrapper') {
+    validateRuleWrapperFlags(flags);
   } else if (flags.positionals.length > 2) {
     flags.errors.push(`Unexpected rule argument: ${flags.positionals[2]}`);
   }
@@ -212,19 +229,102 @@ function unknownRuleOption(subcommand: string | undefined, option: string) {
   return `Unknown rule option: ${option}`;
 }
 
-function ensureDefaultRulebookSource(configPath: string, rulebookName: string): void {
+function validateRuleWrapperFlags(flags: RuleFlags): void {
+  const action = flags.positionals[1];
+  const command = flags.positionals[2];
+  if (!action) {
+    flags.errors.push('rule wrapper requires add, remove, or list');
+    return;
+  }
+  if (!RULE_WRAPPER_ACTIONS.has(action)) {
+    flags.errors.push(`Unknown rule wrapper action: ${action}`);
+    return;
+  }
+  if (action === 'list') {
+    if (command) flags.errors.push(`Unexpected rule wrapper argument: ${command}`);
+    return;
+  }
+  if (!command) {
+    flags.errors.push(`rule wrapper ${action} requires a command`);
+    return;
+  }
+  if (flags.positionals.length > 3) {
+    flags.errors.push(`Unexpected rule wrapper argument: ${flags.positionals[3]}`);
+  }
+}
+
+function ensureRulesConfig(configPath: string): void {
   if (!existsSync(configPath)) {
-    writeDefaultRulesConfig(configPath, [rulebookName]);
+    writeDefaultRulesConfig(configPath);
     return;
   }
 
   const loaded = readRulesConfig(configPath);
-  if (!loaded.config || loaded.config.rules.includes(rulebookName)) return;
+  if (!loaded.config) return;
 
   writeJsonAtomic(configPath, {
     version: 1,
-    rules: [...loaded.config.rules, rulebookName],
+    rules: loaded.config.rules,
     overrides: loaded.config.overrides ?? {},
     transparent_wrappers: loaded.config.transparent_wrappers ?? [],
   });
+}
+
+async function runRuleWrapperCommand(flags: RuleFlags): Promise<number> {
+  const action = flags.positionals[1];
+  const command = flags.positionals[2];
+  const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
+
+  if (action === 'list') {
+    const loaded = readRulesConfig(configPath);
+    if (loaded.errors.length > 0) {
+      for (const error of loaded.errors) console.error(error);
+      return 1;
+    }
+    printTransparentWrappers(loaded.config?.transparent_wrappers ?? []);
+    return 0;
+  }
+
+  if (!command || !COMMAND_PATTERN.test(command)) {
+    console.error('transparent wrapper must match command pattern');
+    return 1;
+  }
+
+  const loaded = readRulesConfig(configPath);
+  if (loaded.errors.length > 0) {
+    for (const error of loaded.errors) console.error(error);
+    return 1;
+  }
+  const config = loaded.config ?? {
+    version: 1 as const,
+    rules: [],
+    overrides: {},
+    transparent_wrappers: [],
+  };
+  const wrappers =
+    action === 'add'
+      ? [...new Set([...(config.transparent_wrappers ?? []), command])]
+      : (config.transparent_wrappers ?? []).filter((wrapper) => wrapper !== command);
+
+  writeJsonAtomic(configPath, {
+    version: 1,
+    rules: config.rules,
+    overrides: config.overrides ?? {},
+    transparent_wrappers: wrappers,
+  });
+  console.log(
+    action === 'add'
+      ? `Added transparent wrapper: ${command}`
+      : `Removed transparent wrapper: ${command}`,
+  );
+  return 0;
+}
+
+function printTransparentWrappers(wrappers: string[]): void {
+  if (wrappers.length === 0) {
+    console.log('Transparent wrappers: (none)');
+    return;
+  }
+  console.log(`Transparent wrappers (${wrappers.length}):`);
+  for (const wrapper of wrappers) console.log(`  - ${wrapper}`);
 }

@@ -10,7 +10,7 @@ Agent reference for generating CC Safety Net rulebook configuration.
 | Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`.cc-safety-net/cache/rulebooks/\` | Higher |
 | GitHub source | Listed in a local \`rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` in the source repository | Consumer local cache | Source order |
 
-Use \`cc-safety-net rule init\` to create a starter local config and rulebook. Use \`--global\` for user scope.
+Use \`cc-safety-net rule init\` to create an inert local config. Use \`--global\` for user scope. Use \`cc-safety-net rule init --example\` to also create an inactive example rulebook.
 
 Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files are not loaded at runtime. Convert them with \`cc-safety-net rule migrate\`.
 
@@ -36,6 +36,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
 - \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
 - Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
+- Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.
 
 ## Rulebook Sources
 
@@ -122,11 +123,14 @@ Every rule must have at least one blocked fixture. Add allowed fixtures for clos
 
 ## Workflow
 
-1. Run \`cc-safety-net rule init\` or create \`rule.json\` and \`rulebook.json\` manually.
-2. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
-3. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
-4. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
-5. Run \`cc-safety-net rule list\` to inspect active rulebooks.
+1. Run \`cc-safety-net rule init\` or create \`rule.json\` manually.
+2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
+3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
+4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source.
+5. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
+6. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
+7. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
+8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
 
 Invalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with \`cc-safety-net rule sync\`.
 `;

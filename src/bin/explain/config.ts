@@ -27,24 +27,19 @@ export function getConfigSource(options?: GetConfigSourceOptions): {
   configValid: boolean;
 } {
   const projectPath = getProjectRulesConfigPath(options?.cwd);
-  let invalidProjectPath: string | null = null;
 
   if (existsSync(projectPath)) {
     const validation = validateRulesConfigFile(projectPath);
     if (validation.errors.length === 0) {
       return { configSource: projectPath, configValid: true };
     }
-    invalidProjectPath = projectPath;
+    return { configSource: projectPath, configValid: false };
   }
 
   const userPath = options?.userConfigPath ?? getUserRulesConfigPath(options);
   if (existsSync(userPath)) {
     const validation = validateRulesConfigFile(userPath);
     return { configSource: userPath, configValid: validation.errors.length === 0 };
-  }
-
-  if (invalidProjectPath) {
-    return { configSource: invalidProjectPath, configValid: false };
   }
 
   return { configSource: null, configValid: true };
