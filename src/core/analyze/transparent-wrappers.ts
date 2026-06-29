@@ -4,6 +4,14 @@ import type { Config } from '@/types';
 import { INTERPRETERS, SHELL_WRAPPERS } from '@/types';
 
 const BUILTIN_ANALYZED_COMMANDS = new Set(['rm', 'find', 'xargs', 'parallel']);
+const RESERVED_TRANSPARENT_WRAPPERS = new Set([
+  'git',
+  'busybox',
+  ...BUILTIN_ANALYZED_COMMANDS,
+  ...SHELL_WRAPPERS,
+  ...INTERPRETERS,
+  ...AWK_INTERPRETERS,
+]);
 
 interface TransparentWrapperUnwrap {
   wrapper: string;
@@ -32,17 +40,25 @@ export function unwrapTransparentWrapper(
   return { wrapper: getBasename(head), tokens: [...tokens.slice(childIndex)] };
 }
 
-function isProtectableCommand(token: string, config: Pick<Config, 'rules'>): boolean {
+function isProtectableCommand(
+  token: string,
+  config: Pick<Config, 'rules' | 'transparent_wrappers'>,
+): boolean {
   const basename = getBasename(token);
   const normalized = normalizeCommandToken(token);
   return (
     normalized === 'git' ||
     basename === 'busybox' ||
     BUILTIN_ANALYZED_COMMANDS.has(basename) ||
+    config.transparent_wrappers?.includes(basename) ||
     SHELL_WRAPPERS.has(normalized) ||
     token === '$SHELL' ||
     INTERPRETERS.has(normalized) ||
     AWK_INTERPRETERS.has(normalized) ||
     config.rules.some((rule) => rule.command === basename)
   );
+}
+
+export function isReservedTransparentWrapper(command: string): boolean {
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command));
 }

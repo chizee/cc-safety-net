@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
 import { getRulebookSourceSyntaxError } from './sources';
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
@@ -92,6 +93,10 @@ function validateTransparentWrappers(value: unknown, errors: string[]): void {
     }
     if (seen.has(command)) {
       errors.push(`transparent_wrappers[${i}]: duplicate command "${command}"`);
+      continue;
+    }
+    if (isReservedTransparentWrapper(command)) {
+      errors.push(`transparent_wrappers[${i}]: reserved command "${command}" cannot be a wrapper`);
       continue;
     }
     seen.add(command);

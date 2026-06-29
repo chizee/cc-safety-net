@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 
@@ -79,10 +81,10 @@ type SecretTarget = {
 /** @internal */
 export function findSensitivePathTarget(
   targets: readonly string[],
-  _cwd = process.cwd(),
+  cwd = process.cwd(),
 ): SecretTarget | null {
   for (const target of targets) {
-    if (isSensitivePath(target)) {
+    if (isSensitivePath(target, cwd)) {
       return { target };
     }
   }
@@ -351,8 +353,8 @@ const SENSITIVE_HOME_PATH_SUFFIXES = [
 
 const SENSITIVE_DIR_NAME = 'secrets';
 
-function isSensitivePath(target: string): boolean {
-  const normalized = normalizeCandidatePath(target);
+function isSensitivePath(target: string, cwd: string): boolean {
+  const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
     return false;
   }
@@ -414,8 +416,42 @@ function comparable(value: string): string {
   return value.toLowerCase();
 }
 
-function normalizeCandidatePath(target: string): string {
-  return target.trim().replace(/\\/g, '/').replace(/\/+$/g, '').replace(/^\.\//, '');
+function normalizeCandidatePath(target: string, cwd: string): string {
+  const normalized = normalizePathText(target);
+  if (!normalized || normalized === '~' || normalized.startsWith('~/')) {
+    return normalized;
+  }
+
+  const home = normalizePathText(process.env.HOME ?? homedir());
+  if (!home) {
+    return normalized;
+  }
+
+  const absolute = isAbsolute(normalized)
+    ? normalized
+    : normalizePathText(resolve(cwd, normalized));
+  if (!isSameOrChildPath(absolute, home)) {
+    return normalized;
+  }
+
+  const relativeHomePath = absolute.slice(home.length);
+  return relativeHomePath ? `~${relativeHomePath}` : '~';
+}
+
+function normalizePathText(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\.\//, '');
+  if (normalized === '/') {
+    return normalized;
+  }
+  return normalized.replace(/\/+$/g, '');
+}
+
+function isSameOrChildPath(path: string, parent: string): boolean {
+  return path === parent || path.startsWith(`${parent}/`);
 }
 
 function basename(token: string): string {

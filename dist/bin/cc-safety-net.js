@@ -3398,6 +3398,14 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
 
 // src/core/analyze/transparent-wrappers.ts
 var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+var RESERVED_TRANSPARENT_WRAPPERS = new Set([
+  "git",
+  "busybox",
+  ...BUILTIN_ANALYZED_COMMANDS,
+  ...SHELL_WRAPPERS,
+  ...INTERPRETERS,
+  ...AWK_INTERPRETERS
+]);
 function unwrapTransparentWrapper(tokens, config) {
   const head = tokens[0];
   if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
@@ -3416,7 +3424,10 @@ function unwrapTransparentWrapper(tokens, config) {
 function isProtectableCommand(token, config) {
   const basename = getBasename(token);
   const normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || config.transparent_wrappers?.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+}
+function isReservedTransparentWrapper(command2) {
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command2));
 }
 
 // src/core/analyze/child-command.ts
@@ -3426,8 +3437,7 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const strippedTokens = stripBusybox(wrapperInfo.tokens);
-  const childTokens = stripBusybox(unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ?? strippedTokens);
+  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.config ?? { rules: [] });
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -3438,6 +3448,14 @@ function normalizeChildCommand(tokens, context) {
 }
 function stripBusybox(tokens) {
   return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
+}
+function unwrapTransparentWrappers(tokens, config) {
+  const strippedTokens = stripBusybox(tokens);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (!transparentWrapper) {
+    return strippedTokens;
+  }
+  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -5114,6 +5132,10 @@ function validateTransparentWrappers(value, errors) {
       errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
       continue;
     }
+    if (isReservedTransparentWrapper(command2)) {
+      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
+      continue;
+    }
     seen.add(command2);
   }
 }
@@ -6433,6 +6455,8 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/secret-protection.ts
+import { homedir as homedir4 } from "node:os";
+import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var COMMAND_PATH_OPERANDS = new Set([
   "awk",
@@ -6481,9 +6505,9 @@ var PATH_LIKE_KEYS = new Set([
   "pattern"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-function findSensitivePathTarget(targets, _cwd = process.cwd()) {
+function findSensitivePathTarget(targets, cwd = process.cwd()) {
   for (const target of targets) {
-    if (isSensitivePath(target)) {
+    if (isSensitivePath(target, cwd)) {
       return { target };
     }
   }
@@ -6710,8 +6734,8 @@ var SENSITIVE_HOME_PATH_SUFFIXES = [
   [".config", "gh", "hosts.yml"]
 ];
 var SENSITIVE_DIR_NAME = "secrets";
-function isSensitivePath(target) {
-  const normalized = normalizeCandidatePath(target);
+function isSensitivePath(target, cwd) {
+  const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
     return false;
   }
@@ -6755,8 +6779,31 @@ function isAllowedSensitiveTemplate(comparableName) {
 function comparable(value) {
   return value.toLowerCase();
 }
-function normalizeCandidatePath(target) {
-  return target.trim().replace(/\\/g, "/").replace(/\/+$/g, "").replace(/^\.\//, "");
+function normalizeCandidatePath(target, cwd) {
+  const normalized = normalizePathText(target);
+  if (!normalized || normalized === "~" || normalized.startsWith("~/")) {
+    return normalized;
+  }
+  const home = normalizePathText(process.env.HOME ?? homedir4());
+  if (!home) {
+    return normalized;
+  }
+  const absolute = isAbsolute8(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
+  if (!isSameOrChildPath(absolute, home)) {
+    return normalized;
+  }
+  const relativeHomePath = absolute.slice(home.length);
+  return relativeHomePath ? `~${relativeHomePath}` : "~";
+}
+function normalizePathText(value) {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");
+  if (normalized === "/") {
+    return normalized;
+  }
+  return normalized.replace(/\/+$/g, "");
+}
+function isSameOrChildPath(path, parent) {
+  return path === parent || path.startsWith(`${parent}/`);
 }
 function basename(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
@@ -6862,7 +6909,18 @@ async function runHookAdapter(adapter) {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
-  if (handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny)) {
+  let blockedBySecretProtection;
+  try {
+    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny);
+  } catch (error) {
+    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(`CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    }
+    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
+    return;
+  }
+  if (blockedBySecretProtection) {
     return;
   }
   const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
@@ -7159,7 +7217,7 @@ function getVisibleCommands() {
 
 // src/bin/doctor/activity.ts
 import { existsSync as existsSync11, readdirSync as readdirSync2, readFileSync as readFileSync9 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
+import { homedir as homedir5 } from "node:os";
 import { join as join9 } from "node:path";
 function formatRelativeTime(date) {
   const diff = Date.now() - date.getTime();
@@ -7174,7 +7232,7 @@ function formatRelativeTime(date) {
     return `${minutes}m ago`;
   return "just now";
 }
-function getActivitySummary(days = 7, logsDir = join9(homedir4(), ".cc-safety-net", "logs")) {
+function getActivitySummary(days = 7, logsDir = join9(homedir5(), ".cc-safety-net", "logs")) {
   if (!existsSync11(logsDir)) {
     return { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
   }
@@ -7772,7 +7830,7 @@ All checks passed.`);
 
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync13, readdirSync as readdirSync3, readFileSync as readFileSync10 } from "node:fs";
-import { homedir as homedir5, tmpdir as tmpdir3 } from "node:os";
+import { homedir as homedir6, tmpdir as tmpdir3 } from "node:os";
 import { join as join10 } from "node:path";
 var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin";
 var CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list";
@@ -8345,7 +8403,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   };
 }
 function detectAllHooks(cwd, options2) {
-  const homeDir = options2?.homeDir ?? homedir5();
+  const homeDir = options2?.homeDir ?? homedir6();
   const detectCopilotCLI = () => {
     const errors = [];
     const hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
@@ -8466,7 +8524,7 @@ var defaultVersionFetcher = async (args) => {
   const [cmd, ...rest] = args;
   if (!cmd)
     return null;
-  return new Promise((resolve8) => {
+  return new Promise((resolve9) => {
     try {
       const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
       const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
@@ -8486,7 +8544,7 @@ var defaultVersionFetcher = async (args) => {
           return;
         isSettled = true;
         clearTimeout(timeoutId);
-        resolve8(value);
+        resolve9(value);
       };
       const timeoutId = setTimeout(() => {
         proc.kill();
@@ -8499,7 +8557,7 @@ var defaultVersionFetcher = async (args) => {
         finish(null);
       });
     } catch {
-      resolve8(null);
+      resolve9(null);
     }
   });
 };
@@ -8550,7 +8608,7 @@ function runCommand(args, options2) {
   if (!cmd) {
     return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false });
   }
-  return new Promise((resolve8) => {
+  return new Promise((resolve9) => {
     try {
       const env = { ...process.env, ...options2.env ?? {} };
       const spawnCommand = getSpawnCommand([cmd, ...rest], env);
@@ -8573,7 +8631,7 @@ function runCommand(args, options2) {
           return;
         isSettled = true;
         clearTimeout(timeoutId);
-        resolve8(result);
+        resolve9(result);
       };
       const timeoutId = setTimeout(() => {
         proc.kill();
@@ -8586,7 +8644,7 @@ function runCommand(args, options2) {
         finish({ code: null, stdout, stderr, timedOut: false, error: error.message });
       });
     } catch (error) {
-      resolve8({
+      resolve9({
         code: null,
         stdout: "",
         stderr: "",
@@ -8895,7 +8953,7 @@ function printReport(report) {
 
 // src/bin/explain/config.ts
 import { existsSync as existsSync15 } from "node:fs";
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve9 } from "node:path";
 function getConfigSource(options2) {
   const projectPath = getProjectRulesConfigPath(options2?.cwd);
   if (existsSync15(projectPath)) {
@@ -8913,7 +8971,7 @@ function getConfigSource(options2) {
   return { configSource: null, configValid: true };
 }
 function buildAnalyzeOptions(explainOptions) {
-  const cwd = resolve8(explainOptions?.cwd ?? process.cwd());
+  const cwd = resolve9(explainOptions?.cwd ?? process.cwd());
   const modes = getCCSafetyNetEnvModes();
   return {
     cwd,
@@ -10038,7 +10096,7 @@ function showCommandHelp(commandName) {
 }
 
 // src/bin/hook/install.ts
-import { homedir as homedir6 } from "node:os";
+import { homedir as homedir7 } from "node:os";
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync4, readFileSync as readFileSync11, writeFileSync as writeFileSync3 } from "node:fs";
@@ -10254,7 +10312,7 @@ function uninstallKimiCode(homeDir) {
 
 // src/bin/hook/install.ts
 function getHomeDir() {
-  return process.env.HOME ?? homedir6();
+  return process.env.HOME ?? homedir7();
 }
 function parseInstallTarget(args, action) {
   const unknownOption = args.find((arg) => arg.startsWith("-") && !["--kimi-code"].includes(arg));
@@ -10708,7 +10766,7 @@ function restoreFiles(snapshots) {
 
 // src/bin/rule/verify.ts
 import { existsSync as existsSync18, readdirSync as readdirSync4, readFileSync as readFileSync13, statSync as statSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname11, join as join14, resolve as resolve9 } from "node:path";
+import { dirname as dirname11, join as join14, resolve as resolve10 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
 var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
@@ -10719,7 +10777,7 @@ function runRulesVerify(options2 = {}) {
   const projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd);
   const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
   const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
-  const githubSourceRulesDir = resolve9(cwd, RULES_DIR);
+  const githubSourceRulesDir = resolve10(cwd, RULES_DIR);
   const userConfigDir = dirname11(userConfig);
   let hasErrors = false;
   let hasWarnings = false;
@@ -10768,7 +10826,7 @@ function runRulesVerify(options2 = {}) {
     }));
     configsChecked.push({
       scope: "Project",
-      path: resolve9(projectConfig),
+      path: resolve10(projectConfig),
       result,
       schema: "rules",
       sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig)
@@ -10785,7 +10843,7 @@ function runRulesVerify(options2 = {}) {
     const result = validateConfigFile(legacyProjectConfig);
     configsChecked.push({
       scope: "Project",
-      path: resolve9(legacyProjectConfig),
+      path: resolve10(legacyProjectConfig),
       result,
       schema: "legacy",
       sourceDisplayMap: new Map,
@@ -11217,6 +11275,10 @@ async function runRuleWrapperCommand(flags) {
     console.error("transparent wrapper must match command pattern");
     return 1;
   }
+  if (isReservedTransparentWrapper(command2)) {
+    console.error(`reserved command "${command2}" cannot be a wrapper`);
+    return 1;
+  }
   const loaded = readRulesConfig(configPath);
   if (loaded.errors.length > 0) {
     for (const error of loaded.errors)
@@ -11251,13 +11313,13 @@ function printTransparentWrappers(wrappers2) {
 
 // src/bin/statusline.ts
 import { existsSync as existsSync20, readFileSync as readFileSync14 } from "node:fs";
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir8 } from "node:os";
 import { join as join16 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY) {
     return null;
   }
-  return new Promise((resolve10) => {
+  return new Promise((resolve11) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
@@ -11265,10 +11327,10 @@ async function readStdinAsync() {
     });
     process.stdin.on("end", () => {
       const trimmed = data.trim();
-      resolve10(trimmed || null);
+      resolve11(trimmed || null);
     });
     process.stdin.on("error", () => {
-      resolve10(null);
+      resolve11(null);
     });
   });
 }
@@ -11276,7 +11338,7 @@ function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH) {
     return process.env.CLAUDE_SETTINGS_PATH;
   }
-  return join16(homedir7(), ".claude", "settings.json");
+  return join16(homedir8(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   const settingsPath = getSettingsPath();

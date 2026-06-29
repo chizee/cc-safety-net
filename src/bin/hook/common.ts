@@ -166,15 +166,26 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
-  if (
-    handleSecretProtection(
+  let blockedBySecretProtection: boolean;
+  try {
+    blockedBySecretProtection = handleSecretProtection(
       toolInput,
       cwd,
       adapter.getSessionId(input),
       toolName,
       adapter.outputDeny,
-    )
-  ) {
+    );
+  } catch (error) {
+    const command = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(
+        `CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    return;
+  }
+  if (blockedBySecretProtection) {
     return;
   }
 

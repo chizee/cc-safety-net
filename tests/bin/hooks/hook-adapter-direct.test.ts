@@ -135,6 +135,39 @@ describe('hook adapter direct integration', () => {
     }
   });
 
+  test('secret protection blocks supported hooks before command analysis', async () => {
+    const result = await runWithInput(
+      runClaudeCodeHook,
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: '.env' },
+      },
+      { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
+    );
+    const output = JSON.parse(result.stdout);
+
+    expect(result.stderr).toBe('');
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+      'Access to a sensitive path is not allowed.',
+    );
+  });
+
+  test('secret protection exceptions fail closed and log only in debug mode', async () => {
+    const result = await runWithInput(runClaudeCodeHook, claudeCodeBashInput('rm -rf / ${'), {
+      CC_SAFETY_NET_DEBUG: '1',
+      CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1',
+    });
+    const output = JSON.parse(result.stdout);
+
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+      'CC Safety Net failed closed',
+    );
+    expect(result.stderr).toContain('CC Safety Net debug: hook secret protection failed:');
+  });
+
   test('analysis exceptions are logged only in debug mode', async () => {
     const previousDebug = process.env.CC_SAFETY_NET_DEBUG;
     const originalError = console.error;

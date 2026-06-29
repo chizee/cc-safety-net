@@ -22,10 +22,9 @@ export function normalizeChildCommand(tokens: readonly string[], context: ChildC
     envAssignments.set(k, v);
   }
 
-  const strippedTokens = stripBusybox(wrapperInfo.tokens);
-  const childTokens = stripBusybox(
-    unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ??
-      strippedTokens,
+  const childTokens = unwrapTransparentWrappers(
+    wrapperInfo.tokens,
+    context.config ?? { rules: [] },
   );
 
   return {
@@ -41,6 +40,18 @@ function stripBusybox(tokens: readonly string[]): string[] {
   return getBasename(tokens[0] ?? '').toLowerCase() === 'busybox' && tokens.length > 1
     ? [...tokens.slice(1)]
     : [...tokens];
+}
+
+function unwrapTransparentWrappers(
+  tokens: readonly string[],
+  config: Pick<Config, 'rules' | 'transparent_wrappers'>,
+): string[] {
+  const strippedTokens = stripBusybox(tokens);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (!transparentWrapper) {
+    return strippedTokens;
+  }
+  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
 }
 
 export function collectCommandTemplate(tokens: readonly string[], start: number) {

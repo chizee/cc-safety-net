@@ -3342,6 +3342,14 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
 
 // src/core/analyze/transparent-wrappers.ts
 var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+var RESERVED_TRANSPARENT_WRAPPERS = new Set([
+  "git",
+  "busybox",
+  ...BUILTIN_ANALYZED_COMMANDS,
+  ...SHELL_WRAPPERS,
+  ...INTERPRETERS,
+  ...AWK_INTERPRETERS
+]);
 function unwrapTransparentWrapper(tokens, config) {
   const head = tokens[0];
   if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
@@ -3360,7 +3368,10 @@ function unwrapTransparentWrapper(tokens, config) {
 function isProtectableCommand(token, config) {
   const basename = getBasename(token);
   const normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || config.transparent_wrappers?.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+}
+function isReservedTransparentWrapper(command2) {
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command2));
 }
 
 // src/core/analyze/child-command.ts
@@ -3370,8 +3381,7 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const strippedTokens = stripBusybox(wrapperInfo.tokens);
-  const childTokens = stripBusybox(unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ?? strippedTokens);
+  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.config ?? { rules: [] });
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -3382,6 +3392,14 @@ function normalizeChildCommand(tokens, context) {
 }
 function stripBusybox(tokens) {
   return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
+}
+function unwrapTransparentWrappers(tokens, config) {
+  const strippedTokens = stripBusybox(tokens);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (!transparentWrapper) {
+    return strippedTokens;
+  }
+  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -5056,6 +5074,10 @@ function validateTransparentWrappers(value, errors) {
     }
     if (seen.has(command2)) {
       errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    if (isReservedTransparentWrapper(command2)) {
+      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
       continue;
     }
     seen.add(command2);

@@ -317,7 +317,7 @@ function buildSafetyNetCommandPrompt(args) {
 ${args.trim() || DEFAULT_USER_REQUEST}`;
 }
 // src/pi/tool-call.ts
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve9 } from "node:path";
 
 // src/core/analyze/dangerous-text.ts
 function dangerousInText(text) {
@@ -3406,6 +3406,14 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
 
 // src/core/analyze/transparent-wrappers.ts
 var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+var RESERVED_TRANSPARENT_WRAPPERS = new Set([
+  "git",
+  "busybox",
+  ...BUILTIN_ANALYZED_COMMANDS,
+  ...SHELL_WRAPPERS,
+  ...INTERPRETERS,
+  ...AWK_INTERPRETERS
+]);
 function unwrapTransparentWrapper(tokens, config) {
   const head = tokens[0];
   if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
@@ -3424,7 +3432,10 @@ function unwrapTransparentWrapper(tokens, config) {
 function isProtectableCommand(token, config) {
   const basename = getBasename(token);
   const normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || config.transparent_wrappers?.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+}
+function isReservedTransparentWrapper(command2) {
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command2));
 }
 
 // src/core/analyze/child-command.ts
@@ -3434,8 +3445,7 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const strippedTokens = stripBusybox(wrapperInfo.tokens);
-  const childTokens = stripBusybox(unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ?? strippedTokens);
+  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.config ?? { rules: [] });
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -3446,6 +3456,14 @@ function normalizeChildCommand(tokens, context) {
 }
 function stripBusybox(tokens) {
   return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
+}
+function unwrapTransparentWrappers(tokens, config) {
+  const strippedTokens = stripBusybox(tokens);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (!transparentWrapper) {
+    return strippedTokens;
+  }
+  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -5122,6 +5140,10 @@ function validateTransparentWrappers(value, errors) {
       errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
       continue;
     }
+    if (isReservedTransparentWrapper(command2)) {
+      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
+      continue;
+    }
     seen.add(command2);
   }
 }
@@ -6441,6 +6463,8 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/secret-protection.ts
+import { homedir as homedir4 } from "node:os";
+import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var COMMAND_PATH_OPERANDS = new Set([
   "awk",
@@ -6489,9 +6513,9 @@ var PATH_LIKE_KEYS = new Set([
   "pattern"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-function findSensitivePathTarget(targets, _cwd = process.cwd()) {
+function findSensitivePathTarget(targets, cwd = process.cwd()) {
   for (const target of targets) {
-    if (isSensitivePath(target)) {
+    if (isSensitivePath(target, cwd)) {
       return { target };
     }
   }
@@ -6718,8 +6742,8 @@ var SENSITIVE_HOME_PATH_SUFFIXES = [
   [".config", "gh", "hosts.yml"]
 ];
 var SENSITIVE_DIR_NAME = "secrets";
-function isSensitivePath(target) {
-  const normalized = normalizeCandidatePath(target);
+function isSensitivePath(target, cwd) {
+  const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
     return false;
   }
@@ -6763,8 +6787,31 @@ function isAllowedSensitiveTemplate(comparableName) {
 function comparable(value) {
   return value.toLowerCase();
 }
-function normalizeCandidatePath(target) {
-  return target.trim().replace(/\\/g, "/").replace(/\/+$/g, "").replace(/^\.\//, "");
+function normalizeCandidatePath(target, cwd) {
+  const normalized = normalizePathText(target);
+  if (!normalized || normalized === "~" || normalized.startsWith("~/")) {
+    return normalized;
+  }
+  const home = normalizePathText(process.env.HOME ?? homedir4());
+  if (!home) {
+    return normalized;
+  }
+  const absolute = isAbsolute8(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
+  if (!isSameOrChildPath(absolute, home)) {
+    return normalized;
+  }
+  const relativeHomePath = absolute.slice(home.length);
+  return relativeHomePath ? `~${relativeHomePath}` : "~";
+}
+function normalizePathText(value) {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");
+  if (normalized === "/") {
+    return normalized;
+  }
+  return normalized.replace(/\/+$/g, "");
+}
+function isSameOrChildPath(path, parent) {
+  return path === parent || path.startsWith(`${parent}/`);
 }
 function basename(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
@@ -6870,7 +6917,18 @@ async function runHookAdapter(adapter) {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
-  if (handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny)) {
+  let blockedBySecretProtection;
+  try {
+    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny);
+  } catch (error) {
+    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(`CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    }
+    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
+    return;
+  }
+  if (blockedBySecretProtection) {
     return;
   }
   const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
@@ -6973,7 +7031,7 @@ function getPiShellToolCall(event, ctx) {
   if (typeof command2 !== "string")
     return { malformed: true };
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
-  const cwd = typeof cwdInput === "string" ? resolve8(ctx.cwd, cwdInput) : ctx.cwd;
+  const cwd = typeof cwdInput === "string" ? resolve9(ctx.cwd, cwdInput) : ctx.cwd;
   return { command: command2, cwd };
 }
 function blockPiToolCall(reason, command2, segment, manualPermissionAdvice) {

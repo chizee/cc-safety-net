@@ -10,6 +10,7 @@ import {
 } from '@/bin/rule/format';
 import { runRulesMigrate } from '@/bin/rule/migrate';
 import { runRulesVerify } from '@/bin/rule/verify';
+import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import {
   addRulebookSource,
   getProjectRulesConfigPath,
@@ -287,6 +288,10 @@ async function runRuleWrapperCommand(flags: RuleFlags): Promise<number> {
 
   if (!command || !COMMAND_PATTERN.test(command)) {
     console.error('transparent wrapper must match command pattern');
+    return 1;
+  }
+  if (isReservedTransparentWrapper(command)) {
+    console.error(`reserved command "${command}" cannot be a wrapper`);
     return 1;
   }
 

@@ -363,6 +363,24 @@ describe('rule wrapper', () => {
     });
   });
 
+  test('rejects reserved transparent wrapper without changing config', async () => {
+    await withTempDir('safety-net-rule-wrapper-reserved-', async (tempDir) => {
+      writeProjectRulesConfig(tempDir, [], ['rtk']);
+
+      const result = await runCCSafetyNetCli(
+        ['rule', 'wrapper', 'add', 'xargs'],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('reserved command "xargs" cannot be a wrapper');
+      expect(
+        readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json')).transparent_wrappers,
+      ).toEqual(['rtk']);
+    });
+  });
+
   test('rejects malformed wrapper commands', async () => {
     const missingAction = await runCCSafetyNetCli(['rule', 'wrapper']);
     const missingCommand = await runCCSafetyNetCli(['rule', 'wrapper', 'add']);

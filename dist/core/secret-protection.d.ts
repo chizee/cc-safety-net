@@ -3,7 +3,7 @@ type SecretTarget = {
     target: string;
 };
 /** @internal */
-export declare function findSensitivePathTarget(targets: readonly string[], _cwd?: string): SecretTarget | null;
+export declare function findSensitivePathTarget(targets: readonly string[], cwd?: string): SecretTarget | null;
 /** @internal */
 export declare function findSensitiveTargetInCommand(command: string, cwd?: string): SecretTarget | null;
 export declare function findSensitiveTargetInToolInput(input: unknown, cwd?: string): SecretTarget | null;

@@ -462,6 +462,14 @@ describe('edge cases', () => {
     test('xargs bash c dynamic denied', () => {
       assertBlocked("echo 'rm -rf /' | xargs bash -c", 'xargs');
     });
+
+    test('xargs nested transparent wrappers are fully normalized', () => {
+      const config = { version: 1 as const, rules: [], transparent_wrappers: ['w1', 'w2'] };
+
+      expect(runGuard('xargs w1 w2 rm -rf /', tempDir, config)).toContain('root or home');
+      expect(runGuard('xargs w1 rm -rf /', tempDir, config)).toContain('root or home');
+      expect(runGuard('w1 w2 rm -rf /', tempDir, config)).toContain('root or home');
+    });
   });
 
   describe('parallel', () => {
@@ -511,6 +519,14 @@ describe('edge cases', () => {
 
     test('parallel bash c script is input denied safe input', () => {
       assertBlocked('echo ok | parallel bash -c {}', 'arbitrary');
+    });
+
+    test('parallel nested transparent wrappers are fully normalized', () => {
+      const config = { version: 1 as const, rules: [], transparent_wrappers: ['w1', 'w2'] };
+
+      expect(runGuard('parallel w1 w2 rm -rf ::: /', tempDir, config)).toContain('root or home');
+      expect(runGuard('parallel w1 rm -rf ::: /', tempDir, config)).toContain('root or home');
+      expect(runGuard('w1 w2 rm -rf /', tempDir, config)).toContain('root or home');
     });
 
     test('parallel results option blocks rm rf', () => {

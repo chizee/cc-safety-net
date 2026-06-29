@@ -232,6 +232,15 @@ describe('Claude Code hook', () => {
       expect(getHookDenyReason(result, 'claude-code')).toContain('Command: ~/.ssh');
       expect(getHookDenyReason(result, 'claude-code')).toContain('Tool: Read');
     });
+
+    test('secret protection parse errors fail closed before command analysis', async () => {
+      const result = await runClaudeCodeHook(claudeCodeBashInput('rm -rf / ${'), {
+        CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1',
+      });
+
+      expect(result.stderr).toBe('');
+      expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
+    });
   });
 
   describe('empty stdin', () => {

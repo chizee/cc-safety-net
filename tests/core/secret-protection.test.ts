@@ -7,6 +7,7 @@ import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
 } from '@/core/secret-protection';
+import { withEnv } from '../helpers.ts';
 
 describe('secret protection path matching', () => {
   test('matches project env files without substring matching', () => {
@@ -247,6 +248,31 @@ describe('secret protection home-anchored credential locations', () => {
       '~/.docker/config.json',
       '~/.config/gh/hosts.yml',
     ]) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+
+  test('blocks absolute current-home credential paths', () => {
+    const home = join(tmpdir(), 'secret-protection-home');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home }, () => {
+      for (const target of [
+        join(home, '.ssh', 'config'),
+        join(home, '.ssh', 'known_hosts'),
+        join(home, '.kube', 'config'),
+        join(home, '.docker', 'config.json'),
+        join(home, '.config', 'gh', 'hosts.yml'),
+      ]) {
+        expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+      }
+    });
+  });
+
+  test('blocks repeated slash home credential paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of ['~//.ssh/config', '~//.kube/config']) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
   });

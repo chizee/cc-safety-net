@@ -156,6 +156,16 @@ describe('runtime config loading', () => {
     ]);
   });
 
+  test('rejects transparent wrappers that collide with analyzed commands', () => {
+    expect(
+      validateRulesConfig({
+        version: 1,
+        rules: [],
+        transparent_wrappers: ['xargs'],
+      }).errors,
+    ).toEqual(['transparent_wrappers[0]: reserved command "xargs" cannot be a wrapper']);
+  });
+
   function writeLegacyProjectConfig(rules: unknown[] = []): void {
     writeFileSync(join(tempDir, '.safety-net.json'), JSON.stringify({ version: 1, rules }));
   }
