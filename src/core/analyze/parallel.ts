@@ -1,5 +1,9 @@
 import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
-import { collectCommandTemplate, normalizeChildCommand } from '@/core/analyze/child-command';
+import {
+  collectCommandTemplate,
+  type NestedCommandAnalyzeContext,
+  normalizeChildCommand,
+} from '@/core/analyze/child-command';
 import { analyzeRm } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
@@ -11,13 +15,7 @@ const REASON_PARALLEL_SHELL =
   'parallel with shell -c can execute arbitrary commands from dynamic input.';
 const PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 
-export interface ParallelAnalyzeContext {
-  cwd: string | undefined;
-  originalCwd: string | undefined;
-  paranoidRm: boolean | undefined;
-  allowTmpdirVar: boolean;
-  envAssignments?: ReadonlyMap<string, string>;
-  worktreeMode?: boolean;
+export interface ParallelAnalyzeContext extends NestedCommandAnalyzeContext {
   analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 

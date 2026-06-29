@@ -3396,6 +3396,29 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
   return null;
 }
 
+// src/core/analyze/transparent-wrappers.ts
+var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+function unwrapTransparentWrapper(tokens, config) {
+  const head = tokens[0];
+  if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
+    return null;
+  }
+  const childIndex = tokens[1] === "--" ? 2 : 1;
+  const child = tokens[childIndex];
+  if (!child || getBasename(child) === getBasename(head)) {
+    return null;
+  }
+  if (!isProtectableCommand(child, config)) {
+    return null;
+  }
+  return { wrapper: getBasename(head), tokens: [...tokens.slice(childIndex)] };
+}
+function isProtectableCommand(token, config) {
+  const basename = getBasename(token);
+  const normalized = normalizeCommandToken(token);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+}
+
 // src/core/analyze/child-command.ts
 function normalizeChildCommand(tokens, context) {
   const wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd);
@@ -3403,7 +3426,8 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const childTokens = getBasename(wrapperInfo.tokens[0] ?? "").toLowerCase() === "busybox" && wrapperInfo.tokens.length > 1 ? wrapperInfo.tokens.slice(1) : wrapperInfo.tokens;
+  const strippedTokens = stripBusybox(wrapperInfo.tokens);
+  const childTokens = stripBusybox(unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ?? strippedTokens);
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -3411,6 +3435,9 @@ function normalizeChildCommand(tokens, context) {
     envAssignments,
     head: getBasename(childTokens[0] ?? "").toLowerCase()
   };
+}
+function stripBusybox(tokens) {
+  return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -4017,6 +4044,14 @@ function analyzeSegment(tokens, depth, options2) {
   const cwdForRm = wrapperCwd === null ? undefined : wrapperCwd ?? baseCwdForRm;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options2.config);
+  if (transparentWrapper) {
+    return analyzeSegment(transparentWrapper.tokens, depth, {
+      ...options2,
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments
+    });
+  }
   if (isShellWrapperCommand(head, normalizedHead)) {
     const dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
@@ -4167,25 +4202,24 @@ function analyzeFindCommand(context) {
   });
 }
 function analyzeXargsCommand(context) {
-  return analyzeXargs(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode
-  });
+  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
 }
 function analyzeParallelCommand(context) {
   return analyzeParallel(context.tokens, {
+    ...getNestedCommandAnalyzeContext(context),
+    analyzeNested: context.options.analyzeNested
+  });
+}
+function getNestedCommandAnalyzeContext(context) {
+  return {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoidRm: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    analyzeNested: context.options.analyzeNested
-  });
+    config: context.options.config
+  };
 }
 var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
 function segmentChangesCwd(segment) {
@@ -4989,7 +5023,12 @@ function getConfiguredGitHubSource(spec) {
 }
 
 // src/core/rules/policy/types.ts
-var DEFAULT_CONFIG = { version: 1, rules: [], overrides: {} };
+var DEFAULT_CONFIG = {
+  version: 1,
+  rules: [],
+  overrides: {},
+  transparent_wrappers: []
+};
 
 // src/core/rules/policy/config-file.ts
 function validateRulesConfig(config) {
@@ -5050,7 +5089,33 @@ function validateRulesConfig(config) {
       }
     }
   }
+  if (cfg.transparent_wrappers !== undefined) {
+    validateTransparentWrappers(cfg.transparent_wrappers, errors);
+  }
   return { errors, sources };
+}
+function validateTransparentWrappers(value, errors) {
+  if (!Array.isArray(value)) {
+    errors.push("transparent_wrappers must be an array of command strings");
+    return;
+  }
+  const seen = new Set;
+  for (let i = 0;i < value.length; i++) {
+    const command2 = value[i];
+    if (typeof command2 !== "string") {
+      errors.push(`transparent_wrappers[${i}]: must be a command string`);
+      continue;
+    }
+    if (!COMMAND_PATTERN.test(command2)) {
+      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    seen.add(command2);
+  }
 }
 function readRulesConfig(path) {
   if (!existsSync4(path)) {
@@ -5071,7 +5136,8 @@ function readRulesConfig(path) {
       config: {
         version: 1,
         rules: cfg.rules ?? [],
-        overrides: cfg.overrides ?? {}
+        overrides: cfg.overrides ?? {},
+        transparent_wrappers: cfg.transparent_wrappers ?? []
       },
       errors: []
     };
@@ -5090,7 +5156,7 @@ function readScopeRulesConfig(path) {
   return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
 }
 function writeDefaultRulesConfig(path, rules = []) {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {} });
+  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
 }
 function writeStarterRulebook(path, name = "project-rules") {
   writeJsonAtomic(path, {
@@ -5571,6 +5637,7 @@ function loadRulesPolicy(options2 = {}) {
   const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
   return {
     rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
       ...errors,
@@ -5721,10 +5788,19 @@ function rulesPolicyToConfig(policy) {
     return {
       version: 1,
       rules: [],
+      transparent_wrappers: [],
       failClosedReason: withTerminalPeriod(policy.errors.join("; "))
     };
   }
-  return { version: 1, rules: policy.rules };
+  return { version: 1, rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
+}
+function mergeTransparentWrappers(userConfig, projectConfig) {
+  return [
+    ...new Set([
+      ...userConfig?.transparent_wrappers ?? [],
+      ...projectConfig?.transparent_wrappers ?? []
+    ])
+  ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
   if (resolve5(userConfigPath) === resolve5(projectConfigPath)) {
@@ -5952,7 +6028,8 @@ async function addRulebookSource(source, options2 = {}) {
     writeJsonAtomic(scope.configPath, {
       version: 1,
       rules: nextRules,
-      overrides: config.overrides ?? {}
+      overrides: config.overrides ?? {},
+      transparent_wrappers: config.transparent_wrappers ?? []
     });
   }
   const result = await syncRulesConfig({
@@ -5993,7 +6070,8 @@ async function removeRulebookSource(match, options2 = {}) {
   writeJsonAtomic(scope.configPath, {
     version: 1,
     rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
-    overrides: loaded.config.overrides ?? {}
+    overrides: loaded.config.overrides ?? {},
+    transparent_wrappers: loaded.config.transparent_wrappers ?? []
   });
   const result = await syncRulesConfig(options2);
   if (!result.ok) {
@@ -8969,7 +9047,7 @@ function explainSegment(tokens, depth, options2, steps) {
       output: wrapperResult.tokens
     });
   }
-  const strippedTokens = wrapperResult.tokens;
+  let strippedTokens = wrapperResult.tokens;
   const envAssignments = new Map(options2.envAssignments ?? []);
   for (const [k, v] of envResult.envAssignments) {
     envAssignments.set(k, v);
@@ -8987,9 +9065,22 @@ function explainSegment(tokens, depth, options2, steps) {
   if (strippedTokens.length === 0) {
     return null;
   }
-  const head = strippedTokens[0];
+  const config = options2.config ?? { version: 1, rules: [] };
+  let head = strippedTokens[0];
   if (!head)
     return null;
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (transparentWrapper) {
+    steps.push({
+      type: "transparent-wrapper",
+      wrapper: transparentWrapper.wrapper,
+      output: transparentWrapper.tokens
+    });
+    strippedTokens = transparentWrapper.tokens;
+    head = strippedTokens[0];
+    if (!head)
+      return null;
+  }
   const baseName = head.split("/").pop() ?? head;
   const baseNameLower = baseName.toLowerCase();
   if (isShellWrapperCommand2(head, baseNameLower)) {
@@ -9154,7 +9245,8 @@ function explainSegment(tokens, depth, options2, steps) {
       paranoidRm: options2.paranoidRm,
       allowTmpdirVar,
       envAssignments,
-      worktreeMode: options2.worktreeMode
+      worktreeMode: options2.worktreeMode,
+      config
     });
     steps.push({
       type: "rule-check",
@@ -9184,6 +9276,7 @@ function explainSegment(tokens, depth, options2, steps) {
       allowTmpdirVar,
       envAssignments,
       worktreeMode: options2.worktreeMode,
+      config,
       analyzeNested
     });
     steps.push({
@@ -9603,6 +9696,13 @@ function formatStepStyleD(step, stepNum, box) {
       lines.push("");
       lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`);
       lines.push(`  Subcommand: ${step.subcommand}`);
+      return { lines, incrementStep: true };
+    }
+    case "transparent-wrapper": {
+      lines.push("");
+      lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`);
+      lines.push(`  Wrapper: ${step.wrapper}`);
+      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
       return { lines, incrementStep: true };
     }
     case "recurse":
@@ -10228,7 +10328,8 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
       "reason": "Use targeted Docker cleanup commands."
     },
     "team-rules/block-npm-global": "off"
-  }
+  },
+  "transparent_wrappers": ["rtk"]
 }
 \`\`\`
 
@@ -10236,6 +10337,8 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
 - \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
+- \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
+- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
 
 ## Rulebook Sources
 
@@ -10318,6 +10421,7 @@ Every rule must have at least one blocked fixture. Add allowed fixtures for clos
 - **Short options**: Expanded (\`-Ap\` matches \`-A\`).
 - **Long options**: Exact match (\`--all-files\` does not match \`--all\`).
 - **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.
+- **Transparent wrappers**: A configured wrapper such as \`rtk\` lets \`rtk git commit\` be analyzed as \`git commit\` only when \`git\` is protected by built-in analyzers or active custom rules. \`rtk -- git commit\` is also supported.
 
 ## Workflow
 
@@ -10489,7 +10593,7 @@ async function migrateRulesScope(options2) {
     snapshotFile(rulebookPath),
     snapshotFile(getRulesLockPathForConfigPath(options2.configPath))
   ];
-  const result = await writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, legacy.config.rules, config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName], config.overrides ?? {});
+  const result = await writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, legacy.config.rules, config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName], config.overrides ?? {}, config.transparent_wrappers ?? []);
   if (!result.ok) {
     restoreFiles(snapshots);
     for (const error of result.errors)
@@ -10508,12 +10612,13 @@ async function migrateRulesScope(options2) {
   console.log(`Deleted legacy config at ${options2.legacyPath}`);
   return true;
 }
-async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, rules, configRules, overrides) {
+async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, rules, configRules, overrides, transparentWrappers) {
   try {
     writeJsonAtomic(options2.configPath, {
       version: 1,
       rules: configRules,
-      overrides
+      overrides,
+      transparent_wrappers: transparentWrappers
     });
     writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options2.migratedFrom, rules));
     return await syncRulesConfig(options2.syncOptions);
@@ -11046,7 +11151,8 @@ function ensureDefaultRulebookSource(configPath, rulebookName) {
   writeJsonAtomic(configPath, {
     version: 1,
     rules: [...loaded.config.rules, rulebookName],
-    overrides: loaded.config.overrides ?? {}
+    overrides: loaded.config.overrides ?? {},
+    transparent_wrappers: loaded.config.transparent_wrappers ?? []
   });
 }
 

@@ -20,6 +20,8 @@ export interface Config {
     version: number;
     /** Custom blocking rules */
     rules: CustomRule[];
+    /** Commands that transparently execute a visible child command for analysis */
+    transparent_wrappers?: string[];
     /** Fail-closed reason when rule-backed config cannot be loaded safely. */
     failClosedReason?: string;
 }
@@ -185,6 +187,10 @@ export type TraceStep = {
 } | {
     type: 'busybox';
     subcommand: string;
+} | {
+    type: 'transparent-wrapper';
+    wrapper: string;
+    output: string[];
 } | {
     type: 'recurse';
     reason: 'shell-wrapper' | 'interpreter' | 'busybox';

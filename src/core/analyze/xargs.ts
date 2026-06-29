@@ -1,19 +1,15 @@
 import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
-import { normalizeChildCommand } from '@/core/analyze/child-command';
+import {
+  type NestedCommandAnalyzeContext,
+  normalizeChildCommand,
+} from '@/core/analyze/child-command';
 
 const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
 const REASON_XARGS_SHELL = 'xargs with shell -c can execute arbitrary commands from dynamic input.';
 const XARGS_APPENDED_INPUT = '__CC_SAFETY_NET_XARGS_INPUT__';
 
-export interface XargsAnalyzeContext {
-  cwd: string | undefined;
-  originalCwd: string | undefined;
-  paranoidRm: boolean | undefined;
-  allowTmpdirVar: boolean;
-  envAssignments?: ReadonlyMap<string, string>;
-  worktreeMode?: boolean;
-}
+export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
 
 export function analyzeXargs(
   tokens: readonly string[],

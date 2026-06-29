@@ -1,6 +1,14 @@
+import type { Config } from '@/types';
 export interface ChildCommandContext {
     cwd: string | undefined;
     envAssignments?: ReadonlyMap<string, string>;
+    config?: Pick<Config, 'rules' | 'transparent_wrappers'>;
+}
+export interface NestedCommandAnalyzeContext extends ChildCommandContext {
+    originalCwd: string | undefined;
+    paranoidRm: boolean | undefined;
+    allowTmpdirVar: boolean;
+    worktreeMode?: boolean;
 }
 export declare function normalizeChildCommand(tokens: readonly string[], context: ChildCommandContext): {
     tokens: string[];

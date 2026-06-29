@@ -32,6 +32,7 @@ import {
 } from '@/core/analyze/shell-git-env';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
+import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/core/git';
 import { checkCustomRules } from '@/core/rules/custom';
@@ -195,7 +196,7 @@ export function explainSegment(
     });
   }
 
-  const strippedTokens = wrapperResult.tokens;
+  let strippedTokens = wrapperResult.tokens;
   const envAssignments = new Map(options.envAssignments ?? []);
   for (const [k, v] of envResult.envAssignments) {
     envAssignments.set(k, v);
@@ -216,8 +217,21 @@ export function explainSegment(
     return null;
   }
 
-  const head = strippedTokens[0];
+  const config = options.config ?? { version: 1, rules: [] };
+  let head = strippedTokens[0];
   if (!head) return null;
+
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  if (transparentWrapper) {
+    steps.push({
+      type: 'transparent-wrapper',
+      wrapper: transparentWrapper.wrapper,
+      output: transparentWrapper.tokens,
+    });
+    strippedTokens = transparentWrapper.tokens;
+    head = strippedTokens[0];
+    if (!head) return null;
+  }
 
   // Derive baseName case-sensitively (matches guard behavior)
   // Only lowercase for git/wrappers/interpreters
@@ -401,6 +415,7 @@ export function explainSegment(
       allowTmpdirVar,
       envAssignments,
       worktreeMode: options.worktreeMode,
+      config,
     });
     steps.push({
       type: 'rule-check',
@@ -433,6 +448,7 @@ export function explainSegment(
       allowTmpdirVar,
       envAssignments,
       worktreeMode: options.worktreeMode,
+      config,
       analyzeNested,
     });
     steps.push({

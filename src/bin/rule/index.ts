@@ -225,5 +225,6 @@ function ensureDefaultRulebookSource(configPath: string, rulebookName: string): 
     version: 1,
     rules: [...loaded.config.rules, rulebookName],
     overrides: loaded.config.overrides ?? {},
+    transparent_wrappers: loaded.config.transparent_wrappers ?? [],
   });
 }

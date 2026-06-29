@@ -164,6 +164,14 @@ export function formatStepStyleD(
       return { lines, incrementStep: true };
     }
 
+    case 'transparent-wrapper': {
+      lines.push('');
+      lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`);
+      lines.push(`  Wrapper: ${step.wrapper}`);
+      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
+      return { lines, incrementStep: true };
+    }
+
     case 'recurse':
       // Handled specially in main function to open recursion box
       return { lines: [], incrementStep: false };

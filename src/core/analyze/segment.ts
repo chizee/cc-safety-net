@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { normalize } from 'node:path';
 import { AWK_INTERPRETERS, analyzeAwkSystemCalls } from '@/core/analyze/awk';
+import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
 import { analyzeFind } from '@/core/analyze/find';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
@@ -8,6 +9,7 @@ import { analyzeParallel } from '@/core/analyze/parallel';
 import { analyzeRm } from '@/core/analyze/rm';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
+import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGit } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
@@ -117,6 +119,15 @@ export function analyzeSegment(
   const cwdForRm = wrapperCwd === null ? undefined : (wrapperCwd ?? baseCwdForRm);
   const nestedEffectiveCwd = wrapperCwd === undefined ? options.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options.config);
+  if (transparentWrapper) {
+    return analyzeSegment(transparentWrapper.tokens, depth, {
+      ...options,
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments,
+    });
+  }
 
   if (isShellWrapperCommand(head, normalizedHead)) {
     const dashCArg = extractDashCArg(stripped);
@@ -299,26 +310,28 @@ function analyzeFindCommand(context: CommandAnalysisContext): string | null {
 }
 
 function analyzeXargsCommand(context: CommandAnalysisContext): string | null {
-  return analyzeXargs(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode,
-  });
+  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
 }
 
 function analyzeParallelCommand(context: CommandAnalysisContext): string | null {
   return analyzeParallel(context.tokens, {
+    ...getNestedCommandAnalyzeContext(context),
+    analyzeNested: context.options.analyzeNested,
+  });
+}
+
+function getNestedCommandAnalyzeContext(
+  context: CommandAnalysisContext,
+): NestedCommandAnalyzeContext {
+  return {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoidRm: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    analyzeNested: context.options.analyzeNested,
-  });
+    config: context.options.config,
+  };
 }
 
 const CWD_CHANGE_REGEX =

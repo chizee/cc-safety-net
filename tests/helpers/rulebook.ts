@@ -15,9 +15,23 @@ export const updatedGitRule = {
   block_args: ['status'],
   reason: 'Use porcelain status elsewhere.',
 };
+export const gitCommitRule = {
+  name: 'block-git-commit',
+  subcommand: 'commit',
+  block_args: ['commit'],
+  reason: 'Commit creation must be explicit.',
+};
 
 export async function syncInitialGitRulebook(dir: string): Promise<void> {
   writeGitRulebook(dir, [initialGitRule]);
+  await syncRulesConfig({
+    cwd: dir,
+    userConfigDir: join(dir, 'home', '.cc-safety-net', 'rules'),
+  });
+}
+
+export async function syncTransparentGitCommitRulebook(dir: string): Promise<void> {
+  writeGitRulebook(dir, [gitCommitRule], ['rtk']);
   await syncRulesConfig({
     cwd: dir,
     userConfigDir: join(dir, 'home', '.cc-safety-net', 'rules'),
@@ -31,11 +45,17 @@ export function writeUpdatedGitRulebook(dir: string): void {
 function writeGitRulebook(
   dir: string,
   rules: Array<{ name: string; subcommand: string; block_args: string[]; reason: string }>,
+  transparentWrappers: string[] = [],
 ): void {
   mkdirSync(join(dir, '.cc-safety-net/rules', 'project-rules'), { recursive: true });
   writeFileSync(
     join(dir, '.cc-safety-net/rules', 'rule.json'),
-    JSON.stringify({ version: 1, rules: ['project-rules'], overrides: {} }),
+    JSON.stringify({
+      version: 1,
+      rules: ['project-rules'],
+      overrides: {},
+      transparent_wrappers: transparentWrappers,
+    }),
     'utf-8',
   );
   writeFileSync(

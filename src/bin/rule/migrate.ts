@@ -102,6 +102,7 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
     legacy.config.rules,
     config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName],
     config.overrides ?? {},
+    config.transparent_wrappers ?? [],
   );
   if (!result.ok) {
     restoreFiles(snapshots);
@@ -139,12 +140,14 @@ async function writeAndSyncMigratedRulebook(
   rules: CustomRule[],
   configRules: string[],
   overrides: Record<string, unknown>,
+  transparentWrappers: string[],
 ): Promise<{ ok: boolean; errors: string[] }> {
   try {
     writeJsonAtomic(options.configPath, {
       version: 1,
       rules: configRules,
       overrides,
+      transparent_wrappers: transparentWrappers,
     });
     writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options.migratedFrom, rules));
     return await syncRulesConfig(options.syncOptions);

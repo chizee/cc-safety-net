@@ -1,11 +1,5 @@
-export interface XargsAnalyzeContext {
-    cwd: string | undefined;
-    originalCwd: string | undefined;
-    paranoidRm: boolean | undefined;
-    allowTmpdirVar: boolean;
-    envAssignments?: ReadonlyMap<string, string>;
-    worktreeMode?: boolean;
-}
+import { type NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
+export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
 export declare function analyzeXargs(tokens: readonly string[], context: XargsAnalyzeContext): string | null;
 interface XargsParseResult {
     childTokens: string[];

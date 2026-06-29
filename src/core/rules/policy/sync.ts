@@ -174,6 +174,7 @@ export async function addRulebookSource(
       version: 1,
       rules: nextRules,
       overrides: config.overrides ?? {},
+      transparent_wrappers: config.transparent_wrappers ?? [],
     });
   }
   const result = await syncRulesConfig({
@@ -223,6 +224,7 @@ export async function removeRulebookSource(
     version: 1,
     rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
     overrides: loaded.config.overrides ?? {},
+    transparent_wrappers: loaded.config.transparent_wrappers ?? [],
   });
   const result = await syncRulesConfig(options);
   if (!result.ok) {

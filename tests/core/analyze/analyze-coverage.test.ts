@@ -13,6 +13,27 @@ import {
 } from '../../helpers.ts';
 
 const EMPTY_CONFIG: Config = { version: 1, rules: [] };
+const BLOCK_GIT_COMMIT_CONFIG: Config = {
+  version: 1,
+  rules: [
+    {
+      name: 'block-git-commit',
+      command: 'git',
+      subcommand: 'commit',
+      block_args: ['commit'],
+      reason: 'Commit creation must be explicit.',
+    },
+  ],
+};
+const TRANSPARENT_RTK_GIT_COMMIT_CONFIG: Config = {
+  ...BLOCK_GIT_COMMIT_CONFIG,
+  transparent_wrappers: ['rtk'],
+};
+const TRANSPARENT_RTK_CONFIG: Config = {
+  version: 1,
+  rules: [],
+  transparent_wrappers: ['rtk'],
+};
 
 async function analyzeInLinkedWorktree(command: (mainWorktree: string) => string) {
   return withLinkedWorktreeFixture((fixture) =>
@@ -185,6 +206,71 @@ describe('analyzeCommand (coverage)', () => {
         config: EMPTY_CONFIG,
       }),
     ).toBeNull();
+  });
+
+  test('transparent wrapper is inert without config', () => {
+    expect(
+      analyzeCommand('rtk git commit -m msg', {
+        cwd: '/tmp',
+        config: BLOCK_GIT_COMMIT_CONFIG,
+      }),
+    ).toBeNull();
+  });
+
+  test('transparent wrapper lets custom git rules inspect child command', () => {
+    const result = analyzeCommand('rtk git commit -m msg', {
+      cwd: '/tmp',
+      config: TRANSPARENT_RTK_GIT_COMMIT_CONFIG,
+    });
+    expect(result?.reason).toContain('[block-git-commit] Commit creation must be explicit.');
+    expect(result?.segment).toBe('rtk git commit -m msg');
+  });
+
+  test('transparent wrapper lets built-in git analyzer inspect child command', () => {
+    const result = analyzeCommand('rtk git reset --hard', {
+      cwd: '/tmp',
+      config: TRANSPARENT_RTK_CONFIG,
+    });
+    expect(result?.reason).toContain('git reset --hard');
+    expect(result?.segment).toBe('rtk git reset --hard');
+  });
+
+  test('transparent wrapper lets custom rules protect non-built-in child command', () => {
+    const result = analyzeCommand('rtk docker system prune', {
+      cwd: '/tmp',
+      config: {
+        version: 1,
+        transparent_wrappers: ['rtk'],
+        rules: [
+          {
+            name: 'block-docker-prune',
+            command: 'docker',
+            subcommand: 'system',
+            block_args: ['prune'],
+            reason: 'Use targeted Docker cleanup.',
+          },
+        ],
+      },
+    });
+    expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
+  });
+
+  test('transparent wrapper does not unwrap unprotected child command', () => {
+    expect(
+      analyzeCommand('rtk init -g', {
+        cwd: '/tmp',
+        config: TRANSPARENT_RTK_CONFIG,
+      }),
+    ).toBeNull();
+  });
+
+  test('transparent wrapper supports explicit child delimiter', () => {
+    const result = analyzeCommand('rtk -- git reset --hard', {
+      cwd: '/tmp',
+      config: TRANSPARENT_RTK_CONFIG,
+    });
+    expect(result?.reason).toContain('git reset --hard');
+    expect(result?.segment).toBe('rtk -- git reset --hard');
   });
 
   test('fallback scan catches embedded find', () => {

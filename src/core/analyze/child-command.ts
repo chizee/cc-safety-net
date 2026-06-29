@@ -1,8 +1,18 @@
+import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
+import type { Config } from '@/types';
 
 export interface ChildCommandContext {
   cwd: string | undefined;
   envAssignments?: ReadonlyMap<string, string>;
+  config?: Pick<Config, 'rules' | 'transparent_wrappers'>;
+}
+
+export interface NestedCommandAnalyzeContext extends ChildCommandContext {
+  originalCwd: string | undefined;
+  paranoidRm: boolean | undefined;
+  allowTmpdirVar: boolean;
+  worktreeMode?: boolean;
 }
 
 export function normalizeChildCommand(tokens: readonly string[], context: ChildCommandContext) {
@@ -12,11 +22,11 @@ export function normalizeChildCommand(tokens: readonly string[], context: ChildC
     envAssignments.set(k, v);
   }
 
-  const childTokens =
-    getBasename(wrapperInfo.tokens[0] ?? '').toLowerCase() === 'busybox' &&
-    wrapperInfo.tokens.length > 1
-      ? wrapperInfo.tokens.slice(1)
-      : wrapperInfo.tokens;
+  const strippedTokens = stripBusybox(wrapperInfo.tokens);
+  const childTokens = stripBusybox(
+    unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ??
+      strippedTokens,
+  );
 
   return {
     tokens: childTokens,
@@ -25,6 +35,12 @@ export function normalizeChildCommand(tokens: readonly string[], context: ChildC
     envAssignments,
     head: getBasename(childTokens[0] ?? '').toLowerCase(),
   };
+}
+
+function stripBusybox(tokens: readonly string[]): string[] {
+  return getBasename(tokens[0] ?? '').toLowerCase() === 'busybox' && tokens.length > 1
+    ? [...tokens.slice(1)]
+    : [...tokens];
 }
 
 export function collectCommandTemplate(tokens: readonly string[], start: number) {

@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CCSafetyNetPlugin } from '@/index';
 import {
+  gitCommitRule,
   syncInitialGitRulebook,
+  syncTransparentGitCommitRulebook,
   updatedGitRule,
   writeUpdatedGitRulebook,
 } from '../helpers/rulebook';
@@ -105,6 +107,23 @@ describe('OpenCode plugin', () => {
       await expect(
         plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: 'git status' } }),
       ).rejects.toThrow(updatedGitRule.reason);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('blocks configured transparent wrapper child command', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-plugin-'));
+    try {
+      await syncTransparentGitCommitRulebook(dir);
+      const plugin = await loadToolPlugin(dir);
+
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'bash' },
+          { args: { command: 'rtk git commit -m msg' } },
+        ),
+      ).rejects.toThrow(gitCommitRule.reason);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

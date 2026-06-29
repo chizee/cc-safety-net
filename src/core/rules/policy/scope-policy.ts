@@ -75,6 +75,7 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
 
   return {
     rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
       ...errors,
@@ -280,10 +281,23 @@ export function rulesPolicyToConfig(policy: LoadedRulesPolicy): Config {
     return {
       version: 1,
       rules: [],
+      transparent_wrappers: [],
       failClosedReason: withTerminalPeriod(policy.errors.join('; ')),
     };
   }
-  return { version: 1, rules: policy.rules };
+  return { version: 1, rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
+}
+
+function mergeTransparentWrappers(
+  userConfig: RulesConfig | null,
+  projectConfig: RulesConfig | null,
+): string[] {
+  return [
+    ...new Set([
+      ...(userConfig?.transparent_wrappers ?? []),
+      ...(projectConfig?.transparent_wrappers ?? []),
+    ]),
+  ];
 }
 
 function isSameConfigPath(userConfigPath: string, projectConfigPath: string): boolean {

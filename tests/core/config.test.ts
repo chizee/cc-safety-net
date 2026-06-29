@@ -11,6 +11,7 @@ import {
   validateRulesConfigFile,
 } from '@/core/config';
 import { syncRulesConfig } from '@/core/rules/policy';
+import { validateRulesConfig } from '@/core/rules/policy/config-file';
 import { writeLockedGitHubRulebookPolicy } from '../helpers.ts';
 
 const legacyRule = {
@@ -104,6 +105,55 @@ describe('runtime config loading', () => {
 
   test('no config returns built-in only config', () => {
     expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).rules).toEqual([]);
+  });
+
+  test('loads transparent wrappers from user and project configs', () => {
+    writeRulesConfigWithTransparentWrappers(userRulesDir, ['rtk']);
+    writeRulesConfigWithTransparentWrappers(join(tempDir, '.cc-safety-net', 'rules'), ['wrap']);
+
+    expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
+      'rtk',
+      'wrap',
+    ]);
+  });
+
+  test('deduplicates transparent wrappers across scopes', () => {
+    writeRulesConfigWithTransparentWrappers(userRulesDir, ['rtk']);
+    writeRulesConfigWithTransparentWrappers(join(tempDir, '.cc-safety-net', 'rules'), ['rtk']);
+
+    expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
+      'rtk',
+    ]);
+  });
+
+  function writeRulesConfigWithTransparentWrappers(
+    configDir: string,
+    transparentWrappers: string[],
+  ): void {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'rule.json'),
+      JSON.stringify({
+        version: 1,
+        rules: [],
+        overrides: {},
+        transparent_wrappers: transparentWrappers,
+      }),
+    );
+  }
+
+  test('validates transparent wrapper config', () => {
+    expect(
+      validateRulesConfig({
+        version: 1,
+        rules: [],
+        transparent_wrappers: ['rtk', 'bad command', 'rtk', 1],
+      }).errors,
+    ).toEqual([
+      'transparent_wrappers[1]: must match command pattern',
+      'transparent_wrappers[2]: duplicate command "rtk"',
+      'transparent_wrappers[3]: must be a command string',
+    ]);
   });
 
   function writeLegacyProjectConfig(rules: unknown[] = []): void {

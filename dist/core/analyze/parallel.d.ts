@@ -1,11 +1,6 @@
+import { type NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import { type AnalyzeNestedOverrides } from '@/types';
-export interface ParallelAnalyzeContext {
-    cwd: string | undefined;
-    originalCwd: string | undefined;
-    paranoidRm: boolean | undefined;
-    allowTmpdirVar: boolean;
-    envAssignments?: ReadonlyMap<string, string>;
-    worktreeMode?: boolean;
+export interface ParallelAnalyzeContext extends NestedCommandAnalyzeContext {
     analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 export declare function analyzeParallel(tokens: readonly string[], context: ParallelAnalyzeContext): string | null;

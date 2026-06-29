@@ -532,6 +532,33 @@ describe('explainCommand guard parity fixes', () => {
     expectFallbackScan('nice git reset --hard', 'git');
   });
 
+  test('transparent wrapper trace shows normalized child command', () => {
+    const result = explainCommand('rtk git commit -m msg', {
+      config: {
+        version: 1,
+        transparent_wrappers: ['rtk'],
+        rules: [
+          {
+            name: 'block-git-commit',
+            command: 'git',
+            subcommand: 'commit',
+            block_args: ['commit'],
+            reason: 'Commit creation must be explicit.',
+          },
+        ],
+      },
+    });
+
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toContain('Commit creation must be explicit.');
+    const wrapperStep = getTraceSteps(result).find((s) => s.type === 'transparent-wrapper');
+    expect(wrapperStep).toEqual({
+      type: 'transparent-wrapper',
+      wrapper: 'rtk',
+      output: ['git', 'commit', '-m', 'msg'],
+    });
+  });
+
   test('Fix #4: fallback scan finds embedded rm in non-head position', () => {
     expectFallbackScan('nice rm -rf /');
   });

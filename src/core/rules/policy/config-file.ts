@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { MAX_REASON_LENGTH } from '@/types';
+import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
 import { getRulebookSourceSyntaxError } from './sources';
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
 
@@ -66,8 +66,36 @@ export function validateRulesConfig(config: unknown): { errors: string[]; source
       }
     }
   }
+  if (cfg.transparent_wrappers !== undefined) {
+    validateTransparentWrappers(cfg.transparent_wrappers, errors);
+  }
 
   return { errors, sources };
+}
+
+function validateTransparentWrappers(value: unknown, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push('transparent_wrappers must be an array of command strings');
+    return;
+  }
+
+  const seen = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const command = value[i];
+    if (typeof command !== 'string') {
+      errors.push(`transparent_wrappers[${i}]: must be a command string`);
+      continue;
+    }
+    if (!COMMAND_PATTERN.test(command)) {
+      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command)) {
+      errors.push(`transparent_wrappers[${i}]: duplicate command "${command}"`);
+      continue;
+    }
+    seen.add(command);
+  }
 }
 
 export function readRulesConfig(path: string): { config: RulesConfig | null; errors: string[] } {
@@ -92,6 +120,7 @@ export function readRulesConfig(path: string): { config: RulesConfig | null; err
         version: 1,
         rules: cfg.rules ?? [],
         overrides: cfg.overrides ?? {},
+        transparent_wrappers: cfg.transparent_wrappers ?? [],
       },
       errors: [],
     };
@@ -114,7 +143,7 @@ export function readScopeRulesConfig(
 }
 
 export function writeDefaultRulesConfig(path: string, rules: string[] = []): void {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {} });
+  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
 }
 
 export function writeStarterRulebook(path: string, name = 'project-rules'): void {

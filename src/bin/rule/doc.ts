@@ -25,7 +25,8 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
       "reason": "Use targeted Docker cleanup commands."
     },
     "team-rules/block-npm-global": "off"
-  }
+  },
+  "transparent_wrappers": ["rtk"]
 }
 \`\`\`
 
@@ -33,6 +34,8 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
 - \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
+- \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
+- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
 
 ## Rulebook Sources
 
@@ -115,6 +118,7 @@ Every rule must have at least one blocked fixture. Add allowed fixtures for clos
 - **Short options**: Expanded (\`-Ap\` matches \`-A\`).
 - **Long options**: Exact match (\`--all-files\` does not match \`--all\`).
 - **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.
+- **Transparent wrappers**: A configured wrapper such as \`rtk\` lets \`rtk git commit\` be analyzed as \`git commit\` only when \`git\` is protected by built-in analyzers or active custom rules. \`rtk -- git commit\` is also supported.
 
 ## Workflow
 

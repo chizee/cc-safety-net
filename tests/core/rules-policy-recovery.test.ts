@@ -364,6 +364,7 @@ describe('rules policy recovery coverage', () => {
           version: 1,
           rules: ['project-rules'],
           overrides: { 'project-rules/missing': 'off' },
+          transparent_wrappers: ['rtk'],
         }),
       );
       expect(
@@ -397,6 +398,9 @@ describe('rules policy recovery coverage', () => {
         (await removeRulebookSource('project-rules', { cwd: tempDir, userConfigDir })).ok,
       ).toBe(true);
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([]);
+      expect(
+        readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.transparent_wrappers,
+      ).toEqual(['rtk']);
 
       mkdirSync(join(userConfigDir, 'user-rules'), { recursive: true });
       writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
@@ -794,6 +798,11 @@ describe('rules policy recovery coverage', () => {
     const alphaRulebook = rulebookJson('alpha');
 
     try {
+      mkdirSync(dirname(getProjectRulesConfigPath(tempDir)), { recursive: true });
+      writeFileSync(
+        getProjectRulesConfigPath(tempDir),
+        JSON.stringify({ version: 1, rules: [], overrides: {}, transparent_wrappers: ['rtk'] }),
+      );
       globalThis.fetch = mockGitHubRepoRulebooksFetch({ alpha: alphaRulebook }, [
         { path: '.cc-safety-net/rules/zeta/ignored.txt', type: 'blob' },
       ]);
@@ -806,6 +815,9 @@ describe('rules policy recovery coverage', () => {
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
         'owner/repo#abc123/alpha',
       ]);
+      expect(
+        readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.transparent_wrappers,
+      ).toEqual(['rtk']);
       expect(getRulesConfigSourceDisplayMap(getProjectRulesConfigPath(tempDir))).toEqual(
         new Map([['owner/repo#abc123/alpha', 'owner/repo#main/alpha']]),
       );

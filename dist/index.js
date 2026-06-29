@@ -3340,6 +3340,29 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
   return null;
 }
 
+// src/core/analyze/transparent-wrappers.ts
+var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+function unwrapTransparentWrapper(tokens, config) {
+  const head = tokens[0];
+  if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
+    return null;
+  }
+  const childIndex = tokens[1] === "--" ? 2 : 1;
+  const child = tokens[childIndex];
+  if (!child || getBasename(child) === getBasename(head)) {
+    return null;
+  }
+  if (!isProtectableCommand(child, config)) {
+    return null;
+  }
+  return { wrapper: getBasename(head), tokens: [...tokens.slice(childIndex)] };
+}
+function isProtectableCommand(token, config) {
+  const basename = getBasename(token);
+  const normalized = normalizeCommandToken(token);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
+}
+
 // src/core/analyze/child-command.ts
 function normalizeChildCommand(tokens, context) {
   const wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd);
@@ -3347,7 +3370,8 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const childTokens = getBasename(wrapperInfo.tokens[0] ?? "").toLowerCase() === "busybox" && wrapperInfo.tokens.length > 1 ? wrapperInfo.tokens.slice(1) : wrapperInfo.tokens;
+  const strippedTokens = stripBusybox(wrapperInfo.tokens);
+  const childTokens = stripBusybox(unwrapTransparentWrapper(strippedTokens, context.config ?? { rules: [] })?.tokens ?? strippedTokens);
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -3355,6 +3379,9 @@ function normalizeChildCommand(tokens, context) {
     envAssignments,
     head: getBasename(childTokens[0] ?? "").toLowerCase()
   };
+}
+function stripBusybox(tokens) {
+  return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -3961,6 +3988,14 @@ function analyzeSegment(tokens, depth, options2) {
   const cwdForRm = wrapperCwd === null ? undefined : wrapperCwd ?? baseCwdForRm;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options2.config);
+  if (transparentWrapper) {
+    return analyzeSegment(transparentWrapper.tokens, depth, {
+      ...options2,
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments
+    });
+  }
   if (isShellWrapperCommand(head, normalizedHead)) {
     const dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
@@ -4111,25 +4146,24 @@ function analyzeFindCommand(context) {
   });
 }
 function analyzeXargsCommand(context) {
-  return analyzeXargs(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode
-  });
+  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
 }
 function analyzeParallelCommand(context) {
   return analyzeParallel(context.tokens, {
+    ...getNestedCommandAnalyzeContext(context),
+    analyzeNested: context.options.analyzeNested
+  });
+}
+function getNestedCommandAnalyzeContext(context) {
+  return {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoidRm: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    analyzeNested: context.options.analyzeNested
-  });
+    config: context.options.config
+  };
 }
 var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
 function segmentChangesCwd(segment) {
@@ -4933,7 +4967,12 @@ function getConfiguredGitHubSource(spec) {
 }
 
 // src/core/rules/policy/types.ts
-var DEFAULT_CONFIG = { version: 1, rules: [], overrides: {} };
+var DEFAULT_CONFIG = {
+  version: 1,
+  rules: [],
+  overrides: {},
+  transparent_wrappers: []
+};
 
 // src/core/rules/policy/config-file.ts
 function validateRulesConfig(config) {
@@ -4994,7 +5033,33 @@ function validateRulesConfig(config) {
       }
     }
   }
+  if (cfg.transparent_wrappers !== undefined) {
+    validateTransparentWrappers(cfg.transparent_wrappers, errors);
+  }
   return { errors, sources };
+}
+function validateTransparentWrappers(value, errors) {
+  if (!Array.isArray(value)) {
+    errors.push("transparent_wrappers must be an array of command strings");
+    return;
+  }
+  const seen = new Set;
+  for (let i = 0;i < value.length; i++) {
+    const command2 = value[i];
+    if (typeof command2 !== "string") {
+      errors.push(`transparent_wrappers[${i}]: must be a command string`);
+      continue;
+    }
+    if (!COMMAND_PATTERN.test(command2)) {
+      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    seen.add(command2);
+  }
 }
 function readRulesConfig(path) {
   if (!existsSync4(path)) {
@@ -5015,7 +5080,8 @@ function readRulesConfig(path) {
       config: {
         version: 1,
         rules: cfg.rules ?? [],
-        overrides: cfg.overrides ?? {}
+        overrides: cfg.overrides ?? {},
+        transparent_wrappers: cfg.transparent_wrappers ?? []
       },
       errors: []
     };
@@ -5034,7 +5100,7 @@ function readScopeRulesConfig(path) {
   return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
 }
 function writeDefaultRulesConfig(path, rules = []) {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {} });
+  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
 }
 function writeStarterRulebook(path, name = "project-rules") {
   writeJsonAtomic(path, {
@@ -5515,6 +5581,7 @@ function loadRulesPolicy(options2 = {}) {
   const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
   return {
     rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
       ...errors,
@@ -5665,10 +5732,19 @@ function rulesPolicyToConfig(policy) {
     return {
       version: 1,
       rules: [],
+      transparent_wrappers: [],
       failClosedReason: withTerminalPeriod(policy.errors.join("; "))
     };
   }
-  return { version: 1, rules: policy.rules };
+  return { version: 1, rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
+}
+function mergeTransparentWrappers(userConfig, projectConfig) {
+  return [
+    ...new Set([
+      ...userConfig?.transparent_wrappers ?? [],
+      ...projectConfig?.transparent_wrappers ?? []
+    ])
+  ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
   if (resolve5(userConfigPath) === resolve5(projectConfigPath)) {
@@ -5896,7 +5972,8 @@ async function addRulebookSource(source, options2 = {}) {
     writeJsonAtomic(scope.configPath, {
       version: 1,
       rules: nextRules,
-      overrides: config.overrides ?? {}
+      overrides: config.overrides ?? {},
+      transparent_wrappers: config.transparent_wrappers ?? []
     });
   }
   const result = await syncRulesConfig({
@@ -5937,7 +6014,8 @@ async function removeRulebookSource(match, options2 = {}) {
   writeJsonAtomic(scope.configPath, {
     version: 1,
     rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
-    overrides: loaded.config.overrides ?? {}
+    overrides: loaded.config.overrides ?? {},
+    transparent_wrappers: loaded.config.transparent_wrappers ?? []
   });
   const result = await syncRulesConfig(options2);
   if (!result.ok) {

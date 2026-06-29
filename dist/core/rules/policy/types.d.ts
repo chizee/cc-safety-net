@@ -6,6 +6,7 @@ export interface RulesConfig {
     version: 1;
     rules: string[];
     overrides?: Record<string, RuleOverride>;
+    transparent_wrappers?: string[];
 }
 interface RulebookLockEntryBase {
     spec: string;
@@ -63,6 +64,7 @@ export interface LoadedRulebookInfo {
 }
 export interface LoadedRulesPolicy {
     rules: CustomRule[];
+    transparent_wrappers: string[];
     rulebooks: LoadedRulebookInfo[];
     errors: string[];
     userConfig?: RulesConfig;

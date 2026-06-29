@@ -13,6 +13,7 @@ describe('rule command docs', () => {
     expect(RULE_DOC).toContain('allowed_commands');
     expect(RULE_DOC).toContain('tests');
     expect(RULE_DOC).toContain('overrides');
+    expect(RULE_DOC).toContain('transparent_wrappers');
     expect(RULE_DOC).toContain('<rulebook-name>/<rule-name>');
     expect(RULE_DOC).not.toContain(
       'Agent reference for generating `.safety-net.json` config files.',
@@ -120,6 +121,7 @@ describe('rule command docs', () => {
           overrides: {
             'team-rules/team-rules-rule': 'off',
           },
+          transparent_wrappers: ['rtk'],
         }),
       );
 
@@ -136,6 +138,7 @@ describe('rule command docs', () => {
         overrides: {
           'team-rules/team-rules-rule': 'off',
         },
+        transparent_wrappers: ['rtk'],
       });
     });
   });
@@ -279,10 +282,17 @@ describe('rule remove', () => {
     await withInitializedProjectRules(
       'safety-net-rule-remove-keep-source-',
       async (tempDir, env) => {
+        writeProjectRulesConfig(tempDir, ['project-rules'], ['rtk']);
+
         const result = await runCCSafetyNetCli(['rule', 'remove', 'project-rules'], env, tempDir);
 
         expectSuccessfulCli(result);
-        expectProjectRulesConfigRules(tempDir, []);
+        expect(readRulesConfig(join(tempDir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
+          version: 1,
+          rules: [],
+          overrides: {},
+          transparent_wrappers: ['rtk'],
+        });
         expect(
           existsSync(join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json')),
         ).toBe(true);
@@ -439,11 +449,15 @@ async function withInitializedGlobalRules(
   });
 }
 
-function writeProjectRulesConfig(tempDir: string, rules: string[]): void {
+function writeProjectRulesConfig(
+  tempDir: string,
+  rules: string[],
+  transparentWrappers: string[] = [],
+): void {
   mkdirSync(join(tempDir, '.cc-safety-net', 'rules'), { recursive: true });
   writeFileSync(
     join(tempDir, '.cc-safety-net', 'rules', 'rule.json'),
-    JSON.stringify({ version: 1, rules, overrides: {} }),
+    JSON.stringify({ version: 1, rules, overrides: {}, transparent_wrappers: transparentWrappers }),
   );
 }
 
@@ -536,6 +550,7 @@ describe('rule migrate', () => {
           version: 1,
           rules: ['team-rules'],
           overrides: { 'team-rules/old': 'off' },
+          transparent_wrappers: ['rtk'],
         }),
       );
       writeLocalRulebook(join(userRulesDir, 'team-rules', 'rulebook.json'), 'team-rules');
@@ -558,6 +573,7 @@ describe('rule migrate', () => {
         version: 1,
         rules: ['team-rules', 'user-rules'],
         overrides: { 'team-rules/old': 'off' },
+        transparent_wrappers: ['rtk'],
       });
       expect(readRulebook(join(userRulesDir, 'user-rules', 'rulebook.json')).rules).toEqual([
         legacyRule('block-user-git', 'git'),
@@ -703,6 +719,7 @@ function readRulesConfig(path: string) {
     version: 1;
     rules: string[];
     overrides: Record<string, unknown>;
+    transparent_wrappers?: string[];
   };
 }
 
