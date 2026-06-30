@@ -1,6 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { BUILTIN_RULE_ID_SET } from '@/core/builtin-rules';
+
+export { BUILTIN_RULE_METADATA } from '@/core/builtin-rules';
+
 import { getUserRulesDir } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicyModes, SecretProtectionConfig } from '@/types';
@@ -37,12 +40,132 @@ const EMPTY_SECRET_PROTECTION: SecretProtectionConfig = {
   denyPaths: [],
 };
 
+/** @internal */
+export type GuiPolicy = {
+  version: 1;
+  modes: {
+    strict: boolean;
+    paranoid: boolean;
+    paranoid_rm: boolean;
+    paranoid_interpreters: boolean;
+    worktree_mode: boolean;
+  };
+  builtins: {
+    overrides: Record<string, 'off'>;
+  };
+  secret_protection: {
+    enabled: boolean;
+    allow_paths: string[];
+    deny_paths: string[];
+  };
+};
+
+export const DEFAULT_GUI_POLICY: GuiPolicy = {
+  version: 1,
+  modes: {
+    strict: false,
+    paranoid: false,
+    paranoid_rm: false,
+    paranoid_interpreters: false,
+    worktree_mode: false,
+  },
+  builtins: {
+    overrides: {},
+  },
+  secret_protection: {
+    enabled: false,
+    allow_paths: [],
+    deny_paths: [],
+  },
+};
+
+export interface GuiPolicyReadResult {
+  path: string;
+  exists: boolean;
+  raw: string;
+  policy: GuiPolicy;
+  errors: string[];
+}
+
+export interface GuiPolicyWriteResult {
+  path: string;
+  policy: GuiPolicy;
+  errors: string[];
+}
+
 export function getUserPolicyPath(options?: RulesPolicyOptions): string {
   return join(dirname(getUserRulesDir(options)), POLICY_FILE);
 }
 
 export function getProjectPolicyPath(cwd?: string): string {
   return resolve(cwd ?? process.cwd(), '.cc-safety-net', POLICY_FILE);
+}
+
+export function readUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPolicyReadResult {
+  const path = getUserPolicyPath(options);
+  if (!existsSync(path)) {
+    return {
+      path,
+      exists: false,
+      raw: '',
+      policy: createDefaultGuiPolicy(),
+      errors: [],
+    };
+  }
+
+  const raw = readFileSync(path, 'utf-8');
+  if (!raw.trim()) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: ['Config file is empty'],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const errors = validatePolicyConfig(parsed, 'user');
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
+      errors,
+    };
+  } catch (error) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
+}
+
+export function writeUserPolicyFromGui(
+  policy: unknown,
+  options: RulesPolicyOptions = {},
+): GuiPolicyWriteResult {
+  const path = getUserPolicyPath(options);
+  const errors = validatePolicyConfig(policy, 'user');
+  const normalizedPolicy =
+    errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
+  if (errors.length > 0) {
+    return { path, policy: normalizedPolicy, errors };
+  }
+
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmpPath, `${JSON.stringify(normalizedPolicy, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+  renameSync(tmpPath, path);
+  chmodSync(path, 0o600);
+  return { path, policy: normalizedPolicy, errors: [] };
 }
 
 export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig {
@@ -60,6 +183,47 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
       ],
     },
     errors: [...user.errors, ...project.errors],
+  };
+}
+
+function createDefaultGuiPolicy(): GuiPolicy {
+  return {
+    version: 1,
+    modes: { ...DEFAULT_GUI_POLICY.modes },
+    builtins: { overrides: {} },
+    secret_protection: {
+      enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
+      allow_paths: [],
+      deny_paths: [],
+    },
+  };
+}
+
+function normalizeGuiPolicy(policy: unknown): GuiPolicy {
+  const config = policy as Record<string, unknown>;
+  const modes = (config.modes as Record<string, boolean | undefined> | undefined) ?? {};
+  const builtins = (config.builtins as Record<string, unknown> | undefined) ?? {};
+  const overrides = (builtins.overrides as Record<string, unknown> | undefined) ?? {};
+  const secret = (config.secret_protection as Record<string, unknown> | undefined) ?? {};
+  return {
+    version: 1,
+    modes: {
+      strict: modes.strict ?? false,
+      paranoid: modes.paranoid ?? false,
+      paranoid_rm: modes.paranoid_rm ?? false,
+      paranoid_interpreters: modes.paranoid_interpreters ?? false,
+      worktree_mode: modes.worktree_mode ?? false,
+    },
+    builtins: {
+      overrides: Object.fromEntries(
+        Object.entries(overrides).flatMap(([id, value]) => (value === 'off' ? [[id, 'off']] : [])),
+      ) as Record<string, 'off'>,
+    },
+    secret_protection: {
+      enabled: (secret.enabled as boolean | undefined) ?? false,
+      allow_paths: [...((secret.allow_paths as string[] | undefined) ?? [])],
+      deny_paths: [...((secret.deny_paths as string[] | undefined) ?? [])],
+    },
   };
 }
 

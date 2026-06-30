@@ -7,6 +7,7 @@ import {
   formatTraceJson,
   parseExplainFlags,
 } from '@/bin/explain/index';
+import { runGuiCommand } from '@/bin/gui';
 import { printHelp, printVersion, showCommandHelp } from '@/bin/help';
 import { runHookInstallCommand } from '@/bin/hook/install';
 import {
@@ -23,6 +24,7 @@ type ParsedCommand =
   | { mode: 'hook-uninstall'; args: string[] }
   | { mode: 'rule'; args: string[] }
   | { mode: 'statusline' }
+  | { mode: 'gui'; args: string[] }
   | { mode: 'doctor'; args: string[] }
   | { mode: 'explain'; args: string[] };
 
@@ -110,6 +112,7 @@ const commandParsers = {
     process.exit(1);
   },
   doctor: (args: string[]): ParsedCommand => ({ mode: 'doctor', args }),
+  gui: (args: string[]): ParsedCommand => ({ mode: 'gui', args }),
 } satisfies Record<CommandName, (args: string[]) => ParsedCommand>;
 
 function parseCliArgs(args: string[]): ParsedCommand | null {
@@ -177,6 +180,9 @@ const commandHandlers = {
     });
     process.exit(exitCode);
   },
+  gui: async (command) => {
+    process.exit(await runGuiCommand(command.args));
+  },
   explain: async (command) => {
     // Check for --help in explain args
     if (hasHelpFlag(command.args) || command.args.length === 0) {
@@ -224,6 +230,9 @@ async function runParsedCommand(command: ParsedCommand): Promise<void> {
       return;
     case 'doctor':
       await commandHandlers.doctor(command);
+      return;
+    case 'gui':
+      await commandHandlers.gui(command);
       return;
     case 'explain':
       await commandHandlers.explain(command);

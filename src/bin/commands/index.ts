@@ -1,5 +1,6 @@
 import { doctorCommand } from './doctor';
 import { explainCommand } from './explain';
+import { guiCommand } from './gui';
 import { hookCommand } from './hook';
 import { ruleCommand } from './rule';
 import { statuslineCommand } from './statusline';
@@ -18,6 +19,7 @@ export const commands = [
   explainCommand,
   ruleCommand,
   hookCommand,
+  guiCommand,
   statuslineCommand,
 ] as const satisfies readonly Command[];
 

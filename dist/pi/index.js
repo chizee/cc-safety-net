@@ -361,6 +361,236 @@ var BUILTIN_RULE_IDS = [
   "raw-text.dangerous-command"
 ];
 var BUILTIN_RULE_ID_SET = new Set(BUILTIN_RULE_IDS);
+var BUILTIN_RULE_METADATA = [
+  {
+    id: "git.ssh-env",
+    category: "Git",
+    label: "Git SSH environment override",
+    description: "Blocks Git network operations with SSH environment overrides."
+  },
+  {
+    id: "git.checkout-force",
+    category: "Git",
+    label: "Git checkout force",
+    description: "Blocks forced checkout operations that discard local changes."
+  },
+  {
+    id: "git.checkout-double-dash",
+    category: "Git",
+    label: "Git checkout path restore",
+    description: "Blocks checkout path restores after --."
+  },
+  {
+    id: "git.checkout-ref-path",
+    category: "Git",
+    label: "Git checkout ref and path",
+    description: "Blocks checkout forms that mix a ref and path restore."
+  },
+  {
+    id: "git.checkout-pathspec-from-file",
+    category: "Git",
+    label: "Git checkout pathspec file",
+    description: "Blocks checkout pathspec loading from a file."
+  },
+  {
+    id: "git.checkout-ambiguous",
+    category: "Git",
+    label: "Git checkout ambiguous targets",
+    description: "Blocks ambiguous checkout arguments that may restore paths."
+  },
+  {
+    id: "git.switch-discard-changes",
+    category: "Git",
+    label: "Git switch discard changes",
+    description: "Blocks branch switches that explicitly discard local changes."
+  },
+  {
+    id: "git.switch-force",
+    category: "Git",
+    label: "Git switch force",
+    description: "Blocks forced branch switches."
+  },
+  {
+    id: "git.restore-worktree",
+    category: "Git",
+    label: "Git restore worktree",
+    description: "Blocks worktree restore operations."
+  },
+  {
+    id: "git.restore-unstaged",
+    category: "Git",
+    label: "Git restore unstaged",
+    description: "Blocks unstaged restore operations."
+  },
+  {
+    id: "git.reset-hard",
+    category: "Git",
+    label: "Git reset hard",
+    description: "Blocks hard resets."
+  },
+  {
+    id: "git.reset-merge",
+    category: "Git",
+    label: "Git reset merge",
+    description: "Blocks merge resets."
+  },
+  {
+    id: "git.clean-force",
+    category: "Git",
+    label: "Git clean force",
+    description: "Blocks forced clean operations."
+  },
+  {
+    id: "git.push-force",
+    category: "Git",
+    label: "Git push force",
+    description: "Blocks force pushes."
+  },
+  {
+    id: "git.branch-force-delete",
+    category: "Git",
+    label: "Git branch force delete",
+    description: "Blocks forced branch deletion."
+  },
+  {
+    id: "git.rebase-abort",
+    category: "Git",
+    label: "Git rebase abort",
+    description: "Blocks rebase abort operations."
+  },
+  {
+    id: "git.merge-abort",
+    category: "Git",
+    label: "Git merge abort",
+    description: "Blocks merge abort operations."
+  },
+  {
+    id: "git.tag-delete",
+    category: "Git",
+    label: "Git tag delete",
+    description: "Blocks tag deletion."
+  },
+  {
+    id: "git.reflog-delete",
+    category: "Git",
+    label: "Git reflog delete",
+    description: "Blocks reflog deletion."
+  },
+  {
+    id: "git.stash-drop",
+    category: "Git",
+    label: "Git stash drop",
+    description: "Blocks dropping stash entries."
+  },
+  {
+    id: "git.stash-clear",
+    category: "Git",
+    label: "Git stash clear",
+    description: "Blocks clearing all stash entries."
+  },
+  {
+    id: "git.worktree-remove-force",
+    category: "Git",
+    label: "Git worktree force remove",
+    description: "Blocks forced worktree removal."
+  },
+  {
+    id: "rm.recursive-force-root-or-home",
+    category: "Filesystem",
+    label: "rm -rf root or home",
+    description: "Blocks recursive forced removal of root or home paths."
+  },
+  {
+    id: "rm.recursive-force-dynamic-target",
+    category: "Filesystem",
+    label: "rm -rf dynamic target",
+    description: "Blocks recursive forced removal with dynamic targets."
+  },
+  {
+    id: "rm.recursive-force-home-cwd",
+    category: "Filesystem",
+    label: "rm -rf from home cwd",
+    description: "Blocks recursive forced removal while working in home."
+  },
+  {
+    id: "rm.recursive-force-cwd-self",
+    category: "Filesystem",
+    label: "rm -rf current directory",
+    description: "Blocks recursive forced removal of the current directory."
+  },
+  {
+    id: "rm.recursive-force-outside-cwd",
+    category: "Filesystem",
+    label: "rm -rf outside cwd",
+    description: "Blocks recursive forced removal outside the original cwd."
+  },
+  {
+    id: "rm.recursive-force-paranoid",
+    category: "Filesystem",
+    label: "rm -rf paranoid mode",
+    description: "Blocks non-temp recursive forced removal when paranoid rm is enabled."
+  },
+  {
+    id: "find.delete",
+    category: "Filesystem",
+    label: "find delete",
+    description: "Blocks find -delete operations."
+  },
+  {
+    id: "find.exec-rm-recursive-force",
+    category: "Filesystem",
+    label: "find exec rm -rf",
+    description: "Blocks find -exec rm -rf operations."
+  },
+  {
+    id: "interpreter.dangerous-command",
+    category: "Execution",
+    label: "Interpreter dangerous command",
+    description: "Blocks interpreter one-liners containing dangerous commands."
+  },
+  {
+    id: "interpreter.one-liner-paranoid",
+    category: "Execution",
+    label: "Interpreter one-liner paranoid mode",
+    description: "Blocks interpreter one-liners when paranoid interpreters is enabled."
+  },
+  {
+    id: "awk.system-dynamic",
+    category: "Execution",
+    label: "Awk dynamic system call",
+    description: "Blocks awk system calls that cannot be safely analyzed."
+  },
+  {
+    id: "xargs.rm-recursive-force-dynamic",
+    category: "Execution",
+    label: "xargs dynamic rm -rf",
+    description: "Blocks xargs rm -rf with dynamic input."
+  },
+  {
+    id: "xargs.shell-dynamic",
+    category: "Execution",
+    label: "xargs dynamic shell",
+    description: "Blocks xargs shell execution with dynamic input."
+  },
+  {
+    id: "parallel.rm-recursive-force-dynamic",
+    category: "Execution",
+    label: "parallel dynamic rm -rf",
+    description: "Blocks parallel rm -rf with dynamic input."
+  },
+  {
+    id: "parallel.shell-dynamic",
+    category: "Execution",
+    label: "parallel dynamic shell",
+    description: "Blocks parallel shell execution with dynamic input."
+  },
+  {
+    id: "raw-text.dangerous-command",
+    category: "Execution",
+    label: "Raw text dangerous command",
+    description: "Blocks dangerous commands detected in raw command text."
+  }
+];
 function builtinMatch(id, reason) {
   return { id, reason };
 }
@@ -4838,9 +5068,8 @@ import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:
 import { resolve as resolve8 } from "node:path";
 
 // src/core/policy.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
+import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
 import { dirname as dirname5, join as join5, resolve as resolve5 } from "node:path";
-
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname4, join as join4, resolve as resolve4 } from "node:path";
@@ -4939,11 +5168,88 @@ var EMPTY_SECRET_PROTECTION = {
   allowPaths: [],
   denyPaths: []
 };
+var DEFAULT_GUI_POLICY = {
+  version: 1,
+  modes: {
+    strict: false,
+    paranoid: false,
+    paranoid_rm: false,
+    paranoid_interpreters: false,
+    worktree_mode: false
+  },
+  builtins: {
+    overrides: {}
+  },
+  secret_protection: {
+    enabled: false,
+    allow_paths: [],
+    deny_paths: []
+  }
+};
 function getUserPolicyPath(options2) {
   return join5(dirname5(getUserRulesDir(options2)), POLICY_FILE);
 }
 function getProjectPolicyPath(cwd) {
   return resolve5(cwd ?? process.cwd(), ".cc-safety-net", POLICY_FILE);
+}
+function readUserPolicyForGui(options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  if (!existsSync4(path)) {
+    return {
+      path,
+      exists: false,
+      raw: "",
+      policy: createDefaultGuiPolicy(),
+      errors: []
+    };
+  }
+  const raw = readFileSync3(path, "utf-8");
+  if (!raw.trim()) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: ["Config file is empty"]
+    };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    const errors = validatePolicyConfig(parsed, "user");
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
+      errors
+    };
+  } catch (error) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+function writeUserPolicyFromGui(policy, options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  const errors = validatePolicyConfig(policy, "user");
+  const normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
+  if (errors.length > 0) {
+    return { path, policy: normalizedPolicy, errors };
+  }
+  mkdirSync(dirname5(path), { recursive: true, mode: 448 });
+  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmpPath, `${JSON.stringify(normalizedPolicy, null, 2)}
+`, {
+    encoding: "utf-8",
+    mode: 384
+  });
+  renameSync(tmpPath, path);
+  chmodSync(path, 384);
+  return { path, policy: normalizedPolicy, errors: [] };
 }
 function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2), "user");
@@ -4960,6 +5266,43 @@ function loadPolicyConfig(options2 = {}) {
       ]
     },
     errors: [...user.errors, ...project.errors]
+  };
+}
+function createDefaultGuiPolicy() {
+  return {
+    version: 1,
+    modes: { ...DEFAULT_GUI_POLICY.modes },
+    builtins: { overrides: {} },
+    secret_protection: {
+      enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
+      allow_paths: [],
+      deny_paths: []
+    }
+  };
+}
+function normalizeGuiPolicy(policy) {
+  const config = policy;
+  const modes = config.modes ?? {};
+  const builtins = config.builtins ?? {};
+  const overrides = builtins.overrides ?? {};
+  const secret = config.secret_protection ?? {};
+  return {
+    version: 1,
+    modes: {
+      strict: modes.strict ?? false,
+      paranoid: modes.paranoid ?? false,
+      paranoid_rm: modes.paranoid_rm ?? false,
+      paranoid_interpreters: modes.paranoid_interpreters ?? false,
+      worktree_mode: modes.worktree_mode ?? false
+    },
+    builtins: {
+      overrides: Object.fromEntries(Object.entries(overrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
+    },
+    secret_protection: {
+      enabled: secret.enabled ?? false,
+      allow_paths: [...secret.allow_paths ?? []],
+      deny_paths: [...secret.deny_paths ?? []]
+    }
   };
 }
 function readPolicyConfig(path, scope) {
@@ -5194,7 +5537,7 @@ function validateCustomRule(rule, index, ruleNames, options2 = {}) {
 }
 
 // src/core/rules/policy/config-file.ts
-import { existsSync as existsSync5, mkdirSync, readFileSync as readFileSync4, renameSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync2, readFileSync as readFileSync4, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname6 } from "node:path";
 
 // src/core/rules/policy/sources.ts
@@ -5515,11 +5858,11 @@ function writeStarterRulebook(path, name = "project-rules") {
   });
 }
 function writeJsonAtomic(path, value) {
-  mkdirSync(dirname6(path), { recursive: true });
+  mkdirSync2(dirname6(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
+  writeFileSync2(tempPath, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
-  renameSync(tempPath, path);
+  renameSync2(tempPath, path);
 }
 
 // src/core/rules/policy/scope-policy.ts
@@ -6254,13 +6597,13 @@ function withTerminalPeriod(message) {
 import {
   existsSync as existsSync9,
   lstatSync as lstatSync4,
-  mkdirSync as mkdirSync2,
+  mkdirSync as mkdirSync3,
   readdirSync,
   readFileSync as readFileSync8,
   rmdirSync,
   rmSync,
   unlinkSync,
-  writeFileSync as writeFileSync2
+  writeFileSync as writeFileSync3
 } from "node:fs";
 import { dirname as dirname8, isAbsolute as isAbsolute7, join as join8, relative as relative2, resolve as resolve7, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
@@ -6335,7 +6678,7 @@ async function testRulebookSources(sources, options2 = {}) {
 }
 async function addRulebookSource(source, options2 = {}) {
   const scope = getScopePaths(options2);
-  mkdirSync2(scope.configDir, { recursive: true });
+  mkdirSync3(scope.configDir, { recursive: true });
   const before = existsSync9(scope.configPath) ? readFileSync8(scope.configPath, "utf-8") : null;
   const scopeConfig = readScopeRulesConfig(scope.configPath);
   if (!scopeConfig.ok)
@@ -6481,8 +6824,8 @@ function addRuleCount(entry, ruleCountsBySpec) {
 }
 function writeCache(content, entry, configDir, options2) {
   const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  mkdirSync2(dirname8(path), { recursive: true });
-  writeFileSync2(path, content, "utf-8");
+  mkdirSync3(dirname8(path), { recursive: true });
+  writeFileSync3(path, content, "utf-8");
 }
 function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
   const internalOptions = options2;
@@ -6580,7 +6923,7 @@ function restoreConfig(path, content) {
     rmSync(path, { force: true });
     return;
   }
-  writeFileSync2(path, content, "utf-8");
+  writeFileSync3(path, content, "utf-8");
 }
 function failWithError(error) {
   return {
@@ -6692,7 +7035,7 @@ function analyzeCommand(command2, options2 = {}) {
 }
 
 // src/core/audit.ts
-import { appendFileSync, existsSync as existsSync11, mkdirSync as mkdirSync3 } from "node:fs";
+import { appendFileSync, existsSync as existsSync11, mkdirSync as mkdirSync4 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join9 } from "node:path";
 function sanitizeSessionIdForFilename(sessionId) {
@@ -6716,7 +7059,7 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
   const logsDir = join9(home, ".cc-safety-net", "logs");
   try {
     if (!existsSync11(logsDir)) {
-      mkdirSync3(logsDir, { recursive: true });
+      mkdirSync4(logsDir, { recursive: true });
     }
     const logFile = join9(logsDir, `${safeSessionId}.jsonl`);
     const entry = {

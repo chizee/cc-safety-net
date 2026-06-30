@@ -48,7 +48,7 @@ describe('command registry', () => {
       expect(visible.length).toBeGreaterThan(0);
 
       const names = visible.map((c) => c.name);
-      expect(names).toEqual(['doctor', 'explain', 'rule', 'hook', 'statusline']);
+      expect(names).toEqual(['doctor', 'explain', 'rule', 'hook', 'gui', 'statusline']);
     });
   });
 });
@@ -101,6 +101,7 @@ describe('command routing', () => {
       { args: ['explain', '--help'], output: 'USAGE:\n  cc-safety-net explain', exitCode: 0 },
       { args: ['rule', '--help'], output: 'USAGE:\n  cc-safety-net rule', exitCode: 0 },
       { args: ['hook', '--help'], output: 'USAGE:\n  cc-safety-net hook', exitCode: 0 },
+      { args: ['gui', '--help'], output: 'USAGE:\n  cc-safety-net gui', exitCode: 0 },
       {
         args: ['statusline'],
         output: 'USAGE:\n  cc-safety-net statusline',

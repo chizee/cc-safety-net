@@ -82,6 +82,7 @@ COMMANDS:
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
   cc-safety-net hook <coding cli>            Run as an agent CLI hook (reads JSON from stdin)
+  cc-safety-net gui [options]                Open the local policy editor GUI
   cc-safety-net statusline <coding cli>      Print status line with mode indicators for shell integration
 
 GLOBAL OPTIONS:
@@ -119,6 +120,7 @@ ENVIRONMENT VARIABLES:
       expect(output).toContain('doctor');
       expect(output).toContain('explain');
       expect(output).toContain('hook');
+      expect(output).toContain('gui');
       expect(output).not.toContain('cc-safety-net -cc');
       expect(output).not.toContain('cc-safety-net -gc');
       expect(output).not.toContain('verify-config');
@@ -250,6 +252,15 @@ ENVIRONMENT VARIABLES:
       expect(output).toContain('statusline <coding cli>');
       expect(output).toContain('-cc, --claude-code');
       expect(output).toContain('cc-safety-net statusline --claude-code');
+    });
+
+    test('gui command prints no-open option', () => {
+      const cmd = findCommand('gui');
+      if (!cmd) throw new Error('gui command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+      expect(output).toContain('cc-safety-net gui');
+      expect(output).toContain('--no-open');
+      expect(output).toContain('Open the local policy editor GUI');
     });
   });
 

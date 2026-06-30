@@ -58,6 +58,15 @@ export declare const commands: readonly [{
     }[];
     examples: string[];
 }, {
+    name: "gui";
+    description: string;
+    usage: string;
+    options: {
+        flags: string;
+        description: string;
+    }[];
+    examples: string[];
+}, {
     name: "statusline";
     description: string;
     usage: string;
