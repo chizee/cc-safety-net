@@ -350,6 +350,87 @@ describe('secret protection rename-shielded variants', () => {
   });
 });
 
+describe('secret protection broad path signatures', () => {
+  test('flags standalone sensitive extensions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of [
+      'server.pem',
+      'vault.kdbx',
+      'prod.ovpn',
+      'backup.sql',
+      'wallet.keychain',
+      'CERT.P12',
+      '/tmp/archive.PKCS12',
+    ]) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+
+  test('flags regex-style sensitive extensions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of [
+      'server.key',
+      'deploy.keypair',
+      'java.keystore',
+      'gnome.keyring',
+      'keepass.kdb',
+      'keepass.kdbx',
+      'database.sql',
+      'database.sqldump',
+    ]) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+
+  test('does not flag log files by default', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitivePathTarget(['application.log'], cwd)).toBeNull();
+  });
+
+  test('flags non-standard extensionless SSH key filenames', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of [
+      'deploy_key_rsa',
+      'github_ed25519',
+      'staging_ecdsa',
+      'backup_dsa',
+      '/tmp/DEPLOY_KEY_RSA',
+    ]) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+
+  test('does not flag public-key variants of broad SSH filenames', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of ['deploy_key_rsa.pub', 'github_ed25519.pub']) {
+      expect(findSensitivePathTarget([target], cwd), target).toBeNull();
+    }
+  });
+
+  test('skips dependency and cache paths for broad signatures only', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of [
+      'node_modules/pkg/server.pem',
+      'vendor/cache/vault.kdbx',
+      'vendor/bundle/prod.ovpn',
+      '.git/hooks/deploy_key_rsa',
+      'src/__pycache__/database.sql',
+    ]) {
+      expect(findSensitivePathTarget([target], cwd), target).toBeNull();
+    }
+
+    for (const target of ['node_modules/pkg/.env', 'vendor/cache/id_rsa']) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+});
+
 describe('secret protection env variant coverage', () => {
   test('flags every .env.<environment> variant', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');

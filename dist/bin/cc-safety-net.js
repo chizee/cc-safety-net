@@ -6724,6 +6724,42 @@ var SENSITIVE_DOT_VARIANT_SUFFIXES = [
   ".tmp"
 ];
 var SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set(SENSITIVE_DOT_VARIANT_SUFFIXES);
+var SENSITIVE_EXTENSIONS = new Set([
+  "agilekeychain",
+  "asc",
+  "bek",
+  "cscfg",
+  "fve",
+  "gnucash",
+  "jks",
+  "keychain",
+  "kwallet",
+  "mdf",
+  "ovpn",
+  "p12",
+  "pcap",
+  "pem",
+  "pfx",
+  "pkcs12",
+  "psafe3",
+  "rdp",
+  "sdf",
+  "sqlite",
+  "tblk",
+  "tpm"
+]);
+var SENSITIVE_EXTENSION_PATTERNS = [
+  /^key(pair)?$/,
+  /^key(store|ring)$/,
+  /^kdbx?$/,
+  /^sql(dump)?$/
+];
+var BROAD_SSH_KEY_BASENAME_PATTERN = /^.*_(rsa|dsa|ed25519|ecdsa)$/;
+var SKIPPABLE_PATH_SEGMENTS = new Set(["node_modules", ".git", "__pycache__"]);
+var SKIPPABLE_PATH_SEGMENT_PAIRS = [
+  ["vendor", "bundle"],
+  ["vendor", "cache"]
+];
 var SENSITIVE_HOME_PATH_SUFFIXES = [
   [".ssh"],
   [".aws"],
@@ -6765,6 +6801,12 @@ function isSensitivePath(target, cwd) {
         return true;
     }
   }
+  if (isSkippablePathForBroadSignatures(comparablePath))
+    return false;
+  if (hasBroadSshKeyBasename(comparableName))
+    return true;
+  if (hasSensitiveExtension(comparableName))
+    return true;
   return false;
 }
 function matchesHomePathSuffix(comparablePath, suffix) {
@@ -6775,6 +6817,21 @@ function isSensitiveDirSegment(comparablePath) {
 }
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
+}
+function isSkippablePathForBroadSignatures(comparablePath) {
+  const parts = comparablePath.split("/");
+  return parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) || SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) => parts.some((part, index) => part === parent && parts[index + 1] === child));
+}
+function hasBroadSshKeyBasename(comparableName) {
+  return !comparableName.includes(".") && BROAD_SSH_KEY_BASENAME_PATTERN.test(comparableName);
+}
+function hasSensitiveExtension(comparableName) {
+  const extension = getExtension(comparableName);
+  return extension !== "" && (SENSITIVE_EXTENSIONS.has(extension) || SENSITIVE_EXTENSION_PATTERNS.some((pattern) => pattern.test(extension)));
+}
+function getExtension(comparableName) {
+  const index = comparableName.lastIndexOf(".");
+  return index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : "";
 }
 function comparable(value) {
   return value.toLowerCase();

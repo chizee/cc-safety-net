@@ -337,6 +337,47 @@ const SENSITIVE_DOT_VARIANT_SUFFIXES = [
 ];
 const SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set(SENSITIVE_DOT_VARIANT_SUFFIXES);
 
+const SENSITIVE_EXTENSIONS = new Set([
+  'agilekeychain',
+  'asc',
+  'bek',
+  'cscfg',
+  'fve',
+  'gnucash',
+  'jks',
+  'keychain',
+  'kwallet',
+  'mdf',
+  'ovpn',
+  'p12',
+  'pcap',
+  'pem',
+  'pfx',
+  'pkcs12',
+  'psafe3',
+  'rdp',
+  'sdf',
+  'sqlite',
+  'tblk',
+  'tpm',
+]);
+
+const SENSITIVE_EXTENSION_PATTERNS = [
+  /^key(pair)?$/,
+  /^key(store|ring)$/,
+  /^kdbx?$/,
+  /^sql(dump)?$/,
+];
+
+const BROAD_SSH_KEY_BASENAME_PATTERN = /^.*_(rsa|dsa|ed25519|ecdsa)$/;
+
+const SKIPPABLE_PATH_SEGMENTS = new Set(['node_modules', '.git', '__pycache__']);
+
+const SKIPPABLE_PATH_SEGMENT_PAIRS = [
+  ['vendor', 'bundle'],
+  ['vendor', 'cache'],
+];
+
 // Home-anchored credential locations. Each entry is matched only under a
 // home (`~`) prefix, so repository fixtures like tests/fixtures/.ssh/config
 // or .aws/README.md are not denied. Distinctive basenames (id_rsa,
@@ -390,6 +431,10 @@ function isSensitivePath(target: string, cwd: string): boolean {
     }
   }
 
+  if (isSkippablePathForBroadSignatures(comparablePath)) return false;
+  if (hasBroadSshKeyBasename(comparableName)) return true;
+  if (hasSensitiveExtension(comparableName)) return true;
+
   return false;
 }
 
@@ -410,6 +455,34 @@ function isAllowedSensitiveTemplate(comparableName: string): boolean {
     ENV_EXEMPTION_BASENAMES.has(comparableName) ||
     ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix))
   );
+}
+
+function isSkippablePathForBroadSignatures(comparablePath: string): boolean {
+  const parts = comparablePath.split('/');
+  return (
+    parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) ||
+    SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) =>
+      parts.some((part, index) => part === parent && parts[index + 1] === child),
+    )
+  );
+}
+
+function hasBroadSshKeyBasename(comparableName: string): boolean {
+  return !comparableName.includes('.') && BROAD_SSH_KEY_BASENAME_PATTERN.test(comparableName);
+}
+
+function hasSensitiveExtension(comparableName: string): boolean {
+  const extension = getExtension(comparableName);
+  return (
+    extension !== '' &&
+    (SENSITIVE_EXTENSIONS.has(extension) ||
+      SENSITIVE_EXTENSION_PATTERNS.some((pattern) => pattern.test(extension)))
+  );
+}
+
+function getExtension(comparableName: string): string {
+  const index = comparableName.lastIndexOf('.');
+  return index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : '';
 }
 
 function comparable(value: string): string {
