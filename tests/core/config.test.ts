@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
 import {
   getLegacyProjectConfigPath,
@@ -12,7 +12,7 @@ import {
 } from '@/core/config';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { validateRulesConfig } from '@/core/rules/policy/config-file';
-import { writeLockedGitHubRulebookPolicy } from '../helpers.ts';
+import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers.ts';
 
 const legacyRule = {
   name: 'block-git-add-all',
@@ -141,6 +141,165 @@ describe('runtime config loading', () => {
       }),
     );
   }
+
+  function writeUserPolicy(policy: unknown): void {
+    mkdirSync(dirname(userRulesDir), { recursive: true });
+    writeFileSync(join(dirname(userRulesDir), 'policy.json'), JSON.stringify(policy), 'utf-8');
+  }
+
+  function writeProjectPolicy(policy: unknown): void {
+    mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
+    writeFileSync(join(tempDir, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
+  }
+
+  test('user policy modes affect command analysis without env flags', () => {
+    writeUserPolicy({ version: 1, modes: { paranoid_rm: true } });
+
+    const result = analyzeCommand('rm -rf build', {
+      cwd: tempDir,
+      config: loadConfig(tempDir, { userConfigDir: userRulesDir }),
+    });
+
+    expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
+  });
+
+  test('env flags still enable modes when policy sets false', () => {
+    writeUserPolicy({ version: 1, modes: { paranoid_rm: false } });
+
+    withEnv({ CC_SAFETY_NET_PARANOID_RM: '1' }, () => {
+      const result = analyzeCommand('rm -rf build', {
+        cwd: tempDir,
+        config: loadConfig(tempDir, { userConfigDir: userRulesDir }),
+      });
+
+      expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
+    });
+  });
+
+  test('user policy disables only the matching built-in id', () => {
+    writeUserPolicy({
+      version: 1,
+      builtins: { overrides: { 'git.reset-hard': 'off' } },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(analyzeCommand('git reset --hard', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('git clean -f', { cwd: tempDir, config })?.reason).toContain(
+      'git clean -f',
+    );
+  });
+
+  test('built-in ids are granular within command families', () => {
+    writeUserPolicy({
+      version: 1,
+      builtins: { overrides: { 'git.checkout-force': 'off' } },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(analyzeCommand('git checkout --force main', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('git checkout -- src/index.ts', { cwd: tempDir, config })?.reason).toBe(
+      "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.",
+    );
+  });
+
+  test('rm built-in ids are granular by target classification', () => {
+    writeUserPolicy({
+      version: 1,
+      builtins: { overrides: { 'rm.recursive-force-outside-cwd': 'off' } },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(analyzeCommand('rm -rf ../outside', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })?.reason).toContain(
+      'root or home directory',
+    );
+  });
+
+  test('nested and dynamic execution built-in ids honor overrides', () => {
+    writeUserPolicy({
+      version: 1,
+      builtins: {
+        overrides: {
+          'interpreter.dangerous-command': 'off',
+          'xargs.shell-dynamic': 'off',
+          'parallel.shell-dynamic': 'off',
+        },
+      },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(analyzeCommand("node -e 'shred file.txt'", { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('echo ok | xargs bash -c', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('parallel bash -c ::: ok', { cwd: tempDir, config })).toBeNull();
+  });
+
+  test('project policy weakening fields fail closed', () => {
+    writeProjectPolicy({
+      version: 1,
+      builtins: { overrides: { 'git.reset-hard': 'off' } },
+      secret_protection: { allow_paths: ['.env'] },
+      modes: { worktree_mode: true },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const result = analyzeCommand('echo ok', { cwd: tempDir, config });
+
+    expect(config.failClosedReason).toContain('project policy cannot configure builtins.overrides');
+    expect(config.failClosedReason).toContain(
+      'project policy cannot configure secret_protection.allow_paths',
+    );
+    expect(config.failClosedReason).toContain('project policy cannot enable modes.worktree_mode');
+    expect(result?.reason).toContain('project policy cannot configure builtins.overrides');
+  });
+
+  test('invalid policy fields fail closed with repair context', () => {
+    writeUserPolicy({
+      version: 1,
+      builtins: { overrides: { 'git.unknown': 'off', 'git.reset-hard': 'allow' } },
+      extra: true,
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(config.failClosedReason).toContain('invalid policy config');
+    expect(config.failClosedReason).toContain('unknown field "extra"');
+    expect(config.failClosedReason).toContain('unknown built-in rule id "git.unknown"');
+    expect(config.failClosedReason).toContain('builtins.overrides.git.reset-hard must be "off"');
+  });
+
+  test('user allow paths cannot target policy files', () => {
+    writeUserPolicy({
+      version: 1,
+      secret_protection: { allow_paths: ['~/.cc-safety-net/policy.json'] },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(config.failClosedReason).toContain(
+      'secret_protection.allow_paths[0] cannot target policy config',
+    );
+  });
+
+  test('user and project secret deny paths merge while only user allow paths apply', () => {
+    writeUserPolicy({
+      version: 1,
+      secret_protection: { enabled: true, allow_paths: ['.env.local'], deny_paths: ['user.key'] },
+    });
+    writeProjectPolicy({
+      version: 1,
+      secret_protection: { enabled: true, deny_paths: ['project.key'] },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(config.secretProtection?.enabled).toBe(true);
+    expect(config.secretProtection?.allowPaths).toEqual(['.env.local']);
+    expect(config.secretProtection?.denyPaths).toEqual(['user.key', 'project.key']);
+  });
 
   test('validates transparent wrapper config', () => {
     expect(

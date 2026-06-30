@@ -317,10 +317,64 @@ function buildSafetyNetCommandPrompt(args) {
 ${args.trim() || DEFAULT_USER_REQUEST}`;
 }
 // src/pi/tool-call.ts
-import { resolve as resolve9 } from "node:path";
+import { resolve as resolve11 } from "node:path";
+
+// src/core/builtin-rules.ts
+var BUILTIN_RULE_IDS = [
+  "git.ssh-env",
+  "git.checkout-force",
+  "git.checkout-double-dash",
+  "git.checkout-ref-path",
+  "git.checkout-pathspec-from-file",
+  "git.checkout-ambiguous",
+  "git.switch-discard-changes",
+  "git.switch-force",
+  "git.restore-worktree",
+  "git.restore-unstaged",
+  "git.reset-hard",
+  "git.reset-merge",
+  "git.clean-force",
+  "git.push-force",
+  "git.branch-force-delete",
+  "git.rebase-abort",
+  "git.merge-abort",
+  "git.tag-delete",
+  "git.reflog-delete",
+  "git.stash-drop",
+  "git.stash-clear",
+  "git.worktree-remove-force",
+  "rm.recursive-force-root-or-home",
+  "rm.recursive-force-dynamic-target",
+  "rm.recursive-force-home-cwd",
+  "rm.recursive-force-cwd-self",
+  "rm.recursive-force-outside-cwd",
+  "rm.recursive-force-paranoid",
+  "find.delete",
+  "find.exec-rm-recursive-force",
+  "interpreter.dangerous-command",
+  "interpreter.one-liner-paranoid",
+  "awk.system-dynamic",
+  "xargs.rm-recursive-force-dynamic",
+  "xargs.shell-dynamic",
+  "parallel.rm-recursive-force-dynamic",
+  "parallel.shell-dynamic",
+  "raw-text.dangerous-command"
+];
+var BUILTIN_RULE_ID_SET = new Set(BUILTIN_RULE_IDS);
+function builtinMatch(id, reason) {
+  return { id, reason };
+}
+function filterBuiltinMatch(match, config) {
+  if (!match)
+    return null;
+  return config?.disabledBuiltinRules?.has(match.id) ? null : match.reason;
+}
 
 // src/core/analyze/dangerous-text.ts
 function dangerousInText(text) {
+  return dangerousInTextMatch(text)?.reason ?? null;
+}
+function dangerousInTextMatch(text) {
   const t = text.toLowerCase();
   const stripped = t.trimStart();
   const isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg ");
@@ -381,7 +435,7 @@ function dangerousInText(text) {
       continue;
     const target = caseSensitive ? text : t;
     if (regex.test(target)) {
-      return reason;
+      return builtinMatch("raw-text.dangerous-command", reason);
     }
   }
   return null;
@@ -395,6 +449,9 @@ import { normalize as normalize3 } from "node:path";
 var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
 var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system() call with dynamic command that cannot be safely analyzed.";
 function analyzeAwkSystemCalls(tokens, analyzeNested) {
+  return analyzeAwkSystemCallMatch(tokens, analyzeNested)?.reason ?? null;
+}
+function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   for (const token of tokens.slice(1)) {
     if (!token.includes("system"))
       continue;
@@ -402,11 +459,11 @@ function analyzeAwkSystemCalls(tokens, analyzeNested) {
     if (!commands2)
       continue;
     if (commands2.dynamic)
-      return REASON_AWK_SYSTEM_DYNAMIC;
+      return builtinMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
     for (const command of commands2.commands) {
       const reason = analyzeNested(command);
       if (reason)
-        return reason;
+        return { id: "", reason };
     }
   }
   return null;
@@ -1913,8 +1970,11 @@ var FIND_PRIMARIES_WITH_VALUE = new Set([
   "-xtype"
 ]);
 function analyzeFind(tokens, context = {}) {
+  return analyzeFindMatch(tokens, context)?.reason ?? null;
+}
+function analyzeFindMatch(tokens, context = {}) {
   if (findHasDelete(tokens.slice(1))) {
-    return REASON_FIND_DELETE;
+    return builtinMatch("find.delete", REASON_FIND_DELETE);
   }
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
@@ -1927,7 +1987,7 @@ function analyzeFind(tokens, context = {}) {
       if (context.analyzeTokens) {
         const reason = context.analyzeTokens(execCommand, token === "-execdir" ? null : context.cwd);
         if (reason) {
-          return reason;
+          return { id: "", reason };
         }
         continue;
       }
@@ -1937,7 +1997,7 @@ function analyzeFind(tokens, context = {}) {
           envAssignments: context.envAssignments
         });
         if (reason) {
-          return reason;
+          return { id: "", reason };
         }
         continue;
       }
@@ -1959,7 +2019,7 @@ function analyzeFindExecCommand(tokens) {
     head = getBasename(execCommand[0] ?? "");
   }
   if (head === "rm" && hasRecursiveForceFlags(execCommand)) {
-    return "find -exec rm -rf is dangerous. Use explicit file list instead.";
+    return builtinMatch("find.exec-rm-recursive-force", "find -exec rm -rf is dangerous. Use explicit file list instead.");
   }
   return null;
 }
@@ -2055,14 +2115,14 @@ var ENV_FLAGS = {
   debug: { name: "CC_SAFETY_NET_DEBUG" },
   experimentalSecretProtection: { name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION" }
 };
-function getCCSafetyNetEnvModes() {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
+function getCCSafetyNetEnvModes(policyModes = {}) {
+  const paranoidAll = envTruthy(ENV_FLAGS.paranoid) || !!policyModes.paranoid;
   return {
-    strict: envTruthy(ENV_FLAGS.strict),
+    strict: envTruthy(ENV_FLAGS.strict) || !!policyModes.strict,
     paranoidAll,
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree)
+    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm) || !!policyModes.paranoidRm,
+    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters) || !!policyModes.paranoidInterpreters,
+    worktreeMode: envTruthy(ENV_FLAGS.worktree) || !!policyModes.worktreeMode
   };
 }
 function envTruthy(flag) {
@@ -2104,6 +2164,9 @@ var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that c
 var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
 var REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRm(tokens, options2 = {}) {
+  return analyzeRmMatch(tokens, options2)?.reason ?? null;
+}
+function analyzeRmMatch(tokens, options2 = {}) {
   const { cwd, originalCwd, paranoid = false, allowTmpdirVar = true } = options2;
   const anchoredCwd = originalCwd ?? cwd ?? null;
   const resolvedCwd = cwd ?? null;
@@ -2175,22 +2238,22 @@ function classifyTarget(target, ctx) {
 function reasonForClassification(classification, ctx) {
   switch (classification.kind) {
     case "root_or_home_target":
-      return REASON_RM_RF_ROOT_HOME;
+      return builtinMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
     case "temp_target":
       return null;
     case "dynamic_target":
-      return REASON_RM_RF_DYNAMIC_TARGET;
+      return builtinMatch("rm.recursive-force-dynamic-target", REASON_RM_RF_DYNAMIC_TARGET);
     case "home_cwd_target":
-      return REASON_RM_HOME_CWD;
+      return builtinMatch("rm.recursive-force-home-cwd", REASON_RM_HOME_CWD);
     case "cwd_self_target":
-      return REASON_RM_RF;
+      return builtinMatch("rm.recursive-force-cwd-self", REASON_RM_RF);
     case "within_anchored_cwd":
       if (ctx.paranoid) {
-        return `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`;
+        return builtinMatch("rm.recursive-force-paranoid", `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
       }
       return null;
     case "outside_anchored_cwd":
-      return REASON_RM_RF;
+      return builtinMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
   }
 }
 function isDangerousRootOrHomeTarget(path) {
@@ -2770,11 +2833,11 @@ function analyzeGitRule(tokens) {
       return null;
   }
 }
-function localDiscard(reason) {
-  return reason ? { reason, localDiscard: true } : null;
+function localDiscard(match) {
+  return match ? { ...match, localDiscard: true } : null;
 }
-function sharedState(reason) {
-  return reason ? { reason, localDiscard: false } : null;
+function sharedState(match) {
+  return match ? { ...match, localDiscard: false } : null;
 }
 function analyzeGitCheckout(tokens) {
   const { index: doubleDashIdx, before: beforeDash } = splitAtDoubleDash(tokens);
@@ -2782,39 +2845,39 @@ function analyzeGitCheckout(tokens) {
     shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
   });
   if (beforeDash.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_CHECKOUT_FORCE;
+    return builtinMatch("git.checkout-force", REASON_CHECKOUT_FORCE);
   }
   for (const token of tokens) {
     if (token === "-b" || token === "-B" || token === "--orphan") {
       return null;
     }
     if (matchesGitLongOption(token, "--pathspec-from-file")) {
-      return REASON_CHECKOUT_PATHSPEC_FROM_FILE;
+      return builtinMatch("git.checkout-pathspec-from-file", REASON_CHECKOUT_PATHSPEC_FROM_FILE);
     }
   }
   if (doubleDashIdx !== -1) {
     const hasRefBeforeDash = beforeDash.some((t) => !t.startsWith("-"));
     if (hasRefBeforeDash) {
-      return REASON_CHECKOUT_REF_PATH;
+      return builtinMatch("git.checkout-ref-path", REASON_CHECKOUT_REF_PATH);
     }
-    return REASON_CHECKOUT_DOUBLE_DASH;
+    return builtinMatch("git.checkout-double-dash", REASON_CHECKOUT_DOUBLE_DASH);
   }
   const positionalArgs = getCheckoutPositionalArgs(tokens);
   if (positionalArgs.length >= 2) {
-    return REASON_CHECKOUT_AMBIGUOUS;
+    return builtinMatch("git.checkout-ambiguous", REASON_CHECKOUT_AMBIGUOUS);
   }
   return null;
 }
 function analyzeGitSwitch(tokens) {
   const { before } = splitAtDoubleDash(tokens);
   if (before.some((token) => matchesGitLongOption(token, "--discard-changes"))) {
-    return REASON_SWITCH_DISCARD_CHANGES;
+    return builtinMatch("git.switch-discard-changes", REASON_SWITCH_DISCARD_CHANGES);
   }
   const shortOpts = extractShortOpts(before, {
     shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
   });
   if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_SWITCH_FORCE;
+    return builtinMatch("git.switch-force", REASON_SWITCH_FORCE);
   }
   return null;
 }
@@ -2864,30 +2927,30 @@ function analyzeGitRestore(tokens) {
       return null;
     }
     if (token === "--worktree" || token === "-W") {
-      return REASON_RESTORE_WORKTREE;
+      return builtinMatch("git.restore-worktree", REASON_RESTORE_WORKTREE);
     }
     if (token === "--staged" || token === "-S") {
       hasStaged = true;
     }
   }
-  return hasStaged ? null : REASON_RESTORE;
+  return hasStaged ? null : builtinMatch("git.restore-unstaged", REASON_RESTORE);
 }
 function analyzeGitReset(tokens) {
-  let reason = null;
+  let match = null;
   for (const token of tokens) {
     if (matchesGitLongOption(token, "--hard")) {
-      reason = REASON_RESET_HARD;
+      match = builtinMatch("git.reset-hard", REASON_RESET_HARD);
       break;
     }
     if (matchesGitLongOption(token, "--merge")) {
-      reason = REASON_RESET_MERGE;
+      match = builtinMatch("git.reset-merge", REASON_RESET_MERGE);
       break;
     }
   }
-  if (!reason) {
+  if (!match) {
     return null;
   }
-  return resetHasRef(tokens) ? sharedState(reason) : localDiscard(reason);
+  return resetHasRef(tokens) ? sharedState(match) : localDiscard(match);
 }
 function resetHasRef(tokens) {
   for (const token of tokens) {
@@ -2908,7 +2971,7 @@ function analyzeGitClean(tokens) {
   }
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
   if (tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_CLEAN;
+    return builtinMatch("git.clean-force", REASON_CLEAN);
   }
   return null;
 }
@@ -2916,7 +2979,7 @@ function analyzeGitPush(tokens) {
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
   const hasForce = tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
   if (hasForce) {
-    return REASON_PUSH_FORCE;
+    return builtinMatch("git.push-force", REASON_PUSH_FORCE);
   }
   return null;
 }
@@ -2926,33 +2989,33 @@ function analyzeGitBranch(tokens) {
   const hasDelete = shortOpts.has("-D") || shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete"));
   const hasForce = shortOpts.has("-D") || shortOpts.has("-f") || before.some((token) => matchesGitLongOption(token, "--force"));
   if (hasDelete && hasForce) {
-    return REASON_BRANCH_DELETE;
+    return builtinMatch("git.branch-force-delete", REASON_BRANCH_DELETE);
   }
   return null;
 }
 function analyzeGitRebase(tokens) {
   const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? REASON_REBASE_ABORT : null;
+  return before.some((token) => matchesGitLongOption(token, "--abort")) ? builtinMatch("git.rebase-abort", REASON_REBASE_ABORT) : null;
 }
 function analyzeGitMerge(tokens) {
   const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? REASON_MERGE_ABORT : null;
+  return before.some((token) => matchesGitLongOption(token, "--abort")) ? builtinMatch("git.merge-abort", REASON_MERGE_ABORT) : null;
 }
 function analyzeGitTag(tokens) {
   const { before } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
-  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? REASON_TAG_DELETE : null;
+  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? builtinMatch("git.tag-delete", REASON_TAG_DELETE) : null;
 }
 function analyzeGitReflog(tokens) {
-  return tokens[0] === "delete" ? REASON_REFLOG_DELETE : null;
+  return tokens[0] === "delete" ? builtinMatch("git.reflog-delete", REASON_REFLOG_DELETE) : null;
 }
 function analyzeGitStash(tokens) {
   for (const token of tokens) {
     if (token === "drop") {
-      return REASON_STASH_DROP;
+      return builtinMatch("git.stash-drop", REASON_STASH_DROP);
     }
     if (token === "clear") {
-      return REASON_STASH_CLEAR;
+      return builtinMatch("git.stash-clear", REASON_STASH_CLEAR);
     }
   }
   return null;
@@ -2964,7 +3027,7 @@ function analyzeGitWorktree(tokens) {
     return null;
   const shortOpts = extractShortOpts(before);
   if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_WORKTREE_REMOVE_FORCE;
+    return builtinMatch("git.worktree-remove-force", REASON_WORKTREE_REMOVE_FORCE);
   }
   return null;
 }
@@ -3333,8 +3396,11 @@ var GIT_NETWORK_SUBCOMMANDS = new Set([
   "submodule"
 ]);
 function analyzeGit(tokens, options2 = {}) {
+  return analyzeGitMatch(tokens, options2)?.reason ?? null;
+}
+function analyzeGitMatch(tokens, options2 = {}) {
   if (hasGitSshEnvAssignment(options2.envAssignments) && isGitNetworkOperation(tokens)) {
-    return REASON_GIT_SSH_ENV;
+    return builtinMatch("git.ssh-env", REASON_GIT_SSH_ENV);
   }
   const match = analyzeGitRule(tokens);
   if (!match) {
@@ -3343,7 +3409,7 @@ function analyzeGit(tokens, options2 = {}) {
   if (getGitWorktreeRelaxationForMatch(tokens, match, options2)) {
     return null;
   }
-  return match.reason;
+  return match;
 }
 function isGitNetworkOperation(tokens) {
   const { subcommand } = extractGitSubcommandAndRest(tokens);
@@ -3367,8 +3433,9 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
     return null;
   }
   if (SHELL_WRAPPERS.has(head)) {
-    if (options2.dynamicInput && options2.shellDynamicReason) {
-      return options2.shellDynamicReason;
+    const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason } : undefined);
+    if (options2.dynamicInput && shellDynamicMatch) {
+      return filterBuiltinMatch(shellDynamicMatch, context.config);
     }
     const dashCArg = extractDashCArg(tokens);
     if (dashCArg && context.analyzeNested) {
@@ -3380,28 +3447,31 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
     return null;
   }
   if (head === "rm" && hasRecursiveForceFlags(tokens)) {
-    const rmResult = analyzeRm([...tokens], {
+    return filterBuiltinMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
-    });
-    return rmResult ?? (options2.dynamicInput ? options2.rmDynamicReason ?? null : null);
+    }), context.config) ?? getDynamicRmReason(options2, context);
   }
   if (head === "find") {
-    return analyzeFind(tokens, {
+    return filterBuiltinMatch(analyzeFindMatch(tokens, {
       ...context,
       analyzeTokens: (nestedTokens, cwd) => analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
-    });
+    }), context.config);
   }
   if (head === "git") {
-    return analyzeGit(tokens, {
+    return filterBuiltinMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
       worktreeMode: options2.dynamicInput ? false : context.worktreeMode
-    });
+    }), context.config);
   }
   return null;
+}
+function getDynamicRmReason(options2, context) {
+  const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason } : undefined);
+  return options2.dynamicInput && rmDynamicMatch ? filterBuiltinMatch(rmDynamicMatch, context.config) : null;
 }
 
 // src/core/analyze/transparent-wrappers.ts
@@ -3512,7 +3582,7 @@ function analyzeParallel(tokens, context) {
     const dashCArg = extractDashCArg(childTokens);
     if (dashCArg) {
       if (isOnlyParallelPlaceholder(dashCArg)) {
-        return REASON_PARALLEL_SHELL;
+        return parallelShellDynamicReason(context);
       }
       if (hasParallelPlaceholder(dashCArg)) {
         if (args.length > 0) {
@@ -3540,15 +3610,15 @@ function analyzeParallel(tokens, context) {
         return envReason;
       }
       if (hasPlaceholder) {
-        return REASON_PARALLEL_SHELL;
+        return parallelShellDynamicReason(context);
       }
       return null;
     }
     if (args.length > 0) {
-      return REASON_PARALLEL_SHELL;
+      return parallelShellDynamicReason(context);
     }
     if (hasPlaceholder) {
-      return REASON_PARALLEL_SHELL;
+      return parallelShellDynamicReason(context);
     }
     return null;
   }
@@ -3559,7 +3629,7 @@ function analyzeParallel(tokens, context) {
     if (args.length > 0) {
       return analyzeParallelRmExpansions(args.map((arg) => [...childTokens, arg]), childCommand.cwd, context);
     }
-    return REASON_PARALLEL_RM;
+    return parallelRmDynamicReason(context);
   }
   const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
   for (const tokens2 of tokenSets) {
@@ -3570,11 +3640,12 @@ function analyzeParallel(tokens, context) {
       allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
       worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
-      analyzeNested: context.analyzeNested
+      analyzeNested: context.analyzeNested,
+      config: context.config
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
-      shellDynamicReason: REASON_PARALLEL_SHELL,
-      rmDynamicReason: REASON_PARALLEL_RM
+      shellDynamicMatch: builtinMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
+      rmDynamicMatch: builtinMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
     });
     if (result) {
       return result;
@@ -3582,14 +3653,20 @@ function analyzeParallel(tokens, context) {
   }
   return null;
 }
+function parallelShellDynamicReason(context) {
+  return filterBuiltinMatch(builtinMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.config);
+}
+function parallelRmDynamicReason(context) {
+  return filterBuiltinMatch(builtinMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.config);
+}
 function analyzeParallelRmExpansions(tokenSets, cwd, context) {
   for (const tokens of tokenSets) {
-    const rmResult = analyzeRm(tokens, {
+    const rmResult = filterBuiltinMatch(analyzeRmMatch(tokens, {
       cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
-    });
+    }), context.config);
     if (rmResult) {
       return rmResult;
     }
@@ -3848,11 +3925,12 @@ function analyzeXargs(tokens, context) {
     paranoidRm: context.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
-    worktreeMode: context.worktreeMode
+    worktreeMode: context.worktreeMode,
+    config: context.config
   }, {
     dynamicInput: childCommand.head !== "git",
-    shellDynamicReason: REASON_XARGS_SHELL,
-    rmDynamicReason: REASON_XARGS_RM
+    shellDynamicMatch: builtinMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
+    rmDynamicMatch: builtinMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
   });
   if (childResult) {
     return childResult;
@@ -3868,7 +3946,8 @@ function analyzeXargs(tokens, context) {
     paranoidRm: context.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
-    worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode
+    worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
+    config: context.config
   });
 }
 function extractXargsChildCommandWithInfo(tokens) {
@@ -4088,10 +4167,10 @@ function analyzeSegment(tokens, depth, options2) {
     }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = analyzeAwkSystemCalls(stripped, (command2) => options2.analyzeNested(command2, {
+    const awkReason = filterBuiltinMatch(analyzeAwkSystemCallMatch(stripped, (command2) => options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
-    }));
+    })), options2.config);
     if (awkReason) {
       return awkReason;
     }
@@ -4100,7 +4179,9 @@ function analyzeSegment(tokens, depth, options2) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
-        return REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX;
+        const reason = filterBuiltinMatch(builtinMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX), options2.config);
+        if (reason)
+          return reason;
       }
       const innerReason = options2.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
@@ -4110,7 +4191,9 @@ function analyzeSegment(tokens, depth, options2) {
         return innerReason;
       }
       if (containsDangerousCode(codeArg)) {
-        return REASON_INTERPRETER_DANGEROUS;
+        const reason = filterBuiltinMatch(builtinMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
+        if (reason)
+          return reason;
       }
     }
   }
@@ -4135,7 +4218,7 @@ function analyzeSegment(tokens, depth, options2) {
     options: options2
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = commandAnalyzer?.(commandContext);
+  const commandResult = filterBuiltinMatch(commandAnalyzer?.(commandContext) ?? null, options2.config);
   if (commandResult) {
     return commandResult;
   }
@@ -4146,7 +4229,7 @@ function analyzeSegment(tokens, depth, options2) {
         const token = stripped[i];
         if (!token)
           continue;
-        const reason = analyzeEmbeddedCommand(commandContext, i);
+        const reason = filterBuiltinMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
         if (reason)
           return reason;
       }
@@ -4181,10 +4264,11 @@ function analyzeEmbeddedCommand(context, index) {
     if (!dashCArg) {
       return null;
     }
-    return context.options.analyzeNested(dashCArg, {
+    const reason = context.options.analyzeNested(dashCArg, {
       effectiveCwd: context.effectiveCwd,
       envAssignments: context.envAssignments
     });
+    return reason ? { id: "", reason } : null;
   }
   const analyzer = COMMAND_ANALYZERS.get(cmd);
   if (!analyzer || cmd === "xargs" || cmd === "parallel") {
@@ -4201,14 +4285,14 @@ function analyzeEmbeddedCommand(context, index) {
   return analyzer(embeddedContext);
 }
 function analyzeGitCommand(context) {
-  return analyzeGit(context.tokens, {
+  return analyzeGitMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode
   });
 }
 function analyzeRmCommand(context) {
-  return analyzeRm(context.tokens, {
+  return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoid: context.options.paranoidRm,
@@ -4216,7 +4300,7 @@ function analyzeRmCommand(context) {
   });
 }
 function analyzeFindCommand(context) {
-  return analyzeFind(context.tokens, {
+  return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
     analyzeTokens: (tokens, cwd) => analyzeSegment([...tokens], context.depth + 1, {
@@ -4228,13 +4312,15 @@ function analyzeFindCommand(context) {
   });
 }
 function analyzeXargsCommand(context) {
-  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+  const reason = analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+  return reason ? { id: "", reason } : null;
 }
 function analyzeParallelCommand(context) {
-  return analyzeParallel(context.tokens, {
+  const reason = analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
     analyzeNested: context.options.analyzeNested
   });
+  return reason ? { id: "", reason } : null;
 }
 function getNestedCommandAnalyzeContext(context) {
   return {
@@ -4672,7 +4758,7 @@ function analyzeCommandInternal(command2, depth, options2) {
     const segmentStr = segment.join(" ");
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
     if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
+      const textReason = filterBuiltinMatch(dangerousInTextMatch(segment[0]), options2.config);
       if (textReason) {
         return { reason: textReason, segment: segmentStr };
       }
@@ -4748,72 +4834,12 @@ function isCCSafetyNetPackage(value) {
 }
 
 // src/core/config.ts
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
-import { resolve as resolve7 } from "node:path";
+import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:fs";
+import { resolve as resolve8 } from "node:path";
 
-// src/core/rules/custom-rule-validation.ts
-function validateCustomRule(rule, index, ruleNames, options2 = {}) {
-  const errors = [];
-  const prefix = `rules[${index}]`;
-  if (!rule || typeof rule !== "object") {
-    errors.push(`${prefix}: must be an object`);
-    return errors;
-  }
-  const r = rule;
-  const messageStyle = options2.messageStyle ?? "legacy";
-  if (typeof r.name !== "string") {
-    errors.push(`${prefix}.name: required string`);
-  } else {
-    if (!NAME_PATTERN.test(r.name)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
-    }
-    const lowerName = r.name.toLowerCase();
-    if (ruleNames.has(lowerName)) {
-      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
-    } else {
-      ruleNames.add(lowerName);
-    }
-  }
-  if (typeof r.command !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
-  } else if (!COMMAND_PATTERN.test(r.command)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
-  }
-  if (r.subcommand !== undefined) {
-    if (typeof r.subcommand !== "string") {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
-    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
-    }
-  }
-  if (!Array.isArray(r.block_args)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
-  } else {
-    if (r.block_args.length === 0) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
-    }
-    for (let i = 0;i < r.block_args.length; i++) {
-      const arg = r.block_args[i];
-      if (typeof arg !== "string") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
-      } else if (arg === "") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
-      }
-    }
-  }
-  if (typeof r.reason !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
-  } else if (r.reason === "") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
-  } else if (r.reason.length > MAX_REASON_LENGTH) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-  }
-  return errors;
-}
-
-// src/core/rules/policy/config-file.ts
-import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
-import { dirname as dirname5 } from "node:path";
+// src/core/policy.ts
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
+import { dirname as dirname5, join as join5, resolve as resolve5 } from "node:path";
 
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
@@ -4896,6 +4922,280 @@ function getRepositoryRulebookPath(name) {
 function getRulesCacheDir(options2) {
   return join4(dirname4(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
 }
+
+// src/core/policy.ts
+var POLICY_FILE = "policy.json";
+var TOP_LEVEL_FIELDS = new Set(["version", "modes", "builtins", "secret_protection"]);
+var MODE_FIELDS = new Set([
+  "strict",
+  "paranoid",
+  "paranoid_rm",
+  "paranoid_interpreters",
+  "worktree_mode"
+]);
+var BUILTINS_FIELDS = new Set(["overrides"]);
+var SECRET_PROTECTION_FIELDS = new Set(["enabled", "allow_paths", "deny_paths"]);
+var EMPTY_SECRET_PROTECTION = {
+  allowPaths: [],
+  denyPaths: []
+};
+function getUserPolicyPath(options2) {
+  return join5(dirname5(getUserRulesDir(options2)), POLICY_FILE);
+}
+function getProjectPolicyPath(cwd) {
+  return resolve5(cwd ?? process.cwd(), ".cc-safety-net", POLICY_FILE);
+}
+function loadPolicyConfig(options2 = {}) {
+  const user = readPolicyConfig(getUserPolicyPath(options2), "user");
+  const project = readPolicyConfig(getProjectPolicyPath(options2.cwd), "project");
+  return {
+    modes: mergeModes(user.policy.modes, project.policy.modes),
+    disabledBuiltinRules: new Set(user.policy.disabledBuiltinRules),
+    secretProtection: {
+      enabled: user.policy.secretProtection.enabled || project.policy.secretProtection.enabled,
+      allowPaths: [...user.policy.secretProtection.allowPaths],
+      denyPaths: [
+        ...user.policy.secretProtection.denyPaths,
+        ...project.policy.secretProtection.denyPaths
+      ]
+    },
+    errors: [...user.errors, ...project.errors]
+  };
+}
+function readPolicyConfig(path, scope) {
+  const empty = createEmptyPolicy();
+  if (!existsSync4(path))
+    return { policy: empty, errors: [] };
+  try {
+    const content = readFileSync3(path, "utf-8");
+    if (!content.trim()) {
+      return { policy: empty, errors: [`${path}: Config file is empty`] };
+    }
+    const parsed = JSON.parse(content);
+    const errors = validatePolicyConfig(parsed, scope);
+    if (errors.length > 0)
+      return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
+    return { policy: normalizePolicyConfig(parsed), errors: [] };
+  } catch (error) {
+    return {
+      policy: empty,
+      errors: [`${path}: Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+function createEmptyPolicy() {
+  return {
+    modes: {},
+    disabledBuiltinRules: [],
+    secretProtection: { ...EMPTY_SECRET_PROTECTION, allowPaths: [], denyPaths: [] }
+  };
+}
+function validatePolicyConfig(config, scope) {
+  const errors = [];
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return ["Config must be an object"];
+  }
+  const cfg = config;
+  addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
+  if (cfg.version !== 1)
+    errors.push("version must be 1");
+  validateModes(cfg.modes, scope, errors);
+  validateBuiltins(cfg.builtins, scope, errors);
+  validateSecretProtection(cfg.secret_protection, scope, errors);
+  return errors;
+}
+function validateModes(value, scope, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("modes must be an object if provided");
+    return;
+  }
+  const modes = value;
+  addUnknownFieldErrors(modes, MODE_FIELDS, errors, "modes");
+  for (const [key, mode] of Object.entries(modes)) {
+    if (typeof mode !== "boolean")
+      errors.push(`modes.${key} must be a boolean`);
+  }
+  if (scope === "project" && modes.worktree_mode === true) {
+    errors.push("project policy cannot enable modes.worktree_mode");
+  }
+}
+function validateBuiltins(value, scope, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("builtins must be an object if provided");
+    return;
+  }
+  const builtins = value;
+  addUnknownFieldErrors(builtins, BUILTINS_FIELDS, errors, "builtins");
+  if (scope === "project" && builtins.overrides !== undefined) {
+    errors.push("project policy cannot configure builtins.overrides");
+  }
+  validateBuiltinOverrides(builtins.overrides, errors);
+}
+function validateBuiltinOverrides(value, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("builtins.overrides must be an object if provided");
+    return;
+  }
+  for (const [id, override] of Object.entries(value)) {
+    if (!BUILTIN_RULE_ID_SET.has(id)) {
+      errors.push(`unknown built-in rule id "${id}"`);
+    }
+    if (override !== "off") {
+      errors.push(`builtins.overrides.${id} must be "off"`);
+    }
+  }
+}
+function validateSecretProtection(value, scope, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("secret_protection must be an object if provided");
+    return;
+  }
+  const secret = value;
+  addUnknownFieldErrors(secret, SECRET_PROTECTION_FIELDS, errors, "secret_protection");
+  if (secret.enabled !== undefined && typeof secret.enabled !== "boolean") {
+    errors.push("secret_protection.enabled must be a boolean");
+  }
+  if (scope === "project" && secret.allow_paths !== undefined) {
+    errors.push("project policy cannot configure secret_protection.allow_paths");
+  }
+  validatePathArray(secret.allow_paths, "secret_protection.allow_paths", true, errors);
+  validatePathArray(secret.deny_paths, "secret_protection.deny_paths", false, errors);
+}
+function validatePathArray(value, field, rejectPolicyConfig, errors) {
+  if (value === undefined)
+    return;
+  if (!Array.isArray(value)) {
+    errors.push(`${field} must be an array of paths`);
+    return;
+  }
+  for (let i = 0;i < value.length; i++) {
+    const path = value[i];
+    if (typeof path !== "string" || path.trim() === "") {
+      errors.push(`${field}[${i}] must be a non-empty path string`);
+      continue;
+    }
+    if (rejectPolicyConfig && targetsPolicyConfig(path)) {
+      errors.push(`${field}[${i}] cannot target policy config`);
+    }
+  }
+}
+function targetsPolicyConfig(path) {
+  const normalized = path.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
+  return normalized === ".cc-safety-net/policy.json" || normalized.endsWith("/.cc-safety-net/policy.json") || normalized === "~/.cc-safety-net/policy.json";
+}
+function normalizePolicyConfig(config) {
+  const modes = normalizeModes(config.modes);
+  const secret = config.secret_protection;
+  return {
+    modes,
+    disabledBuiltinRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
+    secretProtection: {
+      enabled: secret?.enabled ?? false,
+      allowPaths: [...secret?.allow_paths ?? []],
+      denyPaths: [...secret?.deny_paths ?? []]
+    }
+  };
+}
+function normalizeModes(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return {};
+  const modes = value;
+  return {
+    strict: modes.strict,
+    paranoid: modes.paranoid,
+    paranoidRm: modes.paranoid_rm,
+    paranoidInterpreters: modes.paranoid_interpreters,
+    worktreeMode: modes.worktree_mode
+  };
+}
+function mergeModes(user, project) {
+  return {
+    strict: user.strict || project.strict,
+    paranoid: user.paranoid || project.paranoid,
+    paranoidRm: user.paranoidRm || project.paranoidRm,
+    paranoidInterpreters: user.paranoidInterpreters || project.paranoidInterpreters,
+    worktreeMode: user.worktreeMode
+  };
+}
+function addUnknownFieldErrors(record, allowed, errors, prefix) {
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
+    }
+  }
+}
+
+// src/core/rules/custom-rule-validation.ts
+function validateCustomRule(rule, index, ruleNames, options2 = {}) {
+  const errors = [];
+  const prefix = `rules[${index}]`;
+  if (!rule || typeof rule !== "object") {
+    errors.push(`${prefix}: must be an object`);
+    return errors;
+  }
+  const r = rule;
+  const messageStyle = options2.messageStyle ?? "legacy";
+  if (typeof r.name !== "string") {
+    errors.push(`${prefix}.name: required string`);
+  } else {
+    if (!NAME_PATTERN.test(r.name)) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
+    }
+    const lowerName = r.name.toLowerCase();
+    if (ruleNames.has(lowerName)) {
+      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
+    } else {
+      ruleNames.add(lowerName);
+    }
+  }
+  if (typeof r.command !== "string") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
+  } else if (!COMMAND_PATTERN.test(r.command)) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
+  }
+  if (r.subcommand !== undefined) {
+    if (typeof r.subcommand !== "string") {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
+    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
+    }
+  }
+  if (!Array.isArray(r.block_args)) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
+  } else {
+    if (r.block_args.length === 0) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
+    }
+    for (let i = 0;i < r.block_args.length; i++) {
+      const arg = r.block_args[i];
+      if (typeof arg !== "string") {
+        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
+      } else if (arg === "") {
+        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
+      }
+    }
+  }
+  if (typeof r.reason !== "string") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
+  } else if (r.reason === "") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
+  } else if (r.reason.length > MAX_REASON_LENGTH) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
+  }
+  return errors;
+}
+
+// src/core/rules/policy/config-file.ts
+import { existsSync as existsSync5, mkdirSync, readFileSync as readFileSync4, renameSync, writeFileSync } from "node:fs";
+import { dirname as dirname6 } from "node:path";
 
 // src/core/rules/policy/sources.ts
 var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
@@ -5148,11 +5448,11 @@ function validateTransparentWrappers(value, errors) {
   }
 }
 function readRulesConfig(path) {
-  if (!existsSync4(path)) {
+  if (!existsSync5(path)) {
     return { config: null, errors: [] };
   }
   try {
-    const content = readFileSync3(path, "utf-8");
+    const content = readFileSync4(path, "utf-8");
     if (!content.trim()) {
       return { config: null, errors: ["Config file is empty"] };
     }
@@ -5215,7 +5515,7 @@ function writeStarterRulebook(path, name = "project-rules") {
   });
 }
 function writeJsonAtomic(path, value) {
-  mkdirSync(dirname5(path), { recursive: true });
+  mkdirSync(dirname6(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
@@ -5223,8 +5523,8 @@ function writeJsonAtomic(path, value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6, realpathSync as realpathSync7 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join6, relative, resolve as resolve5, sep as sep4 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync as realpathSync7 } from "node:fs";
+import { dirname as dirname7, isAbsolute as isAbsolute6, join as join7, relative, resolve as resolve6, sep as sep4 } from "node:path";
 
 // src/core/rules/rulebook.ts
 function validateRulebook(rulebook) {
@@ -5383,15 +5683,15 @@ function assertValidRulebook(rulebook) {
 }
 
 // src/core/rules/policy/lockfile.ts
-import { existsSync as existsSync5, readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
 var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 var RULEBOOK_SOURCE_KINDS = new Set(["local-directory", "github"]);
 function readLockfile(path) {
-  if (!existsSync5(path)) {
+  if (!existsSync6(path)) {
     return { lock: null, errors: [] };
   }
   try {
-    const parsed = JSON.parse(readFileSync4(path, "utf-8"));
+    const parsed = JSON.parse(readFileSync5(path, "utf-8"));
     if (!parsed || typeof parsed !== "object") {
       return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
     }
@@ -5496,8 +5796,8 @@ function requiredString(candidate, field) {
 
 // src/core/rules/policy/resolver.ts
 import { createHash } from "node:crypto";
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
-import { join as join5 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync6 } from "node:fs";
+import { join as join6 } from "node:path";
 async function resolveRulebookSource(spec, configDir, options2) {
   if (isGitHubRulebookSource(spec)) {
     return resolveGitHubRulebook(spec);
@@ -5550,10 +5850,10 @@ async function discoverGitHubRepositoryRulebooks(source) {
 function resolveLocalRulebook(spec, configDir, _options) {
   assertBareRulebookName(spec);
   const path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync6(path)) {
+  if (!existsSync7(path)) {
     throw new Error(`Rulebook source not found: ${spec}`);
   }
-  const content = readFileSync5(path, "utf-8");
+  const content = readFileSync6(path, "utf-8");
   const rulebook = assertValidRulebook(JSON.parse(content));
   if (rulebook.name !== spec) {
     throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
@@ -5602,8 +5902,8 @@ async function resolveGitHubRulebook(spec) {
 }
 async function readLockedGitHubRulebook(entry, configDir, options2) {
   const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (existsSync6(cachePath)) {
-    const content = readFileSync5(cachePath, "utf-8");
+  if (existsSync7(cachePath)) {
+    const content = readFileSync6(cachePath, "utf-8");
     if (sha256Digest(content) === entry.digest) {
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
     }
@@ -5640,7 +5940,7 @@ async function resolveGitHubCommit(owner, repo, ref, source) {
   return commitJson.sha;
 }
 function getLocalRulebookPath(configDir, name) {
-  return join5(configDir, name, RULEBOOK_FILE);
+  return join6(configDir, name, RULEBOOK_FILE);
 }
 function sha256Digest(content) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -5657,8 +5957,8 @@ function loadRulesPolicy(options2 = {}) {
     ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
     ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
   ];
-  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname6(paths.userConfigPath), options2, "user") : emptyScopePolicy();
-  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname6(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
+  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname7(paths.userConfigPath), options2, "user") : emptyScopePolicy();
+  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname7(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
   const duplicateNames = getDuplicateRulebookNames([
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
@@ -5702,7 +6002,7 @@ function loadScopePolicyForConfig(configPath, lockPath, options2) {
   }
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname6(configPath), options2, "project")
+    scope: loadScopePolicy(config, lockPath, dirname7(configPath), options2, "project")
   };
 }
 function getUnknownOverrideErrorsForScope(config, scope) {
@@ -5762,7 +6062,7 @@ function loadScopePolicy(config, lockPath, configDir, options2, source) {
 function loadLockedRulebook(entry, configDir, options2) {
   const errors = [];
   const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (!existsSync7(cachePath)) {
+  if (!existsSync8(cachePath)) {
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
@@ -5770,7 +6070,7 @@ function loadLockedRulebook(entry, configDir, options2) {
   }
   let cacheContent;
   try {
-    cacheContent = readFileSync6(cachePath, "utf-8");
+    cacheContent = readFileSync7(cachePath, "utf-8");
   } catch (error) {
     return {
       rulebook: null,
@@ -5791,18 +6091,18 @@ function loadLockedRulebook(entry, configDir, options2) {
     errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (entry.kind === "local-directory") {
-    const sourcePath = resolve5(configDir, entry.path);
-    const sourceRelative = relative(resolve5(configDir), sourcePath);
+    const sourcePath = resolve6(configDir, entry.path);
+    const sourceRelative = relative(resolve6(configDir), sourcePath);
     if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute6(sourceRelative)) {
       errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
       return { rulebook: null, errors };
     }
-    const localPath = join6(sourcePath, RULEBOOK_FILE);
-    if (!existsSync7(localPath)) {
+    const localPath = join7(sourcePath, RULEBOOK_FILE);
+    if (!existsSync8(localPath)) {
       errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
     } else {
       try {
-        const localContent = readFileSync6(localPath, "utf-8");
+        const localContent = readFileSync7(localPath, "utf-8");
         if (sha256Digest(localContent) !== entry.digest) {
           errors.push(getLocalSourceDriftError(entry.spec, localContent));
         }
@@ -5833,10 +6133,10 @@ function mergeTransparentWrappers(userConfig, projectConfig) {
   ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve5(userConfigPath) === resolve5(projectConfigPath)) {
+  if (resolve6(userConfigPath) === resolve6(projectConfigPath)) {
     return true;
   }
-  if (!existsSync7(userConfigPath) || !existsSync7(projectConfigPath)) {
+  if (!existsSync8(userConfigPath) || !existsSync8(projectConfigPath)) {
     return false;
   }
   try {
@@ -5852,7 +6152,7 @@ function getLegacyRulesConfigErrors(paths, options2) {
   ]));
 }
 function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
-  if (!existsSync7(legacyPath))
+  if (!existsSync8(legacyPath))
     return [];
   if (hasMigrationEvidence(configPath, migratedFrom))
     return [];
@@ -5864,7 +6164,7 @@ function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
 }
 function legacyRulesConfigNeedsMigration(legacyPath) {
   try {
-    const parsed = JSON.parse(readFileSync6(legacyPath, "utf-8"));
+    const parsed = JSON.parse(readFileSync7(legacyPath, "utf-8"));
     if (!parsed || typeof parsed !== "object")
       return true;
     const config = parsed;
@@ -5883,16 +6183,16 @@ function hasMigrationEvidence(configPath, migratedFrom) {
   const config = readRulesConfig(configPath).config;
   if (!config)
     return false;
-  return config.rules.some((source) => getRulebookMigratedFrom(dirname6(configPath), source) === migratedFrom);
+  return config.rules.some((source) => getRulebookMigratedFrom(dirname7(configPath), source) === migratedFrom);
 }
 function getRulebookMigratedFrom(configDir, source) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  const path = join6(configDir, source, RULEBOOK_FILE);
-  if (!existsSync7(path))
+  const path = join7(configDir, source, RULEBOOK_FILE);
+  if (!existsSync8(path))
     return null;
   try {
-    const rulebook = JSON.parse(readFileSync6(path, "utf-8"));
+    const rulebook = JSON.parse(readFileSync7(path, "utf-8"));
     return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
   } catch {
     return null;
@@ -5952,17 +6252,17 @@ function withTerminalPeriod(message) {
 
 // src/core/rules/policy/sync.ts
 import {
-  existsSync as existsSync8,
+  existsSync as existsSync9,
   lstatSync as lstatSync4,
   mkdirSync as mkdirSync2,
   readdirSync,
-  readFileSync as readFileSync7,
+  readFileSync as readFileSync8,
   rmdirSync,
   rmSync,
   unlinkSync,
   writeFileSync as writeFileSync2
 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join7, relative as relative2, resolve as resolve6, sep as sep5 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute7, join as join8, relative as relative2, resolve as resolve7, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   const internalOptions = options2;
   const scope = getScopePaths(options2);
@@ -6036,7 +6336,7 @@ async function testRulebookSources(sources, options2 = {}) {
 async function addRulebookSource(source, options2 = {}) {
   const scope = getScopePaths(options2);
   mkdirSync2(scope.configDir, { recursive: true });
-  const before = existsSync8(scope.configPath) ? readFileSync7(scope.configPath, "utf-8") : null;
+  const before = existsSync9(scope.configPath) ? readFileSync8(scope.configPath, "utf-8") : null;
   const scopeConfig = readScopeRulesConfig(scope.configPath);
   if (!scopeConfig.ok)
     return scopeConfig.result;
@@ -6096,7 +6396,7 @@ async function removeRulebookSource(match, options2 = {}) {
   const sourceDirs = options2.deleteSource ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock) : { ok: true, dirs: [] };
   if (!sourceDirs.ok)
     return sourceDirs.result;
-  const before = readFileSync7(scope.configPath, "utf-8");
+  const before = readFileSync8(scope.configPath, "utf-8");
   writeJsonAtomic(scope.configPath, {
     version: 1,
     rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
@@ -6181,17 +6481,17 @@ function addRuleCount(entry, ruleCountsBySpec) {
 }
 function writeCache(content, entry, configDir, options2) {
   const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  mkdirSync2(dirname7(path), { recursive: true });
+  mkdirSync2(dirname8(path), { recursive: true });
   writeFileSync2(path, content, "utf-8");
 }
 function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
   const internalOptions = options2;
-  const cacheRoot = join7(dirname7(configDir), "cache", "rulebooks");
-  if (!existsSync8(cacheRoot))
+  const cacheRoot = join8(dirname8(configDir), "cache", "rulebooks");
+  if (!existsSync9(cacheRoot))
     return [];
-  const keep = new Set(entries.map((entry) => dirname7(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
+  const keep = new Set(entries.map((entry) => dirname8(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
   return readdirSync(cacheRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
-    const path = join7(cacheRoot, entry.name);
+    const path = join8(cacheRoot, entry.name);
     if (keep.has(path))
       return [];
     try {
@@ -6215,20 +6515,20 @@ function getLocalSourceDirsForDelete(configDir, specs, lock) {
   });
   const dirs = specs.map((spec) => {
     const entry = entriesBySpec.get(spec);
-    return join7(configDir, entry?.kind === "local-directory" ? entry.path : spec);
+    return join8(configDir, entry?.kind === "local-directory" ? entry.path : spec);
   });
   const dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir));
   const allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve6(configDir);
-  const resolvedDir = resolve6(dir);
+  const resolvedConfigDir = resolve7(configDir);
+  const resolvedDir = resolve7(dir);
   const relativeDir = relative2(resolvedConfigDir, resolvedDir);
   if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute7(relativeDir)) {
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   }
-  if (!existsSync8(resolvedDir))
+  if (!existsSync9(resolvedDir))
     return [`Local rulebook source directory not found: ${dir}`];
   if (!lstatSync4(resolvedDir).isDirectory()) {
     return [`Local rulebook source is not a directory: ${dir}`];
@@ -6237,7 +6537,7 @@ function getLocalSourceDirDeleteError(configDir, dir) {
   if (!entries.includes("rulebook.json")) {
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
   }
-  if (!lstatSync4(join7(resolvedDir, "rulebook.json")).isFile()) {
+  if (!lstatSync4(join8(resolvedDir, "rulebook.json")).isFile()) {
     return [`Local rulebook source rulebook.json is not a file: ${dir}`];
   }
   if (entries.length > 1) {
@@ -6272,7 +6572,7 @@ function deleteLocalSourceDir(dir, options2) {
     options2._testDeleteLocalSourceDir(dir);
     return;
   }
-  unlinkSync(join7(dir, "rulebook.json"));
+  unlinkSync(join8(dir, "rulebook.json"));
   rmdirSync(dir);
 }
 function restoreConfig(path, content) {
@@ -6297,7 +6597,15 @@ function loadConfig(cwd, options2) {
   if (options2?.repairLocalRulebooks) {
     repairLocalRulesPolicy({ cwd: safeCwd, userConfigDir: options2.userConfigDir });
   }
-  return rulesPolicyToConfig(loadRulesPolicy({ cwd: safeCwd, userConfigDir: options2?.userConfigDir }));
+  const rulesConfig = rulesPolicyToConfig(loadRulesPolicy({ cwd: safeCwd, userConfigDir: options2?.userConfigDir }));
+  const policyConfig = loadPolicyConfig({ cwd: safeCwd, userConfigDir: options2?.userConfigDir });
+  return {
+    ...rulesConfig,
+    modes: policyConfig.modes,
+    disabledBuiltinRules: policyConfig.disabledBuiltinRules,
+    secretProtection: policyConfig.secretProtection,
+    failClosedReason: combineFailClosedReasons(rulesConfig.failClosedReason, policyConfig.errors.length > 0 ? `invalid policy config: ${policyConfig.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
+  };
 }
 function validateConfig(config) {
   const errors = [];
@@ -6327,12 +6635,12 @@ function validateConfigFile(path) {
 function readConfigFileInput(path) {
   const errors = [];
   const ruleNames = new Set;
-  if (!existsSync9(path)) {
+  if (!existsSync10(path)) {
     errors.push(`File not found: ${path}`);
     return { ok: false, result: { errors, ruleNames } };
   }
   try {
-    const content = readFileSync8(path, "utf-8");
+    const content = readFileSync9(path, "utf-8");
     if (!content.trim()) {
       errors.push("Config file is empty");
       return { ok: false, result: { errors, ruleNames } };
@@ -6344,7 +6652,7 @@ function readConfigFileInput(path) {
   }
 }
 function getLegacyProjectConfigPath(cwd) {
-  return resolve7(cwd ?? process.cwd(), ".safety-net.json");
+  return resolve8(cwd ?? process.cwd(), ".safety-net.json");
 }
 function validateRulesConfigFile(path) {
   const loaded = readConfigFileInput(path);
@@ -6359,17 +6667,34 @@ function validateParsedConfigFile(path, validate) {
     return loaded.result;
   return validate(loaded.parsed);
 }
+function combineFailClosedReasons(...reasons) {
+  const present = reasons.filter((reason) => !!reason);
+  if (present.length === 0)
+    return;
+  return withTerminalPeriod2(present.join("; "));
+}
+function withTerminalPeriod2(value) {
+  return /[.!?]$/.test(value) ? value : `${value}.`;
+}
 
 // src/core/analyze/index.ts
 function analyzeCommand(command2, options2 = {}) {
   const config = options2.config ?? loadConfig(options2.cwd);
-  return analyzeCommandInternal(command2, 0, { ...options2, config });
+  const modes = getCCSafetyNetEnvModes(config.modes);
+  return analyzeCommandInternal(command2, 0, {
+    ...options2,
+    config,
+    strict: options2.strict ?? modes.strict,
+    paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
+    paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
+    worktreeMode: options2.worktreeMode ?? modes.worktreeMode
+  });
 }
 
 // src/core/audit.ts
-import { appendFileSync, existsSync as existsSync10, mkdirSync as mkdirSync3 } from "node:fs";
+import { appendFileSync, existsSync as existsSync11, mkdirSync as mkdirSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 function sanitizeSessionIdForFilename(sessionId) {
   const raw = sessionId.trim();
   if (!raw) {
@@ -6388,12 +6713,12 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
     return;
   }
   const home = options2.homeDir ?? process.env.HOME ?? homedir3();
-  const logsDir = join8(home, ".cc-safety-net", "logs");
+  const logsDir = join9(home, ".cc-safety-net", "logs");
   try {
-    if (!existsSync10(logsDir)) {
+    if (!existsSync11(logsDir)) {
       mkdirSync3(logsDir, { recursive: true });
     }
-    const logFile = join8(logsDir, `${safeSessionId}.jsonl`);
+    const logFile = join9(logsDir, `${safeSessionId}.jsonl`);
     const entry = {
       ts: new Date().toISOString(),
       decision: options2.decision ?? "deny",
@@ -6462,9 +6787,13 @@ function excerpt(text, maxLen) {
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
 }
 
+// src/core/policy-protection.ts
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve10 } from "node:path";
+
 // src/core/secret-protection.ts
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute8, resolve as resolve9 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var COMMAND_PATH_OPERANDS = new Set([
   "awk",
@@ -6513,25 +6842,28 @@ var PATH_LIKE_KEYS = new Set([
   "pattern"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-function findSensitivePathTarget(targets, cwd = process.cwd()) {
+function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   for (const target of targets) {
-    if (isSensitivePath(target, cwd)) {
+    if (isDeniedByPolicy(target, cwd, config)) {
+      return { target };
+    }
+    if (isSensitivePath(target, cwd) && !isAllowedByPolicy(target, cwd, config)) {
       return { target };
     }
   }
   return null;
 }
-function findSensitiveTargetInCommand(command2, cwd = process.cwd()) {
-  return findSensitivePathTarget(extractCommandPathTargets(command2), cwd);
+function findSensitiveTargetInCommand(command2, cwd = process.cwd(), config) {
+  return findSensitivePathTarget(extractCommandPathTargets(command2), cwd, config);
 }
-function findSensitiveTargetInToolInput(input, cwd = process.cwd()) {
+function findSensitiveTargetInToolInput(input, cwd = process.cwd(), config) {
   const command2 = getCommandFromToolInput(input);
   if (command2) {
-    const commandTarget = findSensitiveTargetInCommand(command2, cwd);
+    const commandTarget = findSensitiveTargetInCommand(command2, cwd, config);
     if (commandTarget)
       return commandTarget;
   }
-  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd);
+  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd, config);
 }
 function getCommandFromToolInput(input) {
   if (!input || typeof input !== "object") {
@@ -6826,6 +7158,18 @@ function isSensitiveDirSegment(comparablePath) {
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
+function isDeniedByPolicy(target, cwd, config) {
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
+}
+function isAllowedByPolicy(target, cwd, config) {
+  return matchesPolicyPath(target, cwd, config?.allowPaths ?? []);
+}
+function matchesPolicyPath(target, cwd, paths) {
+  if (paths.length === 0)
+    return false;
+  const normalized = comparable(normalizeCandidatePath(target, cwd));
+  return paths.some((path) => comparable(normalizeCandidatePath(path, cwd)) === normalized);
+}
 function isSkippablePathForBroadSignatures(comparablePath) {
   const parts = comparablePath.split("/");
   return parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) || SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) => parts.some((part, index) => part === parent && parts[index + 1] === child));
@@ -6853,7 +7197,7 @@ function normalizeCandidatePath(target, cwd) {
   if (!home) {
     return normalized;
   }
-  const absolute = isAbsolute8(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
+  const absolute = isAbsolute8(normalized) ? normalized : normalizePathText(resolve9(cwd, normalized));
   if (!isSameOrChildPath(absolute, home)) {
     return normalized;
   }
@@ -6881,6 +7225,173 @@ function isOperator2(token) {
 }
 function isRedirectOp(token) {
   return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
+}
+
+// src/core/policy-protection.ts
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config cannot be modified by agent tools.";
+var READ_ONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "readfile", "read_file"]);
+var PATH_LIKE_KEYS2 = new Set(["file", "file_path", "filepath", "path"]);
+var READ_ONLY_COMMANDS = new Set([
+  "cat",
+  "file",
+  "grep",
+  "head",
+  "less",
+  "ls",
+  "more",
+  "rg",
+  "sed",
+  "stat",
+  "tail",
+  "wc"
+]);
+var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
+var WRITE_REDIRECTS = new Set([">", ">>", "<>", ">&", "&>", "&>>"]);
+var SCRIPT_ARGUMENT_OPTIONS = new Map([
+  ["bash", new Set(["-c"])],
+  ["sh", new Set(["-c"])],
+  ["python", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["node", new Set(["-e", "--eval"])],
+  ["perl", new Set(["-e"])]
+]);
+function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
+  const command2 = getCommandFromToolInput(input);
+  if (command2)
+    return findPolicyConfigMutationTargetInCommand(command2, cwd);
+  const target = extractPathLikeToolValues2(input).find((value) => isPolicyConfigPath(value, cwd));
+  if (!target)
+    return null;
+  return isReadOnlyTool(toolName) ? null : { target };
+}
+function findPolicyConfigMutationTargetInCommand(command2, cwd) {
+  if (hasUnclosedQuotes(command2)) {
+    return command2.toLowerCase().includes("policy.json") ? { target: command2 } : null;
+  }
+  let tokens;
+  try {
+    tokens = $parse(command2.replace(/\n/g, " ; "), {});
+  } catch {
+    return command2.toLowerCase().includes("policy.json") ? { target: command2 } : null;
+  }
+  const redirectTarget = findWriteRedirectTarget(tokens, cwd);
+  if (redirectTarget)
+    return redirectTarget;
+  let segment = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (isOperator3(token)) {
+      const target = findUnsafePolicyConfigSegmentTarget(segment, cwd);
+      if (target)
+        return target;
+      segment = [];
+      continue;
+    }
+    if (isRedirectOp2(token)) {
+      i++;
+      continue;
+    }
+    const tokenText = getCommandTokenText(token);
+    if (tokenText !== null)
+      segment.push(tokenText);
+  }
+  return findUnsafePolicyConfigSegmentTarget(segment, cwd);
+}
+function findWriteRedirectTarget(tokens, cwd) {
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!isRedirectOp2(token) || !WRITE_REDIRECTS.has(token.op))
+      continue;
+    const target = getCommandTokenText(tokens[i + 1]);
+    if (target && isPolicyConfigPath(target, cwd))
+      return { target };
+  }
+  return null;
+}
+function findUnsafePolicyConfigSegmentTarget(segment, cwd) {
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
+  if (scriptTarget)
+    return scriptTarget;
+  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token)).find((token) => isPolicyConfigPath(token, cwd));
+  if (!target)
+    return null;
+  return isReadOnlySegment(segment) ? null : { target };
+}
+function findScriptArgumentPolicyConfigTarget(segment, cwd) {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (stripped.length < 3)
+    return null;
+  const options2 = SCRIPT_ARGUMENT_OPTIONS.get(getBasename(stripped[0] ?? "").toLowerCase());
+  if (!options2)
+    return null;
+  const optionIndex = stripped.findIndex((token) => options2.has(token));
+  if (optionIndex === -1)
+    return null;
+  const script = stripped[optionIndex + 1];
+  if (!script)
+    return null;
+  if (getBasename(stripped[0] ?? "").match(/^(?:ba|z)?sh$/)) {
+    return findPolicyConfigMutationTargetInCommand(script, cwd);
+  }
+  const target = extractPolicyConfigPathCandidates(script).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+function isReadOnlySegment(tokens) {
+  const stripped = stripEnvAssignments(stripWrappers([...tokens]));
+  if (stripped.length === 0)
+    return false;
+  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
+  if (!READ_ONLY_COMMANDS.has(command2))
+    return false;
+  if (command2 !== "sed")
+    return true;
+  return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
+}
+function stripEnvAssignments(tokens) {
+  const firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+  return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
+}
+function extractPathLikeToolValues2(input) {
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input))
+    return input.flatMap((value) => extractPathLikeToolValues2(value));
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (typeof value === "string" && PATH_LIKE_KEYS2.has(key.replace(/-/g, "_").toLowerCase())) {
+      return [value];
+    }
+    if (value && typeof value === "object")
+      return extractPathLikeToolValues2(value);
+    return [];
+  });
+}
+function isReadOnlyTool(toolName) {
+  return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+}
+function isPolicyConfigPath(target, cwd) {
+  const normalized = normalizeCandidatePath2(target, cwd).toLowerCase();
+  return normalized === normalizeCandidatePath2(getProjectPolicyPath(cwd), cwd).toLowerCase() || normalized === normalizeCandidatePath2(getUserPolicyPath(), cwd).toLowerCase();
+}
+function extractPolicyConfigPathCandidates(text) {
+  return text.split(/[^A-Za-z0-9_./\\~:-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
+}
+function normalizeCandidatePath2(target, cwd) {
+  const unix = target.trim().replace(/\\/g, "/");
+  if (!unix)
+    return "";
+  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
+  return normalize4(isAbsolute9(expanded) ? expanded : resolve10(cwd, expanded)).replace(/\\/g, "/");
+}
+function isOperator3(token) {
+  const op = getParseOp(token);
+  return op !== null && SHELL_OPERATORS3.has(op);
+}
+function isRedirectOp2(token) {
+  const op = getParseOp(token);
+  return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
+}
+function getParseOp(token) {
+  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
 }
 
 // src/bin/hook/common.ts
@@ -6915,22 +7426,17 @@ function parseHookJson(inputText, outputDeny, strictReason) {
     return null;
   }
 }
-function analyzeHookCommand(command2, cwd) {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
+function analyzeHookCommand(command2, cwd, config) {
   return analyzeCommand(command2, {
     cwd,
-    config: loadConfig(cwd, { repairLocalRulebooks: true }),
-    strict: envTruthy(ENV_FLAGS.strict),
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree)
+    config: config ?? loadConfig(cwd, { repairLocalRulebooks: true })
   });
 }
-function handleSecretProtection(toolInput, cwd, sessionId, toolName, outputDeny) {
-  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection)) {
+function handleSecretProtection(toolInput, cwd, config, sessionId, toolName, outputDeny) {
+  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection) && !config.secretProtection?.enabled) {
     return false;
   }
-  const match = findSensitiveTargetInToolInput(toolInput, cwd);
+  const match = findSensitiveTargetInToolInput(toolInput, cwd, config.secretProtection);
   if (!match) {
     return false;
   }
@@ -6941,10 +7447,10 @@ function handleSecretProtection(toolInput, cwd, sessionId, toolName, outputDeny)
   outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName);
   return true;
 }
-function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny) {
+function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config) {
   let result;
   try {
-    result = analyzeHookCommand(command2, cwd);
+    result = analyzeHookCommand(command2, cwd, config);
   } catch (error) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(`CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
@@ -6974,9 +7480,26 @@ async function runHookAdapter(adapter) {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
+  const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);
+  if (policyTarget) {
+    const command3 = getCommandFromToolInput(toolInput) ?? policyTarget.target;
+    adapter.outputDeny(REASON_POLICY_CONFIG_PROTECTION, command3, policyTarget.target, false, toolName);
+    return;
+  }
+  let config;
+  try {
+    config = loadConfig(cwd, { repairLocalRulebooks: true });
+  } catch (error) {
+    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(`CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    }
+    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
+    return;
+  }
   let blockedBySecretProtection;
   try {
-    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, adapter.getSessionId(input), toolName, adapter.outputDeny);
+    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, config, adapter.getSessionId(input), toolName, adapter.outputDeny);
   } catch (error) {
     const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
     if (envTruthy(ENV_FLAGS.debug)) {
@@ -6990,9 +7513,12 @@ async function runHookAdapter(adapter) {
   }
   const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
   if (!command2) {
+    if (config.failClosedReason) {
+      adapter.outputDeny(config.failClosedReason, undefined, undefined, false, toolName);
+    }
     return;
   }
-  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny);
+  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny, config);
 }
 function getToolName(input) {
   if (!input || typeof input !== "object") {
@@ -7088,7 +7614,7 @@ function getPiShellToolCall(event, ctx) {
   if (typeof command2 !== "string")
     return { malformed: true };
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
-  const cwd = typeof cwdInput === "string" ? resolve9(ctx.cwd, cwdInput) : ctx.cwd;
+  const cwd = typeof cwdInput === "string" ? resolve11(ctx.cwd, cwdInput) : ctx.cwd;
   return { command: command2, cwd };
 }
 function blockPiToolCall(reason, command2, segment, manualPermissionAdvice) {

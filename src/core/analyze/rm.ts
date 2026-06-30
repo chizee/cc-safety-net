@@ -3,7 +3,9 @@ import { homedir, tmpdir } from 'node:os';
 import { normalize, resolve, sep } from 'node:path';
 
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
+import { builtinMatch } from '@/core/builtin-rules';
 import { ENV_FLAGS } from '@/core/env';
+import type { BuiltinRuleMatch } from '@/types';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -67,6 +69,13 @@ type TargetClassification =
   | { kind: 'outside_anchored_cwd' };
 
 export function analyzeRm(tokens: string[], options: AnalyzeRmOptions = {}): string | null {
+  return analyzeRmMatch(tokens, options)?.reason ?? null;
+}
+
+export function analyzeRmMatch(
+  tokens: string[],
+  options: AnalyzeRmOptions = {},
+): BuiltinRuleMatch | null {
   const { cwd, originalCwd, paranoid = false, allowTmpdirVar = true } = options;
   const anchoredCwd = originalCwd ?? cwd ?? null;
   const resolvedCwd = cwd ?? null;
@@ -155,25 +164,28 @@ function classifyTarget(target: string, ctx: RmContext): TargetClassification {
 function reasonForClassification(
   classification: TargetClassification,
   ctx: RmContext,
-): string | null {
+): BuiltinRuleMatch | null {
   switch (classification.kind) {
     case 'root_or_home_target':
-      return REASON_RM_RF_ROOT_HOME;
+      return builtinMatch('rm.recursive-force-root-or-home', REASON_RM_RF_ROOT_HOME);
     case 'temp_target':
       return null;
     case 'dynamic_target':
-      return REASON_RM_RF_DYNAMIC_TARGET;
+      return builtinMatch('rm.recursive-force-dynamic-target', REASON_RM_RF_DYNAMIC_TARGET);
     case 'home_cwd_target':
-      return REASON_RM_HOME_CWD;
+      return builtinMatch('rm.recursive-force-home-cwd', REASON_RM_HOME_CWD);
     case 'cwd_self_target':
-      return REASON_RM_RF;
+      return builtinMatch('rm.recursive-force-cwd-self', REASON_RM_RF);
     case 'within_anchored_cwd':
       if (ctx.paranoid) {
-        return `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`;
+        return builtinMatch(
+          'rm.recursive-force-paranoid',
+          `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`,
+        );
       }
       return null;
     case 'outside_anchored_cwd':
-      return REASON_RM_RF;
+      return builtinMatch('rm.recursive-force-outside-cwd', REASON_RM_RF);
   }
 }
 

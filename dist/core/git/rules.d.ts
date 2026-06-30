@@ -1,6 +1,7 @@
+import type { BuiltinRuleMatch } from '@/types';
 export declare const CHECKOUT_SHORT_OPTS_WITH_VALUE: Set<string>;
 export declare const SWITCH_SHORT_OPTS_WITH_VALUE: Set<string>;
-export interface GitRuleMatch {
+export interface GitRuleMatch extends BuiltinRuleMatch {
     reason: string;
     localDiscard: boolean;
 }

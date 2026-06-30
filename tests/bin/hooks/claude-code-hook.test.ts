@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeDefaultRulesConfig, writeStarterRulebook } from '@/core/rules/policy';
 import {
@@ -12,6 +12,16 @@ import {
 } from './hook-helpers';
 
 describe('Claude Code hook', () => {
+  function writeUserPolicy(home: string, policy: unknown): void {
+    mkdirSync(join(home, '.cc-safety-net'), { recursive: true });
+    writeFileSync(join(home, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
+  }
+
+  function writeProjectPolicy(cwd: string, policy: unknown): void {
+    mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
+    writeFileSync(join(cwd, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
+  }
+
   describe('blocked commands', () => {
     test('blocked command produces correct JSON structure', async () => {
       const { stdout, exitCode } = await runClaudeCodeHook(claudeCodeBashInput('git reset --hard'));
@@ -240,6 +250,119 @@ describe('Claude Code hook', () => {
 
       expect(result.stderr).toBe('');
       expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
+    });
+  });
+
+  describe('policy config protection', () => {
+    test('allows read-only access to policy files', async () => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: '.cc-safety-net/policy.json' },
+        });
+
+        await expectNoHookOutput(
+          context.runClaudeCodeHook,
+          context.claudeCodeBashInput('cat .cc-safety-net/policy.json'),
+        );
+      });
+    });
+
+    test('denies policy file mutation tools', async () => {
+      await withHookTestContext(async (context) => {
+        for (const tool_name of ['Write', 'Edit', 'MultiEdit']) {
+          const result = await context.runClaudeCodeHook({
+            hook_event_name: 'PreToolUse',
+            cwd: context.cwd,
+            tool_name,
+            tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
+          });
+
+          expect(getHookDenyReason(result, 'claude-code')).toContain(
+            'Policy config cannot be modified by agent tools',
+          );
+        }
+      });
+    });
+
+    test('denies bash writes and ambiguous commands touching policy files', async () => {
+      await withHookTestContext(async (context) => {
+        for (const command of [
+          'cat package.json > .cc-safety-net/policy.json',
+          'tee .cc-safety-net/policy.json',
+          'rm .cc-safety-net/policy.json',
+          'node script.js .cc-safety-net/policy.json',
+        ]) {
+          const result = await context.runClaudeCodeHook(context.claudeCodeBashInput(command));
+
+          expect(getHookDenyReason(result, 'claude-code')).toContain(
+            'Policy config cannot be modified by agent tools',
+          );
+        }
+      });
+    });
+  });
+
+  describe('secret protection policy', () => {
+    test('policy can enable secret protection without env flag', async () => {
+      await withHookTestContext(async (context) => {
+        writeProjectPolicy(context.cwd, { version: 1, secret_protection: { enabled: true } });
+
+        const result = await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: '.env' },
+        });
+
+        expectSecretProtectionDeny(result, 'claude-code');
+      });
+    });
+
+    test('policy deny and allow paths affect secret protection', async () => {
+      await withHookTestContext(async (context) => {
+        writeUserPolicy(context.home, {
+          version: 1,
+          secret_protection: { enabled: true, allow_paths: ['.env.local'] },
+        });
+        writeProjectPolicy(context.cwd, {
+          version: 1,
+          secret_protection: { enabled: true, deny_paths: ['private/token.txt'] },
+        });
+
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: '.env.local' },
+        });
+
+        const result = await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: 'private/token.txt' },
+        });
+
+        expectSecretProtectionDeny(result, 'claude-code');
+      });
+    });
+
+    test('project allow paths fail closed', async () => {
+      await withHookTestContext(async (context) => {
+        writeProjectPolicy(context.cwd, {
+          version: 1,
+          secret_protection: { allow_paths: ['.env'] },
+        });
+
+        const result = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo ok'));
+
+        expect(getHookDenyReason(result, 'claude-code')).toContain(
+          'project policy cannot configure secret_protection.allow_paths',
+        );
+      });
     });
   });
 

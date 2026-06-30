@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -152,6 +152,50 @@ describe('hook adapter direct integration', () => {
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
       'Access to a sensitive path is not allowed.',
     );
+  });
+
+  test('policy config protection blocks mutation tools before config loading', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-policy-'));
+    try {
+      const output = await runHookJson(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        cwd,
+        tool_name: 'Write',
+        tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
+      });
+
+      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+        'Policy config cannot be modified by agent tools',
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('non-command tools fail closed when policy config is invalid', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-invalid-policy-'));
+    try {
+      mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
+      writeFileSync(
+        join(cwd, '.cc-safety-net', 'policy.json'),
+        JSON.stringify({ version: 1, secret_protection: { allow_paths: ['.env'] } }),
+        'utf-8',
+      );
+      const output = await runHookJson(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        cwd,
+        tool_name: 'Read',
+        tool_input: { file_path: 'README.md' },
+      });
+
+      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+        'project policy cannot configure secret_protection.allow_paths',
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   test('secret protection exceptions fail closed and log only in debug mode', async () => {

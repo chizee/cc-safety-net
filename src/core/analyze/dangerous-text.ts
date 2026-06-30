@@ -1,4 +1,11 @@
+import { builtinMatch } from '@/core/builtin-rules';
+import type { BuiltinRuleMatch } from '@/types';
+
 export function dangerousInText(text: string): string | null {
+  return dangerousInTextMatch(text)?.reason ?? null;
+}
+
+export function dangerousInTextMatch(text: string): BuiltinRuleMatch | null {
   const t = text.toLowerCase();
   const stripped = t.trimStart();
   const isEchoOrRg = stripped.startsWith('echo ') || stripped.startsWith('rg ');
@@ -67,7 +74,7 @@ export function dangerousInText(text: string): string | null {
     if (skipForEchoRg && isEchoOrRg) continue;
     const target = caseSensitive ? text : t;
     if (regex.test(target)) {
-      return reason;
+      return builtinMatch('raw-text.dangerous-command', reason);
     }
   }
   return null;

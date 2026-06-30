@@ -1,17 +1,18 @@
 import { realpathSync } from 'node:fs';
 import { normalize } from 'node:path';
-import { AWK_INTERPRETERS, analyzeAwkSystemCalls } from '@/core/analyze/awk';
+import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
 import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
-import { analyzeFind } from '@/core/analyze/find';
+import { analyzeFindMatch } from '@/core/analyze/find';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { analyzeParallel } from '@/core/analyze/parallel';
-import { analyzeRm } from '@/core/analyze/rm';
+import { analyzeRmMatch } from '@/core/analyze/rm';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
-import { analyzeGit } from '@/core/git';
+import { builtinMatch, filterBuiltinMatch } from '@/core/builtin-rules';
+import { analyzeGitMatch } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
 import { checkCustomRules } from '@/core/rules/custom';
 import {
@@ -24,6 +25,7 @@ import {
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
+  type BuiltinRuleMatch,
   type Config,
   INTERPRETERS,
   PARANOID_INTERPRETERS_SUFFIX,
@@ -54,7 +56,7 @@ interface CommandAnalysisContext {
   options: InternalOptions;
 }
 
-type CommandAnalyzer = (context: CommandAnalysisContext) => string | null;
+type CommandAnalyzer = (context: CommandAnalysisContext) => BuiltinRuleMatch | null;
 
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['git', analyzeGitCommand],
@@ -140,11 +142,14 @@ export function analyzeSegment(
   }
 
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = analyzeAwkSystemCalls(stripped, (command) =>
-      options.analyzeNested(command, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments,
-      }),
+    const awkReason = filterBuiltinMatch(
+      analyzeAwkSystemCallMatch(stripped, (command) =>
+        options.analyzeNested(command, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        }),
+      ),
+      options.config,
     );
     if (awkReason) {
       return awkReason;
@@ -155,7 +160,14 @@ export function analyzeSegment(
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options.paranoidInterpreters) {
-        return REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX;
+        const reason = filterBuiltinMatch(
+          builtinMatch(
+            'interpreter.one-liner-paranoid',
+            REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX,
+          ),
+          options.config,
+        );
+        if (reason) return reason;
       }
 
       const innerReason = options.analyzeNested(codeArg, {
@@ -167,7 +179,11 @@ export function analyzeSegment(
       }
 
       if (containsDangerousCode(codeArg)) {
-        return REASON_INTERPRETER_DANGEROUS;
+        const reason = filterBuiltinMatch(
+          builtinMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+          options.config,
+        );
+        if (reason) return reason;
       }
     }
   }
@@ -194,7 +210,10 @@ export function analyzeSegment(
     options,
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = commandAnalyzer?.(commandContext);
+  const commandResult = filterBuiltinMatch(
+    commandAnalyzer?.(commandContext) ?? null,
+    options.config,
+  );
   if (commandResult) {
     return commandResult;
   }
@@ -211,7 +230,10 @@ export function analyzeSegment(
         const token = stripped[i];
         if (!token) continue;
 
-        const reason = analyzeEmbeddedCommand(commandContext, i);
+        const reason = filterBuiltinMatch(
+          analyzeEmbeddedCommand(commandContext, i),
+          options.config,
+        );
         if (reason) return reason;
       }
     }
@@ -244,7 +266,10 @@ function getCommandAnalyzer(context: CommandAnalysisContext): CommandAnalyzer | 
   return COMMAND_ANALYZERS.get(context.basename);
 }
 
-function analyzeEmbeddedCommand(context: CommandAnalysisContext, index: number): string | null {
+function analyzeEmbeddedCommand(
+  context: CommandAnalysisContext,
+  index: number,
+): BuiltinRuleMatch | null {
   const token = context.tokens[index];
   if (!token) {
     return null;
@@ -256,10 +281,11 @@ function analyzeEmbeddedCommand(context: CommandAnalysisContext, index: number):
     if (!dashCArg) {
       return null;
     }
-    return context.options.analyzeNested(dashCArg, {
+    const reason = context.options.analyzeNested(dashCArg, {
       effectiveCwd: context.effectiveCwd,
       envAssignments: context.envAssignments,
     });
+    return reason ? { id: '', reason } : null;
   }
 
   const analyzer = COMMAND_ANALYZERS.get(cmd);
@@ -278,16 +304,16 @@ function analyzeEmbeddedCommand(context: CommandAnalysisContext, index: number):
   return analyzer(embeddedContext);
 }
 
-function analyzeGitCommand(context: CommandAnalysisContext): string | null {
-  return analyzeGit(context.tokens, {
+function analyzeGitCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+  return analyzeGitMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
   });
 }
 
-function analyzeRmCommand(context: CommandAnalysisContext): string | null {
-  return analyzeRm(context.tokens, {
+function analyzeRmCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+  return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoid: context.options.paranoidRm,
@@ -295,8 +321,8 @@ function analyzeRmCommand(context: CommandAnalysisContext): string | null {
   });
 }
 
-function analyzeFindCommand(context: CommandAnalysisContext): string | null {
-  return analyzeFind(context.tokens, {
+function analyzeFindCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+  return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
     analyzeTokens: (tokens, cwd) =>
@@ -309,15 +335,17 @@ function analyzeFindCommand(context: CommandAnalysisContext): string | null {
   });
 }
 
-function analyzeXargsCommand(context: CommandAnalysisContext): string | null {
-  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+function analyzeXargsCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+  const reason = analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+  return reason ? { id: '', reason } : null;
 }
 
-function analyzeParallelCommand(context: CommandAnalysisContext): string | null {
-  return analyzeParallel(context.tokens, {
+function analyzeParallelCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+  const reason = analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
     analyzeNested: context.options.analyzeNested,
   });
+  return reason ? { id: '', reason } : null;
 }
 
 function getNestedCommandAnalyzeContext(

@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import type { SecretProtectionConfig } from '@/types';
 
 export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
 
@@ -82,9 +83,13 @@ type SecretTarget = {
 export function findSensitivePathTarget(
   targets: readonly string[],
   cwd = process.cwd(),
+  config?: SecretProtectionConfig,
 ): SecretTarget | null {
   for (const target of targets) {
-    if (isSensitivePath(target, cwd)) {
+    if (isDeniedByPolicy(target, cwd, config)) {
+      return { target };
+    }
+    if (isSensitivePath(target, cwd) && !isAllowedByPolicy(target, cwd, config)) {
       return { target };
     }
   }
@@ -95,21 +100,23 @@ export function findSensitivePathTarget(
 export function findSensitiveTargetInCommand(
   command: string,
   cwd = process.cwd(),
+  config?: SecretProtectionConfig,
 ): SecretTarget | null {
-  return findSensitivePathTarget(extractCommandPathTargets(command), cwd);
+  return findSensitivePathTarget(extractCommandPathTargets(command), cwd, config);
 }
 
 export function findSensitiveTargetInToolInput(
   input: unknown,
   cwd = process.cwd(),
+  config?: SecretProtectionConfig,
 ): SecretTarget | null {
   const command = getCommandFromToolInput(input);
   if (command) {
-    const commandTarget = findSensitiveTargetInCommand(command, cwd);
+    const commandTarget = findSensitiveTargetInCommand(command, cwd, config);
     if (commandTarget) return commandTarget;
   }
 
-  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd);
+  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd, config);
 }
 
 export function getCommandFromToolInput(input: unknown): string | undefined {
@@ -455,6 +462,28 @@ function isAllowedSensitiveTemplate(comparableName: string): boolean {
     ENV_EXEMPTION_BASENAMES.has(comparableName) ||
     ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix))
   );
+}
+
+function isDeniedByPolicy(
+  target: string,
+  cwd: string,
+  config: SecretProtectionConfig | undefined,
+): boolean {
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
+}
+
+function isAllowedByPolicy(
+  target: string,
+  cwd: string,
+  config: SecretProtectionConfig | undefined,
+): boolean {
+  return matchesPolicyPath(target, cwd, config?.allowPaths ?? []);
+}
+
+function matchesPolicyPath(target: string, cwd: string, paths: readonly string[]): boolean {
+  if (paths.length === 0) return false;
+  const normalized = comparable(normalizeCandidatePath(target, cwd));
+  return paths.some((path) => comparable(normalizeCandidatePath(path, cwd)) === normalized);
 }
 
 function isSkippablePathForBroadSignatures(comparablePath: string): boolean {

@@ -1,6 +1,7 @@
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
+import { builtinMatch } from '@/core/builtin-rules';
 import { getBasename, stripWrappers } from '@/core/shell';
-import type { AnalyzeNestedOverrides } from '@/types';
+import type { AnalyzeNestedOverrides, BuiltinRuleMatch } from '@/types';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
 const FIND_PRIMARIES_WITH_VALUE = new Set([
@@ -56,9 +57,16 @@ export function analyzeFind(
   tokens: readonly string[],
   context: AnalyzeFindContext = {},
 ): string | null {
+  return analyzeFindMatch(tokens, context)?.reason ?? null;
+}
+
+export function analyzeFindMatch(
+  tokens: readonly string[],
+  context: AnalyzeFindContext = {},
+): BuiltinRuleMatch | null {
   // Check for -delete outside of -exec/-execdir blocks
   if (findHasDelete(tokens.slice(1))) {
-    return REASON_FIND_DELETE;
+    return builtinMatch('find.delete', REASON_FIND_DELETE);
   }
 
   // Check all -exec and -execdir blocks for dangerous commands
@@ -77,7 +85,7 @@ export function analyzeFind(
           token === '-execdir' ? null : context.cwd,
         );
         if (reason) {
-          return reason;
+          return { id: '', reason };
         }
         continue;
       }
@@ -88,7 +96,7 @@ export function analyzeFind(
           envAssignments: context.envAssignments,
         });
         if (reason) {
-          return reason;
+          return { id: '', reason };
         }
         continue;
       }
@@ -101,7 +109,7 @@ export function analyzeFind(
   return null;
 }
 
-function analyzeFindExecCommand(tokens: readonly string[]): string | null {
+function analyzeFindExecCommand(tokens: readonly string[]): BuiltinRuleMatch | null {
   let execCommand = stripWrappers([...tokens]);
   if (execCommand.length === 0) {
     return null;
@@ -114,7 +122,10 @@ function analyzeFindExecCommand(tokens: readonly string[]): string | null {
   }
 
   if (head === 'rm' && hasRecursiveForceFlags(execCommand)) {
-    return 'find -exec rm -rf is dangerous. Use explicit file list instead.';
+    return builtinMatch(
+      'find.exec-rm-recursive-force',
+      'find -exec rm -rf is dangerous. Use explicit file list instead.',
+    );
   }
 
   return null;

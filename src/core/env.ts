@@ -1,3 +1,5 @@
+import type { PolicyModes } from '@/types';
+
 export interface EnvFlag {
   name: string;
   legacyName?: string;
@@ -16,14 +18,17 @@ export const ENV_FLAGS = {
   experimentalSecretProtection: { name: 'CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION' },
 } as const satisfies Record<string, EnvFlag>;
 
-export function getCCSafetyNetEnvModes() {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
+export function getCCSafetyNetEnvModes(policyModes: PolicyModes = {}) {
+  const paranoidAll = envTruthy(ENV_FLAGS.paranoid) || !!policyModes.paranoid;
   return {
-    strict: envTruthy(ENV_FLAGS.strict),
+    strict: envTruthy(ENV_FLAGS.strict) || !!policyModes.strict,
     paranoidAll,
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree),
+    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm) || !!policyModes.paranoidRm,
+    paranoidInterpreters:
+      paranoidAll ||
+      envTruthy(ENV_FLAGS.paranoidInterpreters) ||
+      !!policyModes.paranoidInterpreters,
+    worktreeMode: envTruthy(ENV_FLAGS.worktree) || !!policyModes.worktreeMode,
   };
 }
 

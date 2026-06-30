@@ -1,3 +1,4 @@
+import { builtinMatch } from '@/core/builtin-rules';
 import { hasGitSshEnvAssignment } from '@/core/git/env';
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { analyzeGitRule } from '@/core/git/rules';
@@ -6,6 +7,7 @@ import {
   type GitWorktreeRelaxation,
   getGitWorktreeRelaxationForMatch,
 } from '@/core/git/worktree-relaxation';
+import type { BuiltinRuleMatch } from '@/types';
 
 const REASON_GIT_SSH_ENV =
   'Git SSH environment overrides can execute arbitrary commands during network operations.';
@@ -22,8 +24,15 @@ export function analyzeGit(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
 ): string | null {
+  return analyzeGitMatch(tokens, options)?.reason ?? null;
+}
+
+export function analyzeGitMatch(
+  tokens: readonly string[],
+  options: GitAnalyzeOptions = {},
+): BuiltinRuleMatch | null {
   if (hasGitSshEnvAssignment(options.envAssignments) && isGitNetworkOperation(tokens)) {
-    return REASON_GIT_SSH_ENV;
+    return builtinMatch('git.ssh-env', REASON_GIT_SSH_ENV);
   }
 
   const match = analyzeGitRule(tokens);
@@ -36,7 +45,7 @@ export function analyzeGit(
     return null;
   }
 
-  return match.reason;
+  return match;
 }
 
 function isGitNetworkOperation(tokens: readonly string[]): boolean {

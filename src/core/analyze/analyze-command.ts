@@ -1,10 +1,11 @@
-import { dangerousInText } from '@/core/analyze/dangerous-text';
+import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { analyzeSegment, resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
+import { filterBuiltinMatch } from '@/core/builtin-rules';
 import { getBasename, splitShellCommandsWithInfo } from '@/core/shell';
 import {
   type AnalyzeNestedOverrides,
@@ -64,7 +65,7 @@ export function analyzeCommandInternal(
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
 
     if (segment.length === 1 && segment[0]?.includes(' ')) {
-      const textReason = dangerousInText(segment[0]);
+      const textReason = filterBuiltinMatch(dangerousInTextMatch(segment[0]), options.config);
       if (textReason) {
         return { reason: textReason, segment: segmentStr };
       }

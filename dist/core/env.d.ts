@@ -1,3 +1,4 @@
+import type { PolicyModes } from '@/types';
 export interface EnvFlag {
     name: string;
     legacyName?: string;
@@ -30,7 +31,7 @@ export declare const ENV_FLAGS: {
         readonly name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION";
     };
 };
-export declare function getCCSafetyNetEnvModes(): {
+export declare function getCCSafetyNetEnvModes(policyModes?: PolicyModes): {
     strict: boolean;
     paranoidAll: boolean;
     paranoidRm: boolean;

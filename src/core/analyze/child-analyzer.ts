@@ -1,9 +1,15 @@
-import { analyzeFind } from '@/core/analyze/find';
-import { analyzeRm } from '@/core/analyze/rm';
+import { analyzeFindMatch } from '@/core/analyze/find';
+import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
-import { analyzeGit } from '@/core/git';
-import { type AnalyzeNestedOverrides, SHELL_WRAPPERS } from '@/types';
+import { filterBuiltinMatch } from '@/core/builtin-rules';
+import { analyzeGitMatch } from '@/core/git';
+import {
+  type AnalyzeNestedOverrides,
+  type BuiltinRuleMatch,
+  type Config,
+  SHELL_WRAPPERS,
+} from '@/types';
 
 export interface ChildCommandAnalysisContext {
   cwd: string | undefined;
@@ -12,6 +18,7 @@ export interface ChildCommandAnalysisContext {
   allowTmpdirVar: boolean;
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
+  config?: Pick<Config, 'disabledBuiltinRules'>;
   analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 
@@ -19,6 +26,8 @@ export interface ChildCommandAnalysisOptions {
   dynamicInput?: boolean;
   shellDynamicReason?: string;
   rmDynamicReason?: string;
+  shellDynamicMatch?: BuiltinRuleMatch;
+  rmDynamicMatch?: BuiltinRuleMatch;
 }
 
 export function analyzeChildCommand(
@@ -36,8 +45,11 @@ export function analyzeChildCommand(
   }
 
   if (SHELL_WRAPPERS.has(head)) {
-    if (options.dynamicInput && options.shellDynamicReason) {
-      return options.shellDynamicReason;
+    const shellDynamicMatch =
+      options.shellDynamicMatch ??
+      (options.shellDynamicReason ? { id: '', reason: options.shellDynamicReason } : undefined);
+    if (options.dynamicInput && shellDynamicMatch) {
+      return filterBuiltinMatch(shellDynamicMatch, context.config);
     }
 
     const dashCArg = extractDashCArg(tokens);
@@ -51,30 +63,52 @@ export function analyzeChildCommand(
   }
 
   if (head === 'rm' && hasRecursiveForceFlags(tokens)) {
-    const rmResult = analyzeRm([...tokens], {
-      cwd: context.cwd,
-      originalCwd: context.originalCwd,
-      paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar,
-    });
-    return rmResult ?? (options.dynamicInput ? (options.rmDynamicReason ?? null) : null);
+    return (
+      filterBuiltinMatch(
+        analyzeRmMatch([...tokens], {
+          cwd: context.cwd,
+          originalCwd: context.originalCwd,
+          paranoid: context.paranoidRm,
+          allowTmpdirVar: context.allowTmpdirVar,
+        }),
+        context.config,
+      ) ?? getDynamicRmReason(options, context)
+    );
   }
 
   if (head === 'find') {
-    return analyzeFind(tokens, {
-      ...context,
-      analyzeTokens: (nestedTokens, cwd) =>
-        analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
-    });
+    return filterBuiltinMatch(
+      analyzeFindMatch(tokens, {
+        ...context,
+        analyzeTokens: (nestedTokens, cwd) =>
+          analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
+      }),
+      context.config,
+    );
   }
 
   if (head === 'git') {
-    return analyzeGit(tokens, {
-      cwd: context.cwd,
-      envAssignments: context.envAssignments,
-      worktreeMode: options.dynamicInput ? false : context.worktreeMode,
-    });
+    return filterBuiltinMatch(
+      analyzeGitMatch(tokens, {
+        cwd: context.cwd,
+        envAssignments: context.envAssignments,
+        worktreeMode: options.dynamicInput ? false : context.worktreeMode,
+      }),
+      context.config,
+    );
   }
 
   return null;
+}
+
+function getDynamicRmReason(
+  options: ChildCommandAnalysisOptions,
+  context: ChildCommandAnalysisContext,
+): string | null {
+  const rmDynamicMatch =
+    options.rmDynamicMatch ??
+    (options.rmDynamicReason ? { id: '', reason: options.rmDynamicReason } : undefined);
+  return options.dynamicInput && rmDynamicMatch
+    ? filterBuiltinMatch(rmDynamicMatch, context.config)
+    : null;
 }

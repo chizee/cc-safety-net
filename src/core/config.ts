@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Config, ValidationResult } from '@/types';
+import { loadPolicyConfig } from './policy';
 import { validateCustomRule } from './rules/custom-rule-validation';
 import { validateRulesConfig } from './rules/policy/config-file';
 import { loadRulesPolicy, rulesPolicyToConfig } from './rules/policy/scope-policy';
@@ -18,9 +19,22 @@ export function loadConfig(cwd?: string, options?: LoadConfigOptions): Config {
   if (options?.repairLocalRulebooks) {
     repairLocalRulesPolicy({ cwd: safeCwd, userConfigDir: options.userConfigDir });
   }
-  return rulesPolicyToConfig(
+  const rulesConfig = rulesPolicyToConfig(
     loadRulesPolicy({ cwd: safeCwd, userConfigDir: options?.userConfigDir }),
   );
+  const policyConfig = loadPolicyConfig({ cwd: safeCwd, userConfigDir: options?.userConfigDir });
+  return {
+    ...rulesConfig,
+    modes: policyConfig.modes,
+    disabledBuiltinRules: policyConfig.disabledBuiltinRules,
+    secretProtection: policyConfig.secretProtection,
+    failClosedReason: combineFailClosedReasons(
+      rulesConfig.failClosedReason,
+      policyConfig.errors.length > 0
+        ? `invalid policy config: ${policyConfig.errors.join('; ')}. Fix or remove the policy file manually`
+        : undefined,
+    ),
+  };
 }
 
 /** @internal Exported for testing */
@@ -99,6 +113,16 @@ function validateParsedConfigFile(
   const loaded = readConfigFileInput(path);
   if (!loaded.ok) return loaded.result;
   return validate(loaded.parsed);
+}
+
+function combineFailClosedReasons(...reasons: Array<string | undefined>): string | undefined {
+  const present = reasons.filter((reason): reason is string => !!reason);
+  if (present.length === 0) return undefined;
+  return withTerminalPeriod(present.join('; '));
+}
+
+function withTerminalPeriod(value: string): string {
+  return /[.!?]$/.test(value) ? value : `${value}.`;
 }
 
 export type { ValidationResult };

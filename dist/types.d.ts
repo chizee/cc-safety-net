@@ -22,8 +22,30 @@ export interface Config {
     rules: CustomRule[];
     /** Commands that transparently execute a visible child command for analysis */
     transparent_wrappers?: string[];
+    /** Runtime modes loaded from policy config */
+    modes?: PolicyModes;
+    /** Built-in rule IDs disabled by trusted user policy */
+    disabledBuiltinRules?: ReadonlySet<string>;
+    /** Secret protection policy loaded from user/project policy config */
+    secretProtection?: SecretProtectionConfig;
     /** Fail-closed reason when rule-backed config cannot be loaded safely. */
     failClosedReason?: string;
+}
+export interface PolicyModes {
+    strict?: boolean;
+    paranoid?: boolean;
+    paranoidRm?: boolean;
+    paranoidInterpreters?: boolean;
+    worktreeMode?: boolean;
+}
+export interface SecretProtectionConfig {
+    enabled?: boolean;
+    allowPaths: string[];
+    denyPaths: string[];
+}
+export interface BuiltinRuleMatch {
+    id: string;
+    reason: string;
 }
 /** Result of config validation */
 export interface ValidationResult {

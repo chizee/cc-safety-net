@@ -1,4 +1,4 @@
-import type { AnalyzeNestedOverrides } from '@/types';
+import type { AnalyzeNestedOverrides, BuiltinRuleMatch } from '@/types';
 export interface AnalyzeFindContext {
     cwd?: string;
     envAssignments?: ReadonlyMap<string, string>;
@@ -6,3 +6,4 @@ export interface AnalyzeFindContext {
     analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 export declare function analyzeFind(tokens: readonly string[], context?: AnalyzeFindContext): string | null;
+export declare function analyzeFindMatch(tokens: readonly string[], context?: AnalyzeFindContext): BuiltinRuleMatch | null;

@@ -1,3 +1,6 @@
+import { builtinMatch } from '@/core/builtin-rules';
+import type { BuiltinRuleMatch } from '@/types';
+
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 
 export const REASON_AWK_SYSTEM_DYNAMIC =
@@ -7,16 +10,23 @@ export function analyzeAwkSystemCalls(
   tokens: readonly string[],
   analyzeNested: (command: string) => string | null,
 ): string | null {
+  return analyzeAwkSystemCallMatch(tokens, analyzeNested)?.reason ?? null;
+}
+
+export function analyzeAwkSystemCallMatch(
+  tokens: readonly string[],
+  analyzeNested: (command: string) => string | null,
+): BuiltinRuleMatch | null {
   for (const token of tokens.slice(1)) {
     if (!token.includes('system')) continue;
 
     const commands = extractAwkSystemCommands(token);
     if (!commands) continue;
-    if (commands.dynamic) return REASON_AWK_SYSTEM_DYNAMIC;
+    if (commands.dynamic) return builtinMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
 
     for (const command of commands.commands) {
       const reason = analyzeNested(command);
-      if (reason) return reason;
+      if (reason) return { id: '', reason };
     }
   }
   return null;

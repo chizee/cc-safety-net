@@ -58,6 +58,18 @@ describe('Gemini CLI hook', () => {
 
       expectSecretProtectionDeny(result, 'gemini-cli');
     });
+
+    test('policy config protection blocks write_file', async () => {
+      const result = await runGeminiHook({
+        hook_event_name: 'BeforeTool',
+        tool_name: 'write_file',
+        tool_input: { path: '.cc-safety-net/policy.json', content: '{}' },
+      });
+
+      expect(getHookDenyReason(result, 'gemini-cli')).toContain(
+        'Policy config cannot be modified by agent tools',
+      );
+    });
   });
 
   describe('non-target event', () => {

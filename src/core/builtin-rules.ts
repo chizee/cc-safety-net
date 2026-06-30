@@ -1,0 +1,56 @@
+import type { BuiltinRuleMatch, Config } from '@/types';
+
+export const BUILTIN_RULE_IDS = [
+  'git.ssh-env',
+  'git.checkout-force',
+  'git.checkout-double-dash',
+  'git.checkout-ref-path',
+  'git.checkout-pathspec-from-file',
+  'git.checkout-ambiguous',
+  'git.switch-discard-changes',
+  'git.switch-force',
+  'git.restore-worktree',
+  'git.restore-unstaged',
+  'git.reset-hard',
+  'git.reset-merge',
+  'git.clean-force',
+  'git.push-force',
+  'git.branch-force-delete',
+  'git.rebase-abort',
+  'git.merge-abort',
+  'git.tag-delete',
+  'git.reflog-delete',
+  'git.stash-drop',
+  'git.stash-clear',
+  'git.worktree-remove-force',
+  'rm.recursive-force-root-or-home',
+  'rm.recursive-force-dynamic-target',
+  'rm.recursive-force-home-cwd',
+  'rm.recursive-force-cwd-self',
+  'rm.recursive-force-outside-cwd',
+  'rm.recursive-force-paranoid',
+  'find.delete',
+  'find.exec-rm-recursive-force',
+  'interpreter.dangerous-command',
+  'interpreter.one-liner-paranoid',
+  'awk.system-dynamic',
+  'xargs.rm-recursive-force-dynamic',
+  'xargs.shell-dynamic',
+  'parallel.rm-recursive-force-dynamic',
+  'parallel.shell-dynamic',
+  'raw-text.dangerous-command',
+] as const;
+
+export const BUILTIN_RULE_ID_SET = new Set<string>(BUILTIN_RULE_IDS);
+
+export function builtinMatch(id: (typeof BUILTIN_RULE_IDS)[number], reason: string) {
+  return { id, reason };
+}
+
+export function filterBuiltinMatch(
+  match: BuiltinRuleMatch | null,
+  config: Pick<Config, 'disabledBuiltinRules'> | undefined,
+): string | null {
+  if (!match) return null;
+  return config?.disabledBuiltinRules?.has(match.id) ? null : match.reason;
+}

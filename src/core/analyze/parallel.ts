@@ -4,9 +4,10 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommand,
 } from '@/core/analyze/child-command';
-import { analyzeRm } from '@/core/analyze/rm';
+import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
+import { builtinMatch, filterBuiltinMatch } from '@/core/builtin-rules';
 import { type AnalyzeNestedOverrides, SHELL_WRAPPERS } from '@/types';
 
 const REASON_PARALLEL_RM =
@@ -66,7 +67,7 @@ export function analyzeParallel(
     if (dashCArg) {
       // If script IS just the placeholder, stdin provides entire script - dangerous
       if (isOnlyParallelPlaceholder(dashCArg)) {
-        return REASON_PARALLEL_SHELL;
+        return parallelShellDynamicReason(context);
       }
       // If script contains placeholder
       if (hasParallelPlaceholder(dashCArg)) {
@@ -101,7 +102,7 @@ export function analyzeParallel(
       // If there's a placeholder in the shell wrapper args (not script),
       // it's still dangerous
       if (hasPlaceholder) {
-        return REASON_PARALLEL_SHELL;
+        return parallelShellDynamicReason(context);
       }
       return null;
     }
@@ -109,11 +110,11 @@ export function analyzeParallel(
     // If there are args from :::, those become the scripts - dangerous pattern
     if (args.length > 0) {
       // The pattern of passing scripts via ::: to bash -c is inherently dangerous
-      return REASON_PARALLEL_SHELL;
+      return parallelShellDynamicReason(context);
     }
     // Stdin provides the script - dangerous
     if (hasPlaceholder) {
-      return REASON_PARALLEL_SHELL;
+      return parallelShellDynamicReason(context);
     }
     return null;
   }
@@ -137,7 +138,7 @@ export function analyzeParallel(
         context,
       );
     }
-    return REASON_PARALLEL_RM;
+    return parallelRmDynamicReason(context);
   }
 
   const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
@@ -152,11 +153,12 @@ export function analyzeParallel(
         envAssignments: childCommand.envAssignments,
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
         analyzeNested: context.analyzeNested,
+        config: context.config,
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
-        shellDynamicReason: REASON_PARALLEL_SHELL,
-        rmDynamicReason: REASON_PARALLEL_RM,
+        shellDynamicMatch: builtinMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
+        rmDynamicMatch: builtinMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
       },
     );
     if (result) {
@@ -167,18 +169,35 @@ export function analyzeParallel(
   return null;
 }
 
+function parallelShellDynamicReason(context: ParallelAnalyzeContext): string | null {
+  return filterBuiltinMatch(
+    builtinMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
+    context.config,
+  );
+}
+
+function parallelRmDynamicReason(context: ParallelAnalyzeContext): string | null {
+  return filterBuiltinMatch(
+    builtinMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
+    context.config,
+  );
+}
+
 function analyzeParallelRmExpansions(
   tokenSets: readonly string[][],
   cwd: string | undefined,
   context: ParallelAnalyzeContext,
 ): string | null {
   for (const tokens of tokenSets) {
-    const rmResult = analyzeRm(tokens, {
-      cwd,
-      originalCwd: context.originalCwd,
-      paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar,
-    });
+    const rmResult = filterBuiltinMatch(
+      analyzeRmMatch(tokens, {
+        cwd,
+        originalCwd: context.originalCwd,
+        paranoid: context.paranoidRm,
+        allowTmpdirVar: context.allowTmpdirVar,
+      }),
+      context.config,
+    );
     if (rmResult) {
       return rmResult;
     }

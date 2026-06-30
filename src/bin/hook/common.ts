@@ -3,10 +3,15 @@ import { redactSecrets, writeAuditLog } from '@/core/audit';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { formatBlockedMessage } from '@/core/format';
 import {
+  findPolicyConfigMutationTargetInToolInput,
+  REASON_POLICY_CONFIG_PROTECTION,
+} from '@/core/policy-protection';
+import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
+import type { Config } from '@/types';
 
 export const REASON_SAFETY_NET_FAILED_CLOSED =
   'CC Safety Net failed closed because command analysis failed unexpectedly.';
@@ -87,29 +92,25 @@ export function parseHookJson<T>(
   }
 }
 
-function analyzeHookCommand(command: string, cwd: string) {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
+function analyzeHookCommand(command: string, cwd: string, config?: Config) {
   return analyzeCommand(command, {
     cwd,
-    config: loadConfig(cwd, { repairLocalRulebooks: true }),
-    strict: envTruthy(ENV_FLAGS.strict),
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree),
+    config: config ?? loadConfig(cwd, { repairLocalRulebooks: true }),
   });
 }
 
 function handleSecretProtection(
   toolInput: unknown,
   cwd: string,
+  config: Config,
   sessionId: string | undefined,
   toolName: string,
   outputDeny: HookDenyOutput,
 ): boolean {
-  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection)) {
+  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection) && !config.secretProtection?.enabled) {
     return false;
   }
-  const match = findSensitiveTargetInToolInput(toolInput, cwd);
+  const match = findSensitiveTargetInToolInput(toolInput, cwd, config.secretProtection);
   if (!match) {
     return false;
   }
@@ -127,10 +128,11 @@ export function handleBlockedHookCommand(
   cwd: string,
   sessionId: string | undefined,
   outputDeny: (reason: string, command?: string, segment?: string) => void,
+  config?: Config,
 ): void {
   let result: ReturnType<typeof analyzeHookCommand>;
   try {
-    result = analyzeHookCommand(command, cwd);
+    result = analyzeHookCommand(command, cwd, config);
   } catch (error) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(
@@ -166,11 +168,39 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   const cwd = adapter.getCwd(input) ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
+  const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);
+  if (policyTarget) {
+    const command = getCommandFromToolInput(toolInput) ?? policyTarget.target;
+    adapter.outputDeny(
+      REASON_POLICY_CONFIG_PROTECTION,
+      command,
+      policyTarget.target,
+      false,
+      toolName,
+    );
+    return;
+  }
+
+  let config: Config;
+  try {
+    config = loadConfig(cwd, { repairLocalRulebooks: true });
+  } catch (error) {
+    const command = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(
+        `CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    return;
+  }
+
   let blockedBySecretProtection: boolean;
   try {
     blockedBySecretProtection = handleSecretProtection(
       toolInput,
       cwd,
+      config,
       adapter.getSessionId(input),
       toolName,
       adapter.outputDeny,
@@ -191,10 +221,13 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
 
   const command = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
   if (!command) {
+    if (config.failClosedReason) {
+      adapter.outputDeny(config.failClosedReason, undefined, undefined, false, toolName);
+    }
     return;
   }
 
-  handleBlockedHookCommand(command, cwd, adapter.getSessionId(input), adapter.outputDeny);
+  handleBlockedHookCommand(command, cwd, adapter.getSessionId(input), adapter.outputDeny, config);
 }
 
 function getToolName(input: unknown): string {
