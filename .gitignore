@@ -1,6 +1,7 @@
 # --- Project Specific ---
-.cursor/
-.claude/
+.cursor
+.claude
+.agents
 log*
 .safety-net.json
 .opencode
@@ -13,6 +14,6 @@ coverage
 codex-security-scans
 
 # --- Node.js ---
-node_modules/
+node_modules
 droid-wiki
 plans

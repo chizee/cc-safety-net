@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CC Safety Net Policy</title>
+  <style>
+/* __CC_SAFETY_NET_CUSTOM_CSS__ */
+  </style>
+</head>
+<body>
+  <main>
+    <div class="top">
+      <div>
+        <h1>CC Safety Net Policy</h1>
+        <div class="muted" id="policy-path"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="save">Save</button>
+        <button class="danger" id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="status" id="status"></div>
+    <section class="panel"><h2>Modes</h2><div class="grid" id="modes"></div></section>
+    <section class="panel"><h2>Built-in Rules</h2><div class="grid" id="builtins"></div></section>
+    <section class="panel"><h2>Secret Protection</h2><div id="secret"></div></section>
+    <section class="panel"><h2>Raw JSON Repair</h2><textarea id="raw"></textarea></section>
+  </main>
+  <script>
+    const token = __CC_SAFETY_NET_TOKEN__;
+    const modeLabels = {
+      strict: ['Strict', 'Fail closed on unparseable commands.'],
+      paranoid: ['Paranoid', 'Enable all paranoid checks.'],
+      paranoid_rm: ['Paranoid rm', 'Block non-temp rm -rf within cwd.'],
+      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
+      worktree_mode: ['Worktree mode', 'Allow local git discards in linked worktrees.']
+    };
+    let state;
+    const api = (path, init = {}) => fetch(`${path}?token=${encodeURIComponent(token)}`, {
+      ...init,
+      headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
+    });
+    const qs = (id) => document.getElementById(id);
+    const setStatus = (text, kind = '') => { qs('status').textContent = text; qs('status').className = `status ${kind}`; };
+    const checkbox = (checked) => checked ? 'checked' : '';
+    function render() {
+      qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
+      qs('raw').value = state.errors.length ? state.raw : '';
+      qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
+        `<label class="row"><input type="checkbox" data-mode="${key}" ${checkbox(state.policy.modes[key])}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
+      ).join('');
+      qs('builtins').innerHTML = state.builtins.map((rule) =>
+        `<label class="row"><input type="checkbox" data-builtin="${rule.id}" ${checkbox(state.policy.builtins.overrides[rule.id] === 'off')}><span><strong>${rule.label}</strong><small>${rule.id} &middot; ${rule.description}</small></span></label>`
+      ).join('');
+      qs('secret').innerHTML =
+        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Enable secret protection</strong><small>Use policy settings without requiring the environment flag.</small></span></label>' +
+        '<h2>Allow paths</h2><textarea id="allow-paths">' + state.policy.secret_protection.allow_paths.join('\n') + '</textarea>' +
+        '<h2>Deny paths</h2><textarea id="deny-paths">' + state.policy.secret_protection.deny_paths.join('\n') + '</textarea>';
+      setStatus(state.errors.length ? state.errors.join('\n') : 'Loaded.', state.errors.length ? 'error' : 'ok');
+    }
+    function collectPolicy() {
+      const raw = qs('raw').value.trim();
+      if (raw) {
+        try { return JSON.parse(raw); } catch {}
+      }
+      const overrides = {};
+      document.querySelectorAll('[data-builtin]').forEach((input) => { if (input.checked) overrides[input.dataset.builtin] = 'off'; });
+      const modes = {};
+      document.querySelectorAll('[data-mode]').forEach((input) => { modes[input.dataset.mode] = input.checked; });
+      return {
+        version: 1,
+        modes,
+        builtins: { overrides },
+        secret_protection: {
+          enabled: qs('secret-enabled').checked,
+          allow_paths: qs('allow-paths').value.split('\n').map((v) => v.trim()).filter(Boolean),
+          deny_paths: qs('deny-paths').value.split('\n').map((v) => v.trim()).filter(Boolean)
+        }
+      };
+    }
+    async function load() {
+      state = await (await api('/api/policy')).json();
+      render();
+    }
+    qs('save').onclick = async () => {
+      const response = await api('/api/policy', { method: 'POST', body: JSON.stringify(collectPolicy()) });
+      const result = await response.json();
+      if (!response.ok) { setStatus(result.errors.join('\n'), 'error'); return; }
+      await load();
+      setStatus('Saved.', 'ok');
+    };
+    qs('reset').onclick = async () => {
+      await api('/api/reset', { method: 'POST', body: '{}' });
+      await load();
+      setStatus('Reset.', 'ok');
+    };
+    load().catch((error) => setStatus(String(error), 'error'));
+  </script>
+</body>
+</html>

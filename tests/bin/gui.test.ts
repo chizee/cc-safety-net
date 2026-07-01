@@ -45,6 +45,21 @@ describe('policy GUI server', () => {
     }
   });
 
+  test('GET root serves the GUI document with bundled custom CSS and token bootstrap', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const response = await fetch(server.url);
+      const html = await response.text();
+
+      expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
+      expect(html).toContain('<title>CC Safety Net Policy</title>');
+      expect(html).toContain(`const token = ${JSON.stringify(server.token)};`);
+      expect(html).toContain('cc-safety-net-gui-custom-css');
+    } finally {
+      await server.close();
+    }
+  });
+
   test('GET api policy returns defaults for missing file and errors for invalid file', async () => {
     const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
     try {
