@@ -11165,6 +11165,10 @@ var custom_default = `/* cc-safety-net-gui-custom-css */
   --border: light-dark(#e3e6ea, #292d33);
   --border-strong: light-dark(#cfd4da, #363b42);
 
+  --switch-track: light-dark(#c2c8d0, #3a3f47);
+  --switch-track-hover: light-dark(#aab1bb, #474d56);
+  --switch-knob: #ffffff;
+
   --accent: light-dark(#166534, #3fb950);
   --safe: #14532d;
   --safe-hover: #0f3d20;
@@ -11451,12 +11455,47 @@ label.row:has(input:checked) {
 }
 
 label.row input[type="checkbox"] {
-  margin-top: 1px;
-  width: 16px;
-  height: 16px;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  margin: 1px 0 0;
+  width: 34px;
+  height: 20px;
   flex: none;
-  accent-color: var(--accent);
+  border: 1px solid var(--switch-track);
+  border-radius: 999px;
+  background: var(--switch-track);
   cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+label.row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.18s ease;
+}
+
+label.row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+label.row input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+}
+
+label.row:hover input[type="checkbox"]:not(:checked) {
+  border-color: var(--switch-track-hover);
+  background: var(--switch-track-hover);
 }
 
 label.row span {
@@ -11838,6 +11877,18 @@ var page_default = `<!doctype html>
           </section>
         \`).join('');
     };
+    const builtinSummaryText = (disabledCount) =>
+      \`\${state.builtins.length - disabledCount} active, \${disabledCount} disabled\`;
+    const secretSummaryText = (disabledCount) =>
+      \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are always blocked.\`;
+    const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
+      const stateLabel = input.closest('.row')?.querySelector('small span');
+      if (stateLabel) {
+        stateLabel.textContent = active ? 'Active' : 'Disabled';
+        stateLabel.className = active ? 'state-active' : 'state-disabled';
+      }
+      qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
+    };
     const renderBuiltins = () => renderRuleToggles({
       searchId: 'builtin-search',
       rules: state.builtins,
@@ -11846,8 +11897,7 @@ var page_default = `<!doctype html>
       targetId: 'builtins',
       dataAttribute: 'data-builtin-active',
       emptyText: 'No built-in protections match the search.',
-      summaryText: (disabledCount) =>
-        \`\${state.builtins.length - disabledCount} active, \${disabledCount} disabled\`
+      summaryText: builtinSummaryText
     });
     const renderSecretPatterns = () => {
       renderRuleToggles({
@@ -11858,8 +11908,7 @@ var page_default = `<!doctype html>
         targetId: 'secret-patterns',
         dataAttribute: 'data-secret-active',
         emptyText: 'No secret patterns match the search.',
-        summaryText: (disabledCount) =>
-          \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are always blocked.\`
+        summaryText: secretSummaryText
       });
     };
     function render() {
@@ -11941,7 +11990,7 @@ var page_default = `<!doctype html>
         if (input.checked) delete draftPolicy.builtins.overrides[input.dataset.builtinActive];
         else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
         disarmReset();
-        renderBuiltins();
+        updateRuleRow(input, input.checked, 'builtins-summary', draftPolicy.builtins.overrides, builtinSummaryText);
         syncRawFromForm();
         return;
       }
@@ -11949,7 +11998,7 @@ var page_default = `<!doctype html>
         if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
         else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
         disarmReset();
-        renderSecretPatterns();
+        updateRuleRow(input, input.checked, 'secret-summary', draftPolicy.secret_protection.overrides, secretSummaryText);
         syncRawFromForm();
         return;
       }

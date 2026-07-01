@@ -221,6 +221,18 @@
           </section>
         `).join('');
     };
+    const builtinSummaryText = (disabledCount) =>
+      `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`;
+    const secretSummaryText = (disabledCount) =>
+      `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are always blocked.`;
+    const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
+      const stateLabel = input.closest('.row')?.querySelector('small span');
+      if (stateLabel) {
+        stateLabel.textContent = active ? 'Active' : 'Disabled';
+        stateLabel.className = active ? 'state-active' : 'state-disabled';
+      }
+      qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
+    };
     const renderBuiltins = () => renderRuleToggles({
       searchId: 'builtin-search',
       rules: state.builtins,
@@ -229,8 +241,7 @@
       targetId: 'builtins',
       dataAttribute: 'data-builtin-active',
       emptyText: 'No built-in protections match the search.',
-      summaryText: (disabledCount) =>
-        `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`
+      summaryText: builtinSummaryText
     });
     const renderSecretPatterns = () => {
       renderRuleToggles({
@@ -241,8 +252,7 @@
         targetId: 'secret-patterns',
         dataAttribute: 'data-secret-active',
         emptyText: 'No secret patterns match the search.',
-        summaryText: (disabledCount) =>
-          `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are always blocked.`
+        summaryText: secretSummaryText
       });
     };
     function render() {
@@ -324,7 +334,7 @@
         if (input.checked) delete draftPolicy.builtins.overrides[input.dataset.builtinActive];
         else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
         disarmReset();
-        renderBuiltins();
+        updateRuleRow(input, input.checked, 'builtins-summary', draftPolicy.builtins.overrides, builtinSummaryText);
         syncRawFromForm();
         return;
       }
@@ -332,7 +342,7 @@
         if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
         else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
         disarmReset();
-        renderSecretPatterns();
+        updateRuleRow(input, input.checked, 'secret-summary', draftPolicy.secret_protection.overrides, secretSummaryText);
         syncRawFromForm();
         return;
       }
