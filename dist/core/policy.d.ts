@@ -1,4 +1,5 @@
 export { BUILTIN_RULE_METADATA } from '@/core/builtin-rules';
+export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicyModes, SecretProtectionConfig } from '@/types';
 type PolicyConfig = {
@@ -22,7 +23,7 @@ export type GuiPolicy = {
     };
     secret_protection: {
         enabled: boolean;
-        allow_paths: string[];
+        overrides: Record<string, 'off'>;
         deny_paths: string[];
     };
 };

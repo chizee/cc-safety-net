@@ -39,6 +39,7 @@ export type HookTestContext = {
 export async function withHookTestContext<T>(fn: (context: HookTestContext) => T | Promise<T>) {
   const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'));
   const home = join(cwd, 'home');
+  const safetyNetHome = join(home, '.cc-safety-net');
   try {
     return await fn({
       cwd,
@@ -48,12 +49,28 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
       geminiShellInput: (command) => geminiShellInput(command, cwd),
       claudeCodeBashInput: (command) => claudeCodeBashInput(command, cwd),
       kimiShellInput: (command) => kimiShellInput(command, cwd),
-      runCli: (args, input = '', env) => runCli(args, input, { HOME: home, ...(env ?? {}) }, cwd),
+      runCli: (args, input = '', env) =>
+        runCli(args, input, { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) }, cwd),
       runClaudeCodeHook: (input, env) =>
-        runClaudeCodeHook(input, { HOME: home, ...(env ?? {}) }, cwd),
-      runGeminiHook: (input, env) => runGeminiHook(input, { HOME: home, ...(env ?? {}) }, cwd),
-      runKimiHook: (input, env) => runKimiHook(input, { HOME: home, ...(env ?? {}) }, cwd),
-      runCopilotHook: (input, env) => runCopilotHook(input, { HOME: home, ...(env ?? {}) }, cwd),
+        runClaudeCodeHook(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
+      runGeminiHook: (input, env) =>
+        runGeminiHook(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
+      runKimiHook: (input, env) =>
+        runKimiHook(input, { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) }, cwd),
+      runCopilotHook: (input, env) =>
+        runCopilotHook(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
     });
   } finally {
     rmSync(cwd, { recursive: true, force: true });

@@ -57,8 +57,12 @@
       <div class="panel-head">
         <div class="panel-title">
           <h2>Secret Protection</h2>
-          <p class="panel-sub muted">Control which sensitive paths agents may read and which are always blocked.</p>
+          <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are always blocked.</p>
         </div>
+        <label class="search">
+          <span>Search secret patterns</span>
+          <input type="search" id="secret-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+        </label>
       </div>
       <div id="secret"></div>
     </section>
@@ -112,7 +116,7 @@
       builtins: draftPolicy.builtins,
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
-        allow_paths: pathLines(qs('allow-paths')?.value ?? ''),
+        overrides: draftPolicy.secret_protection.overrides,
         deny_paths: pathLines(qs('deny-paths')?.value ?? '')
       }
     });
@@ -134,7 +138,6 @@
       updateRawSource();
     };
     const updateDraftSecretPaths = () => {
-      draftPolicy.secret_protection.allow_paths = pathLines(qs('allow-paths')?.value ?? '');
       draftPolicy.secret_protection.deny_paths = pathLines(qs('deny-paths')?.value ?? '');
     };
     const groupRules = (rules) => rules.reduce((groups, rule) => {
@@ -146,31 +149,54 @@
       groups.push({ category: rule.category, rules: [rule] });
       return groups;
     }, []);
-    const renderBuiltins = () => {
-      const query = qs('builtin-search').value.trim().toLowerCase();
-      const rules = state.builtins.filter((rule) =>
+    const renderRuleToggles = (options) => {
+      const query = qs(options.searchId).value.trim().toLowerCase();
+      const rules = options.rules.filter((rule) =>
         [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
       );
-      const disabledCount = Object.keys(draftPolicy.builtins.overrides).length;
-      qs('builtins-summary').textContent =
-        `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`;
-      qs('builtins').innerHTML = rules.length === 0
-        ? '<p class="empty">No built-in protections match the search.</p>'
+      const disabledCount = Object.keys(options.overrides).length;
+      qs(options.summaryId).textContent = options.summaryText(disabledCount);
+      qs(options.targetId).innerHTML = rules.length === 0
+        ? `<p class="empty">${escapeHtml(options.emptyText)}</p>`
         : groupRules(rules).map((group) => `
           <section class="builtin-group">
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules.map((rule) => {
-              const active = draftPolicy.builtins.overrides[rule.id] !== 'off';
+              const active = options.overrides[rule.id] !== 'off';
               return `<label class="row">
-                <input type="checkbox" data-builtin-active="${escapeHtml(rule.id)}" ${checkbox(active)}>
+                <input type="checkbox" ${options.dataAttribute}="${escapeHtml(rule.id)}" ${checkbox(active)}>
                 <span>
                   <strong>${escapeHtml(rule.label)}</strong>
-                  <small><span class="${active ? 'state-active' : 'state-disabled'}">${active ? 'Active' : 'Disabled'}</span> · ${escapeHtml(rule.description)}</small>
+                  <small><span class="${active ? 'state-active' : 'state-disabled'}">${active ? 'Active' : 'Disabled'}</span> ${escapeHtml(rule.description)}</small>
                 </span>
               </label>`;
             }).join('')}</div>
           </section>
         `).join('');
+    };
+    const renderBuiltins = () => renderRuleToggles({
+      searchId: 'builtin-search',
+      rules: state.builtins,
+      overrides: draftPolicy.builtins.overrides,
+      summaryId: 'builtins-summary',
+      targetId: 'builtins',
+      dataAttribute: 'data-builtin-active',
+      emptyText: 'No built-in protections match the search.',
+      summaryText: (disabledCount) =>
+        `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`
+    });
+    const renderSecretPatterns = () => {
+      renderRuleToggles({
+        searchId: 'secret-search',
+        rules: state.secretPatterns,
+        overrides: draftPolicy.secret_protection.overrides,
+        summaryId: 'secret-summary',
+        targetId: 'secret-patterns',
+        dataAttribute: 'data-secret-active',
+        emptyText: 'No secret patterns match the search.',
+        summaryText: (disabledCount) =>
+          `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are always blocked.`
+      });
     };
     function render() {
       draftPolicy = clonePolicy(state.policy);
@@ -182,13 +208,14 @@
       ).join('');
       qs('secret').innerHTML =
         '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Enable secret protection</strong><small>Use policy settings without requiring the environment flag.</small></span></label>' +
-        '<label class="field" for="allow-paths"><span>Allow paths</span><small>One path per line. Exact normalized paths exempt default sensitive-path detection.</small></label>' +
-        '<textarea id="allow-paths">' + escapeHtml(state.policy.secret_protection.allow_paths.join('\n')) + '</textarea>' +
-        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths add explicit blocks and take precedence over allow paths.</small></label>' +
+        '<div id="secret-patterns"></div>' +
+        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths stay blocked even when default patterns are disabled.</small></label>' +
         '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\n')) + '</textarea>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('builtin-search').value = '';
+      qs('secret-search').value = '';
       renderBuiltins();
+      renderSecretPatterns();
       updateRawSource();
       setStatus(
         state.errors.length ? `Error: ${state.errors.join('\n')}` : 'Status: Loaded.',
@@ -215,13 +242,18 @@
         renderBuiltins();
         return;
       }
+      if (input.id === 'secret-search') {
+        disarmReset();
+        renderSecretPatterns();
+        return;
+      }
       if (input.id === 'raw') {
         if (!syncingRaw) rawIsManual = true;
         disarmReset();
         updateRawSource();
         return;
       }
-      if (input.id === 'allow-paths' || input.id === 'deny-paths') {
+      if (input.id === 'deny-paths') {
         updateDraftSecretPaths();
         disarmReset();
         syncRawFromForm();
@@ -240,6 +272,14 @@
         else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
         disarmReset();
         renderBuiltins();
+        syncRawFromForm();
+        return;
+      }
+      if (input.dataset?.secretActive) {
+        if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
+        else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
+        disarmReset();
+        renderSecretPatterns();
         syncRawFromForm();
         return;
       }

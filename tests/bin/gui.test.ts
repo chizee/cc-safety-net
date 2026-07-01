@@ -12,6 +12,7 @@ interface PolicyApiResponse {
     version: number;
   };
   builtins: unknown[];
+  secretPatterns: unknown[];
 }
 
 interface WriteApiResponse {
@@ -63,7 +64,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).toContain('Confirm reset');
+      expect(html).toContain('Search secret patterns');
+      expect(html).toContain('Default secret patterns');
       expect(html).toContain('One path per line');
+      expect(html).not.toContain('Allow paths');
+      expect(html).not.toContain('id="allow-paths"');
       expect(html).toContain('Raw JSON');
       expect(html).not.toContain(' · ${escapeHtml(rule.id)} · ');
     } finally {
@@ -81,6 +86,7 @@ describe('policy GUI server', () => {
       expect(missing.errors).toEqual([]);
       expect(missing.policy.version).toBe(1);
       expect(missing.builtins.length).toBeGreaterThan(0);
+      expect(missing.secretPatterns.length).toBeGreaterThan(0);
 
       mkdirSync(safetyNetHome, { recursive: true });
       writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
@@ -106,7 +112,11 @@ describe('policy GUI server', () => {
           version: 1,
           modes: { paranoid_rm: true },
           builtins: { overrides: { 'git.reset-hard': 'off' } },
-          secret_protection: { enabled: true, allow_paths: ['.env.local'], deny_paths: [] },
+          secret_protection: {
+            enabled: true,
+            overrides: { 'secret.ext.pem': 'off' },
+            deny_paths: [],
+          },
         },
       );
 
@@ -124,10 +134,12 @@ describe('policy GUI server', () => {
       const resetPolicy = JSON.parse(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')) as {
         version: number;
         builtins: { overrides: Record<string, string> };
+        secret_protection: { overrides: Record<string, string> };
       };
       expect(resetPolicy).toMatchObject({
         version: 1,
         builtins: { overrides: {} },
+        secret_protection: { overrides: {} },
       });
     } finally {
       await server.close();

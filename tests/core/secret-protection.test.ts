@@ -7,7 +7,31 @@ import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
 } from '@/core/secret-protection';
+import {
+  SECRET_PROTECTION_RULE_IDS,
+  SECRET_PROTECTION_RULE_METADATA,
+} from '@/core/secret-protection-rules';
 import { withEnv } from '../helpers.ts';
+
+describe('secret protection rule metadata', () => {
+  test('covers every stable per-pattern rule id', () => {
+    expect(SECRET_PROTECTION_RULE_METADATA.map((entry) => entry.id).sort()).toEqual(
+      [...SECRET_PROTECTION_RULE_IDS].sort(),
+    );
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.basename.env');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.pattern.env-variant');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.ssh');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.dir.secrets');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-rsa.pem');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext.pem');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext-pattern.sql');
+    for (const entry of SECRET_PROTECTION_RULE_METADATA) {
+      expect(entry.category).not.toBe('');
+      expect(entry.label).not.toBe('');
+      expect(entry.description).not.toBe('');
+    }
+  });
+});
 
 describe('secret protection path matching', () => {
   test('matches project env files without substring matching', () => {
@@ -57,6 +81,42 @@ describe('secret protection path matching', () => {
 
     expect(findSensitivePathTarget([''], cwd)).toBeNull();
     expect(findSensitivePathTarget(['package.json'], cwd)).toBeNull();
+  });
+});
+
+describe('secret protection per-pattern overrides', () => {
+  test('disabled rule ids skip only the matching default pattern', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitivePathTarget(['server.pem'], cwd, {
+        disabledRules: new Set(['secret.ext.pem']),
+        denyPaths: [],
+      }),
+    ).toBeNull();
+    expect(
+      findSensitivePathTarget(['server.p12'], cwd, {
+        disabledRules: new Set(['secret.ext.pem']),
+        denyPaths: [],
+      }),
+    ).not.toBeNull();
+    expect(
+      findSensitivePathTarget(['id_rsa.pem'], cwd, {
+        disabledRules: new Set(['secret.ext.pem']),
+        denyPaths: [],
+      }),
+    ).not.toBeNull();
+  });
+
+  test('explicit deny paths still block when the default pattern is disabled', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitivePathTarget(['server.pem'], cwd, {
+        disabledRules: new Set(['secret.ext.pem']),
+        denyPaths: ['server.pem'],
+      }),
+    ).not.toBeNull();
   });
 });
 

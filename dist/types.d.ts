@@ -40,7 +40,7 @@ export interface PolicyModes {
 }
 export interface SecretProtectionConfig {
     enabled?: boolean;
-    allowPaths: string[];
+    disabledRules?: ReadonlySet<string>;
     denyPaths: string[];
 }
 export interface BuiltinRuleMatch {

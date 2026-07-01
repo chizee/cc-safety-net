@@ -7,6 +7,7 @@ import {
   BUILTIN_RULE_METADATA,
   DEFAULT_GUI_POLICY,
   readUserPolicyForGui,
+  SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
 
@@ -16,7 +17,7 @@ describe('policy GUI helpers', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'safety-net-policy-gui-'));
-    safetyNetHome = join(tempDir, '.cc-safety-net');
+    safetyNetHome = join(tempDir, 'home', '.cc-safety-net');
   });
 
   afterEach(() => {
@@ -40,7 +41,11 @@ describe('policy GUI helpers', () => {
         version: 1,
         modes: { paranoid_rm: true },
         builtins: { overrides: { 'git.reset-hard': 'off' } },
-        secret_protection: { enabled: true, allow_paths: ['.env.local'] },
+        secret_protection: {
+          enabled: true,
+          overrides: { 'secret.ext.pem': 'off' },
+          deny_paths: ['private/token.txt'],
+        },
       }),
       'utf-8',
     );
@@ -49,6 +54,7 @@ describe('policy GUI helpers', () => {
     expect(readResult.errors).toEqual([]);
     expect(readResult.policy.modes.paranoid_rm).toBe(true);
     expect(readResult.policy.builtins.overrides).toEqual({ 'git.reset-hard': 'off' });
+    expect(readResult.policy.secret_protection.overrides).toEqual({ 'secret.ext.pem': 'off' });
 
     const writeResult = writeUserPolicyFromGui(readResult.policy, {
       userConfigDir: join(safetyNetHome, 'rules'),
@@ -57,6 +63,23 @@ describe('policy GUI helpers', () => {
     expect(writeResult.errors).toEqual([]);
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe(
       `${JSON.stringify(readResult.policy, null, 2)}\n`,
+    );
+  });
+
+  test('rejects invalid secret overrides', () => {
+    const invalidOverrides = writeUserPolicyFromGui(
+      {
+        ...DEFAULT_GUI_POLICY,
+        secret_protection: {
+          ...DEFAULT_GUI_POLICY.secret_protection,
+          overrides: { 'secret.unknown': 'off', 'secret.ext.pem': 'allow' },
+        },
+      },
+      { userConfigDir: join(safetyNetHome, 'rules') },
+    );
+    expect(invalidOverrides.errors).toContain('unknown secret protection rule id "secret.unknown"');
+    expect(invalidOverrides.errors).toContain(
+      'secret_protection.overrides.secret.ext.pem must be "off"',
     );
   });
 
@@ -81,7 +104,7 @@ describe('policy GUI helpers', () => {
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe('{bad json');
   });
 
-  test('save writes only user policy and rejects policy allow paths', () => {
+  test('save writes only user policy with secret overrides', () => {
     const projectPolicyPath = join(tempDir, '.cc-safety-net', 'policy.json');
     mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
     writeFileSync(projectPolicyPath, JSON.stringify({ version: 1 }), 'utf-8');
@@ -91,13 +114,13 @@ describe('policy GUI helpers', () => {
         ...DEFAULT_GUI_POLICY,
         secret_protection: {
           ...DEFAULT_GUI_POLICY.secret_protection,
-          allow_paths: ['~/.cc-safety-net/policy.json'],
+          overrides: { 'secret.ext.pem': 'off' },
         },
       },
       { cwd: tempDir, userConfigDir: join(safetyNetHome, 'rules') },
     );
 
-    expect(result.errors).toContain('secret_protection.allow_paths[0] cannot target policy config');
+    expect(result.errors).toEqual([]);
     expect(readFileSync(projectPolicyPath, 'utf-8')).toBe(JSON.stringify({ version: 1 }));
   });
 
@@ -110,5 +133,12 @@ describe('policy GUI helpers', () => {
       expect(entry.label).not.toBe('');
       expect(entry.description).not.toBe('');
     }
+  });
+
+  test('exports secret protection metadata for GUI responses', () => {
+    expect(SECRET_PROTECTION_RULE_METADATA[0]).toMatchObject({
+      id: 'secret.basename.env',
+      category: 'Basename',
+    });
   });
 });

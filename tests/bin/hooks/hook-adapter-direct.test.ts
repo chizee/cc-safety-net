@@ -179,7 +179,10 @@ describe('hook adapter direct integration', () => {
       mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
       writeFileSync(
         join(cwd, '.cc-safety-net', 'policy.json'),
-        JSON.stringify({ version: 1, secret_protection: { allow_paths: ['.env'] } }),
+        JSON.stringify({
+          version: 1,
+          secret_protection: { overrides: { 'secret.basename.env': 'off' } },
+        }),
         'utf-8',
       );
       const output = await runHookJson(runClaudeCodeHook, {
@@ -191,7 +194,7 @@ describe('hook adapter direct integration', () => {
 
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'project policy cannot configure secret_protection.allow_paths',
+        'project policy cannot configure secret_protection.overrides',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });

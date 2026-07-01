@@ -1,6 +1,17 @@
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
+import {
+  SECRET_BASENAME_RULES,
+  SECRET_BROAD_SSH_KEY_BASENAME_RULE,
+  SECRET_DIRECTORY_RULES,
+  SECRET_ENV_VARIANT_RULE,
+  SECRET_EXTENSION_PATTERN_RULES,
+  SECRET_EXTENSION_RULES,
+  SECRET_HOME_PATH_RULES,
+  SECRET_VARIANT_DOT_SUFFIX_RULES,
+  SECRET_VARIANT_SEPARATOR_RULES,
+} from '@/core/secret-protection-rules';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import type { SecretProtectionConfig } from '@/types';
 
@@ -89,7 +100,7 @@ export function findSensitivePathTarget(
     if (isDeniedByPolicy(target, cwd, config)) {
       return { target };
     }
-    if (isSensitivePath(target, cwd) && !isAllowedByPolicy(target, cwd, config)) {
+    if (isSensitivePath(target, cwd, config)) {
       return { target };
     }
   }
@@ -303,20 +314,6 @@ function isFileOperand(command: string, token: string): boolean {
   return !token.startsWith('-');
 }
 
-const SENSITIVE_BASENAMES = new Set([
-  '.env',
-  '.npmrc',
-  '.pypirc',
-  '.netrc',
-  '.git-credentials',
-  'id_rsa',
-  'id_ed25519',
-  'id_ecdsa',
-  'credentials',
-]);
-
-const SENSITIVE_BASENAME_PREFIXES = ['id_rsa', 'id_ed25519', 'id_ecdsa', 'credentials'];
-
 const PUBLIC_KEY_BASENAMES = new Set(['id_rsa.pub', 'id_ed25519.pub', 'id_ecdsa.pub']);
 
 const ENV_PREFIX = '.env.';
@@ -330,54 +327,6 @@ const ENV_EXEMPTION_BASENAMES = new Set([
 
 const ENV_EXEMPTION_PREFIXES = ['.env.example.', '.env.sample.'];
 
-const SENSITIVE_DOT_VARIANT_SUFFIXES = [
-  '.bak',
-  '.backup',
-  '.copy',
-  '.disabled',
-  '.key',
-  '.old',
-  '.orig',
-  '.pem',
-  '.save',
-  '.tmp',
-];
-const SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set(SENSITIVE_DOT_VARIANT_SUFFIXES);
-
-const SENSITIVE_EXTENSIONS = new Set([
-  'agilekeychain',
-  'asc',
-  'bek',
-  'cscfg',
-  'fve',
-  'gnucash',
-  'jks',
-  'keychain',
-  'kwallet',
-  'mdf',
-  'ovpn',
-  'p12',
-  'pcap',
-  'pem',
-  'pfx',
-  'pkcs12',
-  'psafe3',
-  'rdp',
-  'sdf',
-  'sqlite',
-  'tblk',
-  'tpm',
-]);
-
-const SENSITIVE_EXTENSION_PATTERNS = [
-  /^key(pair)?$/,
-  /^key(store|ring)$/,
-  /^kdbx?$/,
-  /^sql(dump)?$/,
-];
-
-const BROAD_SSH_KEY_BASENAME_PATTERN = /^.*_(rsa|dsa|ed25519|ecdsa)$/;
-
 const SKIPPABLE_PATH_SEGMENTS = new Set(['node_modules', '.git', '__pycache__']);
 
 const SKIPPABLE_PATH_SEGMENT_PAIRS = [
@@ -385,23 +334,11 @@ const SKIPPABLE_PATH_SEGMENT_PAIRS = [
   ['vendor', 'cache'],
 ];
 
-// Home-anchored credential locations. Each entry is matched only under a
-// home (`~`) prefix, so repository fixtures like tests/fixtures/.ssh/config
-// or .aws/README.md are not denied. Distinctive basenames (id_rsa,
-// credentials, .env, ...) are matched separately and apply anywhere.
-const SENSITIVE_HOME_PATH_SUFFIXES = [
-  ['.ssh'],
-  ['.aws'],
-  ['.gcp'],
-  ['.config', 'gcloud'],
-  ['.kube', 'config'],
-  ['.docker', 'config.json'],
-  ['.config', 'gh', 'hosts.yml'],
-];
-
-const SENSITIVE_DIR_NAME = 'secrets';
-
-function isSensitivePath(target: string, cwd: string): boolean {
+function isSensitivePath(
+  target: string,
+  cwd: string,
+  config: SecretProtectionConfig | undefined,
+): boolean {
   const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
     return false;
@@ -417,30 +354,62 @@ function isSensitivePath(target: string, cwd: string): boolean {
   // Sensitive directories (~/.ssh, ~/.aws, secrets/, ...) are deny-by-default
   // wholesale and take priority over the public-key exemption below: a .pub
   // inside ~/.ssh or secrets/ stays blocked.
-  for (const suffixParts of SENSITIVE_HOME_PATH_SUFFIXES) {
-    if (matchesHomePathSuffix(comparablePath, suffixParts.join('/'))) return true;
+  for (const rule of SECRET_HOME_PATH_RULES) {
+    if (
+      matchesHomePathSuffix(comparablePath, rule.suffixParts.join('/')) &&
+      isSecretRuleEnabled(rule.id, config)
+    ) {
+      return true;
+    }
   }
-  if (isSensitiveDirSegment(comparablePath)) return true;
+  for (const rule of SECRET_DIRECTORY_RULES) {
+    if (
+      isSensitiveDirSegment(comparablePath, rule.basename) &&
+      isSecretRuleEnabled(rule.id, config)
+    ) {
+      return true;
+    }
+  }
 
   // Public keys are non-secret; exempt them outside sensitive directories.
   if (PUBLIC_KEY_BASENAMES.has(comparableName)) return false;
-  if (SENSITIVE_BASENAMES.has(comparableName)) return true;
-  if (comparableName.startsWith(ENV_PREFIX)) return true;
+  for (const rule of SECRET_BASENAME_RULES) {
+    if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config)) return true;
+  }
+  if (
+    comparableName.startsWith(ENV_PREFIX) &&
+    isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)
+  ) {
+    return true;
+  }
 
   // Catch rename-shielded variants (id_rsa.bak, id_rsa-old) without flagging
   // unrelated lookalikes (id_rsafoo, credentials.json).
-  for (const prefix of SENSITIVE_BASENAME_PREFIXES) {
-    if (comparableName.length > prefix.length && comparableName.startsWith(prefix)) {
-      const variant = comparableName.slice(prefix.length);
-      const next = variant[0];
-      if (next === '-' || next === '_') return true;
-      if (next === '.' && SENSITIVE_DOT_VARIANT_SUFFIX_SET.has(variant)) return true;
+  for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
+    if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
+      const next = comparableName.slice(rule.prefix.length)[0];
+      if ((next === '-' || next === '_') && isSecretRuleEnabled(rule.id, config)) return true;
+    }
+  }
+  for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {
+    if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
+      if (
+        comparableName.slice(rule.prefix.length) === rule.suffix &&
+        isSecretRuleEnabled(rule.id, config)
+      ) {
+        return true;
+      }
     }
   }
 
   if (isSkippablePathForBroadSignatures(comparablePath)) return false;
-  if (hasBroadSshKeyBasename(comparableName)) return true;
-  if (hasSensitiveExtension(comparableName)) return true;
+  if (
+    hasBroadSshKeyBasename(comparableName) &&
+    isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)
+  ) {
+    return true;
+  }
+  if (hasSensitiveExtension(comparableName, config)) return true;
 
   return false;
 }
@@ -449,11 +418,11 @@ function matchesHomePathSuffix(comparablePath: string, suffix: string): boolean 
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
 
-function isSensitiveDirSegment(comparablePath: string): boolean {
+function isSensitiveDirSegment(comparablePath: string, dirName: string): boolean {
   return (
-    comparablePath === SENSITIVE_DIR_NAME ||
-    comparablePath.startsWith(`${SENSITIVE_DIR_NAME}/`) ||
-    comparablePath.includes(`/${SENSITIVE_DIR_NAME}/`)
+    comparablePath === dirName ||
+    comparablePath.startsWith(`${dirName}/`) ||
+    comparablePath.includes(`/${dirName}/`)
   );
 }
 
@@ -470,14 +439,6 @@ function isDeniedByPolicy(
   config: SecretProtectionConfig | undefined,
 ): boolean {
   return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
-}
-
-function isAllowedByPolicy(
-  target: string,
-  cwd: string,
-  config: SecretProtectionConfig | undefined,
-): boolean {
-  return matchesPolicyPath(target, cwd, config?.allowPaths ?? []);
 }
 
 function matchesPolicyPath(target: string, cwd: string, paths: readonly string[]): boolean {
@@ -497,16 +458,24 @@ function isSkippablePathForBroadSignatures(comparablePath: string): boolean {
 }
 
 function hasBroadSshKeyBasename(comparableName: string): boolean {
-  return !comparableName.includes('.') && BROAD_SSH_KEY_BASENAME_PATTERN.test(comparableName);
+  return (
+    !comparableName.includes('.') && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName)
+  );
 }
 
-function hasSensitiveExtension(comparableName: string): boolean {
+function hasSensitiveExtension(
+  comparableName: string,
+  config: SecretProtectionConfig | undefined,
+): boolean {
   const extension = getExtension(comparableName);
-  return (
-    extension !== '' &&
-    (SENSITIVE_EXTENSIONS.has(extension) ||
-      SENSITIVE_EXTENSION_PATTERNS.some((pattern) => pattern.test(extension)))
-  );
+  if (extension === '') return false;
+  for (const rule of SECRET_EXTENSION_RULES) {
+    if (extension === rule.extension && isSecretRuleEnabled(rule.id, config)) return true;
+  }
+  for (const rule of SECRET_EXTENSION_PATTERN_RULES) {
+    if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config)) return true;
+  }
+  return false;
 }
 
 function getExtension(comparableName: string): string {
@@ -516,6 +485,10 @@ function getExtension(comparableName: string): string {
 
 function comparable(value: string): string {
   return value.toLowerCase();
+}
+
+function isSecretRuleEnabled(id: string, config: SecretProtectionConfig | undefined): boolean {
+  return !config?.disabledRules?.has(id);
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {

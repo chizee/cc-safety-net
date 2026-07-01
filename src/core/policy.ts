@@ -1,8 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { BUILTIN_RULE_ID_SET } from '@/core/builtin-rules';
+import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 
 export { BUILTIN_RULE_METADATA } from '@/core/builtin-rules';
+export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 
 import { getUserRulesDir } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
@@ -18,7 +20,7 @@ const MODE_FIELDS = new Set([
   'worktree_mode',
 ]);
 const BUILTINS_FIELDS = new Set(['overrides']);
-const SECRET_PROTECTION_FIELDS = new Set(['enabled', 'allow_paths', 'deny_paths']);
+const SECRET_PROTECTION_FIELDS = new Set(['enabled', 'overrides', 'deny_paths']);
 
 type Scope = 'user' | 'project';
 
@@ -33,11 +35,6 @@ type PartialPolicy = {
   modes: PolicyModes;
   disabledBuiltinRules: string[];
   secretProtection: SecretProtectionConfig;
-};
-
-const EMPTY_SECRET_PROTECTION: SecretProtectionConfig = {
-  allowPaths: [],
-  denyPaths: [],
 };
 
 /** @internal */
@@ -55,7 +52,7 @@ export type GuiPolicy = {
   };
   secret_protection: {
     enabled: boolean;
-    allow_paths: string[];
+    overrides: Record<string, 'off'>;
     deny_paths: string[];
   };
 };
@@ -74,7 +71,7 @@ export const DEFAULT_GUI_POLICY: GuiPolicy = {
   },
   secret_protection: {
     enabled: false,
-    allow_paths: [],
+    overrides: {},
     deny_paths: [],
   },
 };
@@ -176,7 +173,7 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     disabledBuiltinRules: new Set(user.policy.disabledBuiltinRules),
     secretProtection: {
       enabled: user.policy.secretProtection.enabled || project.policy.secretProtection.enabled,
-      allowPaths: [...user.policy.secretProtection.allowPaths],
+      disabledRules: new Set(user.policy.secretProtection.disabledRules),
       denyPaths: [
         ...user.policy.secretProtection.denyPaths,
         ...project.policy.secretProtection.denyPaths,
@@ -193,7 +190,7 @@ function createDefaultGuiPolicy(): GuiPolicy {
     builtins: { overrides: {} },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
-      allow_paths: [],
+      overrides: {},
       deny_paths: [],
     },
   };
@@ -205,6 +202,7 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   const builtins = (config.builtins as Record<string, unknown> | undefined) ?? {};
   const overrides = (builtins.overrides as Record<string, unknown> | undefined) ?? {};
   const secret = (config.secret_protection as Record<string, unknown> | undefined) ?? {};
+  const secretOverrides = (secret.overrides as Record<string, unknown> | undefined) ?? {};
   return {
     version: 1,
     modes: {
@@ -221,7 +219,11 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
     },
     secret_protection: {
       enabled: (secret.enabled as boolean | undefined) ?? false,
-      allow_paths: [...((secret.allow_paths as string[] | undefined) ?? [])],
+      overrides: Object.fromEntries(
+        Object.entries(secretOverrides).flatMap(([id, value]) =>
+          value === 'off' ? [[id, 'off']] : [],
+        ),
+      ) as Record<string, 'off'>,
       deny_paths: [...((secret.deny_paths as string[] | undefined) ?? [])],
     },
   };
@@ -253,7 +255,7 @@ function createEmptyPolicy(): PartialPolicy {
   return {
     modes: {},
     disabledBuiltinRules: [],
-    secretProtection: { ...EMPTY_SECRET_PROTECTION, allowPaths: [], denyPaths: [] },
+    secretProtection: { disabledRules: new Set(), denyPaths: [] },
   };
 }
 
@@ -329,19 +331,30 @@ function validateSecretProtection(value: unknown, scope: Scope, errors: string[]
   if (secret.enabled !== undefined && typeof secret.enabled !== 'boolean') {
     errors.push('secret_protection.enabled must be a boolean');
   }
-  if (scope === 'project' && secret.allow_paths !== undefined) {
-    errors.push('project policy cannot configure secret_protection.allow_paths');
+  if (scope === 'project' && secret.overrides !== undefined) {
+    errors.push('project policy cannot configure secret_protection.overrides');
   }
-  validatePathArray(secret.allow_paths, 'secret_protection.allow_paths', true, errors);
-  validatePathArray(secret.deny_paths, 'secret_protection.deny_paths', false, errors);
+  validateSecretOverrides(secret.overrides, errors);
+  validatePathArray(secret.deny_paths, 'secret_protection.deny_paths', errors);
 }
 
-function validatePathArray(
-  value: unknown,
-  field: string,
-  rejectPolicyConfig: boolean,
-  errors: string[],
-): void {
+function validateSecretOverrides(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('secret_protection.overrides must be an object if provided');
+    return;
+  }
+  for (const [id, override] of Object.entries(value as Record<string, unknown>)) {
+    if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
+      errors.push(`unknown secret protection rule id "${id}"`);
+    }
+    if (override !== 'off') {
+      errors.push(`secret_protection.overrides.${id} must be "off"`);
+    }
+  }
+}
+
+function validatePathArray(value: unknown, field: string, errors: string[]): void {
   if (value === undefined) return;
   if (!Array.isArray(value)) {
     errors.push(`${field} must be an array of paths`);
@@ -351,25 +364,8 @@ function validatePathArray(
     const path = value[i];
     if (typeof path !== 'string' || path.trim() === '') {
       errors.push(`${field}[${i}] must be a non-empty path string`);
-      continue;
-    }
-    if (rejectPolicyConfig && targetsPolicyConfig(path)) {
-      errors.push(`${field}[${i}] cannot target policy config`);
     }
   }
-}
-
-function targetsPolicyConfig(path: string): boolean {
-  const normalized = path
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/\/{2,}/g, '/')
-    .toLowerCase();
-  return (
-    normalized === '.cc-safety-net/policy.json' ||
-    normalized.endsWith('/.cc-safety-net/policy.json') ||
-    normalized === '~/.cc-safety-net/policy.json'
-  );
 }
 
 function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
@@ -384,7 +380,11 @@ function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
     ).flatMap(([id, value]) => (value === 'off' ? [id] : [])),
     secretProtection: {
       enabled: (secret?.enabled as boolean | undefined) ?? false,
-      allowPaths: [...((secret?.allow_paths as string[] | undefined) ?? [])],
+      disabledRules: new Set(
+        Object.entries((secret?.overrides as Record<string, unknown> | undefined) ?? {}).flatMap(
+          ([id, value]) => (value === 'off' ? [id] : []),
+        ),
+      ),
       denyPaths: [...((secret?.deny_paths as string[] | undefined) ?? [])],
     },
   };

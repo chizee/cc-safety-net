@@ -321,11 +321,11 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('policy deny and allow paths affect secret protection', async () => {
+    test('policy deny paths and user overrides affect secret protection', async () => {
       await withHookTestContext(async (context) => {
         writeUserPolicy(context.home, {
           version: 1,
-          secret_protection: { enabled: true, allow_paths: ['.env.local'] },
+          secret_protection: { enabled: true, overrides: { 'secret.pattern.env-variant': 'off' } },
         });
         writeProjectPolicy(context.cwd, {
           version: 1,
@@ -350,17 +350,17 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('project allow paths fail closed', async () => {
+    test('project secret overrides fail closed', async () => {
       await withHookTestContext(async (context) => {
         writeProjectPolicy(context.cwd, {
           version: 1,
-          secret_protection: { allow_paths: ['.env'] },
+          secret_protection: { overrides: { 'secret.basename.env': 'off' } },
         });
 
         const result = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo ok'));
 
         expect(getHookDenyReason(result, 'claude-code')).toContain(
-          'project policy cannot configure secret_protection.allow_paths',
+          'project policy cannot configure secret_protection.overrides',
         );
       });
     });

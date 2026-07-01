@@ -6,6 +6,7 @@ import {
   BUILTIN_RULE_METADATA,
   DEFAULT_GUI_POLICY,
   readUserPolicyForGui,
+  SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
@@ -124,6 +125,7 @@ async function handleRequest(
     sendJson(response, 200, {
       ...readUserPolicyForGui(options),
       builtins: BUILTIN_RULE_METADATA,
+      secretPatterns: SECRET_PROTECTION_RULE_METADATA,
     });
     return;
   }

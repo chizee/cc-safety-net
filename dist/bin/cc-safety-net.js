@@ -5074,6 +5074,257 @@ import { resolve as resolve8 } from "node:path";
 // src/core/policy.ts
 import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
 import { dirname as dirname5, join as join5, resolve as resolve5 } from "node:path";
+
+// src/core/secret-protection-rules.ts
+var SECRET_BASENAME_RULES = [
+  {
+    id: "secret.basename.env",
+    category: "Basename",
+    label: ".env",
+    description: "Blocks exact .env files.",
+    basename: ".env"
+  },
+  {
+    id: "secret.basename.npmrc",
+    category: "Basename",
+    label: ".npmrc",
+    description: "Blocks npm credential config files.",
+    basename: ".npmrc"
+  },
+  {
+    id: "secret.basename.pypirc",
+    category: "Basename",
+    label: ".pypirc",
+    description: "Blocks Python package index credential files.",
+    basename: ".pypirc"
+  },
+  {
+    id: "secret.basename.netrc",
+    category: "Basename",
+    label: ".netrc",
+    description: "Blocks machine login credential files.",
+    basename: ".netrc"
+  },
+  {
+    id: "secret.basename.git-credentials",
+    category: "Basename",
+    label: ".git-credentials",
+    description: "Blocks Git credential storage files.",
+    basename: ".git-credentials"
+  },
+  {
+    id: "secret.basename.id-rsa",
+    category: "Basename",
+    label: "id_rsa",
+    description: "Blocks RSA private key basenames.",
+    basename: "id_rsa"
+  },
+  {
+    id: "secret.basename.id-ed25519",
+    category: "Basename",
+    label: "id_ed25519",
+    description: "Blocks Ed25519 private key basenames.",
+    basename: "id_ed25519"
+  },
+  {
+    id: "secret.basename.id-ecdsa",
+    category: "Basename",
+    label: "id_ecdsa",
+    description: "Blocks ECDSA private key basenames.",
+    basename: "id_ecdsa"
+  },
+  {
+    id: "secret.basename.credentials",
+    category: "Basename",
+    label: "credentials",
+    description: "Blocks generic credentials file basenames.",
+    basename: "credentials"
+  }
+];
+var SECRET_ENV_VARIANT_RULE = {
+  id: "secret.pattern.env-variant",
+  category: "Pattern",
+  label: ".env.*",
+  description: "Blocks environment-specific .env variants."
+};
+var SECRET_HOME_PATH_RULES = [
+  {
+    id: "secret.home.ssh",
+    category: "Home path",
+    label: "~/.ssh",
+    description: "Blocks home SSH configuration and key paths.",
+    suffixParts: [".ssh"]
+  },
+  {
+    id: "secret.home.aws",
+    category: "Home path",
+    label: "~/.aws",
+    description: "Blocks home AWS credential and config paths.",
+    suffixParts: [".aws"]
+  },
+  {
+    id: "secret.home.gcp",
+    category: "Home path",
+    label: "~/.gcp",
+    description: "Blocks home GCP credential paths.",
+    suffixParts: [".gcp"]
+  },
+  {
+    id: "secret.home.gcloud-config",
+    category: "Home path",
+    label: "~/.config/gcloud",
+    description: "Blocks home Google Cloud SDK credential paths.",
+    suffixParts: [".config", "gcloud"]
+  },
+  {
+    id: "secret.home.kube-config",
+    category: "Home path",
+    label: "~/.kube/config",
+    description: "Blocks home Kubernetes config files.",
+    suffixParts: [".kube", "config"]
+  },
+  {
+    id: "secret.home.docker-config",
+    category: "Home path",
+    label: "~/.docker/config.json",
+    description: "Blocks home Docker credential config files.",
+    suffixParts: [".docker", "config.json"]
+  },
+  {
+    id: "secret.home.gh-hosts",
+    category: "Home path",
+    label: "~/.config/gh/hosts.yml",
+    description: "Blocks GitHub CLI host credential files.",
+    suffixParts: [".config", "gh", "hosts.yml"]
+  }
+];
+var SECRET_DIRECTORY_RULES = [
+  {
+    id: "secret.dir.secrets",
+    category: "Directory",
+    label: "secrets/",
+    description: "Blocks paths inside directories named secrets.",
+    basename: "secrets"
+  }
+];
+var SECRET_VARIANT_PREFIXES = [
+  { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
+  { prefix: "id_ed25519", slug: "id-ed25519", label: "id_ed25519" },
+  { prefix: "id_ecdsa", slug: "id-ecdsa", label: "id_ecdsa" },
+  { prefix: "credentials", slug: "credentials", label: "credentials" }
+];
+var SECRET_DOT_VARIANT_SUFFIXES = [
+  ".bak",
+  ".backup",
+  ".copy",
+  ".disabled",
+  ".key",
+  ".old",
+  ".orig",
+  ".pem",
+  ".save",
+  ".tmp"
+];
+var SECRET_VARIANT_SEPARATOR_RULES = SECRET_VARIANT_PREFIXES.map((rule) => ({
+  id: `secret.variant.${rule.slug}.separator`,
+  category: "Variant",
+  label: `${rule.label}-* / ${rule.label}_*`,
+  description: `Blocks ${rule.label} variants with dash or underscore suffixes.`,
+  prefix: rule.prefix
+}));
+var SECRET_VARIANT_DOT_SUFFIX_RULES = SECRET_VARIANT_PREFIXES.flatMap((rule) => SECRET_DOT_VARIANT_SUFFIXES.map((suffix) => ({
+  id: `secret.variant.${rule.slug}.${suffix.slice(1)}`,
+  category: "Variant",
+  label: `${rule.label}${suffix}`,
+  description: `Blocks ${rule.label}${suffix} private credential variants.`,
+  prefix: rule.prefix,
+  suffix
+})));
+var SECRET_BROAD_SSH_KEY_BASENAME_RULE = {
+  id: "secret.pattern.ssh-key-basename",
+  category: "Pattern",
+  label: "*_(rsa|dsa|ed25519|ecdsa)",
+  description: "Blocks extensionless SSH private key-like basenames.",
+  pattern: /^.*_(rsa|dsa|ed25519|ecdsa)$/
+};
+var SECRET_EXTENSION_RULES = [
+  "agilekeychain",
+  "asc",
+  "bek",
+  "cscfg",
+  "fve",
+  "gnucash",
+  "jks",
+  "keychain",
+  "kwallet",
+  "mdf",
+  "ovpn",
+  "p12",
+  "pcap",
+  "pem",
+  "pfx",
+  "pkcs12",
+  "psafe3",
+  "rdp",
+  "sdf",
+  "sqlite",
+  "tblk",
+  "tpm"
+].map((extension) => ({
+  id: `secret.ext.${extension}`,
+  category: "Extension",
+  label: `.${extension}`,
+  description: `Blocks files with the .${extension} extension.`,
+  extension
+}));
+var SECRET_EXTENSION_PATTERN_RULES = [
+  {
+    id: "secret.ext-pattern.key",
+    category: "Extension pattern",
+    label: ".key / .keypair",
+    description: "Blocks key and keypair extension patterns.",
+    pattern: /^key(pair)?$/
+  },
+  {
+    id: "secret.ext-pattern.keystore",
+    category: "Extension pattern",
+    label: ".keystore / .keyring",
+    description: "Blocks keystore and keyring extension patterns.",
+    pattern: /^key(store|ring)$/
+  },
+  {
+    id: "secret.ext-pattern.kdbx",
+    category: "Extension pattern",
+    label: ".kdb / .kdbx",
+    description: "Blocks KeePass database extension patterns.",
+    pattern: /^kdbx?$/
+  },
+  {
+    id: "secret.ext-pattern.sql",
+    category: "Extension pattern",
+    label: ".sql / .sqldump",
+    description: "Blocks SQL dump extension patterns.",
+    pattern: /^sql(dump)?$/
+  }
+];
+var SECRET_PROTECTION_RULE_METADATA = [
+  ...SECRET_BASENAME_RULES,
+  SECRET_ENV_VARIANT_RULE,
+  ...SECRET_HOME_PATH_RULES,
+  ...SECRET_DIRECTORY_RULES,
+  ...SECRET_VARIANT_SEPARATOR_RULES,
+  ...SECRET_VARIANT_DOT_SUFFIX_RULES,
+  SECRET_BROAD_SSH_KEY_BASENAME_RULE,
+  ...SECRET_EXTENSION_RULES,
+  ...SECRET_EXTENSION_PATTERN_RULES
+].map((rule) => ({
+  id: rule.id,
+  category: rule.category,
+  label: rule.label,
+  description: rule.description
+}));
+var SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);
+var SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname4, join as join4, resolve as resolve4 } from "node:path";
@@ -5167,11 +5418,7 @@ var MODE_FIELDS = new Set([
   "worktree_mode"
 ]);
 var BUILTINS_FIELDS = new Set(["overrides"]);
-var SECRET_PROTECTION_FIELDS = new Set(["enabled", "allow_paths", "deny_paths"]);
-var EMPTY_SECRET_PROTECTION = {
-  allowPaths: [],
-  denyPaths: []
-};
+var SECRET_PROTECTION_FIELDS = new Set(["enabled", "overrides", "deny_paths"]);
 var DEFAULT_GUI_POLICY = {
   version: 1,
   modes: {
@@ -5186,7 +5433,7 @@ var DEFAULT_GUI_POLICY = {
   },
   secret_protection: {
     enabled: false,
-    allow_paths: [],
+    overrides: {},
     deny_paths: []
   }
 };
@@ -5263,7 +5510,7 @@ function loadPolicyConfig(options2 = {}) {
     disabledBuiltinRules: new Set(user.policy.disabledBuiltinRules),
     secretProtection: {
       enabled: user.policy.secretProtection.enabled || project.policy.secretProtection.enabled,
-      allowPaths: [...user.policy.secretProtection.allowPaths],
+      disabledRules: new Set(user.policy.secretProtection.disabledRules),
       denyPaths: [
         ...user.policy.secretProtection.denyPaths,
         ...project.policy.secretProtection.denyPaths
@@ -5279,7 +5526,7 @@ function createDefaultGuiPolicy() {
     builtins: { overrides: {} },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
-      allow_paths: [],
+      overrides: {},
       deny_paths: []
     }
   };
@@ -5290,6 +5537,7 @@ function normalizeGuiPolicy(policy) {
   const builtins = config.builtins ?? {};
   const overrides = builtins.overrides ?? {};
   const secret = config.secret_protection ?? {};
+  const secretOverrides = secret.overrides ?? {};
   return {
     version: 1,
     modes: {
@@ -5304,7 +5552,7 @@ function normalizeGuiPolicy(policy) {
     },
     secret_protection: {
       enabled: secret.enabled ?? false,
-      allow_paths: [...secret.allow_paths ?? []],
+      overrides: Object.fromEntries(Object.entries(secretOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : [])),
       deny_paths: [...secret.deny_paths ?? []]
     }
   };
@@ -5334,7 +5582,7 @@ function createEmptyPolicy() {
   return {
     modes: {},
     disabledBuiltinRules: [],
-    secretProtection: { ...EMPTY_SECRET_PROTECTION, allowPaths: [], denyPaths: [] }
+    secretProtection: { disabledRules: new Set, denyPaths: [] }
   };
 }
 function validatePolicyConfig(config, scope) {
@@ -5410,13 +5658,29 @@ function validateSecretProtection(value, scope, errors) {
   if (secret.enabled !== undefined && typeof secret.enabled !== "boolean") {
     errors.push("secret_protection.enabled must be a boolean");
   }
-  if (scope === "project" && secret.allow_paths !== undefined) {
-    errors.push("project policy cannot configure secret_protection.allow_paths");
+  if (scope === "project" && secret.overrides !== undefined) {
+    errors.push("project policy cannot configure secret_protection.overrides");
   }
-  validatePathArray(secret.allow_paths, "secret_protection.allow_paths", true, errors);
-  validatePathArray(secret.deny_paths, "secret_protection.deny_paths", false, errors);
+  validateSecretOverrides(secret.overrides, errors);
+  validatePathArray(secret.deny_paths, "secret_protection.deny_paths", errors);
 }
-function validatePathArray(value, field, rejectPolicyConfig, errors) {
+function validateSecretOverrides(value, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("secret_protection.overrides must be an object if provided");
+    return;
+  }
+  for (const [id, override] of Object.entries(value)) {
+    if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
+      errors.push(`unknown secret protection rule id "${id}"`);
+    }
+    if (override !== "off") {
+      errors.push(`secret_protection.overrides.${id} must be "off"`);
+    }
+  }
+}
+function validatePathArray(value, field, errors) {
   if (value === undefined)
     return;
   if (!Array.isArray(value)) {
@@ -5427,16 +5691,8 @@ function validatePathArray(value, field, rejectPolicyConfig, errors) {
     const path = value[i];
     if (typeof path !== "string" || path.trim() === "") {
       errors.push(`${field}[${i}] must be a non-empty path string`);
-      continue;
-    }
-    if (rejectPolicyConfig && targetsPolicyConfig(path)) {
-      errors.push(`${field}[${i}] cannot target policy config`);
     }
   }
-}
-function targetsPolicyConfig(path) {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
-  return normalized === ".cc-safety-net/policy.json" || normalized.endsWith("/.cc-safety-net/policy.json") || normalized === "~/.cc-safety-net/policy.json";
 }
 function normalizePolicyConfig(config) {
   const modes = normalizeModes(config.modes);
@@ -5446,7 +5702,7 @@ function normalizePolicyConfig(config) {
     disabledBuiltinRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
       enabled: secret?.enabled ?? false,
-      allowPaths: [...secret?.allow_paths ?? []],
+      disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
       denyPaths: [...secret?.deny_paths ?? []]
     }
   };
@@ -7194,7 +7450,7 @@ function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
     if (isDeniedByPolicy(target, cwd, config)) {
       return { target };
     }
-    if (isSensitivePath(target, cwd) && !isAllowedByPolicy(target, cwd, config)) {
+    if (isSensitivePath(target, cwd, config)) {
       return { target };
     }
   }
@@ -7377,18 +7633,6 @@ function isFileOperand(command2, token) {
   }
   return !token.startsWith("-");
 }
-var SENSITIVE_BASENAMES = new Set([
-  ".env",
-  ".npmrc",
-  ".pypirc",
-  ".netrc",
-  ".git-credentials",
-  "id_rsa",
-  "id_ed25519",
-  "id_ecdsa",
-  "credentials"
-]);
-var SENSITIVE_BASENAME_PREFIXES = ["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 var PUBLIC_KEY_BASENAMES = new Set(["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"]);
 var ENV_PREFIX = ".env.";
 var ENV_EXEMPTION_BASENAMES = new Set([
@@ -7398,66 +7642,12 @@ var ENV_EXEMPTION_BASENAMES = new Set([
   ".env.defaults"
 ]);
 var ENV_EXEMPTION_PREFIXES = [".env.example.", ".env.sample."];
-var SENSITIVE_DOT_VARIANT_SUFFIXES = [
-  ".bak",
-  ".backup",
-  ".copy",
-  ".disabled",
-  ".key",
-  ".old",
-  ".orig",
-  ".pem",
-  ".save",
-  ".tmp"
-];
-var SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set(SENSITIVE_DOT_VARIANT_SUFFIXES);
-var SENSITIVE_EXTENSIONS = new Set([
-  "agilekeychain",
-  "asc",
-  "bek",
-  "cscfg",
-  "fve",
-  "gnucash",
-  "jks",
-  "keychain",
-  "kwallet",
-  "mdf",
-  "ovpn",
-  "p12",
-  "pcap",
-  "pem",
-  "pfx",
-  "pkcs12",
-  "psafe3",
-  "rdp",
-  "sdf",
-  "sqlite",
-  "tblk",
-  "tpm"
-]);
-var SENSITIVE_EXTENSION_PATTERNS = [
-  /^key(pair)?$/,
-  /^key(store|ring)$/,
-  /^kdbx?$/,
-  /^sql(dump)?$/
-];
-var BROAD_SSH_KEY_BASENAME_PATTERN = /^.*_(rsa|dsa|ed25519|ecdsa)$/;
 var SKIPPABLE_PATH_SEGMENTS = new Set(["node_modules", ".git", "__pycache__"]);
 var SKIPPABLE_PATH_SEGMENT_PAIRS = [
   ["vendor", "bundle"],
   ["vendor", "cache"]
 ];
-var SENSITIVE_HOME_PATH_SUFFIXES = [
-  [".ssh"],
-  [".aws"],
-  [".gcp"],
-  [".config", "gcloud"],
-  [".kube", "config"],
-  [".docker", "config.json"],
-  [".config", "gh", "hosts.yml"]
-];
-var SENSITIVE_DIR_NAME = "secrets";
-function isSensitivePath(target, cwd) {
+function isSensitivePath(target, cwd, config) {
   const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
     return false;
@@ -7466,50 +7656,59 @@ function isSensitivePath(target, cwd) {
   const comparablePath = comparable(normalized);
   if (isAllowedSensitiveTemplate(comparableName))
     return false;
-  for (const suffixParts of SENSITIVE_HOME_PATH_SUFFIXES) {
-    if (matchesHomePathSuffix(comparablePath, suffixParts.join("/")))
+  for (const rule of SECRET_HOME_PATH_RULES) {
+    if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config)) {
       return true;
+    }
   }
-  if (isSensitiveDirSegment(comparablePath))
-    return true;
+  for (const rule of SECRET_DIRECTORY_RULES) {
+    if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config)) {
+      return true;
+    }
+  }
   if (PUBLIC_KEY_BASENAMES.has(comparableName))
     return false;
-  if (SENSITIVE_BASENAMES.has(comparableName))
+  for (const rule of SECRET_BASENAME_RULES) {
+    if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config))
+      return true;
+  }
+  if (comparableName.startsWith(ENV_PREFIX) && isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)) {
     return true;
-  if (comparableName.startsWith(ENV_PREFIX))
-    return true;
-  for (const prefix of SENSITIVE_BASENAME_PREFIXES) {
-    if (comparableName.length > prefix.length && comparableName.startsWith(prefix)) {
-      const variant = comparableName.slice(prefix.length);
-      const next = variant[0];
-      if (next === "-" || next === "_")
+  }
+  for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
+    if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
+      const next = comparableName.slice(rule.prefix.length)[0];
+      if ((next === "-" || next === "_") && isSecretRuleEnabled(rule.id, config))
         return true;
-      if (next === "." && SENSITIVE_DOT_VARIANT_SUFFIX_SET.has(variant))
+    }
+  }
+  for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {
+    if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
+      if (comparableName.slice(rule.prefix.length) === rule.suffix && isSecretRuleEnabled(rule.id, config)) {
         return true;
+      }
     }
   }
   if (isSkippablePathForBroadSignatures(comparablePath))
     return false;
-  if (hasBroadSshKeyBasename(comparableName))
+  if (hasBroadSshKeyBasename(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)) {
     return true;
-  if (hasSensitiveExtension(comparableName))
+  }
+  if (hasSensitiveExtension(comparableName, config))
     return true;
   return false;
 }
 function matchesHomePathSuffix(comparablePath, suffix) {
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
-function isSensitiveDirSegment(comparablePath) {
-  return comparablePath === SENSITIVE_DIR_NAME || comparablePath.startsWith(`${SENSITIVE_DIR_NAME}/`) || comparablePath.includes(`/${SENSITIVE_DIR_NAME}/`);
+function isSensitiveDirSegment(comparablePath, dirName) {
+  return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.includes(`/${dirName}/`);
 }
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
 function isDeniedByPolicy(target, cwd, config) {
   return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
-}
-function isAllowedByPolicy(target, cwd, config) {
-  return matchesPolicyPath(target, cwd, config?.allowPaths ?? []);
 }
 function matchesPolicyPath(target, cwd, paths) {
   if (paths.length === 0)
@@ -7522,11 +7721,21 @@ function isSkippablePathForBroadSignatures(comparablePath) {
   return parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) || SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) => parts.some((part, index) => part === parent && parts[index + 1] === child));
 }
 function hasBroadSshKeyBasename(comparableName) {
-  return !comparableName.includes(".") && BROAD_SSH_KEY_BASENAME_PATTERN.test(comparableName);
+  return !comparableName.includes(".") && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName);
 }
-function hasSensitiveExtension(comparableName) {
+function hasSensitiveExtension(comparableName, config) {
   const extension = getExtension(comparableName);
-  return extension !== "" && (SENSITIVE_EXTENSIONS.has(extension) || SENSITIVE_EXTENSION_PATTERNS.some((pattern) => pattern.test(extension)));
+  if (extension === "")
+    return false;
+  for (const rule of SECRET_EXTENSION_RULES) {
+    if (extension === rule.extension && isSecretRuleEnabled(rule.id, config))
+      return true;
+  }
+  for (const rule of SECRET_EXTENSION_PATTERN_RULES) {
+    if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config))
+      return true;
+  }
+  return false;
 }
 function getExtension(comparableName) {
   const index = comparableName.lastIndexOf(".");
@@ -7534,6 +7743,9 @@ function getExtension(comparableName) {
 }
 function comparable(value) {
   return value.toLowerCase();
+}
+function isSecretRuleEnabled(id, config) {
+  return !config?.disabledRules?.has(id);
 }
 function normalizeCandidatePath(target, cwd) {
   const normalized = normalizePathText(target);
@@ -11428,8 +11640,12 @@ var page_default = `<!doctype html>
       <div class="panel-head">
         <div class="panel-title">
           <h2>Secret Protection</h2>
-          <p class="panel-sub muted">Control which sensitive paths agents may read and which are always blocked.</p>
+          <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are always blocked.</p>
         </div>
+        <label class="search">
+          <span>Search secret patterns</span>
+          <input type="search" id="secret-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+        </label>
       </div>
       <div id="secret"></div>
     </section>
@@ -11483,7 +11699,7 @@ var page_default = `<!doctype html>
       builtins: draftPolicy.builtins,
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
-        allow_paths: pathLines(qs('allow-paths')?.value ?? ''),
+        overrides: draftPolicy.secret_protection.overrides,
         deny_paths: pathLines(qs('deny-paths')?.value ?? '')
       }
     });
@@ -11505,7 +11721,6 @@ var page_default = `<!doctype html>
       updateRawSource();
     };
     const updateDraftSecretPaths = () => {
-      draftPolicy.secret_protection.allow_paths = pathLines(qs('allow-paths')?.value ?? '');
       draftPolicy.secret_protection.deny_paths = pathLines(qs('deny-paths')?.value ?? '');
     };
     const groupRules = (rules) => rules.reduce((groups, rule) => {
@@ -11517,31 +11732,54 @@ var page_default = `<!doctype html>
       groups.push({ category: rule.category, rules: [rule] });
       return groups;
     }, []);
-    const renderBuiltins = () => {
-      const query = qs('builtin-search').value.trim().toLowerCase();
-      const rules = state.builtins.filter((rule) =>
+    const renderRuleToggles = (options) => {
+      const query = qs(options.searchId).value.trim().toLowerCase();
+      const rules = options.rules.filter((rule) =>
         [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
       );
-      const disabledCount = Object.keys(draftPolicy.builtins.overrides).length;
-      qs('builtins-summary').textContent =
-        \`\${state.builtins.length - disabledCount} active, \${disabledCount} disabled\`;
-      qs('builtins').innerHTML = rules.length === 0
-        ? '<p class="empty">No built-in protections match the search.</p>'
+      const disabledCount = Object.keys(options.overrides).length;
+      qs(options.summaryId).textContent = options.summaryText(disabledCount);
+      qs(options.targetId).innerHTML = rules.length === 0
+        ? \`<p class="empty">\${escapeHtml(options.emptyText)}</p>\`
         : groupRules(rules).map((group) => \`
           <section class="builtin-group">
             <h3>\${escapeHtml(group.category)}</h3>
             <div class="grid">\${group.rules.map((rule) => {
-              const active = draftPolicy.builtins.overrides[rule.id] !== 'off';
+              const active = options.overrides[rule.id] !== 'off';
               return \`<label class="row">
-                <input type="checkbox" data-builtin-active="\${escapeHtml(rule.id)}" \${checkbox(active)}>
+                <input type="checkbox" \${options.dataAttribute}="\${escapeHtml(rule.id)}" \${checkbox(active)}>
                 <span>
                   <strong>\${escapeHtml(rule.label)}</strong>
-                  <small><span class="\${active ? 'state-active' : 'state-disabled'}">\${active ? 'Active' : 'Disabled'}</span> · \${escapeHtml(rule.description)}</small>
+                  <small><span class="\${active ? 'state-active' : 'state-disabled'}">\${active ? 'Active' : 'Disabled'}</span> \${escapeHtml(rule.description)}</small>
                 </span>
               </label>\`;
             }).join('')}</div>
           </section>
         \`).join('');
+    };
+    const renderBuiltins = () => renderRuleToggles({
+      searchId: 'builtin-search',
+      rules: state.builtins,
+      overrides: draftPolicy.builtins.overrides,
+      summaryId: 'builtins-summary',
+      targetId: 'builtins',
+      dataAttribute: 'data-builtin-active',
+      emptyText: 'No built-in protections match the search.',
+      summaryText: (disabledCount) =>
+        \`\${state.builtins.length - disabledCount} active, \${disabledCount} disabled\`
+    });
+    const renderSecretPatterns = () => {
+      renderRuleToggles({
+        searchId: 'secret-search',
+        rules: state.secretPatterns,
+        overrides: draftPolicy.secret_protection.overrides,
+        summaryId: 'secret-summary',
+        targetId: 'secret-patterns',
+        dataAttribute: 'data-secret-active',
+        emptyText: 'No secret patterns match the search.',
+        summaryText: (disabledCount) =>
+          \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are always blocked.\`
+      });
     };
     function render() {
       draftPolicy = clonePolicy(state.policy);
@@ -11553,13 +11791,14 @@ var page_default = `<!doctype html>
       ).join('');
       qs('secret').innerHTML =
         '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Enable secret protection</strong><small>Use policy settings without requiring the environment flag.</small></span></label>' +
-        '<label class="field" for="allow-paths"><span>Allow paths</span><small>One path per line. Exact normalized paths exempt default sensitive-path detection.</small></label>' +
-        '<textarea id="allow-paths">' + escapeHtml(state.policy.secret_protection.allow_paths.join('\\n')) + '</textarea>' +
-        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths add explicit blocks and take precedence over allow paths.</small></label>' +
+        '<div id="secret-patterns"></div>' +
+        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths stay blocked even when default patterns are disabled.</small></label>' +
         '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\\n')) + '</textarea>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('builtin-search').value = '';
+      qs('secret-search').value = '';
       renderBuiltins();
+      renderSecretPatterns();
       updateRawSource();
       setStatus(
         state.errors.length ? \`Error: \${state.errors.join('\\n')}\` : 'Status: Loaded.',
@@ -11586,13 +11825,18 @@ var page_default = `<!doctype html>
         renderBuiltins();
         return;
       }
+      if (input.id === 'secret-search') {
+        disarmReset();
+        renderSecretPatterns();
+        return;
+      }
       if (input.id === 'raw') {
         if (!syncingRaw) rawIsManual = true;
         disarmReset();
         updateRawSource();
         return;
       }
-      if (input.id === 'allow-paths' || input.id === 'deny-paths') {
+      if (input.id === 'deny-paths') {
         updateDraftSecretPaths();
         disarmReset();
         syncRawFromForm();
@@ -11611,6 +11855,14 @@ var page_default = `<!doctype html>
         else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
         disarmReset();
         renderBuiltins();
+        syncRawFromForm();
+        return;
+      }
+      if (input.dataset?.secretActive) {
+        if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
+        else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
+        disarmReset();
+        renderSecretPatterns();
         syncRawFromForm();
         return;
       }
@@ -11745,7 +11997,8 @@ async function handleRequest(request, response, token, options2) {
   if (request.method === "GET" && url.pathname === "/api/policy") {
     sendJson(response, 200, {
       ...readUserPolicyForGui(options2),
-      builtins: BUILTIN_RULE_METADATA
+      builtins: BUILTIN_RULE_METADATA,
+      secretPatterns: SECRET_PROTECTION_RULE_METADATA
     });
     return;
   }

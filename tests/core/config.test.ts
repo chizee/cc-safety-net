@@ -241,7 +241,7 @@ describe('runtime config loading', () => {
     writeProjectPolicy({
       version: 1,
       builtins: { overrides: { 'git.reset-hard': 'off' } },
-      secret_protection: { allow_paths: ['.env'] },
+      secret_protection: { overrides: { 'secret.ext.pem': 'off' } },
       modes: { worktree_mode: true },
     });
 
@@ -250,7 +250,7 @@ describe('runtime config loading', () => {
 
     expect(config.failClosedReason).toContain('project policy cannot configure builtins.overrides');
     expect(config.failClosedReason).toContain(
-      'project policy cannot configure secret_protection.allow_paths',
+      'project policy cannot configure secret_protection.overrides',
     );
     expect(config.failClosedReason).toContain('project policy cannot enable modes.worktree_mode');
     expect(result?.reason).toContain('project policy cannot configure builtins.overrides');
@@ -260,6 +260,7 @@ describe('runtime config loading', () => {
     writeUserPolicy({
       version: 1,
       builtins: { overrides: { 'git.unknown': 'off', 'git.reset-hard': 'allow' } },
+      secret_protection: { overrides: { 'secret.unknown': 'off', 'secret.ext.pem': 'allow' } },
       extra: true,
     });
 
@@ -269,25 +270,20 @@ describe('runtime config loading', () => {
     expect(config.failClosedReason).toContain('unknown field "extra"');
     expect(config.failClosedReason).toContain('unknown built-in rule id "git.unknown"');
     expect(config.failClosedReason).toContain('builtins.overrides.git.reset-hard must be "off"');
-  });
-
-  test('user allow paths cannot target policy files', () => {
-    writeUserPolicy({
-      version: 1,
-      secret_protection: { allow_paths: ['~/.cc-safety-net/policy.json'] },
-    });
-
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
-
+    expect(config.failClosedReason).toContain('unknown secret protection rule id "secret.unknown"');
     expect(config.failClosedReason).toContain(
-      'secret_protection.allow_paths[0] cannot target policy config',
+      'secret_protection.overrides.secret.ext.pem must be "off"',
     );
   });
 
-  test('user and project secret deny paths merge while only user allow paths apply', () => {
+  test('user secret overrides apply while user and project deny paths merge', () => {
     writeUserPolicy({
       version: 1,
-      secret_protection: { enabled: true, allow_paths: ['.env.local'], deny_paths: ['user.key'] },
+      secret_protection: {
+        enabled: true,
+        overrides: { 'secret.ext.pem': 'off' },
+        deny_paths: ['user.key'],
+      },
     });
     writeProjectPolicy({
       version: 1,
@@ -297,7 +293,7 @@ describe('runtime config loading', () => {
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.secretProtection?.enabled).toBe(true);
-    expect(config.secretProtection?.allowPaths).toEqual(['.env.local']);
+    expect([...(config.secretProtection?.disabledRules ?? [])]).toEqual(['secret.ext.pem']);
     expect(config.secretProtection?.denyPaths).toEqual(['user.key', 'project.key']);
   });
 
