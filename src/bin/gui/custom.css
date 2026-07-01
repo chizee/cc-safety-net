@@ -8,6 +8,7 @@ body {
   margin: 0;
   background: Canvas;
   color: CanvasText;
+  font-size: 13px;
 }
 
 main {
@@ -26,9 +27,15 @@ h2 {
   margin: 28px 0 12px;
 }
 
+h3 {
+  font-size: 13px;
+  margin: 16px 0 8px;
+}
+
 .muted {
   color: color-mix(in srgb, CanvasText 66%, Canvas);
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .top {
@@ -47,6 +54,13 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, CanvasText 72%, Canvas);
+  outline-offset: 2px;
+}
+
 button.primary {
   background: #14532d;
   color: #fff;
@@ -63,6 +77,37 @@ button.danger {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  margin: 28px 0 12px;
+}
+
+.section-head h2 {
+  margin: 0 0 4px;
+}
+
+.search {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  font-weight: 700;
+}
+
+input[type="search"] {
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: Canvas;
+  color: CanvasText;
+  font: inherit;
+  font-weight: 400;
 }
 
 .panel {
@@ -85,6 +130,10 @@ label.row {
   border-radius: 6px;
 }
 
+label.row input {
+  margin-top: 2px;
+}
+
 label.row span {
   display: block;
 }
@@ -94,6 +143,34 @@ label.row small {
   color: color-mix(in srgb, CanvasText 62%, Canvas);
   margin-top: 3px;
   line-height: 1.35;
+}
+
+.state-active {
+  color: #166534;
+  font-weight: 700;
+}
+
+.state-disabled {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0 6px;
+  font-weight: 700;
+}
+
+.field small {
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.empty {
+  margin: 0;
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
 }
 
 textarea {
@@ -108,12 +185,16 @@ textarea {
     monospace;
   border-radius: 6px;
   padding: 10px;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
 }
 
 .status {
   margin-top: 14px;
   white-space: pre-wrap;
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .error {
@@ -122,4 +203,32 @@ textarea {
 
 .ok {
   color: #166534;
+}
+
+@media (max-width: 560px) {
+  main {
+    padding: 16px;
+  }
+
+  .top,
+  .section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions button {
+    flex: 1 1 0;
+  }
+
+  .search {
+    min-width: 0;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

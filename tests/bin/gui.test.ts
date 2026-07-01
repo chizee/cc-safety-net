@@ -39,6 +39,7 @@ describe('policy GUI server', () => {
 
       expect((await fetch(`${server.origin}/api/policy`)).status).toBe(403);
       expect((await fetch(`${server.origin}/api/policy?token=wrong`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/favicon.ico`)).status).toBe(204);
       expect((await fetch(server.url)).headers.get('cache-control')).toBe('no-store');
     } finally {
       await server.close();
@@ -55,6 +56,16 @@ describe('policy GUI server', () => {
       expect(html).toContain('<title>CC Safety Net Policy</title>');
       expect(html).toContain(`const token = ${JSON.stringify(server.token)};`);
       expect(html).toContain('cc-safety-net-gui-custom-css');
+      expect(html).toContain('role="status"');
+      expect(html).toContain('aria-live="polite"');
+      expect(html).toContain('Built-in Protections');
+      expect(html).toContain('id="builtin-search"');
+      expect(html).toContain('Active');
+      expect(html).toContain('Disabled');
+      expect(html).toContain('Confirm reset');
+      expect(html).toContain('One path per line');
+      expect(html).toContain('Raw JSON');
+      expect(html).not.toContain(' · ${escapeHtml(rule.id)} · ');
     } finally {
       await server.close();
     }

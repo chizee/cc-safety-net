@@ -104,6 +104,12 @@ async function handleRequest(
   options: RulesPolicyOptions,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  if (request.method === 'GET' && url.pathname === '/favicon.ico') {
+    response.writeHead(204, { 'cache-control': 'no-store' });
+    response.end();
+    return;
+  }
+
   if (!requestHasValidToken(request, url, token)) {
     sendJson(response, 403, { error: 'Forbidden' });
     return;

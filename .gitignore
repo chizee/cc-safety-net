@@ -17,3 +17,7 @@ codex-security-scans
 node_modules
 droid-wiki
 plans
+
+.impeccable
+DESIGN.md
+PRODUCT.md

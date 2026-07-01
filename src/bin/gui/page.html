@@ -20,79 +20,229 @@
         <button class="danger" id="reset">Reset</button>
       </div>
     </div>
-    <div class="status" id="status"></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <div class="muted" id="reset-confirmation"></div>
     <section class="panel"><h2>Modes</h2><div class="grid" id="modes"></div></section>
-    <section class="panel"><h2>Built-in Rules</h2><div class="grid" id="builtins"></div></section>
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Built-in Protections</h2>
+          <div class="muted" id="builtins-summary"></div>
+        </div>
+        <label class="search">
+          <span>Search protections</span>
+          <input type="search" id="builtin-search" autocomplete="off">
+        </label>
+      </div>
+      <div id="builtins"></div>
+    </section>
     <section class="panel"><h2>Secret Protection</h2><div id="secret"></div></section>
-    <section class="panel"><h2>Raw JSON Repair</h2><textarea id="raw"></textarea></section>
+    <section class="panel">
+      <label class="field" for="raw">
+        <span>Raw JSON</span>
+        <small id="raw-source">Raw JSON mirrors the controls until you edit it.</small>
+      </label>
+      <textarea id="raw" aria-describedby="raw-source"></textarea>
+    </section>
   </main>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
     const modeLabels = {
       strict: ['Strict', 'Fail closed on unparseable commands.'],
       paranoid: ['Paranoid', 'Enable all paranoid checks.'],
-      paranoid_rm: ['Paranoid rm', 'Block non-temp rm -rf within cwd.'],
+      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf within cwd.'],
       paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
       worktree_mode: ['Worktree mode', 'Allow local git discards in linked worktrees.']
     };
     let state;
+    let draftPolicy;
+    let rawIsManual = false;
+    let resetArmed = false;
+    let syncingRaw = false;
     const api = (path, init = {}) => fetch(`${path}?token=${encodeURIComponent(token)}`, {
       ...init,
       headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
     });
     const qs = (id) => document.getElementById(id);
-    const setStatus = (text, kind = '') => { qs('status').textContent = text; qs('status').className = `status ${kind}`; };
+    const setStatus = (text, kind = '') => {
+      qs('status').textContent = text;
+      qs('status').className = `status ${kind}`;
+    };
     const checkbox = (checked) => checked ? 'checked' : '';
+    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+    const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
+    const pathLines = (value) => value.split('\n').map((line) => line.trim()).filter(Boolean);
+    const formatPolicy = (policy) => `${JSON.stringify(policy, null, 2)}\n`;
+    const collectFormPolicy = () => ({
+      version: 1,
+      modes: draftPolicy.modes,
+      builtins: draftPolicy.builtins,
+      secret_protection: {
+        enabled: draftPolicy.secret_protection.enabled,
+        allow_paths: pathLines(qs('allow-paths')?.value ?? ''),
+        deny_paths: pathLines(qs('deny-paths')?.value ?? '')
+      }
+    });
+    const disarmReset = () => {
+      resetArmed = false;
+      qs('reset').textContent = 'Reset';
+      qs('reset-confirmation').textContent = '';
+    };
+    const updateRawSource = () => {
+      qs('raw-source').textContent = rawIsManual
+        ? 'Save will use Raw JSON. Fix validation errors here or reset to defaults.'
+        : 'Raw JSON mirrors the controls until you edit it.';
+    };
+    const syncRawFromForm = () => {
+      if (rawIsManual) return;
+      syncingRaw = true;
+      qs('raw').value = formatPolicy(collectFormPolicy());
+      syncingRaw = false;
+      updateRawSource();
+    };
+    const updateDraftSecretPaths = () => {
+      draftPolicy.secret_protection.allow_paths = pathLines(qs('allow-paths')?.value ?? '');
+      draftPolicy.secret_protection.deny_paths = pathLines(qs('deny-paths')?.value ?? '');
+    };
+    const groupRules = (rules) => rules.reduce((groups, rule) => {
+      const group = groups.find((item) => item.category === rule.category);
+      if (group) {
+        group.rules.push(rule);
+        return groups;
+      }
+      groups.push({ category: rule.category, rules: [rule] });
+      return groups;
+    }, []);
+    const renderBuiltins = () => {
+      const query = qs('builtin-search').value.trim().toLowerCase();
+      const rules = state.builtins.filter((rule) =>
+        [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
+      );
+      const disabledCount = Object.keys(draftPolicy.builtins.overrides).length;
+      qs('builtins-summary').textContent =
+        `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`;
+      qs('builtins').innerHTML = rules.length === 0
+        ? '<p class="empty">No built-in protections match the search.</p>'
+        : groupRules(rules).map((group) => `
+          <section class="builtin-group">
+            <h3>${escapeHtml(group.category)}</h3>
+            <div class="grid">${group.rules.map((rule) => {
+              const active = draftPolicy.builtins.overrides[rule.id] !== 'off';
+              return `<label class="row">
+                <input type="checkbox" data-builtin-active="${escapeHtml(rule.id)}" ${checkbox(active)}>
+                <span>
+                  <strong>${escapeHtml(rule.label)}</strong>
+                  <small><span class="${active ? 'state-active' : 'state-disabled'}">${active ? 'Active' : 'Disabled'}</span> · ${escapeHtml(rule.description)}</small>
+                </span>
+              </label>`;
+            }).join('')}</div>
+          </section>
+        `).join('');
+    };
     function render() {
+      draftPolicy = clonePolicy(state.policy);
+      rawIsManual = state.errors.length > 0;
+      disarmReset();
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-      qs('raw').value = state.errors.length ? state.raw : '';
       qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
         `<label class="row"><input type="checkbox" data-mode="${key}" ${checkbox(state.policy.modes[key])}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
       ).join('');
-      qs('builtins').innerHTML = state.builtins.map((rule) =>
-        `<label class="row"><input type="checkbox" data-builtin="${rule.id}" ${checkbox(state.policy.builtins.overrides[rule.id] === 'off')}><span><strong>${rule.label}</strong><small>${rule.id} &middot; ${rule.description}</small></span></label>`
-      ).join('');
       qs('secret').innerHTML =
         '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Enable secret protection</strong><small>Use policy settings without requiring the environment flag.</small></span></label>' +
-        '<h2>Allow paths</h2><textarea id="allow-paths">' + state.policy.secret_protection.allow_paths.join('\n') + '</textarea>' +
-        '<h2>Deny paths</h2><textarea id="deny-paths">' + state.policy.secret_protection.deny_paths.join('\n') + '</textarea>';
-      setStatus(state.errors.length ? state.errors.join('\n') : 'Loaded.', state.errors.length ? 'error' : 'ok');
+        '<label class="field" for="allow-paths"><span>Allow paths</span><small>One path per line. Exact normalized paths exempt default sensitive-path detection.</small></label>' +
+        '<textarea id="allow-paths">' + escapeHtml(state.policy.secret_protection.allow_paths.join('\n')) + '</textarea>' +
+        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths add explicit blocks and take precedence over allow paths.</small></label>' +
+        '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\n')) + '</textarea>';
+      qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
+      qs('builtin-search').value = '';
+      renderBuiltins();
+      updateRawSource();
+      setStatus(
+        state.errors.length ? `Error: ${state.errors.join('\n')}` : 'Status: Loaded.',
+        state.errors.length ? 'error' : 'ok'
+      );
     }
     function collectPolicy() {
-      const raw = qs('raw').value.trim();
-      if (raw) {
-        try { return JSON.parse(raw); } catch {}
+      if (!rawIsManual) return collectFormPolicy();
+      try {
+        return JSON.parse(qs('raw').value.trim() || '{}');
+      } catch (error) {
+        setStatus(`Error: Raw JSON is invalid: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        return null;
       }
-      const overrides = {};
-      document.querySelectorAll('[data-builtin]').forEach((input) => { if (input.checked) overrides[input.dataset.builtin] = 'off'; });
-      const modes = {};
-      document.querySelectorAll('[data-mode]').forEach((input) => { modes[input.dataset.mode] = input.checked; });
-      return {
-        version: 1,
-        modes,
-        builtins: { overrides },
-        secret_protection: {
-          enabled: qs('secret-enabled').checked,
-          allow_paths: qs('allow-paths').value.split('\n').map((v) => v.trim()).filter(Boolean),
-          deny_paths: qs('deny-paths').value.split('\n').map((v) => v.trim()).filter(Boolean)
-        }
-      };
     }
     async function load() {
       state = await (await api('/api/policy')).json();
       render();
     }
+    document.addEventListener('input', (event) => {
+      const input = event.target;
+      if (input.id === 'builtin-search') {
+        disarmReset();
+        renderBuiltins();
+        return;
+      }
+      if (input.id === 'raw') {
+        if (!syncingRaw) rawIsManual = true;
+        disarmReset();
+        updateRawSource();
+        return;
+      }
+      if (input.id === 'allow-paths' || input.id === 'deny-paths') {
+        updateDraftSecretPaths();
+        disarmReset();
+        syncRawFromForm();
+      }
+    });
+    document.addEventListener('change', (event) => {
+      const input = event.target;
+      if (input.dataset?.mode) {
+        draftPolicy.modes[input.dataset.mode] = input.checked;
+        disarmReset();
+        syncRawFromForm();
+        return;
+      }
+      if (input.dataset?.builtinActive) {
+        if (input.checked) delete draftPolicy.builtins.overrides[input.dataset.builtinActive];
+        else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
+        disarmReset();
+        renderBuiltins();
+        syncRawFromForm();
+        return;
+      }
+      if (input.id === 'secret-enabled') {
+        draftPolicy.secret_protection.enabled = input.checked;
+        disarmReset();
+        syncRawFromForm();
+      }
+    });
     qs('save').onclick = async () => {
-      const response = await api('/api/policy', { method: 'POST', body: JSON.stringify(collectPolicy()) });
+      disarmReset();
+      const policy = collectPolicy();
+      if (!policy) return;
+      const response = await api('/api/policy', { method: 'POST', body: JSON.stringify(policy) });
       const result = await response.json();
-      if (!response.ok) { setStatus(result.errors.join('\n'), 'error'); return; }
+      if (!response.ok) { setStatus(`Error: ${result.errors.join('\n')}`, 'error'); return; }
       await load();
-      setStatus('Saved.', 'ok');
+      setStatus(`Status: Saved ${result.path}.`, 'ok');
     };
     qs('reset').onclick = async () => {
+      if (!resetArmed) {
+        resetArmed = true;
+        qs('reset').textContent = 'Confirm reset';
+        qs('reset-confirmation').textContent =
+          `Reset will restore default policy JSON at ${state.path}. Click Confirm reset to continue.`;
+        return;
+      }
       await api('/api/reset', { method: 'POST', body: '{}' });
       await load();
-      setStatus('Reset.', 'ok');
+      setStatus(`Status: Reset ${state.path} to defaults.`, 'ok');
     };
     load().catch((error) => setStatus(String(error), 'error'));
   </script>
