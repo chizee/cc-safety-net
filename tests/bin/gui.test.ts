@@ -61,11 +61,16 @@ describe('policy GUI server', () => {
       expect(html).toContain('aria-live="polite"');
       expect(html).toContain('Built-in Protections');
       expect(html).toContain('id="builtin-search"');
+      expect(html).toContain('class="panel foldable"');
+      expect(html).toContain('aria-controls="builtins-panel-content"');
+      expect(html).toContain('id="builtins-panel-content"');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).toContain('Confirm reset');
       expect(html).toContain('Search secret patterns');
       expect(html).toContain('Default secret patterns');
+      expect(html).toContain('aria-controls="secret-panel-content"');
+      expect(html).toContain('id="secret-panel-content"');
       expect(html).toContain('One path per line');
       expect(html).not.toContain('Allow paths');
       expect(html).not.toContain('id="allow-paths"');

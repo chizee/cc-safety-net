@@ -226,6 +226,35 @@ main {
   min-width: 0;
 }
 
+.panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px 0;
+  padding: 4px 6px 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.panel-toggle:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.panel-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.15s ease;
+}
+
+.panel-toggle[aria-expanded="false"] .panel-chevron {
+  transform: rotate(-45deg);
+}
+
 h2 {
   margin: 0;
   font-size: 15px;

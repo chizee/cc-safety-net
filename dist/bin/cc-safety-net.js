@@ -11374,6 +11374,35 @@ main {
   min-width: 0;
 }
 
+.panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px 0;
+  padding: 4px 6px 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.panel-toggle:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.panel-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.15s ease;
+}
+
+.panel-toggle[aria-expanded="false"] .panel-chevron {
+  transform: rotate(-45deg);
+}
+
 h2 {
   margin: 0;
   font-size: 15px;
@@ -11623,10 +11652,10 @@ var page_default = `<!doctype html>
       </div>
       <div class="grid" id="modes"></div>
     </section>
-    <section class="panel">
+    <section class="panel foldable">
       <div class="panel-head">
         <div class="panel-title">
-          <h2>Built-in Protections</h2>
+          <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="builtins-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Built-in Protections</span></button></h2>
           <p class="panel-sub muted" id="builtins-summary"></p>
         </div>
         <label class="search">
@@ -11634,20 +11663,24 @@ var page_default = `<!doctype html>
           <input type="search" id="builtin-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
         </label>
       </div>
-      <div id="builtins"></div>
+      <div id="builtins-panel-content">
+        <div id="builtins"></div>
+      </div>
     </section>
-    <section class="panel">
-      <div class="panel-head">
+    <section class="panel foldable">
+      <header class="panel-head">
         <div class="panel-title">
-          <h2>Secret Protection</h2>
+          <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="secret-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Secret Protection</span></button></h2>
           <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are always blocked.</p>
         </div>
         <label class="search">
           <span>Search secret patterns</span>
           <input type="search" id="secret-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
         </label>
+      </header>
+      <div id="secret-panel-content">
+        <div id="secret"></div>
       </div>
-      <div id="secret"></div>
     </section>
     <section class="panel">
       <div class="panel-head">
@@ -11707,6 +11740,12 @@ var page_default = `<!doctype html>
       resetArmed = false;
       qs('reset').textContent = 'Reset';
       qs('reset-confirmation').textContent = '';
+    };
+    const togglePanel = (button) => {
+      const content = qs(button.getAttribute('aria-controls'));
+      const expanded = button.getAttribute('aria-expanded') === 'true';
+      button.setAttribute('aria-expanded', String(!expanded));
+      content.hidden = expanded;
     };
     const updateRawSource = () => {
       qs('raw-source').textContent = rawIsManual
@@ -11871,6 +11910,10 @@ var page_default = `<!doctype html>
         disarmReset();
         syncRawFromForm();
       }
+    });
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest?.('.panel-toggle');
+      if (button) togglePanel(button);
     });
     qs('save').onclick = async () => {
       disarmReset();
