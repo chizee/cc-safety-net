@@ -110,9 +110,14 @@ button {
     border-color 0.15s ease;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 button.primary {
@@ -121,7 +126,7 @@ button.primary {
   color: #fff;
 }
 
-button.primary:hover {
+button.primary:hover:not(:disabled) {
   background: var(--safe-hover);
   border-color: var(--safe-hover);
 }
@@ -132,7 +137,7 @@ button.danger {
   color: #fff;
 }
 
-button.danger:hover {
+button.danger:hover:not(:disabled) {
   background: var(--danger-hover);
   border-color: var(--danger-hover);
 }

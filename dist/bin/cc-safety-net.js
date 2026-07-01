@@ -11258,9 +11258,14 @@ button {
     border-color 0.15s ease;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 button.primary {
@@ -11269,7 +11274,7 @@ button.primary {
   color: #fff;
 }
 
-button.primary:hover {
+button.primary:hover:not(:disabled) {
   background: var(--safe-hover);
   border-color: var(--safe-hover);
 }
@@ -11280,7 +11285,7 @@ button.danger {
   color: #fff;
 }
 
-button.danger:hover {
+button.danger:hover:not(:disabled) {
   background: var(--danger-hover);
   border-color: var(--danger-hover);
 }
@@ -11710,10 +11715,47 @@ var page_default = `<!doctype html>
       ...init,
       headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
     });
+    const requestJson = async (path, init) => {
+      try {
+        const response = await api(path, init);
+        const text = await response.text();
+        return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
+      } catch (error) {
+        return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    const errorText = (result) =>
+      result.error
+      ?? (Array.isArray(result.data?.errors) && result.data.errors.length ? result.data.errors.join('\\n') : null)
+      ?? result.data?.error
+      ?? \`Request failed (status \${result.status}).\`;
+    const isWriteSuccess = (result) =>
+      result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
+    const isPolicyState = (value) =>
+      !!value && typeof value === 'object'
+      && !!value.policy && typeof value.policy === 'object'
+      && !!value.policy.modes && !!value.policy.secret_protection
+      && Array.isArray(value.builtins) && Array.isArray(value.secretPatterns)
+      && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
     const setStatus = (text, kind = '') => {
       qs('status').textContent = text;
       qs('status').className = \`status \${kind}\`;
+    };
+    let busy = false;
+    const runExclusive = async (pendingText, fn) => {
+      if (busy) return;
+      busy = true;
+      qs('save').disabled = true;
+      qs('reset').disabled = true;
+      setStatus(pendingText, '');
+      try {
+        await fn();
+      } finally {
+        busy = false;
+        qs('save').disabled = false;
+        qs('reset').disabled = false;
+      }
     };
     const checkbox = (checked) => checked ? 'checked' : '';
     const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
@@ -11854,8 +11896,14 @@ var page_default = `<!doctype html>
       }
     }
     async function load() {
-      state = await (await api('/api/policy')).json();
+      const result = await requestJson('/api/policy');
+      if (!isPolicyState(result.data)) {
+        setStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
+        return false;
+      }
+      state = result.data;
       render();
+      return true;
     }
     document.addEventListener('input', (event) => {
       const input = event.target;
@@ -11915,17 +11963,20 @@ var page_default = `<!doctype html>
       const button = event.target.closest?.('.panel-toggle');
       if (button) togglePanel(button);
     });
-    qs('save').onclick = async () => {
+    qs('save').onclick = () => {
       disarmReset();
+      if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
       const policy = collectPolicy();
       if (!policy) return;
-      const response = await api('/api/policy', { method: 'POST', body: JSON.stringify(policy) });
-      const result = await response.json();
-      if (!response.ok) { setStatus(\`Error: \${result.errors.join('\\n')}\`, 'error'); return; }
-      await load();
-      setStatus(\`Status: Saved \${result.path}.\`, 'ok');
+      void runExclusive('Status: Saving…', async () => {
+        const result = await requestJson('/api/policy', { method: 'POST', body: JSON.stringify(policy) });
+        if (!isWriteSuccess(result)) { setStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
+        const savedPath = result.data.path;
+        if (await load()) setStatus(\`Status: Saved \${savedPath}.\`, 'ok');
+      });
     };
-    qs('reset').onclick = async () => {
+    qs('reset').onclick = () => {
+      if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
       if (!resetArmed) {
         resetArmed = true;
         qs('reset').textContent = 'Confirm reset';
@@ -11933,9 +11984,13 @@ var page_default = `<!doctype html>
           \`Reset will restore default policy JSON at \${state.path}. Click Confirm reset to continue.\`;
         return;
       }
-      await api('/api/reset', { method: 'POST', body: '{}' });
-      await load();
-      setStatus(\`Status: Reset \${state.path} to defaults.\`, 'ok');
+      void runExclusive('Status: Resetting…', async () => {
+        const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
+        disarmReset();
+        if (!isWriteSuccess(result)) { setStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
+        const resetPath = result.data.path;
+        if (await load()) setStatus(\`Status: Reset \${resetPath} to defaults.\`, 'ok');
+      });
     };
     const themeOrder = ['auto', 'light', 'dark'];
     const themeIcons = {
