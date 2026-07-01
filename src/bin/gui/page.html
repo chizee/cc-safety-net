@@ -4,45 +4,72 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CC Safety Net Policy</title>
+  <script>
+    (() => {
+      const stored = localStorage.getItem('cc-safety-net-theme');
+      if (stored === 'light' || stored === 'dark') document.documentElement.style.colorScheme = stored;
+    })();
+  </script>
   <style>
 /* __CC_SAFETY_NET_CUSTOM_CSS__ */
   </style>
 </head>
 <body>
-  <main>
-    <div class="top">
-      <div>
+  <header class="appbar">
+    <div class="appbar-inner">
+      <div class="titlewrap">
         <h1>CC Safety Net Policy</h1>
-        <div class="muted" id="policy-path"></div>
+        <div id="policy-path"></div>
       </div>
       <div class="actions">
+        <button type="button" id="theme-toggle"></button>
         <button class="primary" id="save">Save</button>
         <button class="danger" id="reset">Reset</button>
       </div>
     </div>
+  </header>
+  <main>
     <div class="status" id="status" role="status" aria-live="polite"></div>
     <div class="muted" id="reset-confirmation"></div>
-    <section class="panel"><h2>Modes</h2><div class="grid" id="modes"></div></section>
     <section class="panel">
-      <div class="section-head">
-        <div>
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>Modes</h2>
+          <p class="panel-sub muted">Global posture toggles that widen or tighten protection coverage.</p>
+        </div>
+      </div>
+      <div class="grid" id="modes"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
           <h2>Built-in Protections</h2>
-          <div class="muted" id="builtins-summary"></div>
+          <p class="panel-sub muted" id="builtins-summary"></p>
         </div>
         <label class="search">
           <span>Search protections</span>
-          <input type="search" id="builtin-search" autocomplete="off">
+          <input type="search" id="builtin-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
         </label>
       </div>
       <div id="builtins"></div>
     </section>
-    <section class="panel"><h2>Secret Protection</h2><div id="secret"></div></section>
     <section class="panel">
-      <label class="field" for="raw">
-        <span>Raw JSON</span>
-        <small id="raw-source">Raw JSON mirrors the controls until you edit it.</small>
-      </label>
-      <textarea id="raw" aria-describedby="raw-source"></textarea>
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>Secret Protection</h2>
+          <p class="panel-sub muted">Control which sensitive paths agents may read and which are always blocked.</p>
+        </div>
+      </div>
+      <div id="secret"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>Raw JSON</h2>
+          <p class="panel-sub muted" id="raw-source">Raw JSON mirrors the controls until you edit it.</p>
+        </div>
+      </div>
+      <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source"></textarea>
     </section>
   </main>
   <script>
@@ -243,6 +270,28 @@
       await api('/api/reset', { method: 'POST', body: '{}' });
       await load();
       setStatus(`Status: Reset ${state.path} to defaults.`, 'ok');
+    };
+    const themeOrder = ['auto', 'light', 'dark'];
+    const themeIcons = {
+      auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
+      light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
+      dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>'
+    };
+    const themeLabels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    const applyTheme = (pref) => {
+      document.documentElement.style.colorScheme = pref === 'auto' ? 'light dark' : pref;
+      qs('theme-toggle').innerHTML = `${themeIcons[pref]}<span>${themeLabels[pref]}</span>`;
+      qs('theme-toggle').setAttribute('aria-label', `Color theme: ${themeLabels[pref]}. Click to change.`);
+    };
+    let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme'))
+      ? localStorage.getItem('cc-safety-net-theme')
+      : 'auto';
+    applyTheme(themePref);
+    qs('theme-toggle').onclick = () => {
+      themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
+      if (themePref === 'auto') localStorage.removeItem('cc-safety-net-theme');
+      else localStorage.setItem('cc-safety-net-theme', themePref);
+      applyTheme(themePref);
     };
     load().catch((error) => setStatus(String(error), 'error'));
   </script>
