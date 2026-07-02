@@ -66,7 +66,13 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="builtins-panel-content"');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
-      expect(html).toContain('Confirm reset');
+      expect(html).toContain('<dialog class="confirm-dialog" id="confirm-dialog"');
+      expect(html).toContain('id="confirm-dialog-title"');
+      expect(html).toContain('id="confirm-dialog-confirm"');
+      expect(html).toContain('const confirmDialog =');
+      expect(html).toContain('showModal()');
+      expect(html).toContain("confirmLabel: 'Reset policy'");
+      expect(html).not.toContain('Confirm reset');
       expect(html).toContain('Search secret patterns');
       expect(html).toContain('Default secret patterns');
       expect(html).toContain('aria-controls="secret-panel-content"');

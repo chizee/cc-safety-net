@@ -11350,17 +11350,56 @@ main {
   border-color: var(--err-border);
 }
 
-#reset-confirmation:empty {
-  display: none;
-}
-
-#reset-confirmation {
-  margin: -8px 0 0;
-}
-
 .muted {
   color: var(--muted);
   line-height: 1.45;
+}
+
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 48%);
+}
+
+.confirm-dialog form {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.confirm-dialog h2 {
+  margin: 0;
+}
+
+.confirm-dialog p {
+  margin: 0;
+}
+
+.dialog-detail {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.dialog-detail code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .panel {
@@ -11686,7 +11725,6 @@ var page_default = `<!doctype html>
   </header>
   <main>
     <div class="status" id="status" role="status" aria-live="polite"></div>
-    <div class="muted" id="reset-confirmation"></div>
     <section class="panel">
       <div class="panel-head">
         <div class="panel-title">
@@ -11736,6 +11774,17 @@ var page_default = `<!doctype html>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source"></textarea>
     </section>
   </main>
+  <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
+    <form method="dialog">
+      <h2 id="confirm-dialog-title"></h2>
+      <p class="muted" id="confirm-dialog-body"></p>
+      <p class="dialog-detail"><code id="confirm-dialog-detail"></code></p>
+      <div class="dialog-actions">
+        <button type="submit" id="confirm-dialog-cancel" value="cancel">Cancel</button>
+        <button type="submit" class="danger" id="confirm-dialog-confirm" value="confirm"></button>
+      </div>
+    </form>
+  </dialog>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
     const modeLabels = {
@@ -11748,7 +11797,6 @@ var page_default = `<!doctype html>
     let state;
     let draftPolicy;
     let rawIsManual = false;
-    let resetArmed = false;
     let syncingRaw = false;
     const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
       ...init,
@@ -11817,11 +11865,35 @@ var page_default = `<!doctype html>
         deny_paths: pathLines(qs('deny-paths')?.value ?? '')
       }
     });
-    const disarmReset = () => {
-      resetArmed = false;
-      qs('reset').textContent = 'Reset';
-      qs('reset-confirmation').textContent = '';
-    };
+    const confirmDialog = (() => {
+      const dialog = qs('confirm-dialog');
+      const confirm = qs('confirm-dialog-confirm');
+      const cancel = qs('confirm-dialog-cancel');
+      let resolvePending = null;
+      dialog.addEventListener('close', () => {
+        if (!resolvePending) return;
+        resolvePending(dialog.returnValue === 'confirm');
+        resolvePending = null;
+      });
+      dialog.addEventListener('cancel', () => {
+        dialog.returnValue = 'cancel';
+      });
+      return (options) => new Promise((resolve) => {
+        if (resolvePending) {
+          resolve(false);
+          return;
+        }
+        qs('confirm-dialog-title').textContent = options.title;
+        qs('confirm-dialog-body').textContent = options.body;
+        qs('confirm-dialog-detail').textContent = options.detail ?? '';
+        confirm.textContent = options.confirmLabel;
+        confirm.className = options.confirmClass ?? 'danger';
+        dialog.returnValue = 'cancel';
+        resolvePending = resolve;
+        dialog.showModal();
+        cancel.focus();
+      });
+    })();
     const togglePanel = (button) => {
       const content = qs(button.getAttribute('aria-controls'));
       const expanded = button.getAttribute('aria-expanded') === 'true';
@@ -11914,7 +11986,6 @@ var page_default = `<!doctype html>
     function render() {
       draftPolicy = clonePolicy(state.policy);
       rawIsManual = state.errors.length > 0;
-      disarmReset();
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
       qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
         \`<label class="row"><input type="checkbox" data-mode="\${key}" \${checkbox(state.policy.modes[key])}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
@@ -11957,24 +12028,20 @@ var page_default = `<!doctype html>
     document.addEventListener('input', (event) => {
       const input = event.target;
       if (input.id === 'builtin-search') {
-        disarmReset();
         renderBuiltins();
         return;
       }
       if (input.id === 'secret-search') {
-        disarmReset();
         renderSecretPatterns();
         return;
       }
       if (input.id === 'raw') {
         if (!syncingRaw) rawIsManual = true;
-        disarmReset();
         updateRawSource();
         return;
       }
       if (input.id === 'deny-paths') {
         updateDraftSecretPaths();
-        disarmReset();
         syncRawFromForm();
       }
     });
@@ -11982,14 +12049,12 @@ var page_default = `<!doctype html>
       const input = event.target;
       if (input.dataset?.mode) {
         draftPolicy.modes[input.dataset.mode] = input.checked;
-        disarmReset();
         syncRawFromForm();
         return;
       }
       if (input.dataset?.builtinActive) {
         if (input.checked) delete draftPolicy.builtins.overrides[input.dataset.builtinActive];
         else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
-        disarmReset();
         updateRuleRow(input, input.checked, 'builtins-summary', draftPolicy.builtins.overrides, builtinSummaryText);
         syncRawFromForm();
         return;
@@ -11997,14 +12062,12 @@ var page_default = `<!doctype html>
       if (input.dataset?.secretActive) {
         if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
         else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
-        disarmReset();
         updateRuleRow(input, input.checked, 'secret-summary', draftPolicy.secret_protection.overrides, secretSummaryText);
         syncRawFromForm();
         return;
       }
       if (input.id === 'secret-enabled') {
         draftPolicy.secret_protection.enabled = input.checked;
-        disarmReset();
         syncRawFromForm();
       }
     });
@@ -12013,7 +12076,6 @@ var page_default = `<!doctype html>
       if (button) togglePanel(button);
     });
     qs('save').onclick = () => {
-      disarmReset();
       if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
       const policy = collectPolicy();
       if (!policy) return;
@@ -12024,18 +12086,18 @@ var page_default = `<!doctype html>
         if (await load()) setStatus(\`Status: Saved \${savedPath}.\`, 'ok');
       });
     };
-    qs('reset').onclick = () => {
+    qs('reset').onclick = async () => {
       if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
-      if (!resetArmed) {
-        resetArmed = true;
-        qs('reset').textContent = 'Confirm reset';
-        qs('reset-confirmation').textContent =
-          \`Reset will restore default policy JSON at \${state.path}. Click Confirm reset to continue.\`;
+      if (!(await confirmDialog({
+        title: 'Reset policy?',
+        body: 'This will restore the default policy JSON at this path.',
+        detail: state.path,
+        confirmLabel: 'Reset policy'
+      }))) {
         return;
       }
       void runExclusive('Status: Resetting…', async () => {
         const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
-        disarmReset();
         if (!isWriteSuccess(result)) { setStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
         const resetPath = result.data.path;
         if (await load()) setStatus(\`Status: Reset \${resetPath} to defaults.\`, 'ok');
