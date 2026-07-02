@@ -71,9 +71,11 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+  flex-wrap: wrap;
 }
 
 .titlewrap {
+  flex: 1 1 260px;
   min-width: 0;
 }
 
@@ -97,6 +99,20 @@ h1 {
   gap: 8px;
   flex-wrap: wrap;
   flex: none;
+}
+
+.appbar-search {
+  display: grid;
+  gap: 6px;
+  flex: 1 0 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.appbar-search > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 button {
@@ -457,18 +473,6 @@ label.row small {
   text-align: center;
 }
 
-.search {
-  display: grid;
-  gap: 6px;
-  min-width: 260px;
-}
-
-.search > span {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 #secret {
   display: grid;
   gap: 14px;
@@ -537,6 +541,10 @@ textarea {
     gap: 12px;
   }
 
+  .titlewrap {
+    flex: none;
+  }
+
   main {
     padding: 18px 16px 40px;
   }
@@ -549,16 +557,16 @@ textarea {
     flex: 1 1 0;
   }
 
+  .appbar-search {
+    flex: none;
+  }
+
   .panel {
     padding: 16px;
   }
 
   .panel-head {
     flex-direction: column;
-  }
-
-  .search {
-    min-width: 0;
   }
 
   .grid {

@@ -64,7 +64,16 @@ describe('policy GUI server', () => {
       expect(html).toContain('Custom rules remain active when disabled.');
       expect(html).not.toContain('secret protection unchanged');
       expect(html).toContain('data-destructive-command-enabled');
-      expect(html).toContain('id="destructive-command-search"');
+      expect(html).toContain('id="policy-search"');
+      expect(html).toContain('Search all protections');
+      expect(html.indexOf('id="policy-search"')).toBeGreaterThan(html.indexOf('id="reset"'));
+      expect(html).toContain('flex: 1 0 100%;');
+      expect(html).toContain('max-width: none;');
+      expect(html).toContain('.titlewrap {\n    flex: none;');
+      expect(html).toContain('.appbar-search {\n    flex: none;');
+      expect(html).not.toContain('id="destructive-command-search"');
+      expect(html).not.toContain('id="secret-search"');
+      expect(html).not.toContain('Search protections');
       expect(html).toContain('#destructive-command > label.row');
       expect(html).toContain('margin-bottom: 16px');
       expect(html).toContain('class="panel foldable"');
@@ -89,7 +98,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('input.checked = true;');
       expect(html).toContain("confirmLabel: 'Reset policy'");
       expect(html).not.toContain('Confirm reset');
-      expect(html).toContain('Search secret patterns');
+      expect(html).not.toContain('Search secret patterns');
       expect(html).toContain('Default secret patterns');
       expect(html).toContain('Block default sensitive path patterns and configured deny paths.');
       expect(html).toContain('Exact normalized paths are blocked while Secret protection is on.');
@@ -101,6 +110,8 @@ describe('policy GUI server', () => {
       expect(html).toContain("qs('deny-paths').disabled = !input.checked;");
       expect(html).toContain('textarea:disabled:hover');
       expect(html).toContain('cursor: not-allowed');
+      expect(html).toContain("if (input.id === 'policy-search') {");
+      expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
       expect(html).toContain('syncRawFromForm();');
       expect(html).toContain('aria-controls="secret-panel-content"');

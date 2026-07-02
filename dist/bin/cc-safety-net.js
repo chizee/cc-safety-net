@@ -11208,9 +11208,11 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+  flex-wrap: wrap;
 }
 
 .titlewrap {
+  flex: 1 1 260px;
   min-width: 0;
 }
 
@@ -11234,6 +11236,20 @@ h1 {
   gap: 8px;
   flex-wrap: wrap;
   flex: none;
+}
+
+.appbar-search {
+  display: grid;
+  gap: 6px;
+  flex: 1 0 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.appbar-search > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 button {
@@ -11594,18 +11610,6 @@ label.row small {
   text-align: center;
 }
 
-.search {
-  display: grid;
-  gap: 6px;
-  min-width: 260px;
-}
-
-.search > span {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 #secret {
   display: grid;
   gap: 14px;
@@ -11674,6 +11678,10 @@ textarea {
     gap: 12px;
   }
 
+  .titlewrap {
+    flex: none;
+  }
+
   main {
     padding: 18px 16px 40px;
   }
@@ -11686,16 +11694,16 @@ textarea {
     flex: 1 1 0;
   }
 
+  .appbar-search {
+    flex: none;
+  }
+
   .panel {
     padding: 16px;
   }
 
   .panel-head {
     flex-direction: column;
-  }
-
-  .search {
-    min-width: 0;
   }
 
   .grid {
@@ -11733,6 +11741,10 @@ var page_default = `<!doctype html>
         <button class="primary" id="save">Save</button>
         <button class="danger" id="reset">Reset</button>
       </div>
+      <label class="appbar-search">
+        <span>Search all protections</span>
+        <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+      </label>
     </div>
   </header>
   <main>
@@ -11752,10 +11764,6 @@ var page_default = `<!doctype html>
           <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="destructive-command-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Destructive Command Protection</span></button></h2>
           <p class="panel-sub muted" id="destructive-command-summary"></p>
         </div>
-        <label class="search">
-          <span>Search protections</span>
-          <input type="search" id="destructive-command-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-        </label>
       </div>
       <div id="destructive-command-panel-content">
         <div id="destructive-command"></div>
@@ -11767,10 +11775,6 @@ var page_default = `<!doctype html>
           <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="secret-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Secret Protection</span></button></h2>
           <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
         </div>
-        <label class="search">
-          <span>Search secret patterns</span>
-          <input type="search" id="secret-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-        </label>
       </header>
       <div id="secret-panel-content">
         <div id="secret"></div>
@@ -11944,7 +11948,7 @@ var page_default = `<!doctype html>
       return groups;
     }, []);
     const renderRuleToggles = (options) => {
-      const query = qs(options.searchId).value.trim().toLowerCase();
+      const query = qs('policy-search').value.trim().toLowerCase();
       const rules = options.rules.filter((rule) =>
         [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
       );
@@ -11984,7 +11988,6 @@ var page_default = `<!doctype html>
       qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
     };
     const renderDestructiveCommands = () => renderRuleToggles({
-      searchId: 'destructive-command-search',
       rules: state.destructiveCommandRules,
       overrides: draftPolicy.destructive_command_protection.overrides,
       summaryId: 'destructive-command-summary',
@@ -11996,7 +11999,6 @@ var page_default = `<!doctype html>
     });
     const renderSecretPatterns = () => {
       renderRuleToggles({
-        searchId: 'secret-search',
         rules: state.secretPatterns,
         overrides: draftPolicy.secret_protection.overrides,
         summaryId: 'secret-summary',
@@ -12023,8 +12025,7 @@ var page_default = `<!doctype html>
         '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths are blocked while Secret protection is on.</small></label>' +
         '<textarea id="deny-paths" ' + (state.policy.secret_protection.enabled ? '' : 'disabled') + '>' + escapeHtml(state.policy.secret_protection.deny_paths.join('\\n')) + '</textarea>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
-      qs('destructive-command-search').value = '';
-      qs('secret-search').value = '';
+      qs('policy-search').value = '';
       renderDestructiveCommands();
       renderSecretPatterns();
       updateRawSource();
@@ -12054,11 +12055,8 @@ var page_default = `<!doctype html>
     }
     document.addEventListener('input', (event) => {
       const input = event.target;
-      if (input.id === 'destructive-command-search') {
+      if (input.id === 'policy-search') {
         renderDestructiveCommands();
-        return;
-      }
-      if (input.id === 'secret-search') {
         renderSecretPatterns();
         return;
       }
