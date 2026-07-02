@@ -507,6 +507,10 @@ textarea:hover {
   border-color: var(--muted);
 }
 
+textarea:disabled:hover {
+  cursor: not-allowed;
+}
+
 textarea {
   min-height: 96px;
   resize: vertical;

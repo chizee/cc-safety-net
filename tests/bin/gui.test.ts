@@ -77,15 +77,32 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="confirm-dialog-confirm"');
       expect(html).toContain('const confirmDialog =');
       expect(html).toContain('showModal()');
+      expect(html).toContain("qs('confirm-dialog-detail').parentElement.hidden = !options.detail;");
+      expect(html).toContain('const confirmProtectionDisable =');
+      expect(html).toContain('Disable destructive command protection?');
+      expect(html).toContain('Custom rules remain active.');
+      expect(html).toContain('Disable secret protection?');
+      expect(html).toContain(
+        'Default sensitive path patterns and deny paths will stop blocking access until you turn this back on.',
+      );
+      expect(html).not.toContain('Configured deny paths are part of Secret protection.');
+      expect(html).toContain('input.checked = true;');
       expect(html).toContain("confirmLabel: 'Reset policy'");
       expect(html).not.toContain('Confirm reset');
       expect(html).toContain('Search secret patterns');
       expect(html).toContain('Default secret patterns');
-      expect(html).toContain('Block default sensitive path patterns.');
-      expect(html).toContain('Deny paths remain active when disabled.');
+      expect(html).toContain('Block default sensitive path patterns and configured deny paths.');
+      expect(html).toContain('Exact normalized paths are blocked while Secret protection is on.');
+      expect(html).not.toContain('Deny paths remain active');
+      expect(html).not.toContain('Deny paths are always blocked');
       expect(html).not.toContain('trusted user policy');
       expect(html).toContain('disabled: !draftPolicy.secret_protection.enabled');
-      expect(html).toContain('renderSecretPatterns();\n        syncRawFromForm();');
+      expect(html).toContain("state.policy.secret_protection.enabled ? '' : 'disabled'");
+      expect(html).toContain("qs('deny-paths').disabled = !input.checked;");
+      expect(html).toContain('textarea:disabled:hover');
+      expect(html).toContain('cursor: not-allowed');
+      expect(html).toContain('renderSecretPatterns();');
+      expect(html).toContain('syncRawFromForm();');
       expect(html).toContain('aria-controls="secret-panel-content"');
       expect(html).toContain('id="secret-panel-content"');
       expect(html).toContain('One path per line');
