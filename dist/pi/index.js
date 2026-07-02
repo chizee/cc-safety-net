@@ -7825,7 +7825,7 @@ function isRedirectOp(token) {
 }
 
 // src/core/policy-protection.ts
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config cannot be modified by agent tools.";
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.";
 var READ_ONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "readfile", "read_file"]);
 var PATH_LIKE_KEYS2 = new Set(["file", "file_path", "filepath", "path"]);
 var READ_ONLY_COMMANDS = new Set([

@@ -6,7 +6,8 @@ import { getBasename, stripWrappers } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { getCommandFromToolInput } from './secret-protection';
 
-export const REASON_POLICY_CONFIG_PROTECTION = 'Policy config cannot be modified by agent tools.';
+export const REASON_POLICY_CONFIG_PROTECTION =
+  'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.';
 
 const READ_ONLY_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'readfile', 'read_file']);
 const PATH_LIKE_KEYS = new Set(['file', 'file_path', 'filepath', 'path']);

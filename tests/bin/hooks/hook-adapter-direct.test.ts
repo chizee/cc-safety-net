@@ -163,7 +163,7 @@ describe('hook adapter direct integration', () => {
 
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Policy config cannot be modified by agent tools',
+        'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
