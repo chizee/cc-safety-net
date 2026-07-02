@@ -5,7 +5,13 @@ import type { Config } from '@/types';
 export interface ChildCommandContext {
   cwd: string | undefined;
   envAssignments?: ReadonlyMap<string, string>;
-  config?: Pick<Config, 'rules' | 'transparent_wrappers' | 'disabledDestructiveCommandRules'>;
+  config?: Pick<
+    Config,
+    | 'rules'
+    | 'transparent_wrappers'
+    | 'destructiveCommandProtectionEnabled'
+    | 'disabledDestructiveCommandRules'
+  >;
 }
 
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {

@@ -294,8 +294,11 @@ export function destructiveCommandMatch(
 
 export function filterDestructiveCommandMatch(
   match: DestructiveCommandRuleMatch | null,
-  config: Pick<Config, 'disabledDestructiveCommandRules'> | undefined,
+  config:
+    | Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>
+    | undefined,
 ): string | null {
   if (!match) return null;
+  if (config?.destructiveCommandProtectionEnabled === false) return null;
   return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match.reason;
 }

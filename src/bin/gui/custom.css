@@ -340,9 +340,24 @@ label.row:hover {
   background: var(--surface-2);
 }
 
+label.row.row-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+label.row.row-disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
 label.row:has(input:checked) {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+label.row.row-disabled:has(input:checked) {
+  border-color: var(--border);
+  background: var(--surface);
 }
 
 label.row input[type="checkbox"] {
@@ -404,6 +419,10 @@ label.row small {
   margin-top: 4px;
   color: var(--muted);
   line-height: 1.45;
+}
+
+#destructive-command > label.row {
+  margin-bottom: 16px;
 }
 
 .state-active {

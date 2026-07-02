@@ -30,6 +30,7 @@ describe('policy GUI helpers', () => {
     expect(result.exists).toBe(false);
     expect(result.errors).toEqual([]);
     expect(result.policy).toEqual(DEFAULT_GUI_POLICY);
+    expect(result.policy.destructive_command_protection.enabled).toBe(true);
     expect(result.policy.secret_protection.enabled).toBe(true);
     expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
   });
@@ -41,7 +42,7 @@ describe('policy GUI helpers', () => {
       JSON.stringify({
         version: 1,
         modes: { paranoid_rm: true },
-        builtins: { overrides: { 'git.reset-hard': 'off' } },
+        destructive_command_protection: { enabled: false, overrides: { 'git.reset-hard': 'off' } },
         secret_protection: {
           enabled: true,
           overrides: { 'secret.ext.pem': 'off' },
@@ -54,7 +55,10 @@ describe('policy GUI helpers', () => {
     const readResult = readUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
     expect(readResult.errors).toEqual([]);
     expect(readResult.policy.modes.paranoid_rm).toBe(true);
-    expect(readResult.policy.builtins.overrides).toEqual({ 'git.reset-hard': 'off' });
+    expect(readResult.policy.destructive_command_protection.enabled).toBe(false);
+    expect(readResult.policy.destructive_command_protection.overrides).toEqual({
+      'git.reset-hard': 'off',
+    });
     expect(readResult.policy.secret_protection.overrides).toEqual({ 'secret.ext.pem': 'off' });
 
     const writeResult = writeUserPolicyFromGui(readResult.policy, {
@@ -84,6 +88,24 @@ describe('policy GUI helpers', () => {
     );
   });
 
+  test('rejects invalid destructive command policy values', () => {
+    const invalid = writeUserPolicyFromGui(
+      {
+        ...DEFAULT_GUI_POLICY,
+        destructive_command_protection: {
+          enabled: 'yes',
+          overrides: { 'git.reset-hard': 'allow' },
+        },
+      },
+      { userConfigDir: join(safetyNetHome, 'rules') },
+    );
+
+    expect(invalid.errors).toContain('destructive_command_protection.enabled must be a boolean');
+    expect(invalid.errors).toContain(
+      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+    );
+  });
+
   test('invalid user policy can be read with errors and rejected on save', () => {
     mkdirSync(safetyNetHome, { recursive: true });
     writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
@@ -96,12 +118,14 @@ describe('policy GUI helpers', () => {
     const writeResult = writeUserPolicyFromGui(
       {
         ...DEFAULT_GUI_POLICY,
-        builtins: { overrides: { 'git.reset-hard': 'allow' } },
+        destructive_command_protection: { enabled: true, overrides: { 'git.reset-hard': 'allow' } },
       },
       { userConfigDir: join(safetyNetHome, 'rules') },
     );
 
-    expect(writeResult.errors).toContain('builtins.overrides.git.reset-hard must be "off"');
+    expect(writeResult.errors).toContain(
+      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+    );
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe('{bad json');
   });
 

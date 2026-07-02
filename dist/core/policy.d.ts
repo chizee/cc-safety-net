@@ -4,6 +4,7 @@ import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicyModes, SecretProtectionConfig } from '@/types';
 type PolicyConfig = {
     modes: PolicyModes;
+    destructiveCommandProtectionEnabled: boolean;
     disabledDestructiveCommandRules: Set<string>;
     secretProtection: SecretProtectionConfig;
     errors: string[];
@@ -18,7 +19,8 @@ export type GuiPolicy = {
         paranoid_interpreters: boolean;
         worktree_mode: boolean;
     };
-    builtins: {
+    destructive_command_protection: {
+        enabled: boolean;
         overrides: Record<string, 'off'>;
     };
     secret_protection: {

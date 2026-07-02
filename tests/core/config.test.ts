@@ -182,7 +182,7 @@ describe('runtime config loading', () => {
   test('user policy disables only the matching built-in id', () => {
     writeUserPolicy({
       version: 1,
-      builtins: { overrides: { 'git.reset-hard': 'off' } },
+      destructive_command_protection: { overrides: { 'git.reset-hard': 'off' } },
     });
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
@@ -196,7 +196,7 @@ describe('runtime config loading', () => {
   test('built-in ids are granular within command families', () => {
     writeUserPolicy({
       version: 1,
-      builtins: { overrides: { 'git.checkout-force': 'off' } },
+      destructive_command_protection: { overrides: { 'git.checkout-force': 'off' } },
     });
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
@@ -210,7 +210,7 @@ describe('runtime config loading', () => {
   test('rm built-in ids are granular by target classification', () => {
     writeUserPolicy({
       version: 1,
-      builtins: { overrides: { 'rm.recursive-force-outside-cwd': 'off' } },
+      destructive_command_protection: { overrides: { 'rm.recursive-force-outside-cwd': 'off' } },
     });
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
@@ -224,7 +224,7 @@ describe('runtime config loading', () => {
   test('nested and dynamic execution built-in ids honor overrides', () => {
     writeUserPolicy({
       version: 1,
-      builtins: {
+      destructive_command_protection: {
         overrides: {
           'interpreter.dangerous-command': 'off',
           'xargs.shell-dynamic': 'off',
@@ -240,10 +240,42 @@ describe('runtime config loading', () => {
     expect(analyzeCommand('parallel bash -c ::: ok', { cwd: tempDir, config })).toBeNull();
   });
 
+  test('destructive command protection can be disabled without disabling custom rules', () => {
+    writeUserPolicy({
+      version: 1,
+      destructive_command_protection: { enabled: false, overrides: {} },
+    });
+    writeLockedGitHubRulebookPolicy(
+      tempDir,
+      JSON.stringify({
+        rulebook_version: 1,
+        name: 'policy',
+        version: '1.0.0',
+        allowed_commands: ['git'],
+        rules: [legacyRule],
+        tests: [
+          {
+            command: 'git add -A',
+            expect: 'blocked',
+            rule: legacyRule.name,
+          },
+        ],
+      }),
+    );
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(analyzeCommand('git reset --hard', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('git add -A', { cwd: tempDir, config })?.reason).toContain(
+      'Use specific files.',
+    );
+  });
+
   test('project policy is ignored', () => {
     writeProjectPolicy({
       version: 1,
-      builtins: { overrides: { 'git.reset-hard': 'off' } },
+      destructive_command_protection: { overrides: { 'git.reset-hard': 'off' } },
       secret_protection: { overrides: { 'secret.ext.pem': 'off' } },
       modes: { worktree_mode: true },
     });
@@ -259,7 +291,10 @@ describe('runtime config loading', () => {
   test('invalid policy fields fail closed with repair context', () => {
     writeUserPolicy({
       version: 1,
-      builtins: { overrides: { 'git.unknown': 'off', 'git.reset-hard': 'allow' } },
+      destructive_command_protection: {
+        enabled: 'yes',
+        overrides: { 'git.unknown': 'off', 'git.reset-hard': 'allow' },
+      },
       secret_protection: { overrides: { 'secret.unknown': 'off', 'secret.ext.pem': 'allow' } },
       extra: true,
     });
@@ -268,8 +303,13 @@ describe('runtime config loading', () => {
 
     expect(config.failClosedReason).toContain('invalid policy config');
     expect(config.failClosedReason).toContain('unknown field "extra"');
+    expect(config.failClosedReason).toContain(
+      'destructive_command_protection.enabled must be a boolean',
+    );
     expect(config.failClosedReason).toContain('unknown destructive command rule id "git.unknown"');
-    expect(config.failClosedReason).toContain('builtins.overrides.git.reset-hard must be "off"');
+    expect(config.failClosedReason).toContain(
+      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+    );
     expect(config.failClosedReason).toContain('unknown secret protection rule id "secret.unknown"');
     expect(config.failClosedReason).toContain(
       'secret_protection.overrides.secret.ext.pem must be "off"',

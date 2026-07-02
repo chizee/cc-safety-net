@@ -124,7 +124,7 @@ async function handleRequest(
   if (request.method === 'GET' && url.pathname === '/api/policy') {
     sendJson(response, 200, {
       ...readUserPolicyForGui(options),
-      builtins: DESTRUCTIVE_COMMAND_RULE_METADATA,
+      destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
     });
     return;

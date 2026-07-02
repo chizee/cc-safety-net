@@ -11,7 +11,7 @@ interface PolicyApiResponse {
   policy: {
     version: number;
   };
-  builtins: unknown[];
+  destructiveCommandRules: unknown[];
   secretPatterns: unknown[];
 }
 
@@ -60,7 +60,13 @@ describe('policy GUI server', () => {
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
       expect(html).toContain('Destructive Command Protection');
+      expect(html).toContain('Destructive command protection');
+      expect(html).toContain('Custom rules remain active when disabled.');
+      expect(html).not.toContain('secret protection unchanged');
+      expect(html).toContain('data-destructive-command-enabled');
       expect(html).toContain('id="destructive-command-search"');
+      expect(html).toContain('#destructive-command > label.row');
+      expect(html).toContain('margin-bottom: 16px');
       expect(html).toContain('class="panel foldable"');
       expect(html).toContain('aria-controls="destructive-command-panel-content"');
       expect(html).toContain('id="destructive-command-panel-content"');
@@ -75,6 +81,11 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Confirm reset');
       expect(html).toContain('Search secret patterns');
       expect(html).toContain('Default secret patterns');
+      expect(html).toContain('Block default sensitive path patterns.');
+      expect(html).toContain('Deny paths remain active when disabled.');
+      expect(html).not.toContain('trusted user policy');
+      expect(html).toContain('disabled: !draftPolicy.secret_protection.enabled');
+      expect(html).toContain('renderSecretPatterns();\n        syncRawFromForm();');
       expect(html).toContain('aria-controls="secret-panel-content"');
       expect(html).toContain('id="secret-panel-content"');
       expect(html).toContain('One path per line');
@@ -96,7 +107,7 @@ describe('policy GUI server', () => {
       expect(missing.exists).toBe(false);
       expect(missing.errors).toEqual([]);
       expect(missing.policy.version).toBe(1);
-      expect(missing.builtins.length).toBeGreaterThan(0);
+      expect(missing.destructiveCommandRules.length).toBeGreaterThan(0);
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
 
       mkdirSync(safetyNetHome, { recursive: true });
@@ -122,7 +133,10 @@ describe('policy GUI server', () => {
         {
           version: 1,
           modes: { paranoid_rm: true },
-          builtins: { overrides: { 'git.reset-hard': 'off' } },
+          destructive_command_protection: {
+            enabled: false,
+            overrides: { 'git.reset-hard': 'off' },
+          },
           secret_protection: {
             enabled: true,
             overrides: { 'secret.ext.pem': 'off' },
@@ -144,12 +158,12 @@ describe('policy GUI server', () => {
       expect(reset.errors).toEqual([]);
       const resetPolicy = JSON.parse(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')) as {
         version: number;
-        builtins: { overrides: Record<string, string> };
+        destructive_command_protection: { enabled: boolean; overrides: Record<string, string> };
         secret_protection: { enabled: boolean; overrides: Record<string, string> };
       };
       expect(resetPolicy).toMatchObject({
         version: 1,
-        builtins: { overrides: {} },
+        destructive_command_protection: { enabled: true, overrides: {} },
         secret_protection: { enabled: true, overrides: {} },
       });
     } finally {

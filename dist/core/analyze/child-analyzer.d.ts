@@ -6,7 +6,7 @@ export interface ChildCommandAnalysisContext {
     allowTmpdirVar: boolean;
     envAssignments: ReadonlyMap<string, string>;
     worktreeMode?: boolean;
-    config?: Pick<Config, 'disabledDestructiveCommandRules'>;
+    config?: Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
     analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 export interface ChildCommandAnalysisOptions {

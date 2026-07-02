@@ -601,6 +601,8 @@ function destructiveCommandMatch(id, reason) {
 function filterDestructiveCommandMatch(match, config) {
   if (!match)
     return null;
+  if (config?.destructiveCommandProtectionEnabled === false)
+    return null;
   return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match.reason;
 }
 
@@ -5408,7 +5410,12 @@ function getRulesCacheDir(options2) {
 
 // src/core/policy.ts
 var POLICY_FILE = "policy.json";
-var TOP_LEVEL_FIELDS = new Set(["version", "modes", "builtins", "secret_protection"]);
+var TOP_LEVEL_FIELDS = new Set([
+  "version",
+  "modes",
+  "destructive_command_protection",
+  "secret_protection"
+]);
 var MODE_FIELDS = new Set([
   "strict",
   "paranoid",
@@ -5416,7 +5423,7 @@ var MODE_FIELDS = new Set([
   "paranoid_interpreters",
   "worktree_mode"
 ]);
-var DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(["overrides"]);
+var DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(["enabled", "overrides"]);
 var SECRET_PROTECTION_FIELDS = new Set(["enabled", "overrides", "deny_paths"]);
 var DEFAULT_GUI_POLICY = {
   version: 1,
@@ -5427,7 +5434,8 @@ var DEFAULT_GUI_POLICY = {
     paranoid_interpreters: false,
     worktree_mode: false
   },
-  builtins: {
+  destructive_command_protection: {
+    enabled: true,
     overrides: {}
   },
   secret_protection: {
@@ -5502,6 +5510,7 @@ function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
     modes: user.policy.modes,
+    destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
     secretProtection: user.policy.secretProtection,
     errors: user.errors
@@ -5511,7 +5520,10 @@ function createDefaultGuiPolicy() {
   return {
     version: 1,
     modes: { ...DEFAULT_GUI_POLICY.modes },
-    builtins: { overrides: {} },
+    destructive_command_protection: {
+      enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
+      overrides: {}
+    },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
       overrides: {},
@@ -5522,7 +5534,7 @@ function createDefaultGuiPolicy() {
 function normalizeGuiPolicy(policy) {
   const config = policy;
   const modes = config.modes ?? {};
-  const destructiveCommandPolicy = config.builtins ?? {};
+  const destructiveCommandPolicy = config.destructive_command_protection ?? {};
   const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
   const secret = config.secret_protection ?? {};
   const secretOverrides = secret.overrides ?? {};
@@ -5535,7 +5547,8 @@ function normalizeGuiPolicy(policy) {
       paranoid_interpreters: modes.paranoid_interpreters ?? false,
       worktree_mode: modes.worktree_mode ?? false
     },
-    builtins: {
+    destructive_command_protection: {
+      enabled: destructiveCommandPolicy.enabled ?? true,
       overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
     },
     secret_protection: {
@@ -5569,6 +5582,7 @@ function readPolicyConfig(path) {
 function createEmptyPolicy() {
   return {
     modes: {},
+    destructiveCommandProtectionEnabled: true,
     disabledDestructiveCommandRules: [],
     secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
   };
@@ -5583,7 +5597,7 @@ function validatePolicyConfig(config) {
   if (cfg.version !== 1)
     errors.push("version must be 1");
   validateModes(cfg.modes, errors);
-  validateDestructiveCommandPolicy(cfg.builtins, errors);
+  validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
   validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
@@ -5605,18 +5619,21 @@ function validateDestructiveCommandPolicy(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("builtins must be an object if provided");
+    errors.push("destructive_command_protection must be an object if provided");
     return;
   }
   const destructiveCommandPolicy = value;
-  addUnknownFieldErrors(destructiveCommandPolicy, DESTRUCTIVE_COMMAND_POLICY_FIELDS, errors, "builtins");
+  addUnknownFieldErrors(destructiveCommandPolicy, DESTRUCTIVE_COMMAND_POLICY_FIELDS, errors, "destructive_command_protection");
+  if (destructiveCommandPolicy.enabled !== undefined && typeof destructiveCommandPolicy.enabled !== "boolean") {
+    errors.push("destructive_command_protection.enabled must be a boolean");
+  }
   validateDestructiveCommandOverrides(destructiveCommandPolicy.overrides, errors);
 }
 function validateDestructiveCommandOverrides(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("builtins.overrides must be an object if provided");
+    errors.push("destructive_command_protection.overrides must be an object if provided");
     return;
   }
   for (const [id, override] of Object.entries(value)) {
@@ -5624,7 +5641,7 @@ function validateDestructiveCommandOverrides(value, errors) {
       errors.push(`unknown destructive command rule id "${id}"`);
     }
     if (override !== "off") {
-      errors.push(`builtins.overrides.${id} must be "off"`);
+      errors.push(`destructive_command_protection.overrides.${id} must be "off"`);
     }
   }
 }
@@ -5675,10 +5692,12 @@ function validatePathArray(value, field, errors) {
 }
 function normalizePolicyConfig(config) {
   const modes = normalizeModes(config.modes);
+  const destructiveCommand = config.destructive_command_protection;
   const secret = config.secret_protection;
   return {
     modes,
-    disabledDestructiveCommandRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
+    destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? true,
+    disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
       enabled: secret?.enabled ?? true,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
@@ -7175,6 +7194,7 @@ function loadConfig(cwd, options2) {
   return {
     ...rulesConfig,
     modes: policyConfig.modes,
+    destructiveCommandProtectionEnabled: policyConfig.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
     secretProtection: policyConfig.secretProtection,
     failClosedReason: combineFailClosedReasons(rulesConfig.failClosedReason, policyConfig.errors.length > 0 ? `invalid policy config: ${policyConfig.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
@@ -11457,9 +11477,24 @@ label.row:hover {
   background: var(--surface-2);
 }
 
+label.row.row-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+label.row.row-disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
 label.row:has(input:checked) {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+label.row.row-disabled:has(input:checked) {
+  border-color: var(--border);
+  background: var(--surface);
 }
 
 label.row input[type="checkbox"] {
@@ -11521,6 +11556,10 @@ label.row small {
   margin-top: 4px;
   color: var(--muted);
   line-height: 1.45;
+}
+
+#destructive-command > label.row {
+  margin-bottom: 16px;
 }
 
 .state-active {
@@ -11715,7 +11754,7 @@ var page_default = `<!doctype html>
         </label>
       </div>
       <div id="destructive-command-panel-content">
-        <div id="builtins"></div>
+        <div id="destructive-command"></div>
       </div>
     </section>
     <section class="panel foldable">
@@ -11791,7 +11830,7 @@ var page_default = `<!doctype html>
       !!value && typeof value === 'object'
       && !!value.policy && typeof value.policy === 'object'
       && !!value.policy.modes && !!value.policy.secret_protection
-      && Array.isArray(value.builtins) && Array.isArray(value.secretPatterns)
+      && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
       && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
     const setStatus = (text, kind = '') => {
@@ -11827,7 +11866,7 @@ var page_default = `<!doctype html>
     const collectFormPolicy = () => ({
       version: 1,
       modes: draftPolicy.modes,
-      builtins: draftPolicy.builtins,
+      destructive_command_protection: draftPolicy.destructive_command_protection,
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
         overrides: draftPolicy.secret_protection.overrides,
@@ -11907,8 +11946,9 @@ var page_default = `<!doctype html>
             <h3>\${escapeHtml(group.category)}</h3>
             <div class="grid">\${group.rules.map((rule) => {
               const active = options.overrides[rule.id] !== 'off';
-              return \`<label class="row">
-                <input type="checkbox" \${options.dataAttribute}="\${escapeHtml(rule.id)}" \${checkbox(active)}>
+              const disabled = options.disabled ? 'disabled' : '';
+              return \`<label class="row \${options.disabled ? 'row-disabled' : ''}">
+                <input type="checkbox" \${options.dataAttribute}="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled}>
                 <span>
                   <strong>\${escapeHtml(rule.label)}</strong>
                   <small><span class="\${active ? 'state-active' : 'state-disabled'}">\${active ? 'Active' : 'Disabled'}</span> \${escapeHtml(rule.description)}</small>
@@ -11919,7 +11959,9 @@ var page_default = `<!doctype html>
         \`).join('');
     };
     const destructiveCommandSummaryText = (disabledCount) =>
-      \`\${state.builtins.length - disabledCount} active, \${disabledCount} disabled\`;
+      draftPolicy.destructive_command_protection.enabled
+        ? \`\${state.destructiveCommandRules.length - disabledCount} active, \${disabledCount} disabled\`
+        : 'Protection disabled. Custom rules and secret protection still apply.';
     const secretSummaryText = (disabledCount) =>
       \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are always blocked.\`;
     const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
@@ -11932,13 +11974,14 @@ var page_default = `<!doctype html>
     };
     const renderDestructiveCommands = () => renderRuleToggles({
       searchId: 'destructive-command-search',
-      rules: state.builtins,
-      overrides: draftPolicy.builtins.overrides,
+      rules: state.destructiveCommandRules,
+      overrides: draftPolicy.destructive_command_protection.overrides,
       summaryId: 'destructive-command-summary',
-      targetId: 'builtins',
+      targetId: 'destructive-command-rules',
       dataAttribute: 'data-destructive-command-active',
       emptyText: 'No built-in protections match the search.',
-      summaryText: destructiveCommandSummaryText
+      summaryText: destructiveCommandSummaryText,
+      disabled: !draftPolicy.destructive_command_protection.enabled
     });
     const renderSecretPatterns = () => {
       renderRuleToggles({
@@ -11949,7 +11992,8 @@ var page_default = `<!doctype html>
         targetId: 'secret-patterns',
         dataAttribute: 'data-secret-active',
         emptyText: 'No secret patterns match the search.',
-        summaryText: secretSummaryText
+        summaryText: secretSummaryText,
+        disabled: !draftPolicy.secret_protection.enabled
       });
     };
     function render() {
@@ -11959,8 +12003,11 @@ var page_default = `<!doctype html>
       qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
         \`<label class="row"><input type="checkbox" data-mode="\${key}" \${checkbox(state.policy.modes[key])}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
       ).join('');
+      qs('destructive-command').innerHTML =
+        '<label class="row"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span></label>' +
+        '<div id="destructive-command-rules"></div>';
       qs('secret').innerHTML =
-        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block sensitive paths by default. Turn off only from trusted user policy.</small></span></label>' +
+        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns. Deny paths remain active when disabled.</small></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths stay blocked even when default patterns are disabled.</small></label>' +
         '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\\n')) + '</textarea>';
@@ -12021,14 +12068,20 @@ var page_default = `<!doctype html>
         syncRawFromForm();
         return;
       }
+      if ('destructiveCommandEnabled' in input.dataset) {
+        draftPolicy.destructive_command_protection.enabled = input.checked;
+        renderDestructiveCommands();
+        syncRawFromForm();
+        return;
+      }
       if (input.dataset?.destructiveCommandActive) {
         if (input.checked) {
-          delete draftPolicy.builtins.overrides[input.dataset.destructiveCommandActive];
+          delete draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive];
         }
         if (!input.checked) {
-          draftPolicy.builtins.overrides[input.dataset.destructiveCommandActive] = 'off';
+          draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive] = 'off';
         }
-        updateRuleRow(input, input.checked, 'destructive-command-summary', draftPolicy.builtins.overrides, destructiveCommandSummaryText);
+        updateRuleRow(input, input.checked, 'destructive-command-summary', draftPolicy.destructive_command_protection.overrides, destructiveCommandSummaryText);
         syncRawFromForm();
         return;
       }
@@ -12041,6 +12094,7 @@ var page_default = `<!doctype html>
       }
       if (input.id === 'secret-enabled') {
         draftPolicy.secret_protection.enabled = input.checked;
+        renderSecretPatterns();
         syncRawFromForm();
       }
     });
@@ -12179,7 +12233,7 @@ async function handleRequest(request, response, token, options2) {
   if (request.method === "GET" && url.pathname === "/api/policy") {
     sendJson(response, 200, {
       ...readUserPolicyForGui(options2),
-      builtins: DESTRUCTIVE_COMMAND_RULE_METADATA,
+      destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA
     });
     return;

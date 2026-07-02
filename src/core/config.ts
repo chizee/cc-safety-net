@@ -26,6 +26,7 @@ export function loadConfig(cwd?: string, options?: LoadConfigOptions): Config {
   return {
     ...rulesConfig,
     modes: policyConfig.modes,
+    destructiveCommandProtectionEnabled: policyConfig.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
     secretProtection: policyConfig.secretProtection,
     failClosedReason: combineFailClosedReasons(

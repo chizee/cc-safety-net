@@ -26,6 +26,8 @@ export interface Config {
   transparent_wrappers?: string[];
   /** Runtime modes loaded from policy config */
   modes?: PolicyModes;
+  /** Whether built-in destructive command protection is enabled by trusted user policy */
+  destructiveCommandProtectionEnabled?: boolean;
   /** Destructive command rule IDs disabled by trusted user policy */
   disabledDestructiveCommandRules?: ReadonlySet<string>;
   /** Secret protection policy loaded from trusted user policy config */

@@ -11,7 +11,12 @@ import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicyModes, SecretProtectionConfig } from '@/types';
 
 const POLICY_FILE = 'policy.json';
-const TOP_LEVEL_FIELDS = new Set(['version', 'modes', 'builtins', 'secret_protection']);
+const TOP_LEVEL_FIELDS = new Set([
+  'version',
+  'modes',
+  'destructive_command_protection',
+  'secret_protection',
+]);
 const MODE_FIELDS = new Set([
   'strict',
   'paranoid',
@@ -19,11 +24,12 @@ const MODE_FIELDS = new Set([
   'paranoid_interpreters',
   'worktree_mode',
 ]);
-const DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(['overrides']);
+const DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(['enabled', 'overrides']);
 const SECRET_PROTECTION_FIELDS = new Set(['enabled', 'overrides', 'deny_paths']);
 
 type PolicyConfig = {
   modes: PolicyModes;
+  destructiveCommandProtectionEnabled: boolean;
   disabledDestructiveCommandRules: Set<string>;
   secretProtection: SecretProtectionConfig;
   errors: string[];
@@ -31,6 +37,7 @@ type PolicyConfig = {
 
 type PartialPolicy = {
   modes: PolicyModes;
+  destructiveCommandProtectionEnabled: boolean;
   disabledDestructiveCommandRules: string[];
   secretProtection: SecretProtectionConfig;
 };
@@ -45,7 +52,8 @@ export type GuiPolicy = {
     paranoid_interpreters: boolean;
     worktree_mode: boolean;
   };
-  builtins: {
+  destructive_command_protection: {
+    enabled: boolean;
     overrides: Record<string, 'off'>;
   };
   secret_protection: {
@@ -64,7 +72,8 @@ export const DEFAULT_GUI_POLICY: GuiPolicy = {
     paranoid_interpreters: false,
     worktree_mode: false,
   },
-  builtins: {
+  destructive_command_protection: {
+    enabled: true,
     overrides: {},
   },
   secret_protection: {
@@ -163,6 +172,7 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
   const user = readPolicyConfig(getUserPolicyPath(options));
   return {
     modes: user.policy.modes,
+    destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
@@ -173,7 +183,10 @@ function createDefaultGuiPolicy(): GuiPolicy {
   return {
     version: 1,
     modes: { ...DEFAULT_GUI_POLICY.modes },
-    builtins: { overrides: {} },
+    destructive_command_protection: {
+      enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
+      overrides: {},
+    },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
       overrides: {},
@@ -185,7 +198,8 @@ function createDefaultGuiPolicy(): GuiPolicy {
 function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   const config = policy as Record<string, unknown>;
   const modes = (config.modes as Record<string, boolean | undefined> | undefined) ?? {};
-  const destructiveCommandPolicy = (config.builtins as Record<string, unknown> | undefined) ?? {};
+  const destructiveCommandPolicy =
+    (config.destructive_command_protection as Record<string, unknown> | undefined) ?? {};
   const destructiveCommandOverrides =
     (destructiveCommandPolicy.overrides as Record<string, unknown> | undefined) ?? {};
   const secret = (config.secret_protection as Record<string, unknown> | undefined) ?? {};
@@ -199,7 +213,8 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
       paranoid_interpreters: modes.paranoid_interpreters ?? false,
       worktree_mode: modes.worktree_mode ?? false,
     },
-    builtins: {
+    destructive_command_protection: {
+      enabled: (destructiveCommandPolicy.enabled as boolean | undefined) ?? true,
       overrides: Object.fromEntries(
         Object.entries(destructiveCommandOverrides).flatMap(([id, value]) =>
           value === 'off' ? [[id, 'off']] : [],
@@ -243,6 +258,7 @@ function readPolicyConfig(path: string): { policy: PartialPolicy; errors: string
 function createEmptyPolicy(): PartialPolicy {
   return {
     modes: {},
+    destructiveCommandProtectionEnabled: true,
     disabledDestructiveCommandRules: [],
     secretProtection: { enabled: true, disabledRules: new Set(), denyPaths: [] },
   };
@@ -258,7 +274,7 @@ function validatePolicyConfig(config: unknown): string[] {
   addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
   if (cfg.version !== 1) errors.push('version must be 1');
   validateModes(cfg.modes, errors);
-  validateDestructiveCommandPolicy(cfg.builtins, errors);
+  validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
   validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
@@ -279,7 +295,7 @@ function validateModes(value: unknown, errors: string[]): void {
 function validateDestructiveCommandPolicy(value: unknown, errors: string[]): void {
   if (value === undefined) return;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('builtins must be an object if provided');
+    errors.push('destructive_command_protection must be an object if provided');
     return;
   }
   const destructiveCommandPolicy = value as Record<string, unknown>;
@@ -287,15 +303,21 @@ function validateDestructiveCommandPolicy(value: unknown, errors: string[]): voi
     destructiveCommandPolicy,
     DESTRUCTIVE_COMMAND_POLICY_FIELDS,
     errors,
-    'builtins',
+    'destructive_command_protection',
   );
+  if (
+    destructiveCommandPolicy.enabled !== undefined &&
+    typeof destructiveCommandPolicy.enabled !== 'boolean'
+  ) {
+    errors.push('destructive_command_protection.enabled must be a boolean');
+  }
   validateDestructiveCommandOverrides(destructiveCommandPolicy.overrides, errors);
 }
 
 function validateDestructiveCommandOverrides(value: unknown, errors: string[]): void {
   if (value === undefined) return;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('builtins.overrides must be an object if provided');
+    errors.push('destructive_command_protection.overrides must be an object if provided');
     return;
   }
   for (const [id, override] of Object.entries(value as Record<string, unknown>)) {
@@ -303,7 +325,7 @@ function validateDestructiveCommandOverrides(value: unknown, errors: string[]): 
       errors.push(`unknown destructive command rule id "${id}"`);
     }
     if (override !== 'off') {
-      errors.push(`builtins.overrides.${id} must be "off"`);
+      errors.push(`destructive_command_protection.overrides.${id} must be "off"`);
     }
   }
 }
@@ -355,13 +377,16 @@ function validatePathArray(value: unknown, field: string, errors: string[]): voi
 
 function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
   const modes = normalizeModes(config.modes);
+  const destructiveCommand = config.destructive_command_protection as
+    | Record<string, unknown>
+    | undefined;
   const secret = config.secret_protection as Record<string, unknown> | undefined;
   return {
     modes,
+    destructiveCommandProtectionEnabled:
+      (destructiveCommand?.enabled as boolean | undefined) ?? true,
     disabledDestructiveCommandRules: Object.entries(
-      ((config.builtins as Record<string, unknown> | undefined)?.overrides as
-        | Record<string, unknown>
-        | undefined) ?? {},
+      (destructiveCommand?.overrides as Record<string, unknown> | undefined) ?? {},
     ).flatMap(([id, value]) => (value === 'off' ? [id] : [])),
     secretProtection: {
       enabled: (secret?.enabled as boolean | undefined) ?? true,
