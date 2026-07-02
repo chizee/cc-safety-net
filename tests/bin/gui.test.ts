@@ -128,6 +128,17 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Allow paths');
       expect(html).not.toContain('id="allow-paths"');
       expect(html).toContain('Raw JSON');
+      expect(html).toContain('id="raw-copy"');
+      expect(html).toContain('aria-label="Copy raw JSON to clipboard"');
+      expect(html).toContain('const rawCopyIcons =');
+      expect(html).toContain("navigator.clipboard.writeText(qs('raw').value)");
+      expect(html).toContain("qs('raw-copy').classList.toggle('copied', copied);");
+      expect(html).toContain(
+        'rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);',
+      );
+      expect(html).not.toContain(
+        'button.icon-button.copied {\n  color: var(--ok-fg);\n  border-color',
+      );
       expect(html).not.toContain(' · ${escapeHtml(rule.id)} · ');
     } finally {
       await server.close();

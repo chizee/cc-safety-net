@@ -11324,6 +11324,33 @@ button.danger:hover:not(:disabled) {
   height: 15px;
 }
 
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--muted);
+}
+
+button.icon-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+button.icon-button.copied {
+  color: var(--ok-fg);
+}
+
+button.icon-button.copied:hover:not(:disabled) {
+  color: var(--ok-fg);
+}
+
+button.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 :where(button, input, textarea):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 2px;
@@ -11861,6 +11888,7 @@ var page_default = `<!doctype html>
           <h2>Raw JSON</h2>
           <p class="panel-sub muted" id="raw-source">Raw JSON mirrors the controls until you edit it.</p>
         </div>
+        <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
       </div>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source"></textarea>
     </section>
@@ -11885,10 +11913,15 @@ var page_default = `<!doctype html>
       paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
       worktree_mode: ['Worktree mode', 'Allow local git discards in linked worktrees.']
     };
+    const rawCopyIcons = {
+      copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
+    };
     let state;
     let draftPolicy;
     let rawIsManual = false;
     let syncingRaw = false;
+    let rawCopyResetTimer = null;
     const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
       ...init,
       headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
@@ -12002,6 +12035,24 @@ var page_default = `<!doctype html>
       qs('raw-source').textContent = rawIsManual
         ? 'Save will use Raw JSON. Fix validation errors here or reset to defaults.'
         : 'Raw JSON mirrors the controls until you edit it.';
+    };
+    const setRawCopyCopied = (copied) => {
+      qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
+      qs('raw-copy').classList.toggle('copied', copied);
+      qs('raw-copy').setAttribute('aria-label', copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard');
+    };
+    const copyRawToClipboard = async () => {
+      qs('raw-copy').disabled = true;
+      try {
+        await navigator.clipboard.writeText(qs('raw').value);
+        setRawCopyCopied(true);
+        if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
+        rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
+      } catch (error) {
+        setStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, 'error');
+      } finally {
+        qs('raw-copy').disabled = false;
+      }
     };
     const syncRawFromForm = () => {
       if (rawIsManual) return;
@@ -12241,6 +12292,10 @@ var page_default = `<!doctype html>
         const resetPath = result.data.path;
         if (await load()) setStatus(\`Status: Reset \${resetPath} to defaults.\`, 'ok');
       });
+    };
+    setRawCopyCopied(false);
+    qs('raw-copy').onclick = () => {
+      void copyRawToClipboard();
     };
     const themeOrder = ['auto', 'light', 'dark'];
     const themeIcons = {
