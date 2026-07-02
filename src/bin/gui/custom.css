@@ -653,6 +653,7 @@ label.row.master:has(input:checked) .master-badge::before {
 }
 
 input[type="search"],
+input[type="text"],
 textarea {
   width: 100%;
   border: 1px solid var(--border-strong);
@@ -665,12 +666,82 @@ textarea {
 }
 
 input[type="search"]:hover,
+input[type="text"]:hover,
 textarea:hover {
   border-color: var(--muted);
 }
 
-textarea:disabled:hover {
+input[type="text"]:disabled {
   cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.deny-paths-add {
+  display: flex;
+  gap: 8px;
+}
+
+.deny-paths-add input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.deny-paths-add button {
+  flex: none;
+  align-self: center;
+}
+
+.deny-paths-hint {
+  margin: -6px 0 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.deny-paths-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.deny-path-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deny-path-item code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.deny-path-item button:hover:not(:disabled) {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.deny-path-item.row-disabled {
+  opacity: 0.62;
+}
+
+.deny-path-item.row-disabled button {
+  cursor: not-allowed;
+}
+
+.deny-path-item button {
+  flex: none;
 }
 
 textarea {

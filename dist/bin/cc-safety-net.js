@@ -11842,6 +11842,7 @@ label.row.master:has(input:checked) .master-badge::before {
 }
 
 input[type="search"],
+input[type="text"],
 textarea {
   width: 100%;
   border: 1px solid var(--border-strong);
@@ -11854,12 +11855,82 @@ textarea {
 }
 
 input[type="search"]:hover,
+input[type="text"]:hover,
 textarea:hover {
   border-color: var(--muted);
 }
 
-textarea:disabled:hover {
+input[type="text"]:disabled {
   cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.deny-paths-add {
+  display: flex;
+  gap: 8px;
+}
+
+.deny-paths-add input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.deny-paths-add button {
+  flex: none;
+  align-self: center;
+}
+
+.deny-paths-hint {
+  margin: -6px 0 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.deny-paths-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.deny-path-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deny-path-item code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.deny-path-item button:hover:not(:disabled) {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.deny-path-item.row-disabled {
+  opacity: 0.62;
+}
+
+.deny-path-item.row-disabled button {
+  cursor: not-allowed;
+}
+
+.deny-path-item button {
+  flex: none;
 }
 
 textarea {
@@ -12034,6 +12105,10 @@ var page_default = `<!doctype html>
       copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
       check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
     };
+    const denyPathIcons = {
+      add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+      remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
+    };
     let state;
     let draftPolicy;
     let dirty = false;
@@ -12111,7 +12186,7 @@ var page_default = `<!doctype html>
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
         overrides: draftPolicy.secret_protection.overrides,
-        deny_paths: pathLines(qs('deny-paths')?.value ?? '')
+        deny_paths: draftPolicy.secret_protection.deny_paths
       }
     });
     const confirmDialog = (() => {
@@ -12192,8 +12267,46 @@ var page_default = `<!doctype html>
       setDetailStatus('');
       updateActions();
     };
-    const updateDraftSecretPaths = () => {
-      draftPolicy.secret_protection.deny_paths = pathLines(qs('deny-paths')?.value ?? '');
+    const setDenyPathsHint = (text) => {
+      qs('deny-paths-hint').textContent = text;
+      qs('deny-paths-hint').hidden = !text;
+    };
+    const renderDenyPaths = () => {
+      const paths = draftPolicy.secret_protection.deny_paths;
+      const disabled = !draftPolicy.secret_protection.enabled;
+      qs('deny-paths-label').textContent = \`Deny paths (\${paths.length})\`;
+      qs('deny-paths-input').disabled = disabled;
+      qs('deny-paths-add-button').disabled = disabled;
+      qs('deny-paths-list').innerHTML = paths.length === 0
+        ? '<li class="empty">No deny paths configured.</li>'
+        : paths.map((path, index) => \`<li class="deny-path-item \${disabled ? 'row-disabled' : ''}">
+            <code>\${escapeHtml(path)}</code>
+            <button type="button" class="icon-button" data-deny-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove deny path \${escapeHtml(path)}">\${denyPathIcons.remove}</button>
+          </li>\`).join('');
+    };
+    const addDenyPaths = (value) => {
+      const entries = [...new Set(pathLines(value))];
+      if (entries.length === 0) return;
+      const existing = draftPolicy.secret_protection.deny_paths;
+      const duplicates = entries.filter((entry) => existing.includes(entry));
+      draftPolicy.secret_protection.deny_paths = [
+        ...existing,
+        ...entries.filter((entry) => !existing.includes(entry))
+      ];
+      qs('deny-paths-input').value = '';
+      setDenyPathsHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
+      renderDenyPaths();
+      syncRawFromForm();
+      updateDirtyStatus();
+      qs('deny-paths-input').focus();
+    };
+    const removeDenyPath = (index) => {
+      draftPolicy.secret_protection.deny_paths = draftPolicy.secret_protection.deny_paths
+        .filter((_, position) => position !== index);
+      setDenyPathsHint('');
+      renderDenyPaths();
+      syncRawFromForm();
+      updateDirtyStatus();
     };
     const groupRules = (rules) => rules.reduce((groups, rule) => {
       const group = groups.find((item) => item.category === rule.category);
@@ -12287,12 +12400,15 @@ var page_default = `<!doctype html>
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
-        '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths are blocked while Secret protection is on.</small></label>' +
-        '<textarea id="deny-paths" ' + (state.policy.secret_protection.enabled ? '' : 'disabled') + '>' + escapeHtml(state.policy.secret_protection.deny_paths.join('\\n')) + '</textarea>';
+        '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Exact normalized paths are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
+        '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
+        '<p class="deny-paths-hint" id="deny-paths-hint" hidden></p>' +
+        '<ul class="deny-paths-list" id="deny-paths-list"></ul>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('policy-search').value = '';
       renderDestructiveCommands();
       renderSecretPatterns();
+      renderDenyPaths();
       updateRawSource();
       qs('recovery').hidden = state.errors.length === 0;
       updateActions();
@@ -12320,13 +12436,19 @@ var page_default = `<!doctype html>
       if (input.id === 'policy-search') {
         renderDestructiveCommands();
         renderSecretPatterns();
-        return;
       }
-      if (input.id === 'deny-paths') {
-        updateDraftSecretPaths();
-        syncRawFromForm();
-        updateDirtyStatus();
-      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.target?.id !== 'deny-paths-input' || event.key !== 'Enter') return;
+      event.preventDefault();
+      addDenyPaths(event.target.value);
+    });
+    document.addEventListener('paste', (event) => {
+      if (event.target?.id !== 'deny-paths-input') return;
+      const text = event.clipboardData?.getData('text') ?? '';
+      if (!text.includes('\\n')) return;
+      event.preventDefault();
+      addDenyPaths(\`\${event.target.value}\\n\${text}\`);
     });
     document.addEventListener('change', (event) => {
       const input = event.target;
@@ -12383,8 +12505,8 @@ var page_default = `<!doctype html>
             return;
           }
           draftPolicy.secret_protection.enabled = input.checked;
-          qs('deny-paths').disabled = !input.checked;
           renderSecretPatterns();
+          renderDenyPaths();
           syncRawFromForm();
           updateDirtyStatus();
         })();
@@ -12392,7 +12514,16 @@ var page_default = `<!doctype html>
     });
     document.addEventListener('click', (event) => {
       const button = event.target.closest?.('.panel-toggle');
-      if (button) togglePanel(button);
+      if (button) {
+        togglePanel(button);
+        return;
+      }
+      if (event.target.closest?.('#deny-paths-add-button')) {
+        addDenyPaths(qs('deny-paths-input').value);
+        return;
+      }
+      const removeButton = event.target.closest?.('[data-deny-path-remove]');
+      if (removeButton) removeDenyPath(Number(removeButton.dataset.denyPathRemove));
     });
     qs('save').onclick = () => {
       if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
