@@ -145,12 +145,12 @@ describe('policy GUI server', () => {
       const resetPolicy = JSON.parse(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')) as {
         version: number;
         builtins: { overrides: Record<string, string> };
-        secret_protection: { overrides: Record<string, string> };
+        secret_protection: { enabled: boolean; overrides: Record<string, string> };
       };
       expect(resetPolicy).toMatchObject({
         version: 1,
         builtins: { overrides: {} },
-        secret_protection: { overrides: {} },
+        secret_protection: { enabled: true, overrides: {} },
       });
     } finally {
       await server.close();

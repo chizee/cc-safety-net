@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import {
   expectNoHookOutput,
   expectSecretProtectionDeny,
   geminiShellInput,
   getHookDenyReason,
   runGeminiHook,
+  withHookTestContext,
+  writeUserPolicy,
 } from './hook-helpers';
 
 describe('Gemini CLI hook', () => {
@@ -36,39 +39,42 @@ describe('Gemini CLI hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-shell tools when secret protection is disabled', async () => {
-      const input = {
-        hook_event_name: 'BeforeTool',
-        tool_name: 'write_file',
-        tool_input: { path: '.env' },
-      };
+    test('ignores non-shell tools when user policy disables secret protection', async () => {
+      await withHookTestContext(async (context) => {
+        writeUserPolicy(context.home, { version: 1, secret_protection: { enabled: false } });
 
-      await expectNoHookOutput(runGeminiHook, input);
+        await expectNoHookOutput(context.runGeminiHook, {
+          hook_event_name: 'BeforeTool',
+          cwd: context.cwd,
+          tool_name: 'write_file',
+          tool_input: { path: '.env' },
+        });
+      });
     });
 
     test('secret protection blocks path-like non-shell tool input', async () => {
-      const result = await runGeminiHook(
-        {
-          hook_event_name: 'BeforeTool',
-          tool_name: 'write_file',
-          tool_input: { path: '.env' },
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+      const result = await runGeminiHook({
+        hook_event_name: 'BeforeTool',
+        tool_name: 'write_file',
+        tool_input: { path: '.env' },
+      });
 
       expectSecretProtectionDeny(result, 'gemini-cli');
     });
 
-    test('policy config protection blocks write_file', async () => {
-      const result = await runGeminiHook({
-        hook_event_name: 'BeforeTool',
-        tool_name: 'write_file',
-        tool_input: { path: '.cc-safety-net/policy.json', content: '{}' },
-      });
+    test('policy config protection blocks write_file to user policy', async () => {
+      await withHookTestContext(async (context) => {
+        const result = await context.runGeminiHook({
+          hook_event_name: 'BeforeTool',
+          cwd: context.cwd,
+          tool_name: 'write_file',
+          tool_input: { path: join(context.home, '.cc-safety-net', 'policy.json'), content: '{}' },
+        });
 
-      expect(getHookDenyReason(result, 'gemini-cli')).toContain(
-        'Policy config cannot be modified by agent tools',
-      );
+        expect(getHookDenyReason(result, 'gemini-cli')).toContain(
+          'Policy config cannot be modified by agent tools',
+        );
+      });
     });
   });
 

@@ -9,14 +9,10 @@ import {
   getHookDenyReason,
   runClaudeCodeHook,
   withHookTestContext,
+  writeUserPolicy,
 } from './hook-helpers';
 
 describe('Claude Code hook', () => {
-  function writeUserPolicy(home: string, policy: unknown): void {
-    mkdirSync(join(home, '.cc-safety-net'), { recursive: true });
-    writeFileSync(join(home, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
-  }
-
   function writeProjectPolicy(cwd: string, policy: unknown): void {
     mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
     writeFileSync(join(cwd, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
@@ -164,39 +160,20 @@ describe('Claude Code hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('non-Bash tool produces no output when secret protection is disabled', async () => {
-      const input = {
+    test('secret protection blocks non-Bash path-like tool input', async () => {
+      const result = await runClaudeCodeHook({
         hook_event_name: 'PreToolUse',
         tool_name: 'Read',
-        tool_input: { path: '.env' },
-      };
-
-      await expectNoHookOutput(runClaudeCodeHook, input);
-    });
-
-    test('secret protection blocks non-Bash path-like tool input', async () => {
-      const result = await runClaudeCodeHook(
-        {
-          hook_event_name: 'PreToolUse',
-          tool_name: 'Read',
-          tool_input: { file_path: '.env' },
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+        tool_input: { file_path: '.env' },
+      });
 
       expectSecretProtectionDeny(result, 'claude-code');
       expect(getHookDenyReason(result, 'claude-code')).toContain('Command: .env');
       expect(getHookDenyReason(result, 'claude-code')).toContain('Tool: Read');
-      expect(getHookDenyReason(result, 'claude-code')).not.toContain(
-        'CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION',
-      );
     });
 
-    test('command-scoped flag assignment does not disable secret protection', async () => {
-      const result = await runClaudeCodeHook(
-        claudeCodeBashInput('CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION=0 cat .env'),
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+    test('unknown command-scoped env assignment does not affect secret protection', async () => {
+      const result = await runClaudeCodeHook(claudeCodeBashInput('IGNORED_FLAG=0 cat .env'));
 
       const reason = getHookDenyReason(result, 'claude-code');
       expect(reason).toContain('Access to a sensitive path is not allowed.');
@@ -205,11 +182,8 @@ describe('Claude Code hook', () => {
       expect(reason).toContain('Tool: Bash');
     });
 
-    test('env command flag assignment does not disable secret protection', async () => {
-      const result = await runClaudeCodeHook(
-        claudeCodeBashInput('env CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION=0 cat .env'),
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+    test('env command assignment does not affect secret protection', async () => {
+      const result = await runClaudeCodeHook(claudeCodeBashInput('env IGNORED_FLAG=0 cat .env'));
 
       expect(getHookDenyReason(result, 'claude-code')).toContain(
         'Access to a sensitive path is not allowed.',
@@ -217,26 +191,19 @@ describe('Claude Code hook', () => {
     });
 
     test('secret protection ignores non-sensitive non-Bash tool input', async () => {
-      await expectNoHookOutput(
-        runClaudeCodeHook,
-        {
-          hook_event_name: 'PreToolUse',
-          tool_name: 'Read',
-          tool_input: { file_path: 'README.md' },
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+      await expectNoHookOutput(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: 'README.md' },
+      });
     });
 
     test('secret protection blocks directory targets', async () => {
-      const result = await runClaudeCodeHook(
-        {
-          hook_event_name: 'PreToolUse',
-          tool_name: 'Read',
-          tool_input: { file_path: '~/.ssh' },
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+      const result = await runClaudeCodeHook({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: '~/.ssh' },
+      });
 
       expectSecretProtectionDeny(result, 'claude-code');
       expect(getHookDenyReason(result, 'claude-code')).toContain('Command: ~/.ssh');
@@ -244,9 +211,7 @@ describe('Claude Code hook', () => {
     });
 
     test('secret protection parse errors fail closed before command analysis', async () => {
-      const result = await runClaudeCodeHook(claudeCodeBashInput('rm -rf / ${'), {
-        CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1',
-      });
+      const result = await runClaudeCodeHook(claudeCodeBashInput('rm -rf / ${'));
 
       expect(result.stderr).toBe('');
       expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
@@ -254,30 +219,32 @@ describe('Claude Code hook', () => {
   });
 
   describe('policy config protection', () => {
-    test('allows read-only access to policy files', async () => {
+    test('allows read-only access to user policy file', async () => {
       await withHookTestContext(async (context) => {
+        const policyPath = join(context.home, '.cc-safety-net', 'policy.json');
         await expectNoHookOutput(context.runClaudeCodeHook, {
           hook_event_name: 'PreToolUse',
           cwd: context.cwd,
           tool_name: 'Read',
-          tool_input: { file_path: '.cc-safety-net/policy.json' },
+          tool_input: { file_path: policyPath },
         });
 
         await expectNoHookOutput(
           context.runClaudeCodeHook,
-          context.claudeCodeBashInput('cat .cc-safety-net/policy.json'),
+          context.claudeCodeBashInput(`cat ${policyPath}`),
         );
       });
     });
 
-    test('denies policy file mutation tools', async () => {
+    test('denies user policy file mutation tools', async () => {
       await withHookTestContext(async (context) => {
+        const policyPath = join(context.home, '.cc-safety-net', 'policy.json');
         for (const tool_name of ['Write', 'Edit', 'MultiEdit']) {
           const result = await context.runClaudeCodeHook({
             hook_event_name: 'PreToolUse',
             cwd: context.cwd,
             tool_name,
-            tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
+            tool_input: { file_path: policyPath, content: '{}' },
           });
 
           expect(getHookDenyReason(result, 'claude-code')).toContain(
@@ -287,13 +254,14 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('denies bash writes and ambiguous commands touching policy files', async () => {
+    test('denies bash writes and ambiguous commands touching user policy file', async () => {
       await withHookTestContext(async (context) => {
+        const policyPath = join(context.home, '.cc-safety-net', 'policy.json');
         for (const command of [
-          'cat package.json > .cc-safety-net/policy.json',
-          'tee .cc-safety-net/policy.json',
-          'rm .cc-safety-net/policy.json',
-          'node script.js .cc-safety-net/policy.json',
+          `cat package.json > ${policyPath}`,
+          `tee ${policyPath}`,
+          `rm ${policyPath}`,
+          `node script.js ${policyPath}`,
         ]) {
           const result = await context.runClaudeCodeHook(context.claudeCodeBashInput(command));
 
@@ -303,13 +271,22 @@ describe('Claude Code hook', () => {
         }
       });
     });
+
+    test('project policy path is inert', async () => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Write',
+          tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
+        });
+      });
+    });
   });
 
   describe('secret protection policy', () => {
-    test('policy can enable secret protection without env flag', async () => {
+    test('secret protection is enabled without policy or env flag', async () => {
       await withHookTestContext(async (context) => {
-        writeProjectPolicy(context.cwd, { version: 1, secret_protection: { enabled: true } });
-
         const result = await context.runClaudeCodeHook({
           hook_event_name: 'PreToolUse',
           cwd: context.cwd,
@@ -321,15 +298,27 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('policy deny paths and user overrides affect secret protection', async () => {
+    test('user policy can disable secret protection', async () => {
+      await withHookTestContext(async (context) => {
+        writeUserPolicy(context.home, { version: 1, secret_protection: { enabled: false } });
+
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: '.env' },
+        });
+      });
+    });
+
+    test('user policy deny paths and overrides affect secret protection', async () => {
       await withHookTestContext(async (context) => {
         writeUserPolicy(context.home, {
           version: 1,
-          secret_protection: { enabled: true, overrides: { 'secret.pattern.env-variant': 'off' } },
-        });
-        writeProjectPolicy(context.cwd, {
-          version: 1,
-          secret_protection: { enabled: true, deny_paths: ['private/token.txt'] },
+          secret_protection: {
+            overrides: { 'secret.pattern.env-variant': 'off' },
+            deny_paths: ['private/token.txt'],
+          },
         });
 
         await expectNoHookOutput(context.runClaudeCodeHook, {
@@ -350,18 +339,21 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('project secret overrides fail closed', async () => {
+    test('project policy is ignored', async () => {
       await withHookTestContext(async (context) => {
         writeProjectPolicy(context.cwd, {
           version: 1,
-          secret_protection: { overrides: { 'secret.basename.env': 'off' } },
+          secret_protection: { enabled: false, overrides: { 'secret.basename.env': 'off' } },
         });
 
-        const result = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo ok'));
+        const result = await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: '.env' },
+        });
 
-        expect(getHookDenyReason(result, 'claude-code')).toContain(
-          'project policy cannot configure secret_protection.overrides',
-        );
+        expectSecretProtectionDeny(result, 'claude-code');
       });
     });
   });

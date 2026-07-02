@@ -5,6 +5,8 @@ import {
   getHookDenyReason,
   kimiShellInput,
   runKimiHook,
+  withHookTestContext,
+  writeUserPolicy,
 } from './hook-helpers';
 
 describe('Kimi Code hook', () => {
@@ -27,25 +29,25 @@ describe('Kimi Code hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-Bash tools when secret protection is disabled', async () => {
-      const input = {
-        hook_event_name: 'PreToolUse',
-        tool_name: 'ReadFile',
-        tool_input: { file_path: '.env' },
-      };
+    test('ignores non-Bash tools when user policy disables secret protection', async () => {
+      await withHookTestContext(async (context) => {
+        writeUserPolicy(context.home, { version: 1, secret_protection: { enabled: false } });
 
-      await expectNoHookOutput(runKimiHook, input);
+        await expectNoHookOutput(context.runKimiHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'ReadFile',
+          tool_input: { file_path: '.env' },
+        });
+      });
     });
 
     test('secret protection blocks path-like non-Bash tool input', async () => {
-      const result = await runKimiHook(
-        {
-          hook_event_name: 'PreToolUse',
-          tool_name: 'ReadFile',
-          tool_input: { file_path: '.env' },
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+      const result = await runKimiHook({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'ReadFile',
+        tool_input: { file_path: '.env' },
+      });
 
       expectSecretProtectionDeny(result, 'kimi-code');
     });

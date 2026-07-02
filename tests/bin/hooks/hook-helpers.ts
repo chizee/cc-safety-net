@@ -1,5 +1,5 @@
 import { expect } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,6 +35,11 @@ export type HookTestContext = {
   runKimiHook: typeof runKimiHook;
   runCopilotHook: typeof runCopilotHook;
 };
+
+export function writeUserPolicy(home: string, policy: unknown): void {
+  mkdirSync(join(home, '.cc-safety-net'), { recursive: true });
+  writeFileSync(join(home, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
+}
 
 export async function withHookTestContext<T>(fn: (context: HookTestContext) => T | Promise<T>) {
   const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'));

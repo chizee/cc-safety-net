@@ -28,7 +28,7 @@ export interface Config {
   modes?: PolicyModes;
   /** Built-in rule IDs disabled by trusted user policy */
   disabledBuiltinRules?: ReadonlySet<string>;
-  /** Secret protection policy loaded from user/project policy config */
+  /** Secret protection policy loaded from trusted user policy config */
   secretProtection?: SecretProtectionConfig;
   /** Fail-closed reason when rule-backed config cannot be loaded safely. */
   failClosedReason?: string;

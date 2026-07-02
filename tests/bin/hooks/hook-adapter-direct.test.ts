@@ -8,6 +8,7 @@ import { handleBlockedHookCommand } from '@/bin/hook/common';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
+import { getUserPolicyPath } from '@/core/policy';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers';
 import {
   claudeCodeBashInput,
@@ -136,15 +137,11 @@ describe('hook adapter direct integration', () => {
   });
 
   test('secret protection blocks supported hooks before command analysis', async () => {
-    const result = await runWithInput(
-      runClaudeCodeHook,
-      {
-        hook_event_name: 'PreToolUse',
-        tool_name: 'Read',
-        tool_input: { file_path: '.env' },
-      },
-      { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-    );
+    const result = await runWithInput(runClaudeCodeHook, {
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Read',
+      tool_input: { file_path: '.env' },
+    });
     const output = JSON.parse(result.stdout);
 
     expect(result.stderr).toBe('');
@@ -161,7 +158,7 @@ describe('hook adapter direct integration', () => {
         hook_event_name: 'PreToolUse',
         cwd,
         tool_name: 'Write',
-        tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
+        tool_input: { file_path: getUserPolicyPath(), content: '{}' },
       });
 
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
@@ -173,7 +170,7 @@ describe('hook adapter direct integration', () => {
     }
   });
 
-  test('non-command tools fail closed when policy config is invalid', async () => {
+  test('project policy is ignored for non-command tools', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-invalid-policy-'));
     try {
       mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
@@ -185,17 +182,14 @@ describe('hook adapter direct integration', () => {
         }),
         'utf-8',
       );
-      const output = await runHookJson(runClaudeCodeHook, {
+      const result = await runWithInput(runClaudeCodeHook, {
         hook_event_name: 'PreToolUse',
         cwd,
         tool_name: 'Read',
         tool_input: { file_path: 'README.md' },
       });
 
-      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'project policy cannot configure secret_protection.overrides',
-      );
+      expect(result.stdout).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -204,7 +198,6 @@ describe('hook adapter direct integration', () => {
   test('secret protection exceptions fail closed and log only in debug mode', async () => {
     const result = await runWithInput(runClaudeCodeHook, claudeCodeBashInput('rm -rf / ${'), {
       CC_SAFETY_NET_DEBUG: '1',
-      CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1',
     });
     const output = JSON.parse(result.stdout);
 

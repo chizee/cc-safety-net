@@ -6,6 +6,8 @@ import {
   expectSecretProtectionDeny,
   getHookDenyReason,
   runCopilotHook,
+  withHookTestContext,
+  writeUserPolicy,
 } from './hook-helpers';
 
 async function expectStrictDeny(input: object | string, reason: string) {
@@ -37,27 +39,26 @@ describe('Copilot CLI hook', () => {
   });
 
   describe('non-target tool', () => {
-    test('ignores non-bash tools when secret protection is disabled', async () => {
-      const input = {
+    test('ignores non-bash tools when user policy disables secret protection', async () => {
+      await withHookTestContext(async (context) => {
+        writeUserPolicy(context.home, { version: 1, secret_protection: { enabled: false } });
+
+        await expectNoHookOutput(context.runCopilotHook, {
+          timestamp: Date.now(),
+          cwd: context.cwd,
+          toolName: 'write_file',
+          toolArgs: JSON.stringify({ path: '.env' }),
+        });
+      });
+    });
+
+    test('secret protection blocks path-like non-bash tool args', async () => {
+      const result = await runCopilotHook({
         timestamp: Date.now(),
         cwd: process.cwd(),
         toolName: 'write_file',
         toolArgs: JSON.stringify({ path: '.env' }),
-      };
-
-      await expectNoHookOutput(runCopilotHook, input);
-    });
-
-    test('secret protection blocks path-like non-bash tool args', async () => {
-      const result = await runCopilotHook(
-        {
-          timestamp: Date.now(),
-          cwd: process.cwd(),
-          toolName: 'write_file',
-          toolArgs: JSON.stringify({ path: '.env' }),
-        },
-        { CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION: '1' },
-      );
+      });
 
       expectSecretProtectionDeny(result, 'copilot-cli');
     });

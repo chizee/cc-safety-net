@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
-import { getProjectPolicyPath, getUserPolicyPath } from '@/core/policy';
+import { getUserPolicyPath } from '@/core/policy';
 import { getBasename, stripWrappers } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { getCommandFromToolInput } from './secret-protection';
@@ -57,14 +57,14 @@ function findPolicyConfigMutationTargetInCommand(
   cwd: string,
 ): PolicyConfigTarget | null {
   if (hasUnclosedQuotes(command)) {
-    return command.toLowerCase().includes('policy.json') ? { target: command } : null;
+    return findPolicyConfigTargetInText(command, cwd);
   }
 
   let tokens: ParseEntry[];
   try {
     tokens = parse(command.replace(/\n/g, ' ; '), {}) as ParseEntry[];
   } catch {
-    return command.toLowerCase().includes('policy.json') ? { target: command } : null;
+    return findPolicyConfigTargetInText(command, cwd);
   }
   const redirectTarget = findWriteRedirectTarget(tokens, cwd);
   if (redirectTarget) return redirectTarget;
@@ -180,10 +180,14 @@ function isReadOnlyTool(toolName: string): boolean {
 
 function isPolicyConfigPath(target: string, cwd: string): boolean {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return (
-    normalized === normalizeCandidatePath(getProjectPolicyPath(cwd), cwd).toLowerCase() ||
-    normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase()
+  return normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase();
+}
+
+function findPolicyConfigTargetInText(text: string, cwd: string): PolicyConfigTarget | null {
+  const target = extractPolicyConfigPathCandidates(text).find((candidate) =>
+    isPolicyConfigPath(candidate, cwd),
   );
+  return target ? { target } : null;
 }
 
 function extractPolicyConfigPathCandidates(text: string): string[] {

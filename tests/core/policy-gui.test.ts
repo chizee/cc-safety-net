@@ -30,6 +30,7 @@ describe('policy GUI helpers', () => {
     expect(result.exists).toBe(false);
     expect(result.errors).toEqual([]);
     expect(result.policy).toEqual(DEFAULT_GUI_POLICY);
+    expect(result.policy.secret_protection.enabled).toBe(true);
     expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
   });
 

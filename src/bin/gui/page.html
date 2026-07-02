@@ -296,7 +296,7 @@
         `<label class="row"><input type="checkbox" data-mode="${key}" ${checkbox(state.policy.modes[key])}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
       ).join('');
       qs('secret').innerHTML =
-        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Enable secret protection</strong><small>Use policy settings without requiring the environment flag.</small></span></label>' +
+        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block sensitive paths by default. Turn off only from trusted user policy.</small></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths stay blocked even when default patterns are disabled.</small></label>' +
         '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\n')) + '</textarea>';

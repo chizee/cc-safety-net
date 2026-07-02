@@ -104,7 +104,10 @@ describe('runtime config loading', () => {
   });
 
   test('no config returns built-in only config', () => {
-    expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).rules).toEqual([]);
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(config.rules).toEqual([]);
+    expect(config.secretProtection?.enabled).toBe(true);
   });
 
   test('loads transparent wrappers from user and project configs', () => {
@@ -237,7 +240,7 @@ describe('runtime config loading', () => {
     expect(analyzeCommand('parallel bash -c ::: ok', { cwd: tempDir, config })).toBeNull();
   });
 
-  test('project policy weakening fields fail closed', () => {
+  test('project policy is ignored', () => {
     writeProjectPolicy({
       version: 1,
       builtins: { overrides: { 'git.reset-hard': 'off' } },
@@ -246,14 +249,11 @@ describe('runtime config loading', () => {
     });
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
-    const result = analyzeCommand('echo ok', { cwd: tempDir, config });
 
-    expect(config.failClosedReason).toContain('project policy cannot configure builtins.overrides');
-    expect(config.failClosedReason).toContain(
-      'project policy cannot configure secret_protection.overrides',
-    );
-    expect(config.failClosedReason).toContain('project policy cannot enable modes.worktree_mode');
-    expect(result?.reason).toContain('project policy cannot configure builtins.overrides');
+    expect(config.failClosedReason).toBeUndefined();
+    expect(config.disabledBuiltinRules).toEqual(new Set());
+    expect(config.secretProtection?.disabledRules).toEqual(new Set());
+    expect(config.modes).toEqual({});
   });
 
   test('invalid policy fields fail closed with repair context', () => {
@@ -276,11 +276,11 @@ describe('runtime config loading', () => {
     );
   });
 
-  test('user secret overrides apply while user and project deny paths merge', () => {
+  test('user secret overrides and deny paths apply', () => {
     writeUserPolicy({
       version: 1,
       secret_protection: {
-        enabled: true,
+        enabled: false,
         overrides: { 'secret.ext.pem': 'off' },
         deny_paths: ['user.key'],
       },
@@ -292,9 +292,9 @@ describe('runtime config loading', () => {
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
 
-    expect(config.secretProtection?.enabled).toBe(true);
+    expect(config.secretProtection?.enabled).toBe(false);
     expect([...(config.secretProtection?.disabledRules ?? [])]).toEqual(['secret.ext.pem']);
-    expect(config.secretProtection?.denyPaths).toEqual(['user.key', 'project.key']);
+    expect(config.secretProtection?.denyPaths).toEqual(['user.key']);
   });
 
   test('validates transparent wrapper config', () => {

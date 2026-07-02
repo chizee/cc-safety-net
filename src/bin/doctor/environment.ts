@@ -40,11 +40,6 @@ const ENV_VARS: Array<{
     description: 'Log allowed hook commands for debugging',
     defaultBehavior: 'off',
   },
-  {
-    flag: ENV_FLAGS.experimentalSecretProtection,
-    description: 'Experimental best-effort sensitive path protection',
-    defaultBehavior: 'off; not a sandbox',
-  },
 ];
 
 export function getEnvironmentInfo(): EnvVarInfo[] {

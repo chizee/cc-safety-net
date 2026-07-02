@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getUserPolicyPath } from '@/core/policy';
 import { findPolicyConfigMutationTargetInToolInput } from '@/core/policy-protection';
 
 describe('policy config protection', () => {
@@ -16,68 +17,53 @@ describe('policy config protection', () => {
   });
 
   test('allows known read-only tools and shell reads', () => {
+    const policyPath = getUserPolicyPath();
     expect(
-      findPolicyConfigMutationTargetInToolInput(
-        'Read',
-        { file_path: '.cc-safety-net/policy.json' },
-        cwd,
-      ),
+      findPolicyConfigMutationTargetInToolInput('Read', { file_path: policyPath }, cwd),
+    ).toBeNull();
+    expect(
+      findPolicyConfigMutationTargetInToolInput('read_file', { file_path: policyPath }, cwd),
     ).toBeNull();
     expect(
       findPolicyConfigMutationTargetInToolInput(
-        'read_file',
-        { file_path: '.cc-safety-net/policy.json' },
+        'Bash',
+        { command: `cat ${policyPath} && rg version package.json` },
         cwd,
       ),
     ).toBeNull();
     expect(
       findPolicyConfigMutationTargetInToolInput(
         'Bash',
-        { command: 'cat .cc-safety-net/policy.json && rg version package.json' },
-        cwd,
-      ),
-    ).toBeNull();
-    expect(
-      findPolicyConfigMutationTargetInToolInput(
-        'Bash',
-        { command: 'FOO=1 sed -n 1p .cc-safety-net/policy.json > policy-copy.txt' },
+        { command: `FOO=1 sed -n 1p ${policyPath} > policy-copy.txt` },
         cwd,
       ),
     ).toBeNull();
   });
 
   test('denies write-like tools and nested path inputs targeting policy files', () => {
+    const policyPath = getUserPolicyPath();
     expect(
       findPolicyConfigMutationTargetInToolInput(
         'Write',
-        { file_path: '.cc-safety-net/policy.json', content: '{}' },
+        { file_path: policyPath, content: '{}' },
         cwd,
       )?.target,
-    ).toBe('.cc-safety-net/policy.json');
+    ).toBe(policyPath);
     expect(
-      findPolicyConfigMutationTargetInToolInput(
-        'MultiEdit',
-        { edits: [{ path: '.cc-safety-net/policy.json' }] },
-        cwd,
-      )?.target,
-    ).toBe('.cc-safety-net/policy.json');
-    expect(
-      findPolicyConfigMutationTargetInToolInput(
-        'Write',
-        { file_path: '.cc-safety-net/Policy.json', content: '{}' },
-        cwd,
-      )?.target,
-    ).toBe('.cc-safety-net/Policy.json');
+      findPolicyConfigMutationTargetInToolInput('MultiEdit', { edits: [{ path: policyPath }] }, cwd)
+        ?.target,
+    ).toBe(policyPath);
   });
 
   test('denies bash writes and ambiguous commands targeting policy files', () => {
+    const policyPath = getUserPolicyPath();
     for (const command of [
-      'cat package.json > .cc-safety-net/policy.json',
-      'tee .cc-safety-net/policy.json',
-      'rm .cc-safety-net/policy.json',
-      'sed -i.bak s/a/b/ .cc-safety-net/policy.json',
-      'dd if=/dev/zero of=.cc-safety-net/policy.json',
-      'curl -o=.cc-safety-net/policy.json https://example.com/policy.json',
+      `cat package.json > ${policyPath}`,
+      `tee ${policyPath}`,
+      `rm ${policyPath}`,
+      `sed -i.bak s/a/b/ ${policyPath}`,
+      `dd if=/dev/zero of=${policyPath}`,
+      `curl -o=${policyPath} https://example.com/policy.json`,
     ]) {
       expect(findPolicyConfigMutationTargetInToolInput('Bash', { command }, cwd)?.target).toContain(
         'policy.json',
@@ -86,12 +72,13 @@ describe('policy config protection', () => {
   });
 
   test('denies policy writes inside interpreter command arguments', () => {
+    const policyPath = getUserPolicyPath();
     for (const command of [
-      "bash -c 'echo x > .cc-safety-net/policy.json'",
-      "sh -c 'echo x > .cc-safety-net/policy.json'",
-      'python -c \'open(".cc-safety-net/policy.json", "w").write("x")\'',
-      'node -e \'require("fs").writeFileSync(".cc-safety-net/policy.json", "x")\'',
-      'perl -e \'open my $fh, ">", ".cc-safety-net/policy.json"; print $fh "x"\'',
+      `bash -c 'echo x > ${policyPath}'`,
+      `sh -c 'echo x > ${policyPath}'`,
+      `python -c 'open("${policyPath}", "w").write("x")'`,
+      `node -e 'require("fs").writeFileSync("${policyPath}", "x")'`,
+      `perl -e 'open my $fh, ">", "${policyPath}"; print $fh "x"'`,
     ]) {
       expect(findPolicyConfigMutationTargetInToolInput('Bash', { command }, cwd)?.target).toContain(
         'policy.json',
@@ -100,16 +87,24 @@ describe('policy config protection', () => {
   });
 
   test('malformed shell only fails closed when policy files are mentioned', () => {
+    const policyPath = getUserPolicyPath();
     expect(
       findPolicyConfigMutationTargetInToolInput('Bash', { command: 'rm -rf / ${' }, cwd),
     ).toBeNull();
     expect(
-      findPolicyConfigMutationTargetInToolInput(
-        'Bash',
-        { command: 'cat .cc-safety-net/policy.json "' },
-        cwd,
-      )?.target,
+      findPolicyConfigMutationTargetInToolInput('Bash', { command: `cat ${policyPath} "` }, cwd)
+        ?.target,
     ).toContain('policy.json');
+  });
+
+  test('does not protect inert project policy path', () => {
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Write',
+        { file_path: '.cc-safety-net/policy.json', content: '{}' },
+        cwd,
+      ),
+    ).toBeNull();
   });
 
   test('ignores missing and unrelated path-like inputs', () => {

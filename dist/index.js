@@ -2278,8 +2278,7 @@ var ENV_FLAGS = {
     legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
   },
   worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" },
-  experimentalSecretProtection: { name: "CC_SAFETY_NET_EXPERIMENTAL_SECRET_PROTECTION" }
+  debug: { name: "CC_SAFETY_NET_DEBUG" }
 };
 function getCCSafetyNetEnvModes(policyModes = {}) {
   const paranoidAll = envTruthy(ENV_FLAGS.paranoid) || !!policyModes.paranoid;
@@ -5001,11 +5000,11 @@ function isCCSafetyNetPackage(value) {
 
 // src/core/config.ts
 import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:fs";
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve7 } from "node:path";
 
 // src/core/policy.ts
 import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
-import { dirname as dirname5, join as join5, resolve as resolve5 } from "node:path";
+import { dirname as dirname5, join as join5 } from "node:path";
 
 // src/core/secret-protection-rules.ts
 var SECRET_BASENAME_RULES = [
@@ -5364,16 +5363,13 @@ var DEFAULT_GUI_POLICY = {
     overrides: {}
   },
   secret_protection: {
-    enabled: false,
+    enabled: true,
     overrides: {},
     deny_paths: []
   }
 };
 function getUserPolicyPath(options2) {
   return join5(dirname5(getUserRulesDir(options2)), POLICY_FILE);
-}
-function getProjectPolicyPath(cwd) {
-  return resolve5(cwd ?? process.cwd(), ".cc-safety-net", POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   const path = getUserPolicyPath(options2);
@@ -5398,7 +5394,7 @@ function readUserPolicyForGui(options2 = {}) {
   }
   try {
     const parsed = JSON.parse(raw);
-    const errors = validatePolicyConfig(parsed, "user");
+    const errors = validatePolicyConfig(parsed);
     return {
       path,
       exists: true,
@@ -5418,7 +5414,7 @@ function readUserPolicyForGui(options2 = {}) {
 }
 function writeUserPolicyFromGui(policy, options2 = {}) {
   const path = getUserPolicyPath(options2);
-  const errors = validatePolicyConfig(policy, "user");
+  const errors = validatePolicyConfig(policy);
   const normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0) {
     return { path, policy: normalizedPolicy, errors };
@@ -5435,20 +5431,12 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   return { path, policy: normalizedPolicy, errors: [] };
 }
 function loadPolicyConfig(options2 = {}) {
-  const user = readPolicyConfig(getUserPolicyPath(options2), "user");
-  const project = readPolicyConfig(getProjectPolicyPath(options2.cwd), "project");
+  const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
-    modes: mergeModes(user.policy.modes, project.policy.modes),
+    modes: user.policy.modes,
     disabledBuiltinRules: new Set(user.policy.disabledBuiltinRules),
-    secretProtection: {
-      enabled: user.policy.secretProtection.enabled || project.policy.secretProtection.enabled,
-      disabledRules: new Set(user.policy.secretProtection.disabledRules),
-      denyPaths: [
-        ...user.policy.secretProtection.denyPaths,
-        ...project.policy.secretProtection.denyPaths
-      ]
-    },
-    errors: [...user.errors, ...project.errors]
+    secretProtection: user.policy.secretProtection,
+    errors: user.errors
   };
 }
 function createDefaultGuiPolicy() {
@@ -5483,13 +5471,13 @@ function normalizeGuiPolicy(policy) {
       overrides: Object.fromEntries(Object.entries(overrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
     },
     secret_protection: {
-      enabled: secret.enabled ?? false,
+      enabled: secret.enabled ?? true,
       overrides: Object.fromEntries(Object.entries(secretOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : [])),
       deny_paths: [...secret.deny_paths ?? []]
     }
   };
 }
-function readPolicyConfig(path, scope) {
+function readPolicyConfig(path) {
   const empty = createEmptyPolicy();
   if (!existsSync4(path))
     return { policy: empty, errors: [] };
@@ -5499,7 +5487,7 @@ function readPolicyConfig(path, scope) {
       return { policy: empty, errors: [`${path}: Config file is empty`] };
     }
     const parsed = JSON.parse(content);
-    const errors = validatePolicyConfig(parsed, scope);
+    const errors = validatePolicyConfig(parsed);
     if (errors.length > 0)
       return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
     return { policy: normalizePolicyConfig(parsed), errors: [] };
@@ -5514,10 +5502,10 @@ function createEmptyPolicy() {
   return {
     modes: {},
     disabledBuiltinRules: [],
-    secretProtection: { disabledRules: new Set, denyPaths: [] }
+    secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
   };
 }
-function validatePolicyConfig(config, scope) {
+function validatePolicyConfig(config) {
   const errors = [];
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return ["Config must be an object"];
@@ -5526,12 +5514,12 @@ function validatePolicyConfig(config, scope) {
   addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
   if (cfg.version !== 1)
     errors.push("version must be 1");
-  validateModes(cfg.modes, scope, errors);
-  validateBuiltins(cfg.builtins, scope, errors);
-  validateSecretProtection(cfg.secret_protection, scope, errors);
+  validateModes(cfg.modes, errors);
+  validateBuiltins(cfg.builtins, errors);
+  validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
-function validateModes(value, scope, errors) {
+function validateModes(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5544,11 +5532,8 @@ function validateModes(value, scope, errors) {
     if (typeof mode !== "boolean")
       errors.push(`modes.${key} must be a boolean`);
   }
-  if (scope === "project" && modes.worktree_mode === true) {
-    errors.push("project policy cannot enable modes.worktree_mode");
-  }
 }
-function validateBuiltins(value, scope, errors) {
+function validateBuiltins(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5557,9 +5542,6 @@ function validateBuiltins(value, scope, errors) {
   }
   const builtins = value;
   addUnknownFieldErrors(builtins, BUILTINS_FIELDS, errors, "builtins");
-  if (scope === "project" && builtins.overrides !== undefined) {
-    errors.push("project policy cannot configure builtins.overrides");
-  }
   validateBuiltinOverrides(builtins.overrides, errors);
 }
 function validateBuiltinOverrides(value, errors) {
@@ -5578,7 +5560,7 @@ function validateBuiltinOverrides(value, errors) {
     }
   }
 }
-function validateSecretProtection(value, scope, errors) {
+function validateSecretProtection(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5589,9 +5571,6 @@ function validateSecretProtection(value, scope, errors) {
   addUnknownFieldErrors(secret, SECRET_PROTECTION_FIELDS, errors, "secret_protection");
   if (secret.enabled !== undefined && typeof secret.enabled !== "boolean") {
     errors.push("secret_protection.enabled must be a boolean");
-  }
-  if (scope === "project" && secret.overrides !== undefined) {
-    errors.push("project policy cannot configure secret_protection.overrides");
   }
   validateSecretOverrides(secret.overrides, errors);
   validatePathArray(secret.deny_paths, "secret_protection.deny_paths", errors);
@@ -5633,7 +5612,7 @@ function normalizePolicyConfig(config) {
     modes,
     disabledBuiltinRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
-      enabled: secret?.enabled ?? false,
+      enabled: secret?.enabled ?? true,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
       denyPaths: [...secret?.deny_paths ?? []]
     }
@@ -5649,15 +5628,6 @@ function normalizeModes(value) {
     paranoidRm: modes.paranoid_rm,
     paranoidInterpreters: modes.paranoid_interpreters,
     worktreeMode: modes.worktree_mode
-  };
-}
-function mergeModes(user, project) {
-  return {
-    strict: user.strict || project.strict,
-    paranoid: user.paranoid || project.paranoid,
-    paranoidRm: user.paranoidRm || project.paranoidRm,
-    paranoidInterpreters: user.paranoidInterpreters || project.paranoidInterpreters,
-    worktreeMode: user.worktreeMode
   };
 }
 function addUnknownFieldErrors(record, allowed, errors, prefix) {
@@ -6059,7 +6029,7 @@ function writeJsonAtomic(path, value) {
 
 // src/core/rules/policy/scope-policy.ts
 import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync as realpathSync7 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute6, join as join7, relative, resolve as resolve6, sep as sep4 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute6, join as join7, relative, resolve as resolve5, sep as sep4 } from "node:path";
 
 // src/core/rules/rulebook.ts
 function validateRulebook(rulebook) {
@@ -6626,8 +6596,8 @@ function loadLockedRulebook(entry, configDir, options2) {
     errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (entry.kind === "local-directory") {
-    const sourcePath = resolve6(configDir, entry.path);
-    const sourceRelative = relative(resolve6(configDir), sourcePath);
+    const sourcePath = resolve5(configDir, entry.path);
+    const sourceRelative = relative(resolve5(configDir), sourcePath);
     if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute6(sourceRelative)) {
       errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
       return { rulebook: null, errors };
@@ -6668,7 +6638,7 @@ function mergeTransparentWrappers(userConfig, projectConfig) {
   ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve6(userConfigPath) === resolve6(projectConfigPath)) {
+  if (resolve5(userConfigPath) === resolve5(projectConfigPath)) {
     return true;
   }
   if (!existsSync8(userConfigPath) || !existsSync8(projectConfigPath)) {
@@ -6797,7 +6767,7 @@ import {
   unlinkSync,
   writeFileSync as writeFileSync3
 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute7, join as join8, relative as relative2, resolve as resolve7, sep as sep5 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute7, join as join8, relative as relative2, resolve as resolve6, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   const internalOptions = options2;
   const scope = getScopePaths(options2);
@@ -7057,8 +7027,8 @@ function getLocalSourceDirsForDelete(configDir, specs, lock) {
   return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve7(configDir);
-  const resolvedDir = resolve7(dir);
+  const resolvedConfigDir = resolve6(configDir);
+  const resolvedDir = resolve6(dir);
   const relativeDir = relative2(resolvedConfigDir, resolvedDir);
   if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute7(relativeDir)) {
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
@@ -7187,7 +7157,7 @@ function readConfigFileInput(path) {
   }
 }
 function getLegacyProjectConfigPath(cwd) {
-  return resolve8(cwd ?? process.cwd(), ".safety-net.json");
+  return resolve7(cwd ?? process.cwd(), ".safety-net.json");
 }
 function validateRulesConfigFile(path) {
   const loaded = readConfigFileInput(path);

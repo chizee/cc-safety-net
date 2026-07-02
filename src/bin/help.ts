@@ -165,12 +165,6 @@ export function printHelp(): void {
     ),
   );
   lines.push(
-    formatEnvironmentVariable(
-      `${ENV_FLAGS.experimentalSecretProtection.name}=1`,
-      'Experimental best-effort sensitive path protection',
-    ),
-  );
-  lines.push(
     formatEnvironmentVariable('CC_SAFETY_NET_HOME', 'Override rule config home directory'),
   );
 

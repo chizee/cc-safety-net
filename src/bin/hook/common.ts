@@ -107,7 +107,7 @@ function handleSecretProtection(
   toolName: string,
   outputDeny: HookDenyOutput,
 ): boolean {
-  if (!envTruthy(ENV_FLAGS.experimentalSecretProtection) && !config.secretProtection?.enabled) {
+  if (config.secretProtection?.enabled === false) {
     return false;
   }
   const match = findSensitiveTargetInToolInput(toolInput, cwd, config.secretProtection);
