@@ -79,6 +79,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('class="panel foldable"');
       expect(html).toContain('aria-controls="destructive-command-panel-content"');
       expect(html).toContain('id="destructive-command-panel-content"');
+      expect(html).toContain('.panel-toggle {\n  display: inline-flex;');
+      expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).toContain('<dialog class="confirm-dialog" id="confirm-dialog"');
