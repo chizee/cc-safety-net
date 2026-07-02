@@ -7439,7 +7439,7 @@ import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve9
 // src/core/secret-protection.ts
 import { homedir as homedir4 } from "node:os";
 import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
-var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
+var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed. Do not retry or work around this.";
 var COMMAND_PATH_OPERANDS = new Set([
   "awk",
   "cat",

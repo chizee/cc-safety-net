@@ -15,7 +15,8 @@ import {
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import type { SecretProtectionConfig } from '@/types';
 
-export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
+export const REASON_SECRET_PROTECTION =
+  'Access to a sensitive path is not allowed. Do not retry or work around this.';
 
 const COMMAND_PATH_OPERANDS = new Set([
   'awk',

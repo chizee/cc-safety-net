@@ -31,7 +31,9 @@ describe('Pi tool_call event', () => {
     try {
       const result = handlePiToolCall(bashToolCall('rm -rf ~/.ssh'), piContext(dir));
 
-      expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(result?.reason).toContain(
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
+      );
       expect(result?.reason).toContain('Command: rm -rf ~/.ssh');
       expect(result?.reason).toContain('Segment: ~/.ssh');
       expect(result?.reason).not.toContain(
@@ -47,13 +49,15 @@ describe('Pi tool_call event', () => {
     try {
       expect(
         handlePiToolCall(toolCall('read', { path: '.env' }), piContext(dir))?.reason,
-      ).toContain('Access to a sensitive path is not allowed.');
+      ).toContain('Access to a sensitive path is not allowed. Do not retry or work around this.');
       const result = handlePiToolCall(
         toolCall('Read', { file_path: '.env.local' }),
         piContext(dir),
       );
 
-      expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(result?.reason).toContain(
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
+      );
       expect(result?.reason).toContain('Command: .env.local');
       expect(result?.reason).not.toContain(
         'ask the user for explicit permission and have them run the command manually',
@@ -141,7 +145,9 @@ describe('Pi tool_call event', () => {
         piContext(dir),
       );
 
-      expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(result?.reason).toContain(
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
+      );
       expect(result?.reason).toContain('Command: cat .env');
       expect(result?.reason).toContain('Segment: .env');
     } finally {
@@ -291,10 +297,10 @@ describe('Pi tool_call event', () => {
 
       expect(handlePiToolCall(bashToolCall('cat server.pem'), ctx)).toBeUndefined();
       expect(handlePiToolCall(bashToolCall('cat id_rsa.pem'), ctx)?.reason).toContain(
-        'Access to a sensitive path is not allowed.',
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
       );
       expect(handlePiToolCall(bashToolCall('cat private-note.txt'), ctx)?.reason).toContain(
-        'Access to a sensitive path is not allowed.',
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -322,7 +328,9 @@ describe('Pi tool_call event', () => {
           sessionManager: { getSessionFile: () => 'pi-session' },
         });
 
-        expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
+        expect(result?.reason).toContain(
+          'Access to a sensitive path is not allowed. Do not retry or work around this.',
+        );
         expect(
           JSON.parse(
             readFileSync(join(home, '.cc-safety-net', 'logs', 'pi-session.jsonl'), 'utf-8'),
@@ -332,7 +340,7 @@ describe('Pi tool_call event', () => {
             decision: 'deny',
             command: 'cat .env',
             segment: '.env',
-            reason: 'Access to a sensitive path is not allowed.',
+            reason: 'Access to a sensitive path is not allowed. Do not retry or work around this.',
             cwd: dir,
           }),
         );

@@ -176,7 +176,9 @@ describe('Claude Code hook', () => {
       const result = await runClaudeCodeHook(claudeCodeBashInput('IGNORED_FLAG=0 cat .env'));
 
       const reason = getHookDenyReason(result, 'claude-code');
-      expect(reason).toContain('Access to a sensitive path is not allowed.');
+      expect(reason).toContain(
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
+      );
       expect(reason).toContain('cat .env');
       expect(reason).toContain('Segment: .env');
       expect(reason).toContain('Tool: Bash');
@@ -186,7 +188,7 @@ describe('Claude Code hook', () => {
       const result = await runClaudeCodeHook(claudeCodeBashInput('env IGNORED_FLAG=0 cat .env'));
 
       expect(getHookDenyReason(result, 'claude-code')).toContain(
-        'Access to a sensitive path is not allowed.',
+        'Access to a sensitive path is not allowed. Do not retry or work around this.',
       );
     });
 
