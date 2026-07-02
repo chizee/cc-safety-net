@@ -18,28 +18,40 @@ import type { SecretProtectionConfig } from '@/types';
 export const REASON_SECRET_PROTECTION =
   'Access to a sensitive path is not allowed. Do not retry or work around this.';
 
-const COMMAND_PATH_OPERANDS = new Set([
-  'awk',
-  'cat',
-  'chmod',
-  'chown',
-  'cp',
-  'grep',
-  'head',
-  'less',
-  'ln',
-  'more',
-  'mv',
-  'rg',
-  'rm',
-  'rsync',
-  'scp',
-  'sed',
-  'tail',
-  'tar',
-  'touch',
-  'zip',
+// Secret protection inspects operands by default (fail-safe): any command that is
+// not a recognized exception has its arguments treated as candidate paths. This
+// prevents unlisted file readers (xxd, base64, dd, openssl, ...) and custom
+// binaries from silently bypassing the check. Only commands whose positionals are
+// known NOT to be file paths are exempted.
+const NON_PATH_OPERAND_COMMANDS = new Set(['echo', 'printf']);
+
+// find/fd-style commands take path roots first, then an expression made of
+// predicates (-name, -type, ...). Only the leading path roots are real paths;
+// predicate values (e.g. `-name .env`) are patterns, not reads.
+const PATH_ROOT_COMMANDS = new Set(['find']);
+
+// Interpreters read files from inside a code string (python -c, node -e, ...),
+// where the path is not a standalone shell token. Their code bodies are scanned
+// for embedded path literals instead of treated as plain operands.
+const CODE_INTERPRETERS = new Set([
+  'python',
+  'python2',
+  'python3',
+  'node',
+  'deno',
+  'bun',
+  'ruby',
+  'perl',
+  'php',
+  'rscript',
+  'osascript',
+  'bash',
+  'sh',
+  'zsh',
+  'dash',
+  'ksh',
 ]);
+const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
 
 // grep/rg read the search PATTERN either from the first positional operand
 // or from a -e/--regexp/-f/--file option. extractPatternCommandTargets drops
@@ -200,22 +212,124 @@ function extractCommandPathTargets(command: string): string[] {
 }
 
 function extractSegmentPathTargets(tokens: readonly string[]): string[] {
+  // Capture the value bound by `VAR=value` assignments as a candidate path so
+  // that later variable indirection (e.g. `f=.env; cat "$f"` or
+  // `f=.env; python3 -c "open('$f')"`) is caught at the assignment site,
+  // regardless of how the variable is dereferenced afterwards.
+  const assignmentValues = extractLeadingAssignmentValues(tokens);
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
   const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1) {
-    return [];
+    return assignmentValues;
   }
 
   const command = basename(stripped[commandIndex] ?? '').toLowerCase();
-  if (!COMMAND_PATH_OPERANDS.has(command)) {
+  const post = stripped.slice(commandIndex + 1);
+
+  if (NON_PATH_OPERAND_COMMANDS.has(command)) {
+    return assignmentValues;
+  }
+  if (PATTERN_FIRST_COMMANDS.has(command)) {
+    return [...assignmentValues, ...extractPatternCommandTargets(post)];
+  }
+  if (PATH_ROOT_COMMANDS.has(command)) {
+    return [...assignmentValues, ...extractPathRootTargets(post)];
+  }
+  if (isCodeInterpreter(command)) {
+    return [...assignmentValues, ...extractInterpreterPathTargets(post)];
+  }
+  return [
+    ...assignmentValues,
+    ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
+  ];
+}
+
+function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
+  const values: string[] = [];
+  for (const token of tokens) {
+    if (isWrapperToken(token)) {
+      continue;
+    }
+    const assignment = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(token);
+    if (assignment === null) {
+      break;
+    }
+    if (assignment[1] !== undefined && assignment[1] !== '') {
+      values.push(assignment[1]);
+    }
+  }
+  return values;
+}
+
+function extractOperandPathCandidates(command: string, token: string): string[] {
+  if (token === '--') {
     return [];
   }
-
-  const post = stripped.slice(commandIndex + 1);
-  if (PATTERN_FIRST_COMMANDS.has(command)) {
-    return extractPatternCommandTargets(post);
+  const candidates: string[] = [];
+  const equals = token.indexOf('=');
+  if (equals > 0 && equals < token.length - 1) {
+    candidates.push(token.slice(equals + 1));
   }
-  return post.filter((token) => isFileOperand(command, token));
+  if (isFileOperand(command, token)) {
+    candidates.push(token);
+  }
+  return candidates;
+}
+
+function extractPathRootTargets(tokens: readonly string[]): string[] {
+  const roots: string[] = [];
+  for (const token of tokens) {
+    if (token.startsWith('-') || token === '(' || token === '!' || token === ';') {
+      break;
+    }
+    roots.push(token);
+  }
+  return roots;
+}
+
+function isCodeInterpreter(command: string): boolean {
+  return CODE_INTERPRETERS.has(command) || /^python\d/.test(command);
+}
+
+function extractInterpreterPathTargets(tokens: readonly string[]): string[] {
+  const candidates: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined) break;
+
+    if (CODE_EVAL_FLAGS.has(token)) {
+      const code = tokens[i + 1];
+      if (code !== undefined) {
+        candidates.push(...extractPathLiteralsFromCode(code));
+        i++;
+      }
+      continue;
+    }
+
+    const inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
+    if (inlineEval !== null && inlineEval[1] !== undefined) {
+      candidates.push(...extractPathLiteralsFromCode(inlineEval[1]));
+      continue;
+    }
+
+    if (!token.startsWith('-')) {
+      candidates.push(token);
+    }
+  }
+  return candidates;
+}
+
+// Pulls candidate paths out of an interpreter code body: every quoted string
+// literal (the file-name argument in the common exploit) plus any bare
+// path-looking token (to catch unquoted shell code like `bash -c "cat .env"`).
+// Sensitivity is still decided by exact-match rules downstream, so extra
+// non-secret candidates are harmless.
+function extractPathLiteralsFromCode(code: string): string[] {
+  const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g))
+    .map((match) => match[2])
+    .filter((value): value is string => value !== undefined && value !== '');
+  const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
+  return [...quoted, ...bare];
 }
 
 function extractPatternCommandTargets(tokens: readonly string[]): string[] {

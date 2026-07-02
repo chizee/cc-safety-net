@@ -146,8 +146,88 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand("cat 'unterminated .env", cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('tar -czf secrets.tgz README.md', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('zip secrets.zip README.md', cwd)).toBeNull();
-    expect(findSensitiveTargetInCommand('custom-tool .env', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('custom-tool README.md', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('VAR=value', cwd)).toBeNull();
+  });
+
+  test('blocks unlisted file readers reading sensitive operands', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('xxd .env', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('base64 .env', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('openssl enc -in .env', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('strings id_rsa', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('custom-tool .env', cwd)).not.toBeNull();
+    // key=value operands (dd if=/of=) are unwrapped
+    expect(findSensitiveTargetInCommand('dd if=.env', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('dd of=.env', cwd)).not.toBeNull();
+  });
+
+  test('does not flag unlisted commands with benign operands', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('custom-tool README.md', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('make FOO=bar', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('xxd README.md', cwd)).toBeNull();
+  });
+
+  test('scans find path roots without flagging predicate patterns', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('find ~/.ssh -type f', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('find secrets/ -type f', cwd)).not.toBeNull();
+    // -name .env is a search pattern, not a read
+    expect(findSensitiveTargetInCommand('find . -name .env', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('find src -type f', cwd)).toBeNull();
+  });
+
+  test('blocks interpreters reading sensitive paths from inline code', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(`python3 -c "print(open('.env').read())"`, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `node -e "console.log(require('fs').readFileSync('.env','utf8'))"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(findSensitiveTargetInCommand(`ruby -e 'puts File.read(".env")'`, cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand(`python3.11 -c "open('.env')"`, cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('bash -c "cat .env"', cwd)).not.toBeNull();
+    // script-file positionals are still checked
+    expect(findSensitiveTargetInCommand('python3 ~/.ssh/id_rsa', cwd)).not.toBeNull();
+  });
+
+  test('does not flag interpreters running benign code', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('python3 build.py', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand(`python3 -c "print('hello')"`, cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand(`node -e "console.log(1 + 1)"`, cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('bash -c "ls src"', cwd)).toBeNull();
+  });
+
+  test('blocks variable indirection by capturing assignment values', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(`f=.env; python3 -c "print(open('$f').read())"`, cwd),
+    ).not.toBeNull();
+    expect(findSensitiveTargetInCommand('f=.env; cat $f', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('f=.env && cat "$f"', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('d=~/.ssh; cat $d/id_rsa', cwd)).not.toBeNull();
+    expect(findSensitiveTargetInCommand('k=id_rsa; xxd $k', cwd)).not.toBeNull();
+  });
+
+  test('does not flag assignments of benign values', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('VAR=value', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('msg=hello; echo $msg', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('f=README.md; cat $f', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('DEBUG=1 node app.js', cwd)).toBeNull();
   });
 
   test('does not treat grep/rg search patterns as file targets', () => {

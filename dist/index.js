@@ -7372,28 +7372,27 @@ import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve9
 import { homedir as homedir4 } from "node:os";
 import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed. Do not retry or work around this.";
-var COMMAND_PATH_OPERANDS = new Set([
-  "awk",
-  "cat",
-  "chmod",
-  "chown",
-  "cp",
-  "grep",
-  "head",
-  "less",
-  "ln",
-  "more",
-  "mv",
-  "rg",
-  "rm",
-  "rsync",
-  "scp",
-  "sed",
-  "tail",
-  "tar",
-  "touch",
-  "zip"
+var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
+var PATH_ROOT_COMMANDS = new Set(["find"]);
+var CODE_INTERPRETERS = new Set([
+  "python",
+  "python2",
+  "python3",
+  "node",
+  "deno",
+  "bun",
+  "ruby",
+  "perl",
+  "php",
+  "rscript",
+  "osascript",
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh"
 ]);
+var CODE_EVAL_FLAGS = new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]);
 var PATTERN_FIRST_COMMANDS = new Set(["grep", "rg"]);
 var PATTERN_FILE_SHORT = "f";
 var PATTERN_FILE_LONG = "file";
@@ -7500,20 +7499,103 @@ function extractCommandPathTargets(command2) {
   return targets;
 }
 function extractSegmentPathTargets(tokens) {
+  const assignmentValues = extractLeadingAssignmentValues(tokens);
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
   const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1) {
-    return [];
+    return assignmentValues;
   }
   const command2 = basename(stripped[commandIndex] ?? "").toLowerCase();
-  if (!COMMAND_PATH_OPERANDS.has(command2)) {
+  const post = stripped.slice(commandIndex + 1);
+  if (NON_PATH_OPERAND_COMMANDS.has(command2)) {
+    return assignmentValues;
+  }
+  if (PATTERN_FIRST_COMMANDS.has(command2)) {
+    return [...assignmentValues, ...extractPatternCommandTargets(post)];
+  }
+  if (PATH_ROOT_COMMANDS.has(command2)) {
+    return [...assignmentValues, ...extractPathRootTargets(post)];
+  }
+  if (isCodeInterpreter(command2)) {
+    return [...assignmentValues, ...extractInterpreterPathTargets(post)];
+  }
+  return [
+    ...assignmentValues,
+    ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
+  ];
+}
+function extractLeadingAssignmentValues(tokens) {
+  const values = [];
+  for (const token of tokens) {
+    if (isWrapperToken(token)) {
+      continue;
+    }
+    const assignment = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(token);
+    if (assignment === null) {
+      break;
+    }
+    if (assignment[1] !== undefined && assignment[1] !== "") {
+      values.push(assignment[1]);
+    }
+  }
+  return values;
+}
+function extractOperandPathCandidates(command2, token) {
+  if (token === "--") {
     return [];
   }
-  const post = stripped.slice(commandIndex + 1);
-  if (PATTERN_FIRST_COMMANDS.has(command2)) {
-    return extractPatternCommandTargets(post);
+  const candidates = [];
+  const equals = token.indexOf("=");
+  if (equals > 0 && equals < token.length - 1) {
+    candidates.push(token.slice(equals + 1));
   }
-  return post.filter((token) => isFileOperand(command2, token));
+  if (isFileOperand(command2, token)) {
+    candidates.push(token);
+  }
+  return candidates;
+}
+function extractPathRootTargets(tokens) {
+  const roots = [];
+  for (const token of tokens) {
+    if (token.startsWith("-") || token === "(" || token === "!" || token === ";") {
+      break;
+    }
+    roots.push(token);
+  }
+  return roots;
+}
+function isCodeInterpreter(command2) {
+  return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
+}
+function extractInterpreterPathTargets(tokens) {
+  const candidates = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined)
+      break;
+    if (CODE_EVAL_FLAGS.has(token)) {
+      const code = tokens[i + 1];
+      if (code !== undefined) {
+        candidates.push(...extractPathLiteralsFromCode(code));
+        i++;
+      }
+      continue;
+    }
+    const inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
+    if (inlineEval !== null && inlineEval[1] !== undefined) {
+      candidates.push(...extractPathLiteralsFromCode(inlineEval[1]));
+      continue;
+    }
+    if (!token.startsWith("-")) {
+      candidates.push(token);
+    }
+  }
+  return candidates;
+}
+function extractPathLiteralsFromCode(code) {
+  const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== undefined && value !== "");
+  const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
+  return [...quoted, ...bare];
 }
 function extractPatternCommandTargets(tokens) {
   const optionFileTargets = [];
