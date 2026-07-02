@@ -8157,23 +8157,40 @@ function registerToolCallEvent(pi) {
   pi.on("tool_call", handlePiToolCall);
 }
 function handlePiToolCall(event, ctx) {
-  const shellToolCall = getPiShellToolCall(event, ctx);
-  if (!shellToolCall)
+  const toolCall = getPiToolCall(event, ctx);
+  if (!toolCall)
     return;
-  if ("malformed" in shellToolCall) {
+  if ("malformed" in toolCall) {
     return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED);
   }
-  const command2 = shellToolCall.command;
-  const cwd = shellToolCall.cwd;
-  const modes = getCCSafetyNetEnvModes();
+  const cwd = toolCall.cwd;
+  const policyTarget = findPolicyConfigMutationTargetInToolInput(toolCall.toolName, toolCall.input, cwd);
+  if (policyTarget) {
+    const command3 = getCommandFromToolInput(toolCall.input) ?? policyTarget.target;
+    return blockPiToolCall(REASON_POLICY_CONFIG_PROTECTION, command3, policyTarget.target, false);
+  }
   let result;
   try {
-    result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(command2, {
+    const config = loadConfig(cwd, {
+      repairLocalRulebooks: true,
+      ...ctx.safetyNetConfigOptions
+    });
+    const secretTarget = config.secretProtection?.enabled === false ? null : findSensitiveTargetInToolInput(toolCall.input, cwd, config.secretProtection);
+    if (secretTarget) {
+      const secretCommand = getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
+      const sessionId2 = ctx.sessionManager.getSessionFile();
+      if (sessionId2) {
+        writeAuditLog(sessionId2, secretCommand, secretTarget.target, REASON_SECRET_PROTECTION, cwd);
+      }
+      return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false);
+    }
+    if (!toolCall.command) {
+      return config.failClosedReason ? blockPiToolCall(config.failClosedReason, undefined, undefined, false) : undefined;
+    }
+    const modes = getCCSafetyNetEnvModes(config.modes);
+    result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(toolCall.command, {
       cwd,
-      config: loadConfig(cwd, {
-        repairLocalRulebooks: true,
-        ...ctx.safetyNetConfigOptions
-      }),
+      config,
       strict: modes.strict,
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
@@ -8183,8 +8200,12 @@ function handlePiToolCall(event, ctx) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(`CC Safety Net debug: pi tool_call analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     }
-    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2);
+    const command3 = toolCall.command;
+    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
   }
+  const command2 = toolCall.command;
+  if (!command2)
+    return;
   if (!result) {
     const sessionId2 = ctx.sessionManager.getSessionFile();
     if (sessionId2 && envTruthy(ENV_FLAGS.debug)) {
@@ -8200,23 +8221,25 @@ function handlePiToolCall(event, ctx) {
   }
   return blockPiToolCall(result.reason, command2, result.segment, result.manualPermissionAdvice);
 }
-function getPiShellToolCall(event, ctx) {
+function getPiToolCall(event, ctx) {
   if (!event || typeof event !== "object")
     return;
   const toolCall = event;
   if (typeof toolCall.toolName !== "string")
     return;
   const adapter = PI_SHELL_TOOL_ADAPTERS[toolCall.toolName];
-  if (!adapter)
-    return;
-  if (!toolCall.input || typeof toolCall.input !== "object")
-    return { malformed: true };
+  if (!toolCall.input || typeof toolCall.input !== "object") {
+    return adapter ? { malformed: true } : undefined;
+  }
+  if (!adapter) {
+    return { toolName: toolCall.toolName, input: toolCall.input, cwd: ctx.cwd };
+  }
   const command2 = toolCall.input[adapter.commandField];
   if (typeof command2 !== "string")
     return { malformed: true };
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
   const cwd = typeof cwdInput === "string" ? resolve10(ctx.cwd, cwdInput) : ctx.cwd;
-  return { command: command2, cwd };
+  return { toolName: toolCall.toolName, input: toolCall.input, cwd, command: command2 };
 }
 function blockPiToolCall(reason, command2, segment, manualPermissionAdvice) {
   return {
