@@ -168,6 +168,20 @@ export function writeUserPolicyFromGui(
   return { path, policy: normalizedPolicy, errors: [] };
 }
 
+export function repairUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPolicyWriteResult {
+  const path = getUserPolicyPath(options);
+  if (!existsSync(path)) return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
+
+  const raw = readFileSync(path, 'utf-8');
+  if (!raw.trim()) return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
+
+  try {
+    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw) as unknown), options);
+  } catch {
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
+  }
+}
+
 export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig {
   const user = readPolicyConfig(getUserPolicyPath(options));
   return {
@@ -177,6 +191,57 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
   };
+}
+
+function repairPolicyConfig(value: unknown): GuiPolicy {
+  if (!isRecord(value)) return createDefaultGuiPolicy();
+
+  const modes = isRecord(value.modes) ? value.modes : {};
+  const destructiveCommand = isRecord(value.destructive_command_protection)
+    ? value.destructive_command_protection
+    : {};
+  const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
+  return {
+    version: 1,
+    modes: {
+      strict: typeof modes.strict === 'boolean' ? modes.strict : false,
+      paranoid: typeof modes.paranoid === 'boolean' ? modes.paranoid : false,
+      paranoid_rm: typeof modes.paranoid_rm === 'boolean' ? modes.paranoid_rm : false,
+      paranoid_interpreters:
+        typeof modes.paranoid_interpreters === 'boolean' ? modes.paranoid_interpreters : false,
+      worktree_mode: typeof modes.worktree_mode === 'boolean' ? modes.worktree_mode : false,
+    },
+    destructive_command_protection: {
+      enabled: typeof destructiveCommand.enabled === 'boolean' ? destructiveCommand.enabled : true,
+      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET),
+    },
+    secret_protection: {
+      enabled: typeof secret.enabled === 'boolean' ? secret.enabled : true,
+      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
+      deny_paths: repairDenyPaths(secret.deny_paths),
+    },
+  };
+}
+
+function repairOffOverrides(
+  value: unknown,
+  knownRuleIds: ReadonlySet<string>,
+): Record<string, 'off'> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, override]) =>
+      knownRuleIds.has(id) && override === 'off' ? [[id, 'off']] : [],
+    ),
+  ) as Record<string, 'off'>;
+}
+
+function repairDenyPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((path): path is string => typeof path === 'string' && path.trim() !== '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function createDefaultGuiPolicy(): GuiPolicy {

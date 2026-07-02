@@ -59,6 +59,22 @@ describe('policy GUI server', () => {
       expect(html).toContain('cc-safety-net-gui-custom-css');
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
+      expect(html).toContain('id="app-status"');
+      expect(html.indexOf('id="reset"')).toBeLessThan(html.indexOf('id="app-status"'));
+      expect(html).toContain('.app-status {\n  flex: 1 0 100%;');
+      expect(html).toContain('Unsaved changes. Click Save to apply.');
+      expect(html).toContain('No changes to save');
+      expect(html).toContain('let dirty = false;');
+      expect(html).toContain('const updateDirtyStatus = () => {');
+      expect(html).toContain(
+        'dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);',
+      );
+      expect(html).toContain(
+        "setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');",
+      );
+      expect(html).toContain("setAppStatus('Repair required', 'error');");
+      expect(html).toContain("setAppStatus('Loaded', 'ok');");
+      expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
       expect(html).toContain('Destructive command protection');
       expect(html).toContain('Custom rules remain active when disabled.');
@@ -130,6 +146,13 @@ describe('policy GUI server', () => {
       expect(html).toContain('Raw JSON');
       expect(html).toContain('id="raw-copy"');
       expect(html).toContain('aria-label="Copy raw JSON to clipboard"');
+      expect(html).toContain('id="repair"');
+      expect(html).toContain('>Repair</button>');
+      expect(html).toContain('readonly></textarea>');
+      expect(html).toContain('Read-only mirror of the controls.');
+      expect(html).not.toContain('rawIsManual');
+      expect(html).not.toContain("if (input.id === 'raw')");
+      expect(html).not.toContain("JSON.parse(qs('raw')");
       expect(html).toContain('const rawCopyIcons =');
       expect(html).toContain("navigator.clipboard.writeText(qs('raw').value)");
       expect(html).toContain("qs('raw-copy').classList.toggle('copied', copied);");
@@ -264,6 +287,64 @@ describe('policy GUI server', () => {
     }
   });
 
+  test('POST api repair preserves valid settings from parseable invalid policy', async () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(
+      join(safetyNetHome, 'policy.json'),
+      JSON.stringify({
+        version: 2,
+        modes: { strict: true, paranoid: 'yes' },
+        destructive_command_protection: {
+          enabled: false,
+          overrides: { 'git.reset-hard': 'off', 'git.unknown': 'off' },
+        },
+        secret_protection: {
+          enabled: 'no',
+          overrides: { 'secret.ext.pem': 'off' },
+          deny_paths: ['private/token.txt', 42],
+        },
+      }),
+      'utf-8',
+    );
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const repairedPolicy = await repairPolicyViaApi(safetyNetHome, server);
+
+      expect(repairedPolicy).toMatchObject({
+        version: 1,
+        modes: { strict: true, paranoid: false },
+        destructive_command_protection: {
+          enabled: false,
+          overrides: { 'git.reset-hard': 'off' },
+        },
+        secret_protection: {
+          enabled: true,
+          overrides: { 'secret.ext.pem': 'off' },
+          deny_paths: ['private/token.txt'],
+        },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST api repair restores defaults for malformed policy JSON', async () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const repairedPolicy = await repairPolicyViaApi(safetyNetHome, server);
+
+      expect(repairedPolicy).toMatchObject({
+        version: 1,
+        destructive_command_protection: { enabled: true, overrides: {} },
+        secret_protection: { enabled: true, overrides: {}, deny_paths: [] },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   test('POST requires the header token as well as the URL token', async () => {
     const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
     try {
@@ -357,6 +438,19 @@ async function postJson<T>(url: string, token: string, body: unknown): Promise<T
   });
   expect(response.status).toBe(200);
   return (await response.json()) as T;
+}
+
+async function repairPolicyViaApi(
+  safetyNetHome: string,
+  server: Awaited<ReturnType<typeof createPolicyGuiServer>>,
+): Promise<unknown> {
+  const repair = await postJson<WriteApiResponse>(
+    `${server.origin}/api/repair?token=${server.token}`,
+    server.token,
+    {},
+  );
+  expect(repair.errors).toEqual([]);
+  return JSON.parse(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')) as unknown;
 }
 
 async function runGuiForTest(

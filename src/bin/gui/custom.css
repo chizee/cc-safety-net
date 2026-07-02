@@ -100,9 +100,42 @@ h1 {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   flex: none;
+}
+
+.app-status {
+  flex: 1 0 100%;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-status.ok {
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.app-status.error {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.app-status.dirty {
+  color: var(--ink);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
 
 .appbar-search {
@@ -252,6 +285,30 @@ main {
   color: var(--err-fg);
   background: var(--err-bg);
   border-color: var(--err-border);
+}
+
+.recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--err-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.recovery[hidden] {
+  display: none;
+}
+
+.recovery strong {
+  display: block;
+  font-size: 13px;
+}
+
+.recovery p {
+  margin: 4px 0 0;
 }
 
 .muted {

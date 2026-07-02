@@ -7,6 +7,7 @@ import {
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
   readUserPolicyForGui,
+  repairUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
@@ -127,6 +128,79 @@ describe('policy GUI helpers', () => {
       'destructive_command_protection.overrides.git.reset-hard must be "off"',
     );
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe('{bad json');
+  });
+
+  test('repair preserves valid fields from parseable invalid policy', () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(
+      join(safetyNetHome, 'policy.json'),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          strict: true,
+          paranoid_rm: 'yes',
+          worktree_mode: false,
+          unknown: true,
+        },
+        destructive_command_protection: {
+          enabled: 'yes',
+          overrides: {
+            'git.reset-hard': 'off',
+            'git.unknown': 'off',
+            'git.clean-force': 'allow',
+          },
+        },
+        secret_protection: {
+          enabled: false,
+          overrides: {
+            'secret.ext.pem': 'off',
+            'secret.unknown': 'off',
+          },
+          deny_paths: ['private/token.txt', '', 42],
+        },
+        extra: true,
+      }),
+      'utf-8',
+    );
+
+    const result = repairUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
+
+    expect(result.errors).toEqual([]);
+    expect(result.policy).toEqual({
+      version: 1,
+      modes: {
+        strict: true,
+        paranoid: false,
+        paranoid_rm: false,
+        paranoid_interpreters: false,
+        worktree_mode: false,
+      },
+      destructive_command_protection: {
+        enabled: true,
+        overrides: { 'git.reset-hard': 'off' },
+      },
+      secret_protection: {
+        enabled: false,
+        overrides: { 'secret.ext.pem': 'off' },
+        deny_paths: ['private/token.txt'],
+      },
+    });
+    expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe(
+      `${JSON.stringify(result.policy, null, 2)}\n`,
+    );
+  });
+
+  test('repair restores defaults when policy JSON cannot be parsed', () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
+
+    const result = repairUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
+
+    expect(result.errors).toEqual([]);
+    expect(result.policy).toEqual(DEFAULT_GUI_POLICY);
+    expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe(
+      `${JSON.stringify(DEFAULT_GUI_POLICY, null, 2)}\n`,
+    );
   });
 
   test('save writes only user policy with secret overrides', () => {

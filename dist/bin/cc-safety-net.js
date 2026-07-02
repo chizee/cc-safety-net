@@ -5506,6 +5506,19 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   chmodSync(path, 384);
   return { path, policy: normalizedPolicy, errors: [] };
 }
+function repairUserPolicyForGui(options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  if (!existsSync4(path))
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  const raw = readFileSync3(path, "utf-8");
+  if (!raw.trim())
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  try {
+    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw)), options2);
+  } catch {
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  }
+}
 function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
@@ -5515,6 +5528,45 @@ function loadPolicyConfig(options2 = {}) {
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
+}
+function repairPolicyConfig(value) {
+  if (!isRecord(value))
+    return createDefaultGuiPolicy();
+  const modes = isRecord(value.modes) ? value.modes : {};
+  const destructiveCommand = isRecord(value.destructive_command_protection) ? value.destructive_command_protection : {};
+  const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
+  return {
+    version: 1,
+    modes: {
+      strict: typeof modes.strict === "boolean" ? modes.strict : false,
+      paranoid: typeof modes.paranoid === "boolean" ? modes.paranoid : false,
+      paranoid_rm: typeof modes.paranoid_rm === "boolean" ? modes.paranoid_rm : false,
+      paranoid_interpreters: typeof modes.paranoid_interpreters === "boolean" ? modes.paranoid_interpreters : false,
+      worktree_mode: typeof modes.worktree_mode === "boolean" ? modes.worktree_mode : false
+    },
+    destructive_command_protection: {
+      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
+      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
+    },
+    secret_protection: {
+      enabled: typeof secret.enabled === "boolean" ? secret.enabled : true,
+      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
+      deny_paths: repairDenyPaths(secret.deny_paths)
+    }
+  };
+}
+function repairOffOverrides(value, knownRuleIds) {
+  if (!isRecord(value))
+    return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id, override]) => knownRuleIds.has(id) && override === "off" ? [[id, "off"]] : []));
+}
+function repairDenyPaths(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter((path) => typeof path === "string" && path.trim() !== "");
+}
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 function createDefaultGuiPolicy() {
   return {
@@ -11237,9 +11289,42 @@ h1 {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   flex: none;
+}
+
+.app-status {
+  flex: 1 0 100%;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-status.ok {
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.app-status.error {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.app-status.dirty {
+  color: var(--ink);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
 
 .appbar-search {
@@ -11389,6 +11474,30 @@ main {
   color: var(--err-fg);
   background: var(--err-bg);
   border-color: var(--err-border);
+}
+
+.recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--err-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.recovery[hidden] {
+  display: none;
+}
+
+.recovery strong {
+  display: block;
+  font-size: 13px;
+}
+
+.recovery p {
+  margin: 4px 0 0;
 }
 
 .muted {
@@ -11847,10 +11956,18 @@ var page_default = `<!doctype html>
         <button class="primary" id="save">Save</button>
         <button class="danger" id="reset">Reset</button>
       </div>
+      <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
     </div>
   </header>
   <main>
     <div class="status" id="status" role="status" aria-live="polite"></div>
+    <div class="recovery" id="recovery" hidden>
+      <div>
+        <strong>Policy repair available</strong>
+        <p class="muted">Repair writes canonical JSON by preserving valid settings. If the JSON cannot be parsed, defaults are restored.</p>
+      </div>
+      <button class="primary" id="repair" type="button">Repair</button>
+    </div>
     <section class="panel">
       <div class="panel-head">
         <div class="panel-title">
@@ -11886,11 +12003,11 @@ var page_default = `<!doctype html>
       <div class="panel-head">
         <div class="panel-title">
           <h2>Raw JSON</h2>
-          <p class="panel-sub muted" id="raw-source">Raw JSON mirrors the controls until you edit it.</p>
+          <p class="panel-sub muted" id="raw-source">Read-only mirror of the controls.</p>
         </div>
         <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
       </div>
-      <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source"></textarea>
+      <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
   </main>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
@@ -11919,8 +12036,7 @@ var page_default = `<!doctype html>
     };
     let state;
     let draftPolicy;
-    let rawIsManual = false;
-    let syncingRaw = false;
+    let dirty = false;
     let rawCopyResetTimer = null;
     const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
       ...init,
@@ -11949,23 +12065,32 @@ var page_default = `<!doctype html>
       && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
       && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
-    const setStatus = (text, kind = '') => {
+    const setDetailStatus = (text, kind = '') => {
       qs('status').textContent = text;
       qs('status').className = \`status \${kind}\`;
     };
+    const setAppStatus = (text, kind = '') => {
+      qs('app-status').textContent = text;
+      qs('app-status').className = \`app-status \${kind}\`;
+    };
     let busy = false;
+    const updateActions = () => {
+      const hasErrors = (state?.errors.length ?? 0) > 0;
+      qs('save').disabled = busy || !state || hasErrors;
+      qs('reset').disabled = busy || !state;
+      qs('repair').disabled = busy || !hasErrors;
+    };
     const runExclusive = async (pendingText, fn) => {
       if (busy) return;
       busy = true;
-      qs('save').disabled = true;
-      qs('reset').disabled = true;
-      setStatus(pendingText, '');
+      updateActions();
+      setAppStatus(pendingText);
+      setDetailStatus('');
       try {
         await fn();
       } finally {
         busy = false;
-        qs('save').disabled = false;
-        qs('reset').disabled = false;
+        updateActions();
       }
     };
     const checkbox = (checked) => checked ? 'checked' : '';
@@ -12032,9 +12157,9 @@ var page_default = `<!doctype html>
       content.hidden = expanded;
     };
     const updateRawSource = () => {
-      qs('raw-source').textContent = rawIsManual
-        ? 'Save will use Raw JSON. Fix validation errors here or reset to defaults.'
-        : 'Raw JSON mirrors the controls until you edit it.';
+      qs('raw-source').textContent = state?.errors.length
+        ? 'Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.'
+        : 'Read-only mirror of the controls.';
     };
     const setRawCopyCopied = (copied) => {
       qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
@@ -12049,17 +12174,23 @@ var page_default = `<!doctype html>
         if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
         rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
       } catch (error) {
-        setStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, 'error');
+        setAppStatus('Copy failed', 'error');
+        setDetailStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, 'error');
       } finally {
         qs('raw-copy').disabled = false;
       }
     };
     const syncRawFromForm = () => {
-      if (rawIsManual) return;
-      syncingRaw = true;
+      if (state?.errors.length) return;
       qs('raw').value = formatPolicy(collectFormPolicy());
-      syncingRaw = false;
       updateRawSource();
+    };
+    const updateDirtyStatus = () => {
+      if (state?.errors.length) return;
+      dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
+      setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
+      setDetailStatus('');
+      updateActions();
     };
     const updateDraftSecretPaths = () => {
       draftPolicy.secret_protection.deny_paths = pathLines(qs('deny-paths')?.value ?? '');
@@ -12145,7 +12276,7 @@ var page_default = `<!doctype html>
     };
     function render() {
       draftPolicy = clonePolicy(state.policy);
-      rawIsManual = state.errors.length > 0;
+      dirty = false;
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
       qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
         \`<label class="row"><input type="checkbox" data-mode="\${key}" \${checkbox(state.policy.modes[key])}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
@@ -12163,24 +12294,21 @@ var page_default = `<!doctype html>
       renderDestructiveCommands();
       renderSecretPatterns();
       updateRawSource();
-      setStatus(
-        state.errors.length ? \`Error: \${state.errors.join('\\n')}\` : 'Status: Loaded.',
-        state.errors.length ? 'error' : 'ok'
-      );
-    }
-    function collectPolicy() {
-      if (!rawIsManual) return collectFormPolicy();
-      try {
-        return JSON.parse(qs('raw').value.trim() || '{}');
-      } catch (error) {
-        setStatus(\`Error: Raw JSON is invalid: \${error instanceof Error ? error.message : String(error)}\`, 'error');
-        return null;
+      qs('recovery').hidden = state.errors.length === 0;
+      updateActions();
+      if (state.errors.length) {
+        setAppStatus('Repair required', 'error');
+        setDetailStatus(\`Error: \${state.errors.join('\\n')}\`, 'error');
+        return;
       }
+      setAppStatus('Loaded', 'ok');
+      setDetailStatus('');
     }
     async function load() {
       const result = await requestJson('/api/policy');
       if (!isPolicyState(result.data)) {
-        setStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
+        setAppStatus('Load failed', 'error');
+        setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
         return false;
       }
       state = result.data;
@@ -12194,14 +12322,10 @@ var page_default = `<!doctype html>
         renderSecretPatterns();
         return;
       }
-      if (input.id === 'raw') {
-        if (!syncingRaw) rawIsManual = true;
-        updateRawSource();
-        return;
-      }
       if (input.id === 'deny-paths') {
         updateDraftSecretPaths();
         syncRawFromForm();
+        updateDirtyStatus();
       }
     });
     document.addEventListener('change', (event) => {
@@ -12209,6 +12333,7 @@ var page_default = `<!doctype html>
       if (input.dataset?.mode) {
         draftPolicy.modes[input.dataset.mode] = input.checked;
         syncRawFromForm();
+        updateDirtyStatus();
         return;
       }
       if ('destructiveCommandEnabled' in input.dataset) {
@@ -12224,6 +12349,7 @@ var page_default = `<!doctype html>
           draftPolicy.destructive_command_protection.enabled = input.checked;
           renderDestructiveCommands();
           syncRawFromForm();
+          updateDirtyStatus();
         })();
         return;
       }
@@ -12236,6 +12362,7 @@ var page_default = `<!doctype html>
         }
         updateRuleRow(input, input.checked, 'destructive-command-summary', draftPolicy.destructive_command_protection.overrides, destructiveCommandSummaryText);
         syncRawFromForm();
+        updateDirtyStatus();
         return;
       }
       if (input.dataset?.secretActive) {
@@ -12243,6 +12370,7 @@ var page_default = `<!doctype html>
         else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
         updateRuleRow(input, input.checked, 'secret-summary', draftPolicy.secret_protection.overrides, secretSummaryText);
         syncRawFromForm();
+        updateDirtyStatus();
         return;
       }
       if (input.id === 'secret-enabled') {
@@ -12258,6 +12386,7 @@ var page_default = `<!doctype html>
           qs('deny-paths').disabled = !input.checked;
           renderSecretPatterns();
           syncRawFromForm();
+          updateDirtyStatus();
         })();
       }
     });
@@ -12266,18 +12395,38 @@ var page_default = `<!doctype html>
       if (button) togglePanel(button);
     });
     qs('save').onclick = () => {
-      if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
-      const policy = collectPolicy();
-      if (!policy) return;
-      void runExclusive('Status: Saving…', async () => {
+      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
+      if (state.errors.length) { setAppStatus('Repair required', 'error'); setDetailStatus('Error: Repair policy before saving changes.', 'error'); return; }
+      if (!dirty) { setAppStatus('No changes to save', 'ok'); setDetailStatus(''); return; }
+      const policy = collectFormPolicy();
+      void runExclusive('Saving...', async () => {
         const result = await requestJson('/api/policy', { method: 'POST', body: JSON.stringify(policy) });
-        if (!isWriteSuccess(result)) { setStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
+        if (!isWriteSuccess(result)) { setAppStatus('Save failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
         const savedPath = result.data.path;
-        if (await load()) setStatus(\`Status: Saved \${savedPath}.\`, 'ok');
+        if (await load()) { dirty = false; setAppStatus(\`Saved \${savedPath}.\`, 'ok'); setDetailStatus(''); }
+      });
+    };
+    qs('repair').onclick = async () => {
+      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
+      if (state.errors.length === 0) { setAppStatus('Loaded', 'ok'); setDetailStatus(''); return; }
+      if (!(await confirmDialog({
+        title: 'Repair policy?',
+        body: 'This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.',
+        detail: state.path,
+        confirmLabel: 'Repair',
+        confirmClass: 'primary'
+      }))) {
+        return;
+      }
+      void runExclusive('Repairing...', async () => {
+        const result = await requestJson('/api/repair', { method: 'POST', body: '{}' });
+        if (!isWriteSuccess(result)) { setAppStatus('Repair failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
+        const repairedPath = result.data.path;
+        if (await load()) { dirty = false; setAppStatus(\`Repaired \${repairedPath}.\`, 'ok'); setDetailStatus(''); }
       });
     };
     qs('reset').onclick = async () => {
-      if (!state) { setStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
+      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
       if (!(await confirmDialog({
         title: 'Reset policy?',
         body: 'This will restore the default policy JSON at this path.',
@@ -12286,11 +12435,11 @@ var page_default = `<!doctype html>
       }))) {
         return;
       }
-      void runExclusive('Status: Resetting…', async () => {
+      void runExclusive('Resetting...', async () => {
         const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
-        if (!isWriteSuccess(result)) { setStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
+        if (!isWriteSuccess(result)) { setAppStatus('Reset failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
         const resetPath = result.data.path;
-        if (await load()) setStatus(\`Status: Reset \${resetPath} to defaults.\`, 'ok');
+        if (await load()) { dirty = false; setAppStatus(\`Reset \${resetPath} to defaults.\`, 'ok'); setDetailStatus(''); }
       });
     };
     setRawCopyCopied(false);
@@ -12319,7 +12468,10 @@ var page_default = `<!doctype html>
       else localStorage.setItem('cc-safety-net-theme', themePref);
       applyTheme(themePref);
     };
-    load().catch((error) => setStatus(String(error), 'error'));
+    load().catch((error) => {
+      setAppStatus('Load failed', 'error');
+      setDetailStatus(String(error), 'error');
+    });
   </script>
 </body>
 </html>
@@ -12417,6 +12569,10 @@ async function handleRequest(request, response, token, options2) {
   }
   if (request.method === "POST" && url.pathname === "/api/reset") {
     sendJson(response, 200, writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/repair") {
+    sendJson(response, 200, repairUserPolicyForGui(options2));
     return;
   }
   sendJson(response, 404, { error: "Not found" });

@@ -45,4 +45,5 @@ export interface GuiPolicyWriteResult {
 export declare function getUserPolicyPath(options?: RulesPolicyOptions): string;
 export declare function readUserPolicyForGui(options?: RulesPolicyOptions): GuiPolicyReadResult;
 export declare function writeUserPolicyFromGui(policy: unknown, options?: RulesPolicyOptions): GuiPolicyWriteResult;
+export declare function repairUserPolicyForGui(options?: RulesPolicyOptions): GuiPolicyWriteResult;
 export declare function loadPolicyConfig(options?: RulesPolicyOptions): PolicyConfig;

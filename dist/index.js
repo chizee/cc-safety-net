@@ -5438,6 +5438,19 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   chmodSync(path, 384);
   return { path, policy: normalizedPolicy, errors: [] };
 }
+function repairUserPolicyForGui(options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  if (!existsSync4(path))
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  const raw = readFileSync3(path, "utf-8");
+  if (!raw.trim())
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  try {
+    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw)), options2);
+  } catch {
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  }
+}
 function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
@@ -5447,6 +5460,45 @@ function loadPolicyConfig(options2 = {}) {
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
+}
+function repairPolicyConfig(value) {
+  if (!isRecord(value))
+    return createDefaultGuiPolicy();
+  const modes = isRecord(value.modes) ? value.modes : {};
+  const destructiveCommand = isRecord(value.destructive_command_protection) ? value.destructive_command_protection : {};
+  const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
+  return {
+    version: 1,
+    modes: {
+      strict: typeof modes.strict === "boolean" ? modes.strict : false,
+      paranoid: typeof modes.paranoid === "boolean" ? modes.paranoid : false,
+      paranoid_rm: typeof modes.paranoid_rm === "boolean" ? modes.paranoid_rm : false,
+      paranoid_interpreters: typeof modes.paranoid_interpreters === "boolean" ? modes.paranoid_interpreters : false,
+      worktree_mode: typeof modes.worktree_mode === "boolean" ? modes.worktree_mode : false
+    },
+    destructive_command_protection: {
+      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
+      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
+    },
+    secret_protection: {
+      enabled: typeof secret.enabled === "boolean" ? secret.enabled : true,
+      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
+      deny_paths: repairDenyPaths(secret.deny_paths)
+    }
+  };
+}
+function repairOffOverrides(value, knownRuleIds) {
+  if (!isRecord(value))
+    return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id, override]) => knownRuleIds.has(id) && override === "off" ? [[id, "off"]] : []));
+}
+function repairDenyPaths(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter((path) => typeof path === "string" && path.trim() !== "");
+}
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 function createDefaultGuiPolicy() {
   return {

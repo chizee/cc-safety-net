@@ -6,6 +6,7 @@ import {
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
   readUserPolicyForGui,
+  repairUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
@@ -143,6 +144,11 @@ async function handleRequest(
 
   if (request.method === 'POST' && url.pathname === '/api/reset') {
     sendJson(response, 200, writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/repair') {
+    sendJson(response, 200, repairUserPolicyForGui(options));
     return;
   }
 
