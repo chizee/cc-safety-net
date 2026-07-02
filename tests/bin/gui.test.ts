@@ -76,6 +76,9 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Search protections');
       expect(html).toContain('#destructive-command > label.row');
       expect(html).toContain('margin-bottom: 16px');
+      expect(html).not.toContain(
+        'label.row:has(input:checked) {\n  border-color: color-mix(in srgb, var(--accent)',
+      );
       expect(html).toContain('class="panel foldable"');
       expect(html).toContain('aria-controls="destructive-command-panel-content"');
       expect(html).toContain('id="destructive-command-panel-content"');

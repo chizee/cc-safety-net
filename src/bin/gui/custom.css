@@ -377,16 +377,6 @@ label.row.row-disabled:hover {
   background: var(--surface);
 }
 
-label.row:has(input:checked) {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
-}
-
-label.row.row-disabled:has(input:checked) {
-  border-color: var(--border);
-  background: var(--surface);
-}
-
 label.row input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
