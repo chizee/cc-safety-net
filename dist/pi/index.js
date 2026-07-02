@@ -319,8 +319,8 @@ ${args.trim() || DEFAULT_USER_REQUEST}`;
 // src/pi/tool-call.ts
 import { resolve as resolve10 } from "node:path";
 
-// src/core/builtin-rules.ts
-var BUILTIN_RULE_IDS = [
+// src/core/destructive-command-rules.ts
+var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
   "git.checkout-force",
   "git.checkout-double-dash",
@@ -360,8 +360,8 @@ var BUILTIN_RULE_IDS = [
   "parallel.shell-dynamic",
   "raw-text.dangerous-command"
 ];
-var BUILTIN_RULE_ID_SET = new Set(BUILTIN_RULE_IDS);
-var BUILTIN_RULE_METADATA = [
+var DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set(DESTRUCTIVE_COMMAND_RULE_IDS);
+var DESTRUCTIVE_COMMAND_RULE_METADATA = [
   {
     id: "git.ssh-env",
     category: "Git",
@@ -591,13 +591,13 @@ var BUILTIN_RULE_METADATA = [
     description: "Blocks dangerous commands detected in raw command text."
   }
 ];
-function builtinMatch(id, reason) {
+function destructiveCommandMatch(id, reason) {
   return { id, reason };
 }
-function filterBuiltinMatch(match, config) {
+function filterDestructiveCommandMatch(match, config) {
   if (!match)
     return null;
-  return config?.disabledBuiltinRules?.has(match.id) ? null : match.reason;
+  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match.reason;
 }
 
 // src/core/analyze/dangerous-text.ts
@@ -665,7 +665,7 @@ function dangerousInTextMatch(text) {
       continue;
     const target = caseSensitive ? text : t;
     if (regex.test(target)) {
-      return builtinMatch("raw-text.dangerous-command", reason);
+      return destructiveCommandMatch("raw-text.dangerous-command", reason);
     }
   }
   return null;
@@ -689,7 +689,7 @@ function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
     if (!commands2)
       continue;
     if (commands2.dynamic)
-      return builtinMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
+      return destructiveCommandMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
     for (const command of commands2.commands) {
       const reason = analyzeNested(command);
       if (reason)
@@ -2204,7 +2204,7 @@ function analyzeFind(tokens, context = {}) {
 }
 function analyzeFindMatch(tokens, context = {}) {
   if (findHasDelete(tokens.slice(1))) {
-    return builtinMatch("find.delete", REASON_FIND_DELETE);
+    return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
   }
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
@@ -2249,7 +2249,7 @@ function analyzeFindExecCommand(tokens) {
     head = getBasename(execCommand[0] ?? "");
   }
   if (head === "rm" && hasRecursiveForceFlags(execCommand)) {
-    return builtinMatch("find.exec-rm-recursive-force", "find -exec rm -rf is dangerous. Use explicit file list instead.");
+    return destructiveCommandMatch("find.exec-rm-recursive-force", "find -exec rm -rf is dangerous. Use explicit file list instead.");
   }
   return null;
 }
@@ -2467,22 +2467,22 @@ function classifyTarget(target, ctx) {
 function reasonForClassification(classification, ctx) {
   switch (classification.kind) {
     case "root_or_home_target":
-      return builtinMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
+      return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
     case "temp_target":
       return null;
     case "dynamic_target":
-      return builtinMatch("rm.recursive-force-dynamic-target", REASON_RM_RF_DYNAMIC_TARGET);
+      return destructiveCommandMatch("rm.recursive-force-dynamic-target", REASON_RM_RF_DYNAMIC_TARGET);
     case "home_cwd_target":
-      return builtinMatch("rm.recursive-force-home-cwd", REASON_RM_HOME_CWD);
+      return destructiveCommandMatch("rm.recursive-force-home-cwd", REASON_RM_HOME_CWD);
     case "cwd_self_target":
-      return builtinMatch("rm.recursive-force-cwd-self", REASON_RM_RF);
+      return destructiveCommandMatch("rm.recursive-force-cwd-self", REASON_RM_RF);
     case "within_anchored_cwd":
       if (ctx.paranoid) {
-        return builtinMatch("rm.recursive-force-paranoid", `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
+        return destructiveCommandMatch("rm.recursive-force-paranoid", `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
       }
       return null;
     case "outside_anchored_cwd":
-      return builtinMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
+      return destructiveCommandMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
   }
 }
 function isDangerousRootOrHomeTarget(path) {
@@ -3074,39 +3074,39 @@ function analyzeGitCheckout(tokens) {
     shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
   });
   if (beforeDash.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return builtinMatch("git.checkout-force", REASON_CHECKOUT_FORCE);
+    return destructiveCommandMatch("git.checkout-force", REASON_CHECKOUT_FORCE);
   }
   for (const token of tokens) {
     if (token === "-b" || token === "-B" || token === "--orphan") {
       return null;
     }
     if (matchesGitLongOption(token, "--pathspec-from-file")) {
-      return builtinMatch("git.checkout-pathspec-from-file", REASON_CHECKOUT_PATHSPEC_FROM_FILE);
+      return destructiveCommandMatch("git.checkout-pathspec-from-file", REASON_CHECKOUT_PATHSPEC_FROM_FILE);
     }
   }
   if (doubleDashIdx !== -1) {
     const hasRefBeforeDash = beforeDash.some((t) => !t.startsWith("-"));
     if (hasRefBeforeDash) {
-      return builtinMatch("git.checkout-ref-path", REASON_CHECKOUT_REF_PATH);
+      return destructiveCommandMatch("git.checkout-ref-path", REASON_CHECKOUT_REF_PATH);
     }
-    return builtinMatch("git.checkout-double-dash", REASON_CHECKOUT_DOUBLE_DASH);
+    return destructiveCommandMatch("git.checkout-double-dash", REASON_CHECKOUT_DOUBLE_DASH);
   }
   const positionalArgs = getCheckoutPositionalArgs(tokens);
   if (positionalArgs.length >= 2) {
-    return builtinMatch("git.checkout-ambiguous", REASON_CHECKOUT_AMBIGUOUS);
+    return destructiveCommandMatch("git.checkout-ambiguous", REASON_CHECKOUT_AMBIGUOUS);
   }
   return null;
 }
 function analyzeGitSwitch(tokens) {
   const { before } = splitAtDoubleDash(tokens);
   if (before.some((token) => matchesGitLongOption(token, "--discard-changes"))) {
-    return builtinMatch("git.switch-discard-changes", REASON_SWITCH_DISCARD_CHANGES);
+    return destructiveCommandMatch("git.switch-discard-changes", REASON_SWITCH_DISCARD_CHANGES);
   }
   const shortOpts = extractShortOpts(before, {
     shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
   });
   if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return builtinMatch("git.switch-force", REASON_SWITCH_FORCE);
+    return destructiveCommandMatch("git.switch-force", REASON_SWITCH_FORCE);
   }
   return null;
 }
@@ -3156,23 +3156,23 @@ function analyzeGitRestore(tokens) {
       return null;
     }
     if (token === "--worktree" || token === "-W") {
-      return builtinMatch("git.restore-worktree", REASON_RESTORE_WORKTREE);
+      return destructiveCommandMatch("git.restore-worktree", REASON_RESTORE_WORKTREE);
     }
     if (token === "--staged" || token === "-S") {
       hasStaged = true;
     }
   }
-  return hasStaged ? null : builtinMatch("git.restore-unstaged", REASON_RESTORE);
+  return hasStaged ? null : destructiveCommandMatch("git.restore-unstaged", REASON_RESTORE);
 }
 function analyzeGitReset(tokens) {
   let match = null;
   for (const token of tokens) {
     if (matchesGitLongOption(token, "--hard")) {
-      match = builtinMatch("git.reset-hard", REASON_RESET_HARD);
+      match = destructiveCommandMatch("git.reset-hard", REASON_RESET_HARD);
       break;
     }
     if (matchesGitLongOption(token, "--merge")) {
-      match = builtinMatch("git.reset-merge", REASON_RESET_MERGE);
+      match = destructiveCommandMatch("git.reset-merge", REASON_RESET_MERGE);
       break;
     }
   }
@@ -3200,7 +3200,7 @@ function analyzeGitClean(tokens) {
   }
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
   if (tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return builtinMatch("git.clean-force", REASON_CLEAN);
+    return destructiveCommandMatch("git.clean-force", REASON_CLEAN);
   }
   return null;
 }
@@ -3208,7 +3208,7 @@ function analyzeGitPush(tokens) {
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
   const hasForce = tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
   if (hasForce) {
-    return builtinMatch("git.push-force", REASON_PUSH_FORCE);
+    return destructiveCommandMatch("git.push-force", REASON_PUSH_FORCE);
   }
   return null;
 }
@@ -3218,33 +3218,33 @@ function analyzeGitBranch(tokens) {
   const hasDelete = shortOpts.has("-D") || shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete"));
   const hasForce = shortOpts.has("-D") || shortOpts.has("-f") || before.some((token) => matchesGitLongOption(token, "--force"));
   if (hasDelete && hasForce) {
-    return builtinMatch("git.branch-force-delete", REASON_BRANCH_DELETE);
+    return destructiveCommandMatch("git.branch-force-delete", REASON_BRANCH_DELETE);
   }
   return null;
 }
 function analyzeGitRebase(tokens) {
   const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? builtinMatch("git.rebase-abort", REASON_REBASE_ABORT) : null;
+  return before.some((token) => matchesGitLongOption(token, "--abort")) ? destructiveCommandMatch("git.rebase-abort", REASON_REBASE_ABORT) : null;
 }
 function analyzeGitMerge(tokens) {
   const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? builtinMatch("git.merge-abort", REASON_MERGE_ABORT) : null;
+  return before.some((token) => matchesGitLongOption(token, "--abort")) ? destructiveCommandMatch("git.merge-abort", REASON_MERGE_ABORT) : null;
 }
 function analyzeGitTag(tokens) {
   const { before } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
-  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? builtinMatch("git.tag-delete", REASON_TAG_DELETE) : null;
+  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? destructiveCommandMatch("git.tag-delete", REASON_TAG_DELETE) : null;
 }
 function analyzeGitReflog(tokens) {
-  return tokens[0] === "delete" ? builtinMatch("git.reflog-delete", REASON_REFLOG_DELETE) : null;
+  return tokens[0] === "delete" ? destructiveCommandMatch("git.reflog-delete", REASON_REFLOG_DELETE) : null;
 }
 function analyzeGitStash(tokens) {
   for (const token of tokens) {
     if (token === "drop") {
-      return builtinMatch("git.stash-drop", REASON_STASH_DROP);
+      return destructiveCommandMatch("git.stash-drop", REASON_STASH_DROP);
     }
     if (token === "clear") {
-      return builtinMatch("git.stash-clear", REASON_STASH_CLEAR);
+      return destructiveCommandMatch("git.stash-clear", REASON_STASH_CLEAR);
     }
   }
   return null;
@@ -3256,7 +3256,7 @@ function analyzeGitWorktree(tokens) {
     return null;
   const shortOpts = extractShortOpts(before);
   if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return builtinMatch("git.worktree-remove-force", REASON_WORKTREE_REMOVE_FORCE);
+    return destructiveCommandMatch("git.worktree-remove-force", REASON_WORKTREE_REMOVE_FORCE);
   }
   return null;
 }
@@ -3629,7 +3629,7 @@ function analyzeGit(tokens, options2 = {}) {
 }
 function analyzeGitMatch(tokens, options2 = {}) {
   if (hasGitSshEnvAssignment(options2.envAssignments) && isGitNetworkOperation(tokens)) {
-    return builtinMatch("git.ssh-env", REASON_GIT_SSH_ENV);
+    return destructiveCommandMatch("git.ssh-env", REASON_GIT_SSH_ENV);
   }
   const match = analyzeGitRule(tokens);
   if (!match) {
@@ -3664,7 +3664,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
   if (SHELL_WRAPPERS.has(head)) {
     const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason } : undefined);
     if (options2.dynamicInput && shellDynamicMatch) {
-      return filterBuiltinMatch(shellDynamicMatch, context.config);
+      return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
     }
     const dashCArg = extractDashCArg(tokens);
     if (dashCArg && context.analyzeNested) {
@@ -3676,7 +3676,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
     return null;
   }
   if (head === "rm" && hasRecursiveForceFlags(tokens)) {
-    return filterBuiltinMatch(analyzeRmMatch([...tokens], {
+    return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
@@ -3684,13 +3684,13 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
     }), context.config) ?? getDynamicRmReason(options2, context);
   }
   if (head === "find") {
-    return filterBuiltinMatch(analyzeFindMatch(tokens, {
+    return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
       analyzeTokens: (nestedTokens, cwd) => analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
     }), context.config);
   }
   if (head === "git") {
-    return filterBuiltinMatch(analyzeGitMatch(tokens, {
+    return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
       worktreeMode: options2.dynamicInput ? false : context.worktreeMode
@@ -3700,7 +3700,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
 }
 function getDynamicRmReason(options2, context) {
   const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason } : undefined);
-  return options2.dynamicInput && rmDynamicMatch ? filterBuiltinMatch(rmDynamicMatch, context.config) : null;
+  return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.config) : null;
 }
 
 // src/core/analyze/transparent-wrappers.ts
@@ -3873,8 +3873,8 @@ function analyzeParallel(tokens, context) {
       config: context.config
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
-      shellDynamicMatch: builtinMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
-      rmDynamicMatch: builtinMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
+      shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
+      rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
     });
     if (result) {
       return result;
@@ -3883,14 +3883,14 @@ function analyzeParallel(tokens, context) {
   return null;
 }
 function parallelShellDynamicReason(context) {
-  return filterBuiltinMatch(builtinMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.config);
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.config);
 }
 function parallelRmDynamicReason(context) {
-  return filterBuiltinMatch(builtinMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.config);
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.config);
 }
 function analyzeParallelRmExpansions(tokenSets, cwd, context) {
   for (const tokens of tokenSets) {
-    const rmResult = filterBuiltinMatch(analyzeRmMatch(tokens, {
+    const rmResult = filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
       cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
@@ -4158,8 +4158,8 @@ function analyzeXargs(tokens, context) {
     config: context.config
   }, {
     dynamicInput: childCommand.head !== "git",
-    shellDynamicMatch: builtinMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
-    rmDynamicMatch: builtinMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
+    shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
+    rmDynamicMatch: destructiveCommandMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
   });
   if (childResult) {
     return childResult;
@@ -4396,7 +4396,7 @@ function analyzeSegment(tokens, depth, options2) {
     }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = filterBuiltinMatch(analyzeAwkSystemCallMatch(stripped, (command2) => options2.analyzeNested(command2, {
+    const awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
     })), options2.config);
@@ -4408,7 +4408,7 @@ function analyzeSegment(tokens, depth, options2) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
-        const reason = filterBuiltinMatch(builtinMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX), options2.config);
+        const reason = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX), options2.config);
         if (reason)
           return reason;
       }
@@ -4420,7 +4420,7 @@ function analyzeSegment(tokens, depth, options2) {
         return innerReason;
       }
       if (containsDangerousCode(codeArg)) {
-        const reason = filterBuiltinMatch(builtinMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
+        const reason = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
         if (reason)
           return reason;
       }
@@ -4447,7 +4447,7 @@ function analyzeSegment(tokens, depth, options2) {
     options: options2
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = filterBuiltinMatch(commandAnalyzer?.(commandContext) ?? null, options2.config);
+  const commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.config);
   if (commandResult) {
     return commandResult;
   }
@@ -4458,7 +4458,7 @@ function analyzeSegment(tokens, depth, options2) {
         const token = stripped[i];
         if (!token)
           continue;
-        const reason = filterBuiltinMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
+        const reason = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
         if (reason)
           return reason;
       }
@@ -4987,7 +4987,7 @@ function analyzeCommandInternal(command2, depth, options2) {
     const segmentStr = segment.join(" ");
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
     if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = filterBuiltinMatch(dangerousInTextMatch(segment[0]), options2.config);
+      const textReason = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.config);
       if (textReason) {
         return { reason: textReason, segment: segmentStr };
       }
@@ -5412,7 +5412,7 @@ var MODE_FIELDS = new Set([
   "paranoid_interpreters",
   "worktree_mode"
 ]);
-var BUILTINS_FIELDS = new Set(["overrides"]);
+var DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(["overrides"]);
 var SECRET_PROTECTION_FIELDS = new Set(["enabled", "overrides", "deny_paths"]);
 var DEFAULT_GUI_POLICY = {
   version: 1,
@@ -5498,7 +5498,7 @@ function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
     modes: user.policy.modes,
-    disabledBuiltinRules: new Set(user.policy.disabledBuiltinRules),
+    disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
@@ -5518,8 +5518,8 @@ function createDefaultGuiPolicy() {
 function normalizeGuiPolicy(policy) {
   const config = policy;
   const modes = config.modes ?? {};
-  const builtins = config.builtins ?? {};
-  const overrides = builtins.overrides ?? {};
+  const destructiveCommandPolicy = config.builtins ?? {};
+  const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
   const secret = config.secret_protection ?? {};
   const secretOverrides = secret.overrides ?? {};
   return {
@@ -5532,7 +5532,7 @@ function normalizeGuiPolicy(policy) {
       worktree_mode: modes.worktree_mode ?? false
     },
     builtins: {
-      overrides: Object.fromEntries(Object.entries(overrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
+      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
     },
     secret_protection: {
       enabled: secret.enabled ?? true,
@@ -5565,7 +5565,7 @@ function readPolicyConfig(path) {
 function createEmptyPolicy() {
   return {
     modes: {},
-    disabledBuiltinRules: [],
+    disabledDestructiveCommandRules: [],
     secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
   };
 }
@@ -5579,7 +5579,7 @@ function validatePolicyConfig(config) {
   if (cfg.version !== 1)
     errors.push("version must be 1");
   validateModes(cfg.modes, errors);
-  validateBuiltins(cfg.builtins, errors);
+  validateDestructiveCommandPolicy(cfg.builtins, errors);
   validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
@@ -5597,18 +5597,18 @@ function validateModes(value, errors) {
       errors.push(`modes.${key} must be a boolean`);
   }
 }
-function validateBuiltins(value, errors) {
+function validateDestructiveCommandPolicy(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     errors.push("builtins must be an object if provided");
     return;
   }
-  const builtins = value;
-  addUnknownFieldErrors(builtins, BUILTINS_FIELDS, errors, "builtins");
-  validateBuiltinOverrides(builtins.overrides, errors);
+  const destructiveCommandPolicy = value;
+  addUnknownFieldErrors(destructiveCommandPolicy, DESTRUCTIVE_COMMAND_POLICY_FIELDS, errors, "builtins");
+  validateDestructiveCommandOverrides(destructiveCommandPolicy.overrides, errors);
 }
-function validateBuiltinOverrides(value, errors) {
+function validateDestructiveCommandOverrides(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5616,8 +5616,8 @@ function validateBuiltinOverrides(value, errors) {
     return;
   }
   for (const [id, override] of Object.entries(value)) {
-    if (!BUILTIN_RULE_ID_SET.has(id)) {
-      errors.push(`unknown built-in rule id "${id}"`);
+    if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
+      errors.push(`unknown destructive command rule id "${id}"`);
     }
     if (override !== "off") {
       errors.push(`builtins.overrides.${id} must be "off"`);
@@ -5674,7 +5674,7 @@ function normalizePolicyConfig(config) {
   const secret = config.secret_protection;
   return {
     modes,
-    disabledBuiltinRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
+    disabledDestructiveCommandRules: Object.entries(config.builtins?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
       enabled: secret?.enabled ?? true,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
@@ -7171,7 +7171,7 @@ function loadConfig(cwd, options2) {
   return {
     ...rulesConfig,
     modes: policyConfig.modes,
-    disabledBuiltinRules: policyConfig.disabledBuiltinRules,
+    disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
     secretProtection: policyConfig.secretProtection,
     failClosedReason: combineFailClosedReasons(rulesConfig.failClosedReason, policyConfig.errors.length > 0 ? `invalid policy config: ${policyConfig.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
   };

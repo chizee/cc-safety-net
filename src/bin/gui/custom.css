@@ -416,11 +416,11 @@ label.row small {
   font-weight: 700;
 }
 
-.builtin-group + .builtin-group {
+.destructive-command-group + .destructive-command-group {
   margin-top: 20px;
 }
 
-.builtin-group h3 {
+.destructive-command-group h3 {
   margin: 0 0 10px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);

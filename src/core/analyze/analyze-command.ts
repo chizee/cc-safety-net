@@ -5,7 +5,7 @@ import {
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
-import { filterBuiltinMatch } from '@/core/builtin-rules';
+import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { getBasename, splitShellCommandsWithInfo } from '@/core/shell';
 import {
   type AnalyzeNestedOverrides,
@@ -65,7 +65,10 @@ export function analyzeCommandInternal(
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
 
     if (segment.length === 1 && segment[0]?.includes(' ')) {
-      const textReason = filterBuiltinMatch(dangerousInTextMatch(segment[0]), options.config);
+      const textReason = filterDestructiveCommandMatch(
+        dangerousInTextMatch(segment[0]),
+        options.config,
+      );
       if (textReason) {
         return { reason: textReason, segment: segmentStr };
       }

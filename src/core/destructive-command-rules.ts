@@ -1,6 +1,6 @@
-import type { BuiltinRuleMatch, Config } from '@/types';
+import type { Config, DestructiveCommandRuleMatch } from '@/types';
 
-export const BUILTIN_RULE_IDS = [
+export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.ssh-env',
   'git.checkout-force',
   'git.checkout-double-dash',
@@ -41,20 +41,20 @@ export const BUILTIN_RULE_IDS = [
   'raw-text.dangerous-command',
 ] as const;
 
-export const BUILTIN_RULE_ID_SET = new Set<string>(BUILTIN_RULE_IDS);
+export const DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set<string>(DESTRUCTIVE_COMMAND_RULE_IDS);
 
 /** @internal */
-export type BuiltinRuleId = (typeof BUILTIN_RULE_IDS)[number];
+export type DestructiveCommandRuleId = (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number];
 
 /** @internal */
-export interface BuiltinRuleMetadata {
-  id: BuiltinRuleId;
+export interface DestructiveCommandRuleMetadata {
+  id: DestructiveCommandRuleId;
   category: string;
   label: string;
   description: string;
 }
 
-export const BUILTIN_RULE_METADATA = [
+export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
   {
     id: 'git.ssh-env',
     category: 'Git',
@@ -283,16 +283,19 @@ export const BUILTIN_RULE_METADATA = [
     label: 'Raw text dangerous command',
     description: 'Blocks dangerous commands detected in raw command text.',
   },
-] as const satisfies readonly BuiltinRuleMetadata[];
+] as const satisfies readonly DestructiveCommandRuleMetadata[];
 
-export function builtinMatch(id: (typeof BUILTIN_RULE_IDS)[number], reason: string) {
+export function destructiveCommandMatch(
+  id: (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number],
+  reason: string,
+) {
   return { id, reason };
 }
 
-export function filterBuiltinMatch(
-  match: BuiltinRuleMatch | null,
-  config: Pick<Config, 'disabledBuiltinRules'> | undefined,
+export function filterDestructiveCommandMatch(
+  match: DestructiveCommandRuleMatch | null,
+  config: Pick<Config, 'disabledDestructiveCommandRules'> | undefined,
 ): string | null {
   if (!match) return null;
-  return config?.disabledBuiltinRules?.has(match.id) ? null : match.reason;
+  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match.reason;
 }

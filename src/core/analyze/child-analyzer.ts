@@ -2,12 +2,12 @@ import { analyzeFindMatch } from '@/core/analyze/find';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
-import { filterBuiltinMatch } from '@/core/builtin-rules';
+import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import {
   type AnalyzeNestedOverrides,
-  type BuiltinRuleMatch,
   type Config,
+  type DestructiveCommandRuleMatch,
   SHELL_WRAPPERS,
 } from '@/types';
 
@@ -18,7 +18,7 @@ export interface ChildCommandAnalysisContext {
   allowTmpdirVar: boolean;
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
-  config?: Pick<Config, 'disabledBuiltinRules'>;
+  config?: Pick<Config, 'disabledDestructiveCommandRules'>;
   analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
 }
 
@@ -26,8 +26,8 @@ export interface ChildCommandAnalysisOptions {
   dynamicInput?: boolean;
   shellDynamicReason?: string;
   rmDynamicReason?: string;
-  shellDynamicMatch?: BuiltinRuleMatch;
-  rmDynamicMatch?: BuiltinRuleMatch;
+  shellDynamicMatch?: DestructiveCommandRuleMatch;
+  rmDynamicMatch?: DestructiveCommandRuleMatch;
 }
 
 export function analyzeChildCommand(
@@ -49,7 +49,7 @@ export function analyzeChildCommand(
       options.shellDynamicMatch ??
       (options.shellDynamicReason ? { id: '', reason: options.shellDynamicReason } : undefined);
     if (options.dynamicInput && shellDynamicMatch) {
-      return filterBuiltinMatch(shellDynamicMatch, context.config);
+      return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
     }
 
     const dashCArg = extractDashCArg(tokens);
@@ -64,7 +64,7 @@ export function analyzeChildCommand(
 
   if (head === 'rm' && hasRecursiveForceFlags(tokens)) {
     return (
-      filterBuiltinMatch(
+      filterDestructiveCommandMatch(
         analyzeRmMatch([...tokens], {
           cwd: context.cwd,
           originalCwd: context.originalCwd,
@@ -77,7 +77,7 @@ export function analyzeChildCommand(
   }
 
   if (head === 'find') {
-    return filterBuiltinMatch(
+    return filterDestructiveCommandMatch(
       analyzeFindMatch(tokens, {
         ...context,
         analyzeTokens: (nestedTokens, cwd) =>
@@ -88,7 +88,7 @@ export function analyzeChildCommand(
   }
 
   if (head === 'git') {
-    return filterBuiltinMatch(
+    return filterDestructiveCommandMatch(
       analyzeGitMatch(tokens, {
         cwd: context.cwd,
         envAssignments: context.envAssignments,
@@ -109,6 +109,6 @@ function getDynamicRmReason(
     options.rmDynamicMatch ??
     (options.rmDynamicReason ? { id: '', reason: options.rmDynamicReason } : undefined);
   return options.dynamicInput && rmDynamicMatch
-    ? filterBuiltinMatch(rmDynamicMatch, context.config)
+    ? filterDestructiveCommandMatch(rmDynamicMatch, context.config)
     : null;
 }

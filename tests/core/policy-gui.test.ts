@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUILTIN_RULE_IDS } from '@/core/builtin-rules';
+import { DESTRUCTIVE_COMMAND_RULE_IDS } from '@/core/destructive-command-rules';
 import {
-  BUILTIN_RULE_METADATA,
   DEFAULT_GUI_POLICY,
+  DESTRUCTIVE_COMMAND_RULE_METADATA,
   readUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
@@ -125,11 +125,11 @@ describe('policy GUI helpers', () => {
     expect(readFileSync(projectPolicyPath, 'utf-8')).toBe(JSON.stringify({ version: 1 }));
   });
 
-  test('built-in metadata covers every stable built-in id', () => {
-    expect(BUILTIN_RULE_METADATA.map((entry) => entry.id).sort()).toEqual(
-      [...BUILTIN_RULE_IDS].sort(),
+  test('destructive command metadata covers every stable destructive command id', () => {
+    expect(DESTRUCTIVE_COMMAND_RULE_METADATA.map((entry) => entry.id).sort()).toEqual(
+      [...DESTRUCTIVE_COMMAND_RULE_IDS].sort(),
     );
-    for (const entry of BUILTIN_RULE_METADATA) {
+    for (const entry of DESTRUCTIVE_COMMAND_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
       expect(entry.description).not.toBe('');

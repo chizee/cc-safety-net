@@ -1,5 +1,5 @@
-import { builtinMatch } from '@/core/builtin-rules';
-import type { BuiltinRuleMatch } from '@/types';
+import { destructiveCommandMatch } from '@/core/destructive-command-rules';
+import type { DestructiveCommandRuleMatch } from '@/types';
 
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 
@@ -16,13 +16,14 @@ export function analyzeAwkSystemCalls(
 export function analyzeAwkSystemCallMatch(
   tokens: readonly string[],
   analyzeNested: (command: string) => string | null,
-): BuiltinRuleMatch | null {
+): DestructiveCommandRuleMatch | null {
   for (const token of tokens.slice(1)) {
     if (!token.includes('system')) continue;
 
     const commands = extractAwkSystemCommands(token);
     if (!commands) continue;
-    if (commands.dynamic) return builtinMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
+    if (commands.dynamic)
+      return destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
 
     for (const command of commands.commands) {
       const reason = analyzeNested(command);

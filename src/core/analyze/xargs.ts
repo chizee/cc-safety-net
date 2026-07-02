@@ -3,7 +3,7 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommand,
 } from '@/core/analyze/child-command';
-import { builtinMatch } from '@/core/builtin-rules';
+import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 
 const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
@@ -35,8 +35,8 @@ export function analyzeXargs(
     },
     {
       dynamicInput: childCommand.head !== 'git',
-      shellDynamicMatch: builtinMatch('xargs.shell-dynamic', REASON_XARGS_SHELL),
-      rmDynamicMatch: builtinMatch('xargs.rm-recursive-force-dynamic', REASON_XARGS_RM),
+      shellDynamicMatch: destructiveCommandMatch('xargs.shell-dynamic', REASON_XARGS_SHELL),
+      rmDynamicMatch: destructiveCommandMatch('xargs.rm-recursive-force-dynamic', REASON_XARGS_RM),
     },
   );
   if (childResult) {

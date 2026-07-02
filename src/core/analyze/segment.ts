@@ -11,7 +11,10 @@ import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
-import { builtinMatch, filterBuiltinMatch } from '@/core/builtin-rules';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
 import { checkCustomRules } from '@/core/rules/custom';
@@ -25,8 +28,8 @@ import {
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
-  type BuiltinRuleMatch,
   type Config,
+  type DestructiveCommandRuleMatch,
   INTERPRETERS,
   PARANOID_INTERPRETERS_SUFFIX,
   SHELL_WRAPPERS,
@@ -56,7 +59,7 @@ interface CommandAnalysisContext {
   options: InternalOptions;
 }
 
-type CommandAnalyzer = (context: CommandAnalysisContext) => BuiltinRuleMatch | null;
+type CommandAnalyzer = (context: CommandAnalysisContext) => DestructiveCommandRuleMatch | null;
 
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['git', analyzeGitCommand],
@@ -142,7 +145,7 @@ export function analyzeSegment(
   }
 
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = filterBuiltinMatch(
+    const awkReason = filterDestructiveCommandMatch(
       analyzeAwkSystemCallMatch(stripped, (command) =>
         options.analyzeNested(command, {
           effectiveCwd: nestedEffectiveCwd,
@@ -160,8 +163,8 @@ export function analyzeSegment(
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options.paranoidInterpreters) {
-        const reason = filterBuiltinMatch(
-          builtinMatch(
+        const reason = filterDestructiveCommandMatch(
+          destructiveCommandMatch(
             'interpreter.one-liner-paranoid',
             REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX,
           ),
@@ -179,8 +182,8 @@ export function analyzeSegment(
       }
 
       if (containsDangerousCode(codeArg)) {
-        const reason = filterBuiltinMatch(
-          builtinMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+        const reason = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
           options.config,
         );
         if (reason) return reason;
@@ -210,7 +213,7 @@ export function analyzeSegment(
     options,
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = filterBuiltinMatch(
+  const commandResult = filterDestructiveCommandMatch(
     commandAnalyzer?.(commandContext) ?? null,
     options.config,
   );
@@ -230,7 +233,7 @@ export function analyzeSegment(
         const token = stripped[i];
         if (!token) continue;
 
-        const reason = filterBuiltinMatch(
+        const reason = filterDestructiveCommandMatch(
           analyzeEmbeddedCommand(commandContext, i),
           options.config,
         );
@@ -269,7 +272,7 @@ function getCommandAnalyzer(context: CommandAnalysisContext): CommandAnalyzer | 
 function analyzeEmbeddedCommand(
   context: CommandAnalysisContext,
   index: number,
-): BuiltinRuleMatch | null {
+): DestructiveCommandRuleMatch | null {
   const token = context.tokens[index];
   if (!token) {
     return null;
@@ -304,7 +307,7 @@ function analyzeEmbeddedCommand(
   return analyzer(embeddedContext);
 }
 
-function analyzeGitCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+function analyzeGitCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeGitMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
@@ -312,7 +315,7 @@ function analyzeGitCommand(context: CommandAnalysisContext): BuiltinRuleMatch | 
   });
 }
 
-function analyzeRmCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
@@ -321,7 +324,7 @@ function analyzeRmCommand(context: CommandAnalysisContext): BuiltinRuleMatch | n
   });
 }
 
-function analyzeFindCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
@@ -335,12 +338,14 @@ function analyzeFindCommand(context: CommandAnalysisContext): BuiltinRuleMatch |
   });
 }
 
-function analyzeXargsCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+function analyzeXargsCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   const reason = analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
   return reason ? { id: '', reason } : null;
 }
 
-function analyzeParallelCommand(context: CommandAnalysisContext): BuiltinRuleMatch | null {
+function analyzeParallelCommand(
+  context: CommandAnalysisContext,
+): DestructiveCommandRuleMatch | null {
   const reason = analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
     analyzeNested: context.options.analyzeNested,

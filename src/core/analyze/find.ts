@@ -1,7 +1,7 @@
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
-import { builtinMatch } from '@/core/builtin-rules';
+import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { getBasename, stripWrappers } from '@/core/shell';
-import type { AnalyzeNestedOverrides, BuiltinRuleMatch } from '@/types';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
 const FIND_PRIMARIES_WITH_VALUE = new Set([
@@ -63,10 +63,10 @@ export function analyzeFind(
 export function analyzeFindMatch(
   tokens: readonly string[],
   context: AnalyzeFindContext = {},
-): BuiltinRuleMatch | null {
+): DestructiveCommandRuleMatch | null {
   // Check for -delete outside of -exec/-execdir blocks
   if (findHasDelete(tokens.slice(1))) {
-    return builtinMatch('find.delete', REASON_FIND_DELETE);
+    return destructiveCommandMatch('find.delete', REASON_FIND_DELETE);
   }
 
   // Check all -exec and -execdir blocks for dangerous commands
@@ -109,7 +109,7 @@ export function analyzeFindMatch(
   return null;
 }
 
-function analyzeFindExecCommand(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeFindExecCommand(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   let execCommand = stripWrappers([...tokens]);
   if (execCommand.length === 0) {
     return null;
@@ -122,7 +122,7 @@ function analyzeFindExecCommand(tokens: readonly string[]): BuiltinRuleMatch | n
   }
 
   if (head === 'rm' && hasRecursiveForceFlags(execCommand)) {
-    return builtinMatch(
+    return destructiveCommandMatch(
       'find.exec-rm-recursive-force',
       'find -exec rm -rf is dangerous. Use explicit file list instead.',
     );

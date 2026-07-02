@@ -7,7 +7,10 @@ import {
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
-import { builtinMatch, filterBuiltinMatch } from '@/core/builtin-rules';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/core/destructive-command-rules';
 import { type AnalyzeNestedOverrides, SHELL_WRAPPERS } from '@/types';
 
 const REASON_PARALLEL_RM =
@@ -157,8 +160,11 @@ export function analyzeParallel(
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
-        shellDynamicMatch: builtinMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
-        rmDynamicMatch: builtinMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
+        shellDynamicMatch: destructiveCommandMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
+        rmDynamicMatch: destructiveCommandMatch(
+          'parallel.rm-recursive-force-dynamic',
+          REASON_PARALLEL_RM,
+        ),
       },
     );
     if (result) {
@@ -170,15 +176,15 @@ export function analyzeParallel(
 }
 
 function parallelShellDynamicReason(context: ParallelAnalyzeContext): string | null {
-  return filterBuiltinMatch(
-    builtinMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
+  return filterDestructiveCommandMatch(
+    destructiveCommandMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
     context.config,
   );
 }
 
 function parallelRmDynamicReason(context: ParallelAnalyzeContext): string | null {
-  return filterBuiltinMatch(
-    builtinMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
+  return filterDestructiveCommandMatch(
+    destructiveCommandMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
     context.config,
   );
 }
@@ -189,7 +195,7 @@ function analyzeParallelRmExpansions(
   context: ParallelAnalyzeContext,
 ): string | null {
   for (const tokens of tokenSets) {
-    const rmResult = filterBuiltinMatch(
+    const rmResult = filterDestructiveCommandMatch(
       analyzeRmMatch(tokens, {
         cwd,
         originalCwd: context.originalCwd,

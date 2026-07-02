@@ -251,7 +251,7 @@ describe('runtime config loading', () => {
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.failClosedReason).toBeUndefined();
-    expect(config.disabledBuiltinRules).toEqual(new Set());
+    expect(config.disabledDestructiveCommandRules).toEqual(new Set());
     expect(config.secretProtection?.disabledRules).toEqual(new Set());
     expect(config.modes).toEqual({});
   });
@@ -268,7 +268,7 @@ describe('runtime config loading', () => {
 
     expect(config.failClosedReason).toContain('invalid policy config');
     expect(config.failClosedReason).toContain('unknown field "extra"');
-    expect(config.failClosedReason).toContain('unknown built-in rule id "git.unknown"');
+    expect(config.failClosedReason).toContain('unknown destructive command rule id "git.unknown"');
     expect(config.failClosedReason).toContain('builtins.overrides.git.reset-hard must be "off"');
     expect(config.failClosedReason).toContain('unknown secret protection rule id "secret.unknown"');
     expect(config.failClosedReason).toContain(

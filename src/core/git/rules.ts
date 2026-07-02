@@ -1,6 +1,6 @@
-import { builtinMatch } from '@/core/builtin-rules';
+import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { extractShortOpts } from '@/core/shell';
-import type { BuiltinRuleMatch } from '@/types';
+import type { DestructiveCommandRuleMatch } from '@/types';
 import { extractGitSubcommandAndRest, splitAtDoubleDash } from './parse';
 
 const REASON_CHECKOUT_DOUBLE_DASH =
@@ -92,7 +92,7 @@ const CHECKOUT_KNOWN_OPTS_NO_VALUE = new Set([
   '--no-recurse-submodules',
 ]);
 
-export interface GitRuleMatch extends BuiltinRuleMatch {
+export interface GitRuleMatch extends DestructiveCommandRuleMatch {
   reason: string;
   localDiscard: boolean;
 }
@@ -146,22 +146,22 @@ export function analyzeGitRule(tokens: readonly string[]): GitRuleMatch | null {
   }
 }
 
-function localDiscard(match: BuiltinRuleMatch | null): GitRuleMatch | null {
+function localDiscard(match: DestructiveCommandRuleMatch | null): GitRuleMatch | null {
   return match ? { ...match, localDiscard: true } : null;
 }
 
-function sharedState(match: BuiltinRuleMatch | null): GitRuleMatch | null {
+function sharedState(match: DestructiveCommandRuleMatch | null): GitRuleMatch | null {
   return match ? { ...match, localDiscard: false } : null;
 }
 
-function analyzeGitCheckout(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitCheckout(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { index: doubleDashIdx, before: beforeDash } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(beforeDash, {
     shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE,
   });
 
   if (beforeDash.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f')) {
-    return builtinMatch('git.checkout-force', REASON_CHECKOUT_FORCE);
+    return destructiveCommandMatch('git.checkout-force', REASON_CHECKOUT_FORCE);
   }
 
   for (const token of tokens) {
@@ -169,7 +169,10 @@ function analyzeGitCheckout(tokens: readonly string[]): BuiltinRuleMatch | null 
       return null;
     }
     if (matchesGitLongOption(token, '--pathspec-from-file')) {
-      return builtinMatch('git.checkout-pathspec-from-file', REASON_CHECKOUT_PATHSPEC_FROM_FILE);
+      return destructiveCommandMatch(
+        'git.checkout-pathspec-from-file',
+        REASON_CHECKOUT_PATHSPEC_FROM_FILE,
+      );
     }
   }
 
@@ -177,31 +180,31 @@ function analyzeGitCheckout(tokens: readonly string[]): BuiltinRuleMatch | null 
     const hasRefBeforeDash = beforeDash.some((t) => !t.startsWith('-'));
 
     if (hasRefBeforeDash) {
-      return builtinMatch('git.checkout-ref-path', REASON_CHECKOUT_REF_PATH);
+      return destructiveCommandMatch('git.checkout-ref-path', REASON_CHECKOUT_REF_PATH);
     }
-    return builtinMatch('git.checkout-double-dash', REASON_CHECKOUT_DOUBLE_DASH);
+    return destructiveCommandMatch('git.checkout-double-dash', REASON_CHECKOUT_DOUBLE_DASH);
   }
 
   const positionalArgs = getCheckoutPositionalArgs(tokens);
   if (positionalArgs.length >= 2) {
-    return builtinMatch('git.checkout-ambiguous', REASON_CHECKOUT_AMBIGUOUS);
+    return destructiveCommandMatch('git.checkout-ambiguous', REASON_CHECKOUT_AMBIGUOUS);
   }
 
   return null;
 }
 
-function analyzeGitSwitch(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitSwitch(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
 
   if (before.some((token) => matchesGitLongOption(token, '--discard-changes'))) {
-    return builtinMatch('git.switch-discard-changes', REASON_SWITCH_DISCARD_CHANGES);
+    return destructiveCommandMatch('git.switch-discard-changes', REASON_SWITCH_DISCARD_CHANGES);
   }
 
   const shortOpts = extractShortOpts(before, {
     shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE,
   });
   if (before.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f')) {
-    return builtinMatch('git.switch-force', REASON_SWITCH_FORCE);
+    return destructiveCommandMatch('git.switch-force', REASON_SWITCH_FORCE);
   }
 
   return null;
@@ -260,32 +263,32 @@ function getCheckoutPositionalArgs(tokens: readonly string[]): string[] {
   return positional;
 }
 
-function analyzeGitRestore(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitRestore(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   let hasStaged = false;
   for (const token of tokens) {
     if (token === '--help' || token === '--version') {
       return null;
     }
     if (token === '--worktree' || token === '-W') {
-      return builtinMatch('git.restore-worktree', REASON_RESTORE_WORKTREE);
+      return destructiveCommandMatch('git.restore-worktree', REASON_RESTORE_WORKTREE);
     }
     if (token === '--staged' || token === '-S') {
       hasStaged = true;
     }
   }
-  return hasStaged ? null : builtinMatch('git.restore-unstaged', REASON_RESTORE);
+  return hasStaged ? null : destructiveCommandMatch('git.restore-unstaged', REASON_RESTORE);
 }
 
 function analyzeGitReset(tokens: readonly string[]): GitRuleMatch | null {
-  let match: BuiltinRuleMatch | null = null;
+  let match: DestructiveCommandRuleMatch | null = null;
 
   for (const token of tokens) {
     if (matchesGitLongOption(token, '--hard')) {
-      match = builtinMatch('git.reset-hard', REASON_RESET_HARD);
+      match = destructiveCommandMatch('git.reset-hard', REASON_RESET_HARD);
       break;
     }
     if (matchesGitLongOption(token, '--merge')) {
-      match = builtinMatch('git.reset-merge', REASON_RESET_MERGE);
+      match = destructiveCommandMatch('git.reset-merge', REASON_RESET_MERGE);
       break;
     }
   }
@@ -309,7 +312,7 @@ function resetHasRef(tokens: readonly string[]): boolean {
   return false;
 }
 
-function analyzeGitClean(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitClean(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   for (const token of tokens) {
     if (token === '-n' || matchesGitLongOption(token, '--dry-run')) {
       return null;
@@ -318,25 +321,25 @@ function analyzeGitClean(tokens: readonly string[]): BuiltinRuleMatch | null {
 
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== '--'));
   if (tokens.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f')) {
-    return builtinMatch('git.clean-force', REASON_CLEAN);
+    return destructiveCommandMatch('git.clean-force', REASON_CLEAN);
   }
 
   return null;
 }
 
-function analyzeGitPush(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitPush(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const shortOpts = extractShortOpts(tokens.filter((t) => t !== '--'));
   const hasForce =
     tokens.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f');
 
   if (hasForce) {
-    return builtinMatch('git.push-force', REASON_PUSH_FORCE);
+    return destructiveCommandMatch('git.push-force', REASON_PUSH_FORCE);
   }
 
   return null;
 }
 
-function analyzeGitBranch(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitBranch(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
   const hasDelete =
@@ -348,57 +351,59 @@ function analyzeGitBranch(tokens: readonly string[]): BuiltinRuleMatch | null {
     shortOpts.has('-f') ||
     before.some((token) => matchesGitLongOption(token, '--force'));
   if (hasDelete && hasForce) {
-    return builtinMatch('git.branch-force-delete', REASON_BRANCH_DELETE);
+    return destructiveCommandMatch('git.branch-force-delete', REASON_BRANCH_DELETE);
   }
   return null;
 }
 
-function analyzeGitRebase(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitRebase(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
   return before.some((token) => matchesGitLongOption(token, '--abort'))
-    ? builtinMatch('git.rebase-abort', REASON_REBASE_ABORT)
+    ? destructiveCommandMatch('git.rebase-abort', REASON_REBASE_ABORT)
     : null;
 }
 
-function analyzeGitMerge(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitMerge(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
   return before.some((token) => matchesGitLongOption(token, '--abort'))
-    ? builtinMatch('git.merge-abort', REASON_MERGE_ABORT)
+    ? destructiveCommandMatch('git.merge-abort', REASON_MERGE_ABORT)
     : null;
 }
 
-function analyzeGitTag(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitTag(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
   return shortOpts.has('-d') || before.some((token) => matchesGitLongOption(token, '--delete'))
-    ? builtinMatch('git.tag-delete', REASON_TAG_DELETE)
+    ? destructiveCommandMatch('git.tag-delete', REASON_TAG_DELETE)
     : null;
 }
 
-function analyzeGitReflog(tokens: readonly string[]): BuiltinRuleMatch | null {
-  return tokens[0] === 'delete' ? builtinMatch('git.reflog-delete', REASON_REFLOG_DELETE) : null;
+function analyzeGitReflog(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
+  return tokens[0] === 'delete'
+    ? destructiveCommandMatch('git.reflog-delete', REASON_REFLOG_DELETE)
+    : null;
 }
 
-function analyzeGitStash(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitStash(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   for (const token of tokens) {
     if (token === 'drop') {
-      return builtinMatch('git.stash-drop', REASON_STASH_DROP);
+      return destructiveCommandMatch('git.stash-drop', REASON_STASH_DROP);
     }
     if (token === 'clear') {
-      return builtinMatch('git.stash-clear', REASON_STASH_CLEAR);
+      return destructiveCommandMatch('git.stash-clear', REASON_STASH_CLEAR);
     }
   }
   return null;
 }
 
-function analyzeGitWorktree(tokens: readonly string[]): BuiltinRuleMatch | null {
+function analyzeGitWorktree(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before } = splitAtDoubleDash(tokens);
   const hasRemove = before.includes('remove');
   if (!hasRemove) return null;
 
   const shortOpts = extractShortOpts(before);
   if (before.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f')) {
-    return builtinMatch('git.worktree-remove-force', REASON_WORKTREE_REMOVE_FORCE);
+    return destructiveCommandMatch('git.worktree-remove-force', REASON_WORKTREE_REMOVE_FORCE);
   }
 
   return null;

@@ -59,11 +59,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('cc-safety-net-gui-custom-css');
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
-      expect(html).toContain('Built-in Protections');
-      expect(html).toContain('id="builtin-search"');
+      expect(html).toContain('Destructive Command Protection');
+      expect(html).toContain('id="destructive-command-search"');
       expect(html).toContain('class="panel foldable"');
-      expect(html).toContain('aria-controls="builtins-panel-content"');
-      expect(html).toContain('id="builtins-panel-content"');
+      expect(html).toContain('aria-controls="destructive-command-panel-content"');
+      expect(html).toContain('id="destructive-command-panel-content"');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).toContain('<dialog class="confirm-dialog" id="confirm-dialog"');

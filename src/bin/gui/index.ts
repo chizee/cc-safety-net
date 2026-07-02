@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
-  BUILTIN_RULE_METADATA,
   DEFAULT_GUI_POLICY,
+  DESTRUCTIVE_COMMAND_RULE_METADATA,
   readUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
@@ -124,7 +124,7 @@ async function handleRequest(
   if (request.method === 'GET' && url.pathname === '/api/policy') {
     sendJson(response, 200, {
       ...readUserPolicyForGui(options),
-      builtins: BUILTIN_RULE_METADATA,
+      builtins: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
     });
     return;

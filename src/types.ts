@@ -26,8 +26,8 @@ export interface Config {
   transparent_wrappers?: string[];
   /** Runtime modes loaded from policy config */
   modes?: PolicyModes;
-  /** Built-in rule IDs disabled by trusted user policy */
-  disabledBuiltinRules?: ReadonlySet<string>;
+  /** Destructive command rule IDs disabled by trusted user policy */
+  disabledDestructiveCommandRules?: ReadonlySet<string>;
   /** Secret protection policy loaded from trusted user policy config */
   secretProtection?: SecretProtectionConfig;
   /** Fail-closed reason when rule-backed config cannot be loaded safely. */
@@ -48,7 +48,7 @@ export interface SecretProtectionConfig {
   denyPaths: string[];
 }
 
-export interface BuiltinRuleMatch {
+export interface DestructiveCommandRuleMatch {
   id: string;
   reason: string;
 }

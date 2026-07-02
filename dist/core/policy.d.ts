@@ -1,10 +1,10 @@
-export { BUILTIN_RULE_METADATA } from '@/core/builtin-rules';
+export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicyModes, SecretProtectionConfig } from '@/types';
 type PolicyConfig = {
     modes: PolicyModes;
-    disabledBuiltinRules: Set<string>;
+    disabledDestructiveCommandRules: Set<string>;
     secretProtection: SecretProtectionConfig;
     errors: string[];
 };

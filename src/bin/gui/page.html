@@ -42,15 +42,15 @@
     <section class="panel foldable">
       <div class="panel-head">
         <div class="panel-title">
-          <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="builtins-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Built-in Protections</span></button></h2>
-          <p class="panel-sub muted" id="builtins-summary"></p>
+          <h2><button class="panel-toggle" type="button" aria-expanded="true" aria-controls="destructive-command-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Destructive Command Protection</span></button></h2>
+          <p class="panel-sub muted" id="destructive-command-summary"></p>
         </div>
         <label class="search">
           <span>Search protections</span>
-          <input type="search" id="builtin-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+          <input type="search" id="destructive-command-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
         </label>
       </div>
-      <div id="builtins-panel-content">
+      <div id="destructive-command-panel-content">
         <div id="builtins"></div>
       </div>
     </section>
@@ -239,7 +239,7 @@
       qs(options.targetId).innerHTML = rules.length === 0
         ? `<p class="empty">${escapeHtml(options.emptyText)}</p>`
         : groupRules(rules).map((group) => `
-          <section class="builtin-group">
+          <section class="destructive-command-group">
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules.map((rule) => {
               const active = options.overrides[rule.id] !== 'off';
@@ -254,7 +254,7 @@
           </section>
         `).join('');
     };
-    const builtinSummaryText = (disabledCount) =>
+    const destructiveCommandSummaryText = (disabledCount) =>
       `${state.builtins.length - disabledCount} active, ${disabledCount} disabled`;
     const secretSummaryText = (disabledCount) =>
       `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are always blocked.`;
@@ -266,15 +266,15 @@
       }
       qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
     };
-    const renderBuiltins = () => renderRuleToggles({
-      searchId: 'builtin-search',
+    const renderDestructiveCommands = () => renderRuleToggles({
+      searchId: 'destructive-command-search',
       rules: state.builtins,
       overrides: draftPolicy.builtins.overrides,
-      summaryId: 'builtins-summary',
+      summaryId: 'destructive-command-summary',
       targetId: 'builtins',
-      dataAttribute: 'data-builtin-active',
+      dataAttribute: 'data-destructive-command-active',
       emptyText: 'No built-in protections match the search.',
-      summaryText: builtinSummaryText
+      summaryText: destructiveCommandSummaryText
     });
     const renderSecretPatterns = () => {
       renderRuleToggles({
@@ -301,9 +301,9 @@
         '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths stay blocked even when default patterns are disabled.</small></label>' +
         '<textarea id="deny-paths">' + escapeHtml(state.policy.secret_protection.deny_paths.join('\n')) + '</textarea>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
-      qs('builtin-search').value = '';
+      qs('destructive-command-search').value = '';
       qs('secret-search').value = '';
-      renderBuiltins();
+      renderDestructiveCommands();
       renderSecretPatterns();
       updateRawSource();
       setStatus(
@@ -332,8 +332,8 @@
     }
     document.addEventListener('input', (event) => {
       const input = event.target;
-      if (input.id === 'builtin-search') {
-        renderBuiltins();
+      if (input.id === 'destructive-command-search') {
+        renderDestructiveCommands();
         return;
       }
       if (input.id === 'secret-search') {
@@ -357,10 +357,14 @@
         syncRawFromForm();
         return;
       }
-      if (input.dataset?.builtinActive) {
-        if (input.checked) delete draftPolicy.builtins.overrides[input.dataset.builtinActive];
-        else draftPolicy.builtins.overrides[input.dataset.builtinActive] = 'off';
-        updateRuleRow(input, input.checked, 'builtins-summary', draftPolicy.builtins.overrides, builtinSummaryText);
+      if (input.dataset?.destructiveCommandActive) {
+        if (input.checked) {
+          delete draftPolicy.builtins.overrides[input.dataset.destructiveCommandActive];
+        }
+        if (!input.checked) {
+          draftPolicy.builtins.overrides[input.dataset.destructiveCommandActive] = 'off';
+        }
+        updateRuleRow(input, input.checked, 'destructive-command-summary', draftPolicy.builtins.overrides, destructiveCommandSummaryText);
         syncRawFromForm();
         return;
       }

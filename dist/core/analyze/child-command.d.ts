@@ -2,7 +2,7 @@ import type { Config } from '@/types';
 export interface ChildCommandContext {
     cwd: string | undefined;
     envAssignments?: ReadonlyMap<string, string>;
-    config?: Pick<Config, 'rules' | 'transparent_wrappers' | 'disabledBuiltinRules'>;
+    config?: Pick<Config, 'rules' | 'transparent_wrappers' | 'disabledDestructiveCommandRules'>;
 }
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
     originalCwd: string | undefined;

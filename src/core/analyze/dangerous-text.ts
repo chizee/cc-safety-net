@@ -1,11 +1,11 @@
-import { builtinMatch } from '@/core/builtin-rules';
-import type { BuiltinRuleMatch } from '@/types';
+import { destructiveCommandMatch } from '@/core/destructive-command-rules';
+import type { DestructiveCommandRuleMatch } from '@/types';
 
 export function dangerousInText(text: string): string | null {
   return dangerousInTextMatch(text)?.reason ?? null;
 }
 
-export function dangerousInTextMatch(text: string): BuiltinRuleMatch | null {
+export function dangerousInTextMatch(text: string): DestructiveCommandRuleMatch | null {
   const t = text.toLowerCase();
   const stripped = t.trimStart();
   const isEchoOrRg = stripped.startsWith('echo ') || stripped.startsWith('rg ');
@@ -74,7 +74,7 @@ export function dangerousInTextMatch(text: string): BuiltinRuleMatch | null {
     if (skipForEchoRg && isEchoOrRg) continue;
     const target = caseSensitive ? text : t;
     if (regex.test(target)) {
-      return builtinMatch('raw-text.dangerous-command', reason);
+      return destructiveCommandMatch('raw-text.dangerous-command', reason);
     }
   }
   return null;
