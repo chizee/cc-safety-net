@@ -11172,6 +11172,11 @@ var custom_default = `/* cc-safety-net-gui-custom-css */
   --err-bg: light-dark(#fef2f1, #2b1512);
   --err-border: light-dark(#f2c9c4, #5c2620);
 
+  --master: light-dark(#1d4ed8, #4c8dff);
+  --master-fg: light-dark(#1e40af, #9ec3ff);
+  --master-bg: light-dark(#eef4fe, #101a2b);
+  --master-border: light-dark(#c5d6f6, #23446e);
+
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -11580,6 +11585,79 @@ label.row small {
 
 #destructive-command > label.row {
   margin-bottom: 16px;
+}
+
+label.row.master {
+  align-items: center;
+  padding: 12px 14px;
+  border-color: var(--err-border);
+  background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
+}
+
+label.row.master:hover {
+  border-color: color-mix(in srgb, var(--err-fg) 34%, var(--err-border));
+  background: var(--err-bg);
+}
+
+label.row.master:has(input:checked) {
+  border-color: var(--master-border);
+  background: color-mix(in srgb, var(--master-bg) 72%, var(--surface));
+}
+
+label.row.master:has(input:checked):hover {
+  border-color: color-mix(in srgb, var(--master) 42%, var(--master-border));
+  background: var(--master-bg);
+}
+
+label.row.master strong {
+  font-size: 14px;
+}
+
+label.row.master input[type="checkbox"] {
+  margin: 0;
+  width: 44px;
+  height: 24px;
+}
+
+label.row.master input[type="checkbox"]:checked {
+  background: var(--master);
+  border-color: var(--master);
+}
+
+label.row.master input[type="checkbox"]::before {
+  width: 18px;
+  height: 18px;
+}
+
+label.row.master input[type="checkbox"]:checked::before {
+  transform: translateX(20px);
+}
+
+.master-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--err-border);
+  border-radius: 999px;
+  background: var(--err-bg);
+  color: var(--err-fg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.master-badge::before {
+  content: "Off";
+}
+
+label.row.master:has(input:checked) .master-badge {
+  border-color: var(--master-border);
+  background: var(--master-bg);
+  color: var(--master-fg);
+}
+
+label.row.master:has(input:checked) .master-badge::before {
+  content: "On";
 }
 
 .state-active {
@@ -12022,10 +12100,10 @@ var page_default = `<!doctype html>
         \`<label class="row"><input type="checkbox" data-mode="\${key}" \${checkbox(state.policy.modes[key])}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
       ).join('');
       qs('destructive-command').innerHTML =
-        '<label class="row"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span></label>' +
+        '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>';
       qs('secret').innerHTML =
-        '<label class="row"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns and configured deny paths.</small></span></label>' +
+        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<label class="field" for="deny-paths"><span>Deny paths</span><small>One path per line. Exact normalized paths are blocked while Secret protection is on.</small></label>' +
         '<textarea id="deny-paths" ' + (state.policy.secret_protection.enabled ? '' : 'disabled') + '>' + escapeHtml(state.policy.secret_protection.deny_paths.join('\\n')) + '</textarea>';
