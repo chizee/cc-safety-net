@@ -66,8 +66,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('data-destructive-command-enabled');
       expect(html).toContain('id="policy-search"');
       expect(html).toContain('Search all protections');
-      expect(html.indexOf('id="policy-search"')).toBeGreaterThan(html.indexOf('id="reset"'));
-      expect(html).toContain('flex: 1 0 100%;');
+      expect(html.indexOf('id="policy-search"')).toBeLessThan(html.indexOf('id="reset"'));
+      expect(html).toContain('flex: 1 1 240px;');
       expect(html).toContain('max-width: none;');
       expect(html).toContain('.titlewrap {\n    flex: none;');
       expect(html).toContain('.appbar-search {\n    flex: none;');

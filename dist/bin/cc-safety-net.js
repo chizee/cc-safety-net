@@ -11203,16 +11203,15 @@ body {
 .appbar-inner {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 16px 28px;
+  padding: 12px 28px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
 .titlewrap {
-  flex: 1 1 260px;
+  flex: 1 1 300px;
   min-width: 0;
 }
 
@@ -11239,17 +11238,22 @@ h1 {
 }
 
 .appbar-search {
-  display: grid;
-  gap: 6px;
-  flex: 1 0 100%;
-  max-width: none;
-  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 180px;
+  max-width: 380px;
 }
 
-.appbar-search > span {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 button {
@@ -11458,7 +11462,7 @@ main {
 
 h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -11471,14 +11475,14 @@ h2 {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 label.row {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -11589,7 +11593,7 @@ label.row small {
 }
 
 .destructive-command-group + .destructive-command-group {
-  margin-top: 20px;
+  margin-top: 24px;
 }
 
 .destructive-command-group h3 {
@@ -11696,6 +11700,7 @@ textarea {
 
   .appbar-search {
     flex: none;
+    max-width: none;
   }
 
   .panel {
@@ -11736,15 +11741,15 @@ var page_default = `<!doctype html>
         <h1>CC Safety Net Policy</h1>
         <div id="policy-path"></div>
       </div>
+      <label class="appbar-search">
+        <span class="sr-only">Search all protections</span>
+        <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+      </label>
       <div class="actions">
         <button type="button" id="theme-toggle"></button>
         <button class="primary" id="save">Save</button>
         <button class="danger" id="reset">Reset</button>
       </div>
-      <label class="appbar-search">
-        <span>Search all protections</span>
-        <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-      </label>
     </div>
   </header>
   <main>
