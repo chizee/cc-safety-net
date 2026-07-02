@@ -232,6 +232,10 @@
       groups.push({ category: rule.category, rules: [rule] });
       return groups;
     }, []);
+    const ruleState = (active, sectionDisabled) => {
+      if (active && !sectionDisabled) return { label: 'Active', className: 'state-active' };
+      return { label: 'Disabled', className: 'state-disabled' };
+    };
     const renderRuleToggles = (options) => {
       const query = qs('policy-search').value.trim().toLowerCase();
       const rules = options.rules.filter((rule) =>
@@ -246,12 +250,13 @@
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules.map((rule) => {
               const active = options.overrides[rule.id] !== 'off';
+              const state = ruleState(active, options.disabled);
               const disabled = options.disabled ? 'disabled' : '';
               return `<label class="row ${options.disabled ? 'row-disabled' : ''}">
                 <input type="checkbox" ${options.dataAttribute}="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled}>
                 <span>
                   <strong>${escapeHtml(rule.label)}</strong>
-                  <small><span class="${active ? 'state-active' : 'state-disabled'}">${active ? 'Active' : 'Disabled'}</span> ${escapeHtml(rule.description)}</small>
+                  <small><span class="${state.className}">${state.label}</span> ${escapeHtml(rule.description)}</small>
                 </span>
               </label>`;
             }).join('')}</div>
@@ -261,14 +266,17 @@
     const destructiveCommandSummaryText = (disabledCount) =>
       draftPolicy.destructive_command_protection.enabled
         ? `${state.destructiveCommandRules.length - disabledCount} active, ${disabledCount} disabled`
-        : 'Protection disabled. Custom rules and secret protection still apply.';
+        : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
     const secretSummaryText = (disabledCount) =>
-      `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are blocked while Secret protection is on.`;
+      draftPolicy.secret_protection.enabled
+        ? `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are blocked while Secret protection is on.`
+        : 'Protection disabled. Saved rule settings and deny paths are preserved.';
     const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
       const stateLabel = input.closest('.row')?.querySelector('small span');
       if (stateLabel) {
-        stateLabel.textContent = active ? 'Active' : 'Disabled';
-        stateLabel.className = active ? 'state-active' : 'state-disabled';
+        const state = ruleState(active, false);
+        stateLabel.textContent = state.label;
+        stateLabel.className = state.className;
       }
       qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
     };

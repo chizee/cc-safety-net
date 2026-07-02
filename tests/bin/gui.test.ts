@@ -86,6 +86,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
+      expect(html).not.toContain('Paused');
+      expect(html).not.toContain('state-paused');
       expect(html).toContain('<dialog class="confirm-dialog" id="confirm-dialog"');
       expect(html).toContain('id="confirm-dialog-title"');
       expect(html).toContain('id="confirm-dialog-confirm"');
@@ -95,6 +97,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('const confirmProtectionDisable =');
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
+      expect(html).toContain('Protection disabled. Saved rule settings are preserved.');
       expect(html).toContain('Disable secret protection?');
       expect(html).toContain(
         'Default sensitive path patterns and deny paths will stop blocking access until you turn this back on.',
