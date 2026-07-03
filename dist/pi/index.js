@@ -7533,7 +7533,7 @@ function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
     return [];
   }
-  const targets = [];
+  const targets = extractDecodedCommandSubstitutionTargets(command2);
   const tokens = $parse(command2.replace(/\n/g, " ; "), {});
   let segment = [];
   for (let i = 0;i < tokens.length; i++) {
@@ -7659,7 +7659,126 @@ function extractInterpreterPathTargets(tokens) {
 function extractPathLiteralsFromCode(code) {
   const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== undefined && value !== "");
   const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
-  return [...quoted, ...bare];
+  return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
+}
+function extractDecodedCommandSubstitutionTargets(command2) {
+  return extractCommandSubstitutionBodies(command2).flatMap((body) => commandSubstitutionDecodesBase64(body) ? extractBase64DecodedPathCandidates($parse(body.replace(/\n/g, " ; "), ENV_PROXY)) : []);
+}
+function commandSubstitutionDecodesBase64(command2) {
+  const tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
+  for (let i = 0;i < tokens.length; i++) {
+    const token = getCommandTokenText(tokens[i]);
+    if (token === null || basename(token).toLowerCase() !== "base64") {
+      continue;
+    }
+    for (let j = i + 1;j < tokens.length; j++) {
+      if (isOperator2(tokens[j]))
+        break;
+      const flag = getCommandTokenText(tokens[j]);
+      if (flag && isBase64DecodeFlag(flag))
+        return true;
+    }
+  }
+  return false;
+}
+function extractBase64DecodedPathCandidates(tokens) {
+  return tokens.flatMap((token) => {
+    const tokenText = getCommandTokenText(token);
+    return tokenText === null ? [] : [tokenText];
+  }).flatMap(decodeBase64PathCandidate);
+}
+function decodeBase64PathCandidate(token) {
+  const normalized = normalizeBase64Token(token);
+  if (normalized === null)
+    return [];
+  const decoded = Buffer.from(normalized, "base64").toString("utf8");
+  if (decoded === "" || hasControlCharacter(decoded))
+    return [];
+  const canonical = Buffer.from(decoded, "utf8").toString("base64").replace(/=+$/g, "");
+  return canonical === normalized.replace(/=+$/g, "") ? [decoded] : [];
+}
+function hasControlCharacter(value) {
+  return Array.from(value).some((char) => {
+    const code = char.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+}
+function normalizeBase64Token(token) {
+  if (token.length < 8 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(token))
+    return null;
+  if (/=/.test(token.replace(/=+$/g, "")))
+    return null;
+  const unpadded = token.replace(/=+$/g, "");
+  if (unpadded.length % 4 === 1)
+    return null;
+  return `${unpadded.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat((4 - unpadded.length % 4) % 4)}`;
+}
+function isBase64DecodeFlag(flag) {
+  return flag === "--decode" || !flag.startsWith("--") && flag.startsWith("-") && /[dD]/.test(flag);
+}
+function extractCommandSubstitutionBodies(command2) {
+  const bodies = [];
+  const quoteState = { inSingle: false, inDouble: false, escaped: false };
+  for (let i = 0;i < command2.length; i++) {
+    const char = command2[i];
+    if (!char)
+      break;
+    if (advanceQuoteState(char, quoteState))
+      continue;
+    if (startsCommandSubstitution(command2, i, quoteState)) {
+      const substitution = readCommandSubstitutionBody(command2, i + 1);
+      if (substitution !== null) {
+        bodies.push(substitution.body);
+        i = substitution.endIndex;
+      }
+    }
+  }
+  return bodies;
+}
+function readCommandSubstitutionBody(command2, startIndex) {
+  const quoteState = { inSingle: false, inDouble: false, escaped: false };
+  let depth = 1;
+  for (let i = startIndex + 1;i < command2.length; i++) {
+    const char = command2[i];
+    if (!char)
+      break;
+    if (advanceQuoteState(char, quoteState))
+      continue;
+    if (startsCommandSubstitution(command2, i, quoteState)) {
+      depth++;
+      i++;
+      continue;
+    }
+    if (!quoteState.inSingle && !quoteState.inDouble && char === ")") {
+      depth--;
+      if (depth === 0) {
+        return { body: command2.slice(startIndex + 1, i), endIndex: i };
+      }
+    }
+  }
+  return null;
+}
+function startsCommandSubstitution(command2, index, state) {
+  return !state.inSingle && command2[index] === "$" && command2[index + 1] === "(" && command2[index + 2] !== "(";
+}
+function advanceQuoteState(char, state) {
+  if (state.escaped) {
+    state.escaped = false;
+    return true;
+  }
+  if (char === "\\" && !state.inSingle) {
+    state.escaped = true;
+    return true;
+  }
+  if (char === "'" && !state.inDouble) {
+    state.inSingle = !state.inSingle;
+    return true;
+  }
+  if (char === '"' && !state.inSingle) {
+    state.inDouble = !state.inDouble;
+    return true;
+  }
+  return false;
 }
 function extractPatternCommandTargets(tokens) {
   const optionFileTargets = [];

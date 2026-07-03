@@ -12,7 +12,7 @@ import {
   SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_VARIANT_SEPARATOR_RULES,
 } from '@/core/secret-protection-rules';
-import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import type { SecretProtectionConfig } from '@/types';
 
 export const REASON_SECRET_PROTECTION =
@@ -176,7 +176,7 @@ function extractCommandPathTargets(command: string): string[] {
     return [];
   }
 
-  const targets: string[] = [];
+  const targets = extractDecodedCommandSubstitutionTargets(command);
   const tokens = parse(command.replace(/\n/g, ' ; '), {});
   let segment: string[] = [];
 
@@ -320,16 +320,160 @@ function extractInterpreterPathTargets(tokens: readonly string[]): string[] {
 }
 
 // Pulls candidate paths out of an interpreter code body: every quoted string
-// literal (the file-name argument in the common exploit) plus any bare
-// path-looking token (to catch unquoted shell code like `bash -c "cat .env"`).
-// Sensitivity is still decided by exact-match rules downstream, so extra
-// non-secret candidates are harmless.
+// literal (the file-name argument in the common exploit), strict base64 decodes
+// of those literals, plus any bare path-looking token (to catch unquoted shell
+// code like `bash -c "cat .env"`). Sensitivity is still decided by exact-match
+// rules downstream, so extra non-secret candidates are harmless.
 function extractPathLiteralsFromCode(code: string): string[] {
   const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g))
     .map((match) => match[2])
     .filter((value): value is string => value !== undefined && value !== '');
   const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
-  return [...quoted, ...bare];
+  return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
+}
+
+function extractDecodedCommandSubstitutionTargets(command: string): string[] {
+  return extractCommandSubstitutionBodies(command).flatMap((body) =>
+    commandSubstitutionDecodesBase64(body)
+      ? extractBase64DecodedPathCandidates(parse(body.replace(/\n/g, ' ; '), ENV_PROXY))
+      : [],
+  );
+}
+
+function commandSubstitutionDecodesBase64(command: string): boolean {
+  const tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = getCommandTokenText(tokens[i] as ParseEntry | undefined);
+    if (token === null || basename(token).toLowerCase() !== 'base64') {
+      continue;
+    }
+    for (let j = i + 1; j < tokens.length; j++) {
+      if (isOperator(tokens[j] as ParseEntry)) break;
+      const flag = getCommandTokenText(tokens[j] as ParseEntry | undefined);
+      if (flag && isBase64DecodeFlag(flag)) return true;
+    }
+  }
+  return false;
+}
+
+function extractBase64DecodedPathCandidates(tokens: readonly ParseEntry[]): string[] {
+  return tokens
+    .flatMap((token) => {
+      const tokenText = getCommandTokenText(token);
+      return tokenText === null ? [] : [tokenText];
+    })
+    .flatMap(decodeBase64PathCandidate);
+}
+
+function decodeBase64PathCandidate(token: string): string[] {
+  const normalized = normalizeBase64Token(token);
+  if (normalized === null) return [];
+  const decoded = Buffer.from(normalized, 'base64').toString('utf8');
+  if (decoded === '' || hasControlCharacter(decoded)) return [];
+  const canonical = Buffer.from(decoded, 'utf8').toString('base64').replace(/=+$/g, '');
+  return canonical === normalized.replace(/=+$/g, '') ? [decoded] : [];
+}
+
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((char) => {
+    const code = char.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+}
+
+function normalizeBase64Token(token: string): string | null {
+  if (token.length < 8 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(token)) return null;
+  if (/=/.test(token.replace(/=+$/g, ''))) return null;
+  const unpadded = token.replace(/=+$/g, '');
+  if (unpadded.length % 4 === 1) return null;
+  return `${unpadded.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat(
+    (4 - (unpadded.length % 4)) % 4,
+  )}`;
+}
+
+function isBase64DecodeFlag(flag: string): boolean {
+  return (
+    flag === '--decode' || (!flag.startsWith('--') && flag.startsWith('-') && /[dD]/.test(flag))
+  );
+}
+
+function extractCommandSubstitutionBodies(command: string): string[] {
+  const bodies: string[] = [];
+  const quoteState = { inSingle: false, inDouble: false, escaped: false };
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (!char) break;
+    if (advanceQuoteState(char, quoteState)) continue;
+    if (startsCommandSubstitution(command, i, quoteState)) {
+      const substitution = readCommandSubstitutionBody(command, i + 1);
+      if (substitution !== null) {
+        bodies.push(substitution.body);
+        i = substitution.endIndex;
+      }
+    }
+  }
+  return bodies;
+}
+
+function readCommandSubstitutionBody(
+  command: string,
+  startIndex: number,
+): { body: string; endIndex: number } | null {
+  const quoteState = { inSingle: false, inDouble: false, escaped: false };
+  let depth = 1;
+  for (let i = startIndex + 1; i < command.length; i++) {
+    const char = command[i];
+    if (!char) break;
+    if (advanceQuoteState(char, quoteState)) continue;
+    if (startsCommandSubstitution(command, i, quoteState)) {
+      depth++;
+      i++;
+      continue;
+    }
+    if (!quoteState.inSingle && !quoteState.inDouble && char === ')') {
+      depth--;
+      if (depth === 0) {
+        return { body: command.slice(startIndex + 1, i), endIndex: i };
+      }
+    }
+  }
+  return null;
+}
+
+function startsCommandSubstitution(
+  command: string,
+  index: number,
+  state: { inSingle: boolean },
+): boolean {
+  return (
+    !state.inSingle &&
+    command[index] === '$' &&
+    command[index + 1] === '(' &&
+    command[index + 2] !== '('
+  );
+}
+
+function advanceQuoteState(
+  char: string,
+  state: { inSingle: boolean; inDouble: boolean; escaped: boolean },
+): boolean {
+  if (state.escaped) {
+    state.escaped = false;
+    return true;
+  }
+  if (char === '\\' && !state.inSingle) {
+    state.escaped = true;
+    return true;
+  }
+  if (char === "'" && !state.inDouble) {
+    state.inSingle = !state.inSingle;
+    return true;
+  }
+  if (char === '"' && !state.inSingle) {
+    state.inDouble = !state.inDouble;
+    return true;
+  }
+  return false;
 }
 
 function extractPatternCommandTargets(tokens: readonly string[]): string[] {

@@ -200,6 +200,29 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('python3 ~/.ssh/id_rsa', cwd)).not.toBeNull();
   });
 
+  test('blocks base64-decoded sensitive paths from inline interpreter literals', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(
+        `python3 -c "import base64, os; b = base64.b64decode('LmVudg==').decode(); p = os.path.expanduser('~/Developer/420024-lab/test-cc/') + b; print(open(p).read())"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `node -e "const p = Buffer.from('fi8uc3NoL2lkX3JzYQ==', 'base64').toString(); require('fs').readFileSync(p, 'utf8')"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `ruby -e "require 'base64'; path = Base64.decode64('c2VjcmV0cy9wcm9kLmtleQ'); puts File.read(path)"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+  });
+
   test('does not flag interpreters running benign code', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -207,6 +230,12 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand(`python3 -c "print('hello')"`, cwd)).toBeNull();
     expect(findSensitiveTargetInCommand(`node -e "console.log(1 + 1)"`, cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('bash -c "ls src"', cwd)).toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `python3 -c "import base64; print(base64.b64decode('UkVBRE1FLm1k').decode())"`,
+        cwd,
+      ),
+    ).toBeNull();
   });
 
   test('blocks variable indirection by capturing assignment values', () => {
@@ -219,6 +248,45 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('f=.env && cat "$f"', cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand('d=~/.ssh; cat $d/id_rsa', cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand('k=id_rsa; xxd $k', cwd)).not.toBeNull();
+  });
+
+  test('blocks base64-decoded sensitive paths in command substitutions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(
+        `b64=$(echo LmVudg== | base64 -d); python3 -c "print(open('$b64').read())"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        'key=$(printf %s fi8uc3NoL2lkX3JzYQ== | base64 --decode); cat "$key"',
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        'file=$(printf %s c2VjcmV0cy9wcm9kLmtleQ | base64 -d); cat "$file"',
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        'npmrc=$(base64 --decode <<< Lm5wbXJj); python3 -c "open(\'$npmrc\')"',
+        cwd,
+      ),
+    ).not.toBeNull();
+  });
+
+  test('does not decode base64-looking text outside decoder substitutions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('echo LmVudg==', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('note=LmVudg==; echo "$note"', cwd)).toBeNull();
+    expect(
+      findSensitiveTargetInCommand('file=$(printf %s UkVBRE1FLm1k | base64 -d); cat "$file"', cwd),
+    ).toBeNull();
   });
 
   test('does not flag assignments of benign values', () => {
