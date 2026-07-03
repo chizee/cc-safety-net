@@ -7372,21 +7372,42 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
 `, "utf-8");
   } catch {}
 }
+var PROVIDER_TOKENS = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
+  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
+  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
+  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+  /\bsk_[A-Za-z0-9]{20,}\b/g,
+  /\bgsk_[A-Za-z0-9]{52,}\b/g,
+  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
+  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
+  /\bbastn_[A-Za-z0-9]{16,}\b/g,
+  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
+  /\bflp_[A-Za-z0-9]{10,}\b/g,
+  /\bwfr_[A-Za-z0-9]{20,}\b/g,
+  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
+  /\btp-[A-Za-z0-9_-]{20,}\b/g,
+  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
+  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
+];
 function redactSecrets(text) {
   let result = text;
   result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted>");
-  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_URL)=([^\s]+)/gi, "$1=<redacted>");
-  result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=([^\s]+)/gi, "$1=<redacted>");
+  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_URL)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
+  result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
   result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3");
   result = result.replace(/(['"]?\s*authorization\s*:\s*)([^'"]+)(['"]?)/gi, "$1<redacted>$3");
   result = result.replace(/(authorization\s*:\s*)([^\s"']+)(\s+[^\s"']+)?/gi, "$1<redacted>");
   result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@");
   result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@");
-  result = result.replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bxoxb-[A-Za-z0-9-]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bnpm_[A-Za-z0-9_]{20,}\b/g, "<redacted>");
-  result = result.replace(/\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bpypi-[A-Za-z0-9_-]{20,}\b/g, "<redacted>");
+  result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
+  for (const re of PROVIDER_TOKENS) {
+    result = result.replace(re, "<redacted>");
+  }
   result = result.replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>");
   result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
   return result;

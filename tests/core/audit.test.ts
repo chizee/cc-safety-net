@@ -45,6 +45,20 @@ describe('sanitizeSessionIdForFilename', () => {
 });
 
 describe('redactSecrets', () => {
+  function expectTokenRedacted(token: string): void {
+    const result = redactSecrets(token);
+    expect(result).toContain('<redacted>');
+    expect(result).not.toContain(token);
+  }
+
+  function expectTokensRedacted(tokens: string[]): void {
+    const result = redactSecrets(tokens.join(' '));
+    for (const token of tokens) {
+      expect(result).not.toContain(token);
+    }
+    expect(result.split(' ')).toEqual(tokens.map(() => '<redacted>'));
+  }
+
   test('redacts TOKEN=value patterns', () => {
     const result = redactSecrets('TOKEN=secret123 git reset --hard');
     expect(result).toContain('<redacted>');
@@ -63,19 +77,14 @@ describe('redactSecrets', () => {
   });
 
   test('redacts raw provider token formats', () => {
-    const tokens = [
+    expectTokensRedacted([
       ['xoxb', '123456789012', '123456789012', 'abcdefghijklmnopqrstuvwx'].join('-'),
       ['npm', 'abcdefghijklmnopqrstuvwxyz1234567890'].join('_'),
       ['sk', 'live', 'abcdefghijklmnopqrstuvwxyz1234567890'].join('_'),
       ['sk', 'test', 'abcdefghijklmnopqrstuvwxyz1234567890'].join('_'),
       ['rk', 'live', 'abcdefghijklmnopqrstuvwxyz1234567890'].join('_'),
       ['pypi', 'abcdefghijklmnopqrstuvwxyz1234567890'].join('-'),
-    ];
-    const result = redactSecrets(tokens.join(' '));
-    for (const token of tokens) {
-      expect(result).not.toContain(token);
-    }
-    expect(result.split(' ')).toEqual(tokens.map(() => '<redacted>'));
+    ]);
   });
 
   test('redacts URL credentials', () => {
@@ -146,6 +155,122 @@ describe('redactSecrets', () => {
     const result = redactSecrets('DATABASE_URL=postgres://user:password@db.example/app');
     expect(result).not.toContain('password');
     expect(result).toBe('DATABASE_URL=<redacted>');
+  });
+
+  test('redacts quoted KEY=VALUE secrets containing spaces', () => {
+    const result = redactSecrets(
+      'PASSWORD="my fake phrase" ./deploy.sh TOKEN=\'another fake phrase\'',
+    );
+    expect(result).toContain('<redacted>');
+    expect(result).not.toContain('my fake phrase');
+    expect(result).not.toContain('fake phrase');
+    expect(result).not.toContain('another fake phrase');
+    expect(result).not.toContain('another');
+  });
+
+  test('redacts curl -u credentials', () => {
+    const result = redactSecrets(
+      'curl -u admin:fakepass https://x.com curl --user=admin:fakepass https://x.com',
+    );
+    expect(result).toContain('<redacted>');
+    expect(result).not.toContain('fakepass');
+  });
+
+  test('does not redact sort -u operand', () => {
+    expect(redactSecrets('sort -u names.txt')).toBe('sort -u names.txt');
+  });
+
+  test('redacts GitHub fine-grained PATs', () => {
+    expectTokenRedacted(`github_pat_${'A'.repeat(40)}`);
+  });
+
+  test('redacts GitLab PATs', () => {
+    expectTokenRedacted(`glpat-${'A'.repeat(20)}`);
+  });
+
+  test('redacts all Slack token families', () => {
+    expectTokensRedacted(
+      ['xoxp', 'xoxs', 'xoxa', 'xoxe'].map(
+        (prefix) => `${prefix}-123456789012-123456789012-abcdefghijklmnopqrstuvwx`,
+      ),
+    );
+  });
+
+  test('redacts the sk- key family', () => {
+    expectTokensRedacted([
+      `sk-${'a'.repeat(32)}`,
+      `sk-proj-${'A'.repeat(32)}`,
+      `sk-ant-api03-${'A'.repeat(32)}`,
+      `sk-or-v1-${'A'.repeat(32)}`,
+      `sk-kimi${'A'.repeat(32)}`,
+    ]);
+  });
+
+  test('redacts the sk_ underscore family', () => {
+    expectTokensRedacted([`sk_${'a'.repeat(48)}`, `sk_${'A'.repeat(20)}`]);
+  });
+
+  test('redacts Groq keys', () => {
+    expectTokensRedacted([`gsk_${'A'.repeat(52)}`, `gsk_${'A'.repeat(60)}`]);
+  });
+
+  test('redacts xAI keys', () => {
+    expectTokensRedacted([`xai-${'A'.repeat(80)}`, `xai-${'A'.repeat(90)}`]);
+  });
+
+  test('redacts Perplexity keys', () => {
+    expectTokenRedacted(`pplx-${'A'.repeat(20)}`);
+  });
+
+  test('redacts Baseten keys', () => {
+    expectTokenRedacted(`bastn_${'A'.repeat(16)}`);
+  });
+
+  test('redacts Together AI keys', () => {
+    expectTokenRedacted(`tgp_v1_${'A'.repeat(43)}`);
+  });
+
+  test('redacts FriendliAI keys', () => {
+    expectTokenRedacted(`flp_${'A'.repeat(10)}`);
+  });
+
+  test('redacts Wafer keys', () => {
+    expectTokenRedacted(`wfr_${'A'.repeat(20)}`);
+  });
+
+  test('redacts Fireworks keys', () => {
+    expectTokensRedacted([`fw_${'A'.repeat(20)}`, `fwp_${'A'.repeat(20)}`]);
+  });
+
+  test('redacts Xiaomi MiMo keys', () => {
+    expectTokenRedacted(`tp-${'A'.repeat(20)}`);
+  });
+
+  test('does not redact short tp- tokens', () => {
+    expect(redactSecrets('tp-short')).toBe('tp-short');
+  });
+
+  test('redacts Parasail keys', () => {
+    expectTokenRedacted(`psk-${'A'.repeat(8)}-${'B'.repeat(8)}`);
+  });
+
+  test('does not redact single-segment ps- tokens', () => {
+    expect(redactSecrets('psk-short')).toBe('psk-short');
+  });
+
+  test('redacts Zhipu/Z.AI keys', () => {
+    expectTokenRedacted(`${'a'.repeat(32)}.${'A'.repeat(16)}`);
+  });
+
+  test('does not redact arbitrary hex strings', () => {
+    const token = 'a'.repeat(32);
+    expect(redactSecrets(token)).toBe(token);
+  });
+
+  test('documents the sk- over-redaction floor', () => {
+    const token = `sk-${'benign'.repeat(4)}`;
+    expect(redactSecrets('sk-abc')).toBe('sk-abc');
+    expect(redactSecrets(token)).toBe('<redacted>');
   });
 });
 
