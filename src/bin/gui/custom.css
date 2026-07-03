@@ -641,14 +641,31 @@ label.row.master:has(input:checked) .master-badge::before {
   gap: 4px;
 }
 
+.field-toggle .panel-toggle {
+  justify-self: start;
+  margin: -2px 0;
+  padding: 2px 6px 2px 0;
+  font-weight: 650;
+}
+
 #safety-level + .field,
-#safety-overrides + .field {
+.foldable-field-content + .field {
   margin-top: 14px;
 }
 
 #safety-overrides,
 #workflow {
   margin-top: 4px;
+}
+
+.foldable-field-content {
+  display: grid;
+  gap: 4px;
+}
+
+.foldable-field-content > p {
+  margin: 0;
+  font-size: 12px;
 }
 
 .field > span {
@@ -812,4 +829,8 @@ textarea {
   .grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+[hidden] {
+  display: none;
 }

@@ -12221,14 +12221,31 @@ label.row.master:has(input:checked) .master-badge::before {
   gap: 4px;
 }
 
+.field-toggle .panel-toggle {
+  justify-self: start;
+  margin: -2px 0;
+  padding: 2px 6px 2px 0;
+  font-weight: 650;
+}
+
 #safety-level + .field,
-#safety-overrides + .field {
+.foldable-field-content + .field {
   margin-top: 14px;
 }
 
 #safety-overrides,
 #workflow {
   margin-top: 4px;
+}
+
+.foldable-field-content {
+  display: grid;
+  gap: 4px;
+}
+
+.foldable-field-content > p {
+  margin: 0;
+  font-size: 12px;
 }
 
 .field > span {
@@ -12393,6 +12410,10 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+[hidden] {
+  display: none;
+}
 `;
 
 // src/bin/gui/page.html
@@ -12449,11 +12470,13 @@ var page_default = `<!doctype html>
       </div>
       <div id="environment-overrides" class="status" hidden></div>
       <div class="grid" id="safety-level"></div>
-      <div class="field">
-        <span>Advanced overrides</span>
-        <small>Inherit from the selected level unless a capability needs an explicit exception.</small>
+      <div class="field field-toggle">
+        <button class="panel-toggle" type="button" aria-expanded="false" aria-controls="safety-overrides-content"><span class="panel-chevron" aria-hidden="true"></span><span>Advanced overrides</span></button>
       </div>
-      <div class="grid" id="safety-overrides"></div>
+      <div class="foldable-field-content" id="safety-overrides-content" hidden>
+        <p class="muted">Inherit from the selected level unless a capability needs an explicit exception.</p>
+        <div class="grid" id="safety-overrides"></div>
+      </div>
       <div class="field">
         <span>Workflow</span>
         <small>Workflow exceptions are separate from safety level.</small>
