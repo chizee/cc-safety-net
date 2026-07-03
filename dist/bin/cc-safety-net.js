@@ -12217,6 +12217,15 @@ label.row strong {
   font-size: 13px;
 }
 
+label.row .rule-id {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  word-break: break-all;
+}
+
 label.row small {
   display: block;
   margin-top: 4px;
@@ -12906,6 +12915,7 @@ var page_default = `<!doctype html>
                 <input type="checkbox" \${options.dataAttribute}="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled}>
                 <span>
                   <strong>\${escapeHtml(rule.label)}</strong>
+                  <code class="rule-id">\${escapeHtml(rule.id)}</code>
                   <small><span class="\${state.className}">\${state.label}</span> \${escapeHtml(rule.description)}</small>
                 </span>
               </label>\`;

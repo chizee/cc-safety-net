@@ -156,6 +156,18 @@ describe('policy GUI server', () => {
       expect(html).toContain("if (input.id === 'policy-search') {");
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
+      expect(html).toContain(
+        '<strong>${escapeHtml(rule.label)}</strong>\n                  <code class="rule-id">${escapeHtml(rule.id)}</code>',
+      );
+      expect(html).not.toContain(
+        '<strong>${escapeHtml(rule.label)}</strong> <code class="rule-id">${escapeHtml(rule.id)}</code>',
+      );
+      expect(html).toContain('label.row .rule-id {');
+      expect(html).toContain('display: block;');
+      expect(html).toContain(
+        'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
+      );
+      expect(html).toContain('word-break: break-all;');
       expect(html).toContain('syncRawFromForm();');
       expect(html).toContain('aria-controls="secret-panel-content"');
       expect(html).toContain('id="secret-panel-content"');

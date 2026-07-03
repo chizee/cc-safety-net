@@ -365,6 +365,7 @@
                 <input type="checkbox" ${options.dataAttribute}="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled}>
                 <span>
                   <strong>${escapeHtml(rule.label)}</strong>
+                  <code class="rule-id">${escapeHtml(rule.id)}</code>
                   <small><span class="${state.className}">${state.label}</span> ${escapeHtml(rule.description)}</small>
                 </span>
               </label>`;
