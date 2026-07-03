@@ -151,6 +151,20 @@ describe('redactSecrets', () => {
     expect(result).toContain('<redacted>');
   });
 
+  test('preserves dotted hostnames', () => {
+    const input = 'ping elasticsearch-node.production-east.internal';
+    expect(redactSecrets(input)).toBe(input);
+  });
+
+  test('preserves dotted file names', () => {
+    const input = 'tar xf releasebundle.checksumverified.archivegz';
+    expect(redactSecrets(input)).toBe(input);
+  });
+
+  test('redacts JWTs with short middle segment', () => {
+    expect(redactSecrets('eyJabcdefghij.abcdefgh.abcdefgh')).toBe('<redacted>');
+  });
+
   test('redacts database connection env vars', () => {
     const result = redactSecrets('DATABASE_URL=postgres://user:password@db.example/app');
     expect(result).not.toContain('password');
