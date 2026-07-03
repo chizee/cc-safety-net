@@ -12494,6 +12494,27 @@ textarea {
   min-height: 280px;
 }
 
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, CanvasText 14%, Canvas);
+}
+
+.page-footer p {
+  margin: 0;
+}
+
+.page-footer button {
+  flex: none;
+}
+
+#star-repo.starred:disabled {
+  cursor: default;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none;
@@ -12531,6 +12552,11 @@ textarea {
 
   .panel {
     padding: 16px;
+  }
+
+  .page-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .panel-head {
@@ -12646,6 +12672,10 @@ var page_default = `<!doctype html>
       </div>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
+    <footer class="page-footer">
+      <p class="muted">If CC Safety Net is useful to you, consider starring it on GitHub.</p>
+      <button type="button" id="star-repo">Star on GitHub</button>
+    </footer>
   </main>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
     <form method="dialog">
@@ -12660,6 +12690,7 @@ var page_default = `<!doctype html>
   </dialog>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
+    const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
     const safetyLevels = {
       standard: ['Standard', 'Blocks destructive git and filesystem commands. Recommended for most people.'],
       strict: ['Strict', "Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell."],
@@ -12828,6 +12859,20 @@ var page_default = `<!doctype html>
       } finally {
         qs('raw-copy').disabled = false;
       }
+    };
+    const starRepo = async () => {
+      const starRepoButton = qs('star-repo');
+      starRepoButton.disabled = true;
+      const result = await requestJson('/api/star', { method: 'POST' });
+      if (result.ok && result.data?.ok === true) {
+        starRepoButton.textContent = 'Starred. Thank you.';
+        starRepoButton.classList.add('starred');
+        setAppStatus('Starred on GitHub', 'ok');
+        setDetailStatus('');
+        return;
+      }
+      window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');
+      starRepoButton.disabled = false;
     };
     const syncRawFromForm = () => {
       if (state?.errors.length) return;
@@ -13191,6 +13236,9 @@ var page_default = `<!doctype html>
     qs('raw-copy').onclick = () => {
       void copyRawToClipboard();
     };
+    qs('star-repo').onclick = () => {
+      void starRepo();
+    };
     const themeOrder = ['auto', 'light', 'dark'];
     const themeIcons = {
       auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
@@ -13228,6 +13276,9 @@ function renderPolicyGuiHtml(token) {
 }
 
 // src/bin/gui/index.ts
+var REPO = "kenryu42/cc-safety-net";
+var REPO_URL = `https://github.com/${REPO}`;
+var STAR_TIMEOUT_MS = 1e4;
 async function runGuiCommand(args, options2 = {}) {
   const flags = parseGuiArgs(args);
   const log = options2.log ?? console.log;
@@ -13321,6 +13372,11 @@ async function handleRequest(request, response, token, options2) {
     sendJson(response, 200, repairUserPolicyForGui(options2));
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/star") {
+    const result = await (options2.starRepo ?? starRepo)();
+    sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
+    return;
+  }
   sendJson(response, 404, { error: "Not found" });
 }
 function getActiveEnvironmentOverrides() {
@@ -13401,6 +13457,30 @@ function openBrowser(url) {
     };
     child.once("error", handleError);
     child.once("spawn", handleSpawn);
+  });
+}
+function starRepo(command2 = "gh") {
+  return new Promise((resolve11) => {
+    const child = spawn2(command2, ["api", "-X", "PUT", `/user/starred/${REPO}`], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    let settled = false;
+    let timeout;
+    const finish = (ok) => {
+      if (settled)
+        return;
+      settled = true;
+      if (timeout)
+        clearTimeout(timeout);
+      resolve11({ ok });
+    };
+    child.once("error", () => finish(false));
+    child.once("close", (code) => finish(code === 0));
+    timeout = setTimeout(() => {
+      child.kill();
+      finish(false);
+    }, STAR_TIMEOUT_MS);
   });
 }
 

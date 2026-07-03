@@ -792,6 +792,27 @@ textarea {
   min-height: 280px;
 }
 
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, CanvasText 14%, Canvas);
+}
+
+.page-footer p {
+  margin: 0;
+}
+
+.page-footer button {
+  flex: none;
+}
+
+#star-repo.starred:disabled {
+  cursor: default;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none;
@@ -829,6 +850,11 @@ textarea {
 
   .panel {
     padding: 16px;
+  }
+
+  .page-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .panel-head {

@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPolicyGuiServer, runGuiCommand } from '@/bin/gui';
+import { createPolicyGuiServer, runGuiCommand, starRepo } from '@/bin/gui';
 
 interface PolicyApiResponse {
   exists: boolean;
@@ -180,6 +188,23 @@ describe('policy GUI server', () => {
       expect(html).toContain('>Repair</button>');
       expect(html).toContain('readonly></textarea>');
       expect(html).toContain('Read-only mirror of the controls.');
+      expect(html).toContain('<footer class="page-footer">');
+      expect(html).toContain('If CC Safety Net is useful to you, consider starring it on GitHub.');
+      expect(html).toContain('id="star-repo"');
+      expect(html).toContain('Star on GitHub');
+      expect(html).toContain(
+        "const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';",
+      );
+      expect(html).toContain("const starRepoButton = qs('star-repo');");
+      expect(html).toContain("const result = await requestJson('/api/star', { method: 'POST' });");
+      expect(html).toContain(
+        "window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');",
+      );
+      expect(html).toContain("starRepoButton.classList.add('starred');");
+      expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
+      expect(html).toContain('.page-footer {');
+      expect(html).toContain('#star-repo.starred:disabled {');
+      expect(html).toContain('cursor: default;');
       expect(html).not.toContain('rawIsManual');
       expect(html).not.toContain("if (input.id === 'raw')");
       expect(html).not.toContain("JSON.parse(qs('raw')");
@@ -393,6 +418,90 @@ describe('policy GUI server', () => {
       expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
     } finally {
       await server.close();
+    }
+  });
+
+  test('POST api star requires the header token as well as the URL token', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect((await fetch(`${server.origin}/api/star`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/api/star?token=wrong`)).status).toBe(403);
+      expect(
+        (
+          await fetch(`${server.origin}/api/star?token=${server.token}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST api star returns success from injected star action', async () => {
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      starRepo: async () => ({ ok: true }),
+    });
+    try {
+      expect(
+        await postJson<{ ok: boolean }>(
+          `${server.origin}/api/star?token=${server.token}`,
+          server.token,
+          {},
+        ),
+      ).toEqual({ ok: true });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST api star returns fallback URL when injected star action fails', async () => {
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      starRepo: async () => ({ ok: false }),
+    });
+    try {
+      expect(
+        await postJson<{ fallbackUrl: string; ok: boolean }>(
+          `${server.origin}/api/star?token=${server.token}`,
+          server.token,
+          {},
+        ),
+      ).toEqual({
+        ok: false,
+        fallbackUrl: 'https://github.com/kenryu42/cc-safety-net',
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('starRepo uses gh CLI with fixed argv', async () => {
+    const localTempDir = mkdtempSync(join(process.cwd(), '.tmp-star-'));
+    const binDir = join(localTempDir, 'bin');
+    const ghPath = join(binDir, 'gh');
+    const starLog = join(localTempDir, 'star-argv.txt');
+    mkdirSync(binDir);
+    writeFileSync(
+      ghPath,
+      '#!/bin/sh\nprintf "%s\\n" "$@" > "$STAR_LOG"\n/bin/sleep 0.1\nexit 0\n',
+      'utf-8',
+    );
+    chmodSync(ghPath, 0o755);
+
+    const originalStarLog = process.env.STAR_LOG;
+    process.env.STAR_LOG = starLog;
+    try {
+      expect(await starRepo(ghPath)).toEqual({ ok: true });
+      expect(readFileSync(starLog, 'utf-8')).toBe(
+        'api\n-X\nPUT\n/user/starred/kenryu42/cc-safety-net\n',
+      );
+    } finally {
+      restoreEnv('STAR_LOG', originalStarLog);
+      rmSync(localTempDir, { recursive: true, force: true });
     }
   });
 

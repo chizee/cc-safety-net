@@ -96,6 +96,10 @@
       </div>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
+    <footer class="page-footer">
+      <p class="muted">If CC Safety Net is useful to you, consider starring it on GitHub.</p>
+      <button type="button" id="star-repo">Star on GitHub</button>
+    </footer>
   </main>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
     <form method="dialog">
@@ -110,6 +114,7 @@
   </dialog>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
+    const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
     const safetyLevels = {
       standard: ['Standard', 'Blocks destructive git and filesystem commands. Recommended for most people.'],
       strict: ['Strict', "Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell."],
@@ -278,6 +283,20 @@
       } finally {
         qs('raw-copy').disabled = false;
       }
+    };
+    const starRepo = async () => {
+      const starRepoButton = qs('star-repo');
+      starRepoButton.disabled = true;
+      const result = await requestJson('/api/star', { method: 'POST' });
+      if (result.ok && result.data?.ok === true) {
+        starRepoButton.textContent = 'Starred. Thank you.';
+        starRepoButton.classList.add('starred');
+        setAppStatus('Starred on GitHub', 'ok');
+        setDetailStatus('');
+        return;
+      }
+      window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');
+      starRepoButton.disabled = false;
     };
     const syncRawFromForm = () => {
       if (state?.errors.length) return;
@@ -640,6 +659,9 @@
     setRawCopyCopied(false);
     qs('raw-copy').onclick = () => {
       void copyRawToClipboard();
+    };
+    qs('star-repo').onclick = () => {
+      void starRepo();
     };
     const themeOrder = ['auto', 'light', 'dark'];
     const themeIcons = {

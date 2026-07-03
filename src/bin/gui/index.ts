@@ -14,6 +14,10 @@ import {
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import { renderPolicyGuiHtml } from './page';
 
+const REPO = 'kenryu42/cc-safety-net';
+const REPO_URL = `https://github.com/${REPO}`;
+const STAR_TIMEOUT_MS = 10_000;
+
 /** @internal */
 export interface PolicyGuiServer {
   origin: string;
@@ -23,6 +27,7 @@ export interface PolicyGuiServer {
 }
 
 interface PolicyGuiServerOptions extends RulesPolicyOptions {
+  starRepo?: () => Promise<{ ok: boolean }>;
   token?: string;
 }
 
@@ -104,7 +109,7 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   token: string,
-  options: RulesPolicyOptions,
+  options: PolicyGuiServerOptions,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
   if (request.method === 'GET' && url.pathname === '/favicon.ico') {
@@ -151,6 +156,12 @@ async function handleRequest(
 
   if (request.method === 'POST' && url.pathname === '/api/repair') {
     sendJson(response, 200, repairUserPolicyForGui(options));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/star') {
+    const result = await (options.starRepo ?? starRepo)();
+    sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
     return;
   }
 
@@ -243,5 +254,29 @@ function openBrowser(url: string): Promise<void> {
     };
     child.once('error', handleError);
     child.once('spawn', handleSpawn);
+  });
+}
+
+/** @internal */
+export function starRepo(command = 'gh'): Promise<{ ok: boolean }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, ['api', '-X', 'PUT', `/user/starred/${REPO}`], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve({ ok });
+    };
+    child.once('error', () => finish(false));
+    child.once('close', (code) => finish(code === 0));
+    timeout = setTimeout(() => {
+      child.kill();
+      finish(false);
+    }, STAR_TIMEOUT_MS);
   });
 }
