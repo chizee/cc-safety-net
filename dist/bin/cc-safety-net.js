@@ -12221,6 +12221,16 @@ label.row.master:has(input:checked) .master-badge::before {
   gap: 4px;
 }
 
+#safety-level + .field,
+#safety-overrides + .field {
+  margin-top: 14px;
+}
+
+#safety-overrides,
+#workflow {
+  margin-top: 4px;
+}
+
 .field > span {
   font-size: 13px;
   font-weight: 650;
