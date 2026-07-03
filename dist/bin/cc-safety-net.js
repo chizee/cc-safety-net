@@ -11729,6 +11729,8 @@ var custom_default = `/* cc-safety-net-gui-custom-css */
   --danger: #7f1d1d;
   --danger-hover: #641414;
 
+  --star: light-dark(#b7791f, #f2c94c);
+
   --ok-fg: light-dark(#15803d, #4ade80);
   --ok-bg: light-dark(#edfaf1, #10251a);
   --ok-border: light-dark(#b7e4c7, #1f5133);
@@ -12498,20 +12500,52 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, CanvasText 14%, Canvas);
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
-.page-footer p {
+.star-copy {
+  min-width: 0;
+}
+
+.star-copy p {
   margin: 0;
+  font-size: 12.5px;
 }
 
-.page-footer button {
+.star-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   flex: none;
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.star-cta:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: var(--surface-2);
+}
+
+.star-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--star);
+}
+
+.star-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 #star-repo.starred:disabled {
+  opacity: 1;
   cursor: default;
 }
 
@@ -12555,8 +12589,12 @@ textarea {
   }
 
   .page-footer {
-    align-items: stretch;
+    align-items: flex-start;
     flex-direction: column;
+  }
+
+  .star-cta {
+    align-self: center;
   }
 
   .panel-head {
@@ -12673,8 +12711,13 @@ var page_default = `<!doctype html>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
     <footer class="page-footer">
-      <p class="muted">If CC Safety Net is useful to you, consider starring it on GitHub.</p>
-      <button type="button" id="star-repo">Star on GitHub</button>
+      <div class="star-copy">
+        <p class="muted">If CC Safety Net is useful to you, consider starring it on GitHub.</p>
+      </div>
+      <button type="button" id="star-repo" class="star-cta" aria-label="Star CC Safety Net on GitHub">
+        <span class="star-icon" id="star-icon" aria-hidden="true"></span>
+        <span>Star on GitHub</span>
+      </button>
     </footer>
   </main>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
@@ -12704,6 +12747,10 @@ var page_default = `<!doctype html>
     const rawCopyIcons = {
       copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
       check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
+    };
+    const starIcons = {
+      outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+      filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
     };
     const denyPathIcons = {
       add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
@@ -12865,7 +12912,9 @@ var page_default = `<!doctype html>
       starRepoButton.disabled = true;
       const result = await requestJson('/api/star', { method: 'POST' });
       if (result.ok && result.data?.ok === true) {
-        starRepoButton.textContent = 'Starred. Thank you.';
+        qs('star-icon').innerHTML = starIcons.filled;
+        starRepoButton.querySelector('span:last-child').textContent = 'Starred. Thank you.';
+        starRepoButton.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
         starRepoButton.classList.add('starred');
         setAppStatus('Starred on GitHub', 'ok');
         setDetailStatus('');
@@ -12974,7 +13023,7 @@ var page_default = `<!doctype html>
         : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
     const secretSummaryText = (disabledCount) =>
       draftPolicy.secret_protection.enabled
-        ? \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are blocked while Secret protection is on.\`
+        ? \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`
         : 'Protection disabled. Saved rule settings and deny paths are preserved.';
     const levelCapabilities = (level) => ({
       fail_closed: level === 'strict' || level === 'paranoid',
@@ -13233,6 +13282,7 @@ var page_default = `<!doctype html>
       });
     };
     setRawCopyCopied(false);
+    qs('star-icon').innerHTML = starIcons.outline;
     qs('raw-copy').onclick = () => {
       void copyRawToClipboard();
     };

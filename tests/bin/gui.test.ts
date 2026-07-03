@@ -194,6 +194,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('Read-only mirror of the controls.');
       expect(html).toContain('<footer class="page-footer">');
       expect(html).toContain('If CC Safety Net is useful to you, consider starring it on GitHub.');
+      expect(html).toContain('aria-label="Star CC Safety Net on GitHub"');
+      expect(html).toContain('<span class="star-icon" id="star-icon" aria-hidden="true">');
+      expect(html).toContain('const starIcons =');
       expect(html).toContain('id="star-repo"');
       expect(html).toContain('Star on GitHub');
       expect(html).toContain(
@@ -201,12 +204,26 @@ describe('policy GUI server', () => {
       );
       expect(html).toContain("const starRepoButton = qs('star-repo');");
       expect(html).toContain("const result = await requestJson('/api/star', { method: 'POST' });");
+      expect(html).toContain("textContent = 'Starred. Thank you.';");
       expect(html).toContain(
         "window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');",
       );
+      expect(html).not.toContain("window.open('', '_blank')");
       expect(html).toContain("starRepoButton.classList.add('starred');");
+      expect(html).toContain(
+        "starRepoButton.setAttribute('aria-label', 'CC Safety Net starred on GitHub');",
+      );
+      expect(html).toContain("qs('star-icon').innerHTML = starIcons.filled;");
       expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
       expect(html).toContain('.page-footer {');
+      expect(html).toContain('.star-cta {');
+      expect(html).toContain('.star-icon {');
+      expect(html).toContain('.star-copy {');
+      expect(html).toContain('border-color: var(--border-strong);');
+      expect(html).toContain('background: var(--surface);');
+      expect(html).not.toContain('background: var(--star-bg);');
+      expect(html).not.toContain('border-color: var(--star-border);');
+      expect(html).toContain('align-self: center;');
       expect(html).toContain('#star-repo.starred:disabled {');
       expect(html).toContain('cursor: default;');
       expect(html).not.toContain('rawIsManual');

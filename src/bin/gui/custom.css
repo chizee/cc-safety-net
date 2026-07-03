@@ -27,6 +27,8 @@
   --danger: #7f1d1d;
   --danger-hover: #641414;
 
+  --star: light-dark(#b7791f, #f2c94c);
+
   --ok-fg: light-dark(#15803d, #4ade80);
   --ok-bg: light-dark(#edfaf1, #10251a);
   --ok-border: light-dark(#b7e4c7, #1f5133);
@@ -796,20 +798,52 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, CanvasText 14%, Canvas);
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
-.page-footer p {
+.star-copy {
+  min-width: 0;
+}
+
+.star-copy p {
   margin: 0;
+  font-size: 12.5px;
 }
 
-.page-footer button {
+.star-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   flex: none;
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.star-cta:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: var(--surface-2);
+}
+
+.star-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--star);
+}
+
+.star-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 #star-repo.starred:disabled {
+  opacity: 1;
   cursor: default;
 }
 
@@ -853,8 +887,12 @@ textarea {
   }
 
   .page-footer {
-    align-items: stretch;
+    align-items: flex-start;
     flex-direction: column;
+  }
+
+  .star-cta {
+    align-self: center;
   }
 
   .panel-head {
