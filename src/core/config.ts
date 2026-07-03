@@ -25,7 +25,8 @@ export function loadConfig(cwd?: string, options?: LoadConfigOptions): Config {
   const policyConfig = loadPolicyConfig({ cwd: safeCwd, userConfigDir: options?.userConfigDir });
   return {
     ...rulesConfig,
-    modes: policyConfig.modes,
+    safety: policyConfig.safety,
+    worktreeMode: policyConfig.worktreeMode,
     destructiveCommandProtectionEnabled: policyConfig.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
     secretProtection: policyConfig.secretProtection,

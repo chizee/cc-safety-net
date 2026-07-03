@@ -205,6 +205,7 @@ describe('ExplainResult interface', () => {
       segment: 'git reset --hard',
       configSource: '/path/to/.cc-safety-net/rules/rule.json',
       configValid: true,
+      effectiveLevel: 'standard',
     };
     expect(result.result).toBe('blocked');
     expect(result.reason).toBeDefined();
@@ -219,6 +220,7 @@ describe('ExplainResult interface', () => {
       result: 'allowed',
       configSource: null,
       configValid: true,
+      effectiveLevel: 'standard',
     };
     expect(result.result).toBe('allowed');
     expect(result.reason).toBeUndefined();
@@ -240,6 +242,7 @@ describe('ExplainResult interface', () => {
       result: 'allowed',
       configSource: null,
       configValid: true,
+      effectiveLevel: 'standard',
     };
 
     const json = JSON.stringify(result);

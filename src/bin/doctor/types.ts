@@ -3,6 +3,7 @@
  */
 
 import type { IntegrationId } from '@/bin/integration-metadata';
+import type { EffectiveSafetyLevel } from '@/types';
 
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;
@@ -81,6 +82,15 @@ export interface EnvVarInfo {
   legacyIsSet?: boolean;
   description: string;
   defaultBehavior: string;
+}
+
+export interface EffectiveSafetyInfo {
+  level: EffectiveSafetyLevel;
+  capabilities: {
+    fail_closed: { enabled: boolean; sources: string[] };
+    paranoid_rm: { enabled: boolean; sources: string[] };
+    paranoid_interpreters: { enabled: boolean; sources: string[] };
+  };
 }
 
 /** Audit activity summary */
@@ -165,6 +175,7 @@ export interface DoctorReport {
   effectiveRules: EffectiveRule[];
   shadowedRules: ShadowedRule[];
   environment: EnvVarInfo[];
+  effectiveSafety: EffectiveSafetyInfo;
   activity: ActivitySummary;
   update: UpdateInfo;
   system: SystemInfo;

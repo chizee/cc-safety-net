@@ -42,7 +42,8 @@ describe('policy GUI helpers', () => {
       join(safetyNetHome, 'policy.json'),
       JSON.stringify({
         version: 1,
-        modes: { paranoid_rm: true },
+        safety: { level: 'strict', overrides: { paranoid_rm: true } },
+        workflow: { worktree_mode: true },
         destructive_command_protection: { enabled: false, overrides: { 'git.reset-hard': 'off' } },
         secret_protection: {
           enabled: true,
@@ -55,7 +56,11 @@ describe('policy GUI helpers', () => {
 
     const readResult = readUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
     expect(readResult.errors).toEqual([]);
-    expect(readResult.policy.modes.paranoid_rm).toBe(true);
+    expect(readResult.policy.safety).toEqual({
+      level: 'strict',
+      overrides: { paranoid_rm: true },
+    });
+    expect(readResult.policy.workflow.worktree_mode).toBe(true);
     expect(readResult.policy.destructive_command_protection.enabled).toBe(false);
     expect(readResult.policy.destructive_command_protection.overrides).toEqual({
       'git.reset-hard': 'off',
@@ -136,12 +141,17 @@ describe('policy GUI helpers', () => {
       join(safetyNetHome, 'policy.json'),
       JSON.stringify({
         version: 2,
-        modes: {
-          strict: true,
-          paranoid_rm: 'yes',
-          worktree_mode: false,
-          unknown: true,
+        modes: { strict: true },
+        safety: {
+          level: 'paranoid',
+          overrides: {
+            fail_closed: true,
+            paranoid_rm: 'yes',
+            paranoid_interpreters: false,
+            unknown: true,
+          },
         },
+        workflow: { worktree_mode: false },
         destructive_command_protection: {
           enabled: 'yes',
           overrides: {
@@ -168,11 +178,14 @@ describe('policy GUI helpers', () => {
     expect(result.errors).toEqual([]);
     expect(result.policy).toEqual({
       version: 1,
-      modes: {
-        strict: true,
-        paranoid: false,
-        paranoid_rm: false,
-        paranoid_interpreters: false,
+      safety: {
+        level: 'paranoid',
+        overrides: {
+          fail_closed: true,
+          paranoid_interpreters: false,
+        },
+      },
+      workflow: {
         worktree_mode: false,
       },
       destructive_command_protection: {

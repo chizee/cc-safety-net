@@ -8,27 +8,26 @@ export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules'
 
 import { getUserRulesDir } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
-import type { PolicyModes, SecretProtectionConfig } from '@/types';
+import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 
 const POLICY_FILE = 'policy.json';
 const TOP_LEVEL_FIELDS = new Set([
   'version',
-  'modes',
+  'safety',
+  'workflow',
   'destructive_command_protection',
   'secret_protection',
 ]);
-const MODE_FIELDS = new Set([
-  'strict',
-  'paranoid',
-  'paranoid_rm',
-  'paranoid_interpreters',
-  'worktree_mode',
-]);
+const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
+const SAFETY_FIELDS = new Set(['level', 'overrides']);
+const SAFETY_OVERRIDE_FIELDS = new Set(['fail_closed', 'paranoid_rm', 'paranoid_interpreters']);
+const WORKFLOW_FIELDS = new Set(['worktree_mode']);
 const DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(['enabled', 'overrides']);
 const SECRET_PROTECTION_FIELDS = new Set(['enabled', 'overrides', 'deny_paths']);
 
 type PolicyConfig = {
-  modes: PolicyModes;
+  safety: PolicySafety;
+  worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
   disabledDestructiveCommandRules: Set<string>;
   secretProtection: SecretProtectionConfig;
@@ -36,7 +35,8 @@ type PolicyConfig = {
 };
 
 type PartialPolicy = {
-  modes: PolicyModes;
+  safety: PolicySafety;
+  worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
   disabledDestructiveCommandRules: string[];
   secretProtection: SecretProtectionConfig;
@@ -45,11 +45,15 @@ type PartialPolicy = {
 /** @internal */
 export type GuiPolicy = {
   version: 1;
-  modes: {
-    strict: boolean;
-    paranoid: boolean;
-    paranoid_rm: boolean;
-    paranoid_interpreters: boolean;
+  safety: {
+    level: PolicySafetyLevel;
+    overrides: {
+      fail_closed?: boolean;
+      paranoid_rm?: boolean;
+      paranoid_interpreters?: boolean;
+    };
+  };
+  workflow: {
     worktree_mode: boolean;
   };
   destructive_command_protection: {
@@ -65,11 +69,11 @@ export type GuiPolicy = {
 
 export const DEFAULT_GUI_POLICY: GuiPolicy = {
   version: 1,
-  modes: {
-    strict: false,
-    paranoid: false,
-    paranoid_rm: false,
-    paranoid_interpreters: false,
+  safety: {
+    level: 'standard',
+    overrides: {},
+  },
+  workflow: {
     worktree_mode: false,
   },
   destructive_command_protection: {
@@ -185,7 +189,8 @@ export function repairUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPol
 export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig {
   const user = readPolicyConfig(getUserPolicyPath(options));
   return {
-    modes: user.policy.modes,
+    safety: user.policy.safety,
+    worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
     secretProtection: user.policy.secretProtection,
@@ -196,20 +201,33 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
 function repairPolicyConfig(value: unknown): GuiPolicy {
   if (!isRecord(value)) return createDefaultGuiPolicy();
 
-  const modes = isRecord(value.modes) ? value.modes : {};
+  const safety = isRecord(value.safety) ? value.safety : {};
+  const safetyOverrides = isRecord(safety.overrides) ? safety.overrides : {};
+  const workflow = isRecord(value.workflow) ? value.workflow : {};
   const destructiveCommand = isRecord(value.destructive_command_protection)
     ? value.destructive_command_protection
     : {};
   const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
   return {
     version: 1,
-    modes: {
-      strict: typeof modes.strict === 'boolean' ? modes.strict : false,
-      paranoid: typeof modes.paranoid === 'boolean' ? modes.paranoid : false,
-      paranoid_rm: typeof modes.paranoid_rm === 'boolean' ? modes.paranoid_rm : false,
-      paranoid_interpreters:
-        typeof modes.paranoid_interpreters === 'boolean' ? modes.paranoid_interpreters : false,
-      worktree_mode: typeof modes.worktree_mode === 'boolean' ? modes.worktree_mode : false,
+    safety: {
+      level: SAFETY_LEVELS.has(safety.level as string)
+        ? (safety.level as PolicySafetyLevel)
+        : 'standard',
+      overrides: {
+        ...(typeof safetyOverrides.fail_closed === 'boolean'
+          ? { fail_closed: safetyOverrides.fail_closed }
+          : {}),
+        ...(typeof safetyOverrides.paranoid_rm === 'boolean'
+          ? { paranoid_rm: safetyOverrides.paranoid_rm }
+          : {}),
+        ...(typeof safetyOverrides.paranoid_interpreters === 'boolean'
+          ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters }
+          : {}),
+      },
+    },
+    workflow: {
+      worktree_mode: typeof workflow.worktree_mode === 'boolean' ? workflow.worktree_mode : false,
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === 'boolean' ? destructiveCommand.enabled : true,
@@ -247,7 +265,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function createDefaultGuiPolicy(): GuiPolicy {
   return {
     version: 1,
-    modes: { ...DEFAULT_GUI_POLICY.modes },
+    safety: {
+      level: DEFAULT_GUI_POLICY.safety.level,
+      overrides: {},
+    },
+    workflow: { ...DEFAULT_GUI_POLICY.workflow },
     destructive_command_protection: {
       enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
       overrides: {},
@@ -262,7 +284,10 @@ function createDefaultGuiPolicy(): GuiPolicy {
 
 function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   const config = policy as Record<string, unknown>;
-  const modes = (config.modes as Record<string, boolean | undefined> | undefined) ?? {};
+  const safety = (config.safety as Record<string, unknown> | undefined) ?? {};
+  const safetyOverrides =
+    (safety.overrides as Record<string, boolean | undefined> | undefined) ?? {};
+  const workflow = (config.workflow as Record<string, boolean | undefined> | undefined) ?? {};
   const destructiveCommandPolicy =
     (config.destructive_command_protection as Record<string, unknown> | undefined) ?? {};
   const destructiveCommandOverrides =
@@ -271,12 +296,22 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   const secretOverrides = (secret.overrides as Record<string, unknown> | undefined) ?? {};
   return {
     version: 1,
-    modes: {
-      strict: modes.strict ?? false,
-      paranoid: modes.paranoid ?? false,
-      paranoid_rm: modes.paranoid_rm ?? false,
-      paranoid_interpreters: modes.paranoid_interpreters ?? false,
-      worktree_mode: modes.worktree_mode ?? false,
+    safety: {
+      level: (safety.level as PolicySafetyLevel | undefined) ?? 'standard',
+      overrides: {
+        ...(safetyOverrides.fail_closed !== undefined
+          ? { fail_closed: safetyOverrides.fail_closed }
+          : {}),
+        ...(safetyOverrides.paranoid_rm !== undefined
+          ? { paranoid_rm: safetyOverrides.paranoid_rm }
+          : {}),
+        ...(safetyOverrides.paranoid_interpreters !== undefined
+          ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters }
+          : {}),
+      },
+    },
+    workflow: {
+      worktree_mode: workflow.worktree_mode ?? false,
     },
     destructive_command_protection: {
       enabled: (destructiveCommandPolicy.enabled as boolean | undefined) ?? true,
@@ -322,7 +357,8 @@ function readPolicyConfig(path: string): { policy: PartialPolicy; errors: string
 
 function createEmptyPolicy(): PartialPolicy {
   return {
-    modes: {},
+    safety: {},
+    worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
     disabledDestructiveCommandRules: [],
     secretProtection: { enabled: true, disabledRules: new Set(), denyPaths: [] },
@@ -338,22 +374,50 @@ function validatePolicyConfig(config: unknown): string[] {
   const cfg = config as Record<string, unknown>;
   addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
   if (cfg.version !== 1) errors.push('version must be 1');
-  validateModes(cfg.modes, errors);
+  validateSafety(cfg.safety, errors);
+  validateWorkflow(cfg.workflow, errors);
   validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
   validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
 
-function validateModes(value: unknown, errors: string[]): void {
+function validateSafety(value: unknown, errors: string[]): void {
   if (value === undefined) return;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('modes must be an object if provided');
+    errors.push('safety must be an object if provided');
     return;
   }
-  const modes = value as Record<string, unknown>;
-  addUnknownFieldErrors(modes, MODE_FIELDS, errors, 'modes');
-  for (const [key, mode] of Object.entries(modes)) {
-    if (typeof mode !== 'boolean') errors.push(`modes.${key} must be a boolean`);
+  const safety = value as Record<string, unknown>;
+  addUnknownFieldErrors(safety, SAFETY_FIELDS, errors, 'safety');
+  if (safety.level !== undefined && !SAFETY_LEVELS.has(safety.level as string)) {
+    errors.push('safety.level must be "standard", "strict", or "paranoid"');
+  }
+  validateSafetyOverrides(safety.overrides, errors);
+}
+
+function validateSafetyOverrides(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('safety.overrides must be an object if provided');
+    return;
+  }
+  const overrides = value as Record<string, unknown>;
+  addUnknownFieldErrors(overrides, SAFETY_OVERRIDE_FIELDS, errors, 'safety.overrides');
+  for (const [key, override] of Object.entries(overrides)) {
+    if (typeof override !== 'boolean') errors.push(`safety.overrides.${key} must be a boolean`);
+  }
+}
+
+function validateWorkflow(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('workflow must be an object if provided');
+    return;
+  }
+  const workflow = value as Record<string, unknown>;
+  addUnknownFieldErrors(workflow, WORKFLOW_FIELDS, errors, 'workflow');
+  if (workflow.worktree_mode !== undefined && typeof workflow.worktree_mode !== 'boolean') {
+    errors.push('workflow.worktree_mode must be a boolean');
   }
 }
 
@@ -441,13 +505,15 @@ function validatePathArray(value: unknown, field: string, errors: string[]): voi
 }
 
 function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
-  const modes = normalizeModes(config.modes);
+  const safety = normalizeSafety(config.safety);
+  const workflow = config.workflow as Record<string, boolean | undefined> | undefined;
   const destructiveCommand = config.destructive_command_protection as
     | Record<string, unknown>
     | undefined;
   const secret = config.secret_protection as Record<string, unknown> | undefined;
   return {
-    modes,
+    safety,
+    worktreeMode: workflow?.worktree_mode ?? false,
     destructiveCommandProtectionEnabled:
       (destructiveCommand?.enabled as boolean | undefined) ?? true,
     disabledDestructiveCommandRules: Object.entries(
@@ -465,15 +531,17 @@ function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
   };
 }
 
-function normalizeModes(value: unknown): PolicyModes {
+function normalizeSafety(value: unknown): PolicySafety {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const modes = value as Record<string, boolean | undefined>;
+  const safety = value as Record<string, unknown>;
+  const overrides = (safety.overrides as Record<string, boolean | undefined> | undefined) ?? {};
   return {
-    strict: modes.strict,
-    paranoid: modes.paranoid,
-    paranoidRm: modes.paranoid_rm,
-    paranoidInterpreters: modes.paranoid_interpreters,
-    worktreeMode: modes.worktree_mode,
+    level: safety.level as PolicySafetyLevel | undefined,
+    overrides: {
+      failClosed: overrides.fail_closed,
+      paranoidRm: overrides.paranoid_rm,
+      paranoidInterpreters: overrides.paranoid_interpreters,
+    },
   };
 }
 

@@ -171,17 +171,28 @@ Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/d
 
 A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` *inside* the project directory, because the OS only sees writes to an allowed path. Sandboxing contains blast radius; CC Safety Net catches the destructive operations sandboxing permits — use both for defense-in-depth. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
-## Modes
+## Safety levels
 
-CC Safety Net has opt-in modes toggled by `CC_SAFETY_NET_*` environment variables (legacy `SAFETY_NET_*` names also accepted):
+Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 
-| Mode | Flag | Effect |
-|---|---|---|
-| Strict | `CC_SAFETY_NET_STRICT=1` | Fail closed on unparseable commands, not just malformed input. |
-| Paranoid | `CC_SAFETY_NET_PARANOID=1` | Stricter checks; or use `CC_SAFETY_NET_PARANOID_RM=1` (block `rm -rf` even within cwd) and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` (block interpreter one-liners). |
-| Worktree | `CC_SAFETY_NET_WORKTREE=1` | Relax local git discards inside verified linked worktrees. |
+| Level | Effect |
+|---|---|
+| Standard | Blocks destructive git and filesystem commands. Recommended for most people. |
+| Strict | Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell. |
+| Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-See [Modes](https://ccsafetynet.com/docs/configuration/modes) and [Environment](https://ccsafetynet.com/docs/configuration/environment).
+Advanced policy users can set `safety.overrides.fail_closed`, `safety.overrides.paranoid_rm`, and `safety.overrides.paranoid_interpreters` in `policy.json`. Worktree relaxation is separate: `workflow.worktree_mode` or `CC_SAFETY_NET_WORKTREE=1` allows local git discards inside verified linked worktrees.
+
+Legacy env flags are still supported and only raise protection:
+
+| Legacy flag | New equivalent |
+|---|---|
+| `CC_SAFETY_NET_STRICT=1` | `safety.overrides.fail_closed: true` |
+| `CC_SAFETY_NET_PARANOID=1` | `safety.overrides.paranoid_rm: true` and `safety.overrides.paranoid_interpreters: true` |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `safety.overrides.paranoid_rm: true` |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `safety.overrides.paranoid_interpreters: true` |
+
+Legacy `SAFETY_NET_*` names are accepted as fallbacks. See [Modes](https://ccsafetynet.com/docs/configuration/modes) and [Environment](https://ccsafetynet.com/docs/configuration/environment).
 
 ## Diagnostics and tracing
 

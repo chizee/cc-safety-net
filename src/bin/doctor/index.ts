@@ -8,6 +8,7 @@ import { getEnvironmentInfo } from '@/bin/doctor/environment';
 import {
   formatActivitySection,
   formatConfigSection,
+  formatEffectiveSafetySection,
   formatEnvironmentSection,
   formatHooksSection,
   formatSummary,
@@ -19,6 +20,8 @@ import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
 import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
+import { loadConfig } from '@/core/config';
+import { getCCSafetyNetEnvModes } from '@/core/env';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
 
@@ -36,6 +39,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
   });
   const configInfo = getConfigInfo(cwd);
   const environment = getEnvironmentInfo();
+  const modes = getCCSafetyNetEnvModes(loadConfig(cwd));
   const activity = getActivitySummary(7);
   const update = options.skipUpdateCheck
     ? {
@@ -52,6 +56,17 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     effectiveRules: configInfo.effectiveRules,
     shadowedRules: configInfo.shadowedRules,
     environment,
+    effectiveSafety: {
+      level: modes.effectiveLevel,
+      capabilities: {
+        fail_closed: { enabled: modes.strict, sources: modes.sources.failClosed },
+        paranoid_rm: { enabled: modes.paranoidRm, sources: modes.sources.paranoidRm },
+        paranoid_interpreters: {
+          enabled: modes.paranoidInterpreters,
+          sources: modes.sources.paranoidInterpreters,
+        },
+      },
+    },
     activity,
     update,
     system,
@@ -96,15 +111,19 @@ function printReport(report: DoctorReport): void {
   console.log(formatEnvironmentSection(report.environment));
   console.log();
 
-  // 4. Activity
+  // 4. Effective safety
+  console.log(formatEffectiveSafetySection(report));
+  console.log();
+
+  // 5. Activity
   console.log(formatActivitySection(report.activity));
   console.log();
 
-  // 5. System Info
+  // 6. System Info
   console.log(formatSystemInfoSection(report.system));
   console.log();
 
-  // 6. Update Check (moved to end, before summary)
+  // 7. Update Check (moved to end, before summary)
   console.log(formatUpdateSection(report.update));
 
   // Summary

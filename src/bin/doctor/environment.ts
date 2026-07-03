@@ -11,23 +11,28 @@ const ENV_VARS: Array<{
   defaultBehavior: string;
 }> = [
   {
+    flag: ENV_FLAGS.level,
+    description: 'Safety level preset: standard, strict, or paranoid',
+    defaultBehavior: 'standard',
+  },
+  {
     flag: ENV_FLAGS.strict,
-    description: 'Fail-closed on unparseable commands',
+    description: 'Legacy; equivalent to safety.overrides.fail_closed',
     defaultBehavior: 'permissive',
   },
   {
     flag: ENV_FLAGS.paranoid,
-    description: 'Enable all paranoid checks',
+    description: 'Legacy; equivalent to safety.overrides.paranoid_rm and paranoid_interpreters',
     defaultBehavior: 'off',
   },
   {
     flag: ENV_FLAGS.paranoidRm,
-    description: 'Block rm -rf even within cwd',
+    description: 'Legacy; equivalent to safety.overrides.paranoid_rm',
     defaultBehavior: 'off',
   },
   {
     flag: ENV_FLAGS.paranoidInterpreters,
-    description: 'Block interpreter one-liners',
+    description: 'Legacy; equivalent to safety.overrides.paranoid_interpreters',
     defaultBehavior: 'off',
   },
   {

@@ -121,7 +121,7 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
         : undefined;
     }
 
-    const modes = getCCSafetyNetEnvModes(config.modes);
+    const modes = getCCSafetyNetEnvModes(config);
     result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(toolCall.command, {
       cwd,
       config,

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { ENV_FLAGS, envTruthy } from '@/core/env';
 import {
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
@@ -127,6 +128,7 @@ async function handleRequest(
       ...readUserPolicyForGui(options),
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
+      environmentOverrides: getActiveEnvironmentOverrides(),
     });
     return;
   }
@@ -153,6 +155,15 @@ async function handleRequest(
   }
 
   sendJson(response, 404, { error: 'Not found' });
+}
+
+function getActiveEnvironmentOverrides(): string[] {
+  return [
+    ENV_FLAGS.strict,
+    ENV_FLAGS.paranoid,
+    ENV_FLAGS.paranoidRm,
+    ENV_FLAGS.paranoidInterpreters,
+  ].flatMap((flag) => (envTruthy(flag) ? [flag.name] : []));
 }
 
 function requestHasValidToken(request: IncomingMessage, url: URL, token: string): boolean {

@@ -77,7 +77,7 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
 
         let result: ReturnType<typeof analyzeCommand>;
         try {
-          const modes = getCCSafetyNetEnvModes(config.modes);
+          const modes = getCCSafetyNetEnvModes(config);
           result = analyzeCommand(command, {
             cwd: directory,
             config,

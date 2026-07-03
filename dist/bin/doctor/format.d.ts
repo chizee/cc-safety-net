@@ -19,6 +19,7 @@ export declare function formatConfigSection(report: DoctorReport): string;
  * Format the environment section as a table with status icons.
  */
 export declare function formatEnvironmentSection(envVars: EnvVarInfo[]): string;
+export declare function formatEffectiveSafetySection(report: DoctorReport): string;
 /**
  * Format the activity section as a table.
  */

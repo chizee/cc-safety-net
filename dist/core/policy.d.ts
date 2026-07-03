@@ -1,9 +1,10 @@
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
-import type { PolicyModes, SecretProtectionConfig } from '@/types';
+import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 type PolicyConfig = {
-    modes: PolicyModes;
+    safety: PolicySafety;
+    worktreeMode: boolean;
     destructiveCommandProtectionEnabled: boolean;
     disabledDestructiveCommandRules: Set<string>;
     secretProtection: SecretProtectionConfig;
@@ -12,11 +13,15 @@ type PolicyConfig = {
 /** @internal */
 export type GuiPolicy = {
     version: 1;
-    modes: {
-        strict: boolean;
-        paranoid: boolean;
-        paranoid_rm: boolean;
-        paranoid_interpreters: boolean;
+    safety: {
+        level: PolicySafetyLevel;
+        overrides: {
+            fail_closed?: boolean;
+            paranoid_rm?: boolean;
+            paranoid_interpreters?: boolean;
+        };
+    };
+    workflow: {
         worktree_mode: boolean;
     };
     destructive_command_protection: {

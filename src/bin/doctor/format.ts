@@ -238,6 +238,24 @@ export function formatEnvironmentSection(envVars: EnvVarInfo[]): string {
   return lines.join('\n');
 }
 
+export function formatEffectiveSafetySection(report: DoctorReport): string {
+  const lines = [`Effective Safety`, `   Effective: ${report.effectiveSafety.level}`];
+  const capabilityLabels = [
+    ['fail_closed', 'fail_closed'],
+    ['paranoid_rm', 'paranoid_rm'],
+    ['paranoid_interpreters', 'paranoid_interpreters'],
+  ] as const;
+
+  for (const [key, label] of capabilityLabels) {
+    const capability = report.effectiveSafety.capabilities[key];
+    const state = capability.enabled ? colors.green('ON') : colors.dim('OFF');
+    const sources = capability.sources.length > 0 ? ` (${capability.sources.join(', ')})` : '';
+    lines.push(`   ${label}: ${state}${sources}`);
+  }
+
+  return lines.join('\n');
+}
+
 /**
  * Format environment variables as an ASCII table with ✓/✗ icons.
  */

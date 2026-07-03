@@ -94,13 +94,16 @@ HELP:
   cc-safety-net <command> --help   Show help for a specific command
 
 ENVIRONMENT VARIABLES:
-  CC_SAFETY_NET_STRICT=1                  Fail-closed on unparseable commands
-  CC_SAFETY_NET_PARANOID=1                Enable all paranoid checks
-  CC_SAFETY_NET_PARANOID_RM=1             Block non-temp rm -rf within cwd
-  CC_SAFETY_NET_PARANOID_INTERPRETERS=1   Block interpreter one-liners
+  CC_SAFETY_NET_LEVEL=standard|strict|paranoid  Set session safety level
   CC_SAFETY_NET_WORKTREE=1                Allow local git discards in linked worktrees
   CC_SAFETY_NET_DEBUG=1                   Log allowed hook commands for debugging
   CC_SAFETY_NET_HOME                      Override rule config home directory
+
+LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
+  CC_SAFETY_NET_STRICT=1                  Force safety.overrides.fail_closed on
+  CC_SAFETY_NET_PARANOID=1                Force paranoid_rm and paranoid_interpreters on
+  CC_SAFETY_NET_PARANOID_RM=1             Force safety.overrides.paranoid_rm on
+  CC_SAFETY_NET_PARANOID_INTERPRETERS=1   Force safety.overrides.paranoid_interpreters on
 `);
     });
 
@@ -147,6 +150,7 @@ ENVIRONMENT VARIABLES:
     test('contains ENVIRONMENT VARIABLES section', () => {
       const { output } = captureOutput(() => printHelp());
       expect(output).toContain('ENVIRONMENT VARIABLES:');
+      expect(output).toContain('CC_SAFETY_NET_LEVEL');
       expect(output).toContain('CC_SAFETY_NET_STRICT');
       expect(output).toContain('CC_SAFETY_NET_PARANOID');
       expect(output).toContain('CC_SAFETY_NET_WORKTREE');

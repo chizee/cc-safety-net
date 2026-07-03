@@ -1,9 +1,12 @@
-import type { PolicyModes } from '@/types';
+import type { EffectiveSafetyLevel, PolicySafety } from '@/types';
 export interface EnvFlag {
     name: string;
     legacyName?: string;
 }
 export declare const ENV_FLAGS: {
+    readonly level: {
+        readonly name: "CC_SAFETY_NET_LEVEL";
+    };
     readonly strict: {
         readonly name: "CC_SAFETY_NET_STRICT";
         readonly legacyName: "SAFETY_NET_STRICT";
@@ -28,13 +31,19 @@ export declare const ENV_FLAGS: {
         readonly name: "CC_SAFETY_NET_DEBUG";
     };
 };
-export declare function getCCSafetyNetEnvModes(policyModes?: PolicyModes): {
+type Capability = 'failClosed' | 'paranoidRm' | 'paranoidInterpreters';
+export declare function getCCSafetyNetEnvModes(policy?: {
+    safety?: PolicySafety;
+    worktreeMode?: boolean;
+}): {
     strict: boolean;
-    paranoidAll: boolean;
     paranoidRm: boolean;
     paranoidInterpreters: boolean;
     worktreeMode: boolean;
+    effectiveLevel: EffectiveSafetyLevel;
+    sources: Record<"worktreeMode" | Capability, string[]>;
 };
 export declare function envTruthy(flag: string | EnvFlag): boolean;
 export declare function getEnvFlagValue(flag: EnvFlag): string | undefined;
 export declare function envFlagIsSet(flag: EnvFlag): boolean;
+export {};

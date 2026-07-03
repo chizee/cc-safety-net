@@ -10,6 +10,7 @@ describe('getEnvironmentInfo', () => {
     const envInfo = getEnvironmentInfo();
 
     const names = envInfo.map((v) => v.name);
+    expect(names).toContain('CC_SAFETY_NET_LEVEL');
     expect(names).toContain('CC_SAFETY_NET_STRICT');
     expect(names).toContain('CC_SAFETY_NET_PARANOID');
     expect(names).toContain('CC_SAFETY_NET_PARANOID_RM');

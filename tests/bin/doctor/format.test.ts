@@ -7,6 +7,7 @@ import { getEnvironmentInfo } from '@/bin/doctor/environment';
 import {
   formatActivitySection,
   formatConfigSection,
+  formatEffectiveSafetySection,
   formatEnvironmentSection,
   formatHooksSection,
   formatRulesTable,
@@ -26,6 +27,14 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
     effectiveRules: [],
     shadowedRules: [],
     environment: [],
+    effectiveSafety: {
+      level: 'standard',
+      capabilities: {
+        fail_closed: { enabled: false, sources: ['policy safety.level=standard'] },
+        paranoid_rm: { enabled: false, sources: ['policy safety.level=standard'] },
+        paranoid_interpreters: { enabled: false, sources: ['policy safety.level=standard'] },
+      },
+    },
     activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [] },
     update: { currentVersion: '0.6.0', latestVersion: '0.6.0', updateAvailable: false },
     system: {
@@ -304,6 +313,31 @@ describe('formatEnvironmentSection', () => {
     ];
     const output = formatEnvironmentSection(envVars);
     expect(output).toContain('✗');
+  });
+});
+
+describe('formatEffectiveSafetySection', () => {
+  test('formats effective level and capability sources', () => {
+    const output = formatEffectiveSafetySection(
+      createDoctorReport({
+        effectiveSafety: {
+          level: 'custom',
+          capabilities: {
+            fail_closed: { enabled: true, sources: ['env CC_SAFETY_NET_STRICT'] },
+            paranoid_rm: { enabled: false, sources: [] },
+            paranoid_interpreters: {
+              enabled: true,
+              sources: ['policy safety.overrides.paranoid_interpreters'],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(output).toContain('Effective Safety');
+    expect(output).toContain('Effective: custom');
+    expect(output).toContain('fail_closed');
+    expect(output).toContain('env CC_SAFETY_NET_STRICT');
   });
 });
 

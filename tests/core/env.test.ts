@@ -140,15 +140,15 @@ describe('envFlagIsSet', () => {
 });
 
 describe('getCCSafetyNetEnvModes', () => {
-  test('expands paranoid all mode to rm and interpreter modes', () => {
+  test('legacy paranoid all enables rm and interpreter checks without fail-closed', () => {
     process.env.CC_SAFETY_NET_PARANOID = '1';
 
-    expect(getCCSafetyNetEnvModes()).toEqual({
+    expect(getCCSafetyNetEnvModes()).toMatchObject({
       strict: false,
-      paranoidAll: true,
       paranoidRm: true,
       paranoidInterpreters: true,
       worktreeMode: false,
+      effectiveLevel: 'custom',
     });
 
     delete process.env.CC_SAFETY_NET_PARANOID;
@@ -160,17 +160,107 @@ describe('getCCSafetyNetEnvModes', () => {
     process.env.CC_SAFETY_NET_PARANOID_INTERPRETERS = '1';
     process.env.CC_SAFETY_NET_WORKTREE = '1';
 
-    expect(getCCSafetyNetEnvModes()).toEqual({
+    expect(getCCSafetyNetEnvModes()).toMatchObject({
       strict: true,
-      paranoidAll: false,
       paranoidRm: true,
       paranoidInterpreters: true,
       worktreeMode: true,
+      effectiveLevel: 'paranoid',
     });
 
     delete process.env.CC_SAFETY_NET_STRICT;
     delete process.env.CC_SAFETY_NET_PARANOID_RM;
     delete process.env.CC_SAFETY_NET_PARANOID_INTERPRETERS;
     delete process.env.CC_SAFETY_NET_WORKTREE;
+  });
+
+  test.each([
+    [
+      'CC_SAFETY_NET_STRICT',
+      { strict: true, paranoidRm: false, paranoidInterpreters: false, effectiveLevel: 'strict' },
+    ],
+    [
+      'CC_SAFETY_NET_PARANOID_RM',
+      { strict: false, paranoidRm: true, paranoidInterpreters: false, effectiveLevel: 'custom' },
+    ],
+    [
+      'CC_SAFETY_NET_PARANOID_INTERPRETERS',
+      { strict: false, paranoidRm: false, paranoidInterpreters: true, effectiveLevel: 'custom' },
+    ],
+  ])('maps legacy %s exactly', (name, expected) => {
+    process.env[name] = '1';
+
+    expect(getCCSafetyNetEnvModes()).toMatchObject(expected);
+
+    delete process.env[name];
+  });
+
+  test('paranoid level with fail-closed override resolves to custom', () => {
+    expect(
+      getCCSafetyNetEnvModes({
+        safety: { level: 'paranoid', overrides: { failClosed: false } },
+      }),
+    ).toMatchObject({
+      strict: false,
+      paranoidRm: true,
+      paranoidInterpreters: true,
+      effectiveLevel: 'custom',
+    });
+  });
+
+  test('legacy paranoid raises checks from standard level', () => {
+    process.env.CC_SAFETY_NET_PARANOID = '1';
+
+    expect(getCCSafetyNetEnvModes({ safety: { level: 'standard' } })).toMatchObject({
+      strict: false,
+      paranoidRm: true,
+      paranoidInterpreters: true,
+      effectiveLevel: 'custom',
+    });
+
+    delete process.env.CC_SAFETY_NET_PARANOID;
+  });
+
+  test('standard env level cannot lower strict policy level', () => {
+    process.env.CC_SAFETY_NET_LEVEL = 'standard';
+
+    expect(getCCSafetyNetEnvModes({ safety: { level: 'strict' } })).toMatchObject({
+      strict: true,
+      paranoidRm: false,
+      paranoidInterpreters: false,
+      effectiveLevel: 'strict',
+    });
+
+    delete process.env.CC_SAFETY_NET_LEVEL;
+  });
+
+  test('env level raises base before policy overrides lower it', () => {
+    process.env.CC_SAFETY_NET_LEVEL = 'paranoid';
+
+    expect(
+      getCCSafetyNetEnvModes({
+        safety: { level: 'standard', overrides: { paranoidRm: false } },
+      }),
+    ).toMatchObject({
+      strict: true,
+      paranoidRm: false,
+      paranoidInterpreters: true,
+      effectiveLevel: 'custom',
+    });
+
+    delete process.env.CC_SAFETY_NET_LEVEL;
+  });
+
+  test('invalid env level is ignored', () => {
+    process.env.CC_SAFETY_NET_LEVEL = 'bananas';
+
+    expect(getCCSafetyNetEnvModes()).toMatchObject({
+      strict: false,
+      paranoidRm: false,
+      paranoidInterpreters: false,
+      effectiveLevel: 'standard',
+    });
+
+    delete process.env.CC_SAFETY_NET_LEVEL;
   });
 });

@@ -13,6 +13,7 @@ interface PolicyApiResponse {
   };
   destructiveCommandRules: unknown[];
   secretPatterns: unknown[];
+  environmentOverrides: string[];
 }
 
 interface WriteApiResponse {
@@ -196,6 +197,7 @@ describe('policy GUI server', () => {
       expect(missing.policy.version).toBe(1);
       expect(missing.destructiveCommandRules.length).toBeGreaterThan(0);
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
+      expect(missing.environmentOverrides).toEqual([]);
 
       mkdirSync(safetyNetHome, { recursive: true });
       writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
@@ -219,7 +221,8 @@ describe('policy GUI server', () => {
         server.token,
         {
           version: 1,
-          modes: { paranoid_rm: true },
+          safety: { level: 'standard', overrides: { paranoid_rm: true } },
+          workflow: { worktree_mode: false },
           destructive_command_protection: {
             enabled: false,
             overrides: { 'git.reset-hard': 'off' },
@@ -311,6 +314,8 @@ describe('policy GUI server', () => {
       JSON.stringify({
         version: 2,
         modes: { strict: true, paranoid: 'yes' },
+        safety: { level: 'strict', overrides: { fail_closed: true } },
+        workflow: { worktree_mode: true },
         destructive_command_protection: {
           enabled: false,
           overrides: { 'git.reset-hard': 'off', 'git.unknown': 'off' },
@@ -329,7 +334,8 @@ describe('policy GUI server', () => {
 
       expect(repairedPolicy).toMatchObject({
         version: 1,
-        modes: { strict: true, paranoid: false },
+        safety: { level: 'strict', overrides: { fail_closed: true } },
+        workflow: { worktree_mode: true },
         destructive_command_protection: {
           enabled: false,
           overrides: { 'git.reset-hard': 'off' },

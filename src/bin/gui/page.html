@@ -46,10 +46,21 @@
       <div class="panel-head">
         <div class="panel-title">
           <h2>Modes</h2>
-          <p class="panel-sub muted">Global posture toggles that widen or tighten protection coverage.</p>
+          <p class="panel-sub muted">Choose a safety level, then override individual capabilities only when needed.</p>
         </div>
       </div>
-      <div class="grid" id="modes"></div>
+      <div id="environment-overrides" class="status" hidden></div>
+      <div class="grid" id="safety-level"></div>
+      <div class="field">
+        <span>Advanced overrides</span>
+        <small>Inherit from the selected level unless a capability needs an explicit exception.</small>
+      </div>
+      <div class="grid" id="safety-overrides"></div>
+      <div class="field">
+        <span>Workflow</span>
+        <small>Workflow exceptions are separate from safety level.</small>
+      </div>
+      <div class="grid" id="workflow"></div>
     </section>
     <section class="panel foldable">
       <div class="panel-head">
@@ -97,12 +108,15 @@
   </dialog>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
-    const modeLabels = {
-      strict: ['Strict', 'Fail closed on unparseable commands.'],
-      paranoid: ['Paranoid', 'Enable all paranoid checks.'],
-      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf within cwd.'],
-      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
-      worktree_mode: ['Worktree mode', 'Allow local git discards in linked worktrees.']
+    const safetyLevels = {
+      standard: ['Standard', 'Blocks destructive git and filesystem commands. Recommended for most people.'],
+      strict: ['Strict', "Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell."],
+      paranoid: ['Paranoid', 'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.']
+    };
+    const safetyOverrides = {
+      fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
+      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
+      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.']
     };
     const rawCopyIcons = {
       copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
@@ -139,7 +153,7 @@
     const isPolicyState = (value) =>
       !!value && typeof value === 'object'
       && !!value.policy && typeof value.policy === 'object'
-      && !!value.policy.modes && !!value.policy.secret_protection
+      && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection
       && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
       && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
@@ -184,7 +198,12 @@
     const formatPolicy = (policy) => `${JSON.stringify(policy, null, 2)}\n`;
     const collectFormPolicy = () => ({
       version: 1,
-      modes: draftPolicy.modes,
+      safety: {
+        level: draftPolicy.safety.level,
+        overrides: Object.fromEntries(Object.entries(draftPolicy.safety.overrides)
+          .filter(([, value]) => typeof value === 'boolean'))
+      },
+      workflow: draftPolicy.workflow,
       destructive_command_protection: draftPolicy.destructive_command_protection,
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
@@ -359,6 +378,32 @@
       draftPolicy.secret_protection.enabled
         ? `Default secret patterns: ${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled. Deny paths are blocked while Secret protection is on.`
         : 'Protection disabled. Saved rule settings and deny paths are preserved.';
+    const levelCapabilities = (level) => ({
+      fail_closed: level === 'strict' || level === 'paranoid',
+      paranoid_rm: level === 'paranoid',
+      paranoid_interpreters: level === 'paranoid'
+    });
+    const renderSafety = () => {
+      qs('environment-overrides').hidden = !state.environmentOverrides?.length;
+      qs('environment-overrides').textContent = state.environmentOverrides?.length
+        ? `Environment overrides active: ${state.environmentOverrides.join(', ')}`
+        : '';
+      qs('safety-level').innerHTML = Object.entries(safetyLevels).map(([level, meta]) =>
+        `<label class="row"><input type="radio" name="safety-level" value="${level}" ${checkbox(draftPolicy.safety.level === level)}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
+      ).join('');
+      const inherited = levelCapabilities(draftPolicy.safety.level);
+      qs('safety-overrides').innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
+        const value = draftPolicy.safety.overrides[key];
+        const inheritedText = inherited[key] ? 'on' : 'off';
+        return `<label class="row"><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span><select data-safety-override="${key}">
+          <option value="inherit" ${value === undefined ? 'selected' : ''}>Inherit from level (${inheritedText})</option>
+          <option value="true" ${value === true ? 'selected' : ''}>Force on</option>
+          <option value="false" ${value === false ? 'selected' : ''}>Force off</option>
+        </select></label>`;
+      }).join('');
+      qs('workflow').innerHTML =
+        `<label class="row"><input type="checkbox" data-workflow-worktree ${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>`;
+    };
     const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
       const stateLabel = input.closest('.row')?.querySelector('small span');
       if (stateLabel) {
@@ -394,9 +439,7 @@
       draftPolicy = clonePolicy(state.policy);
       dirty = false;
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-      qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
-        `<label class="row"><input type="checkbox" data-mode="${key}" ${checkbox(state.policy.modes[key])}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
-      ).join('');
+      renderSafety();
       qs('destructive-command').innerHTML =
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>';
@@ -455,8 +498,23 @@
     });
     document.addEventListener('change', (event) => {
       const input = event.target;
-      if (input.dataset?.mode) {
-        draftPolicy.modes[input.dataset.mode] = input.checked;
+      if (input.name === 'safety-level') {
+        draftPolicy.safety.level = input.value;
+        renderSafety();
+        syncRawFromForm();
+        updateDirtyStatus();
+        return;
+      }
+      if (input.dataset?.safetyOverride) {
+        if (input.value === 'inherit') delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
+        if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
+        if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+        syncRawFromForm();
+        updateDirtyStatus();
+        return;
+      }
+      if ('workflowWorktree' in input.dataset) {
+        draftPolicy.workflow.worktree_mode = input.checked;
         syncRawFromForm();
         updateDirtyStatus();
         return;

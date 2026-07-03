@@ -52,12 +52,13 @@ export function getConfigSource(options?: GetConfigSourceOptions): {
 export function buildAnalyzeOptions(explainOptions?: ExplainOptions): AnalyzeOptions {
   // Resolve to absolute path - relative paths break cwd comparison logic
   const cwd = resolve(explainOptions?.cwd ?? process.cwd());
-  const modes = getCCSafetyNetEnvModes();
+  const config =
+    explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir });
+  const modes = getCCSafetyNetEnvModes(config);
   return {
     cwd,
     effectiveCwd: cwd,
-    config:
-      explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir }),
+    config,
     strict: explainOptions?.strict ?? modes.strict,
     paranoidRm: modes.paranoidRm,
     paranoidInterpreters: modes.paranoidInterpreters,

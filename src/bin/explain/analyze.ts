@@ -16,6 +16,7 @@ import {
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
+import { getCCSafetyNetEnvModes } from '@/core/env';
 import { loadRulesPolicy } from '@/core/rules/policy';
 import { splitShellCommands } from '@/core/shell';
 import type { ExplainOptions, ExplainResult, ExplainTrace, TraceStep } from '@/types';
@@ -23,6 +24,7 @@ import type { ExplainOptions, ExplainResult, ExplainTrace, TraceStep } from '@/t
 export function explainCommand(command: string, options?: ExplainOptions): ExplainResult {
   const trace: ExplainTrace = { steps: [], segments: [] };
   const analyzeOpts = buildAnalyzeOptions(options);
+  const effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.config).effectiveLevel;
   const { configSource, configValid } = getConfigSource({
     cwd: options?.cwd,
     userConfigDir: options?.userConfigDir,
@@ -35,6 +37,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
       result: 'allowed',
       configSource,
       configValid,
+      effectiveLevel,
     };
   }
 
@@ -62,6 +65,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
       segment: redactEnvAssignmentsInString(command),
       configSource,
       configValid,
+      effectiveLevel,
     };
   }
 
@@ -164,6 +168,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     customRule: getCustomRuleMetadata(blockReason, options, analyzeOpts.cwd ?? process.cwd()),
     configSource,
     configValid,
+    effectiveLevel,
   };
 }
 

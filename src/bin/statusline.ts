@@ -85,31 +85,18 @@ export async function printStatusline(): Promise<void> {
     status = '🛡️ CC Safety Net ❌';
   } else {
     const modes = getCCSafetyNetEnvModes();
-
-    let modeEmojis = '';
-
-    // Strict mode: 🔒
-    if (modes.strict) {
-      modeEmojis += '🔒';
-    }
-
-    // Paranoid modes: 👁️ if PARANOID or (PARANOID_RM + PARANOID_INTERPRETERS)
-    // Otherwise individual emojis: 🗑️ for RM, 🐚 for interpreters
-    if (modes.paranoidAll || (modes.paranoidRm && modes.paranoidInterpreters)) {
-      modeEmojis += '👁️';
-    } else if (modes.paranoidRm) {
-      modeEmojis += '🗑️';
-    } else if (modes.paranoidInterpreters) {
-      modeEmojis += '🐚';
-    }
+    const levelEmoji = {
+      standard: '✅',
+      strict: '🔒',
+      paranoid: '👁️',
+      custom: '🔧',
+    }[modes.effectiveLevel];
 
     if (modes.worktreeMode) {
-      modeEmojis += '🌳';
+      status = `🛡️ CC Safety Net ${levelEmoji}🌳`;
+    } else {
+      status = `🛡️ CC Safety Net ${levelEmoji}`;
     }
-
-    // If no mode flags, show ✅
-    const statusEmoji = modeEmojis || '✅';
-    status = `🛡️ CC Safety Net ${statusEmoji}`;
   }
 
   // Check for piped stdin input and prepend with separator

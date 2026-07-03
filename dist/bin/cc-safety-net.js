@@ -2340,6 +2340,7 @@ import { normalize, resolve, sep as sep2 } from "node:path";
 
 // src/core/env.ts
 var ENV_FLAGS = {
+  level: { name: "CC_SAFETY_NET_LEVEL" },
   strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
   paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
   paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
@@ -2350,14 +2351,97 @@ var ENV_FLAGS = {
   worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
   debug: { name: "CC_SAFETY_NET_DEBUG" }
 };
-function getCCSafetyNetEnvModes(policyModes = {}) {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid) || !!policyModes.paranoid;
+var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
+function expandSafetyLevel(level) {
   return {
-    strict: envTruthy(ENV_FLAGS.strict) || !!policyModes.strict,
-    paranoidAll,
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm) || !!policyModes.paranoidRm,
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters) || !!policyModes.paranoidInterpreters,
-    worktreeMode: envTruthy(ENV_FLAGS.worktree) || !!policyModes.worktreeMode
+    failClosed: level === "strict" || level === "paranoid",
+    paranoidRm: level === "paranoid",
+    paranoidInterpreters: level === "paranoid"
+  };
+}
+function maxSafetyLevel(policyLevel, envLevel) {
+  if (!envLevel)
+    return policyLevel;
+  return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
+}
+function parseEnvLevel() {
+  const value = getEnvFlagValue(ENV_FLAGS.level);
+  if (value === undefined)
+    return;
+  if (SAFETY_LEVELS.includes(value))
+    return value;
+  if (envTruthy(ENV_FLAGS.debug)) {
+    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
+  }
+  return;
+}
+function deriveEffectiveLevel(values) {
+  if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
+    return "paranoid";
+  if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "strict";
+  if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "standard";
+  return "custom";
+}
+function getCCSafetyNetEnvModes(policy = {}) {
+  const policyLevel = policy.safety?.level ?? "standard";
+  const envLevel = parseEnvLevel();
+  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
+  const values = expandSafetyLevel(baseLevel);
+  const sources = {
+    failClosed: [`policy safety.level=${policyLevel}`],
+    paranoidRm: [`policy safety.level=${policyLevel}`],
+    paranoidInterpreters: [`policy safety.level=${policyLevel}`],
+    worktreeMode: []
+  };
+  if (envLevel && envLevel !== policyLevel) {
+    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+  }
+  if (policy.safety?.overrides?.failClosed !== undefined) {
+    values.failClosed = policy.safety.overrides.failClosed;
+    sources.failClosed.push("policy safety.overrides.fail_closed");
+  }
+  if (policy.safety?.overrides?.paranoidRm !== undefined) {
+    values.paranoidRm = policy.safety.overrides.paranoidRm;
+    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
+  }
+  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
+    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
+    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
+  }
+  if (envTruthy(ENV_FLAGS.strict)) {
+    values.failClosed = true;
+    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoid)) {
+    values.paranoidRm = true;
+    values.paranoidInterpreters = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidRm)) {
+    values.paranoidRm = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
+    values.paranoidInterpreters = true;
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
+  }
+  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
+  if (policy.worktreeMode)
+    sources.worktreeMode.push("policy workflow.worktree_mode");
+  if (envTruthy(ENV_FLAGS.worktree))
+    sources.worktreeMode.push(`env ${ENV_FLAGS.worktree.name}`);
+  return {
+    strict: values.failClosed,
+    paranoidRm: values.paranoidRm,
+    paranoidInterpreters: values.paranoidInterpreters,
+    worktreeMode,
+    effectiveLevel: deriveEffectiveLevel(values),
+    sources
   };
 }
 function envTruthy(flag) {
@@ -5412,26 +5496,24 @@ function getRulesCacheDir(options2) {
 var POLICY_FILE = "policy.json";
 var TOP_LEVEL_FIELDS = new Set([
   "version",
-  "modes",
+  "safety",
+  "workflow",
   "destructive_command_protection",
   "secret_protection"
 ]);
-var MODE_FIELDS = new Set([
-  "strict",
-  "paranoid",
-  "paranoid_rm",
-  "paranoid_interpreters",
-  "worktree_mode"
-]);
+var SAFETY_LEVELS2 = new Set(["standard", "strict", "paranoid"]);
+var SAFETY_FIELDS = new Set(["level", "overrides"]);
+var SAFETY_OVERRIDE_FIELDS = new Set(["fail_closed", "paranoid_rm", "paranoid_interpreters"]);
+var WORKFLOW_FIELDS = new Set(["worktree_mode"]);
 var DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(["enabled", "overrides"]);
 var SECRET_PROTECTION_FIELDS = new Set(["enabled", "overrides", "deny_paths"]);
 var DEFAULT_GUI_POLICY = {
   version: 1,
-  modes: {
-    strict: false,
-    paranoid: false,
-    paranoid_rm: false,
-    paranoid_interpreters: false,
+  safety: {
+    level: "standard",
+    overrides: {}
+  },
+  workflow: {
     worktree_mode: false
   },
   destructive_command_protection: {
@@ -5522,7 +5604,8 @@ function repairUserPolicyForGui(options2 = {}) {
 function loadPolicyConfig(options2 = {}) {
   const user = readPolicyConfig(getUserPolicyPath(options2));
   return {
-    modes: user.policy.modes,
+    safety: user.policy.safety,
+    worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
     secretProtection: user.policy.secretProtection,
@@ -5532,17 +5615,23 @@ function loadPolicyConfig(options2 = {}) {
 function repairPolicyConfig(value) {
   if (!isRecord(value))
     return createDefaultGuiPolicy();
-  const modes = isRecord(value.modes) ? value.modes : {};
+  const safety = isRecord(value.safety) ? value.safety : {};
+  const safetyOverrides = isRecord(safety.overrides) ? safety.overrides : {};
+  const workflow = isRecord(value.workflow) ? value.workflow : {};
   const destructiveCommand = isRecord(value.destructive_command_protection) ? value.destructive_command_protection : {};
   const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
   return {
     version: 1,
-    modes: {
-      strict: typeof modes.strict === "boolean" ? modes.strict : false,
-      paranoid: typeof modes.paranoid === "boolean" ? modes.paranoid : false,
-      paranoid_rm: typeof modes.paranoid_rm === "boolean" ? modes.paranoid_rm : false,
-      paranoid_interpreters: typeof modes.paranoid_interpreters === "boolean" ? modes.paranoid_interpreters : false,
-      worktree_mode: typeof modes.worktree_mode === "boolean" ? modes.worktree_mode : false
+    safety: {
+      level: SAFETY_LEVELS2.has(safety.level) ? safety.level : "standard",
+      overrides: {
+        ...typeof safetyOverrides.fail_closed === "boolean" ? { fail_closed: safetyOverrides.fail_closed } : {},
+        ...typeof safetyOverrides.paranoid_rm === "boolean" ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
+        ...typeof safetyOverrides.paranoid_interpreters === "boolean" ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
+      }
+    },
+    workflow: {
+      worktree_mode: typeof workflow.worktree_mode === "boolean" ? workflow.worktree_mode : false
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
@@ -5571,7 +5660,11 @@ function isRecord(value) {
 function createDefaultGuiPolicy() {
   return {
     version: 1,
-    modes: { ...DEFAULT_GUI_POLICY.modes },
+    safety: {
+      level: DEFAULT_GUI_POLICY.safety.level,
+      overrides: {}
+    },
+    workflow: { ...DEFAULT_GUI_POLICY.workflow },
     destructive_command_protection: {
       enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
       overrides: {}
@@ -5585,19 +5678,25 @@ function createDefaultGuiPolicy() {
 }
 function normalizeGuiPolicy(policy) {
   const config = policy;
-  const modes = config.modes ?? {};
+  const safety = config.safety ?? {};
+  const safetyOverrides = safety.overrides ?? {};
+  const workflow = config.workflow ?? {};
   const destructiveCommandPolicy = config.destructive_command_protection ?? {};
   const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
   const secret = config.secret_protection ?? {};
   const secretOverrides = secret.overrides ?? {};
   return {
     version: 1,
-    modes: {
-      strict: modes.strict ?? false,
-      paranoid: modes.paranoid ?? false,
-      paranoid_rm: modes.paranoid_rm ?? false,
-      paranoid_interpreters: modes.paranoid_interpreters ?? false,
-      worktree_mode: modes.worktree_mode ?? false
+    safety: {
+      level: safety.level ?? "standard",
+      overrides: {
+        ...safetyOverrides.fail_closed !== undefined ? { fail_closed: safetyOverrides.fail_closed } : {},
+        ...safetyOverrides.paranoid_rm !== undefined ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
+        ...safetyOverrides.paranoid_interpreters !== undefined ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
+      }
+    },
+    workflow: {
+      worktree_mode: workflow.worktree_mode ?? false
     },
     destructive_command_protection: {
       enabled: destructiveCommandPolicy.enabled ?? true,
@@ -5633,7 +5732,8 @@ function readPolicyConfig(path) {
 }
 function createEmptyPolicy() {
   return {
-    modes: {},
+    safety: {},
+    worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
     disabledDestructiveCommandRules: [],
     secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
@@ -5648,23 +5748,51 @@ function validatePolicyConfig(config) {
   addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
   if (cfg.version !== 1)
     errors.push("version must be 1");
-  validateModes(cfg.modes, errors);
+  validateSafety(cfg.safety, errors);
+  validateWorkflow(cfg.workflow, errors);
   validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
   validateSecretProtection(cfg.secret_protection, errors);
   return errors;
 }
-function validateModes(value, errors) {
+function validateSafety(value, errors) {
   if (value === undefined)
     return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("modes must be an object if provided");
+    errors.push("safety must be an object if provided");
     return;
   }
-  const modes = value;
-  addUnknownFieldErrors(modes, MODE_FIELDS, errors, "modes");
-  for (const [key, mode] of Object.entries(modes)) {
-    if (typeof mode !== "boolean")
-      errors.push(`modes.${key} must be a boolean`);
+  const safety = value;
+  addUnknownFieldErrors(safety, SAFETY_FIELDS, errors, "safety");
+  if (safety.level !== undefined && !SAFETY_LEVELS2.has(safety.level)) {
+    errors.push('safety.level must be "standard", "strict", or "paranoid"');
+  }
+  validateSafetyOverrides(safety.overrides, errors);
+}
+function validateSafetyOverrides(value, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("safety.overrides must be an object if provided");
+    return;
+  }
+  const overrides = value;
+  addUnknownFieldErrors(overrides, SAFETY_OVERRIDE_FIELDS, errors, "safety.overrides");
+  for (const [key, override] of Object.entries(overrides)) {
+    if (typeof override !== "boolean")
+      errors.push(`safety.overrides.${key} must be a boolean`);
+  }
+}
+function validateWorkflow(value, errors) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("workflow must be an object if provided");
+    return;
+  }
+  const workflow = value;
+  addUnknownFieldErrors(workflow, WORKFLOW_FIELDS, errors, "workflow");
+  if (workflow.worktree_mode !== undefined && typeof workflow.worktree_mode !== "boolean") {
+    errors.push("workflow.worktree_mode must be a boolean");
   }
 }
 function validateDestructiveCommandPolicy(value, errors) {
@@ -5743,11 +5871,13 @@ function validatePathArray(value, field, errors) {
   }
 }
 function normalizePolicyConfig(config) {
-  const modes = normalizeModes(config.modes);
+  const safety = normalizeSafety(config.safety);
+  const workflow = config.workflow;
   const destructiveCommand = config.destructive_command_protection;
   const secret = config.secret_protection;
   return {
-    modes,
+    safety,
+    worktreeMode: workflow?.worktree_mode ?? false,
     destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? true,
     disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
@@ -5757,16 +5887,18 @@ function normalizePolicyConfig(config) {
     }
   };
 }
-function normalizeModes(value) {
+function normalizeSafety(value) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     return {};
-  const modes = value;
+  const safety = value;
+  const overrides = safety.overrides ?? {};
   return {
-    strict: modes.strict,
-    paranoid: modes.paranoid,
-    paranoidRm: modes.paranoid_rm,
-    paranoidInterpreters: modes.paranoid_interpreters,
-    worktreeMode: modes.worktree_mode
+    level: safety.level,
+    overrides: {
+      failClosed: overrides.fail_closed,
+      paranoidRm: overrides.paranoid_rm,
+      paranoidInterpreters: overrides.paranoid_interpreters
+    }
   };
 }
 function addUnknownFieldErrors(record, allowed, errors, prefix) {
@@ -7245,7 +7377,8 @@ function loadConfig(cwd, options2) {
   const policyConfig = loadPolicyConfig({ cwd: safeCwd, userConfigDir: options2?.userConfigDir });
   return {
     ...rulesConfig,
-    modes: policyConfig.modes,
+    safety: policyConfig.safety,
+    worktreeMode: policyConfig.worktreeMode,
     destructiveCommandProtectionEnabled: policyConfig.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
     secretProtection: policyConfig.secretProtection,
@@ -7325,7 +7458,7 @@ function withTerminalPeriod2(value) {
 // src/core/analyze/index.ts
 function analyzeCommand(command2, options2 = {}) {
   const config = options2.config ?? loadConfig(options2.cwd);
-  const modes = getCCSafetyNetEnvModes(config.modes);
+  const modes = getCCSafetyNetEnvModes(config);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     config,
@@ -8775,23 +8908,28 @@ function getConfigInfo(cwd, options2) {
 // src/bin/doctor/environment.ts
 var ENV_VARS = [
   {
+    flag: ENV_FLAGS.level,
+    description: "Safety level preset: standard, strict, or paranoid",
+    defaultBehavior: "standard"
+  },
+  {
     flag: ENV_FLAGS.strict,
-    description: "Fail-closed on unparseable commands",
+    description: "Legacy; equivalent to safety.overrides.fail_closed",
     defaultBehavior: "permissive"
   },
   {
     flag: ENV_FLAGS.paranoid,
-    description: "Enable all paranoid checks",
+    description: "Legacy; equivalent to safety.overrides.paranoid_rm and paranoid_interpreters",
     defaultBehavior: "off"
   },
   {
     flag: ENV_FLAGS.paranoidRm,
-    description: "Block rm -rf even within cwd",
+    description: "Legacy; equivalent to safety.overrides.paranoid_rm",
     defaultBehavior: "off"
   },
   {
     flag: ENV_FLAGS.paranoidInterpreters,
-    description: "Block interpreter one-liners",
+    description: "Legacy; equivalent to safety.overrides.paranoid_interpreters",
     defaultBehavior: "off"
   },
   {
@@ -9061,6 +9199,22 @@ function formatEnvironmentSection(envVars) {
   const lines = [];
   lines.push("Environment");
   lines.push(formatEnvironmentTable(envVars));
+  return lines.join(`
+`);
+}
+function formatEffectiveSafetySection(report) {
+  const lines = [`Effective Safety`, `   Effective: ${report.effectiveSafety.level}`];
+  const capabilityLabels = [
+    ["fail_closed", "fail_closed"],
+    ["paranoid_rm", "paranoid_rm"],
+    ["paranoid_interpreters", "paranoid_interpreters"]
+  ];
+  for (const [key, label] of capabilityLabels) {
+    const capability = report.effectiveSafety.capabilities[key];
+    const state = capability.enabled ? colors.green("ON") : colors.dim("OFF");
+    const sources = capability.sources.length > 0 ? ` (${capability.sources.join(", ")})` : "";
+    lines.push(`   ${label}: ${state}${sources}`);
+  }
   return lines.join(`
 `);
 }
@@ -10317,6 +10471,7 @@ async function runDoctor(options2 = {}) {
   });
   const configInfo = getConfigInfo(cwd);
   const environment = getEnvironmentInfo();
+  const modes = getCCSafetyNetEnvModes(loadConfig(cwd));
   const activity = getActivitySummary(7);
   const update = options2.skipUpdateCheck ? {
     currentVersion: getPackageVersion(),
@@ -10330,6 +10485,17 @@ async function runDoctor(options2 = {}) {
     effectiveRules: configInfo.effectiveRules,
     shadowedRules: configInfo.shadowedRules,
     environment,
+    effectiveSafety: {
+      level: modes.effectiveLevel,
+      capabilities: {
+        fail_closed: { enabled: modes.strict, sources: modes.sources.failClosed },
+        paranoid_rm: { enabled: modes.paranoidRm, sources: modes.sources.paranoidRm },
+        paranoid_interpreters: {
+          enabled: modes.paranoidInterpreters,
+          sources: modes.sources.paranoidInterpreters
+        }
+      }
+    },
     activity,
     update,
     system
@@ -10352,6 +10518,8 @@ function printReport(report) {
   console.log(formatConfigSection(report));
   console.log();
   console.log(formatEnvironmentSection(report.environment));
+  console.log();
+  console.log(formatEffectiveSafetySection(report));
   console.log();
   console.log(formatActivitySection(report.activity));
   console.log();
@@ -10382,11 +10550,12 @@ function getConfigSource(options2) {
 }
 function buildAnalyzeOptions(explainOptions) {
   const cwd = resolve10(explainOptions?.cwd ?? process.cwd());
-  const modes = getCCSafetyNetEnvModes();
+  const config = explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir });
+  const modes = getCCSafetyNetEnvModes(config);
   return {
     cwd,
     effectiveCwd: cwd,
-    config: explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir }),
+    config,
     strict: explainOptions?.strict ?? modes.strict,
     paranoidRm: modes.paranoidRm,
     paranoidInterpreters: modes.paranoidInterpreters,
@@ -10861,6 +11030,7 @@ function isShellWrapperCommand2(head, baseNameLower) {
 function explainCommand2(command2, options2) {
   const trace = { steps: [], segments: [] };
   const analyzeOpts = buildAnalyzeOptions(options2);
+  const effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.config).effectiveLevel;
   const { configSource, configValid } = getConfigSource({
     cwd: options2?.cwd,
     userConfigDir: options2?.userConfigDir
@@ -10871,7 +11041,8 @@ function explainCommand2(command2, options2) {
       trace,
       result: "allowed",
       configSource,
-      configValid
+      configValid,
+      effectiveLevel
     };
   }
   const segments2 = splitShellCommands(command2);
@@ -10894,7 +11065,8 @@ function explainCommand2(command2, options2) {
       reason: REASON_STRICT_UNPARSEABLE2,
       segment: redactEnvAssignmentsInString(command2),
       configSource,
-      configValid
+      configValid,
+      effectiveLevel
     };
   }
   let blocked = false;
@@ -10980,7 +11152,8 @@ function explainCommand2(command2, options2) {
     segment: blockSegment,
     customRule: getCustomRuleMetadata(blockReason, options2, analyzeOpts.cwd ?? process.cwd()),
     configSource,
-    configValid
+    configValid,
+    effectiveLevel
   };
 }
 function cwdChangeStep(segment) {
@@ -12261,10 +12434,21 @@ var page_default = `<!doctype html>
       <div class="panel-head">
         <div class="panel-title">
           <h2>Modes</h2>
-          <p class="panel-sub muted">Global posture toggles that widen or tighten protection coverage.</p>
+          <p class="panel-sub muted">Choose a safety level, then override individual capabilities only when needed.</p>
         </div>
       </div>
-      <div class="grid" id="modes"></div>
+      <div id="environment-overrides" class="status" hidden></div>
+      <div class="grid" id="safety-level"></div>
+      <div class="field">
+        <span>Advanced overrides</span>
+        <small>Inherit from the selected level unless a capability needs an explicit exception.</small>
+      </div>
+      <div class="grid" id="safety-overrides"></div>
+      <div class="field">
+        <span>Workflow</span>
+        <small>Workflow exceptions are separate from safety level.</small>
+      </div>
+      <div class="grid" id="workflow"></div>
     </section>
     <section class="panel foldable">
       <div class="panel-head">
@@ -12312,12 +12496,15 @@ var page_default = `<!doctype html>
   </dialog>
   <script>
     const token = __CC_SAFETY_NET_TOKEN__;
-    const modeLabels = {
-      strict: ['Strict', 'Fail closed on unparseable commands.'],
-      paranoid: ['Paranoid', 'Enable all paranoid checks.'],
-      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf within cwd.'],
-      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
-      worktree_mode: ['Worktree mode', 'Allow local git discards in linked worktrees.']
+    const safetyLevels = {
+      standard: ['Standard', 'Blocks destructive git and filesystem commands. Recommended for most people.'],
+      strict: ['Strict', "Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell."],
+      paranoid: ['Paranoid', 'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.']
+    };
+    const safetyOverrides = {
+      fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
+      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
+      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.']
     };
     const rawCopyIcons = {
       copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
@@ -12354,7 +12541,7 @@ var page_default = `<!doctype html>
     const isPolicyState = (value) =>
       !!value && typeof value === 'object'
       && !!value.policy && typeof value.policy === 'object'
-      && !!value.policy.modes && !!value.policy.secret_protection
+      && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection
       && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
       && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
@@ -12399,7 +12586,12 @@ var page_default = `<!doctype html>
     const formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}\\n\`;
     const collectFormPolicy = () => ({
       version: 1,
-      modes: draftPolicy.modes,
+      safety: {
+        level: draftPolicy.safety.level,
+        overrides: Object.fromEntries(Object.entries(draftPolicy.safety.overrides)
+          .filter(([, value]) => typeof value === 'boolean'))
+      },
+      workflow: draftPolicy.workflow,
       destructive_command_protection: draftPolicy.destructive_command_protection,
       secret_protection: {
         enabled: draftPolicy.secret_protection.enabled,
@@ -12574,6 +12766,32 @@ var page_default = `<!doctype html>
       draftPolicy.secret_protection.enabled
         ? \`Default secret patterns: \${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled. Deny paths are blocked while Secret protection is on.\`
         : 'Protection disabled. Saved rule settings and deny paths are preserved.';
+    const levelCapabilities = (level) => ({
+      fail_closed: level === 'strict' || level === 'paranoid',
+      paranoid_rm: level === 'paranoid',
+      paranoid_interpreters: level === 'paranoid'
+    });
+    const renderSafety = () => {
+      qs('environment-overrides').hidden = !state.environmentOverrides?.length;
+      qs('environment-overrides').textContent = state.environmentOverrides?.length
+        ? \`Environment overrides active: \${state.environmentOverrides.join(', ')}\`
+        : '';
+      qs('safety-level').innerHTML = Object.entries(safetyLevels).map(([level, meta]) =>
+        \`<label class="row"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
+      ).join('');
+      const inherited = levelCapabilities(draftPolicy.safety.level);
+      qs('safety-overrides').innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
+        const value = draftPolicy.safety.overrides[key];
+        const inheritedText = inherited[key] ? 'on' : 'off';
+        return \`<label class="row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
+          <option value="inherit" \${value === undefined ? 'selected' : ''}>Inherit from level (\${inheritedText})</option>
+          <option value="true" \${value === true ? 'selected' : ''}>Force on</option>
+          <option value="false" \${value === false ? 'selected' : ''}>Force off</option>
+        </select></label>\`;
+      }).join('');
+      qs('workflow').innerHTML =
+        \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
+    };
     const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
       const stateLabel = input.closest('.row')?.querySelector('small span');
       if (stateLabel) {
@@ -12609,9 +12827,7 @@ var page_default = `<!doctype html>
       draftPolicy = clonePolicy(state.policy);
       dirty = false;
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-      qs('modes').innerHTML = Object.entries(modeLabels).map(([key, meta]) =>
-        \`<label class="row"><input type="checkbox" data-mode="\${key}" \${checkbox(state.policy.modes[key])}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
-      ).join('');
+      renderSafety();
       qs('destructive-command').innerHTML =
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>';
@@ -12670,8 +12886,23 @@ var page_default = `<!doctype html>
     });
     document.addEventListener('change', (event) => {
       const input = event.target;
-      if (input.dataset?.mode) {
-        draftPolicy.modes[input.dataset.mode] = input.checked;
+      if (input.name === 'safety-level') {
+        draftPolicy.safety.level = input.value;
+        renderSafety();
+        syncRawFromForm();
+        updateDirtyStatus();
+        return;
+      }
+      if (input.dataset?.safetyOverride) {
+        if (input.value === 'inherit') delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
+        if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
+        if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+        syncRawFromForm();
+        updateDirtyStatus();
+        return;
+      }
+      if ('workflowWorktree' in input.dataset) {
+        draftPolicy.workflow.worktree_mode = input.checked;
         syncRawFromForm();
         updateDirtyStatus();
         return;
@@ -12902,7 +13133,8 @@ async function handleRequest(request, response, token, options2) {
     sendJson(response, 200, {
       ...readUserPolicyForGui(options2),
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
-      secretPatterns: SECRET_PROTECTION_RULE_METADATA
+      secretPatterns: SECRET_PROTECTION_RULE_METADATA,
+      environmentOverrides: getActiveEnvironmentOverrides()
     });
     return;
   }
@@ -12925,6 +13157,14 @@ async function handleRequest(request, response, token, options2) {
     return;
   }
   sendJson(response, 404, { error: "Not found" });
+}
+function getActiveEnvironmentOverrides() {
+  return [
+    ENV_FLAGS.strict,
+    ENV_FLAGS.paranoid,
+    ENV_FLAGS.paranoidRm,
+    ENV_FLAGS.paranoidInterpreters
+  ].flatMap((flag) => envTruthy(flag) ? [flag.name] : []);
 }
 function requestHasValidToken(request, url, token) {
   if (url.searchParams.get("token") !== token)
@@ -13079,13 +13319,16 @@ function printHelp() {
   lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`);
   lines.push("");
   lines.push("ENVIRONMENT VARIABLES:");
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, "Fail-closed on unparseable commands"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, "Enable all paranoid checks"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, "Block non-temp rm -rf within cwd"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Block interpreter one-liners"));
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.level.name}=standard|strict|paranoid`, "Set session safety level"));
   lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`, "Allow local git discards in linked worktrees"));
   lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, "Log allowed hook commands for debugging"));
   lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME", "Override rule config home directory"));
+  lines.push("");
+  lines.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):");
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, "Force safety.overrides.fail_closed on"));
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, "Force paranoid_rm and paranoid_interpreters on"));
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, "Force safety.overrides.paranoid_rm on"));
+  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Force safety.overrides.paranoid_interpreters on"));
   console.log(lines.join(`
 `));
 }
@@ -14379,22 +14622,17 @@ async function printStatusline() {
     status = "\uD83D\uDEE1️ CC Safety Net ❌";
   } else {
     const modes = getCCSafetyNetEnvModes();
-    let modeEmojis = "";
-    if (modes.strict) {
-      modeEmojis += "\uD83D\uDD12";
-    }
-    if (modes.paranoidAll || modes.paranoidRm && modes.paranoidInterpreters) {
-      modeEmojis += "\uD83D\uDC41️";
-    } else if (modes.paranoidRm) {
-      modeEmojis += "\uD83D\uDDD1️";
-    } else if (modes.paranoidInterpreters) {
-      modeEmojis += "\uD83D\uDC1A";
-    }
+    const levelEmoji = {
+      standard: "✅",
+      strict: "\uD83D\uDD12",
+      paranoid: "\uD83D\uDC41️",
+      custom: "\uD83D\uDD27"
+    }[modes.effectiveLevel];
     if (modes.worktreeMode) {
-      modeEmojis += "\uD83C\uDF33";
+      status = `\uD83D\uDEE1️ CC Safety Net ${levelEmoji}\uD83C\uDF33`;
+    } else {
+      status = `\uD83D\uDEE1️ CC Safety Net ${levelEmoji}`;
     }
-    const statusEmoji = modeEmojis || "✅";
-    status = `\uD83D\uDEE1️ CC Safety Net ${statusEmoji}`;
   }
   const stdinInput = await readStdinAsync();
   if (stdinInput && !stdinInput.startsWith("{")) {

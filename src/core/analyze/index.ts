@@ -8,7 +8,7 @@ export function analyzeCommand(
   options: AnalyzeOptions = {},
 ): AnalyzeResult | null {
   const config = options.config ?? loadConfig(options.cwd);
-  const modes = getCCSafetyNetEnvModes(config.modes);
+  const modes = getCCSafetyNetEnvModes(config);
   return analyzeCommandInternal(command, 0, {
     ...options,
     config,

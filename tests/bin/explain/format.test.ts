@@ -31,6 +31,7 @@ function mockExplainResult(
     reason,
     configSource: null,
     configValid: true,
+    effectiveLevel: 'standard',
   };
 }
 

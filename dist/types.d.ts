@@ -22,8 +22,10 @@ export interface Config {
     rules: CustomRule[];
     /** Commands that transparently execute a visible child command for analysis */
     transparent_wrappers?: string[];
-    /** Runtime modes loaded from policy config */
-    modes?: PolicyModes;
+    /** Runtime safety policy loaded from trusted user policy config */
+    safety?: PolicySafety;
+    /** Allow local Git discard commands in linked worktrees */
+    worktreeMode?: boolean;
     /** Whether built-in destructive command protection is enabled by trusted user policy */
     destructiveCommandProtectionEnabled?: boolean;
     /** Destructive command rule IDs disabled by trusted user policy */
@@ -33,12 +35,15 @@ export interface Config {
     /** Fail-closed reason when rule-backed config cannot be loaded safely. */
     failClosedReason?: string;
 }
-export interface PolicyModes {
-    strict?: boolean;
-    paranoid?: boolean;
-    paranoidRm?: boolean;
-    paranoidInterpreters?: boolean;
-    worktreeMode?: boolean;
+export type PolicySafetyLevel = 'standard' | 'strict' | 'paranoid';
+export type EffectiveSafetyLevel = PolicySafetyLevel | 'custom';
+export interface PolicySafety {
+    level?: PolicySafetyLevel;
+    overrides?: {
+        failClosed?: boolean;
+        paranoidRm?: boolean;
+        paranoidInterpreters?: boolean;
+    };
 }
 export interface SecretProtectionConfig {
     enabled?: boolean;
@@ -303,4 +308,5 @@ export interface ExplainResult {
     };
     configSource: string | null;
     configValid: boolean;
+    effectiveLevel: EffectiveSafetyLevel;
 }

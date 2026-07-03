@@ -155,8 +155,11 @@ describe('runtime config loading', () => {
     writeFileSync(join(tempDir, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
   }
 
-  test('user policy modes affect command analysis without env flags', () => {
-    writeUserPolicy({ version: 1, modes: { paranoid_rm: true } });
+  test('user policy safety overrides affect command analysis without env flags', () => {
+    writeUserPolicy({
+      version: 1,
+      safety: { level: 'standard', overrides: { paranoid_rm: true } },
+    });
 
     const result = analyzeCommand('rm -rf build', {
       cwd: tempDir,
@@ -166,8 +169,11 @@ describe('runtime config loading', () => {
     expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
   });
 
-  test('env flags still enable modes when policy sets false', () => {
-    writeUserPolicy({ version: 1, modes: { paranoid_rm: false } });
+  test('env flags still enable capabilities when policy sets false', () => {
+    writeUserPolicy({
+      version: 1,
+      safety: { level: 'standard', overrides: { paranoid_rm: false } },
+    });
 
     withEnv({ CC_SAFETY_NET_PARANOID_RM: '1' }, () => {
       const result = analyzeCommand('rm -rf build', {
@@ -277,7 +283,7 @@ describe('runtime config loading', () => {
       version: 1,
       destructive_command_protection: { overrides: { 'git.reset-hard': 'off' } },
       secret_protection: { overrides: { 'secret.ext.pem': 'off' } },
-      modes: { worktree_mode: true },
+      workflow: { worktree_mode: true },
     });
 
     const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
@@ -285,7 +291,8 @@ describe('runtime config loading', () => {
     expect(config.failClosedReason).toBeUndefined();
     expect(config.disabledDestructiveCommandRules).toEqual(new Set());
     expect(config.secretProtection?.disabledRules).toEqual(new Set());
-    expect(config.modes).toEqual({});
+    expect(config.safety).toEqual({});
+    expect(config.worktreeMode).toBe(false);
   });
 
   test('invalid policy fields fail closed with repair context', () => {

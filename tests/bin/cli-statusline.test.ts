@@ -6,6 +6,7 @@ import { runCCSafetyNetCli } from '../helpers.ts';
 
 function clearEnv(): void {
   delete process.env.CC_SAFETY_NET_STRICT;
+  delete process.env.CC_SAFETY_NET_LEVEL;
   delete process.env.CC_SAFETY_NET_PARANOID;
   delete process.env.CC_SAFETY_NET_PARANOID_RM;
   delete process.env.CC_SAFETY_NET_PARANOID_INTERPRETERS;
@@ -59,47 +60,47 @@ describe('statusline command', () => {
     {
       name: 'SAFETY_NET_PARANOID=1',
       env: { SAFETY_NET_PARANOID: '1' },
-      output: '🛡️ CC Safety Net 👁️',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'CC_SAFETY_NET_PARANOID=1',
       env: { CC_SAFETY_NET_PARANOID: '1' },
-      output: '🛡️ CC Safety Net 👁️',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'SAFETY_NET_WORKTREE=1',
       env: { SAFETY_NET_WORKTREE: '1' },
-      output: '🛡️ CC Safety Net 🌳',
+      output: '🛡️ CC Safety Net ✅🌳',
     },
     {
       name: 'strict and paranoid',
       env: { SAFETY_NET_STRICT: '1', SAFETY_NET_PARANOID: '1' },
-      output: '🛡️ CC Safety Net 🔒👁️',
+      output: '🛡️ CC Safety Net 👁️',
     },
     {
       name: 'SAFETY_NET_PARANOID_RM=1 only',
       env: { SAFETY_NET_PARANOID_RM: '1' },
-      output: '🛡️ CC Safety Net 🗑️',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'strict and paranoid rm',
       env: { SAFETY_NET_STRICT: '1', SAFETY_NET_PARANOID_RM: '1' },
-      output: '🛡️ CC Safety Net 🔒🗑️',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'SAFETY_NET_PARANOID_INTERPRETERS=1',
       env: { SAFETY_NET_PARANOID_INTERPRETERS: '1' },
-      output: '🛡️ CC Safety Net 🐚',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'strict and paranoid interpreters',
       env: { SAFETY_NET_STRICT: '1', SAFETY_NET_PARANOID_INTERPRETERS: '1' },
-      output: '🛡️ CC Safety Net 🔒🐚',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'both granular paranoid flags',
       env: { SAFETY_NET_PARANOID_RM: '1', SAFETY_NET_PARANOID_INTERPRETERS: '1' },
-      output: '🛡️ CC Safety Net 👁️',
+      output: '🛡️ CC Safety Net 🔧',
     },
     {
       name: 'strict and both granular paranoid flags',
@@ -108,7 +109,7 @@ describe('statusline command', () => {
         SAFETY_NET_PARANOID_RM: '1',
         SAFETY_NET_PARANOID_INTERPRETERS: '1',
       },
-      output: '🛡️ CC Safety Net 🔒👁️',
+      output: '🛡️ CC Safety Net 👁️',
     },
   ];
 

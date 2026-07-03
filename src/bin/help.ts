@@ -138,18 +138,9 @@ export function printHelp(): void {
   // Environment variables
   lines.push('ENVIRONMENT VARIABLES:');
   lines.push(
-    formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, 'Fail-closed on unparseable commands'),
-  );
-  lines.push(
-    formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, 'Enable all paranoid checks'),
-  );
-  lines.push(
-    formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, 'Block non-temp rm -rf within cwd'),
-  );
-  lines.push(
     formatEnvironmentVariable(
-      `${ENV_FLAGS.paranoidInterpreters.name}=1`,
-      'Block interpreter one-liners',
+      `${ENV_FLAGS.level.name}=standard|strict|paranoid`,
+      'Set session safety level',
     ),
   );
   lines.push(
@@ -166,6 +157,32 @@ export function printHelp(): void {
   );
   lines.push(
     formatEnvironmentVariable('CC_SAFETY_NET_HOME', 'Override rule config home directory'),
+  );
+  lines.push('');
+  lines.push('LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):');
+  lines.push(
+    formatEnvironmentVariable(
+      `${ENV_FLAGS.strict.name}=1`,
+      'Force safety.overrides.fail_closed on',
+    ),
+  );
+  lines.push(
+    formatEnvironmentVariable(
+      `${ENV_FLAGS.paranoid.name}=1`,
+      'Force paranoid_rm and paranoid_interpreters on',
+    ),
+  );
+  lines.push(
+    formatEnvironmentVariable(
+      `${ENV_FLAGS.paranoidRm.name}=1`,
+      'Force safety.overrides.paranoid_rm on',
+    ),
+  );
+  lines.push(
+    formatEnvironmentVariable(
+      `${ENV_FLAGS.paranoidInterpreters.name}=1`,
+      'Force safety.overrides.paranoid_interpreters on',
+    ),
   );
 
   console.log(lines.join('\n'));
