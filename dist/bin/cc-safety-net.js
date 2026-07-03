@@ -12209,6 +12209,15 @@ label.row:hover input[type="checkbox"]:not(:checked) {
   background: var(--switch-track-hover);
 }
 
+label.row.safety-override-row {
+  display: grid;
+  gap: 8px;
+}
+
+label.row.safety-override-row select {
+  width: 100%;
+}
+
 label.row span {
   display: block;
   min-width: 0;
@@ -13042,7 +13051,7 @@ var page_default = `<!doctype html>
       qs('safety-overrides').innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
         const value = draftPolicy.safety.overrides[key];
         const inheritedText = inherited[key] ? 'on' : 'off';
-        return \`<label class="row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
+        return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
           <option value="inherit" \${value === undefined ? 'selected' : ''}>Inherit from level (\${inheritedText})</option>
           <option value="true" \${value === true ? 'selected' : ''}>Force on</option>
           <option value="false" \${value === false ? 'selected' : ''}>Force off</option>

@@ -109,6 +109,12 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         'aria-expanded="false" aria-controls="destructive-command-panel-content"',
       );
+      expect(html).toContain('aria-controls="safety-overrides-content"');
+      expect(html).toContain('id="safety-overrides-content" hidden');
+      expect(html).toContain('<label class="row safety-override-row">');
+      expect(html).toContain('label.row.safety-override-row {\n  display: grid;');
+      expect(html).toContain('label.row.safety-override-row select {');
+      expect(html).toContain('width: 100%;');
       expect(html).toContain('id="destructive-command-panel-content" hidden');
       expect(html).toContain('.panel-toggle {\n  display: inline-flex;');
       expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');

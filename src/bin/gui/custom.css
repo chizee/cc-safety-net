@@ -507,6 +507,15 @@ label.row:hover input[type="checkbox"]:not(:checked) {
   background: var(--switch-track-hover);
 }
 
+label.row.safety-override-row {
+  display: grid;
+  gap: 8px;
+}
+
+label.row.safety-override-row select {
+  width: 100%;
+}
+
 label.row span {
   display: block;
   min-width: 0;
