@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,13 +47,11 @@ export function writeAuditLog(
     return;
   }
 
-  const home = options.homeDir ?? process.env.HOME ?? homedir();
+  const home = options.homeDir ?? (process.env.HOME || homedir());
   const logsDir = join(home, '.cc-safety-net', 'logs');
 
   try {
-    if (!existsSync(logsDir)) {
-      mkdirSync(logsDir, { recursive: true });
-    }
+    mkdirSync(logsDir, { recursive: true, mode: 0o700 });
 
     const logFile = join(logsDir, `${safeSessionId}.jsonl`);
     const entry: AuditLogEntry = {
@@ -65,7 +63,7 @@ export function writeAuditLog(
       cwd,
     };
 
-    appendFileSync(logFile, `${JSON.stringify(entry)}\n`, 'utf-8');
+    appendFileSync(logFile, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8', mode: 0o600 });
   } catch {
     // Silently ignore errors (matches Python behavior)
   }
@@ -129,8 +127,6 @@ export function redactSecrets(text: string): string {
     /(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi,
     '$1<redacted>$3',
   );
-  result = result.replace(/(['"]?\s*authorization\s*:\s*)([^'"]+)(['"]?)/gi, '$1<redacted>$3');
-  result = result.replace(/(authorization\s*:\s*)([^\s"']+)(\s+[^\s"']+)?/gi, '$1<redacted>');
 
   // URL credentials: scheme://user:pass@host or scheme://token@host
   result = result.replace(

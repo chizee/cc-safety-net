@@ -7333,7 +7333,7 @@ function analyzeCommand(command2, options2 = {}) {
 }
 
 // src/core/audit.ts
-import { appendFileSync, existsSync as existsSync11, mkdirSync as mkdirSync4 } from "node:fs";
+import { appendFileSync, mkdirSync as mkdirSync4 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join9 } from "node:path";
 function sanitizeSessionIdForFilename(sessionId) {
@@ -7353,12 +7353,10 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
   if (!safeSessionId) {
     return;
   }
-  const home = options2.homeDir ?? process.env.HOME ?? homedir3();
+  const home = options2.homeDir ?? (process.env.HOME || homedir3());
   const logsDir = join9(home, ".cc-safety-net", "logs");
   try {
-    if (!existsSync11(logsDir)) {
-      mkdirSync4(logsDir, { recursive: true });
-    }
+    mkdirSync4(logsDir, { recursive: true, mode: 448 });
     const logFile = join9(logsDir, `${safeSessionId}.jsonl`);
     const entry = {
       ts: new Date().toISOString(),
@@ -7369,7 +7367,7 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
       cwd
     };
     appendFileSync(logFile, `${JSON.stringify(entry)}
-`, "utf-8");
+`, { encoding: "utf-8", mode: 384 });
   } catch {}
 }
 var PROVIDER_TOKENS = [
@@ -7400,8 +7398,6 @@ function redactSecrets(text) {
   result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_URL)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
   result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
   result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3");
-  result = result.replace(/(['"]?\s*authorization\s*:\s*)([^'"]+)(['"]?)/gi, "$1<redacted>$3");
-  result = result.replace(/(authorization\s*:\s*)([^\s"']+)(\s+[^\s"']+)?/gi, "$1<redacted>");
   result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@");
   result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@");
   result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");

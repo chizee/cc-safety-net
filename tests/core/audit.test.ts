@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { redactSecrets, sanitizeSessionIdForFilename, writeAuditLog } from '@/core/audit';
 import type { AuditLogEntry } from '@/types';
@@ -123,6 +123,24 @@ describe('redactSecrets', () => {
   test('redacts Authorization Basic token', () => {
     const result = redactSecrets("curl -H 'Authorization: Basic abc123' https://example.com");
     expect(result).not.toContain('abc123');
+    expect(result).toContain('<redacted>');
+  });
+
+  test('redacts unquoted Authorization header token', () => {
+    const result = redactSecrets('curl -H Authorization:Bearer fake123 https://x.com');
+    expect(result).not.toContain('fake123');
+    expect(result).toContain('<redacted>');
+  });
+
+  test('redacts unquoted Authorization header token with spaces after colon', () => {
+    const result = redactSecrets('Authorization: Bearer fake456');
+    expect(result).not.toContain('fake456');
+    expect(result).toContain('<redacted>');
+  });
+
+  test('redacts quoted Authorization header token in multiline text', () => {
+    const result = redactSecrets('curl https://x.com\n-H "Authorization: Bearer fake789"');
+    expect(result).not.toContain('fake789');
     expect(result).toContain('<redacted>');
   });
 
@@ -309,6 +327,10 @@ describe('writeAuditLog', () => {
     return join(testDir, '.cc-safety-net', 'logs', `${sessionId}.jsonl`);
   }
 
+  function getLogsDir(): string {
+    return join(testDir, '.cc-safety-net', 'logs');
+  }
+
   function expectAuditLogStayedInLogsDir(escapedPath: string): void {
     expect(existsSync(escapedPath)).toBe(false);
     const logsDir = join(testDir, '.cc-safety-net', 'logs');
@@ -475,5 +497,54 @@ describe('writeAuditLog', () => {
     expect(entries.length).toBe(1);
     expect(entries[0]?.decision).toBe('allow');
     expect(entries[0]?.reason).toBe('allowed');
+  });
+
+  test('creates logs dir with 0700', () => {
+    if (process.platform === 'win32') return;
+
+    writeAuditLog('test-session-dir-mode', 'git status', 'git status', 'reason', null, {
+      homeDir: testDir,
+    });
+
+    expect(statSync(getLogsDir()).mode & 0o777).toBe(0o700);
+  });
+
+  test('creates log file with 0600', () => {
+    if (process.platform === 'win32') return;
+
+    const sessionId = 'test-session-file-mode';
+    writeAuditLog(sessionId, 'git status', 'git status', 'reason', null, {
+      homeDir: testDir,
+    });
+
+    expect(statSync(getLogFile(sessionId)).mode & 0o777).toBe(0o600);
+  });
+
+  test('empty HOME env falls back to os homedir', () => {
+    const originalHome = process.env.HOME;
+    const sessionId = `home-fallback-${Date.now()}`;
+    const logFile = join(homedir(), '.cc-safety-net', 'logs', `${sessionId}.jsonl`);
+    const cwdSafetyNetDir = join(process.cwd(), '.cc-safety-net');
+    const hadCwdSafetyNetDir = existsSync(cwdSafetyNetDir);
+
+    try {
+      process.env.HOME = '';
+      writeAuditLog(sessionId, 'git status', 'git status', 'reason', null);
+
+      expect(existsSync(logFile)).toBe(true);
+      expect(existsSync(cwdSafetyNetDir)).toBe(hadCwdSafetyNetDir);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (existsSync(logFile)) {
+        rmSync(logFile, { force: true });
+      }
+      if (!hadCwdSafetyNetDir && existsSync(cwdSafetyNetDir)) {
+        rmSync(cwdSafetyNetDir, { recursive: true, force: true });
+      }
+    }
   });
 });
