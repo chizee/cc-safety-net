@@ -106,7 +106,10 @@ describe('policy GUI server', () => {
       );
       expect(html).toContain('class="panel foldable"');
       expect(html).toContain('aria-controls="destructive-command-panel-content"');
-      expect(html).toContain('id="destructive-command-panel-content"');
+      expect(html).toContain(
+        'aria-expanded="false" aria-controls="destructive-command-panel-content"',
+      );
+      expect(html).toContain('id="destructive-command-panel-content" hidden');
       expect(html).toContain('.panel-toggle {\n  display: inline-flex;');
       expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');
       expect(html).toContain('Active');
@@ -178,7 +181,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('word-break: break-all;');
       expect(html).toContain('syncRawFromForm();');
       expect(html).toContain('aria-controls="secret-panel-content"');
-      expect(html).toContain('id="secret-panel-content"');
+      expect(html).toContain('aria-expanded="false" aria-controls="secret-panel-content"');
+      expect(html).toContain('id="secret-panel-content" hidden');
       expect(html).not.toContain('Allow paths');
       expect(html).not.toContain('id="allow-paths"');
       expect(html).toContain('Raw JSON');
