@@ -1,4 +1,4 @@
-import { checkCustomRules } from '@/core/rules/custom';
+import { checkCustomRuleMatch, checkCustomRules } from '@/core/rules/custom';
 import { validateCustomRule } from '@/core/rules/custom-rule-validation';
 import { splitShellCommands } from '@/core/shell';
 import { COMMAND_PATTERN, type CustomRule, NAME_PATTERN, type ValidationResult } from '@/types';
@@ -152,8 +152,8 @@ function validateFixtures(tests: unknown[], rules: unknown, errors: string[]): v
 export function runRulebookFixtures(rulebook: Rulebook): RulebookFixtureResult {
   const failures = rulebook.tests.flatMap((fixture) => {
     const segments = splitShellCommands(fixture.command).map((tokens) => {
-      const result = checkCustomRules(tokens, rulebook.rules);
-      return { tokens, result, matchedRule: result?.match(/^\[([^\]]+)]/)?.[1] ?? null };
+      const result = checkCustomRuleMatch(tokens, rulebook.rules);
+      return { tokens, result, matchedRule: result?.id.replace(/^custom\./, '') ?? null };
     });
     const firstSegment = segments[0] ?? { tokens: [], result: null, matchedRule: null };
 

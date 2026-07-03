@@ -1,8 +1,8 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, userInfo } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry, BlockIntent } from '@/types';
 
 type AuditLogDecision = 'allow' | 'deny';
 
@@ -40,14 +40,22 @@ export function writeAuditLog(
   segment: string,
   reason: string,
   cwd: string | null,
-  options: { homeDir?: string; decision?: AuditLogDecision } = {},
+  options: {
+    homeDir?: string;
+    decision?: AuditLogDecision;
+    ruleId?: string;
+    intent?: BlockIntent;
+  } = {},
 ): void {
   const safeSessionId = sanitizeSessionIdForFilename(sessionId);
   if (!safeSessionId) {
     return;
   }
 
-  const home = options.homeDir ?? (process.env.HOME || homedir());
+  const home = options.homeDir ?? getAuditLogHomeDir();
+  if (!home) {
+    return;
+  }
   const logsDir = join(home, '.cc-safety-net', 'logs');
 
   try {
@@ -60,6 +68,8 @@ export function writeAuditLog(
       command: redactSecrets(command).slice(0, 300),
       segment: redactSecrets(segment).slice(0, 300),
       reason,
+      ruleId: options.ruleId,
+      intent: options.intent,
       cwd,
     };
 
@@ -67,6 +77,12 @@ export function writeAuditLog(
   } catch {
     // Silently ignore errors (matches Python behavior)
   }
+}
+
+/** @internal */
+export function getAuditLogHomeDir(homeFromEnv = process.env.HOME): string | null {
+  const home = homeFromEnv || homedir() || userInfo().homedir;
+  return home && isAbsolute(home) ? home : null;
 }
 
 // Provider/API token formats. One anchored regex per known key shape.

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand } from '@/bin/explain/index';
 import { explainSegment } from '@/bin/explain/segment';
-import { REASON_RECURSION_LIMIT } from '@/core/analyze/analyze-command';
+import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import type { TraceStep } from '@/types';
 import { MAX_RECURSION_DEPTH } from '@/types';

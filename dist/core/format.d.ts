@@ -1,6 +1,9 @@
+import type { BlockIntent } from '@/types';
 type RedactFn = (text: string) => string;
 export interface FormatBlockedMessageInput {
     reason: string;
+    ruleId?: string;
+    intent?: BlockIntent;
     command?: string;
     segment?: string;
     toolName?: string;

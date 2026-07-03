@@ -10,7 +10,7 @@ import {
 import type { DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_GIT_SSH_ENV =
-  'Git SSH environment overrides can execute arbitrary commands during network operations.';
+  'Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.';
 const GIT_NETWORK_SUBCOMMANDS = new Set([
   'clone',
   'fetch',

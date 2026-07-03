@@ -1,6 +1,7 @@
 import { type NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
+import type { DestructiveCommandRuleMatch } from '@/types';
 export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
-export declare function analyzeXargs(tokens: readonly string[], context: XargsAnalyzeContext): string | null;
+export declare function analyzeXargs(tokens: readonly string[], context: XargsAnalyzeContext): DestructiveCommandRuleMatch | null;
 interface XargsParseResult {
     childTokens: string[];
     replacementToken: string | null;

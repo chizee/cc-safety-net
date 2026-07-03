@@ -34,11 +34,14 @@ const REASON_REBASE_ABORT =
   "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
 const REASON_MERGE_ABORT =
   "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
-const REASON_TAG_DELETE = 'git tag -d permanently deletes tags.';
-const REASON_REFLOG_DELETE = 'git reflog delete removes recovery history.';
+const REASON_TAG_DELETE =
+  'git tag -d permanently deletes tags. Ask the user to run it manually if deletion is intended.';
+const REASON_REFLOG_DELETE =
+  'git reflog delete removes recovery history. Ask the user to run it manually if deletion is intended.';
 const REASON_STASH_DROP =
   "git stash drop permanently deletes stashed changes. Consider 'git stash list' first.";
-const REASON_STASH_CLEAR = 'git stash clear deletes ALL stashed changes permanently.';
+const REASON_STASH_CLEAR =
+  "git stash clear deletes ALL stashed changes permanently. Use 'git stash list' to review; ask the user to run it manually if intended.";
 const REASON_WORKTREE_REMOVE_FORCE =
   'git worktree remove --force can delete uncommitted changes. Remove --force flag.';
 

@@ -1,13 +1,15 @@
-import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
+import { analyzeChildCommandMatch } from '@/core/analyze/child-analyzer';
 import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommand,
 } from '@/core/analyze/child-command';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
+import type { DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
-const REASON_XARGS_SHELL = 'xargs with shell -c can execute arbitrary commands from dynamic input.';
+const REASON_XARGS_SHELL =
+  'xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
 const XARGS_APPENDED_INPUT = '__CC_SAFETY_NET_XARGS_INPUT__';
 
 export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
@@ -15,14 +17,14 @@ export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
 export function analyzeXargs(
   tokens: readonly string[],
   context: XargsAnalyzeContext,
-): string | null {
+): DestructiveCommandRuleMatch | null {
   const { childTokens: rawChildTokens, replacementToken } =
     extractXargsChildCommandWithInfo(tokens);
 
   const childCommand = normalizeChildCommand(rawChildTokens, context);
   const childTokens = childCommand.tokens;
 
-  const childResult = analyzeChildCommand(
+  const childResult = analyzeChildCommandMatch(
     childTokens,
     {
       cwd: childCommand.cwd,
@@ -55,7 +57,7 @@ export function analyzeXargs(
       Array.from(childCommand.envAssignments.values()).some((value) =>
         value.includes(replacementToken),
       ));
-  return analyzeChildCommand(gitTokens, {
+  return analyzeChildCommandMatch(gitTokens, {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,

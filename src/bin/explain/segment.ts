@@ -8,7 +8,6 @@ import {
   redactEnvAssignmentTokens,
   redactEnvVars,
 } from '@/bin/explain/redact';
-import { REASON_RECURSION_LIMIT } from '@/core/analyze/analyze-command';
 import {
   AWK_INTERPRETERS,
   analyzeAwkSystemCalls,
@@ -35,23 +34,21 @@ import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/core/git';
-import { checkCustomRules } from '@/core/rules/custom';
+import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
+import { checkCustomRuleMatch } from '@/core/rules/custom';
 import {
   normalizeCommandToken,
   splitShellCommands,
   stripEnvAssignmentsWithInfo,
   stripWrappersWithInfo,
 } from '@/core/shell';
-import type { AnalyzeNestedOverrides, AnalyzeOptions, TraceStep } from '@/types';
-import {
-  INTERPRETERS,
-  MAX_RECURSION_DEPTH,
-  PARANOID_INTERPRETERS_SUFFIX,
-  SHELL_WRAPPERS,
+import type {
+  AnalyzeNestedOverrides,
+  AnalyzeOptions,
+  DestructiveCommandRuleMatch,
+  TraceStep,
 } from '@/types';
-
-export const REASON_STRICT_UNPARSEABLE =
-  'Command could not be safely analyzed (strict mode). Verify manually.';
+import { INTERPRETERS, MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/types';
 
 export interface SegmentResult {
   reason: string;
@@ -290,7 +287,7 @@ export function explainSegment(
       });
 
       if (paranoidBlocked) {
-        return { reason: REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX };
+        return { reason: REASON_INTERPRETER_BLOCKED };
       }
 
       steps.push({
@@ -408,7 +405,7 @@ export function explainSegment(
   }
 
   if (isXargs) {
-    const reason = analyzeXargs(strippedTokens, {
+    const match = analyzeXargs(strippedTokens, {
       cwd: cwdForRm,
       originalCwd,
       paranoidRm: options.paranoidRm,
@@ -421,14 +418,17 @@ export function explainSegment(
       type: 'rule-check',
       ruleModule: 'analyze/xargs.ts',
       ruleFunction: 'analyzeXargs',
-      matched: !!reason,
-      reason: reason ?? undefined,
+      matched: !!match,
+      reason: match?.reason,
     });
-    if (reason) return { reason };
+    if (match) return { reason: match.reason };
   }
 
   if (isParallel) {
-    const analyzeNested = (cmd: string, overrides?: AnalyzeNestedOverrides): string | null => {
+    const analyzeNested = (
+      cmd: string,
+      overrides?: AnalyzeNestedOverrides,
+    ): DestructiveCommandRuleMatch | null => {
       const overriddenOptions = {
         ...nestedOptions,
         effectiveCwd:
@@ -439,9 +439,9 @@ export function explainSegment(
         worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode,
       };
       const result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
-      return result?.reason ?? null;
+      return result ? { id: '', reason: result.reason, intent: 'manual_only' } : null;
     };
-    const reason = analyzeParallel(strippedTokens, {
+    const match = analyzeParallel(strippedTokens, {
       cwd: cwdForRm,
       originalCwd,
       paranoidRm: options.paranoidRm,
@@ -455,10 +455,10 @@ export function explainSegment(
       type: 'rule-check',
       ruleModule: 'analyze/parallel.ts',
       ruleFunction: 'analyzeParallel',
-      matched: !!reason,
-      reason: reason ?? undefined,
+      matched: !!match,
+      reason: match?.reason,
     });
-    if (reason) return { reason };
+    if (match) return { reason: match.reason };
   }
 
   const matchedKnown = isGit || isRm || isFind || isXargs || isParallel;
@@ -539,14 +539,14 @@ export function explainSegment(
   const shouldCheckCustomRules = depth === 0 || !matchedKnown;
   const hasRules = options.config?.rules && options.config.rules.length > 0;
   if (shouldCheckCustomRules && hasRules && options.config) {
-    const customResult = checkCustomRules(strippedTokens, options.config.rules);
+    const customResult = checkCustomRuleMatch(strippedTokens, options.config.rules);
     steps.push({
       type: 'custom-rules-check',
       rulesChecked: true,
       matched: !!customResult,
-      reason: customResult ?? undefined,
+      reason: customResult?.reason,
     });
-    if (customResult) return { reason: customResult };
+    if (customResult) return { reason: customResult.reason };
   } else {
     steps.push({
       type: 'custom-rules-check',

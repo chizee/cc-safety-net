@@ -17,7 +17,7 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
-import { checkCustomRules } from '@/core/rules/custom';
+import { checkCustomRuleMatch } from '@/core/rules/custom';
 import {
   getBasename,
   normalizeCommandToken,
@@ -28,22 +28,25 @@ import {
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
+  type AnalyzeResult,
   type Config,
   type DestructiveCommandRuleMatch,
   INTERPRETERS,
-  PARANOID_INTERPRETERS_SUFFIX,
   SHELL_WRAPPERS,
 } from '@/types';
 
 export const REASON_INTERPRETER_DANGEROUS =
-  'Detected potentially dangerous command in interpreter code.';
-export const REASON_INTERPRETER_BLOCKED = 'Interpreter one-liners are blocked in paranoid mode.';
+  'Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.';
+export const REASON_INTERPRETER_BLOCKED =
+  'Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)';
 
 export type InternalOptions = AnalyzeOptions & {
   config: Config;
   effectiveCwd: string | null | undefined;
-  analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
+  analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
 };
+
+type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 
 interface CommandAnalysisContext {
   tokens: string[];
@@ -84,7 +87,7 @@ export function analyzeSegment(
   tokens: string[],
   depth: number,
   options: InternalOptions,
-): string | null {
+): AnalyzeBlockResult | null {
   if (tokens.length === 0) {
     return null;
   }
@@ -116,7 +119,7 @@ export function analyzeSegment(
   }
 
   if (options.config.failClosedReason) {
-    return options.config.failClosedReason;
+    return { reason: options.config.failClosedReason, intent: 'stop_and_explain' };
   }
 
   const normalizedHead = normalizeCommandToken(head);
@@ -147,15 +150,17 @@ export function analyzeSegment(
   if (AWK_INTERPRETERS.has(normalizedHead)) {
     const awkReason = filterDestructiveCommandMatch(
       analyzeAwkSystemCallMatch(stripped, (command) =>
-        options.analyzeNested(command, {
-          effectiveCwd: nestedEffectiveCwd,
-          envAssignments,
-        }),
+        matchFromBlockResult(
+          options.analyzeNested(command, {
+            effectiveCwd: nestedEffectiveCwd,
+            envAssignments,
+          }),
+        ),
       ),
       options.config,
     );
     if (awkReason) {
-      return awkReason;
+      return blockResultFromMatch(awkReason);
     }
   }
 
@@ -163,14 +168,11 @@ export function analyzeSegment(
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options.paranoidInterpreters) {
-        const reason = filterDestructiveCommandMatch(
-          destructiveCommandMatch(
-            'interpreter.one-liner-paranoid',
-            REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX,
-          ),
+        const match = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
           options.config,
         );
-        if (reason) return reason;
+        if (match) return blockResultFromMatch(match);
       }
 
       const innerReason = options.analyzeNested(codeArg, {
@@ -182,11 +184,11 @@ export function analyzeSegment(
       }
 
       if (containsDangerousCode(codeArg)) {
-        const reason = filterDestructiveCommandMatch(
+        const match = filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
           options.config,
         );
-        if (reason) return reason;
+        if (match) return blockResultFromMatch(match);
       }
     }
   }
@@ -218,7 +220,7 @@ export function analyzeSegment(
     options.config,
   );
   if (commandResult) {
-    return commandResult;
+    return blockResultFromMatch(commandResult);
   }
 
   const matchedKnown = commandAnalyzer !== undefined;
@@ -233,24 +235,28 @@ export function analyzeSegment(
         const token = stripped[i];
         if (!token) continue;
 
-        const reason = filterDestructiveCommandMatch(
+        const match = filterDestructiveCommandMatch(
           analyzeEmbeddedCommand(commandContext, i),
           options.config,
         );
-        if (reason) return reason;
+        if (match) return blockResultFromMatch(match);
       }
     }
   }
 
   const customRulesTopLevelOnly = matchedKnown;
   if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkCustomRules(stripped, options.config.rules);
+    const customResult = checkCustomRuleMatch(stripped, options.config.rules);
     if (customResult) {
-      return customResult;
+      return blockResultFromMatch(customResult);
     }
   }
 
   return null;
+}
+
+function blockResultFromMatch(match: DestructiveCommandRuleMatch): AnalyzeBlockResult {
+  return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
 }
 
 function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
@@ -284,11 +290,11 @@ function analyzeEmbeddedCommand(
     if (!dashCArg) {
       return null;
     }
-    const reason = context.options.analyzeNested(dashCArg, {
+    const result = context.options.analyzeNested(dashCArg, {
       effectiveCwd: context.effectiveCwd,
       envAssignments: context.envAssignments,
     });
-    return reason ? { id: '', reason } : null;
+    return result ? matchFromBlockResult(result) : null;
   }
 
   const analyzer = COMMAND_ANALYZERS.get(cmd);
@@ -329,28 +335,42 @@ function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommand
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
     analyzeTokens: (tokens, cwd) =>
-      analyzeSegment([...tokens], context.depth + 1, {
-        ...context.options,
-        effectiveCwd: cwd,
-        envAssignments: context.envAssignments,
-      }),
-    analyzeNested: context.options.analyzeNested,
+      matchFromBlockResult(
+        analyzeSegment([...tokens], context.depth + 1, {
+          ...context.options,
+          effectiveCwd: cwd,
+          envAssignments: context.envAssignments,
+        }),
+      ),
+    analyzeNested: (command, overrides) =>
+      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
   });
 }
 
 function analyzeXargsCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  const reason = analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
-  return reason ? { id: '', reason } : null;
+  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
 }
 
 function analyzeParallelCommand(
   context: CommandAnalysisContext,
 ): DestructiveCommandRuleMatch | null {
-  const reason = analyzeParallel(context.tokens, {
+  return analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
-    analyzeNested: context.options.analyzeNested,
+    analyzeNested: (command, overrides) =>
+      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
   });
-  return reason ? { id: '', reason } : null;
+}
+
+function matchFromBlockResult(
+  result: AnalyzeBlockResult | null,
+): DestructiveCommandRuleMatch | null {
+  return result
+    ? {
+        id: result.ruleId ?? '',
+        reason: result.reason,
+        intent: result.intent ?? 'manual_only',
+      }
+    : null;
 }
 
 function getNestedCommandAnalyzeContext(

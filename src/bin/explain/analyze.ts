@@ -4,11 +4,7 @@
 
 import { buildAnalyzeOptions, getConfigSource } from '@/bin/explain/config';
 import { redactEnvAssignmentsInString, redactEnvAssignmentTokens } from '@/bin/explain/redact';
-import {
-  explainSegment,
-  isUnparseableCommand,
-  REASON_STRICT_UNPARSEABLE,
-} from '@/bin/explain/segment';
+import { explainSegment, isUnparseableCommand } from '@/bin/explain/segment';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
@@ -17,6 +13,7 @@ import {
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { loadRulesPolicy } from '@/core/rules/policy';
 import { splitShellCommands } from '@/core/shell';
 import type { ExplainOptions, ExplainResult, ExplainTrace, TraceStep } from '@/types';

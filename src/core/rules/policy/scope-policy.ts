@@ -400,7 +400,7 @@ function applyOverrides(
       return [];
     }
     if (override && typeof override === 'object') {
-      return [{ ...rule, reason: override.reason }];
+      return [{ ...rule, intent: override.intent ?? rule.intent, reason: override.reason }];
     }
     return [rule];
   });

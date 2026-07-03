@@ -9,6 +9,7 @@ import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 import { getUserPolicyPath } from '@/core/policy';
+import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers';
 import {
   claudeCodeBashInput,
@@ -190,6 +191,27 @@ describe('hook adapter direct integration', () => {
       });
 
       expect(result.stdout).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('non-command tools fail closed when rule config requires repair', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-rule-repair-'));
+    try {
+      writeDefaultRulesConfig(join(cwd, '.cc-safety-net/rules/rule.json'), ['project-rules']);
+      const output = await runHookJson(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        cwd,
+        tool_name: 'Read',
+        tool_input: { file_path: 'README.md' },
+      });
+
+      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
+      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+        'Do not brute-force variants',
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

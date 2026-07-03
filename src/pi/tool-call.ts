@@ -1,5 +1,4 @@
 import { resolve } from 'node:path';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/bin/hook/common';
 import { analyzeCommand, loadConfig } from '@/core/analyze';
 import { redactSecrets, writeAuditLog } from '@/core/audit';
 import type { LoadConfigOptions } from '@/core/config';
@@ -9,11 +8,13 @@ import {
   findPolicyConfigMutationTargetInToolInput,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
+import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
+import type { BlockIntent } from '@/types';
 
 type PiApi = {
   on: (
@@ -82,7 +83,14 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
   if (!toolCall) return undefined;
 
   if ('malformed' in toolCall) {
-    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED);
+    return blockPiToolCall(
+      REASON_SAFETY_NET_FAILED_CLOSED,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'stop_and_explain',
+    );
   }
 
   const cwd = toolCall.cwd;
@@ -117,7 +125,14 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
 
     if (!toolCall.command) {
       return config.failClosedReason
-        ? blockPiToolCall(config.failClosedReason, undefined, undefined, false)
+        ? blockPiToolCall(
+            config.failClosedReason,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            'stop_and_explain',
+          )
         : undefined;
     }
 
@@ -137,7 +152,14 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
       );
     }
     const command = toolCall.command;
-    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    return blockPiToolCall(
+      REASON_SAFETY_NET_FAILED_CLOSED,
+      command,
+      command,
+      undefined,
+      undefined,
+      'stop_and_explain',
+    );
   }
 
   const command = toolCall.command;
@@ -155,9 +177,19 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
 
   const sessionId = ctx.sessionManager.getSessionFile();
   if (sessionId) {
-    writeAuditLog(sessionId, command, result.segment, result.reason, cwd);
+    writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
+      ruleId: result.ruleId,
+      intent: result.intent,
+    });
   }
-  return blockPiToolCall(result.reason, command, result.segment, result.manualPermissionAdvice);
+  return blockPiToolCall(
+    result.reason,
+    command,
+    result.segment,
+    result.manualPermissionAdvice,
+    result.ruleId,
+    result.intent,
+  );
 }
 
 function getPiToolCall(
@@ -190,11 +222,15 @@ function blockPiToolCall(
   command?: string,
   segment?: string,
   manualPermissionAdvice?: boolean,
+  ruleId?: string,
+  intent?: BlockIntent,
 ): PiToolCallResult {
   return {
     block: true,
     reason: formatBlockedMessage({
       reason,
+      ruleId,
+      intent,
       command,
       segment,
       redact: redactSecrets,

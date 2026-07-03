@@ -19,7 +19,10 @@ export interface ChildCommandAnalysisContext {
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
   config?: Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
-  analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
+  analyzeNested?: (
+    command: string,
+    overrides?: AnalyzeNestedOverrides,
+  ) => DestructiveCommandRuleMatch | null;
 }
 
 export interface ChildCommandAnalysisOptions {
@@ -30,11 +33,20 @@ export interface ChildCommandAnalysisOptions {
   rmDynamicMatch?: DestructiveCommandRuleMatch;
 }
 
+/** @internal */
 export function analyzeChildCommand(
   tokens: readonly string[],
   context: ChildCommandAnalysisContext,
   options: ChildCommandAnalysisOptions = {},
 ): string | null {
+  return analyzeChildCommandMatch(tokens, context, options)?.reason ?? null;
+}
+
+export function analyzeChildCommandMatch(
+  tokens: readonly string[],
+  context: ChildCommandAnalysisContext,
+  options: ChildCommandAnalysisOptions = {},
+): DestructiveCommandRuleMatch | null {
   if (tokens.length === 0) {
     return null;
   }
@@ -47,7 +59,9 @@ export function analyzeChildCommand(
   if (SHELL_WRAPPERS.has(head)) {
     const shellDynamicMatch =
       options.shellDynamicMatch ??
-      (options.shellDynamicReason ? { id: '', reason: options.shellDynamicReason } : undefined);
+      (options.shellDynamicReason
+        ? { id: '', reason: options.shellDynamicReason, intent: 'manual_only' as const }
+        : undefined);
     if (options.dynamicInput && shellDynamicMatch) {
       return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
     }
@@ -81,7 +95,7 @@ export function analyzeChildCommand(
       analyzeFindMatch(tokens, {
         ...context,
         analyzeTokens: (nestedTokens, cwd) =>
-          analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
+          analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
       }),
       context.config,
     );
@@ -104,10 +118,12 @@ export function analyzeChildCommand(
 function getDynamicRmReason(
   options: ChildCommandAnalysisOptions,
   context: ChildCommandAnalysisContext,
-): string | null {
+): DestructiveCommandRuleMatch | null {
   const rmDynamicMatch =
     options.rmDynamicMatch ??
-    (options.rmDynamicReason ? { id: '', reason: options.rmDynamicReason } : undefined);
+    (options.rmDynamicReason
+      ? { id: '', reason: options.rmDynamicReason, intent: 'manual_only' as const }
+      : undefined);
   return options.dynamicInput && rmDynamicMatch
     ? filterDestructiveCommandMatch(rmDynamicMatch, context.config)
     : null;

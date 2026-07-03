@@ -14,6 +14,8 @@ export interface CustomRule {
   block_args: string[];
   /** Message shown when blocked */
   reason: string;
+  /** Optional agent behavior intent for the block message footer */
+  intent?: BlockIntent;
 }
 
 /** Runtime configuration used by command analysis. */
@@ -56,9 +58,20 @@ export interface SecretProtectionConfig {
   denyPaths: string[];
 }
 
+export const BLOCK_INTENTS = [
+  'hard_stop',
+  'use_alternative',
+  'scope_down',
+  'manual_only',
+  'stop_and_explain',
+] as const;
+
+export type BlockIntent = (typeof BLOCK_INTENTS)[number];
+
 export interface DestructiveCommandRuleMatch {
   id: string;
   reason: string;
+  intent: BlockIntent;
 }
 
 /** Result of config validation */
@@ -75,6 +88,10 @@ export interface AnalyzeResult {
   reason: string;
   /** The specific segment that triggered the block */
   segment: string;
+  /** Stable identifier for the rule that blocked the command */
+  ruleId?: string;
+  /** Intended agent behavior after the block */
+  intent?: BlockIntent;
   /** Whether the caller should ask for manual permission instead of auto-denying. */
   manualPermissionAdvice?: boolean;
 }
@@ -190,6 +207,8 @@ export interface AuditLogEntry {
   command: string;
   segment: string;
   reason: string;
+  ruleId?: string;
+  intent?: BlockIntent;
   cwd?: string | null;
 }
 
@@ -225,9 +244,6 @@ export const DANGEROUS_PATTERNS = [
   /\bshred\b\s+/,
   /\bfind\b.*\s-delete\b/,
 ];
-
-export const PARANOID_INTERPRETERS_SUFFIX =
-  '\n\n(Paranoid mode: interpreter one-liners are blocked.)';
 
 /** Trace step for explain command - discriminated union of all step types */
 export type TraceStep =

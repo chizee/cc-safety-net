@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
-import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
+import { BLOCK_INTENTS, COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
 import { getRulebookSourceSyntaxError } from './sources';
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
 
@@ -64,6 +64,10 @@ export function validateRulesConfig(config: unknown): { errors: string[]; source
         } else if (reason.length > MAX_REASON_LENGTH) {
           errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
         }
+        const intent = (value as Record<string, unknown>).intent;
+        if (intent !== undefined && !isBlockIntent(intent)) {
+          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(', ')}`);
+        }
       }
     }
   }
@@ -72,6 +76,10 @@ export function validateRulesConfig(config: unknown): { errors: string[]; source
   }
 
   return { errors, sources };
+}
+
+function isBlockIntent(value: unknown): boolean {
+  return typeof value === 'string' && BLOCK_INTENTS.includes(value as never);
 }
 
 function validateTransparentWrappers(value: unknown, errors: string[]): void {

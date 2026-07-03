@@ -6,6 +6,7 @@ import {
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
+import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, splitShellCommandsWithInfo } from '@/core/shell';
 import {
   type AnalyzeNestedOverrides,
@@ -15,12 +16,7 @@ import {
   MAX_RECURSION_DEPTH,
 } from '@/types';
 
-const REASON_STRICT_UNPARSEABLE =
-  'Command could not be safely analyzed (strict mode). Verify manually.';
 const DYNAMIC_SUBSTITUTION_TOKEN = '$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__';
-
-export const REASON_RECURSION_LIMIT =
-  'Command exceeds maximum recursion depth and cannot be safely analyzed.';
 
 export type InternalOptions = AnalyzeOptions & { config: Config };
 
@@ -30,7 +26,7 @@ export function analyzeCommandInternal(
   options: InternalOptions,
 ): AnalyzeResult | null {
   if (depth >= MAX_RECURSION_DEPTH) {
-    return { reason: REASON_RECURSION_LIMIT, segment: command };
+    return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
   }
 
   const segments = splitShellCommandsWithInfo(command);
@@ -47,7 +43,7 @@ export function analyzeCommandInternal(
     segments[0].tokens[0] === command &&
     command.includes(' ')
   ) {
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command };
+    return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
   const originalCwd = options.cwd;
@@ -65,12 +61,17 @@ export function analyzeCommandInternal(
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
 
     if (segment.length === 1 && segment[0]?.includes(' ')) {
-      const textReason = filterDestructiveCommandMatch(
+      const textMatch = filterDestructiveCommandMatch(
         dangerousInTextMatch(segment[0]),
         options.config,
       );
-      if (textReason) {
-        return { reason: textReason, segment: segmentStr };
+      if (textMatch) {
+        return {
+          reason: textMatch.reason,
+          segment: segmentStr,
+          ruleId: textMatch.id,
+          intent: textMatch.intent,
+        };
       }
       const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
       if (nextCwd !== undefined) {
@@ -79,29 +80,38 @@ export function analyzeCommandInternal(
       continue;
     }
 
-    const reason = analyzeSegment(segment, depth, {
+    const result = analyzeSegment(segment, depth, {
       ...options,
       cwd: originalCwd,
       effectiveCwd,
       envAssignments: segmentEnvAssignments,
-      analyzeNested: (nestedCommand: string, overrides?: AnalyzeNestedOverrides): string | null => {
+      analyzeNested: (
+        nestedCommand: string,
+        overrides?: AnalyzeNestedOverrides,
+      ): Omit<AnalyzeResult, 'segment'> | null => {
         // Pass current effectiveCwd so nested analysis sees CWD changes from prior segments
         const nestedEffectiveCwd =
           overrides && Object.hasOwn(overrides, 'effectiveCwd')
             ? overrides.effectiveCwd
             : effectiveCwd;
-        return (
-          analyzeCommandInternal(nestedCommand, depth + 1, {
-            ...options,
-            effectiveCwd: nestedEffectiveCwd,
-            envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-            worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
-          })?.reason ?? null
-        );
+        const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
+          ...options,
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
+          worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
+        });
+        return nestedResult
+          ? {
+              reason: nestedResult.reason,
+              ruleId: nestedResult.ruleId,
+              intent: nestedResult.intent,
+              manualPermissionAdvice: nestedResult.manualPermissionAdvice,
+            }
+          : null;
       },
     });
-    if (reason) {
-      return { reason, segment: segmentStr };
+    if (result) {
+      return { ...result, segment: segmentStr };
     }
 
     const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);

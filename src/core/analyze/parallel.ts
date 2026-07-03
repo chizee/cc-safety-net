@@ -1,4 +1,4 @@
-import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
+import { analyzeChildCommandMatch } from '@/core/analyze/child-analyzer';
 import {
   collectCommandTemplate,
   type NestedCommandAnalyzeContext,
@@ -11,22 +11,29 @@ import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
-import { type AnalyzeNestedOverrides, SHELL_WRAPPERS } from '@/types';
+import {
+  type AnalyzeNestedOverrides,
+  type DestructiveCommandRuleMatch,
+  SHELL_WRAPPERS,
+} from '@/types';
 
 const REASON_PARALLEL_RM =
   'parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.';
 const REASON_PARALLEL_SHELL =
-  'parallel with shell -c can execute arbitrary commands from dynamic input.';
+  'parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
 const PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 
 export interface ParallelAnalyzeContext extends NestedCommandAnalyzeContext {
-  analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
+  analyzeNested: (
+    command: string,
+    overrides?: AnalyzeNestedOverrides,
+  ) => DestructiveCommandRuleMatch | null;
 }
 
 export function analyzeParallel(
   tokens: readonly string[],
   context: ParallelAnalyzeContext,
-): string | null {
+): DestructiveCommandRuleMatch | null {
   const parseResult = parseParallelCommand(tokens);
 
   if (!parseResult) {
@@ -146,7 +153,7 @@ export function analyzeParallel(
 
   const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
   for (const tokens of tokenSets) {
-    const result = analyzeChildCommand(
+    const result = analyzeChildCommandMatch(
       tokens,
       {
         cwd: childCommand.cwd,
@@ -175,14 +182,18 @@ export function analyzeParallel(
   return null;
 }
 
-function parallelShellDynamicReason(context: ParallelAnalyzeContext): string | null {
+function parallelShellDynamicReason(
+  context: ParallelAnalyzeContext,
+): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     destructiveCommandMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
     context.config,
   );
 }
 
-function parallelRmDynamicReason(context: ParallelAnalyzeContext): string | null {
+function parallelRmDynamicReason(
+  context: ParallelAnalyzeContext,
+): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     destructiveCommandMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
     context.config,
@@ -193,7 +204,7 @@ function analyzeParallelRmExpansions(
   tokenSets: readonly string[][],
   cwd: string | undefined,
   context: ParallelAnalyzeContext,
-): string | null {
+): DestructiveCommandRuleMatch | null {
   for (const tokens of tokenSets) {
     const rmResult = filterDestructiveCommandMatch(
       analyzeRmMatch(tokens, {
@@ -245,7 +256,7 @@ function analyzeParallelDynamicEnvValues(
   values: readonly string[],
   args: readonly string[],
   context: ParallelAnalyzeContext,
-): string | null {
+): DestructiveCommandRuleMatch | null {
   for (const value of values) {
     if (!hasParallelPlaceholder(value)) {
       continue;

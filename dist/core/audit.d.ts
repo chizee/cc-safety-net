@@ -1,3 +1,4 @@
+import type { BlockIntent } from '@/types';
 type AuditLogDecision = 'allow' | 'deny';
 /**
  * Sanitize session ID to prevent path traversal attacks.
@@ -12,7 +13,11 @@ export declare function sanitizeSessionIdForFilename(sessionId: string): string 
 export declare function writeAuditLog(sessionId: string, command: string, segment: string, reason: string, cwd: string | null, options?: {
     homeDir?: string;
     decision?: AuditLogDecision;
+    ruleId?: string;
+    intent?: BlockIntent;
 }): void;
+/** @internal */
+export declare function getAuditLogHomeDir(homeFromEnv?: string | undefined): string | null;
 /**
  * Redact secrets from text to avoid leaking sensitive information in logs.
  */

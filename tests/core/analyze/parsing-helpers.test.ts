@@ -577,28 +577,34 @@ describe('shell parsing helpers', () => {
 });
 
 describe('dangerousInText', () => {
+  function expectDangerousPattern(text: string, label: string): void {
+    expect(dangerousInText(text)).toBe(
+      `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`,
+    );
+  }
+
   test('detects rm -rf variants', () => {
-    expect(dangerousInText('rm -rf /tmp/x')).toBe('rm -rf');
-    expect(dangerousInText('rm -R -f /tmp/x')).toBe('rm -rf');
-    expect(dangerousInText('rm -fr /tmp/x')).toBe('rm -rf');
-    expect(dangerousInText('rm -f -r /tmp/x')).toBe('rm -rf');
-    expect(dangerousInText('rm --recursive --force /tmp/x')).toBe('rm -rf');
-    expect(dangerousInText('rm --force --recursive /tmp/x')).toBe('rm -rf');
+    expectDangerousPattern('rm -rf /tmp/x', 'rm -rf');
+    expectDangerousPattern('rm -R -f /tmp/x', 'rm -rf');
+    expectDangerousPattern('rm -fr /tmp/x', 'rm -rf');
+    expectDangerousPattern('rm -f -r /tmp/x', 'rm -rf');
+    expectDangerousPattern('rm --recursive --force /tmp/x', 'rm -rf');
+    expectDangerousPattern('rm --force --recursive /tmp/x', 'rm -rf');
   });
 
   test('detects with leading whitespace (trimStart)', () => {
-    expect(dangerousInText('   rm -rf /tmp/x')).toBe('rm -rf');
+    expectDangerousPattern('   rm -rf /tmp/x', 'rm -rf');
   });
 
   test('detects key git patterns', () => {
-    expect(dangerousInText('git reset --hard')).toBe('git reset --hard');
-    expect(dangerousInText('git clean -f')).toBe('git clean -f');
-    expect(dangerousInText('git clean -fd')).toBe('git clean -f');
-    expect(dangerousInText('git checkout -f')).toBe('git checkout --force');
-    expect(dangerousInText('git checkout --force')).toBe('git checkout --force');
-    expect(dangerousInText('git tag -d v1')).toBe('git tag -d');
-    expect(dangerousInText('git branch --delete --force feature')).toBe('git branch -D');
-    expect(dangerousInText('git branch --force --delete feature')).toBe('git branch -D');
+    expectDangerousPattern('git reset --hard', 'git reset --hard');
+    expectDangerousPattern('git clean -f', 'git clean -f');
+    expectDangerousPattern('git clean -fd', 'git clean -f');
+    expectDangerousPattern('git checkout -f', 'git checkout --force');
+    expectDangerousPattern('git checkout --force', 'git checkout --force');
+    expectDangerousPattern('git tag -d v1', 'git tag -d');
+    expectDangerousPattern('git branch --delete --force feature', 'git branch -D');
+    expectDangerousPattern('git branch --force --delete feature', 'git branch -D');
   });
 
   test('allows checkout branch creation patterns with f in branch name', () => {

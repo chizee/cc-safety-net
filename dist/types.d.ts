@@ -13,6 +13,8 @@ export interface CustomRule {
     block_args: string[];
     /** Message shown when blocked */
     reason: string;
+    /** Optional agent behavior intent for the block message footer */
+    intent?: BlockIntent;
 }
 /** Runtime configuration used by command analysis. */
 export interface Config {
@@ -50,9 +52,12 @@ export interface SecretProtectionConfig {
     disabledRules?: ReadonlySet<string>;
     denyPaths: string[];
 }
+export declare const BLOCK_INTENTS: readonly ["hard_stop", "use_alternative", "scope_down", "manual_only", "stop_and_explain"];
+export type BlockIntent = (typeof BLOCK_INTENTS)[number];
 export interface DestructiveCommandRuleMatch {
     id: string;
     reason: string;
+    intent: BlockIntent;
 }
 /** Result of config validation */
 export interface ValidationResult {
@@ -67,6 +72,10 @@ export interface AnalyzeResult {
     reason: string;
     /** The specific segment that triggered the block */
     segment: string;
+    /** Stable identifier for the rule that blocked the command */
+    ruleId?: string;
+    /** Intended agent behavior after the block */
+    intent?: BlockIntent;
     /** Whether the caller should ask for manual permission instead of auto-denying. */
     manualPermissionAdvice?: boolean;
 }
@@ -172,6 +181,8 @@ export interface AuditLogEntry {
     command: string;
     segment: string;
     reason: string;
+    ruleId?: string;
+    intent?: BlockIntent;
     cwd?: string | null;
 }
 /** Constants */
@@ -188,7 +199,6 @@ export declare const SHELL_WRAPPERS: Set<string>;
 export declare const INTERPRETERS: Set<string>;
 /** Dangerous commands to detect in interpreter code */
 export declare const DANGEROUS_PATTERNS: RegExp[];
-export declare const PARANOID_INTERPRETERS_SUFFIX = "\n\n(Paranoid mode: interpreter one-liners are blocked.)";
 /** Trace step for explain command - discriminated union of all step types */
 export type TraceStep = {
     type: 'parse';

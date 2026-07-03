@@ -36,11 +36,11 @@ function normalizePathForComparison(p: string): string {
 }
 
 const REASON_RM_RF =
-  'rm -rf outside cwd is blocked. Use explicit paths within the current directory, or delete manually.';
+  'rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
 const REASON_RM_RF_DYNAMIC_TARGET =
   'rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.';
 const REASON_RM_RF_ROOT_HOME =
-  'rm -rf targeting root or home directory is extremely dangerous and always blocked.';
+  'rm -rf targeting root or home directory is extremely dangerous and always blocked. Do not retry or work around this.';
 const REASON_RM_HOME_CWD =
   'rm -rf in home directory is dangerous. Change to a project directory first.';
 

@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
-import { redactSecrets, sanitizeSessionIdForFilename, writeAuditLog } from '@/core/audit';
+import {
+  getAuditLogHomeDir,
+  redactSecrets,
+  sanitizeSessionIdForFilename,
+  writeAuditLog,
+} from '@/core/audit';
 import type { AuditLogEntry } from '@/types';
 
 describe('sanitizeSessionIdForFilename', () => {
@@ -396,6 +401,26 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.reason).toContain('git reset --hard');
   });
 
+  test('log entry can include rule id and intent', () => {
+    const sessionId = 'test-session-rule-metadata';
+    writeAuditLog(
+      sessionId,
+      'git push --force',
+      'git push --force',
+      'git push --force destroys remote history.',
+      '/home/user/project',
+      {
+        homeDir: testDir,
+        ruleId: 'git.push-force',
+        intent: 'use_alternative',
+      },
+    );
+
+    const entries = readLogEntries(sessionId);
+    expect(entries[0]?.ruleId).toBe('git.push-force');
+    expect(entries[0]?.intent).toBe('use_alternative');
+  });
+
   test('log redacts secrets', () => {
     const sessionId = 'test-session-redact';
     writeAuditLog(
@@ -521,30 +546,6 @@ describe('writeAuditLog', () => {
   });
 
   test('empty HOME env falls back to os homedir', () => {
-    const originalHome = process.env.HOME;
-    const sessionId = `home-fallback-${Date.now()}`;
-    const logFile = join(homedir(), '.cc-safety-net', 'logs', `${sessionId}.jsonl`);
-    const cwdSafetyNetDir = join(process.cwd(), '.cc-safety-net');
-    const hadCwdSafetyNetDir = existsSync(cwdSafetyNetDir);
-
-    try {
-      process.env.HOME = '';
-      writeAuditLog(sessionId, 'git status', 'git status', 'reason', null);
-
-      expect(existsSync(logFile)).toBe(true);
-      expect(existsSync(cwdSafetyNetDir)).toBe(hadCwdSafetyNetDir);
-    } finally {
-      if (originalHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = originalHome;
-      }
-      if (existsSync(logFile)) {
-        rmSync(logFile, { force: true });
-      }
-      if (!hadCwdSafetyNetDir && existsSync(cwdSafetyNetDir)) {
-        rmSync(cwdSafetyNetDir, { recursive: true, force: true });
-      }
-    }
+    expect(getAuditLogHomeDir('')).toBe(userInfo().homedir);
   });
 });

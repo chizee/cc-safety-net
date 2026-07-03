@@ -191,6 +191,7 @@ describe('rules policy recovery coverage', () => {
           overrides: {
             missing: {},
             'project-rules/block-docker-prune': { reason: '' },
+            'project-rules/bad-intent': { reason: 'No.', intent: 'retry_forever' },
             'project-rules/off-rule': 'off',
           },
         }).errors,
@@ -202,6 +203,7 @@ describe('rules policy recovery coverage', () => {
           'rules[3]: duplicate rulebook source "project-rules"',
           'overrides.missing: must use <rulebook-name>/<rule-name>',
           'overrides.project-rules/block-docker-prune.reason: required non-empty string',
+          'overrides.project-rules/bad-intent.intent: must be one of hard_stop, use_alternative, scope_down, manual_only, stop_and_explain',
         ]),
       );
 

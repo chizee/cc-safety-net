@@ -1,6 +1,5 @@
-import type { Config } from '@/types';
-export declare const REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly.";
-type HookDenyOutput = (reason: string, command?: string, segment?: string, manualPermissionAdvice?: boolean, toolName?: string) => void;
+import type { BlockIntent, Config } from '@/types';
+type HookDenyOutput = (reason: string, command?: string, segment?: string, manualPermissionAdvice?: boolean, toolName?: string, ruleId?: string, intent?: BlockIntent) => void;
 type HookAdapter<T> = {
     outputDeny: HookDenyOutput;
     isSupported: (input: T) => boolean;
@@ -11,10 +10,9 @@ type HookAdapter<T> = {
 };
 type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {
     createDenyOutput: (message: string) => object;
-    getManualPermissionAdvice?: (reason: string) => boolean | undefined;
 };
 export declare function parseHookJson<T>(inputText: string, outputDeny: (reason: string) => void, strictReason: string): T | null;
 /** @internal - exported for direct test coverage */
-export declare function handleBlockedHookCommand(command: string, cwd: string, sessionId: string | undefined, outputDeny: (reason: string, command?: string, segment?: string) => void, config?: Config): void;
+export declare function handleBlockedHookCommand(command: string, cwd: string, sessionId: string | undefined, outputDeny: HookDenyOutput, config?: Config): void;
 export declare function runConfiguredHookAdapter<T>(adapter: ConfiguredHookAdapter<T>): Promise<void>;
 export {};

@@ -366,240 +366,283 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: "git.ssh-env",
     category: "Git",
     label: "Git SSH environment override",
-    description: "Blocks Git network operations with SSH environment overrides."
+    description: "Blocks Git network operations with SSH environment overrides.",
+    intent: "manual_only"
   },
   {
     id: "git.checkout-force",
     category: "Git",
     label: "Git checkout force",
-    description: "Blocks forced checkout operations that discard local changes."
+    description: "Blocks forced checkout operations that discard local changes.",
+    intent: "use_alternative"
   },
   {
     id: "git.checkout-double-dash",
     category: "Git",
     label: "Git checkout path restore",
-    description: "Blocks checkout path restores after --."
+    description: "Blocks checkout path restores after --.",
+    intent: "use_alternative"
   },
   {
     id: "git.checkout-ref-path",
     category: "Git",
     label: "Git checkout ref and path",
-    description: "Blocks checkout forms that mix a ref and path restore."
+    description: "Blocks checkout forms that mix a ref and path restore.",
+    intent: "use_alternative"
   },
   {
     id: "git.checkout-pathspec-from-file",
     category: "Git",
     label: "Git checkout pathspec file",
-    description: "Blocks checkout pathspec loading from a file."
+    description: "Blocks checkout pathspec loading from a file.",
+    intent: "use_alternative"
   },
   {
     id: "git.checkout-ambiguous",
     category: "Git",
     label: "Git checkout ambiguous targets",
-    description: "Blocks ambiguous checkout arguments that may restore paths."
+    description: "Blocks ambiguous checkout arguments that may restore paths.",
+    intent: "use_alternative"
   },
   {
     id: "git.switch-discard-changes",
     category: "Git",
     label: "Git switch discard changes",
-    description: "Blocks branch switches that explicitly discard local changes."
+    description: "Blocks branch switches that explicitly discard local changes.",
+    intent: "use_alternative"
   },
   {
     id: "git.switch-force",
     category: "Git",
     label: "Git switch force",
-    description: "Blocks forced branch switches."
+    description: "Blocks forced branch switches.",
+    intent: "use_alternative"
   },
   {
     id: "git.restore-worktree",
     category: "Git",
     label: "Git restore worktree",
-    description: "Blocks worktree restore operations."
+    description: "Blocks worktree restore operations.",
+    intent: "use_alternative"
   },
   {
     id: "git.restore-unstaged",
     category: "Git",
     label: "Git restore unstaged",
-    description: "Blocks unstaged restore operations."
+    description: "Blocks unstaged restore operations.",
+    intent: "use_alternative"
   },
   {
     id: "git.reset-hard",
     category: "Git",
     label: "Git reset hard",
-    description: "Blocks hard resets."
+    description: "Blocks hard resets.",
+    intent: "use_alternative"
   },
   {
     id: "git.reset-merge",
     category: "Git",
     label: "Git reset merge",
-    description: "Blocks merge resets."
+    description: "Blocks merge resets.",
+    intent: "use_alternative"
   },
   {
     id: "git.clean-force",
     category: "Git",
     label: "Git clean force",
-    description: "Blocks forced clean operations."
+    description: "Blocks forced clean operations.",
+    intent: "use_alternative"
   },
   {
     id: "git.push-force",
     category: "Git",
     label: "Git push force",
-    description: "Blocks force pushes."
+    description: "Blocks force pushes.",
+    intent: "use_alternative"
   },
   {
     id: "git.branch-force-delete",
     category: "Git",
     label: "Git branch force delete",
-    description: "Blocks forced branch deletion."
+    description: "Blocks forced branch deletion.",
+    intent: "use_alternative"
   },
   {
     id: "git.rebase-abort",
     category: "Git",
     label: "Git rebase abort",
-    description: "Blocks rebase abort operations."
+    description: "Blocks rebase abort operations.",
+    intent: "use_alternative"
   },
   {
     id: "git.merge-abort",
     category: "Git",
     label: "Git merge abort",
-    description: "Blocks merge abort operations."
+    description: "Blocks merge abort operations.",
+    intent: "use_alternative"
   },
   {
     id: "git.tag-delete",
     category: "Git",
     label: "Git tag delete",
-    description: "Blocks tag deletion."
+    description: "Blocks tag deletion.",
+    intent: "manual_only"
   },
   {
     id: "git.reflog-delete",
     category: "Git",
     label: "Git reflog delete",
-    description: "Blocks reflog deletion."
+    description: "Blocks reflog deletion.",
+    intent: "manual_only"
   },
   {
     id: "git.stash-drop",
     category: "Git",
     label: "Git stash drop",
-    description: "Blocks dropping stash entries."
+    description: "Blocks dropping stash entries.",
+    intent: "use_alternative"
   },
   {
     id: "git.stash-clear",
     category: "Git",
     label: "Git stash clear",
-    description: "Blocks clearing all stash entries."
+    description: "Blocks clearing all stash entries.",
+    intent: "manual_only"
   },
   {
     id: "git.worktree-remove-force",
     category: "Git",
     label: "Git worktree force remove",
-    description: "Blocks forced worktree removal."
+    description: "Blocks forced worktree removal.",
+    intent: "use_alternative"
   },
   {
     id: "rm.recursive-force-root-or-home",
     category: "Filesystem",
     label: "rm -rf root or home",
-    description: "Blocks recursive forced removal of root or home paths."
+    description: "Blocks recursive forced removal of root or home paths.",
+    intent: "hard_stop"
   },
   {
     id: "rm.recursive-force-dynamic-target",
     category: "Filesystem",
     label: "rm -rf dynamic target",
-    description: "Blocks recursive forced removal with dynamic targets."
+    description: "Blocks recursive forced removal with dynamic targets.",
+    intent: "scope_down"
   },
   {
     id: "rm.recursive-force-home-cwd",
     category: "Filesystem",
     label: "rm -rf from home cwd",
-    description: "Blocks recursive forced removal while working in home."
+    description: "Blocks recursive forced removal while working in home.",
+    intent: "scope_down"
   },
   {
     id: "rm.recursive-force-cwd-self",
     category: "Filesystem",
     label: "rm -rf current directory",
-    description: "Blocks recursive forced removal of the current directory."
+    description: "Blocks recursive forced removal of the current directory.",
+    intent: "scope_down"
   },
   {
     id: "rm.recursive-force-outside-cwd",
     category: "Filesystem",
     label: "rm -rf outside cwd",
-    description: "Blocks recursive forced removal outside the original cwd."
+    description: "Blocks recursive forced removal outside the original cwd.",
+    intent: "scope_down"
   },
   {
     id: "rm.recursive-force-paranoid",
     category: "Filesystem",
     label: "rm -rf paranoid mode",
-    description: "Blocks non-temp recursive forced removal when paranoid rm is enabled."
+    description: "Blocks non-temp recursive forced removal when paranoid rm is enabled.",
+    intent: "scope_down"
   },
   {
     id: "find.delete",
     category: "Filesystem",
     label: "find delete",
-    description: "Blocks find -delete operations."
+    description: "Blocks find -delete operations.",
+    intent: "scope_down"
   },
   {
     id: "find.exec-rm-recursive-force",
     category: "Filesystem",
     label: "find exec rm -rf",
-    description: "Blocks find -exec rm -rf operations."
+    description: "Blocks find -exec rm -rf operations.",
+    intent: "scope_down"
   },
   {
     id: "interpreter.dangerous-command",
     category: "Execution",
     label: "Interpreter dangerous command",
-    description: "Blocks interpreter one-liners containing dangerous commands."
+    description: "Blocks interpreter one-liners containing dangerous commands.",
+    intent: "use_alternative"
   },
   {
     id: "interpreter.one-liner-paranoid",
     category: "Execution",
     label: "Interpreter one-liner paranoid mode",
-    description: "Blocks interpreter one-liners when paranoid interpreters is enabled."
+    description: "Blocks interpreter one-liners when paranoid interpreters is enabled.",
+    intent: "use_alternative"
   },
   {
     id: "awk.system-dynamic",
     category: "Execution",
     label: "Awk dynamic system call",
-    description: "Blocks awk system calls that cannot be safely analyzed."
+    description: "Blocks awk system calls that cannot be safely analyzed.",
+    intent: "stop_and_explain"
   },
   {
     id: "xargs.rm-recursive-force-dynamic",
     category: "Execution",
     label: "xargs dynamic rm -rf",
-    description: "Blocks xargs rm -rf with dynamic input."
+    description: "Blocks xargs rm -rf with dynamic input.",
+    intent: "scope_down"
   },
   {
     id: "xargs.shell-dynamic",
     category: "Execution",
     label: "xargs dynamic shell",
-    description: "Blocks xargs shell execution with dynamic input."
+    description: "Blocks xargs shell execution with dynamic input.",
+    intent: "scope_down"
   },
   {
     id: "parallel.rm-recursive-force-dynamic",
     category: "Execution",
     label: "parallel dynamic rm -rf",
-    description: "Blocks parallel rm -rf with dynamic input."
+    description: "Blocks parallel rm -rf with dynamic input.",
+    intent: "scope_down"
   },
   {
     id: "parallel.shell-dynamic",
     category: "Execution",
     label: "parallel dynamic shell",
-    description: "Blocks parallel shell execution with dynamic input."
+    description: "Blocks parallel shell execution with dynamic input.",
+    intent: "scope_down"
   },
   {
     id: "raw-text.dangerous-command",
     category: "Execution",
     label: "Raw text dangerous command",
-    description: "Blocks dangerous commands detected in raw command text."
+    description: "Blocks dangerous commands detected in raw command text.",
+    intent: "stop_and_explain"
   }
 ];
-function destructiveCommandMatch(id, reason) {
-  return { id, reason };
+var DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
+function destructiveCommandMatch(id, reason, intent) {
+  return {
+    id,
+    reason,
+    intent: intent ?? DESTRUCTIVE_COMMAND_RULE_INTENTS.get(id) ?? "manual_only"
+  };
 }
 function filterDestructiveCommandMatch(match, config) {
   if (!match)
     return null;
   if (config?.destructiveCommandProtectionEnabled === false)
     return null;
-  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match.reason;
+  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match;
 }
 
 // src/core/analyze/dangerous-text.ts
@@ -613,61 +656,61 @@ function dangerousInTextMatch(text) {
   const patterns = [
     {
       regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
-      reason: "rm -rf"
+      label: "rm -rf"
     },
     {
       regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/,
-      reason: "git reset --hard"
+      label: "git reset --hard"
     },
     {
       regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/,
-      reason: "git reset --merge"
+      label: "git reset --merge"
     },
     {
       regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
-      reason: "git clean -f"
+      label: "git clean -f"
     },
     {
       regex: /\bgit\s+checkout\s+[^|;]*(--fo(?:r(?:c(?:e)?)?)?\b|-(?![bBU])[^\s]*f[^\s]*\b)/,
-      reason: "git checkout --force"
+      label: "git checkout --force"
     },
     {
       regex: /\bgit\s+push\s+[^|;]*(-f\b|--fo(?:r(?:c(?:e)?)?)?\b)(?!-with-lease)/,
-      reason: "git push --force (use --force-with-lease instead)"
+      label: "git push --force"
     },
     {
       regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
-      reason: "git branch -D",
+      label: "git branch -D",
       caseSensitive: true
     },
     {
       regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
-      reason: "git tag -d"
+      label: "git tag -d"
     },
     {
       regex: /\bgit\s+stash\s+(drop|clear)\b/,
-      reason: "git stash drop/clear"
+      label: "git stash drop/clear"
     },
     {
       regex: /\bgit\s+checkout\s+--\s/,
-      reason: "git checkout --"
+      label: "git checkout --"
     },
     {
       regex: /\bgit\s+restore\b(?!.*--(staged|help))/,
-      reason: "git restore (without --staged)"
+      label: "git restore without --staged"
     },
     {
       regex: /\bfind\b[^\n;|&]*\s-delete\b/,
-      reason: "find -delete",
+      label: "find -delete",
       skipForEchoRg: true
     }
   ];
-  for (const { regex, reason, skipForEchoRg, caseSensitive } of patterns) {
+  for (const { regex, label, skipForEchoRg, caseSensitive } of patterns) {
     if (skipForEchoRg && isEchoOrRg)
       continue;
     const target = caseSensitive ? text : t;
     if (regex.test(target)) {
-      return destructiveCommandMatch("raw-text.dangerous-command", reason);
+      return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`);
     }
   }
   return null;
@@ -679,9 +722,12 @@ import { normalize as normalize3 } from "node:path";
 
 // src/core/analyze/awk.ts
 var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
-var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system() call with dynamic command that cannot be safely analyzed.";
+var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system() call with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system().";
 function analyzeAwkSystemCalls(tokens, analyzeNested) {
-  return analyzeAwkSystemCallMatch(tokens, analyzeNested)?.reason ?? null;
+  return analyzeAwkSystemCallMatch(tokens, (command) => {
+    const reason = analyzeNested(command);
+    return reason ? { id: "", reason, intent: "manual_only" } : null;
+  })?.reason ?? null;
 }
 function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   for (const token of tokens.slice(1)) {
@@ -693,9 +739,9 @@ function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
     if (commands2.dynamic)
       return destructiveCommandMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
     for (const command of commands2.commands) {
-      const reason = analyzeNested(command);
-      if (reason)
-        return { id: "", reason };
+      const result = analyzeNested(command);
+      if (result)
+        return result;
     }
   }
   return null;
@@ -967,6 +1013,13 @@ var $quote = require_quote();
 var $parse = require_parse();
 
 // src/types.ts
+var BLOCK_INTENTS = [
+  "hard_stop",
+  "use_alternative",
+  "scope_down",
+  "manual_only",
+  "stop_and_explain"
+];
 var MAX_RECURSION_DEPTH = 10;
 var MAX_STRIP_ITERATIONS = 20;
 var NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
@@ -988,9 +1041,6 @@ var DANGEROUS_PATTERNS = [
   /\bshred\b\s+/,
   /\bfind\b.*\s-delete\b/
 ];
-var PARANOID_INTERPRETERS_SUFFIX = `
-
-(Paranoid mode: interpreter one-liners are blocked.)`;
 
 // src/core/shell/shared.ts
 var ENV_PROXY = new Proxy({}, {
@@ -2160,6 +2210,7 @@ function stripCommand(tokens) {
 }
 // src/core/analyze/find.ts
 var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.";
+var REASON_FIND_EXEC_RM_RF = "find -exec rm -rf is dangerous. Use explicit file list instead.";
 var FIND_PRIMARIES_WITH_VALUE = new Set([
   "-amin",
   "-anewer",
@@ -2219,7 +2270,7 @@ function analyzeFindMatch(tokens, context = {}) {
       if (context.analyzeTokens) {
         const reason = context.analyzeTokens(execCommand, token === "-execdir" ? null : context.cwd);
         if (reason) {
-          return { id: "", reason };
+          return reason;
         }
         continue;
       }
@@ -2229,7 +2280,7 @@ function analyzeFindMatch(tokens, context = {}) {
           envAssignments: context.envAssignments
         });
         if (reason) {
-          return { id: "", reason };
+          return reason;
         }
         continue;
       }
@@ -2251,7 +2302,7 @@ function analyzeFindExecCommand(tokens) {
     head = getBasename(execCommand[0] ?? "");
   }
   if (head === "rm" && hasRecursiveForceFlags(execCommand)) {
-    return destructiveCommandMatch("find.exec-rm-recursive-force", "find -exec rm -rf is dangerous. Use explicit file list instead.");
+    return destructiveCommandMatch("find.exec-rm-recursive-force", REASON_FIND_EXEC_RM_RF);
   }
   return null;
 }
@@ -2474,9 +2525,9 @@ function normalizePathForComparison(p) {
   }
   return normalized;
 }
-var REASON_RM_RF = "rm -rf outside cwd is blocked. Use explicit paths within the current directory, or delete manually.";
+var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
 var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
-var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
+var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked. Do not retry or work around this.";
 var REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRm(tokens, options2 = {}) {
   return analyzeRmMatch(tokens, options2)?.reason ?? null;
@@ -3056,10 +3107,10 @@ var REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-w
 var REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.";
 var REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
 var REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
-var REASON_TAG_DELETE = "git tag -d permanently deletes tags.";
-var REASON_REFLOG_DELETE = "git reflog delete removes recovery history.";
+var REASON_TAG_DELETE = "git tag -d permanently deletes tags. Ask the user to run it manually if deletion is intended.";
+var REASON_REFLOG_DELETE = "git reflog delete removes recovery history. Ask the user to run it manually if deletion is intended.";
 var REASON_STASH_DROP = "git stash drop permanently deletes stashed changes. Consider 'git stash list' first.";
-var REASON_STASH_CLEAR = "git stash clear deletes ALL stashed changes permanently.";
+var REASON_STASH_CLEAR = "git stash clear deletes ALL stashed changes permanently. Use 'git stash list' to review; ask the user to run it manually if intended.";
 var REASON_WORKTREE_REMOVE_FORCE = "git worktree remove --force can delete uncommitted changes. Remove --force flag.";
 var CHECKOUT_OPTS_WITH_VALUE = new Set([
   "-b",
@@ -3701,7 +3752,7 @@ function countCleanForceFlags(tokens) {
 }
 
 // src/core/git/index.ts
-var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary commands during network operations.";
+var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.";
 var GIT_NETWORK_SUBCOMMANDS = new Set([
   "clone",
   "fetch",
@@ -3739,7 +3790,7 @@ function getGitWorktreeRelaxation(tokens, options2 = {}) {
 }
 
 // src/core/analyze/child-analyzer.ts
-function analyzeChildCommand(tokens, context, options2 = {}) {
+function analyzeChildCommandMatch(tokens, context, options2 = {}) {
   if (tokens.length === 0) {
     return null;
   }
@@ -3748,7 +3799,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
     return null;
   }
   if (SHELL_WRAPPERS.has(head)) {
-    const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason } : undefined);
+    const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : undefined);
     if (options2.dynamicInput && shellDynamicMatch) {
       return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
     }
@@ -3772,7 +3823,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
   if (head === "find") {
     return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
-      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
+      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
     }), context.config);
   }
   if (head === "git") {
@@ -3785,7 +3836,7 @@ function analyzeChildCommand(tokens, context, options2 = {}) {
   return null;
 }
 function getDynamicRmReason(options2, context) {
-  const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason } : undefined);
+  const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason, intent: "manual_only" } : undefined);
   return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.config) : null;
 }
 
@@ -3868,7 +3919,7 @@ function collectCommandTemplate(tokens, start) {
 
 // src/core/analyze/parallel.ts
 var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input.";
+var REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.";
 var PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 function analyzeParallel(tokens, context) {
   const parseResult = parseParallelCommand(tokens);
@@ -3948,7 +3999,7 @@ function analyzeParallel(tokens, context) {
   }
   const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
   for (const tokens2 of tokenSets) {
-    const result = analyzeChildCommand(tokens2, {
+    const result = analyzeChildCommandMatch(tokens2, {
       cwd: childCommand.cwd,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
@@ -4228,13 +4279,13 @@ function isPathOrSubpath(path, basePath) {
 
 // src/core/analyze/xargs.ts
 var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input.";
+var REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.";
 var XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
 function analyzeXargs(tokens, context) {
   const { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens);
   const childCommand = normalizeChildCommand(rawChildTokens, context);
   const childTokens = childCommand.tokens;
-  const childResult = analyzeChildCommand(childTokens, {
+  const childResult = analyzeChildCommandMatch(childTokens, {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
@@ -4255,7 +4306,7 @@ function analyzeXargs(tokens, context) {
   }
   const gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens;
   const hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
-  return analyzeChildCommand(gitTokens, {
+  return analyzeChildCommandMatch(gitTokens, {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
@@ -4337,6 +4388,9 @@ function extractXargsChildCommandWithInfo(tokens) {
 
 // src/core/rules/custom.ts
 function checkCustomRules(tokens, rules) {
+  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
+}
+function checkCustomRuleMatch(tokens, rules) {
   if (tokens.length === 0 || rules.length === 0) {
     return null;
   }
@@ -4351,7 +4405,11 @@ function checkCustomRules(tokens, rules) {
       continue;
     }
     if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
-      return `[${rule.name}] ${rule.reason}`;
+      return {
+        id: `custom.${rule.name}`,
+        reason: `[${rule.name}] ${rule.reason}`,
+        intent: rule.intent ?? "manual_only"
+      };
     }
   }
   return null;
@@ -4416,8 +4474,8 @@ function matchesBlockArgs(tokens, blockArgs, shortOpts) {
 }
 
 // src/core/analyze/segment.ts
-var REASON_INTERPRETER_DANGEROUS = "Detected potentially dangerous command in interpreter code.";
-var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode.";
+var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
+var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
 var COMMAND_ANALYZERS = new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
@@ -4457,7 +4515,7 @@ function analyzeSegment(tokens, depth, options2) {
     return null;
   }
   if (options2.config.failClosedReason) {
-    return options2.config.failClosedReason;
+    return { reason: options2.config.failClosedReason, intent: "stop_and_explain" };
   }
   const normalizedHead = normalizeCommandToken(head);
   const basename = getBasename(head);
@@ -4482,21 +4540,21 @@ function analyzeSegment(tokens, depth, options2) {
     }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => options2.analyzeNested(command2, {
+    const awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
-    })), options2.config);
+    }))), options2.config);
     if (awkReason) {
-      return awkReason;
+      return blockResultFromMatch(awkReason);
     }
   }
   if (INTERPRETERS.has(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
-        const reason = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX), options2.config);
-        if (reason)
-          return reason;
+        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.config);
+        if (match)
+          return blockResultFromMatch(match);
       }
       const innerReason = options2.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
@@ -4506,9 +4564,9 @@ function analyzeSegment(tokens, depth, options2) {
         return innerReason;
       }
       if (containsDangerousCode(codeArg)) {
-        const reason = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
-        if (reason)
-          return reason;
+        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
+        if (match)
+          return blockResultFromMatch(match);
       }
     }
   }
@@ -4535,7 +4593,7 @@ function analyzeSegment(tokens, depth, options2) {
   const commandAnalyzer = getCommandAnalyzer(commandContext);
   const commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.config);
   if (commandResult) {
-    return commandResult;
+    return blockResultFromMatch(commandResult);
   }
   const matchedKnown = commandAnalyzer !== undefined;
   if (!matchedKnown) {
@@ -4544,20 +4602,23 @@ function analyzeSegment(tokens, depth, options2) {
         const token = stripped[i];
         if (!token)
           continue;
-        const reason = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
-        if (reason)
-          return reason;
+        const match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
+        if (match)
+          return blockResultFromMatch(match);
       }
     }
   }
   const customRulesTopLevelOnly = matchedKnown;
   if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkCustomRules(stripped, options2.config.rules);
+    const customResult = checkCustomRuleMatch(stripped, options2.config.rules);
     if (customResult) {
-      return customResult;
+      return blockResultFromMatch(customResult);
     }
   }
   return null;
+}
+function blockResultFromMatch(match) {
+  return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
 }
 function isShellWrapperCommand(head, normalizedHead) {
   return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
@@ -4579,11 +4640,11 @@ function analyzeEmbeddedCommand(context, index) {
     if (!dashCArg) {
       return null;
     }
-    const reason = context.options.analyzeNested(dashCArg, {
+    const result = context.options.analyzeNested(dashCArg, {
       effectiveCwd: context.effectiveCwd,
       envAssignments: context.envAssignments
     });
-    return reason ? { id: "", reason } : null;
+    return result ? matchFromBlockResult(result) : null;
   }
   const analyzer = COMMAND_ANALYZERS.get(cmd);
   if (!analyzer || cmd === "xargs" || cmd === "parallel") {
@@ -4618,24 +4679,29 @@ function analyzeFindCommand(context) {
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
     envAssignments: context.envAssignments,
-    analyzeTokens: (tokens, cwd) => analyzeSegment([...tokens], context.depth + 1, {
+    analyzeTokens: (tokens, cwd) => matchFromBlockResult(analyzeSegment([...tokens], context.depth + 1, {
       ...context.options,
       effectiveCwd: cwd,
       envAssignments: context.envAssignments
-    }),
-    analyzeNested: context.options.analyzeNested
+    })),
+    analyzeNested: (command2, overrides) => matchFromBlockResult(context.options.analyzeNested(command2, overrides))
   });
 }
 function analyzeXargsCommand(context) {
-  const reason = analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
-  return reason ? { id: "", reason } : null;
+  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
 }
 function analyzeParallelCommand(context) {
-  const reason = analyzeParallel(context.tokens, {
+  return analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
-    analyzeNested: context.options.analyzeNested
+    analyzeNested: (command2, overrides) => matchFromBlockResult(context.options.analyzeNested(command2, overrides))
   });
-  return reason ? { id: "", reason } : null;
+}
+function matchFromBlockResult(result) {
+  return result ? {
+    id: result.ruleId ?? "",
+    reason: result.reason,
+    intent: result.intent ?? "manual_only"
+  } : null;
 }
 function getNestedCommandAnalyzeContext(context) {
   return {
@@ -5050,20 +5116,23 @@ function getSetOptionChanges(tokens, commandIndex) {
   return changes;
 }
 
+// src/core/reasons.ts
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.";
+var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.";
+var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+
 // src/core/analyze/analyze-command.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Verify manually.";
 var DYNAMIC_SUBSTITUTION_TOKEN = "$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__";
-var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed.";
 function analyzeCommandInternal(command2, depth, options2) {
   if (depth >= MAX_RECURSION_DEPTH) {
-    return { reason: REASON_RECURSION_LIMIT, segment: command2 };
+    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   }
   const segments2 = splitShellCommandsWithInfo(command2);
   if (depth === 0 && options2.config.failClosedReason && isFailClosedRepairCommand(segments2)) {
     return null;
   }
   if (options2.strict && segments2.length === 1 && segments2[0]?.tokens.length === 1 && segments2[0].tokens[0] === command2 && command2.includes(" ")) {
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2 };
+    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   }
   const originalCwd = options2.cwd;
   let effectiveCwd = options2.effectiveCwd !== undefined ? options2.effectiveCwd : options2.cwd;
@@ -5073,9 +5142,14 @@ function analyzeCommandInternal(command2, depth, options2) {
     const segmentStr = segment.join(" ");
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
     if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.config);
-      if (textReason) {
-        return { reason: textReason, segment: segmentStr };
+      const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.config);
+      if (textMatch) {
+        return {
+          reason: textMatch.reason,
+          segment: segmentStr,
+          ruleId: textMatch.id,
+          intent: textMatch.intent
+        };
       }
       const nextCwd2 = resolveCwdAfterSegment(segment, effectiveCwd);
       if (nextCwd2 !== undefined) {
@@ -5083,23 +5157,29 @@ function analyzeCommandInternal(command2, depth, options2) {
       }
       continue;
     }
-    const reason = analyzeSegment(segment, depth, {
+    const result = analyzeSegment(segment, depth, {
       ...options2,
       cwd: originalCwd,
       effectiveCwd,
       envAssignments: segmentEnvAssignments,
       analyzeNested: (nestedCommand, overrides) => {
         const nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : effectiveCwd;
-        return analyzeCommandInternal(nestedCommand, depth + 1, {
+        const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
           ...options2,
           effectiveCwd: nestedEffectiveCwd,
           envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
           worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
-        })?.reason ?? null;
+        });
+        return nestedResult ? {
+          reason: nestedResult.reason,
+          ruleId: nestedResult.ruleId,
+          intent: nestedResult.intent,
+          manualPermissionAdvice: nestedResult.manualPermissionAdvice
+        } : null;
       }
     });
-    if (reason) {
-      return { reason, segment: segmentStr };
+    if (result) {
+      return { ...result, segment: segmentStr };
     }
     const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
     if (nextCwd !== undefined) {
@@ -5962,7 +6042,13 @@ function validateCustomRule(rule, index, ruleNames, options2 = {}) {
   } else if (r.reason.length > MAX_REASON_LENGTH) {
     errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
   }
+  if (r.intent !== undefined && !isBlockIntent(r.intent)) {
+    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
+  }
   return errors;
+}
+function isBlockIntent(value) {
+  return typeof value === "string" && BLOCK_INTENTS.includes(value);
 }
 
 // src/core/rules/policy/config-file.ts
@@ -6184,6 +6270,10 @@ function validateRulesConfig(config) {
         } else if (reason.length > MAX_REASON_LENGTH) {
           errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
         }
+        const intent = value.intent;
+        if (intent !== undefined && !isBlockIntent2(intent)) {
+          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
+        }
       }
     }
   }
@@ -6191,6 +6281,9 @@ function validateRulesConfig(config) {
     validateTransparentWrappers(cfg.transparent_wrappers, errors);
   }
   return { errors, sources };
+}
+function isBlockIntent2(value) {
+  return typeof value === "string" && BLOCK_INTENTS.includes(value);
 }
 function validateTransparentWrappers(value, errors) {
   if (!Array.isArray(value)) {
@@ -6399,8 +6492,8 @@ function validateFixtures(tests, rules, errors) {
 function runRulebookFixtures(rulebook) {
   const failures = rulebook.tests.flatMap((fixture) => {
     const segments2 = splitShellCommands(fixture.command).map((tokens) => {
-      const result = checkCustomRules(tokens, rulebook.rules);
-      return { tokens, result, matchedRule: result?.match(/^\[([^\]]+)]/)?.[1] ?? null };
+      const result = checkCustomRuleMatch(tokens, rulebook.rules);
+      return { tokens, result, matchedRule: result?.id.replace(/^custom\./, "") ?? null };
     });
     const firstSegment = segments2[0] ?? { tokens: [], result: null, matchedRule: null };
     if (fixture.expect === "allowed") {
@@ -6985,7 +7078,7 @@ function applyOverrides(rules, overrides) {
       return [];
     }
     if (override && typeof override === "object") {
-      return [{ ...rule, reason: override.reason }];
+      return [{ ...rule, intent: override.intent ?? rule.intent, reason: override.reason }];
     }
     return [rule];
   });
@@ -7467,8 +7560,8 @@ function analyzeCommand(command2, options2 = {}) {
 
 // src/core/audit.ts
 import { appendFileSync, mkdirSync as mkdirSync4 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { join as join9 } from "node:path";
+import { homedir as homedir3, userInfo } from "node:os";
+import { isAbsolute as isAbsolute8, join as join9 } from "node:path";
 function sanitizeSessionIdForFilename(sessionId) {
   const raw = sessionId.trim();
   if (!raw) {
@@ -7486,7 +7579,10 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
   if (!safeSessionId) {
     return;
   }
-  const home = options2.homeDir ?? (process.env.HOME || homedir3());
+  const home = options2.homeDir ?? getAuditLogHomeDir();
+  if (!home) {
+    return;
+  }
   const logsDir = join9(home, ".cc-safety-net", "logs");
   try {
     mkdirSync4(logsDir, { recursive: true, mode: 448 });
@@ -7497,11 +7593,17 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
       command: redactSecrets(command2).slice(0, 300),
       segment: redactSecrets(segment).slice(0, 300),
       reason,
+      ruleId: options2.ruleId,
+      intent: options2.intent,
       cwd
     };
     appendFileSync(logFile, `${JSON.stringify(entry)}
 `, { encoding: "utf-8", mode: 384 });
   } catch {}
+}
+function getAuditLogHomeDir(homeFromEnv = process.env.HOME) {
+  const home = homeFromEnv || homedir3() || userInfo().homedir;
+  return home && isAbsolute8(home) ? home : null;
 }
 var PROVIDER_TOKENS = [
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
@@ -7550,6 +7652,11 @@ function formatBlockedMessage(input) {
   let message = `BLOCKED by CC Safety Net
 
 Reason: ${reason}`;
+  if (input.ruleId) {
+    message += `
+
+Rule: ${input.ruleId}`;
+  }
   if (toolName) {
     message += `
 
@@ -7567,12 +7674,25 @@ Command: ${excerpt(safeCommand, maxLen)}`;
 
 Segment: ${excerpt(safeSegment, maxLen)}`;
   }
-  if (input.manualPermissionAdvice !== false) {
-    message += `
+  message += `
 
-If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`;
-  }
+${getFooter(input)}`;
   return message;
+}
+function getFooter(input) {
+  const intent = input.manualPermissionAdvice === false ? "hard_stop" : input.intent ?? "manual_only";
+  switch (intent) {
+    case "hard_stop":
+      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
+    case "use_alternative":
+      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
+    case "scope_down":
+      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
+    case "manual_only":
+      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
+    case "stop_and_explain":
+      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
+  }
 }
 function excerpt(text, maxLen) {
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
@@ -7580,11 +7700,11 @@ function excerpt(text, maxLen) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { isAbsolute as isAbsolute10, normalize as normalize4, resolve as resolve9 } from "node:path";
 
 // src/core/secret-protection.ts
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute8, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute9, resolve as resolve8 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed. Do not retry or work around this.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
@@ -8145,7 +8265,7 @@ function normalizeCandidatePath(target, cwd) {
   if (!home) {
     return normalized;
   }
-  const absolute = isAbsolute8(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
+  const absolute = isAbsolute9(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
   if (!isSameOrChildPath(absolute, home)) {
     return normalized;
   }
@@ -8332,7 +8452,7 @@ function normalizeCandidatePath2(target, cwd) {
   if (!unix)
     return "";
   const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
-  return normalize4(isAbsolute9(expanded) ? expanded : resolve9(cwd, expanded)).replace(/\\/g, "/");
+  return normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)).replace(/\\/g, "/");
 }
 function isOperator3(token) {
   const op = getParseOp(token);
@@ -8344,154 +8464,6 @@ function isRedirectOp2(token) {
 }
 function getParseOp(token) {
   return typeof token === "object" && token !== null && "op" in token ? token.op : null;
-}
-
-// src/bin/hook/common.ts
-var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly.";
-function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName) {
-  console.log(JSON.stringify(createDenyOutput(formatBlockedMessage({
-    reason,
-    command: command2,
-    segment,
-    toolName,
-    redact: redactSecrets,
-    manualPermissionAdvice
-  }))));
-}
-async function readHookInput(outputDeny) {
-  const chunks = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk);
-  }
-  const inputText = Buffer.concat(chunks).toString("utf-8").trim();
-  if (!inputText) {
-    outputDeny("Missing hook input JSON.");
-    return null;
-  }
-  return parseHookJson(inputText, outputDeny, "Failed to parse hook input JSON.");
-}
-function parseHookJson(inputText, outputDeny, strictReason) {
-  try {
-    return JSON.parse(inputText);
-  } catch {
-    outputDeny(strictReason);
-    return null;
-  }
-}
-function analyzeHookCommand(command2, cwd, config) {
-  return analyzeCommand(command2, {
-    cwd,
-    config: config ?? loadConfig(cwd, { repairLocalRulebooks: true })
-  });
-}
-function handleSecretProtection(toolInput, cwd, config, sessionId, toolName, outputDeny) {
-  if (config.secretProtection?.enabled === false) {
-    return false;
-  }
-  const match = findSensitiveTargetInToolInput(toolInput, cwd, config.secretProtection);
-  if (!match) {
-    return false;
-  }
-  const command2 = getCommandFromToolInput(toolInput) ?? match.target;
-  if (sessionId) {
-    writeAuditLog(sessionId, command2, match.target, REASON_SECRET_PROTECTION, cwd);
-  }
-  outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName);
-  return true;
-}
-function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config) {
-  let result;
-  try {
-    result = analyzeHookCommand(command2, cwd, config);
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2);
-    return;
-  }
-  if (!result) {
-    if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command2, command2, "allowed", cwd, { decision: "allow" });
-    }
-    return;
-  }
-  if (sessionId) {
-    writeAuditLog(sessionId, command2, result.segment, result.reason, cwd);
-  }
-  outputDeny(result.reason, command2, result.segment);
-}
-async function runHookAdapter(adapter) {
-  const input = await readHookInput(adapter.outputDeny);
-  if (!input) {
-    return;
-  }
-  if (!adapter.isSupported(input)) {
-    return;
-  }
-  const cwd = adapter.getCwd(input) ?? process.cwd();
-  const toolInput = adapter.getToolInput(input, adapter.outputDeny);
-  const toolName = getToolName(input);
-  const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);
-  if (policyTarget) {
-    const command3 = getCommandFromToolInput(toolInput) ?? policyTarget.target;
-    adapter.outputDeny(REASON_POLICY_CONFIG_PROTECTION, command3, policyTarget.target, false, toolName);
-    return;
-  }
-  let config;
-  try {
-    config = loadConfig(cwd, { repairLocalRulebooks: true });
-  } catch (error) {
-    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
-    return;
-  }
-  let blockedBySecretProtection;
-  try {
-    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, config, adapter.getSessionId(input), toolName, adapter.outputDeny);
-  } catch (error) {
-    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
-    return;
-  }
-  if (blockedBySecretProtection) {
-    return;
-  }
-  const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
-  if (!command2) {
-    if (config.failClosedReason) {
-      adapter.outputDeny(config.failClosedReason, undefined, undefined, false, toolName);
-    }
-    return;
-  }
-  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny, config);
-}
-function getToolName(input) {
-  if (!input || typeof input !== "object") {
-    return "";
-  }
-  const record = input;
-  return stringField(record.tool_name) ?? stringField(record.toolName) ?? "";
-}
-function stringField(value) {
-  return typeof value === "string" ? value : undefined;
-}
-async function runConfiguredHookAdapter(adapter) {
-  const outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason), toolName);
-  await runHookAdapter({
-    outputDeny,
-    isSupported: adapter.isSupported,
-    getToolInput: adapter.getToolInput,
-    getCommand: adapter.getCommand,
-    getCwd: adapter.getCwd,
-    getSessionId: adapter.getSessionId
-  });
 }
 
 // src/pi/tool-call.ts
@@ -8512,7 +8484,7 @@ function handlePiToolCall(event, ctx) {
   if (!toolCall)
     return;
   if ("malformed" in toolCall) {
-    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED);
+    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, undefined, undefined, undefined, undefined, "stop_and_explain");
   }
   const cwd = toolCall.cwd;
   const policyTarget = findPolicyConfigMutationTargetInToolInput(toolCall.toolName, toolCall.input, cwd);
@@ -8536,7 +8508,7 @@ function handlePiToolCall(event, ctx) {
       return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false);
     }
     if (!toolCall.command) {
-      return config.failClosedReason ? blockPiToolCall(config.failClosedReason, undefined, undefined, false) : undefined;
+      return config.failClosedReason ? blockPiToolCall(config.failClosedReason, undefined, undefined, undefined, undefined, "stop_and_explain") : undefined;
     }
     const modes = getCCSafetyNetEnvModes(config);
     result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(toolCall.command, {
@@ -8552,7 +8524,7 @@ function handlePiToolCall(event, ctx) {
       console.error(`CC Safety Net debug: pi tool_call analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     }
     const command3 = toolCall.command;
-    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3);
+    return blockPiToolCall(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3, undefined, undefined, "stop_and_explain");
   }
   const command2 = toolCall.command;
   if (!command2)
@@ -8568,9 +8540,12 @@ function handlePiToolCall(event, ctx) {
   }
   const sessionId = ctx.sessionManager.getSessionFile();
   if (sessionId) {
-    writeAuditLog(sessionId, command2, result.segment, result.reason, cwd);
+    writeAuditLog(sessionId, command2, result.segment, result.reason, cwd, {
+      ruleId: result.ruleId,
+      intent: result.intent
+    });
   }
-  return blockPiToolCall(result.reason, command2, result.segment, result.manualPermissionAdvice);
+  return blockPiToolCall(result.reason, command2, result.segment, result.manualPermissionAdvice, result.ruleId, result.intent);
 }
 function getPiToolCall(event, ctx) {
   if (!event || typeof event !== "object")
@@ -8592,11 +8567,13 @@ function getPiToolCall(event, ctx) {
   const cwd = typeof cwdInput === "string" ? resolve10(ctx.cwd, cwdInput) : ctx.cwd;
   return { toolName: toolCall.toolName, input: toolCall.input, cwd, command: command2 };
 }
-function blockPiToolCall(reason, command2, segment, manualPermissionAdvice) {
+function blockPiToolCall(reason, command2, segment, manualPermissionAdvice, ruleId, intent) {
   return {
     block: true,
     reason: formatBlockedMessage({
       reason,
+      ruleId,
+      intent,
       command: command2,
       segment,
       redact: redactSecrets,

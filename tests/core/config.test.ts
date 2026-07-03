@@ -358,6 +358,23 @@ describe('runtime config loading', () => {
     ]);
   });
 
+  test('validates custom rule intent', () => {
+    expect(
+      validateConfig({
+        version: 1,
+        rules: [{ ...legacyRule, intent: 'use_alternative' }],
+      }).errors,
+    ).toEqual([]);
+    expect(
+      validateConfig({
+        version: 1,
+        rules: [{ ...legacyRule, intent: 'retry_forever' }],
+      }).errors,
+    ).toEqual([
+      'rules[0].intent: must be one of hard_stop, use_alternative, scope_down, manual_only, stop_and_explain',
+    ]);
+  });
+
   test('rejects transparent wrappers that collide with analyzed commands', () => {
     expect(
       validateRulesConfig({

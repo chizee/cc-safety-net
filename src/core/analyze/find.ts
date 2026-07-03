@@ -4,6 +4,7 @@ import { getBasename, stripWrappers } from '@/core/shell';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
+const REASON_FIND_EXEC_RM_RF = 'find -exec rm -rf is dangerous. Use explicit file list instead.';
 const FIND_PRIMARIES_WITH_VALUE = new Set([
   '-amin',
   '-anewer',
@@ -49,8 +50,14 @@ const FIND_PRIMARIES_WITH_VALUE = new Set([
 export interface AnalyzeFindContext {
   cwd?: string;
   envAssignments?: ReadonlyMap<string, string>;
-  analyzeTokens?: (tokens: readonly string[], cwd: string | null | undefined) => string | null;
-  analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => string | null;
+  analyzeTokens?: (
+    tokens: readonly string[],
+    cwd: string | null | undefined,
+  ) => DestructiveCommandRuleMatch | null;
+  analyzeNested?: (
+    command: string,
+    overrides?: AnalyzeNestedOverrides,
+  ) => DestructiveCommandRuleMatch | null;
 }
 
 export function analyzeFind(
@@ -85,7 +92,7 @@ export function analyzeFindMatch(
           token === '-execdir' ? null : context.cwd,
         );
         if (reason) {
-          return { id: '', reason };
+          return reason;
         }
         continue;
       }
@@ -96,7 +103,7 @@ export function analyzeFindMatch(
           envAssignments: context.envAssignments,
         });
         if (reason) {
-          return { id: '', reason };
+          return reason;
         }
         continue;
       }
@@ -122,10 +129,7 @@ function analyzeFindExecCommand(tokens: readonly string[]): DestructiveCommandRu
   }
 
   if (head === 'rm' && hasRecursiveForceFlags(execCommand)) {
-    return destructiveCommandMatch(
-      'find.exec-rm-recursive-force',
-      'find -exec rm -rf is dangerous. Use explicit file list instead.',
-    );
+    return destructiveCommandMatch('find.exec-rm-recursive-force', REASON_FIND_EXEC_RM_RF);
   }
 
   return null;

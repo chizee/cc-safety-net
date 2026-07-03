@@ -1,6 +1,6 @@
-import type { CustomRule } from '@/types';
+import type { BlockIntent, CustomRule } from '@/types';
 
-export type RuleOverride = 'off' | { reason: string };
+export type RuleOverride = 'off' | { intent?: BlockIntent; reason: string };
 export interface RulesConfig {
   version: 1;
   rules: string[];

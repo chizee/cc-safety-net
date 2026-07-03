@@ -1,7 +1,14 @@
 import { extractShortOpts, getBasename } from '@/core/shell';
-import type { CustomRule } from '@/types';
+import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
 
 export function checkCustomRules(tokens: string[], rules: CustomRule[]): string | null {
+  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
+}
+
+export function checkCustomRuleMatch(
+  tokens: string[],
+  rules: CustomRule[],
+): DestructiveCommandRuleMatch | null {
   if (tokens.length === 0 || rules.length === 0) {
     return null;
   }
@@ -20,7 +27,11 @@ export function checkCustomRules(tokens: string[], rules: CustomRule[]): string 
     }
 
     if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
-      return `[${rule.name}] ${rule.reason}`;
+      return {
+        id: `custom.${rule.name}`,
+        reason: `[${rule.name}] ${rule.reason}`,
+        intent: rule.intent ?? 'manual_only',
+      };
     }
   }
 

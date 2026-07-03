@@ -82,7 +82,7 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('legacy config with rules fail-closed asks user to run migration manually', async () => {
+    test('legacy config with rules fail-closed tells the agent to stop and explain', async () => {
       await withHookTestContext(async (context) => {
         writeFileSync(
           join(context.cwd, '.safety-net.json'),
@@ -108,7 +108,7 @@ describe('Claude Code hook', () => {
           'ask the user to run `npx -y cc-safety-net rule migrate`',
         );
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'have them run the command manually',
+          'Do not brute-force variants',
         );
       });
     });

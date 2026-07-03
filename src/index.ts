@@ -7,15 +7,14 @@ import {
   findPolicyConfigMutationTargetInToolInput,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
+import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { loadBuiltinCommands } from '@/opencode/builtin-commands/index';
-
-const REASON_SAFETY_NET_FAILED_CLOSED =
-  'CC Safety Net failed closed because command analysis failed unexpectedly.';
+import type { BlockIntent } from '@/types';
 
 type CCSafetyNetPluginInput = PluginInput & { homeDir?: string };
 
@@ -72,7 +71,14 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
       if (input.tool === 'bash') {
         const command = getCommandFromToolInput(toolInput);
         if (!command) {
-          throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED);
+          throwBlocked(
+            REASON_SAFETY_NET_FAILED_CLOSED,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            'stop_and_explain',
+          );
         }
 
         let result: ReturnType<typeof analyzeCommand>;
@@ -87,21 +93,44 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
             worktreeMode: modes.worktreeMode,
           });
         } catch {
-          throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+          throwBlocked(
+            REASON_SAFETY_NET_FAILED_CLOSED,
+            command,
+            command,
+            undefined,
+            undefined,
+            'stop_and_explain',
+          );
         }
         if (result) {
           if (input.sessionID) {
             writeAuditLog(input.sessionID, command, result.segment, result.reason, directory, {
               homeDir,
+              ruleId: result.ruleId,
+              intent: result.intent,
             });
           }
-          throwBlocked(result.reason, command, result.segment, result.manualPermissionAdvice);
+          throwBlocked(
+            result.reason,
+            command,
+            result.segment,
+            result.manualPermissionAdvice,
+            result.ruleId,
+            result.intent,
+          );
         }
         return;
       }
 
       if (config.failClosedReason) {
-        throwBlocked(config.failClosedReason, undefined, undefined, false);
+        throwBlocked(
+          config.failClosedReason,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          'stop_and_explain',
+        );
       }
     },
   };
@@ -112,10 +141,14 @@ function throwBlocked(
   command?: string,
   segment?: string,
   manualPermissionAdvice?: boolean,
+  ruleId?: string,
+  intent?: BlockIntent,
 ): never {
   throw new Error(
     formatBlockedMessage({
       reason,
+      ruleId,
+      intent,
       command,
       segment,
       redact: redactSecrets,

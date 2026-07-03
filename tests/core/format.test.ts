@@ -96,12 +96,32 @@ describe('formatBlockedMessage', () => {
     expect(result).toContain('ask the user');
   });
 
-  test('omits footer when manual permission advice is disabled', () => {
+  test('includes rule id when provided', () => {
+    const result = formatBlockedMessage({
+      reason: 'test reason',
+      ruleId: 'git.push-force',
+    });
+    expect(result).toContain('Rule: git.push-force');
+  });
+
+  test.each([
+    ['hard_stop', 'Do not retry this operation or attempt any workaround'],
+    ['use_alternative', 'Continue the task using the safer alternative described above'],
+    ['scope_down', 'Retry with a narrower, explicit target as described above'],
+    ['manual_only', 'ask the user for explicit permission'],
+    ['stop_and_explain', 'Do not brute-force variants'],
+  ] as const)('uses %s footer', (intent, expected) => {
+    const result = formatBlockedMessage({ reason: 'test reason', intent });
+    expect(result).toContain(expected);
+  });
+
+  test('maps disabled manual permission advice to hard stop footer', () => {
     const result = formatBlockedMessage({
       reason: 'test reason',
       manualPermissionAdvice: false,
     });
     expect(result).not.toContain('ask the user');
+    expect(result).toContain('Do not retry this operation');
   });
 
   test('applies redact function to command', () => {

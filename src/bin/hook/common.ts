@@ -6,15 +6,13 @@ import {
   findPolicyConfigMutationTargetInToolInput,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
+import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import {
   findSensitiveTargetInToolInput,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
-import type { Config } from '@/types';
-
-export const REASON_SAFETY_NET_FAILED_CLOSED =
-  'CC Safety Net failed closed because command analysis failed unexpectedly.';
+import type { BlockIntent, Config } from '@/types';
 
 type HookDenyOutput = (
   reason: string,
@@ -22,6 +20,8 @@ type HookDenyOutput = (
   segment?: string,
   manualPermissionAdvice?: boolean,
   toolName?: string,
+  ruleId?: string,
+  intent?: BlockIntent,
 ) => void;
 
 type HookAdapter<T> = {
@@ -35,7 +35,6 @@ type HookAdapter<T> = {
 
 type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {
   createDenyOutput: (message: string) => object;
-  getManualPermissionAdvice?: (reason: string) => boolean | undefined;
 };
 
 function outputHookDeny(
@@ -45,12 +44,16 @@ function outputHookDeny(
   segment?: string,
   manualPermissionAdvice?: boolean,
   toolName?: string,
+  ruleId?: string,
+  intent?: BlockIntent,
 ): void {
   console.log(
     JSON.stringify(
       createDenyOutput(
         formatBlockedMessage({
           reason,
+          ruleId,
+          intent,
           command,
           segment,
           toolName,
@@ -127,7 +130,7 @@ export function handleBlockedHookCommand(
   command: string,
   cwd: string,
   sessionId: string | undefined,
-  outputDeny: (reason: string, command?: string, segment?: string) => void,
+  outputDeny: HookDenyOutput,
   config?: Config,
 ): void {
   let result: ReturnType<typeof analyzeHookCommand>;
@@ -139,7 +142,15 @@ export function handleBlockedHookCommand(
         `CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
       );
     }
-    outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    outputDeny(
+      REASON_SAFETY_NET_FAILED_CLOSED,
+      command,
+      command,
+      undefined,
+      undefined,
+      undefined,
+      'stop_and_explain',
+    );
     return;
   }
   if (!result) {
@@ -150,9 +161,20 @@ export function handleBlockedHookCommand(
   }
 
   if (sessionId) {
-    writeAuditLog(sessionId, command, result.segment, result.reason, cwd);
+    writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
+      ruleId: result.ruleId,
+      intent: result.intent,
+    });
   }
-  outputDeny(result.reason, command, result.segment);
+  outputDeny(
+    result.reason,
+    command,
+    result.segment,
+    result.manualPermissionAdvice,
+    undefined,
+    result.ruleId,
+    result.intent,
+  );
 }
 
 async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
@@ -191,7 +213,15 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
         `CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
       );
     }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    adapter.outputDeny(
+      REASON_SAFETY_NET_FAILED_CLOSED,
+      command,
+      command,
+      undefined,
+      undefined,
+      undefined,
+      'stop_and_explain',
+    );
     return;
   }
 
@@ -212,7 +242,15 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
         `CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
       );
     }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command, command);
+    adapter.outputDeny(
+      REASON_SAFETY_NET_FAILED_CLOSED,
+      command,
+      command,
+      undefined,
+      undefined,
+      undefined,
+      'stop_and_explain',
+    );
     return;
   }
   if (blockedBySecretProtection) {
@@ -222,7 +260,15 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   const command = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
   if (!command) {
     if (config.failClosedReason) {
-      adapter.outputDeny(config.failClosedReason, undefined, undefined, false, toolName);
+      adapter.outputDeny(
+        config.failClosedReason,
+        undefined,
+        undefined,
+        undefined,
+        toolName,
+        undefined,
+        'stop_and_explain',
+      );
     }
     return;
   }
@@ -245,14 +291,24 @@ function stringField(value: unknown): string | undefined {
 export async function runConfiguredHookAdapter<T>(
   adapter: ConfiguredHookAdapter<T>,
 ): Promise<void> {
-  const outputDeny: HookDenyOutput = (reason, command, segment, manualPermissionAdvice, toolName) =>
+  const outputDeny: HookDenyOutput = (
+    reason,
+    command,
+    segment,
+    manualPermissionAdvice,
+    toolName,
+    ruleId,
+    intent,
+  ) =>
     outputHookDeny(
       adapter.createDenyOutput,
       reason,
       command,
       segment,
-      manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason),
+      manualPermissionAdvice,
       toolName,
+      ruleId,
+      intent,
     );
 
   await runHookAdapter<T>({

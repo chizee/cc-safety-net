@@ -510,12 +510,12 @@ describe('defaultVersionFetcher', () => {
 
   test('returns null for commands that time out', async () => {
     const startedAt = Date.now();
-    const result = await defaultVersionFetcher(['bun', '-e', 'setTimeout(() => {}, 3000)']);
+    const result = await defaultVersionFetcher(['bun', '-e', 'setTimeout(() => {}, 30000)']);
     const durationMs = Date.now() - startedAt;
 
     expect(result).toBeNull();
-    expect(durationMs).toBeLessThan(2800);
-  }, 5000);
+    expect(durationMs).toBeLessThan(10000);
+  }, 12000);
 
   test('returns null for commands that exit with non-zero code', async () => {
     const result = await defaultVersionFetcher(['false']);

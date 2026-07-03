@@ -1,4 +1,4 @@
-import { COMMAND_PATTERN, MAX_REASON_LENGTH, NAME_PATTERN } from '@/types';
+import { BLOCK_INTENTS, COMMAND_PATTERN, MAX_REASON_LENGTH, NAME_PATTERN } from '@/types';
 
 interface ValidateCustomRuleOptions {
   messageStyle?: 'legacy' | 'rulebook';
@@ -121,5 +121,13 @@ export function validateCustomRule(
     );
   }
 
+  if (r.intent !== undefined && !isBlockIntent(r.intent)) {
+    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(', ')}`);
+  }
+
   return errors;
+}
+
+function isBlockIntent(value: unknown): boolean {
+  return typeof value === 'string' && BLOCK_INTENTS.includes(value as never);
 }

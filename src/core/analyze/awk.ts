@@ -4,18 +4,23 @@ import type { DestructiveCommandRuleMatch } from '@/types';
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 
 export const REASON_AWK_SYSTEM_DYNAMIC =
-  'Detected awk system() call with dynamic command that cannot be safely analyzed.';
+  'Detected awk system() call with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system().';
 
 export function analyzeAwkSystemCalls(
   tokens: readonly string[],
   analyzeNested: (command: string) => string | null,
 ): string | null {
-  return analyzeAwkSystemCallMatch(tokens, analyzeNested)?.reason ?? null;
+  return (
+    analyzeAwkSystemCallMatch(tokens, (command) => {
+      const reason = analyzeNested(command);
+      return reason ? { id: '', reason, intent: 'manual_only' } : null;
+    })?.reason ?? null
+  );
 }
 
 export function analyzeAwkSystemCallMatch(
   tokens: readonly string[],
-  analyzeNested: (command: string) => string | null,
+  analyzeNested: (command: string) => DestructiveCommandRuleMatch | null,
 ): DestructiveCommandRuleMatch | null {
   for (const token of tokens.slice(1)) {
     if (!token.includes('system')) continue;
@@ -26,8 +31,8 @@ export function analyzeAwkSystemCallMatch(
       return destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
 
     for (const command of commands.commands) {
-      const reason = analyzeNested(command);
-      if (reason) return { id: '', reason };
+      const result = analyzeNested(command);
+      if (result) return result;
     }
   }
   return null;

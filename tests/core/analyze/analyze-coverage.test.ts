@@ -75,6 +75,15 @@ describe('analyzeCommand (coverage)', () => {
     expect(result?.reason).toContain('rm -rf in home directory');
   });
 
+  test('built-in destructive match includes rule id and intent', () => {
+    const result = analyzeCommand('git push --force', {
+      cwd: '/tmp',
+      config: EMPTY_CONFIG,
+    });
+    expect(result?.ruleId).toBe('git.push-force');
+    expect(result?.intent).toBe('use_alternative');
+  });
+
   test('rm without -rf in home cwd is not blocked by home cwd guard', () => {
     expect(
       analyzeCommand('rm -f file.txt', {
@@ -101,6 +110,29 @@ describe('analyzeCommand (coverage)', () => {
       config,
     });
     expect(result?.reason).toContain('[block-rm-rf] No rm -rf.');
+    expect(result?.ruleId).toBe('custom.block-rm-rf');
+    expect(result?.intent).toBe('manual_only');
+  });
+
+  test('custom rule intent is included in blocked result', () => {
+    const result = analyzeCommand('docker system prune', {
+      cwd: '/tmp',
+      config: {
+        version: 1,
+        rules: [
+          {
+            name: 'block-docker-prune',
+            command: 'docker',
+            subcommand: 'system',
+            block_args: ['prune'],
+            reason: 'Docker prune can delete shared cache. Use targeted cleanup instead.',
+            intent: 'use_alternative',
+          },
+        ],
+      },
+    });
+    expect(result?.ruleId).toBe('custom.block-docker-prune');
+    expect(result?.intent).toBe('use_alternative');
   });
 
   test('custom rules can block find after builtin allow', () => {
@@ -554,8 +586,16 @@ describe('analyzeCommand (coverage)', () => {
       allowTmpdirVar: true,
       envAssignments: new Map<string, string>(),
     };
-    const analyzeNested = (command: string) =>
-      analyzeCommand(command, { cwd: '/tmp', config: EMPTY_CONFIG })?.reason ?? null;
+    const analyzeNestedMatch = (command: string) => {
+      const result = analyzeCommand(command, { cwd: '/tmp', config: EMPTY_CONFIG });
+      return result
+        ? {
+            id: result.ruleId ?? '',
+            reason: result.reason,
+            intent: result.intent ?? 'manual_only',
+          }
+        : null;
+    };
 
     test('empty child head returns null', () => {
       expect(analyzeChildCommand([''], childContext)).toBeNull();
@@ -564,7 +604,7 @@ describe('analyzeCommand (coverage)', () => {
     test('shell child without dynamic input analyzes dash c script', () => {
       const result = analyzeChildCommand(['sh', '-c', 'git reset --hard'], {
         ...childContext,
-        analyzeNested,
+        analyzeNested: analyzeNestedMatch,
       });
       expect(result).toContain('git reset --hard');
     });
@@ -586,7 +626,7 @@ describe('analyzeCommand (coverage)', () => {
       const result = analyzeFind(['find', '.', '-exec', 'git', 'reset', '--hard', ';'], {
         cwd: '/tmp',
         envAssignments: new Map<string, string>(),
-        analyzeNested,
+        analyzeNested: analyzeNestedMatch,
       });
       expect(result).toContain('git reset --hard');
     });
@@ -595,7 +635,7 @@ describe('analyzeCommand (coverage)', () => {
       expect(
         analyzeChildCommand(['find', '.', '-exec', 'git', 'reset', '--hard', ';'], {
           ...childContext,
-          analyzeNested,
+          analyzeNested: analyzeNestedMatch,
         }),
       ).toContain('git reset --hard');
     });
@@ -605,7 +645,7 @@ describe('analyzeCommand (coverage)', () => {
         analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], {
           cwd: '/tmp',
           envAssignments: new Map<string, string>(),
-          analyzeNested,
+          analyzeNested: analyzeNestedMatch,
         }),
       ).toBeNull();
     });

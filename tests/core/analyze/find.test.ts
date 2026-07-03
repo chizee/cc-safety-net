@@ -47,7 +47,7 @@ describe('find -delete tests', () => {
   test('python c system find delete blocked', () => {
     assertBlocked(
       'python -c "import os; os.system(\\"find . -delete\\")"',
-      'dangerous command in interpreter',
+      'Interpreter code contains a dangerous command',
     );
   });
 });

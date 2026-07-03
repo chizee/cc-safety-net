@@ -11,7 +11,6 @@ export async function runClaudeCodeHook(): Promise<void> {
         permissionDecisionReason: message,
       },
     }),
-    getManualPermissionAdvice: (reason) => (reason.includes('rule sync') ? false : undefined),
     isSupported: (input) => input.hook_event_name === CLAUDE_CODE_HOOK_EVENT,
     getToolInput: (input) => input.tool_input,
     getCwd: (input) => input.cwd,
