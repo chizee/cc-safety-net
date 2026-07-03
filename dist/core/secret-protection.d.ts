@@ -1,5 +1,5 @@
 import type { SecretProtectionConfig } from '@/types';
-export declare const REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed. Do not retry or work around this.";
+export declare const REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 type SecretTarget = {
     target: string;
 };

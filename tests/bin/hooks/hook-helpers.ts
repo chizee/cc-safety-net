@@ -210,9 +210,7 @@ export function getHookDenyReason(result: HookResult, format: HookFormat): strin
 export function expectSecretProtectionDeny(result: HookResult, format: HookFormat): void {
   const reason = getHookDenyReason(result, format);
   expect(reason).toContain('BLOCKED by CC Safety Net');
-  expect(reason).toContain(
-    'Access to a sensitive path is not allowed. Do not retry or work around this.',
-  );
+  expect(reason).toContain('Access to a sensitive path is not allowed.');
   expect(reason).toContain('Command:');
   expect(reason).not.toContain('ask the user for explicit permission');
 }

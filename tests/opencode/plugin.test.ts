@@ -246,9 +246,7 @@ describe('OpenCode plugin', () => {
         expect(entry.decision).toBe('deny');
         expect(entry.command).toBe('.env');
         expect(entry.segment).toBe('.env');
-        expect(entry.reason).toBe(
-          'Access to a sensitive path is not allowed. Do not retry or work around this.',
-        );
+        expect(entry.reason).toBe('Access to a sensitive path is not allowed.');
         expect(entry.cwd).toBe(projectDir);
       },
     );

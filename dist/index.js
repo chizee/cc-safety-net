@@ -2463,7 +2463,7 @@ function normalizePathForComparison(p) {
 }
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
 var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
-var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked. Do not retry or work around this.";
+var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
 var REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRm(tokens, options2 = {}) {
   return analyzeRmMatch(tokens, options2)?.reason ?? null;
@@ -7641,7 +7641,7 @@ import { isAbsolute as isAbsolute10, normalize as normalize4, resolve as resolve
 // src/core/secret-protection.ts
 import { homedir as homedir4 } from "node:os";
 import { isAbsolute as isAbsolute9, resolve as resolve8 } from "node:path";
-var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed. Do not retry or work around this.";
+var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
 var CODE_INTERPRETERS = new Set([

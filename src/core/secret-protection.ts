@@ -15,8 +15,7 @@ import {
 import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import type { SecretProtectionConfig } from '@/types';
 
-export const REASON_SECRET_PROTECTION =
-  'Access to a sensitive path is not allowed. Do not retry or work around this.';
+export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
 
 // Secret protection inspects operands by default (fail-safe): any command that is
 // not a recognized exception has its arguments treated as candidate paths. This

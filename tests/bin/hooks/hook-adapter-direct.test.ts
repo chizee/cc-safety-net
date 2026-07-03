@@ -148,7 +148,7 @@ describe('hook adapter direct integration', () => {
     expect(result.stderr).toBe('');
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-      'Access to a sensitive path is not allowed. Do not retry or work around this.',
+      'Access to a sensitive path is not allowed.',
     );
   });
 
