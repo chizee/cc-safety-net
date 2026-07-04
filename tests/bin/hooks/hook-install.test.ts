@@ -6,10 +6,9 @@ import { runCli } from './hook-helpers';
 
 const KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
-matcher = "*"
 command = "npx -y cc-safety-net hook --kimi-code"`;
 const KIMI_INLINE_HOOK =
-  '{ event = "PreToolUse", matcher = "*", command = "npx -y cc-safety-net hook --kimi-code" }';
+  '{ event = "PreToolUse", command = "npx -y cc-safety-net hook --kimi-code" }';
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
 
 function makeTempHome(name: string) {

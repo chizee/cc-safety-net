@@ -14052,9 +14052,8 @@ function removeArrayRangeItem(content, item) {
 var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code";
 var KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
-matcher = "*"
 command = "${KIMI_HOOK_COMMAND}"`;
-var KIMI_INLINE_HOOK = `{ event = "PreToolUse", matcher = "*", command = "${KIMI_HOOK_COMMAND}" }`;
+var KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
   return join14(process.env.KIMI_CODE_HOME ?? join14(homeDir, ".kimi-code"), "config.toml");
 }
