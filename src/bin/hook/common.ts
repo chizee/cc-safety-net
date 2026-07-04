@@ -281,7 +281,12 @@ function getToolName(input: unknown): string {
     return '';
   }
   const record = input as Record<string, unknown>;
-  return stringField(record.tool_name) ?? stringField(record.toolName) ?? '';
+  return (
+    stringField(record.tool_name) ??
+    stringField(record.toolName) ??
+    stringField((record.toolCall as Record<string, unknown> | undefined)?.name) ??
+    ''
+  );
 }
 
 function stringField(value: unknown): string | undefined {

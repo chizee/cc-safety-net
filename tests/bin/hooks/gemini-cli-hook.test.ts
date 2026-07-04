@@ -72,7 +72,7 @@ describe('Gemini CLI hook', () => {
         });
 
         expect(getHookDenyReason(result, 'gemini-cli')).toContain(
-          'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
+          'Policy config is protected and you must not modify it.',
         );
       });
     });

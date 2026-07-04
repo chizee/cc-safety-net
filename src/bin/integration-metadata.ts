@@ -12,6 +12,17 @@ type IntegrationMetadata = {
 
 const integrationMetadata = [
   {
+    id: 'antigravity-cli',
+    displayName: 'Antigravity CLI',
+    doctorVisible: false,
+    runtimeHook: {
+      flags: ['-ac', '--agy-cli'],
+      description: 'Run as Antigravity CLI PreToolUse hook',
+      legacyTopLevel: false,
+      order: 1,
+    },
+  },
+  {
     id: 'claude-code',
     displayName: 'Claude Code',
     doctorVisible: true,
@@ -19,7 +30,7 @@ const integrationMetadata = [
       flags: ['-cc', '--claude-code'],
       description: 'Run as Claude Code PreToolUse hook',
       legacyTopLevel: true,
-      order: 1,
+      order: 2,
     },
   },
   {
@@ -35,7 +46,7 @@ const integrationMetadata = [
       flags: ['-cp', '--copilot-cli'],
       description: 'Run as Copilot CLI PreToolUse hook',
       legacyTopLevel: true,
-      order: 2,
+      order: 3,
     },
   },
   {
@@ -46,7 +57,7 @@ const integrationMetadata = [
       flags: ['-gc', '--gemini-cli'],
       description: 'Run as Gemini CLI BeforeTool hook',
       legacyTopLevel: true,
-      order: 3,
+      order: 4,
     },
   },
   {
@@ -57,7 +68,7 @@ const integrationMetadata = [
       flags: ['-kc', '--kimi-code'],
       description: 'Run as Kimi Code PreToolUse hook',
       legacyTopLevel: false,
-      order: 4,
+      order: 5,
     },
   },
   {

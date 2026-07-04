@@ -98,6 +98,9 @@ const PATTERN_ARG_LONG = new Set([
 ]);
 
 const PATH_LIKE_KEYS = new Set([
+  'absolutepath',
+  'directorypath',
+  'directory_path',
   'file',
   'file_path',
   'filepath',
@@ -105,6 +108,10 @@ const PATH_LIKE_KEYS = new Set([
   'notebook_path',
   'path',
   'pattern',
+  'searchdirectory',
+  'search_directory',
+  'targetfile',
+  'target_file',
 ]);
 
 const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);

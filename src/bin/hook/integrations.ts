@@ -1,3 +1,4 @@
+import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook } from '@/bin/hook/claude-code';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
@@ -17,6 +18,7 @@ export type HookIntegration = {
 };
 
 const hookRunners = {
+  'antigravity-cli': runAntigravityCliHook,
   'claude-code': runClaudeCodeHook,
   'copilot-cli': runCopilotCliHook,
   'gemini-cli': runGeminiCLIHook,

@@ -7758,13 +7758,20 @@ var PATTERN_ARG_LONG = new Set([
   "max-count"
 ]);
 var PATH_LIKE_KEYS = new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
   "file",
   "file_path",
   "filepath",
   "glob",
   "notebook_path",
   "path",
-  "pattern"
+  "pattern",
+  "searchdirectory",
+  "search_directory",
+  "targetfile",
+  "target_file"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
@@ -8343,9 +8350,35 @@ function isRedirectOp(token) {
 }
 
 // src/core/policy-protection.ts
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.";
-var READ_ONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "readfile", "read_file"]);
-var PATH_LIKE_KEYS2 = new Set(["file", "file_path", "filepath", "path"]);
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
+var READ_ONLY_TOOLS = new Set([
+  "find_by_name",
+  "glob",
+  "grep",
+  "grep_search",
+  "list_dir",
+  "list_permissions",
+  "ls",
+  "read",
+  "read_url_content",
+  "readfile",
+  "read_file",
+  "search_web",
+  "view_file"
+]);
+var PATH_LIKE_KEYS2 = new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
+  "file",
+  "file_path",
+  "filepath",
+  "path",
+  "searchdirectory",
+  "search_directory",
+  "targetfile",
+  "target_file"
+]);
 var READ_ONLY_COMMANDS = new Set([
   "cat",
   "file",
@@ -8472,7 +8505,7 @@ function extractPathLikeToolValues2(input) {
   if (Array.isArray(input))
     return input.flatMap((value) => extractPathLikeToolValues2(value));
   return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATH_LIKE_KEYS2.has(key.replace(/-/g, "_").toLowerCase())) {
+    if (typeof value === "string" && PATH_LIKE_KEYS2.has(normalizeToolInputKey2(key))) {
       return [value];
     }
     if (value && typeof value === "object")
@@ -8482,6 +8515,9 @@ function extractPathLikeToolValues2(input) {
 }
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+}
+function normalizeToolInputKey2(key) {
+  return key.replace(/-/g, "_").toLowerCase();
 }
 function isPolicyConfigPath(target, cwd) {
   const normalized = normalizeCandidatePath2(target, cwd).toLowerCase();
@@ -8648,7 +8684,7 @@ function getToolName(input) {
     return "";
   }
   const record = input;
-  return stringField(record.tool_name) ?? stringField(record.toolName) ?? "";
+  return stringField(record.tool_name) ?? stringField(record.toolName) ?? stringField(record.toolCall?.name) ?? "";
 }
 function stringField(value) {
   return typeof value === "string" ? value : undefined;
@@ -8663,6 +8699,31 @@ async function runConfiguredHookAdapter(adapter) {
     getCwd: adapter.getCwd,
     getSessionId: adapter.getSessionId
   });
+}
+
+// src/bin/hook/antigravity-cli.ts
+async function runAntigravityCliHook() {
+  await runConfiguredHookAdapter({
+    createDenyOutput: (message) => ({
+      decision: "deny",
+      reason: message
+    }),
+    isSupported: (input) => typeof input.toolCall?.name === "string",
+    getToolInput: (input) => normalizeAntigravityToolArgs(input.toolCall?.args),
+    getCwd: (input) => typeof input.toolCall?.args?.Cwd === "string" ? input.toolCall.args.Cwd : undefined,
+    getSessionId: (input) => input.conversationId
+  });
+}
+function normalizeAntigravityToolArgs(args) {
+  if (!args)
+    return;
+  if (typeof args.CommandLine !== "string" || args.CommandLine === "") {
+    return args;
+  }
+  return {
+    ...args,
+    command: args.CommandLine
+  };
 }
 
 // src/bin/hook/constants.ts
@@ -8736,6 +8797,17 @@ async function runKimiCodeHook() {
 // src/bin/integration-metadata.ts
 var integrationMetadata = [
   {
+    id: "antigravity-cli",
+    displayName: "Antigravity CLI",
+    doctorVisible: false,
+    runtimeHook: {
+      flags: ["-ac", "--agy-cli"],
+      description: "Run as Antigravity CLI PreToolUse hook",
+      legacyTopLevel: false,
+      order: 1
+    }
+  },
+  {
     id: "claude-code",
     displayName: "Claude Code",
     doctorVisible: true,
@@ -8743,7 +8815,7 @@ var integrationMetadata = [
       flags: ["-cc", "--claude-code"],
       description: "Run as Claude Code PreToolUse hook",
       legacyTopLevel: true,
-      order: 1
+      order: 2
     }
   },
   {
@@ -8759,7 +8831,7 @@ var integrationMetadata = [
       flags: ["-cp", "--copilot-cli"],
       description: "Run as Copilot CLI PreToolUse hook",
       legacyTopLevel: true,
-      order: 2
+      order: 3
     }
   },
   {
@@ -8770,7 +8842,7 @@ var integrationMetadata = [
       flags: ["-gc", "--gemini-cli"],
       description: "Run as Gemini CLI BeforeTool hook",
       legacyTopLevel: true,
-      order: 3
+      order: 4
     }
   },
   {
@@ -8781,7 +8853,7 @@ var integrationMetadata = [
       flags: ["-kc", "--kimi-code"],
       description: "Run as Kimi Code PreToolUse hook",
       legacyTopLevel: false,
-      order: 4
+      order: 5
     }
   },
   {
@@ -8809,6 +8881,7 @@ function getIntegrationDisplayName(id) {
 
 // src/bin/hook/integrations.ts
 var hookRunners = {
+  "antigravity-cli": runAntigravityCliHook,
   "claude-code": runClaudeCodeHook,
   "copilot-cli": runCopilotCliHook,
   "gemini-cli": runGeminiCLIHook,

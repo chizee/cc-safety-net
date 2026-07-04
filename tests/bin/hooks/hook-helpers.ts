@@ -13,7 +13,12 @@ export type HookResult = {
   exitCode: number;
 };
 
-export type HookFormat = 'claude-code' | 'copilot-cli' | 'gemini-cli' | 'kimi-code';
+export type HookFormat =
+  | 'antigravity-cli'
+  | 'claude-code'
+  | 'copilot-cli'
+  | 'gemini-cli'
+  | 'kimi-code';
 
 export const TEST_HOOK_CWD = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'));
 
@@ -26,10 +31,12 @@ export type HookTestContext = {
   home: string;
   copilotBashInput: typeof copilotBashInput;
   copilotRawToolArgsInput: typeof copilotRawToolArgsInput;
+  antigravityShellInput: typeof antigravityShellInput;
   geminiShellInput: typeof geminiShellInput;
   claudeCodeBashInput: typeof claudeCodeBashInput;
   kimiShellInput: typeof kimiShellInput;
   runCli: typeof runCli;
+  runAntigravityHook: typeof runAntigravityHook;
   runClaudeCodeHook: typeof runClaudeCodeHook;
   runGeminiHook: typeof runGeminiHook;
   runKimiHook: typeof runKimiHook;
@@ -51,6 +58,7 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
       home,
       copilotBashInput: (command) => copilotBashInput(command, cwd),
       copilotRawToolArgsInput: (toolArgs) => copilotRawToolArgsInput(toolArgs, cwd),
+      antigravityShellInput: (command) => antigravityShellInput(command, cwd),
       geminiShellInput: (command) => geminiShellInput(command, cwd),
       claudeCodeBashInput: (command) => claudeCodeBashInput(command, cwd),
       kimiShellInput: (command) => kimiShellInput(command, cwd),
@@ -76,6 +84,12 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
         ),
+      runAntigravityHook: (input, env) =>
+        runAntigravityHook(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
     });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -97,6 +111,22 @@ export function copilotRawToolArgsInput(toolArgs: string, cwd = TEST_HOOK_CWD) {
     cwd,
     toolName: 'bash',
     toolArgs,
+  };
+}
+
+export function antigravityShellInput(command: string, cwd = TEST_HOOK_CWD) {
+  return {
+    toolCall: {
+      name: 'run_command',
+      args: {
+        CommandLine: command,
+        Cwd: cwd,
+        WaitMsBeforeAsync: 1000,
+      },
+    },
+    stepIdx: 0,
+    conversationId: 'antigravity-test-session',
+    workspacePaths: [cwd],
   };
 }
 
@@ -203,6 +233,11 @@ export function getHookDenyReason(result: HookResult, format: HookFormat): strin
     return output.permissionDecisionReason;
   }
 
+  if (format === 'antigravity-cli') {
+    expect(output.decision).toBe('deny');
+    return output.reason;
+  }
+
   expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
   return output.hookSpecificOutput.permissionDecisionReason;
 }
@@ -261,4 +296,16 @@ export async function runCopilotHook(
 ): Promise<HookResult> {
   const inputStr = typeof input === 'string' ? input : JSON.stringify(input);
   return runHook('-cp', inputStr, env, cwd);
+}
+
+/**
+ * Runs the Antigravity CLI hook.
+ */
+export async function runAntigravityHook(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+): Promise<HookResult> {
+  const inputStr = typeof input === 'string' ? input : JSON.stringify(input);
+  return runHook('-ac', inputStr, env, cwd);
 }

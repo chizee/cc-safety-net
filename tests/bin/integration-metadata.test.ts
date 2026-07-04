@@ -32,19 +32,21 @@ describe('integration metadata', () => {
 
   test('runtime hook metadata keeps flags and legacy top-level settings', () => {
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.id)).toEqual([
+      'antigravity-cli',
       'claude-code',
       'copilot-cli',
       'gemini-cli',
       'kimi-code',
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.flags)).toEqual([
+      ['-ac', '--agy-cli'],
       ['-cc', '--claude-code'],
       ['-cp', '--copilot-cli'],
       ['-gc', '--gemini-cli'],
       ['-kc', '--kimi-code'],
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyTopLevel)).toEqual(
-      [true, true, true, false],
+      [false, true, true, true, false],
     );
   });
 

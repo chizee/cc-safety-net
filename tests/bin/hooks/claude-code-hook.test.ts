@@ -248,7 +248,7 @@ describe('Claude Code hook', () => {
           });
 
           expect(getHookDenyReason(result, 'claude-code')).toContain(
-            'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
+            'Policy config is protected and you must not modify it.',
           );
         }
       });
@@ -266,7 +266,7 @@ describe('Claude Code hook', () => {
           const result = await context.runClaudeCodeHook(context.claudeCodeBashInput(command));
 
           expect(getHookDenyReason(result, 'claude-code')).toContain(
-            'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
+            'Policy config is protected and you must not modify it.',
           );
         }
       });

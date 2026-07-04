@@ -7754,13 +7754,20 @@ var PATTERN_ARG_LONG = new Set([
   "max-count"
 ]);
 var PATH_LIKE_KEYS = new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
   "file",
   "file_path",
   "filepath",
   "glob",
   "notebook_path",
   "path",
-  "pattern"
+  "pattern",
+  "searchdirectory",
+  "search_directory",
+  "targetfile",
+  "target_file"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
@@ -8339,9 +8346,35 @@ function isRedirectOp(token) {
 }
 
 // src/core/policy-protection.ts
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.";
-var READ_ONLY_TOOLS = new Set(["read", "grep", "glob", "ls", "readfile", "read_file"]);
-var PATH_LIKE_KEYS2 = new Set(["file", "file_path", "filepath", "path"]);
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
+var READ_ONLY_TOOLS = new Set([
+  "find_by_name",
+  "glob",
+  "grep",
+  "grep_search",
+  "list_dir",
+  "list_permissions",
+  "ls",
+  "read",
+  "read_url_content",
+  "readfile",
+  "read_file",
+  "search_web",
+  "view_file"
+]);
+var PATH_LIKE_KEYS2 = new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
+  "file",
+  "file_path",
+  "filepath",
+  "path",
+  "searchdirectory",
+  "search_directory",
+  "targetfile",
+  "target_file"
+]);
 var READ_ONLY_COMMANDS = new Set([
   "cat",
   "file",
@@ -8468,7 +8501,7 @@ function extractPathLikeToolValues2(input) {
   if (Array.isArray(input))
     return input.flatMap((value) => extractPathLikeToolValues2(value));
   return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATH_LIKE_KEYS2.has(key.replace(/-/g, "_").toLowerCase())) {
+    if (typeof value === "string" && PATH_LIKE_KEYS2.has(normalizeToolInputKey2(key))) {
       return [value];
     }
     if (value && typeof value === "object")
@@ -8478,6 +8511,9 @@ function extractPathLikeToolValues2(input) {
 }
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+}
+function normalizeToolInputKey2(key) {
+  return key.replace(/-/g, "_").toLowerCase();
 }
 function isPolicyConfigPath(target, cwd) {
   const normalized = normalizeCandidatePath2(target, cwd).toLowerCase();

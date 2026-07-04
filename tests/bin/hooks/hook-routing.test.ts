@@ -3,7 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
-import { claudeCodeBashInput, geminiShellInput, kimiShellInput, runCli } from './hook-helpers';
+import {
+  antigravityShellInput,
+  claudeCodeBashInput,
+  geminiShellInput,
+  getHookDenyReason,
+  kimiShellInput,
+  runCli,
+} from './hook-helpers';
 
 describe('hook command routing', () => {
   test('Claude Code hook manifest does not use explicit PreToolUse matcher', () => {
@@ -80,6 +87,15 @@ describe('hook command routing', () => {
     expect(stdout).toBe('');
   });
 
+  test('Antigravity CLI routes through hook command only', async () => {
+    const result = await runCli(
+      ['hook', '--agy-cli'],
+      JSON.stringify(antigravityShellInput('git reset --hard')),
+    );
+
+    expect(getHookDenyReason(result, 'antigravity-cli')).toContain('git reset --hard');
+  });
+
   test('hook kimi-code is not a platform subcommand', async () => {
     const { stdout, exitCode } = await runCli(['hook', 'kimi-code']);
 
@@ -98,6 +114,16 @@ describe('hook command routing', () => {
     expect(shortFlag.stderr).toContain('Unknown option: -kc');
   });
 
+  test('top-level Antigravity CLI flags are not legacy compatibility aliases', async () => {
+    const longFlag = await runCli(['--agy-cli']);
+    const shortFlag = await runCli(['-ac']);
+
+    expect(longFlag.exitCode).toBe(1);
+    expect(longFlag.stderr).toContain('Unknown option: --agy-cli');
+    expect(shortFlag.exitCode).toBe(1);
+    expect(shortFlag.stderr).toContain('Unknown option: -ac');
+  });
+
   test('does not route nested legacy hook flags outside the hook command', async () => {
     const { stderr, exitCode } = await runCli(
       ['xxx', '--claude-code'],
@@ -113,6 +139,7 @@ describe('hook command routing', () => {
 
     expect(exitCode).toBe(1);
     expect(stdout).toContain('cc-safety-net hook');
+    expect(stdout).toContain('-ac, --agy-cli');
     expect(stdout).toContain('-cc, --claude-code');
     expect(stdout).toContain('-cp, --copilot-cli');
     expect(stdout).toContain('-gc, --gemini-cli');

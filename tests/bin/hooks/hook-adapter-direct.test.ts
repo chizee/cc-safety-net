@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook } from '@/bin/hook/claude-code';
 import { handleBlockedHookCommand } from '@/bin/hook/common';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
@@ -12,6 +13,7 @@ import { getUserPolicyPath } from '@/core/policy';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers';
 import {
+  antigravityShellInput,
   claudeCodeBashInput,
   copilotBashInput,
   copilotRawToolArgsInput,
@@ -98,6 +100,38 @@ describe('hook adapter direct integration', () => {
     expect(output.permissionDecisionReason).toContain('git reset --hard');
   });
 
+  test('Antigravity CLI hook normalizes CommandLine before blocking commands', async () => {
+    const output = await runHookJson(
+      runAntigravityCliHook,
+      antigravityShellInput('git reset --hard'),
+    );
+
+    expect(output.decision).toBe('deny');
+    expect(output.reason).toContain('git reset --hard');
+  });
+
+  test('Antigravity CLI hook ignores unsupported payloads', async () => {
+    const output = await runWithInput(runAntigravityCliHook, {
+      conversationId: 'antigravity-test-session',
+      workspacePaths: [process.cwd()],
+    });
+
+    expect(output.stdout).toBe('');
+  });
+
+  test('Antigravity CLI hook allows missing CommandLine', async () => {
+    const output = await runWithInput(runAntigravityCliHook, {
+      toolCall: {
+        name: 'run_command',
+        args: { Cwd: process.cwd() },
+      },
+      conversationId: 'antigravity-test-session',
+      workspacePaths: [process.cwd()],
+    });
+
+    expect(output.stdout).toBe('');
+  });
+
   test('Copilot CLI hook fails closed for invalid toolArgs JSON', async () => {
     const output = await runHookJson(runCopilotCliHook, copilotRawToolArgsInput('{'));
 
@@ -164,7 +198,7 @@ describe('hook adapter direct integration', () => {
 
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
+        'Policy config is protected and you must not modify it.',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });

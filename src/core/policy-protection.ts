@@ -7,10 +7,36 @@ import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { getCommandFromToolInput } from './secret-protection';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
-  'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.';
+  'Policy config is protected and you must not modify it.';
 
-const READ_ONLY_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'readfile', 'read_file']);
-const PATH_LIKE_KEYS = new Set(['file', 'file_path', 'filepath', 'path']);
+const READ_ONLY_TOOLS = new Set([
+  'find_by_name',
+  'glob',
+  'grep',
+  'grep_search',
+  'list_dir',
+  'list_permissions',
+  'ls',
+  'read',
+  'read_url_content',
+  'readfile',
+  'read_file',
+  'search_web',
+  'view_file',
+]);
+const PATH_LIKE_KEYS = new Set([
+  'absolutepath',
+  'directorypath',
+  'directory_path',
+  'file',
+  'file_path',
+  'filepath',
+  'path',
+  'searchdirectory',
+  'search_directory',
+  'targetfile',
+  'target_file',
+]);
 const READ_ONLY_COMMANDS = new Set([
   'cat',
   'file',
@@ -167,7 +193,7 @@ function extractPathLikeToolValues(input: unknown): string[] {
   if (Array.isArray(input)) return input.flatMap((value) => extractPathLikeToolValues(value));
 
   return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string' && PATH_LIKE_KEYS.has(key.replace(/-/g, '_').toLowerCase())) {
+    if (typeof value === 'string' && PATH_LIKE_KEYS.has(normalizeToolInputKey(key))) {
       return [value];
     }
     if (value && typeof value === 'object') return extractPathLikeToolValues(value);
@@ -177,6 +203,10 @@ function extractPathLikeToolValues(input: unknown): string[] {
 
 function isReadOnlyTool(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+}
+
+function normalizeToolInputKey(key: string): string {
+  return key.replace(/-/g, '_').toLowerCase();
 }
 
 function isPolicyConfigPath(target: string, cwd: string): boolean {

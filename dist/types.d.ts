@@ -148,6 +148,23 @@ export interface CopilotCliHookOutput {
     permissionDecision: 'allow' | 'deny' | 'ask';
     permissionDecisionReason?: string;
 }
+/** Antigravity CLI PreToolUse hook input format */
+export interface AntigravityCliHookInput {
+    toolCall?: {
+        name?: string;
+        args?: Record<string, unknown>;
+    };
+    stepIdx?: number;
+    conversationId?: string;
+    workspacePaths?: string[];
+    transcriptPath?: string;
+    artifactDirectoryPath?: string;
+}
+/** Antigravity CLI PreToolUse hook output format */
+export interface AntigravityCliHookOutput {
+    decision: 'deny';
+    reason: string;
+}
 /** Options for command analysis */
 export interface AnalyzeOptions {
     /** Current working directory */

@@ -25,6 +25,9 @@ describe('policy config protection', () => {
       findPolicyConfigMutationTargetInToolInput('read_file', { file_path: policyPath }, cwd),
     ).toBeNull();
     expect(
+      findPolicyConfigMutationTargetInToolInput('view_file', { AbsolutePath: policyPath }, cwd),
+    ).toBeNull();
+    expect(
       findPolicyConfigMutationTargetInToolInput(
         'Bash',
         { command: `cat ${policyPath} && rg version package.json` },
@@ -52,6 +55,13 @@ describe('policy config protection', () => {
     expect(
       findPolicyConfigMutationTargetInToolInput('MultiEdit', { edits: [{ path: policyPath }] }, cwd)
         ?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'write_to_file',
+        { TargetFile: policyPath, CodeContent: '{}' },
+        cwd,
+      )?.target,
     ).toBe(policyPath);
   });
 

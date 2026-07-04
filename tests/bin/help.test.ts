@@ -235,11 +235,13 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       if (!cmd) throw new Error('hook command not found');
       const { output } = captureOutput(() => printCommandHelp(cmd));
       expect(output).toContain('cc-safety-net hook');
+      expect(output).toContain('-ac, --agy-cli');
       expect(output).toContain('-cc, --claude-code');
       expect(output).toContain('-cp, --copilot-cli');
       expect(output).toContain('-gc, --gemini-cli');
       expect(output).toContain('-kc, --kimi-code');
       expect(output).toContain('cc-safety-net hook --claude-code');
+      expect(output).toContain('cc-safety-net hook --agy-cli');
       expect(output).toContain('cc-safety-net hook --kimi-code');
       expect(output).toContain('install --kimi-code');
       expect(output).toContain('uninstall --kimi-code');

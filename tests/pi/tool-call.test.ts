@@ -80,17 +80,13 @@ describe('Pi tool_call event', () => {
             toolCall('Write', { file_path: policyPath, content: '{}' }),
             piContext(dir),
           )?.reason,
-        ).toContain(
-          'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
-        );
+        ).toContain('Policy config is protected and you must not modify it.');
         const result = handlePiToolCall(
           bashToolCall(`cat package.json > ${policyPath}`),
           piContext(dir),
         );
 
-        expect(result?.reason).toContain(
-          'Policy config is protected and you must not modify it. Do not retry or work around this; ask the user to edit it manually.',
-        );
+        expect(result?.reason).toContain('Policy config is protected and you must not modify it.');
         expect(result?.reason).toContain(`Command: cat package.json > ${policyPath}`);
         expect(result?.reason).toContain(`Segment: ${policyPath}`);
         expect(result?.reason).not.toContain(
