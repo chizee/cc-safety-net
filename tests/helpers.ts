@@ -203,6 +203,7 @@ export const mockVersionFetcher: VersionFetcher = async (args: string[]) => {
   const cmd = args[0];
   const mockVersions: Record<string, string> = {
     claude: '1.0.0',
+    agy: 'Antigravity CLI v2.0.0',
     opencode: '0.1.0',
     codex: 'codex 1.2.0',
     gemini: '0.20.0',

@@ -12,17 +12,6 @@ type IntegrationMetadata = {
 
 const integrationMetadata = [
   {
-    id: 'antigravity-cli',
-    displayName: 'Antigravity CLI',
-    doctorVisible: false,
-    runtimeHook: {
-      flags: ['-ac', '--agy-cli'],
-      description: 'Run as Antigravity CLI PreToolUse hook',
-      legacyTopLevel: false,
-      order: 1,
-    },
-  },
-  {
     id: 'claude-code',
     displayName: 'Claude Code',
     doctorVisible: true,
@@ -31,6 +20,17 @@ const integrationMetadata = [
       description: 'Run as Claude Code PreToolUse hook',
       legacyTopLevel: true,
       order: 2,
+    },
+  },
+  {
+    id: 'antigravity-cli',
+    displayName: 'Antigravity CLI',
+    doctorVisible: true,
+    runtimeHook: {
+      flags: ['-ac', '--agy-cli'],
+      description: 'Run as Antigravity CLI PreToolUse hook',
+      legacyTopLevel: false,
+      order: 1,
     },
   },
   {

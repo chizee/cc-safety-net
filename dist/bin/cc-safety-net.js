@@ -8797,17 +8797,6 @@ async function runKimiCodeHook() {
 // src/bin/integration-metadata.ts
 var integrationMetadata = [
   {
-    id: "antigravity-cli",
-    displayName: "Antigravity CLI",
-    doctorVisible: false,
-    runtimeHook: {
-      flags: ["-ac", "--agy-cli"],
-      description: "Run as Antigravity CLI PreToolUse hook",
-      legacyTopLevel: false,
-      order: 1
-    }
-  },
-  {
     id: "claude-code",
     displayName: "Claude Code",
     doctorVisible: true,
@@ -8816,6 +8805,17 @@ var integrationMetadata = [
       description: "Run as Claude Code PreToolUse hook",
       legacyTopLevel: true,
       order: 2
+    }
+  },
+  {
+    id: "antigravity-cli",
+    displayName: "Antigravity CLI",
+    doctorVisible: true,
+    runtimeHook: {
+      flags: ["-ac", "--agy-cli"],
+      description: "Run as Antigravity CLI PreToolUse hook",
+      legacyTopLevel: false,
+      order: 1
     }
   },
   {
@@ -8909,7 +8909,9 @@ var hookCommand = {
   description: "Run as an agent CLI hook (reads JSON from stdin)",
   usage: "hook <coding cli>",
   subcommands: [
+    { usage: "install --agy-cli", description: "Install Antigravity CLI hook config" },
     { usage: "install --kimi-code", description: "Install Kimi Code hook config" },
+    { usage: "uninstall --agy-cli", description: "Uninstall Antigravity CLI hook config" },
     { usage: "uninstall --kimi-code", description: "Uninstall Kimi Code hook config" }
   ],
   options: [
@@ -8919,7 +8921,11 @@ var hookCommand = {
       description: "Show this help"
     }
   ],
-  examples: [...platformExamples, "cc-safety-net hook install --kimi-code"]
+  examples: [
+    ...platformExamples,
+    "cc-safety-net hook install --agy-cli",
+    "cc-safety-net hook install --kimi-code"
+  ]
 };
 
 // src/bin/commands/rule.ts
@@ -9593,6 +9599,7 @@ function formatSystemInfoTable(system) {
   const rowData = [
     { label: "cc-safety-net", value: system.version },
     { label: "Claude Code", value: system.claudeCodeVersion },
+    { label: "Antigravity CLI", value: system.antigravityCliVersion },
     { label: "Codex", value: system.codexCliVersion },
     { label: "Copilot CLI", value: system.copilotCliVersion },
     { label: "Gemini CLI", value: system.geminiCliVersion },
@@ -9640,6 +9647,7 @@ var CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list";
 var CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace";
 var GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list";
 var GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net";
+var ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
 var KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 var CODEX_PLUGIN_HOOKS_WARNING = "Codex plugin hooks are behind a feature flag. Add `plugin_hooks = true` under [features] in $CODEX_HOME/config.toml.";
 var CODEX_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace";
@@ -9871,6 +9879,74 @@ function detectGeminiCLI(extensionsListOutput) {
 }
 function _getKimiConfigPath(homeDir) {
   return join11(process.env.KIMI_CODE_HOME || join11(homeDir, ".kimi-code"), "config.toml");
+}
+function _getAntigravityHooksPath(homeDir) {
+  return join11(homeDir, ".gemini", "config", "hooks.json");
+}
+function _findAntigravitySafetyNetHooks(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config))
+    return [];
+  return Object.values(config).flatMap((definition) => {
+    if (!definition || typeof definition !== "object" || Array.isArray(definition))
+      return [];
+    const record = definition;
+    const preToolUse = record.PreToolUse;
+    if (!Array.isArray(preToolUse))
+      return [];
+    return preToolUse.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry))
+        return [];
+      const hooks = entry.hooks;
+      if (!Array.isArray(hooks))
+        return [];
+      return hooks.flatMap((hook) => {
+        if (!hook || typeof hook !== "object" || Array.isArray(hook))
+          return [];
+        const command2 = hook.command;
+        if (typeof command2 !== "string" || !ANTIGRAVITY_HOOK_COMMAND_PATTERN.test(command2)) {
+          return [];
+        }
+        return [{ command: command2, enabled: record.enabled !== false }];
+      });
+    });
+  });
+}
+function detectAntigravityCli(homeDir) {
+  const configPath = _getAntigravityHooksPath(homeDir);
+  if (!existsSync13(configPath)) {
+    return { platform: "antigravity-cli", status: "n/a", configPath };
+  }
+  let matches;
+  try {
+    matches = _findAntigravitySafetyNetHooks(JSON.parse(readFileSync11(configPath, "utf-8")));
+  } catch (e) {
+    return {
+      platform: "antigravity-cli",
+      status: "n/a",
+      configPath,
+      errors: [
+        `Failed to parse Antigravity hooks config ${configPath}: ${e instanceof Error ? e.message : String(e)}`
+      ]
+    };
+  }
+  if (matches.some((match) => match.enabled)) {
+    return {
+      platform: "antigravity-cli",
+      status: "configured",
+      method: "hook config",
+      configPath,
+      selfTest: runSelfTest()
+    };
+  }
+  if (matches.length > 0) {
+    return {
+      platform: "antigravity-cli",
+      status: "disabled",
+      method: "hook config",
+      configPath
+    };
+  }
+  return { platform: "antigravity-cli", status: "n/a", configPath };
 }
 function detectKimiCode(homeDir) {
   const configPath = _getKimiConfigPath(homeDir);
@@ -10243,6 +10319,8 @@ function detectAllHooks(cwd, options2) {
     switch (platform) {
       case "claude-code":
         return detectClaudeCode(options2?.claudePluginListOutput);
+      case "antigravity-cli":
+        return detectAntigravityCli(homeDir);
       case "opencode":
         return detectOpenCode(homeDir);
       case "gemini-cli":
@@ -10592,6 +10670,7 @@ async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
   const [
     claudeRaw,
     claudePluginListOutput,
+    antigravityRaw,
     openCodeRaw,
     codexRaw,
     geminiRaw,
@@ -10607,6 +10686,7 @@ async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
   ] = await Promise.all([
     fetcher(["claude", "--version"]),
     fetcher(["claude", "plugin", "list"]),
+    fetcher(["agy", "--version"]),
     fetcher(["opencode", "--version"]),
     fetcher(["codex", "--version"]),
     fetcher(["gemini", "--version"]),
@@ -10624,6 +10704,7 @@ async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
     version: CURRENT_VERSION,
     claudeCodeVersion: parseVersion(claudeRaw),
     claudePluginListOutput,
+    antigravityCliVersion: parseVersion(antigravityRaw),
     openCodeVersion: parseVersion(openCodeRaw),
     codexCliVersion: parseVersion(codexRaw),
     geminiCliVersion: parseVersion(geminiRaw),
@@ -13770,9 +13851,118 @@ function showCommandHelp(commandName) {
 // src/bin/hook/install.ts
 import { homedir as homedir8 } from "node:os";
 
-// src/bin/hook/install/kimi-code.ts
+// src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync5, readFileSync as readFileSync12, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname10, join as join13 } from "node:path";
+var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli";
+var MANAGED_HOOK_NAME = "cc-safety-net";
+function getAntigravityHooksPath(homeDir) {
+  return join13(homeDir, ".gemini", "config", "hooks.json");
+}
+function managedHookEntry() {
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: ANTIGRAVITY_HOOK_COMMAND,
+            timeout: 30
+          }
+        ]
+      }
+    ]
+  };
+}
+function parseAntigravityHooksConfig(configPath) {
+  try {
+    const config = JSON.parse(readFileSync12(configPath, "utf-8"));
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("Antigravity hooks config must be a JSON object");
+    }
+    return config;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Failed to parse Antigravity hooks config ${configPath}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+function getManagedHookDefinition(config) {
+  const existing = config[MANAGED_HOOK_NAME];
+  if (existing === undefined) {
+    config[MANAGED_HOOK_NAME] = managedHookEntry();
+    return config[MANAGED_HOOK_NAME];
+  }
+  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+    throw new Error(`Antigravity hooks config entry "${MANAGED_HOOK_NAME}" must be an object`);
+  }
+  if (!Array.isArray(existing.PreToolUse)) {
+    existing.PreToolUse = [];
+  }
+  return existing;
+}
+function hasManagedHook(config) {
+  return Object.values(config).some((definition) => definition.PreToolUse?.some((entry) => entry.hooks?.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND)));
+}
+function appendManagedHook(config) {
+  if (config[MANAGED_HOOK_NAME] === undefined) {
+    config[MANAGED_HOOK_NAME] = managedHookEntry();
+    return;
+  }
+  const definition = getManagedHookDefinition(config);
+  definition.PreToolUse ??= [];
+  definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
+}
+function removeManagedHook(config) {
+  let removed = false;
+  for (const definition of Object.values(config)) {
+    if (!Array.isArray(definition.PreToolUse))
+      continue;
+    definition.PreToolUse = definition.PreToolUse.flatMap((entry) => {
+      if (!Array.isArray(entry.hooks))
+        return [entry];
+      const hooks = entry.hooks.filter((hook) => hook.command !== ANTIGRAVITY_HOOK_COMMAND);
+      if (hooks.length !== entry.hooks.length)
+        removed = true;
+      return hooks.length === 0 ? [] : [{ ...entry, hooks }];
+    });
+  }
+  return removed;
+}
+function writeAntigravityHooksConfig(configPath, config) {
+  writeFileSync4(configPath, `${JSON.stringify(config, null, 2)}
+`);
+}
+function installAntigravityCli(homeDir) {
+  const configPath = getAntigravityHooksPath(homeDir);
+  mkdirSync5(dirname10(configPath), { recursive: true });
+  if (!existsSync16(configPath)) {
+    writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() });
+    return { path: configPath, alreadyInstalled: false };
+  }
+  const config = parseAntigravityHooksConfig(configPath);
+  if (hasManagedHook(config))
+    return { path: configPath, alreadyInstalled: true };
+  appendManagedHook(config);
+  writeAntigravityHooksConfig(configPath, config);
+  return { path: configPath, alreadyInstalled: false };
+}
+function uninstallAntigravityCli(homeDir) {
+  const configPath = getAntigravityHooksPath(homeDir);
+  if (!existsSync16(configPath))
+    return { path: configPath, alreadyInstalled: false };
+  const config = parseAntigravityHooksConfig(configPath);
+  const removed = removeManagedHook(config);
+  if (!removed)
+    return { path: configPath, alreadyInstalled: false };
+  writeAntigravityHooksConfig(configPath, config);
+  return { path: configPath, alreadyInstalled: true };
+}
+
+// src/bin/hook/install/kimi-code.ts
+import { existsSync as existsSync17, mkdirSync as mkdirSync6, readFileSync as readFileSync13, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname11, join as join14 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -13866,7 +14056,7 @@ matcher = "*"
 command = "${KIMI_HOOK_COMMAND}"`;
 var KIMI_INLINE_HOOK = `{ event = "PreToolUse", matcher = "*", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join13(process.env.KIMI_CODE_HOME ?? join13(homeDir, ".kimi-code"), "config.toml");
+  return join14(process.env.KIMI_CODE_HOME ?? join14(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   const result = content.split(`
@@ -13956,52 +14146,61 @@ function removeKimiInlineHook(content, hooksRange) {
 }
 function installKimiCode(homeDir) {
   const configPath = getKimiConfigPath(homeDir);
-  mkdirSync5(dirname10(configPath), { recursive: true });
-  if (!existsSync16(configPath)) {
-    writeFileSync4(configPath, `${KIMI_HOOK_BLOCK}
+  mkdirSync6(dirname11(configPath), { recursive: true });
+  if (!existsSync17(configPath)) {
+    writeFileSync5(configPath, `${KIMI_HOOK_BLOCK}
 `);
     return { path: configPath, alreadyInstalled: false };
   }
-  const content = readFileSync12(configPath, "utf-8");
+  const content = readFileSync13(configPath, "utf-8");
   if (content.includes(KIMI_HOOK_COMMAND))
     return { path: configPath, alreadyInstalled: true };
-  writeFileSync4(configPath, appendKimiHook(content));
+  writeFileSync5(configPath, appendKimiHook(content));
   return { path: configPath, alreadyInstalled: false };
 }
 function uninstallKimiCode(homeDir) {
   const configPath = getKimiConfigPath(homeDir);
-  if (!existsSync16(configPath))
+  if (!existsSync17(configPath))
     return { path: configPath, alreadyInstalled: false };
-  const content = readFileSync12(configPath, "utf-8");
+  const content = readFileSync13(configPath, "utf-8");
   if (!content.includes(KIMI_HOOK_COMMAND))
     return { path: configPath, alreadyInstalled: false };
   const inlineHooksRange = findTopLevelInlineHooksArray(content);
   const updated = inlineHooksRange ? removeKimiInlineHook(content, inlineHooksRange) : `${removeKimiTableHookBlocks(content)}
 `;
-  writeFileSync4(configPath, updated);
+  writeFileSync5(configPath, updated);
   return { path: configPath, alreadyInstalled: true };
 }
 
 // src/bin/hook/install.ts
+var INSTALL_TARGET_FLAGS = new Map([
+  ["--agy-cli", "antigravity-cli"],
+  ["--kimi-code", "kimi-code"]
+]);
 function getHomeDir() {
   return process.env.HOME ?? homedir8();
 }
 function parseInstallTarget(args, action) {
-  const unknownOption = args.find((arg) => arg.startsWith("-") && !["--kimi-code"].includes(arg));
+  const unknownOption = args.find((arg) => arg.startsWith("-") && !INSTALL_TARGET_FLAGS.has(arg));
   if (unknownOption)
     throw new Error(`Unknown install option: ${unknownOption}`);
   const unexpectedArg = args.find((arg) => !arg.startsWith("-"));
   if (unexpectedArg)
     throw new Error(`Unexpected argument for hook ${action}: ${unexpectedArg}`);
-  if (!args.includes("--kimi-code"))
-    throw new Error("Choose exactly one install target: --kimi-code");
+  const targets = args.flatMap((arg) => {
+    const target = INSTALL_TARGET_FLAGS.get(arg);
+    return target ? [target] : [];
+  });
+  if (targets.length !== 1)
+    throw new Error("Choose exactly one install target: --kimi-code or --agy-cli");
+  return targets[0];
 }
 function runHookInstallCommand(action, args) {
   try {
-    parseInstallTarget(args, action);
+    const target = parseInstallTarget(args, action);
     const homeDir = getHomeDir();
-    const result = action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir);
-    const name = "Kimi Code";
+    const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
+    const name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI";
     const pastTense = action === "install" ? "Installed" : "Uninstalled";
     console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
     return 0;
@@ -14029,8 +14228,8 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { existsSync as existsSync19, mkdirSync as mkdirSync6 } from "node:fs";
-import { dirname as dirname13, join as join16 } from "node:path";
+import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
+import { dirname as dirname14, join as join17 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = `# Custom Rules Reference
@@ -14280,8 +14479,8 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { existsSync as existsSync17, readFileSync as readFileSync13, rmSync as rmSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname11, join as join14 } from "node:path";
+import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname12, join as join15 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json";
 var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
@@ -14306,7 +14505,7 @@ async function runRulesMigrate(options2) {
   return results.every((result) => result) ? 0 : 1;
 }
 async function migrateRulesScope(options2) {
-  if (!existsSync17(options2.legacyPath)) {
+  if (!existsSync18(options2.legacyPath)) {
     console.log(`No legacy config found at ${options2.legacyPath}`);
     return true;
   }
@@ -14323,8 +14522,8 @@ async function migrateRulesScope(options2) {
     return false;
   }
   const config = loaded.config ?? { version: 1, rules: [], overrides: {} };
-  const rulebookName = getMigratedRulebookName(dirname11(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
-  const rulebookPath = join14(dirname11(options2.configPath), rulebookName, "rulebook.json");
+  const rulebookName = getMigratedRulebookName(dirname12(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
+  const rulebookPath = join15(dirname12(options2.configPath), rulebookName, "rulebook.json");
   const snapshots = [
     snapshotFile(options2.configPath),
     snapshotFile(rulebookPath),
@@ -14365,7 +14564,7 @@ async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName
 }
 function readLegacyRulesConfig(path) {
   try {
-    const parsed = JSON.parse(readFileSync13(path, "utf-8"));
+    const parsed = JSON.parse(readFileSync14(path, "utf-8"));
     const validation = validateConfig(parsed);
     if (validation.errors.length > 0)
       return { ok: false, errors: validation.errors };
@@ -14387,11 +14586,11 @@ function getMigratedRulebookName(configDir, sources, defaultRulebookName, migrat
   const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
-  if (!existsSync17(join14(configDir, defaultRulebookName, "rulebook.json")))
+  if (!existsSync18(join15(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
     const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync17(join14(configDir, name, "rulebook.json")))
+    if (!existsSync18(join15(configDir, name, "rulebook.json")))
       return name;
   }
 }
@@ -14414,17 +14613,17 @@ function getMigratedRulebook(name, migratedFrom, rules) {
 }
 function isCleanupVerified(configPath, rulebookPath, rulebookName, migratedFrom, legacyRules) {
   const config = readRulesConfig(configPath).config;
-  if (!config?.rules.includes(rulebookName) || !existsSync17(rulebookPath))
+  if (!config?.rules.includes(rulebookName) || !existsSync18(rulebookPath))
     return false;
   try {
-    const rulebook = JSON.parse(readFileSync13(rulebookPath, "utf-8"));
+    const rulebook = JSON.parse(readFileSync14(rulebookPath, "utf-8"));
     return rulebook.migrated_from === migratedFrom && JSON.stringify(rulebook.rules) === JSON.stringify(legacyRules);
   } catch {
     return false;
   }
 }
 function snapshotFile(path) {
-  return { path, content: existsSync17(path) ? readFileSync13(path, "utf-8") : null };
+  return { path, content: existsSync18(path) ? readFileSync14(path, "utf-8") : null };
 }
 function restoreFiles(snapshots) {
   for (const snapshot of snapshots) {
@@ -14432,13 +14631,13 @@ function restoreFiles(snapshots) {
       rmSync2(snapshot.path, { force: true });
       continue;
     }
-    writeFileSync5(snapshot.path, snapshot.content, "utf-8");
+    writeFileSync6(snapshot.path, snapshot.content, "utf-8");
   }
 }
 
 // src/bin/rule/verify.ts
-import { existsSync as existsSync18, readdirSync as readdirSync4, readFileSync as readFileSync14, statSync as statSync2, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname12, join as join15, resolve as resolve11 } from "node:path";
+import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync15, statSync as statSync2, writeFileSync as writeFileSync7 } from "node:fs";
+import { dirname as dirname13, join as join16, resolve as resolve11 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
 var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
@@ -14450,14 +14649,14 @@ function runRulesVerify(options2 = {}) {
   const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
   const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
   const githubSourceRulesDir = resolve11(cwd, RULES_DIR);
-  const userConfigDir = dirname12(userConfig);
+  const userConfigDir = dirname13(userConfig);
   let hasErrors = false;
   let hasWarnings = false;
   const configsChecked = [];
   const warnings = [];
   const githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
   printRulesVerifyHeader();
-  if (existsSync18(userConfig)) {
+  if (existsSync19(userConfig)) {
     const result = validateRulesConfigFile(userConfig);
     result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
       userConfigDir
@@ -14472,9 +14671,9 @@ function runRulesVerify(options2 = {}) {
     if (result.errors.length > 0)
       hasErrors = true;
   }
-  if (existsSync18(legacyUserConfig)) {
+  if (existsSync19(legacyUserConfig)) {
     hasWarnings = true;
-    if (existsSync18(userConfig)) {
+    if (existsSync19(userConfig)) {
       warnings.push(getLegacyRulesConfigWarning("user", "cleanup"));
     } else {
       const result = validateConfigFile(legacyUserConfig);
@@ -14491,7 +14690,7 @@ function runRulesVerify(options2 = {}) {
         hasErrors = true;
     }
   }
-  if (existsSync18(projectConfig)) {
+  if (existsSync19(projectConfig)) {
     const result = validateRulesConfigFile(projectConfig);
     result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, getRulesLockPathForConfigPath(projectConfig), {
       userConfigDir
@@ -14505,11 +14704,11 @@ function runRulesVerify(options2 = {}) {
     });
     if (result.errors.length > 0)
       hasErrors = true;
-    if (existsSync18(legacyProjectConfig)) {
+    if (existsSync19(legacyProjectConfig)) {
       hasWarnings = true;
       warnings.push(getLegacyRulesConfigWarning("project", "cleanup"));
     }
-  } else if (existsSync18(legacyProjectConfig)) {
+  } else if (existsSync19(legacyProjectConfig)) {
     hasWarnings = true;
     hasErrors = true;
     const result = validateConfigFile(legacyProjectConfig);
@@ -14574,7 +14773,7 @@ function getLegacyRulesConfigWarning(scope, action) {
   return `Warning: Legacy ${scope} config is no longer supported. Fix or delete the ${label}, then run \`npx -y cc-safety-net rule migrate\`.`;
 }
 function getGitHubSourceRulesValidation(path) {
-  if (!existsSync18(path))
+  if (!existsSync19(path))
     return null;
   const result = validateGitHubSourceRules(path);
   if (result.ruleNames.size === 0 && result.errors.length === 0)
@@ -14609,13 +14808,13 @@ function validateGitHubSourceRules(path) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    const rulebookPath = join15(path, entry.name, "rulebook.json");
-    if (!existsSync18(rulebookPath)) {
+    const rulebookPath = join16(path, entry.name, "rulebook.json");
+    if (!existsSync19(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
     }
     try {
-      const rulebook = assertValidRulebook(JSON.parse(readFileSync14(rulebookPath, "utf-8")));
+      const rulebook = assertValidRulebook(JSON.parse(readFileSync15(rulebookPath, "utf-8")));
       if (rulebook.name !== entry.name) {
         errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
         continue;
@@ -14703,11 +14902,11 @@ function printInvalidVerifyTarget(label, path, errors) {
 }
 function addRulesSchemaIfMissing(path) {
   try {
-    const content = readFileSync14(path, "utf-8");
+    const content = readFileSync15(path, "utf-8");
     const parsed = JSON.parse(content);
     if (parsed.$schema)
       return false;
-    writeFileSync6(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
+    writeFileSync7(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
     return true;
   } catch {
     return false;
@@ -14751,9 +14950,9 @@ async function runRuleCommand(args) {
     const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
     const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
     ensureRulesConfig(configPath);
-    mkdirSync6(join16(dirname13(dir), "cache", "rulebooks"), { recursive: true });
-    const rulebookPath = join16(dir, "example-rules", "rulebook.json");
-    if (flags.example && !existsSync19(rulebookPath))
+    mkdirSync7(join17(dirname14(dir), "cache", "rulebooks"), { recursive: true });
+    const rulebookPath = join17(dir, "example-rules", "rulebook.json");
+    if (flags.example && !existsSync20(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
     const result = await syncRulesConfig(options2);
     printRuleChangeResult(result, "Rule config initialized.");
@@ -14915,7 +15114,7 @@ function validateRuleWrapperFlags(flags) {
   }
 }
 function ensureRulesConfig(configPath) {
-  if (!existsSync19(configPath)) {
+  if (!existsSync20(configPath)) {
     writeDefaultRulesConfig(configPath);
     return;
   }
@@ -14984,9 +15183,9 @@ function printTransparentWrappers(wrappers2) {
 }
 
 // src/bin/statusline.ts
-import { existsSync as existsSync20, readFileSync as readFileSync15 } from "node:fs";
+import { existsSync as existsSync21, readFileSync as readFileSync16 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY) {
     return null;
@@ -15010,15 +15209,15 @@ function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH) {
     return process.env.CLAUDE_SETTINGS_PATH;
   }
-  return join17(homedir9(), ".claude", "settings.json");
+  return join18(homedir9(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   const settingsPath = getSettingsPath();
-  if (!existsSync20(settingsPath)) {
+  if (!existsSync21(settingsPath)) {
     return false;
   }
   try {
-    const content = readFileSync15(settingsPath, "utf-8");
+    const content = readFileSync16(settingsPath, "utf-8");
     const settings = JSON.parse(content);
     if (!settings.enabledPlugins) {
       return false;

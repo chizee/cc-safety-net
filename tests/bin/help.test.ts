@@ -243,7 +243,9 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('cc-safety-net hook --claude-code');
       expect(output).toContain('cc-safety-net hook --agy-cli');
       expect(output).toContain('cc-safety-net hook --kimi-code');
+      expect(output).toContain('install --agy-cli');
       expect(output).toContain('install --kimi-code');
+      expect(output).toContain('uninstall --agy-cli');
       expect(output).toContain('uninstall --kimi-code');
       expect(output).not.toContain('install --opencode');
       expect(output).not.toContain('uninstall --opencode');

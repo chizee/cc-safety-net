@@ -10,6 +10,7 @@ matcher = "*"
 command = "npx -y cc-safety-net hook --kimi-code"`;
 const KIMI_INLINE_HOOK =
   '{ event = "PreToolUse", matcher = "*", command = "npx -y cc-safety-net hook --kimi-code" }';
+const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
 
 function makeTempHome(name: string) {
   const dir = join(tmpdir(), `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -25,6 +26,17 @@ function writeKimiConfig(homeDir: string, content: string) {
   return configPath;
 }
 
+function getAntigravityConfigPath(homeDir: string) {
+  return join(homeDir, '.gemini', 'config', 'hooks.json');
+}
+
+function writeAntigravityConfig(homeDir: string, config: unknown) {
+  const configPath = getAntigravityConfigPath(homeDir);
+  mkdirSync(join(configPath, '..'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return configPath;
+}
+
 async function runKimiInstall(homeDir: string, configPath: string) {
   const result = await runCli(['hook', 'install', '--kimi-code'], '', { HOME: homeDir });
   return { result, content: readFileSync(configPath, 'utf-8') };
@@ -33,6 +45,16 @@ async function runKimiInstall(homeDir: string, configPath: string) {
 async function runKimiUninstall(homeDir: string, configPath: string) {
   const result = await runCli(['hook', 'uninstall', '--kimi-code'], '', { HOME: homeDir });
   return { result, content: readFileSync(configPath, 'utf-8') };
+}
+
+async function runAntigravityInstall(homeDir: string, configPath: string) {
+  const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+  return { result, config: JSON.parse(readFileSync(configPath, 'utf-8')) };
+}
+
+async function runAntigravityUninstall(homeDir: string, configPath: string) {
+  const result = await runCli(['hook', 'uninstall', '--agy-cli'], '', { HOME: homeDir });
+  return { result, config: JSON.parse(readFileSync(configPath, 'utf-8')) };
 }
 
 function expectInstalledKimiInlineHook(
@@ -62,15 +84,139 @@ describe('hook install command', () => {
     }
   });
 
-  test('requires Kimi Code as the install target', async () => {
+  test('requires exactly one install target', async () => {
     const homeDir = makeTempHome('safety-net-install');
 
     try {
       const result = await runCli(['hook', 'install'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Choose exactly one install target: --kimi-code');
+      expect(result.stderr).toContain(
+        'Choose exactly one install target: --kimi-code or --agy-cli',
+      );
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects multiple install targets', async () => {
+    const homeDir = makeTempHome('safety-net-install');
+
+    try {
+      const result = await runCli(['hook', 'install', '--kimi-code', '--agy-cli'], '', {
+        HOME: homeDir,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'Choose exactly one install target: --kimi-code or --agy-cli',
+      );
+      expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
+      expect(existsSync(getAntigravityConfigPath(homeDir))).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: creates hooks.json when missing', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+
+    try {
+      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+      const configPath = getAntigravityConfigPath(homeDir);
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`Installed Antigravity CLI hook in ${configPath}`);
+      expect(config['cc-safety-net'].PreToolUse[0].hooks).toEqual([
+        {
+          type: 'command',
+          command: ANTIGRAVITY_HOOK_COMMAND,
+          timeout: 30,
+        },
+      ]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: appends managed hook to existing hooks.json', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = writeAntigravityConfig(homeDir, {
+      'existing-hook': {
+        PreToolUse: [
+          {
+            matcher: 'run_command',
+            hooks: [{ type: 'command', command: './scripts/check.sh', timeout: 10 }],
+          },
+        ],
+      },
+    });
+
+    try {
+      const installed = await runAntigravityInstall(homeDir, configPath);
+
+      expect(installed.result.exitCode).toBe(0);
+      expect(installed.config['existing-hook'].PreToolUse[0].hooks[0].command).toBe(
+        './scripts/check.sh',
+      );
+      expect(installed.config['cc-safety-net'].PreToolUse[0].hooks[0].command).toBe(
+        ANTIGRAVITY_HOOK_COMMAND,
+      );
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: install is idempotent', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = writeAntigravityConfig(homeDir, {
+      'cc-safety-net': {
+        PreToolUse: [{ hooks: [{ command: ANTIGRAVITY_HOOK_COMMAND }] }],
+      },
+    });
+
+    try {
+      const installed = await runAntigravityInstall(homeDir, configPath);
+      const serialized = JSON.stringify(installed.config);
+
+      expect(installed.result.exitCode).toBe(0);
+      expect(serialized.match(/cc-safety-net hook --agy-cli/g)?.length).toBe(1);
+      expect(installed.result.stdout).toContain('already installed');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: rejects malformed hooks.json without rewriting', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = getAntigravityConfigPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, '{ invalid json');
+
+    try {
+      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Failed to parse Antigravity hooks config');
+      expect(readFileSync(configPath, 'utf-8')).toBe('{ invalid json');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: rejects incompatible cc-safety-net entry', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    writeAntigravityConfig(homeDir, { 'cc-safety-net': false });
+
+    try {
+      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'Antigravity hooks config entry "cc-safety-net" must be an object',
+      );
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -352,6 +498,61 @@ command = "prettier --write"
       expect(uninstalled.result.exitCode).toBe(0);
       expect(uninstalled.result.stdout).toContain('not installed');
       expect(uninstalled.content).toContain('prettier --write');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: removes managed hook and preserves unrelated hooks', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-uninstall');
+    const configPath = writeAntigravityConfig(homeDir, {
+      'cc-safety-net': {
+        PreToolUse: [
+          {
+            hooks: [
+              { type: 'command', command: ANTIGRAVITY_HOOK_COMMAND, timeout: 30 },
+              { type: 'command', command: './scripts/keep.sh', timeout: 10 },
+            ],
+          },
+        ],
+        Stop: [{ type: 'command', command: './scripts/stop.sh' }],
+      },
+      other: {
+        PreToolUse: [{ hooks: [{ type: 'command', command: './scripts/other.sh' }] }],
+      },
+    });
+
+    try {
+      const uninstalled = await runAntigravityUninstall(homeDir, configPath);
+      const serialized = JSON.stringify(uninstalled.config);
+
+      expect(uninstalled.result.exitCode).toBe(0);
+      expect(uninstalled.result.stdout).toContain(
+        `Uninstalled Antigravity CLI hook from ${configPath}`,
+      );
+      expect(serialized).not.toContain(ANTIGRAVITY_HOOK_COMMAND);
+      expect(serialized).toContain('./scripts/keep.sh');
+      expect(serialized).toContain('./scripts/stop.sh');
+      expect(serialized).toContain('./scripts/other.sh');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: uninstall is idempotent when managed hook is absent', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-uninstall');
+    const configPath = writeAntigravityConfig(homeDir, {
+      other: {
+        PreToolUse: [{ hooks: [{ type: 'command', command: './scripts/other.sh' }] }],
+      },
+    });
+
+    try {
+      const uninstalled = await runAntigravityUninstall(homeDir, configPath);
+
+      expect(uninstalled.result.exitCode).toBe(0);
+      expect(uninstalled.result.stdout).toContain('not installed');
+      expect(JSON.stringify(uninstalled.config)).toContain('./scripts/other.sh');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

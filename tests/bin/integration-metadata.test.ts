@@ -9,6 +9,7 @@ describe('integration metadata', () => {
   test('includes display names for every doctor platform', () => {
     expect(doctorIntegrationOrder.map((id) => getIntegrationDisplayName(id))).toEqual([
       'Claude Code',
+      'Antigravity CLI',
       'Codex',
       'Copilot CLI',
       'Gemini CLI',
@@ -21,6 +22,7 @@ describe('integration metadata', () => {
   test('keeps doctor coding CLI order alphabetical after Claude Code', () => {
     expect(doctorIntegrationOrder).toEqual([
       'claude-code',
+      'antigravity-cli',
       'codex',
       'copilot-cli',
       'gemini-cli',

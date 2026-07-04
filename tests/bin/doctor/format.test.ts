@@ -41,6 +41,7 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
       version: '0.6.0',
       claudeCodeVersion: null,
       claudePluginListOutput: null,
+      antigravityCliVersion: null,
       openCodeVersion: null,
       codexCliVersion: null,
       geminiCliVersion: null,
@@ -457,11 +458,13 @@ describe('formatSystemInfoSection', () => {
     expect(output).toContain('Platform');
     expect(output).toContain('Bun');
     expect(output).toContain('Copilot CLI');
+    expect(output).toContain('Antigravity CLI');
     expect(output).toContain('Codex');
     expect(output).toContain('Kimi Code');
     expect(output).toContain('Pi');
     expect(output.indexOf('cc-safety-net')).toBeLessThan(output.indexOf('Claude Code'));
-    expect(output.indexOf('Claude Code')).toBeLessThan(output.indexOf('Codex'));
+    expect(output.indexOf('Claude Code')).toBeLessThan(output.indexOf('Antigravity CLI'));
+    expect(output.indexOf('Antigravity CLI')).toBeLessThan(output.indexOf('Codex'));
     expect(output.indexOf('Codex')).toBeLessThan(output.indexOf('Copilot CLI'));
     expect(output.indexOf('Copilot CLI')).toBeLessThan(output.indexOf('Gemini CLI'));
     expect(output.indexOf('Gemini CLI')).toBeLessThan(output.indexOf('Kimi Code'));
@@ -481,6 +484,7 @@ describe('formatSystemInfoSection', () => {
       version: 'dev',
       claudeCodeVersion: null,
       claudePluginListOutput: null,
+      antigravityCliVersion: null,
       openCodeVersion: null,
       codexCliVersion: null,
       geminiCliVersion: null,

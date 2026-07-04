@@ -11,6 +11,7 @@
 [![Version](https://img.shields.io/github/v/tag/kenryu42/cc-safety-net?label=version&color=blue)](https://github.com/kenryu42/cc-safety-net)
 [![Codex](https://img.shields.io/badge/Codex-white)](#codex-installation)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-D27656)](#claude-code-installation)
+[![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-99C074)](#antigravity-cli-installation)
 [![Copilot CLI](https://img.shields.io/badge/Copilot%20CLI-4EA5C9)](#github-copilot-cli-installation)
 [![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](#gemini-cli-installation)
 [![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](#kimi-code-installation)
@@ -35,7 +36,7 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 
 ## Supported agents
 
-CC Safety Net works across seven coding agent CLIs: **Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
+CC Safety Net works across eight coding agent CLIs: **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
 
 ## Supported platforms
 
@@ -81,6 +82,18 @@ CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to a
 ### Claude Code Auto-Update
 
 1. Run `/plugin` → Select `Marketplaces` → Choose `cc-marketplace` → Enable auto-update
+
+---
+
+### Antigravity CLI Installation
+
+Install CC Safety Net into your Antigravity CLI hooks config:
+
+```bash
+npx -y cc-safety-net hook install --agy-cli
+```
+
+Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net` skill for configuring custom rules.
 
 ---
 

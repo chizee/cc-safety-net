@@ -439,6 +439,7 @@ function formatSystemInfoTable(system: SystemInfo): string {
   const rowData = [
     { label: 'cc-safety-net', value: system.version },
     { label: 'Claude Code', value: system.claudeCodeVersion },
+    { label: 'Antigravity CLI', value: system.antigravityCliVersion },
     { label: 'Codex', value: system.codexCliVersion },
     { label: 'Copilot CLI', value: system.copilotCliVersion },
     { label: 'Gemini CLI', value: system.geminiCliVersion },

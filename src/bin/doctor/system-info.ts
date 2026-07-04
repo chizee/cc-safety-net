@@ -433,6 +433,7 @@ export async function getSystemInfo(
   const [
     claudeRaw,
     claudePluginListOutput,
+    antigravityRaw,
     openCodeRaw,
     codexRaw,
     geminiRaw,
@@ -448,6 +449,7 @@ export async function getSystemInfo(
   ] = await Promise.all([
     fetcher(['claude', '--version']),
     fetcher(['claude', 'plugin', 'list']),
+    fetcher(['agy', '--version']),
     fetcher(['opencode', '--version']),
     fetcher(['codex', '--version']),
     fetcher(['gemini', '--version']),
@@ -466,6 +468,7 @@ export async function getSystemInfo(
     version: CURRENT_VERSION,
     claudeCodeVersion: parseVersion(claudeRaw),
     claudePluginListOutput,
+    antigravityCliVersion: parseVersion(antigravityRaw),
     openCodeVersion: parseVersion(openCodeRaw),
     codexCliVersion: parseVersion(codexRaw),
     geminiCliVersion: parseVersion(geminiRaw),

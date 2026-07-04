@@ -1,14 +1,4 @@
 declare const integrationMetadata: readonly [{
-    readonly id: "antigravity-cli";
-    readonly displayName: "Antigravity CLI";
-    readonly doctorVisible: false;
-    readonly runtimeHook: {
-        readonly flags: readonly ["-ac", "--agy-cli"];
-        readonly description: "Run as Antigravity CLI PreToolUse hook";
-        readonly legacyTopLevel: false;
-        readonly order: 1;
-    };
-}, {
     readonly id: "claude-code";
     readonly displayName: "Claude Code";
     readonly doctorVisible: true;
@@ -17,6 +7,16 @@ declare const integrationMetadata: readonly [{
         readonly description: "Run as Claude Code PreToolUse hook";
         readonly legacyTopLevel: true;
         readonly order: 2;
+    };
+}, {
+    readonly id: "antigravity-cli";
+    readonly displayName: "Antigravity CLI";
+    readonly doctorVisible: true;
+    readonly runtimeHook: {
+        readonly flags: readonly ["-ac", "--agy-cli"];
+        readonly description: "Run as Antigravity CLI PreToolUse hook";
+        readonly legacyTopLevel: false;
+        readonly order: 1;
     };
 }, {
     readonly id: "codex";
@@ -66,12 +66,12 @@ type RuntimeHookIntegrationMetadata = Extract<(typeof integrationMetadata)[numbe
     runtimeHook: object;
 }>;
 export type RuntimeHookIntegrationId = RuntimeHookIntegrationMetadata['id'];
-export declare const doctorIntegrationOrder: ("claude-code" | "codex" | "copilot-cli" | "gemini-cli" | "kimi-code" | "opencode" | "pi")[];
+export declare const doctorIntegrationOrder: ("claude-code" | "antigravity-cli" | "codex" | "copilot-cli" | "gemini-cli" | "kimi-code" | "opencode" | "pi")[];
 export declare const runtimeHookIntegrationMetadata: {
-    id: "antigravity-cli" | "claude-code" | "copilot-cli" | "gemini-cli" | "kimi-code";
-    displayName: "Antigravity CLI" | "Claude Code" | "Copilot CLI" | "Gemini CLI" | "Kimi Code";
-    flags: readonly ["-ac", "--agy-cli"] | readonly ["-cc", "--claude-code"] | readonly ["-cp", "--copilot-cli"] | readonly ["-gc", "--gemini-cli"] | readonly ["-kc", "--kimi-code"];
-    description: "Run as Antigravity CLI PreToolUse hook" | "Run as Claude Code PreToolUse hook" | "Run as Copilot CLI PreToolUse hook" | "Run as Gemini CLI BeforeTool hook" | "Run as Kimi Code PreToolUse hook";
+    id: "claude-code" | "antigravity-cli" | "copilot-cli" | "gemini-cli" | "kimi-code";
+    displayName: "Claude Code" | "Antigravity CLI" | "Copilot CLI" | "Gemini CLI" | "Kimi Code";
+    flags: readonly ["-cc", "--claude-code"] | readonly ["-ac", "--agy-cli"] | readonly ["-cp", "--copilot-cli"] | readonly ["-gc", "--gemini-cli"] | readonly ["-kc", "--kimi-code"];
+    description: "Run as Claude Code PreToolUse hook" | "Run as Antigravity CLI PreToolUse hook" | "Run as Copilot CLI PreToolUse hook" | "Run as Gemini CLI BeforeTool hook" | "Run as Kimi Code PreToolUse hook";
     legacyTopLevel: boolean;
 }[];
 export declare function getIntegrationDisplayName(id: IntegrationId): string;

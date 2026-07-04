@@ -151,6 +151,9 @@ describe('getSystemInfo', () => {
     expect(sysInfo.openCodeVersion === null || typeof sysInfo.openCodeVersion === 'string').toBe(
       true,
     );
+    expect(
+      sysInfo.antigravityCliVersion === null || typeof sysInfo.antigravityCliVersion === 'string',
+    ).toBe(true);
     expect(sysInfo.codexCliVersion === null || typeof sysInfo.codexCliVersion === 'string').toBe(
       true,
     );
@@ -184,6 +187,11 @@ describe('getSystemInfo', () => {
   test('includes Copilot CLI version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.copilotCliVersion).toBe('1.0.9');
+  });
+
+  test('includes Antigravity CLI version with mock fetcher', async () => {
+    const sysInfo = await getSystemInfo(mockVersionFetcher);
+    expect(sysInfo.antigravityCliVersion).toBe('2.0.0');
   });
 
   test('includes Gemini extensions list output with mock fetcher', async () => {
@@ -336,6 +344,15 @@ describe('getSystemInfo', () => {
     });
 
     expect(sysInfo.kimiCodeVersion).toBe('1.2.3');
+  });
+
+  test('parses Antigravity CLI version output through existing parser', async () => {
+    const sysInfo = await getSystemInfo(async (args) => {
+      if (args[0] === 'agy') return 'Antigravity CLI v2.1.3';
+      return mockVersionFetcher(args);
+    });
+
+    expect(sysInfo.antigravityCliVersion).toBe('2.1.3');
   });
 
   test('parses Codex CLI version output through existing parser', async () => {

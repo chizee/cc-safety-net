@@ -108,6 +108,13 @@ function _writeKimiConfig(configPath: string, content = 'cc-safety-net hook --ki
   writeFileSync(configPath, content);
 }
 
+function _writeAntigravityHooks(homeDir: string, config: unknown): string {
+  const configPath = join(homeDir, '.gemini', 'config', 'hooks.json');
+  mkdirSync(join(configPath, '..'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return configPath;
+}
+
 describe('detectAllHooks', () => {
   test('detects configured hooks and runs self-test', () => {
     const tmpBase = join(tmpdir(), `doctor-hooks-${Date.now()}`);
@@ -175,6 +182,7 @@ describe('detectAllHooks', () => {
     try {
       expect(detectAllHooks(projectDir, { homeDir }).map((hook) => hook.platform)).toEqual([
         'claude-code',
+        'antigravity-cli',
         'codex',
         'copilot-cli',
         'gemini-cli',
@@ -182,6 +190,136 @@ describe('detectAllHooks', () => {
         'opencode',
         'pi',
       ]);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: configured when hooks.json contains managed hook command', () => {
+    const tmpBase = join(tmpdir(), `doctor-antigravity-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeAntigravityHooks(homeDir, {
+      'cc-safety-net': {
+        PreToolUse: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: 'npx -y cc-safety-net hook --agy-cli',
+                timeout: 30,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    try {
+      const antigravity = detectAllHooks(projectDir, { homeDir }).find(
+        (hook) => hook.platform === 'antigravity-cli',
+      );
+
+      expect(antigravity?.status).toBe('configured');
+      expect(antigravity?.method).toBe('hook config');
+      expect(antigravity?.configPath).toBe(configPath);
+      expect(antigravity?.selfTest?.failed).toBe(0);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: configured when hooks.json contains short flag hook command', () => {
+    const tmpBase = join(tmpdir(), `doctor-antigravity-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeAntigravityHooks(homeDir, {
+      'cc-safety-net': {
+        PreToolUse: [{ hooks: [{ command: 'bunx cc-safety-net hook -ac' }] }],
+      },
+    });
+
+    try {
+      const antigravity = detectAllHooks(projectDir, { homeDir }).find(
+        (hook) => hook.platform === 'antigravity-cli',
+      );
+
+      expect(antigravity?.status).toBe('configured');
+      expect(antigravity?.configPath).toBe(configPath);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: disabled when only matching hook definition is disabled', () => {
+    const tmpBase = join(tmpdir(), `doctor-antigravity-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeAntigravityHooks(homeDir, {
+      'cc-safety-net': {
+        enabled: false,
+        PreToolUse: [{ hooks: [{ command: 'npx -y cc-safety-net hook --agy-cli' }] }],
+      },
+    });
+
+    try {
+      const antigravity = detectAllHooks(projectDir, { homeDir }).find(
+        (hook) => hook.platform === 'antigravity-cli',
+      );
+
+      expect(antigravity?.status).toBe('disabled');
+      expect(antigravity?.method).toBe('hook config');
+      expect(antigravity?.configPath).toBe(configPath);
+      expect(antigravity?.selfTest).toBeUndefined();
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: n/a when hooks.json is missing', () => {
+    const tmpBase = join(tmpdir(), `doctor-antigravity-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+
+    try {
+      const antigravity = detectAllHooks(projectDir, { homeDir }).find(
+        (hook) => hook.platform === 'antigravity-cli',
+      );
+
+      expect(antigravity?.status).toBe('n/a');
+      expect(antigravity?.configPath).toBe(join(homeDir, '.gemini', 'config', 'hooks.json'));
+      expect(antigravity?.selfTest).toBeUndefined();
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: n/a with error when hooks.json is malformed', () => {
+    const tmpBase = join(tmpdir(), `doctor-antigravity-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    const configPath = join(homeDir, '.gemini', 'config', 'hooks.json');
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(configPath, '{ invalid json');
+
+    try {
+      const antigravity = detectAllHooks(projectDir, { homeDir }).find(
+        (hook) => hook.platform === 'antigravity-cli',
+      );
+
+      expect(antigravity?.status).toBe('n/a');
+      expect(antigravity?.configPath).toBe(configPath);
+      expect(
+        antigravity?.errors?.some((error) =>
+          error.includes('Failed to parse Antigravity hooks config'),
+        ),
+      ).toBe(true);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
