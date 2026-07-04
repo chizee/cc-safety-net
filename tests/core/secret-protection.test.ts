@@ -181,6 +181,35 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('find src -type f', cwd)).toBeNull();
   });
 
+  test('blocks find exec readers over sensitive matched paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('find . -name .env -exec cat {} \\;', cwd)).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand('find . -name id_rsa -exec head -n 1 {} +', cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand('find . -path "*/secrets/*" -exec grep TOKEN {} \\;', cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand('find . -name .env -execdir rg TOKEN {} +', cwd),
+    ).not.toBeNull();
+  });
+
+  test('blocks find exec readers with literal sensitive operands', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('find . -exec cat .env \\;', cwd)).not.toBeNull();
+  });
+
+  test('allows find exec readers over non-sensitive matched paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('find . -name README.md -exec cat {} \\;', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('find . -type f -exec cat {} +', cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('find . -name .env -exec echo {} \\;', cwd)).toBeNull();
+  });
+
   test('blocks interpreters reading sensitive paths from inline code', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

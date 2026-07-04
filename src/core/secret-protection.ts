@@ -28,6 +28,17 @@ const NON_PATH_OPERAND_COMMANDS = new Set(['echo', 'printf']);
 // predicates (-name, -type, ...). Only the leading path roots are real paths;
 // predicate values (e.g. `-name .env`) are patterns, not reads.
 const PATH_ROOT_COMMANDS = new Set(['find']);
+const FIND_EXEC_PRIMARIES = new Set(['-exec', '-execdir']);
+const FIND_EXEC_TERMINATORS = new Set([';', '+']);
+const FIND_MATCH_PATH_PRIMARIES = new Set([
+  '-name',
+  '-iname',
+  '-path',
+  '-ipath',
+  '-wholename',
+  '-iwholename',
+  '-samefile',
+]);
 
 // Interpreters read files from inside a code string (python -c, node -e, ...),
 // where the path is not a standalone shell token. Their code bodies are scanned
@@ -232,7 +243,7 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   }
   if (PATH_ROOT_COMMANDS.has(command)) {
-    return [...assignmentValues, ...extractPathRootTargets(post)];
+    return [...assignmentValues, ...extractFindCommandTargets(post)];
   }
   if (isCodeInterpreter(command)) {
     return [...assignmentValues, ...extractInterpreterPathTargets(post)];
@@ -284,6 +295,45 @@ function extractPathRootTargets(tokens: readonly string[]): string[] {
     roots.push(token);
   }
   return roots;
+}
+
+function extractFindCommandTargets(tokens: readonly string[]): string[] {
+  const targets = extractPathRootTargets(tokens);
+  for (let i = 0; i < tokens.length; i++) {
+    if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? '')) continue;
+    const execCommand = getFindExecCommand(tokens, i);
+    targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== '{}'));
+    if (findExecConsumesPlaceholder(execCommand)) {
+      targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
+    }
+  }
+  return targets;
+}
+
+function getFindExecCommand(tokens: readonly string[], execIndex: number): string[] {
+  const execTokens = tokens.slice(execIndex + 1);
+  const terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
+  return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
+}
+
+function findExecConsumesPlaceholder(tokens: readonly string[]): boolean {
+  return extractSegmentPathTargets(tokens).includes('{}');
+}
+
+function extractFindMatchedPathTargets(tokens: readonly string[]): string[] {
+  return tokens.flatMap((token, index) => {
+    if (!FIND_MATCH_PATH_PRIMARIES.has(token)) return [];
+    const value = tokens[index + 1];
+    return value === undefined ? [] : [value, normalizeFindPathPattern(value)];
+  });
+}
+
+function normalizeFindPathPattern(pattern: string): string {
+  return pattern
+    .replace(/^\*+\//, '')
+    .replace(/\/\*+$/g, '')
+    .replace(/^\*+/, '')
+    .replace(/\*+$/g, '');
 }
 
 function isCodeInterpreter(command: string): boolean {

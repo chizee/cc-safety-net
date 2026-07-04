@@ -7644,6 +7644,17 @@ import { isAbsolute as isAbsolute9, resolve as resolve8 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
+var FIND_EXEC_PRIMARIES = new Set(["-exec", "-execdir"]);
+var FIND_EXEC_TERMINATORS = new Set([";", "+"]);
+var FIND_MATCH_PATH_PRIMARIES = new Set([
+  "-name",
+  "-iname",
+  "-path",
+  "-ipath",
+  "-wholename",
+  "-iwholename",
+  "-samefile"
+]);
 var CODE_INTERPRETERS = new Set([
   "python",
   "python2",
@@ -7784,7 +7795,7 @@ function extractSegmentPathTargets(tokens) {
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   }
   if (PATH_ROOT_COMMANDS.has(command2)) {
-    return [...assignmentValues, ...extractPathRootTargets(post)];
+    return [...assignmentValues, ...extractFindCommandTargets(post)];
   }
   if (isCodeInterpreter(command2)) {
     return [...assignmentValues, ...extractInterpreterPathTargets(post)];
@@ -7833,6 +7844,38 @@ function extractPathRootTargets(tokens) {
     roots.push(token);
   }
   return roots;
+}
+function extractFindCommandTargets(tokens) {
+  const targets = extractPathRootTargets(tokens);
+  for (let i = 0;i < tokens.length; i++) {
+    if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? ""))
+      continue;
+    const execCommand = getFindExecCommand2(tokens, i);
+    targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== "{}"));
+    if (findExecConsumesPlaceholder(execCommand)) {
+      targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
+    }
+  }
+  return targets;
+}
+function getFindExecCommand2(tokens, execIndex) {
+  const execTokens = tokens.slice(execIndex + 1);
+  const terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
+  return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
+}
+function findExecConsumesPlaceholder(tokens) {
+  return extractSegmentPathTargets(tokens).includes("{}");
+}
+function extractFindMatchedPathTargets(tokens) {
+  return tokens.flatMap((token, index) => {
+    if (!FIND_MATCH_PATH_PRIMARIES.has(token))
+      return [];
+    const value = tokens[index + 1];
+    return value === undefined ? [] : [value, normalizeFindPathPattern(value)];
+  });
+}
+function normalizeFindPathPattern(pattern) {
+  return pattern.replace(/^\*+\//, "").replace(/\/\*+$/g, "").replace(/^\*+/, "").replace(/\*+$/g, "");
 }
 function isCodeInterpreter(command2) {
   return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
