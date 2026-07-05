@@ -1,7 +1,7 @@
 {
-  "name": "safety-net",
+  "name": "cc-safety-net",
   "version": "1.0.6",
-  "description": "Block destructive git and filesystem commands before execution",
+  "description": "Block destructive commands and secret access",
   "author": {
     "name": "J Liew",
     "email": "jliew@420024lab.com"

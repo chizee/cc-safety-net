@@ -74,9 +74,8 @@ CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to a
 ### Claude Code Installation
 
 ```bash
-/plugin marketplace add kenryu42/cc-marketplace
-/plugin install safety-net@cc-marketplace
-/reload-plugins
+claude plugin marketplace add kenryu42/cc-marketplace
+claude plugin install cc-safety-net
 ```
 
 ### Claude Code Auto-Update
@@ -108,7 +107,8 @@ gemini extensions install https://github.com/kenryu42/gemini-safety-net
 ### GitHub Copilot CLI Installation
 
 ```bash
-/plugin install kenryu42/copilot-safety-net
+copilot plugin marketplace add kenryu42/cc-marketplace
+copilot plugin install cc-safety-net@cc-marketplace
 ```
 
 ---
