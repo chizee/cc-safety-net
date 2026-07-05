@@ -45,13 +45,27 @@ export declare const commands: readonly [{
     }[];
     examples: string[];
 }, {
+    name: "install";
+    description: string;
+    usage: string;
+    options: {
+        flags: string;
+        description: string;
+    }[];
+    examples: string[];
+}, {
+    name: "uninstall";
+    description: string;
+    usage: string;
+    options: {
+        flags: string;
+        description: string;
+    }[];
+    examples: string[];
+}, {
     name: "hook";
     description: string;
     usage: string;
-    subcommands: {
-        usage: string;
-        description: string;
-    }[];
     options: {
         flags: string;
         description: string;

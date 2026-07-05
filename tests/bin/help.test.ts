@@ -81,6 +81,8 @@ COMMANDS:
   cc-safety-net doctor [options]             Run diagnostic checks to verify installation and configuration
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
+  cc-safety-net install <coding cli>         Install CC Safety Net into a coding agent CLI
+  cc-safety-net uninstall <coding cli>       Uninstall CC Safety Net from hook-config based integrations
   cc-safety-net hook <coding cli>            Run as an agent CLI hook (reads JSON from stdin)
   cc-safety-net gui [options]                Open the local policy editor GUI
   cc-safety-net statusline <coding cli>      Print status line with mode indicators for shell integration
@@ -243,11 +245,30 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('cc-safety-net hook --claude-code');
       expect(output).toContain('cc-safety-net hook --agy-cli');
       expect(output).toContain('cc-safety-net hook --kimi-code');
+    });
+
+    test('install command prints install target flags', () => {
+      const cmd = findCommand('install');
+      if (!cmd) throw new Error('install command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+      expect(output).toContain('cc-safety-net install');
+      expect(output).toContain('install --codex');
+      expect(output).toContain('install --claude-code');
       expect(output).toContain('install --agy-cli');
+      expect(output).toContain('install --gemini-cli');
+      expect(output).toContain('install --copilot-cli');
       expect(output).toContain('install --kimi-code');
+      expect(output).toContain('install --opencode');
+      expect(output).toContain('install --pi');
+    });
+
+    test('uninstall command prints uninstall target flags', () => {
+      const cmd = findCommand('uninstall');
+      if (!cmd) throw new Error('uninstall command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+      expect(output).toContain('cc-safety-net uninstall');
       expect(output).toContain('uninstall --agy-cli');
       expect(output).toContain('uninstall --kimi-code');
-      expect(output).not.toContain('install --opencode');
       expect(output).not.toContain('uninstall --opencode');
     });
 

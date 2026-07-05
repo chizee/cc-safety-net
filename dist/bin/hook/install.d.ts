@@ -1,3 +1,3 @@
-type HookAction = 'install' | 'uninstall';
-export declare function runHookInstallCommand(action: HookAction, args: readonly string[]): number;
+type InstallAction = 'install' | 'uninstall';
+export declare function runInstallCommand(action: InstallAction, args: readonly string[]): number;
 export {};

@@ -14,12 +14,6 @@ export const hookCommand = {
   name: 'hook' as const,
   description: 'Run as an agent CLI hook (reads JSON from stdin)',
   usage: 'hook <coding cli>',
-  subcommands: [
-    { usage: 'install --agy-cli', description: 'Install Antigravity CLI hook config' },
-    { usage: 'install --kimi-code', description: 'Install Kimi Code hook config' },
-    { usage: 'uninstall --agy-cli', description: 'Uninstall Antigravity CLI hook config' },
-    { usage: 'uninstall --kimi-code', description: 'Uninstall Kimi Code hook config' },
-  ],
   options: [
     ...platformOptions,
     {
@@ -27,9 +21,5 @@ export const hookCommand = {
       description: 'Show this help',
     },
   ],
-  examples: [
-    ...platformExamples,
-    'cc-safety-net hook install --agy-cli',
-    'cc-safety-net hook install --kimi-code',
-  ],
+  examples: platformExamples,
 } satisfies Command;

@@ -9,7 +9,7 @@ import {
 } from '@/bin/explain/index';
 import { runGuiCommand } from '@/bin/gui';
 import { printHelp, printVersion, showCommandHelp } from '@/bin/help';
-import { runHookInstallCommand } from '@/bin/hook/install';
+import { runInstallCommand } from '@/bin/hook/install';
 import {
   findHookIntegrationByFlag,
   findLegacyTopLevelHookIntegration,
@@ -20,8 +20,8 @@ import { printStatusline } from '@/bin/statusline';
 
 type ParsedCommand =
   | { mode: 'hook'; integration: HookIntegration }
-  | { mode: 'hook-install'; args: string[] }
-  | { mode: 'hook-uninstall'; args: string[] }
+  | { mode: 'install'; args: string[] }
+  | { mode: 'uninstall'; args: string[] }
   | { mode: 'rule'; args: string[] }
   | { mode: 'statusline' }
   | { mode: 'gui'; args: string[] }
@@ -99,18 +99,15 @@ const commandParsers = {
     process.exit(1);
   },
   hook: (args: string[]): ParsedCommand => {
-    if (args[0] === 'install') return { mode: 'hook-install', args: args.slice(1) };
-    if (args[0] === 'uninstall') return { mode: 'hook-uninstall', args: args.slice(1) };
-
     const integration = findHookIntegrationByFlag(args);
     if (integration) return { mode: 'hook', integration };
 
-    console.error(
-      'hook requires a subcommand or integration flag. Try: cc-safety-net hook install --kimi-code',
-    );
+    console.error('hook requires an integration flag. Try: cc-safety-net hook --kimi-code');
     showCommandHelp('hook');
     process.exit(1);
   },
+  install: (args: string[]): ParsedCommand => ({ mode: 'install', args }),
+  uninstall: (args: string[]): ParsedCommand => ({ mode: 'uninstall', args }),
   doctor: (args: string[]): ParsedCommand => ({ mode: 'doctor', args }),
   gui: (args: string[]): ParsedCommand => ({ mode: 'gui', args }),
 } satisfies Record<CommandName, (args: string[]) => ParsedCommand>;
@@ -160,11 +157,11 @@ const commandHandlers = {
   hook: async (command) => {
     await command.integration.run();
   },
-  'hook-install': async (command) => {
-    process.exit(runHookInstallCommand('install', command.args));
+  install: async (command) => {
+    process.exit(runInstallCommand('install', command.args));
   },
-  'hook-uninstall': async (command) => {
-    process.exit(runHookInstallCommand('uninstall', command.args));
+  uninstall: async (command) => {
+    process.exit(runInstallCommand('uninstall', command.args));
   },
   rule: async (command) => {
     process.exit(await runRuleCommand(command.args));
@@ -216,11 +213,11 @@ async function runParsedCommand(command: ParsedCommand): Promise<void> {
     case 'hook':
       await commandHandlers.hook(command);
       return;
-    case 'hook-install':
-      await commandHandlers['hook-install'](command);
+    case 'install':
+      await commandHandlers.install(command);
       return;
-    case 'hook-uninstall':
-      await commandHandlers['hook-uninstall'](command);
+    case 'uninstall':
+      await commandHandlers.uninstall(command);
       return;
     case 'rule':
       await commandHandlers.rule(command);

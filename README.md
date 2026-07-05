@@ -50,32 +50,18 @@ CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to a
 
 ### Codex Installation
 
-1. Enable Codex plugin hooks in `~/.codex/config.toml`:
+```bash
+npx -y cc-safety-net install --codex
+```
 
-  ```toml
-  [features]
-  plugin_hooks = true
-  ```
-
-2. Add the marketplace:
-
-  ```bash
-  codex plugin marketplace add kenryu42/cc-marketplace
-  ```
-
-3. Start Codex.
-4. In the TUI, run `/plugins`.
-5. Use arrow keys to select `[cc-marketplace]`.
-6. Press Enter to install the plugin.
-7. run `/hooks` and select the safety-net PreToolUse hook and press `t` to trust it.
+Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it.
 
 ---
 
 ### Claude Code Installation
 
 ```bash
-claude plugin marketplace add kenryu42/cc-marketplace
-claude plugin install cc-safety-net
+npx -y cc-safety-net install --claude-code
 ```
 
 ### Claude Code Auto-Update
@@ -89,7 +75,7 @@ claude plugin install cc-safety-net
 Install CC Safety Net into your Antigravity CLI hooks config:
 
 ```bash
-npx -y cc-safety-net hook install --agy-cli
+npx -y cc-safety-net install --agy-cli
 ```
 
 Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net` skill for configuring custom rules.
@@ -99,7 +85,7 @@ Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net`
 ### Gemini CLI Installation
 
 ```bash
-gemini extensions install https://github.com/kenryu42/gemini-safety-net
+npx -y cc-safety-net install --gemini-cli
 ```
 
 ---
@@ -107,8 +93,7 @@ gemini extensions install https://github.com/kenryu42/gemini-safety-net
 ### GitHub Copilot CLI Installation
 
 ```bash
-copilot plugin marketplace add kenryu42/cc-marketplace
-copilot plugin install cc-safety-net@cc-marketplace
+npx -y cc-safety-net install --copilot-cli
 ```
 
 ---
@@ -118,7 +103,7 @@ copilot plugin install cc-safety-net@cc-marketplace
 Install CC Safety Net into your Kimi Code config:
 
 ```bash
-npx -y cc-safety-net hook install --kimi-code
+npx -y cc-safety-net install --kimi-code
 ```
 
 Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net` skill for configuring custom rules.
@@ -130,30 +115,15 @@ Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net`
 Install CC Safety Net with OpenCode's native plugin command:
 
 ```bash
-opencode plugin -g cc-safety-net
+npx -y cc-safety-net install --opencode
 ```
 
 > [!NOTE]
 > OpenCode can sometimes keep using a stale cached plugin version. See
 > anomalyco/opencode#25293 for the current tracking issue.
->
-> To force OpenCode to reinstall `cc-safety-net`, remove its cached package and
-> install the version you want:
->
-> ```sh
-> rm -rf ~/.cache/opencode/packages/cc-safety-net@latest
-> opencode plugin -g -f cc-safety-net@latest
-> ```
->
-> If you prefer pinning a specific version:
->
-> ```sh
-> rm -rf ~/.cache/opencode/packages/cc-safety-net@latest
-> opencode plugin -g -f cc-safety-net@<version>
-> ```
->
-> Restart OpenCode after updating so the plugin is loaded from the refreshed
-> cache.
+> The install command always clears `~/.cache/opencode/packages/cc-safety-net@latest`
+> before running `opencode plugin -g -f cc-safety-net@latest`. Restart OpenCode
+> after updating so the plugin is loaded from the refreshed cache.
 
 ---
 
@@ -162,7 +132,7 @@ opencode plugin -g cc-safety-net
 Install CC Safety Net with Pi's package installer:
 
 ```bash
-pi install npm:cc-safety-net
+npx -y cc-safety-net install --pi
 ```
 
 ---

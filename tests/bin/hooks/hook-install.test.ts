@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { runCli } from './hook-helpers';
 
 const KIMI_HOOK_BLOCK = `[[hooks]]
@@ -36,23 +36,84 @@ function writeAntigravityConfig(homeDir: string, config: unknown) {
   return configPath;
 }
 
+function makeFakeBinHome(name: string, commands: readonly string[]) {
+  const homeDir = makeTempHome(name);
+  const binDir = join(homeDir, 'bin');
+  const logPath = join(homeDir, 'commands.log');
+  mkdirSync(binDir, { recursive: true });
+
+  commands.forEach((command) => {
+    const path = join(binDir, command);
+    writeFileSync(
+      path,
+      `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+`,
+    );
+    chmodSync(path, 0o755);
+  });
+
+  return { homeDir, logPath, path: `${binDir}${delimiter}${process.env.PATH ?? ''}` };
+}
+
+function readCommandLog(logPath: string): string[] {
+  const content = existsSync(logPath) ? readFileSync(logPath, 'utf-8').trim() : '';
+  return content ? content.split('\n') : [];
+}
+
+function normalizedCommandLog(logPath: string): string[] {
+  return readCommandLog(logPath).map((entry) => entry.replace(/^.*\/bin\//, ''));
+}
+
+async function expectNativeInstall(
+  targetFlag: string,
+  fakeCommands: readonly string[],
+  expectedCommands: readonly string[],
+  stdoutContains: string,
+  options: {
+    setup?: (fake: ReturnType<typeof makeFakeBinHome>) => void;
+    assert?: (
+      fake: ReturnType<typeof makeFakeBinHome>,
+      result: Awaited<ReturnType<typeof runCli>>,
+    ) => void;
+  } = {},
+) {
+  const fake = makeFakeBinHome(`safety-net-${targetFlag.slice(2)}-install`, fakeCommands);
+
+  try {
+    options.setup?.(fake);
+    const result = await runCli(['install', targetFlag], '', {
+      HOME: fake.homeDir,
+      PATH: fake.path,
+      CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(normalizedCommandLog(fake.logPath)).toEqual([...expectedCommands]);
+    expect(result.stdout).toContain(stdoutContains);
+    options.assert?.(fake, result);
+  } finally {
+    rmSync(fake.homeDir, { recursive: true, force: true });
+  }
+}
+
 async function runKimiInstall(homeDir: string, configPath: string) {
-  const result = await runCli(['hook', 'install', '--kimi-code'], '', { HOME: homeDir });
+  const result = await runCli(['install', '--kimi-code'], '', { HOME: homeDir });
   return { result, content: readFileSync(configPath, 'utf-8') };
 }
 
 async function runKimiUninstall(homeDir: string, configPath: string) {
-  const result = await runCli(['hook', 'uninstall', '--kimi-code'], '', { HOME: homeDir });
+  const result = await runCli(['uninstall', '--kimi-code'], '', { HOME: homeDir });
   return { result, content: readFileSync(configPath, 'utf-8') };
 }
 
 async function runAntigravityInstall(homeDir: string, configPath: string) {
-  const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+  const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
   return { result, config: JSON.parse(readFileSync(configPath, 'utf-8')) };
 }
 
 async function runAntigravityUninstall(homeDir: string, configPath: string) {
-  const result = await runCli(['hook', 'uninstall', '--agy-cli'], '', { HOME: homeDir });
+  const result = await runCli(['uninstall', '--agy-cli'], '', { HOME: homeDir });
   return { result, config: JSON.parse(readFileSync(configPath, 'utf-8')) };
 }
 
@@ -68,31 +129,17 @@ function expectInstalledKimiInlineHook(
   expect(installed.content).not.toContain('[[hooks]]');
 }
 
-describe('hook install command', () => {
-  test('rejects removed OpenCode install target without creating config', async () => {
-    const homeDir = makeTempHome('safety-net-opencode-install');
-
-    try {
-      const result = await runCli(['hook', 'install', '--opencode'], '', { HOME: homeDir });
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown install option: --opencode');
-      expect(existsSync(join(homeDir, '.config', 'opencode', 'opencode.jsonc'))).toBe(false);
-    } finally {
-      rmSync(homeDir, { recursive: true, force: true });
-    }
-  });
-
+describe('install command', () => {
   test('requires exactly one install target', async () => {
     const homeDir = makeTempHome('safety-net-install');
 
     try {
-      const result = await runCli(['hook', 'install'], '', { HOME: homeDir });
+      const result = await runCli(['install'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(
-        'Choose exactly one install target: --kimi-code or --agy-cli',
-      );
+      expect(result.stderr).toContain('Choose exactly one install target:');
+      expect(result.stderr).toContain('--codex');
+      expect(result.stderr).toContain('--kimi-code');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
@@ -103,14 +150,12 @@ describe('hook install command', () => {
     const homeDir = makeTempHome('safety-net-install');
 
     try {
-      const result = await runCli(['hook', 'install', '--kimi-code', '--agy-cli'], '', {
+      const result = await runCli(['install', '--kimi-code', '--agy-cli'], '', {
         HOME: homeDir,
       });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(
-        'Choose exactly one install target: --kimi-code or --agy-cli',
-      );
+      expect(result.stderr).toContain('Choose exactly one install target:');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
       expect(existsSync(getAntigravityConfigPath(homeDir))).toBe(false);
     } finally {
@@ -118,11 +163,133 @@ describe('hook install command', () => {
     }
   });
 
+  test('Codex: installs marketplace plugin and prints trust reminder', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        assert: (_fake, result) => {
+          expect(result.stdout).toContain('Start Codex');
+          expect(result.stdout).toContain('/hooks');
+          expect(result.stdout).toContain('press `t`');
+        },
+      },
+    );
+  });
+
+  test('Claude Code: installs marketplace plugin through native CLI', async () => {
+    await expectNativeInstall(
+      '--claude-code',
+      ['claude'],
+      [
+        'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin install cc-safety-net',
+      ],
+      'Installed Claude Code integration',
+    );
+  });
+
+  test('Gemini CLI: installs extension through native CLI', async () => {
+    await expectNativeInstall(
+      '--gemini-cli',
+      ['gemini'],
+      ['gemini extensions install https://github.com/kenryu42/gemini-safety-net'],
+      'Installed Gemini CLI integration',
+    );
+  });
+
+  test('Copilot CLI: installs marketplace plugin through native CLI', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+    );
+  });
+
+  test('OpenCode: clears stale cache before installing latest plugin through native CLI', async () => {
+    await expectNativeInstall(
+      '--opencode',
+      ['opencode'],
+      ['opencode plugin -g -f cc-safety-net@latest'],
+      'Installed OpenCode integration',
+      {
+        setup: (fake) => {
+          const cachePath = join(
+            fake.homeDir,
+            '.cache',
+            'opencode',
+            'packages',
+            'cc-safety-net@latest',
+          );
+          mkdirSync(cachePath, { recursive: true });
+          writeFileSync(join(cachePath, 'stale.txt'), 'stale');
+        },
+        assert: (fake) => {
+          expect(
+            existsSync(
+              join(fake.homeDir, '.cache', 'opencode', 'packages', 'cc-safety-net@latest'),
+            ),
+          ).toBe(false);
+        },
+      },
+    );
+  });
+
+  test('Pi: installs package through native CLI', async () => {
+    await expectNativeInstall(
+      '--pi',
+      ['pi'],
+      ['pi install npm:cc-safety-net'],
+      'Installed Pi integration',
+    );
+  });
+
+  test('native installer fails fast and reports command output', async () => {
+    const fake = makeFakeBinHome('safety-net-native-install-fail', ['codex']);
+    writeFileSync(
+      join(fake.homeDir, 'bin', 'codex'),
+      `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+echo "native stdout"
+echo "native stderr" >&2
+exit 42
+`,
+    );
+    chmodSync(join(fake.homeDir, 'bin', 'codex'), 0o755);
+
+    try {
+      const result = await runCli(['install', '--codex'], '', {
+        HOME: fake.homeDir,
+        PATH: fake.path,
+        CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(normalizedCommandLog(fake.logPath)).toEqual([
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+      ]);
+      expect(result.stderr).toContain('codex plugin marketplace add kenryu42/cc-marketplace');
+      expect(result.stderr).toContain('native stdout');
+      expect(result.stderr).toContain('native stderr');
+    } finally {
+      rmSync(fake.homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('Antigravity CLI: creates hooks.json when missing', async () => {
     const homeDir = makeTempHome('safety-net-antigravity-install');
 
     try {
-      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
       const configPath = getAntigravityConfigPath(homeDir);
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
 
@@ -195,7 +362,7 @@ describe('hook install command', () => {
     writeFileSync(configPath, '{ invalid json');
 
     try {
-      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Failed to parse Antigravity hooks config');
@@ -210,7 +377,7 @@ describe('hook install command', () => {
     writeAntigravityConfig(homeDir, { 'cc-safety-net': false });
 
     try {
-      const result = await runCli(['hook', 'install', '--agy-cli'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain(
@@ -225,7 +392,7 @@ describe('hook install command', () => {
     const homeDir = makeTempHome('safety-net-kimi-install');
 
     try {
-      const result = await runCli(['hook', 'install', '--kimi-code'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--kimi-code'], '', { HOME: homeDir });
       const configPath = join(homeDir, '.kimi-code', 'config.toml');
 
       expect(result.exitCode).toBe(0);
@@ -252,7 +419,7 @@ hooks = []
     );
 
     try {
-      const result = await runCli(['hook', 'install', '--kimi-code'], '', {
+      const result = await runCli(['install', '--kimi-code'], '', {
         HOME: homeDir,
         KIMI_CODE_HOME: shareDir,
       });
@@ -328,12 +495,12 @@ hooks = []
     const homeDir = makeTempHome('safety-net-install');
 
     try {
-      const result = await runCli(['hook', 'install', '--kimi-code', 'extra'], '', {
+      const result = await runCli(['install', '--kimi-code', 'extra'], '', {
         HOME: homeDir,
       });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unexpected argument for hook install: extra');
+      expect(result.stderr).toContain('Unexpected argument for install: extra');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
@@ -344,12 +511,12 @@ hooks = []
     const homeDir = makeTempHome('safety-net-install');
 
     try {
-      const result = await runCli(['hook', 'install', '--opencode', '--kimi-code'], '', {
+      const result = await runCli(['install', '--unknown', '--kimi-code'], '', {
         HOME: homeDir,
       });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown install option: --opencode');
+      expect(result.stderr).toContain('Unknown install option: --unknown');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
@@ -361,7 +528,7 @@ hooks = []
     writeFileSync(homePath, '');
 
     try {
-      const result = await runCli(['hook', 'install', '--kimi-code'], '', { HOME: homePath });
+      const result = await runCli(['install', '--kimi-code'], '', { HOME: homePath });
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Check that every parent path component is a directory.');
@@ -371,15 +538,45 @@ hooks = []
   });
 });
 
-describe('hook uninstall command', () => {
+describe('uninstall command', () => {
+  test('requires exactly one uninstall target', async () => {
+    const homeDir = makeTempHome('safety-net-uninstall');
+
+    try {
+      const result = await runCli(['uninstall'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Choose exactly one uninstall target:');
+      expect(result.stderr).toContain('--agy-cli');
+      expect(result.stderr).toContain('--kimi-code');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects multiple uninstall targets', async () => {
+    const homeDir = makeTempHome('safety-net-uninstall');
+
+    try {
+      const result = await runCli(['uninstall', '--kimi-code', '--agy-cli'], '', {
+        HOME: homeDir,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Choose exactly one uninstall target:');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects removed OpenCode uninstall target', async () => {
     const homeDir = makeTempHome('safety-net-opencode-uninstall');
 
     try {
-      const result = await runCli(['hook', 'uninstall', '--opencode'], '', { HOME: homeDir });
+      const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown install option: --opencode');
+      expect(result.stderr).toContain('Unknown uninstall option: --opencode');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -468,12 +665,12 @@ command = "prettier --write"
     const configPath = writeKimiConfig(homeDir, `${KIMI_HOOK_BLOCK}\n`);
 
     try {
-      const result = await runCli(['hook', 'uninstall', '--kimi-code', 'extra'], '', {
+      const result = await runCli(['uninstall', '--kimi-code', 'extra'], '', {
         HOME: homeDir,
       });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unexpected argument for hook uninstall: extra');
+      expect(result.stderr).toContain('Unexpected argument for uninstall: extra');
       expect(readFileSync(configPath, 'utf-8')).toBe(`${KIMI_HOOK_BLOCK}\n`);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });

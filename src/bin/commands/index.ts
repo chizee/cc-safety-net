@@ -2,6 +2,7 @@ import { doctorCommand } from './doctor';
 import { explainCommand } from './explain';
 import { guiCommand } from './gui';
 import { hookCommand } from './hook';
+import { installCommand, uninstallCommand } from './install';
 import { ruleCommand } from './rule';
 import { statuslineCommand } from './statusline';
 import type { Command } from './types';
@@ -18,6 +19,8 @@ export const commands = [
   doctorCommand,
   explainCommand,
   ruleCommand,
+  installCommand,
+  uninstallCommand,
   hookCommand,
   guiCommand,
   statuslineCommand,

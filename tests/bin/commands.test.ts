@@ -48,7 +48,16 @@ describe('command registry', () => {
       expect(visible.length).toBeGreaterThan(0);
 
       const names = visible.map((c) => c.name);
-      expect(names).toEqual(['doctor', 'explain', 'rule', 'hook', 'gui', 'statusline']);
+      expect(names).toEqual([
+        'doctor',
+        'explain',
+        'rule',
+        'install',
+        'uninstall',
+        'hook',
+        'gui',
+        'statusline',
+      ]);
     });
   });
 });
@@ -100,6 +109,12 @@ describe('command routing', () => {
       { args: ['doctor', '--json', '--skip-update-check'], output: '"hooks"' },
       { args: ['explain', '--help'], output: 'USAGE:\n  cc-safety-net explain', exitCode: 0 },
       { args: ['rule', '--help'], output: 'USAGE:\n  cc-safety-net rule', exitCode: 0 },
+      { args: ['install', '--help'], output: 'USAGE:\n  cc-safety-net install', exitCode: 0 },
+      {
+        args: ['uninstall', '--help'],
+        output: 'USAGE:\n  cc-safety-net uninstall',
+        exitCode: 0,
+      },
       { args: ['hook', '--help'], output: 'USAGE:\n  cc-safety-net hook', exitCode: 0 },
       { args: ['gui', '--help'], output: 'USAGE:\n  cc-safety-net gui', exitCode: 0 },
       {
@@ -125,12 +140,12 @@ describe('command routing', () => {
     }
   });
 
-  test('bare hook command explains the missing subcommand or integration flag', async () => {
+  test('bare hook command explains the missing integration flag', async () => {
     const result = await runCCSafetyNetCli(['hook']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      'hook requires a subcommand or integration flag. Try: cc-safety-net hook install --kimi-code',
+      'hook requires an integration flag. Try: cc-safety-net hook --kimi-code',
     );
     expect(result.output).toContain('USAGE:\n  cc-safety-net hook');
   });

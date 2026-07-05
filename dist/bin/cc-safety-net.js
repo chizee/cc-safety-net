@@ -8908,12 +8908,6 @@ var hookCommand = {
   name: "hook",
   description: "Run as an agent CLI hook (reads JSON from stdin)",
   usage: "hook <coding cli>",
-  subcommands: [
-    { usage: "install --agy-cli", description: "Install Antigravity CLI hook config" },
-    { usage: "install --kimi-code", description: "Install Kimi Code hook config" },
-    { usage: "uninstall --agy-cli", description: "Uninstall Antigravity CLI hook config" },
-    { usage: "uninstall --kimi-code", description: "Uninstall Kimi Code hook config" }
-  ],
   options: [
     ...platformOptions,
     {
@@ -8921,11 +8915,47 @@ var hookCommand = {
       description: "Show this help"
     }
   ],
+  examples: platformExamples
+};
+
+// src/bin/commands/install.ts
+var installTargetOptions = [
+  { flags: "--codex", description: "Install Codex plugin" },
+  { flags: "--claude-code", description: "Install Claude Code plugin" },
+  { flags: "--agy-cli", description: "Install Antigravity CLI hook config" },
+  { flags: "--gemini-cli", description: "Install Gemini CLI extension" },
+  { flags: "--copilot-cli", description: "Install GitHub Copilot CLI plugin" },
+  { flags: "--kimi-code", description: "Install Kimi Code hook config" },
+  { flags: "--opencode", description: "Install OpenCode plugin" },
+  { flags: "--pi", description: "Install Pi package" },
+  { flags: "-h, --help", description: "Show this help" }
+];
+var installCommand = {
+  name: "install",
+  description: "Install CC Safety Net into a coding agent CLI",
+  usage: "install <coding cli>",
+  options: installTargetOptions,
   examples: [
-    ...platformExamples,
-    "cc-safety-net hook install --agy-cli",
-    "cc-safety-net hook install --kimi-code"
+    "cc-safety-net install --codex",
+    "cc-safety-net install --claude-code",
+    "cc-safety-net install --agy-cli",
+    "cc-safety-net install --gemini-cli",
+    "cc-safety-net install --copilot-cli",
+    "cc-safety-net install --kimi-code",
+    "cc-safety-net install --opencode",
+    "cc-safety-net install --pi"
   ]
+};
+var uninstallCommand = {
+  name: "uninstall",
+  description: "Uninstall CC Safety Net from hook-config based integrations",
+  usage: "uninstall <coding cli>",
+  options: [
+    { flags: "--agy-cli", description: "Uninstall Antigravity CLI hook config" },
+    { flags: "--kimi-code", description: "Uninstall Kimi Code hook config" },
+    { flags: "-h, --help", description: "Show this help" }
+  ],
+  examples: ["cc-safety-net uninstall --agy-cli", "cc-safety-net uninstall --kimi-code"]
 };
 
 // src/bin/commands/rule.ts
@@ -8990,6 +9020,8 @@ var commands = [
   doctorCommand,
   explainCommand,
   ruleCommand,
+  installCommand,
+  uninstallCommand,
   hookCommand,
   guiCommand,
   statuslineCommand
@@ -13849,7 +13881,9 @@ function showCommandHelp(commandName) {
 }
 
 // src/bin/hook/install.ts
+import { rmSync as rmSync2 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
+import { join as join15 } from "node:path";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync5, readFileSync as readFileSync12, writeFileSync as writeFileSync4 } from "node:fs";
@@ -14171,33 +14205,132 @@ function uninstallKimiCode(homeDir) {
   return { path: configPath, alreadyInstalled: true };
 }
 
+// src/bin/hook/install/native.ts
+import { spawnSync } from "node:child_process";
+function formatNativeCommand(command2) {
+  return command2.join(" ");
+}
+function formatCommandFailure(command2, status, output) {
+  return [
+    `Failed to run ${formatNativeCommand(command2)}${status === null ? "" : ` (exit ${status})`}.`,
+    output.trim()
+  ].filter(Boolean).join(`
+`);
+}
+function runNativeInstall(commands2) {
+  commands2.forEach((command2) => {
+    const result = spawnSync(command2[0], command2.slice(1), {
+      encoding: "utf-8",
+      stdio: "pipe"
+    });
+    const output = [result.stdout, result.stderr].filter(Boolean).join(`
+`);
+    if (result.error) {
+      throw new Error(formatCommandFailure(command2, null, `${result.error.message}
+${output}`.trim()));
+    }
+    if (result.status !== 0) {
+      throw new Error(formatCommandFailure(command2, result.status, output));
+    }
+  });
+}
+
 // src/bin/hook/install.ts
 var INSTALL_TARGET_FLAGS = new Map([
+  ["--codex", "codex"],
+  ["--claude-code", "claude-code"],
+  ["--agy-cli", "antigravity-cli"],
+  ["--gemini-cli", "gemini-cli"],
+  ["--copilot-cli", "copilot-cli"],
+  ["--kimi-code", "kimi-code"],
+  ["--opencode", "opencode"],
+  ["--pi", "pi"]
+]);
+var UNINSTALL_TARGET_FLAGS = new Map([
   ["--agy-cli", "antigravity-cli"],
   ["--kimi-code", "kimi-code"]
 ]);
+var NATIVE_INSTALLS = {
+  "claude-code": {
+    name: "Claude Code",
+    commands: [
+      ["claude", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
+      ["claude", "plugin", "install", "cc-safety-net"]
+    ]
+  },
+  codex: {
+    name: "Codex",
+    commands: [
+      ["codex", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
+      ["codex", "plugin", "add", "cc-safety-net@cc-marketplace"]
+    ],
+    postInstallMessage: "Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it."
+  },
+  "copilot-cli": {
+    name: "GitHub Copilot CLI",
+    commands: [
+      ["copilot", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
+      ["copilot", "plugin", "install", "cc-safety-net@cc-marketplace"]
+    ]
+  },
+  "gemini-cli": {
+    name: "Gemini CLI",
+    commands: [
+      ["gemini", "extensions", "install", "https://github.com/kenryu42/gemini-safety-net"]
+    ]
+  },
+  opencode: {
+    name: "OpenCode",
+    beforeInstall: (homeDir) => {
+      rmSync2(join15(homeDir, ".cache", "opencode", "packages", "cc-safety-net@latest"), {
+        recursive: true,
+        force: true
+      });
+    },
+    commands: [["opencode", "plugin", "-g", "-f", "cc-safety-net@latest"]]
+  },
+  pi: {
+    name: "Pi",
+    commands: [["pi", "install", "npm:cc-safety-net"]]
+  }
+};
 function getHomeDir() {
   return process.env.HOME ?? homedir8();
 }
 function parseInstallTarget(args, action) {
-  const unknownOption = args.find((arg) => arg.startsWith("-") && !INSTALL_TARGET_FLAGS.has(arg));
+  const targetFlags = action === "install" ? INSTALL_TARGET_FLAGS : UNINSTALL_TARGET_FLAGS;
+  const unknownOption = args.find((arg) => arg.startsWith("-") && !targetFlags.has(arg));
   if (unknownOption)
-    throw new Error(`Unknown install option: ${unknownOption}`);
+    throw new Error(`Unknown ${action} option: ${unknownOption}`);
   const unexpectedArg = args.find((arg) => !arg.startsWith("-"));
   if (unexpectedArg)
-    throw new Error(`Unexpected argument for hook ${action}: ${unexpectedArg}`);
+    throw new Error(`Unexpected argument for ${action}: ${unexpectedArg}`);
   const targets = args.flatMap((arg) => {
-    const target = INSTALL_TARGET_FLAGS.get(arg);
+    const target = targetFlags.get(arg);
     return target ? [target] : [];
   });
   if (targets.length !== 1)
-    throw new Error("Choose exactly one install target: --kimi-code or --agy-cli");
+    throw new Error(`Choose exactly one ${action} target: ${[...targetFlags.keys()].join(", ")}`);
   return targets[0];
 }
-function runHookInstallCommand(action, args) {
+function isNativeInstallTarget(target) {
+  return target in NATIVE_INSTALLS;
+}
+function installNativeTarget(target, homeDir) {
+  const definition = NATIVE_INSTALLS[target];
+  definition.beforeInstall?.(homeDir);
+  runNativeInstall(definition.commands);
+  console.log([`Installed ${definition.name} integration`, definition.postInstallMessage].filter(Boolean).join(`
+`));
+}
+function runInstallCommand(action, args) {
   try {
     const target = parseInstallTarget(args, action);
     const homeDir = getHomeDir();
+    if (action === "install" && isNativeInstallTarget(target)) {
+      installNativeTarget(target, homeDir);
+      return 0;
+    }
     const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
     const name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI";
     const pastTense = action === "install" ? "Installed" : "Uninstalled";
@@ -14228,7 +14361,7 @@ Check that every parent path component is a directory.`;
 
 // src/bin/rule/index.ts
 import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
-import { dirname as dirname14, join as join17 } from "node:path";
+import { dirname as dirname14, join as join18 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = `# Custom Rules Reference
@@ -14478,8 +14611,8 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname12, join as join15 } from "node:path";
+import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname12, join as join16 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json";
 var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
@@ -14522,7 +14655,7 @@ async function migrateRulesScope(options2) {
   }
   const config = loaded.config ?? { version: 1, rules: [], overrides: {} };
   const rulebookName = getMigratedRulebookName(dirname12(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
-  const rulebookPath = join15(dirname12(options2.configPath), rulebookName, "rulebook.json");
+  const rulebookPath = join16(dirname12(options2.configPath), rulebookName, "rulebook.json");
   const snapshots = [
     snapshotFile(options2.configPath),
     snapshotFile(rulebookPath),
@@ -14543,7 +14676,7 @@ async function migrateRulesScope(options2) {
     console.error(`Migration cleanup verification failed for ${options2.legacyPath}`);
     return false;
   }
-  rmSync2(options2.legacyPath, { force: true });
+  rmSync3(options2.legacyPath, { force: true });
   console.log(`Deleted legacy config at ${options2.legacyPath}`);
   return true;
 }
@@ -14585,11 +14718,11 @@ function getMigratedRulebookName(configDir, sources, defaultRulebookName, migrat
   const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
-  if (!existsSync18(join15(configDir, defaultRulebookName, "rulebook.json")))
+  if (!existsSync18(join16(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
     const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync18(join15(configDir, name, "rulebook.json")))
+    if (!existsSync18(join16(configDir, name, "rulebook.json")))
       return name;
   }
 }
@@ -14627,7 +14760,7 @@ function snapshotFile(path) {
 function restoreFiles(snapshots) {
   for (const snapshot of snapshots) {
     if (snapshot.content === null) {
-      rmSync2(snapshot.path, { force: true });
+      rmSync3(snapshot.path, { force: true });
       continue;
     }
     writeFileSync6(snapshot.path, snapshot.content, "utf-8");
@@ -14636,7 +14769,7 @@ function restoreFiles(snapshots) {
 
 // src/bin/rule/verify.ts
 import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync15, statSync as statSync2, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname13, join as join16, resolve as resolve11 } from "node:path";
+import { dirname as dirname13, join as join17, resolve as resolve11 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
 var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
@@ -14807,7 +14940,7 @@ function validateGitHubSourceRules(path) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    const rulebookPath = join16(path, entry.name, "rulebook.json");
+    const rulebookPath = join17(path, entry.name, "rulebook.json");
     if (!existsSync19(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -14949,8 +15082,8 @@ async function runRuleCommand(args) {
     const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
     const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
     ensureRulesConfig(configPath);
-    mkdirSync7(join17(dirname14(dir), "cache", "rulebooks"), { recursive: true });
-    const rulebookPath = join17(dir, "example-rules", "rulebook.json");
+    mkdirSync7(join18(dirname14(dir), "cache", "rulebooks"), { recursive: true });
+    const rulebookPath = join18(dir, "example-rules", "rulebook.json");
     if (flags.example && !existsSync20(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
     const result = await syncRulesConfig(options2);
@@ -15184,7 +15317,7 @@ function printTransparentWrappers(wrappers2) {
 // src/bin/statusline.ts
 import { existsSync as existsSync21, readFileSync as readFileSync16 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join18 } from "node:path";
+import { join as join19 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY) {
     return null;
@@ -15208,7 +15341,7 @@ function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH) {
     return process.env.CLAUDE_SETTINGS_PATH;
   }
-  return join18(homedir9(), ".claude", "settings.json");
+  return join19(homedir9(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   const settingsPath = getSettingsPath();
@@ -15306,17 +15439,15 @@ var commandParsers = {
     process.exit(1);
   },
   hook: (args) => {
-    if (args[0] === "install")
-      return { mode: "hook-install", args: args.slice(1) };
-    if (args[0] === "uninstall")
-      return { mode: "hook-uninstall", args: args.slice(1) };
     const integration = findHookIntegrationByFlag(args);
     if (integration)
       return { mode: "hook", integration };
-    console.error("hook requires a subcommand or integration flag. Try: cc-safety-net hook install --kimi-code");
+    console.error("hook requires an integration flag. Try: cc-safety-net hook --kimi-code");
     showCommandHelp("hook");
     process.exit(1);
   },
+  install: (args) => ({ mode: "install", args }),
+  uninstall: (args) => ({ mode: "uninstall", args }),
   doctor: (args) => ({ mode: "doctor", args }),
   gui: (args) => ({ mode: "gui", args })
 };
@@ -15357,11 +15488,11 @@ var commandHandlers = {
   hook: async (command2) => {
     await command2.integration.run();
   },
-  "hook-install": async (command2) => {
-    process.exit(runHookInstallCommand("install", command2.args));
+  install: async (command2) => {
+    process.exit(runInstallCommand("install", command2.args));
   },
-  "hook-uninstall": async (command2) => {
-    process.exit(runHookInstallCommand("uninstall", command2.args));
+  uninstall: async (command2) => {
+    process.exit(runInstallCommand("uninstall", command2.args));
   },
   rule: async (command2) => {
     process.exit(await runRuleCommand(command2.args));
@@ -15407,11 +15538,11 @@ async function runParsedCommand(command2) {
     case "hook":
       await commandHandlers.hook(command2);
       return;
-    case "hook-install":
-      await commandHandlers["hook-install"](command2);
+    case "install":
+      await commandHandlers.install(command2);
       return;
-    case "hook-uninstall":
-      await commandHandlers["hook-uninstall"](command2);
+    case "uninstall":
+      await commandHandlers.uninstall(command2);
       return;
     case "rule":
       await commandHandlers.rule(command2);
