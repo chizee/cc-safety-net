@@ -1,16 +1,12 @@
 import { spawnSync } from 'node:child_process';
 
-export type NativeInstallCommand = readonly [string, ...string[]];
+export type NativeCommand = readonly [string, ...string[]];
 
-function formatNativeCommand(command: NativeInstallCommand) {
+function formatNativeCommand(command: NativeCommand) {
   return command.join(' ');
 }
 
-function formatCommandFailure(
-  command: NativeInstallCommand,
-  status: number | null,
-  output: string,
-) {
+function formatCommandFailure(command: NativeCommand, status: number | null, output: string) {
   return [
     `Failed to run ${formatNativeCommand(command)}${status === null ? '' : ` (exit ${status})`}.`,
     output.trim(),
@@ -19,7 +15,7 @@ function formatCommandFailure(
     .join('\n');
 }
 
-export function runNativeInstall(commands: readonly NativeInstallCommand[]): void {
+export function runNativeCommands(commands: readonly NativeCommand[]): void {
   commands.forEach((command) => {
     const result = spawnSync(command[0], command.slice(1), {
       encoding: 'utf-8',

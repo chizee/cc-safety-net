@@ -1,2 +1,2 @@
-export type NativeInstallCommand = readonly [string, ...string[]];
-export declare function runNativeInstall(commands: readonly NativeInstallCommand[]): void;
+export type NativeCommand = readonly [string, ...string[]];
+export declare function runNativeCommands(commands: readonly NativeCommand[]): void;

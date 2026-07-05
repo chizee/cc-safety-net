@@ -82,7 +82,7 @@ COMMANDS:
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
   cc-safety-net install <coding cli>         Install CC Safety Net into a coding agent CLI
-  cc-safety-net uninstall <coding cli>       Uninstall CC Safety Net from hook-config based integrations
+  cc-safety-net uninstall <coding cli>       Uninstall CC Safety Net from a coding agent CLI
   cc-safety-net hook <coding cli>            Run as an agent CLI hook (reads JSON from stdin)
   cc-safety-net gui [options]                Open the local policy editor GUI
   cc-safety-net statusline <coding cli>      Print status line with mode indicators for shell integration
@@ -267,9 +267,14 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       if (!cmd) throw new Error('uninstall command not found');
       const { output } = captureOutput(() => printCommandHelp(cmd));
       expect(output).toContain('cc-safety-net uninstall');
+      expect(output).toContain('uninstall --codex');
+      expect(output).toContain('uninstall --claude-code');
       expect(output).toContain('uninstall --agy-cli');
+      expect(output).toContain('uninstall --gemini-cli');
+      expect(output).toContain('uninstall --copilot-cli');
       expect(output).toContain('uninstall --kimi-code');
-      expect(output).not.toContain('uninstall --opencode');
+      expect(output).toContain('uninstall --opencode');
+      expect(output).toContain('uninstall --pi');
     });
 
     test('statusline command prints Claude Code platform flag', () => {

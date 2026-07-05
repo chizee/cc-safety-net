@@ -8948,14 +8948,29 @@ var installCommand = {
 };
 var uninstallCommand = {
   name: "uninstall",
-  description: "Uninstall CC Safety Net from hook-config based integrations",
+  description: "Uninstall CC Safety Net from a coding agent CLI",
   usage: "uninstall <coding cli>",
   options: [
+    { flags: "--codex", description: "Uninstall Codex plugin" },
+    { flags: "--claude-code", description: "Uninstall Claude Code plugin" },
     { flags: "--agy-cli", description: "Uninstall Antigravity CLI hook config" },
+    { flags: "--gemini-cli", description: "Uninstall Gemini CLI extension" },
+    { flags: "--copilot-cli", description: "Uninstall GitHub Copilot CLI plugin" },
     { flags: "--kimi-code", description: "Uninstall Kimi Code hook config" },
+    { flags: "--opencode", description: "Uninstall OpenCode plugin" },
+    { flags: "--pi", description: "Uninstall Pi package" },
     { flags: "-h, --help", description: "Show this help" }
   ],
-  examples: ["cc-safety-net uninstall --agy-cli", "cc-safety-net uninstall --kimi-code"]
+  examples: [
+    "cc-safety-net uninstall --codex",
+    "cc-safety-net uninstall --claude-code",
+    "cc-safety-net uninstall --agy-cli",
+    "cc-safety-net uninstall --gemini-cli",
+    "cc-safety-net uninstall --copilot-cli",
+    "cc-safety-net uninstall --kimi-code",
+    "cc-safety-net uninstall --opencode",
+    "cc-safety-net uninstall --pi"
+  ]
 };
 
 // src/bin/commands/rule.ts
@@ -13881,9 +13896,7 @@ function showCommandHelp(commandName) {
 }
 
 // src/bin/hook/install.ts
-import { rmSync as rmSync2 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
-import { join as join15 } from "node:path";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync5, readFileSync as readFileSync12, writeFileSync as writeFileSync4 } from "node:fs";
@@ -14217,7 +14230,7 @@ function formatCommandFailure(command2, status, output) {
   ].filter(Boolean).join(`
 `);
 }
-function runNativeInstall(commands2) {
+function runNativeCommands(commands2) {
   commands2.forEach((command2) => {
     const result = spawnSync(command2[0], command2.slice(1), {
       encoding: "utf-8",
@@ -14235,8 +14248,186 @@ ${output}`.trim()));
   });
 }
 
+// src/bin/hook/install/opencode.ts
+import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join15 } from "node:path";
+var OPENCODE_PACKAGE = "cc-safety-net";
+var OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
+var OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
+function getDefaultOpenCodeConfigPath(homeDir) {
+  return join15(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+}
+function getOpenCodeConfigPaths(homeDir) {
+  return OPENCODE_CONFIG_FILES.map((filename) => join15(homeDir, ".config", "opencode", filename));
+}
+function getOpenCodeCachePath(homeDir) {
+  return join15(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+}
+function clearOpenCodeCache(homeDir) {
+  rmSync2(getOpenCodeCachePath(homeDir), { recursive: true, force: true });
+}
+function skipJsonComment(content, index) {
+  if (content[index] === "/" && content[index + 1] === "/") {
+    const newlineIndex = content.indexOf(`
+`, index + 2);
+    return newlineIndex === -1 ? content.length : newlineIndex + 1;
+  }
+  if (content[index] === "/" && content[index + 1] === "*") {
+    const closeIndex = content.indexOf("*/", index + 2);
+    return closeIndex === -1 ? content.length : closeIndex + 2;
+  }
+  return index;
+}
+function skipJsonTrivia(content, index) {
+  let current = index;
+  while (current < content.length) {
+    if (/\s/.test(content[current] ?? "")) {
+      current++;
+      continue;
+    }
+    const next = skipJsonComment(content, current);
+    if (next === current)
+      return current;
+    current = next;
+  }
+  return current;
+}
+function findJsonStringEnd(content, index) {
+  let current = index + 1;
+  let isEscaped = false;
+  while (current < content.length) {
+    if (isEscaped) {
+      isEscaped = false;
+      current++;
+      continue;
+    }
+    if (content[current] === "\\") {
+      isEscaped = true;
+      current++;
+      continue;
+    }
+    if (content[current] === '"')
+      return current + 1;
+    current++;
+  }
+  throw new Error("Unterminated string in OpenCode config");
+}
+function readJsonString(content, start, end) {
+  return JSON.parse(content.slice(start, end));
+}
+function findJsonArrayClose(content, openIndex) {
+  return findMatchingBracket(content, openIndex, {
+    skipComment: skipJsonComment,
+    stringError: "Unterminated string in OpenCode config",
+    bracketError: "Unmatched plugin array in OpenCode config"
+  });
+}
+function findOpenCodePluginArray(content) {
+  let depth = 0;
+  let index = 0;
+  while (index < content.length) {
+    const next = skipJsonComment(content, index);
+    if (next !== index) {
+      index = next;
+      continue;
+    }
+    if (content[index] === '"') {
+      const end = findJsonStringEnd(content, index);
+      if (depth === 1 && readJsonString(content, index, end) === "plugin") {
+        const colonIndex = skipJsonTrivia(content, end);
+        const arrayStart = skipJsonTrivia(content, colonIndex + 1);
+        if (content[colonIndex] === ":" && content[arrayStart] === "[") {
+          return { start: arrayStart, end: findJsonArrayClose(content, arrayStart) };
+        }
+      }
+      index = end;
+      continue;
+    }
+    if (content[index] === "{" || content[index] === "[")
+      depth++;
+    if (content[index] === "}" || content[index] === "]")
+      depth--;
+    index++;
+  }
+  return;
+}
+function findManagedPluginItems(content, pluginArray) {
+  const ranges = [];
+  let index = pluginArray.start + 1;
+  while (index < pluginArray.end) {
+    const next = skipJsonComment(content, index);
+    if (next !== index) {
+      index = next;
+      continue;
+    }
+    if (content[index] === '"') {
+      const end = findJsonStringEnd(content, index);
+      const value = readJsonString(content, index, end);
+      if (typeof value === "string" && value.includes(OPENCODE_PACKAGE)) {
+        ranges.push({ start: index, end });
+      }
+      index = end;
+      continue;
+    }
+    index++;
+  }
+  return ranges;
+}
+function parseOpenCodeConfig(content, configPath) {
+  try {
+    return JSON.parse(stripJsonComments(content));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Failed to parse OpenCode config ${configPath}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+function hasManagedPlugin(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config))
+    return false;
+  const plugins = config.plugin;
+  if (!Array.isArray(plugins))
+    return false;
+  return plugins.some((plugin) => typeof plugin === "string" && plugin.includes(OPENCODE_PACKAGE));
+}
+function removeManagedPlugins(content, configPath) {
+  const pluginArray = findOpenCodePluginArray(content);
+  if (!pluginArray)
+    throw new Error(`Failed to locate OpenCode plugin array in ${configPath}`);
+  const updated = [...findManagedPluginItems(content, pluginArray)].reverse().reduce(removeArrayRangeItem, content);
+  parseOpenCodeConfig(updated, configPath);
+  return updated;
+}
+function uninstallOpenCode(homeDir) {
+  clearOpenCodeCache(homeDir);
+  const configPaths = getOpenCodeConfigPaths(homeDir);
+  const existingConfigPath = configPaths.find((configPath) => existsSync18(configPath));
+  const errors = [];
+  for (const configPath of configPaths) {
+    if (!existsSync18(configPath))
+      continue;
+    try {
+      const content = readFileSync14(configPath, "utf-8");
+      if (!hasManagedPlugin(parseOpenCodeConfig(content, configPath)))
+        continue;
+      writeFileSync6(configPath, removeManagedPlugins(content, configPath));
+      return { path: configPath, alreadyInstalled: true };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (errors.length > 0)
+    throw new Error(errors.join(`
+`));
+  return {
+    path: existingConfigPath ?? getDefaultOpenCodeConfigPath(homeDir),
+    alreadyInstalled: false
+  };
+}
+
 // src/bin/hook/install.ts
-var INSTALL_TARGET_FLAGS = new Map([
+var TARGET_FLAGS = new Map([
   ["--codex", "codex"],
   ["--claude-code", "claude-code"],
   ["--agy-cli", "antigravity-cli"],
@@ -14246,71 +14437,75 @@ var INSTALL_TARGET_FLAGS = new Map([
   ["--opencode", "opencode"],
   ["--pi", "pi"]
 ]);
-var UNINSTALL_TARGET_FLAGS = new Map([
-  ["--agy-cli", "antigravity-cli"],
-  ["--kimi-code", "kimi-code"]
-]);
 var NATIVE_INSTALLS = {
   "claude-code": {
     name: "Claude Code",
-    commands: [
+    installCommands: [
       ["claude", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["claude", "plugin", "install", "cc-safety-net"]
+    ],
+    uninstallCommands: [
+      ["claude", "plugin", "uninstall", "cc-safety-net"],
+      ["claude", "plugin", "marketplace", "remove", "cc-marketplace"]
     ]
   },
   codex: {
     name: "Codex",
-    commands: [
+    installCommands: [
       ["codex", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["codex", "plugin", "add", "cc-safety-net@cc-marketplace"]
+    ],
+    uninstallCommands: [
+      ["codex", "plugin", "remove", "safety-net@cc-marketplace"],
+      ["codex", "plugin", "marketplace", "remove", "cc-marketplace"]
     ],
     postInstallMessage: "Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it."
   },
   "copilot-cli": {
     name: "GitHub Copilot CLI",
-    commands: [
+    installCommands: [
       ["copilot", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["copilot", "plugin", "install", "cc-safety-net@cc-marketplace"]
+    ],
+    uninstallCommands: [
+      ["copilot", "plugin", "uninstall", "safety-net@cc-marketplace"],
+      ["copilot", "plugin", "marketplace", "remove", "cc-marketplace"]
     ]
   },
   "gemini-cli": {
     name: "Gemini CLI",
-    commands: [
+    installCommands: [
       ["gemini", "extensions", "install", "https://github.com/kenryu42/gemini-safety-net"]
-    ]
+    ],
+    uninstallCommands: [["gemini", "extensions", "uninstall", "gemini-safety-net"]]
   },
   opencode: {
     name: "OpenCode",
-    beforeInstall: (homeDir) => {
-      rmSync2(join15(homeDir, ".cache", "opencode", "packages", "cc-safety-net@latest"), {
-        recursive: true,
-        force: true
-      });
-    },
-    commands: [["opencode", "plugin", "-g", "-f", "cc-safety-net@latest"]]
+    beforeInstall: clearOpenCodeCache,
+    installCommands: [["opencode", "plugin", "-g", "-f", "cc-safety-net@latest"]]
   },
   pi: {
     name: "Pi",
-    commands: [["pi", "install", "npm:cc-safety-net"]]
+    installCommands: [["pi", "install", "npm:cc-safety-net"]],
+    uninstallCommands: [["pi", "uninstall", "npm:cc-safety-net"]]
   }
 };
 function getHomeDir() {
   return process.env.HOME ?? homedir8();
 }
 function parseInstallTarget(args, action) {
-  const targetFlags = action === "install" ? INSTALL_TARGET_FLAGS : UNINSTALL_TARGET_FLAGS;
-  const unknownOption = args.find((arg) => arg.startsWith("-") && !targetFlags.has(arg));
+  const unknownOption = args.find((arg) => arg.startsWith("-") && !TARGET_FLAGS.has(arg));
   if (unknownOption)
     throw new Error(`Unknown ${action} option: ${unknownOption}`);
   const unexpectedArg = args.find((arg) => !arg.startsWith("-"));
   if (unexpectedArg)
     throw new Error(`Unexpected argument for ${action}: ${unexpectedArg}`);
   const targets = args.flatMap((arg) => {
-    const target = targetFlags.get(arg);
+    const target = TARGET_FLAGS.get(arg);
     return target ? [target] : [];
   });
   if (targets.length !== 1)
-    throw new Error(`Choose exactly one ${action} target: ${[...targetFlags.keys()].join(", ")}`);
+    throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(", ")}`);
   return targets[0];
 }
 function isNativeInstallTarget(target) {
@@ -14319,9 +14514,20 @@ function isNativeInstallTarget(target) {
 function installNativeTarget(target, homeDir) {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
-  runNativeInstall(definition.commands);
+  runNativeCommands(definition.installCommands);
   console.log([`Installed ${definition.name} integration`, definition.postInstallMessage].filter(Boolean).join(`
 `));
+}
+function uninstallNativeTarget(target) {
+  const definition = NATIVE_INSTALLS[target];
+  if (!definition.uninstallCommands)
+    throw new Error(`${definition.name} uninstall is not supported`);
+  runNativeCommands(definition.uninstallCommands);
+  console.log(`Uninstalled ${definition.name} integration`);
+}
+function uninstallOpenCodeTarget(homeDir) {
+  const result = uninstallOpenCode(homeDir);
+  console.log(result.alreadyInstalled ? `Uninstalled OpenCode plugin from ${result.path}` : `OpenCode plugin not installed in ${result.path}`);
 }
 function runInstallCommand(action, args) {
   try {
@@ -14329,6 +14535,14 @@ function runInstallCommand(action, args) {
     const homeDir = getHomeDir();
     if (action === "install" && isNativeInstallTarget(target)) {
       installNativeTarget(target, homeDir);
+      return 0;
+    }
+    if (action === "uninstall" && target === "opencode") {
+      uninstallOpenCodeTarget(homeDir);
+      return 0;
+    }
+    if (action === "uninstall" && isNativeInstallTarget(target) && target !== "opencode") {
+      uninstallNativeTarget(target);
       return 0;
     }
     const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
@@ -14360,7 +14574,7 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
+import { existsSync as existsSync21, mkdirSync as mkdirSync7 } from "node:fs";
 import { dirname as dirname14, join as join18 } from "node:path";
 
 // src/bin/rule/doc.ts
@@ -14611,7 +14825,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync19, readFileSync as readFileSync15, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { dirname as dirname12, join as join16 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json";
 var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
@@ -14637,7 +14851,7 @@ async function runRulesMigrate(options2) {
   return results.every((result) => result) ? 0 : 1;
 }
 async function migrateRulesScope(options2) {
-  if (!existsSync18(options2.legacyPath)) {
+  if (!existsSync19(options2.legacyPath)) {
     console.log(`No legacy config found at ${options2.legacyPath}`);
     return true;
   }
@@ -14696,7 +14910,7 @@ async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName
 }
 function readLegacyRulesConfig(path) {
   try {
-    const parsed = JSON.parse(readFileSync14(path, "utf-8"));
+    const parsed = JSON.parse(readFileSync15(path, "utf-8"));
     const validation = validateConfig(parsed);
     if (validation.errors.length > 0)
       return { ok: false, errors: validation.errors };
@@ -14718,11 +14932,11 @@ function getMigratedRulebookName(configDir, sources, defaultRulebookName, migrat
   const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
-  if (!existsSync18(join16(configDir, defaultRulebookName, "rulebook.json")))
+  if (!existsSync19(join16(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
     const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync18(join16(configDir, name, "rulebook.json")))
+    if (!existsSync19(join16(configDir, name, "rulebook.json")))
       return name;
   }
 }
@@ -14745,17 +14959,17 @@ function getMigratedRulebook(name, migratedFrom, rules) {
 }
 function isCleanupVerified(configPath, rulebookPath, rulebookName, migratedFrom, legacyRules) {
   const config = readRulesConfig(configPath).config;
-  if (!config?.rules.includes(rulebookName) || !existsSync18(rulebookPath))
+  if (!config?.rules.includes(rulebookName) || !existsSync19(rulebookPath))
     return false;
   try {
-    const rulebook = JSON.parse(readFileSync14(rulebookPath, "utf-8"));
+    const rulebook = JSON.parse(readFileSync15(rulebookPath, "utf-8"));
     return rulebook.migrated_from === migratedFrom && JSON.stringify(rulebook.rules) === JSON.stringify(legacyRules);
   } catch {
     return false;
   }
 }
 function snapshotFile(path) {
-  return { path, content: existsSync18(path) ? readFileSync14(path, "utf-8") : null };
+  return { path, content: existsSync19(path) ? readFileSync15(path, "utf-8") : null };
 }
 function restoreFiles(snapshots) {
   for (const snapshot of snapshots) {
@@ -14763,12 +14977,12 @@ function restoreFiles(snapshots) {
       rmSync3(snapshot.path, { force: true });
       continue;
     }
-    writeFileSync6(snapshot.path, snapshot.content, "utf-8");
+    writeFileSync7(snapshot.path, snapshot.content, "utf-8");
   }
 }
 
 // src/bin/rule/verify.ts
-import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync15, statSync as statSync2, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync20, readdirSync as readdirSync4, readFileSync as readFileSync16, statSync as statSync2, writeFileSync as writeFileSync8 } from "node:fs";
 import { dirname as dirname13, join as join17, resolve as resolve11 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
@@ -14788,7 +15002,7 @@ function runRulesVerify(options2 = {}) {
   const warnings = [];
   const githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
   printRulesVerifyHeader();
-  if (existsSync19(userConfig)) {
+  if (existsSync20(userConfig)) {
     const result = validateRulesConfigFile(userConfig);
     result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
       userConfigDir
@@ -14803,9 +15017,9 @@ function runRulesVerify(options2 = {}) {
     if (result.errors.length > 0)
       hasErrors = true;
   }
-  if (existsSync19(legacyUserConfig)) {
+  if (existsSync20(legacyUserConfig)) {
     hasWarnings = true;
-    if (existsSync19(userConfig)) {
+    if (existsSync20(userConfig)) {
       warnings.push(getLegacyRulesConfigWarning("user", "cleanup"));
     } else {
       const result = validateConfigFile(legacyUserConfig);
@@ -14822,7 +15036,7 @@ function runRulesVerify(options2 = {}) {
         hasErrors = true;
     }
   }
-  if (existsSync19(projectConfig)) {
+  if (existsSync20(projectConfig)) {
     const result = validateRulesConfigFile(projectConfig);
     result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, getRulesLockPathForConfigPath(projectConfig), {
       userConfigDir
@@ -14836,11 +15050,11 @@ function runRulesVerify(options2 = {}) {
     });
     if (result.errors.length > 0)
       hasErrors = true;
-    if (existsSync19(legacyProjectConfig)) {
+    if (existsSync20(legacyProjectConfig)) {
       hasWarnings = true;
       warnings.push(getLegacyRulesConfigWarning("project", "cleanup"));
     }
-  } else if (existsSync19(legacyProjectConfig)) {
+  } else if (existsSync20(legacyProjectConfig)) {
     hasWarnings = true;
     hasErrors = true;
     const result = validateConfigFile(legacyProjectConfig);
@@ -14905,7 +15119,7 @@ function getLegacyRulesConfigWarning(scope, action) {
   return `Warning: Legacy ${scope} config is no longer supported. Fix or delete the ${label}, then run \`npx -y cc-safety-net rule migrate\`.`;
 }
 function getGitHubSourceRulesValidation(path) {
-  if (!existsSync19(path))
+  if (!existsSync20(path))
     return null;
   const result = validateGitHubSourceRules(path);
   if (result.ruleNames.size === 0 && result.errors.length === 0)
@@ -14941,12 +15155,12 @@ function validateGitHubSourceRules(path) {
       continue;
     }
     const rulebookPath = join17(path, entry.name, "rulebook.json");
-    if (!existsSync19(rulebookPath)) {
+    if (!existsSync20(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
     }
     try {
-      const rulebook = assertValidRulebook(JSON.parse(readFileSync15(rulebookPath, "utf-8")));
+      const rulebook = assertValidRulebook(JSON.parse(readFileSync16(rulebookPath, "utf-8")));
       if (rulebook.name !== entry.name) {
         errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
         continue;
@@ -15034,11 +15248,11 @@ function printInvalidVerifyTarget(label, path, errors) {
 }
 function addRulesSchemaIfMissing(path) {
   try {
-    const content = readFileSync15(path, "utf-8");
+    const content = readFileSync16(path, "utf-8");
     const parsed = JSON.parse(content);
     if (parsed.$schema)
       return false;
-    writeFileSync7(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
+    writeFileSync8(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
     return true;
   } catch {
     return false;
@@ -15084,7 +15298,7 @@ async function runRuleCommand(args) {
     ensureRulesConfig(configPath);
     mkdirSync7(join18(dirname14(dir), "cache", "rulebooks"), { recursive: true });
     const rulebookPath = join18(dir, "example-rules", "rulebook.json");
-    if (flags.example && !existsSync20(rulebookPath))
+    if (flags.example && !existsSync21(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
     const result = await syncRulesConfig(options2);
     printRuleChangeResult(result, "Rule config initialized.");
@@ -15246,7 +15460,7 @@ function validateRuleWrapperFlags(flags) {
   }
 }
 function ensureRulesConfig(configPath) {
-  if (!existsSync20(configPath)) {
+  if (!existsSync21(configPath)) {
     writeDefaultRulesConfig(configPath);
     return;
   }
@@ -15315,7 +15529,7 @@ function printTransparentWrappers(wrappers2) {
 }
 
 // src/bin/statusline.ts
-import { existsSync as existsSync21, readFileSync as readFileSync16 } from "node:fs";
+import { existsSync as existsSync22, readFileSync as readFileSync17 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
 import { join as join19 } from "node:path";
 async function readStdinAsync() {
@@ -15345,11 +15559,11 @@ function getSettingsPath() {
 }
 function isPluginEnabled() {
   const settingsPath = getSettingsPath();
-  if (!existsSync21(settingsPath)) {
+  if (!existsSync22(settingsPath)) {
     return false;
   }
   try {
-    const content = readFileSync16(settingsPath, "utf-8");
+    const content = readFileSync17(settingsPath, "utf-8");
     const settings = JSON.parse(content);
     if (!settings.enabledPlugins) {
       return false;

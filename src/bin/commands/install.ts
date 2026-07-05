@@ -31,12 +31,27 @@ export const installCommand = {
 
 export const uninstallCommand = {
   name: 'uninstall' as const,
-  description: 'Uninstall CC Safety Net from hook-config based integrations',
+  description: 'Uninstall CC Safety Net from a coding agent CLI',
   usage: 'uninstall <coding cli>',
   options: [
+    { flags: '--codex', description: 'Uninstall Codex plugin' },
+    { flags: '--claude-code', description: 'Uninstall Claude Code plugin' },
     { flags: '--agy-cli', description: 'Uninstall Antigravity CLI hook config' },
+    { flags: '--gemini-cli', description: 'Uninstall Gemini CLI extension' },
+    { flags: '--copilot-cli', description: 'Uninstall GitHub Copilot CLI plugin' },
     { flags: '--kimi-code', description: 'Uninstall Kimi Code hook config' },
+    { flags: '--opencode', description: 'Uninstall OpenCode plugin' },
+    { flags: '--pi', description: 'Uninstall Pi package' },
     { flags: '-h, --help', description: 'Show this help' },
   ],
-  examples: ['cc-safety-net uninstall --agy-cli', 'cc-safety-net uninstall --kimi-code'],
+  examples: [
+    'cc-safety-net uninstall --codex',
+    'cc-safety-net uninstall --claude-code',
+    'cc-safety-net uninstall --agy-cli',
+    'cc-safety-net uninstall --gemini-cli',
+    'cc-safety-net uninstall --copilot-cli',
+    'cc-safety-net uninstall --kimi-code',
+    'cc-safety-net uninstall --opencode',
+    'cc-safety-net uninstall --pi',
+  ],
 } satisfies Command;

@@ -36,6 +36,21 @@ function writeAntigravityConfig(homeDir: string, config: unknown) {
   return configPath;
 }
 
+function getOpenCodeConfigPath(homeDir: string, filename = 'opencode.json') {
+  return join(homeDir, '.config', 'opencode', filename);
+}
+
+function writeOpenCodeConfig(homeDir: string, content: string, filename = 'opencode.json') {
+  const configPath = getOpenCodeConfigPath(homeDir, filename);
+  mkdirSync(join(configPath, '..'), { recursive: true });
+  writeFileSync(configPath, content);
+  return configPath;
+}
+
+function getOpenCodeCachePath(homeDir: string) {
+  return join(homeDir, '.cache', 'opencode', 'packages', 'cc-safety-net@latest');
+}
+
 function makeFakeBinHome(name: string, commands: readonly string[]) {
   const homeDir = makeTempHome(name);
   const binDir = join(homeDir, 'bin');
@@ -65,24 +80,27 @@ function normalizedCommandLog(logPath: string): string[] {
   return readCommandLog(logPath).map((entry) => entry.replace(/^.*\/bin\//, ''));
 }
 
-async function expectNativeInstall(
+type NativeActionOptions = {
+  setup?: (fake: ReturnType<typeof makeFakeBinHome>) => void;
+  assert?: (
+    fake: ReturnType<typeof makeFakeBinHome>,
+    result: Awaited<ReturnType<typeof runCli>>,
+  ) => void;
+};
+
+async function expectNativeAction(
+  action: 'install' | 'uninstall',
   targetFlag: string,
   fakeCommands: readonly string[],
   expectedCommands: readonly string[],
   stdoutContains: string,
-  options: {
-    setup?: (fake: ReturnType<typeof makeFakeBinHome>) => void;
-    assert?: (
-      fake: ReturnType<typeof makeFakeBinHome>,
-      result: Awaited<ReturnType<typeof runCli>>,
-    ) => void;
-  } = {},
+  options: NativeActionOptions = {},
 ) {
-  const fake = makeFakeBinHome(`safety-net-${targetFlag.slice(2)}-install`, fakeCommands);
+  const fake = makeFakeBinHome(`safety-net-${targetFlag.slice(2)}-${action}`, fakeCommands);
 
   try {
     options.setup?.(fake);
-    const result = await runCli(['install', targetFlag], '', {
+    const result = await runCli([action, targetFlag], '', {
       HOME: fake.homeDir,
       PATH: fake.path,
       CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
@@ -95,6 +113,32 @@ async function expectNativeInstall(
   } finally {
     rmSync(fake.homeDir, { recursive: true, force: true });
   }
+}
+
+async function expectNativeInstall(
+  targetFlag: string,
+  fakeCommands: readonly string[],
+  expectedCommands: readonly string[],
+  stdoutContains: string,
+  options: NativeActionOptions = {},
+) {
+  await expectNativeAction(
+    'install',
+    targetFlag,
+    fakeCommands,
+    expectedCommands,
+    stdoutContains,
+    options,
+  );
+}
+
+async function expectNativeUninstall(
+  targetFlag: string,
+  fakeCommands: readonly string[],
+  expectedCommands: readonly string[],
+  stdoutContains: string,
+) {
+  await expectNativeAction('uninstall', targetFlag, fakeCommands, expectedCommands, stdoutContains);
 }
 
 async function runKimiInstall(homeDir: string, configPath: string) {
@@ -547,8 +591,10 @@ describe('uninstall command', () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Choose exactly one uninstall target:');
+      expect(result.stderr).toContain('--codex');
       expect(result.stderr).toContain('--agy-cli');
       expect(result.stderr).toContain('--kimi-code');
+      expect(result.stderr).toContain('--opencode');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -569,14 +615,162 @@ describe('uninstall command', () => {
     }
   });
 
-  test('rejects removed OpenCode uninstall target', async () => {
+  test('Claude Code: uninstalls marketplace plugin through native CLI', async () => {
+    await expectNativeUninstall(
+      '--claude-code',
+      ['claude'],
+      ['claude plugin uninstall cc-safety-net', 'claude plugin marketplace remove cc-marketplace'],
+      'Uninstalled Claude Code integration',
+    );
+  });
+
+  test('Codex: uninstalls marketplace plugin through native CLI', async () => {
+    await expectNativeUninstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin remove safety-net@cc-marketplace',
+        'codex plugin marketplace remove cc-marketplace',
+      ],
+      'Uninstalled Codex integration',
+    );
+  });
+
+  test('Gemini CLI: uninstalls extension through native CLI', async () => {
+    await expectNativeUninstall(
+      '--gemini-cli',
+      ['gemini'],
+      ['gemini extensions uninstall gemini-safety-net'],
+      'Uninstalled Gemini CLI integration',
+    );
+  });
+
+  test('Copilot CLI: uninstalls marketplace plugin through native CLI', async () => {
+    await expectNativeUninstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin uninstall safety-net@cc-marketplace',
+        'copilot plugin marketplace remove cc-marketplace',
+      ],
+      'Uninstalled GitHub Copilot CLI integration',
+    );
+  });
+
+  test('Pi: uninstalls package through native CLI', async () => {
+    await expectNativeUninstall(
+      '--pi',
+      ['pi'],
+      ['pi uninstall npm:cc-safety-net'],
+      'Uninstalled Pi integration',
+    );
+  });
+
+  test('OpenCode: removes cache and plugin from JSON config', async () => {
     const homeDir = makeTempHome('safety-net-opencode-uninstall');
+    const cachePath = getOpenCodeCachePath(homeDir);
+    const configPath = writeOpenCodeConfig(
+      homeDir,
+      `${JSON.stringify(
+        {
+          plugin: ['other-plugin', 'cc-safety-net@latest'],
+          theme: 'system',
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    mkdirSync(cachePath, { recursive: true });
+    writeFileSync(join(cachePath, 'stale.txt'), 'stale');
+
+    try {
+      const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
+      const config = JSON.parse(readFileSync(configPath, 'utf-8')) as { plugin: string[] };
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`Uninstalled OpenCode plugin from ${configPath}`);
+      expect(existsSync(cachePath)).toBe(false);
+      expect(config.plugin).toEqual(['other-plugin']);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('OpenCode: removes plugin from JSONC config while preserving unrelated content', async () => {
+    const homeDir = makeTempHome('safety-net-opencode-uninstall');
+    const configPath = writeOpenCodeConfig(
+      homeDir,
+      `{
+        // keep this comment
+        "plugin": [
+          "other-plugin",
+          "cc-safety-net@latest", // managed plugin
+        ],
+        "theme": "system",
+      }`,
+      'opencode.jsonc',
+    );
+
+    try {
+      const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
+      const content = readFileSync(configPath, 'utf-8');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`Uninstalled OpenCode plugin from ${configPath}`);
+      expect(content).toContain('// keep this comment');
+      expect(content).toContain('"other-plugin"');
+      expect(content).toContain('"theme": "system"');
+      expect(content).not.toContain('cc-safety-net');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('OpenCode: uninstall is idempotent when config is missing', async () => {
+    const homeDir = makeTempHome('safety-net-opencode-uninstall');
+    const cachePath = getOpenCodeCachePath(homeDir);
+    mkdirSync(cachePath, { recursive: true });
+    writeFileSync(join(cachePath, 'stale.txt'), 'stale');
+
+    try {
+      const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('OpenCode plugin not installed');
+      expect(existsSync(cachePath)).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('OpenCode: uninstall is idempotent when managed plugin is absent', async () => {
+    const homeDir = makeTempHome('safety-net-opencode-uninstall');
+    const configPath = writeOpenCodeConfig(
+      homeDir,
+      `${JSON.stringify({ plugin: ['other-plugin'] }, null, 2)}\n`,
+    );
+
+    try {
+      const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`OpenCode plugin not installed in ${configPath}`);
+      expect(JSON.parse(readFileSync(configPath, 'utf-8')).plugin).toEqual(['other-plugin']);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('OpenCode: malformed config fails without rewriting', async () => {
+    const homeDir = makeTempHome('safety-net-opencode-uninstall');
+    const configPath = writeOpenCodeConfig(homeDir, '{ invalid json }');
 
     try {
       const result = await runCli(['uninstall', '--opencode'], '', { HOME: homeDir });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown uninstall option: --opencode');
+      expect(result.stderr).toContain('Failed to parse OpenCode config');
+      expect(readFileSync(configPath, 'utf-8')).toBe('{ invalid json }');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
