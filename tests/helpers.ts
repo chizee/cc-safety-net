@@ -101,9 +101,8 @@ export function withEnv<T>(env: Record<string, string>, fn: () => T): T {
     original[key] = process.env[key];
     process.env[key] = env[key];
   }
-  try {
-    return fn();
-  } finally {
+
+  const restore = () => {
     for (const key of Object.keys(env)) {
       if (original[key] === undefined) {
         delete process.env[key];
@@ -111,6 +110,16 @@ export function withEnv<T>(env: Record<string, string>, fn: () => T): T {
         process.env[key] = original[key];
       }
     }
+  };
+
+  try {
+    const result = fn();
+    if (result instanceof Promise) return result.finally(restore) as T;
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 

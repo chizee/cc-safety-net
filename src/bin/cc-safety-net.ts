@@ -158,10 +158,10 @@ const commandHandlers = {
     await command.integration.run();
   },
   install: async (command) => {
-    process.exit(runInstallCommand('install', command.args));
+    process.exit(await runInstallCommand('install', command.args));
   },
   uninstall: async (command) => {
-    process.exit(runInstallCommand('uninstall', command.args));
+    process.exit(await runInstallCommand('uninstall', command.args));
   },
   rule: async (command) => {
     process.exit(await runRuleCommand(command.args));

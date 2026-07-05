@@ -1,19 +1,39 @@
 import { homedir } from 'node:os';
+import { detectAllHooks } from '@/bin/doctor/hooks';
+import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system-info';
+import type { PiProbeInfo } from '@/bin/doctor/types';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
 import { type NativeCommand, runNativeCommands } from '@/bin/hook/install/native';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
+import {
+  applyInstallTargetState,
+  buildInstallTargetChoicesAsync,
+  canPromptInstallTargets,
+  type InstallTargetChoice,
+  type InstallTargetProbe,
+  promptInstallTargets,
+} from '@/bin/hook/install/selection';
+import {
+  type InstallAction,
+  type InstallTarget,
+  orderInstallTargets,
+  runInstallTargetsInOrder,
+  TARGET_FLAGS,
+} from '@/bin/hook/install/targets';
 
-type InstallAction = 'install' | 'uninstall';
-type ConfigInstallTarget = 'antigravity-cli' | 'kimi-code';
-type NativeInstallTarget =
-  | 'claude-code'
-  | 'codex'
-  | 'copilot-cli'
-  | 'gemini-cli'
-  | 'opencode'
-  | 'pi';
-type InstallTarget = ConfigInstallTarget | NativeInstallTarget;
+type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code'>;
+type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget>;
+export type RunInstallCommandOptions = {
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+  probeTargets?: InstallTargetProbe;
+  detectConfiguredTargets?: () => Promise<readonly InstallTarget[]>;
+  selectTargets?: (
+    action: InstallAction,
+    choices: readonly InstallTargetChoice[],
+  ) => Promise<readonly InstallTarget[] | null>;
+};
 
 type NativeInstallDefinition = {
   name: string;
@@ -22,17 +42,6 @@ type NativeInstallDefinition = {
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
 };
-
-const TARGET_FLAGS = new Map<string, InstallTarget>([
-  ['--codex', 'codex'],
-  ['--claude-code', 'claude-code'],
-  ['--agy-cli', 'antigravity-cli'],
-  ['--gemini-cli', 'gemini-cli'],
-  ['--copilot-cli', 'copilot-cli'],
-  ['--kimi-code', 'kimi-code'],
-  ['--opencode', 'opencode'],
-  ['--pi', 'pi'],
-]);
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
@@ -108,6 +117,81 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
   return targets[0] as InstallTarget;
 }
 
+async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
+  const piRawPromise = defaultVersionFetcher(['pi', '--version']);
+  const copilotBinaryVersionPromise = defaultVersionFetcher(['copilot', '--binary-version']);
+  const copilotFallbackVersionPromise = defaultVersionFetcher(['copilot', '--version']);
+  const piProbePromise = piRawPromise.then((piRaw): Promise<PiProbeInfo> | PiProbeInfo => {
+    if (!piRaw) return { status: 'unavailable', installedAndEnabled: false, matched: [] };
+    return defaultPiProbeRunner(process.cwd());
+  });
+
+  const [
+    claudePluginListOutput,
+    geminiExtensionsListOutput,
+    copilotBinaryVersion,
+    copilotFallbackVersion,
+    copilotPluginListOutput,
+    piSafetyNetProbe,
+  ] = await Promise.all([
+    defaultVersionFetcher(['claude', 'plugin', 'list']),
+    defaultVersionFetcher(['gemini', 'extensions', 'list']),
+    copilotBinaryVersionPromise,
+    copilotFallbackVersionPromise,
+    defaultVersionFetcher(['copilot', 'plugin', 'list']),
+    piProbePromise,
+  ]);
+
+  return detectAllHooks(process.cwd(), {
+    claudePluginListOutput,
+    geminiExtensionsListOutput,
+    copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
+    copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
+    piSafetyNetProbe,
+  })
+    .filter((hook) => hook.status !== 'n/a')
+    .map((hook) => hook.platform as InstallTarget);
+}
+
+function hasCopilotSafetyNetPlugin(output: string | null): boolean {
+  return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? '');
+}
+
+async function resolveInstallTargets(
+  action: InstallAction,
+  args: readonly string[],
+  options: RunInstallCommandOptions,
+): Promise<readonly InstallTarget[] | null> {
+  if (args.length > 0) return [parseInstallTarget(args, action)];
+  if (!options.selectTargets && !canPromptInstallTargets(options.input, options.output)) {
+    return [parseInstallTarget(args, action)];
+  }
+
+  const configuredTargetsPromise = (
+    options.detectConfiguredTargets ?? detectConfiguredInstallTargets
+  )();
+  const choicesPromise = buildInstallTargetChoicesAsync(options.probeTargets);
+  if (!options.selectTargets)
+    (options.output ?? process.stdout).write('Checking coding CLI integrations...\n');
+  const [choices, configuredTargets] = await Promise.all([
+    choicesPromise,
+    configuredTargetsPromise,
+  ]);
+  const targetChoices = applyInstallTargetState(choices, {
+    action,
+    configuredTargets,
+  });
+  const selected = options.selectTargets
+    ? await options.selectTargets(action, targetChoices)
+    : await promptInstallTargets(action, targetChoices, {
+        input: options.input,
+        output: options.output,
+      });
+  if (!selected || selected.length === 0) return null;
+
+  return orderInstallTargets(selected);
+}
+
 function isNativeInstallTarget(target: InstallTarget): target is NativeInstallTarget {
   return target in NATIVE_INSTALLS;
 }
@@ -141,41 +225,56 @@ function uninstallOpenCodeTarget(homeDir: string): void {
   );
 }
 
-export function runInstallCommand(action: InstallAction, args: readonly string[]): number {
+function runSingleInstallTarget(
+  action: InstallAction,
+  target: InstallTarget,
+  homeDir: string,
+): void {
+  if (action === 'install' && isNativeInstallTarget(target)) {
+    installNativeTarget(target, homeDir);
+    return;
+  }
+  if (action === 'uninstall' && target === 'opencode') {
+    uninstallOpenCodeTarget(homeDir);
+    return;
+  }
+  if (action === 'uninstall' && isNativeInstallTarget(target) && target !== 'opencode') {
+    uninstallNativeTarget(target);
+    return;
+  }
+
+  const result =
+    target === 'kimi-code'
+      ? action === 'install'
+        ? installKimiCode(homeDir)
+        : uninstallKimiCode(homeDir)
+      : action === 'install'
+        ? installAntigravityCli(homeDir)
+        : uninstallAntigravityCli(homeDir);
+  const name = target === 'kimi-code' ? 'Kimi Code' : 'Antigravity CLI';
+  const pastTense = action === 'install' ? 'Installed' : 'Uninstalled';
+
+  console.log(
+    action === 'install' && result.alreadyInstalled
+      ? `${name} hook already installed in ${result.path}`
+      : action === 'uninstall' && !result.alreadyInstalled
+        ? `${name} hook not installed in ${result.path}`
+        : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`,
+  );
+}
+
+export async function runInstallCommand(
+  action: InstallAction,
+  args: readonly string[],
+  options: RunInstallCommandOptions = {},
+): Promise<number> {
   try {
-    const target = parseInstallTarget(args, action);
+    const targets = await resolveInstallTargets(action, args, options);
+    if (!targets) return 1;
+
     const homeDir = getHomeDir();
-    if (action === 'install' && isNativeInstallTarget(target)) {
-      installNativeTarget(target, homeDir);
-      return 0;
-    }
-    if (action === 'uninstall' && target === 'opencode') {
-      uninstallOpenCodeTarget(homeDir);
-      return 0;
-    }
-    if (action === 'uninstall' && isNativeInstallTarget(target) && target !== 'opencode') {
-      uninstallNativeTarget(target);
-      return 0;
-    }
+    runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));
 
-    const result =
-      target === 'kimi-code'
-        ? action === 'install'
-          ? installKimiCode(homeDir)
-          : uninstallKimiCode(homeDir)
-        : action === 'install'
-          ? installAntigravityCli(homeDir)
-          : uninstallAntigravityCli(homeDir);
-    const name = target === 'kimi-code' ? 'Kimi Code' : 'Antigravity CLI';
-    const pastTense = action === 'install' ? 'Installed' : 'Uninstalled';
-
-    console.log(
-      action === 'install' && result.alreadyInstalled
-        ? `${name} hook already installed in ${result.path}`
-        : action === 'uninstall' && !result.alreadyInstalled
-          ? `${name} hook not installed in ${result.path}`
-          : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`,
-    );
     return 0;
   } catch (e) {
     console.error(formatInstallError(e));

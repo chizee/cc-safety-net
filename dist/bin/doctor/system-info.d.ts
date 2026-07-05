@@ -20,6 +20,11 @@ export type PiProbeRunner = (cwd: string) => Promise<PiProbeInfo>;
  */
 export declare const defaultVersionFetcher: VersionFetcher;
 /**
+ * Run Pi with a temporary probe extension to verify the CC Safety Net extension
+ * is runtime-visible under Pi's normal package and extension resolver.
+ */
+export declare const defaultPiProbeRunner: PiProbeRunner;
+/**
  * Fetch system info with tool versions.
  * Runs all version checks in parallel for performance.
  */

@@ -264,7 +264,7 @@ function runCommand(
  * Run Pi with a temporary probe extension to verify the CC Safety Net extension
  * is runtime-visible under Pi's normal package and extension resolver.
  */
-const defaultPiProbeRunner: PiProbeRunner = async (cwd: string): Promise<PiProbeInfo> => {
+export const defaultPiProbeRunner: PiProbeRunner = async (cwd: string): Promise<PiProbeInfo> => {
   const tempDir = await mkdtemp(join(tmpdir(), 'cc-safety-net-pi-probe-'));
   const probePath = join(tempDir, 'pi-extension-probe.ts');
   const resultPath = join(tempDir, 'result.json');

@@ -15,9 +15,10 @@ const installTargetOptions = [
 export const installCommand = {
   name: 'install' as const,
   description: 'Install CC Safety Net into a coding agent CLI',
-  usage: 'install <coding cli>',
+  usage: 'install [coding cli]',
   options: installTargetOptions,
   examples: [
+    'cc-safety-net install',
     'cc-safety-net install --codex',
     'cc-safety-net install --claude-code',
     'cc-safety-net install --agy-cli',
@@ -32,7 +33,7 @@ export const installCommand = {
 export const uninstallCommand = {
   name: 'uninstall' as const,
   description: 'Uninstall CC Safety Net from a coding agent CLI',
-  usage: 'uninstall <coding cli>',
+  usage: 'uninstall [coding cli]',
   options: [
     { flags: '--codex', description: 'Uninstall Codex plugin' },
     { flags: '--claude-code', description: 'Uninstall Claude Code plugin' },
@@ -45,6 +46,7 @@ export const uninstallCommand = {
     { flags: '-h, --help', description: 'Show this help' },
   ],
   examples: [
+    'cc-safety-net uninstall',
     'cc-safety-net uninstall --codex',
     'cc-safety-net uninstall --claude-code',
     'cc-safety-net uninstall --agy-cli',

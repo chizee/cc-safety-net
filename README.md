@@ -48,6 +48,20 @@ CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to a
 
 ## Quick start
 
+Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
+
+```bash
+npx -y cc-safety-net install
+```
+
+Use the target flags below for scripted, non-interactive installs.
+
+To remove integrations interactively:
+
+```bash
+npx -y cc-safety-net uninstall
+```
+
 ### Codex Installation
 
 ```bash

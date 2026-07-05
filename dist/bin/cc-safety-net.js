@@ -8933,9 +8933,10 @@ var installTargetOptions = [
 var installCommand = {
   name: "install",
   description: "Install CC Safety Net into a coding agent CLI",
-  usage: "install <coding cli>",
+  usage: "install [coding cli]",
   options: installTargetOptions,
   examples: [
+    "cc-safety-net install",
     "cc-safety-net install --codex",
     "cc-safety-net install --claude-code",
     "cc-safety-net install --agy-cli",
@@ -8949,7 +8950,7 @@ var installCommand = {
 var uninstallCommand = {
   name: "uninstall",
   description: "Uninstall CC Safety Net from a coding agent CLI",
-  usage: "uninstall <coding cli>",
+  usage: "uninstall [coding cli]",
   options: [
     { flags: "--codex", description: "Uninstall Codex plugin" },
     { flags: "--claude-code", description: "Uninstall Claude Code plugin" },
@@ -8962,6 +8963,7 @@ var uninstallCommand = {
     { flags: "-h, --help", description: "Show this help" }
   ],
   examples: [
+    "cc-safety-net uninstall",
     "cc-safety-net uninstall --codex",
     "cc-safety-net uninstall --claude-code",
     "cc-safety-net uninstall --agy-cli",
@@ -14426,17 +14428,282 @@ function uninstallOpenCode(homeDir) {
   };
 }
 
+// src/bin/hook/install/selection.ts
+import { spawn as spawn3, spawnSync as spawnSync2 } from "node:child_process";
+import * as readline from "node:readline";
+
+// src/bin/hook/install/targets.ts
+var INSTALL_TARGETS = [
+  { target: "codex", flag: "--codex", label: "Codex", probeCommand: ["codex", "--version"] },
+  {
+    target: "claude-code",
+    flag: "--claude-code",
+    label: "Claude Code",
+    probeCommand: ["claude", "--version"]
+  },
+  {
+    target: "antigravity-cli",
+    flag: "--agy-cli",
+    label: "Antigravity CLI",
+    probeCommand: ["agy", "--version"]
+  },
+  {
+    target: "gemini-cli",
+    flag: "--gemini-cli",
+    label: "Gemini CLI",
+    probeCommand: ["gemini", "--version"]
+  },
+  {
+    target: "copilot-cli",
+    flag: "--copilot-cli",
+    label: "GitHub Copilot CLI",
+    probeCommand: ["copilot", "--binary-version"]
+  },
+  {
+    target: "kimi-code",
+    flag: "--kimi-code",
+    label: "Kimi Code",
+    probeCommand: ["kimi", "--version"]
+  },
+  {
+    target: "opencode",
+    flag: "--opencode",
+    label: "OpenCode",
+    probeCommand: ["opencode", "--version"]
+  },
+  { target: "pi", flag: "--pi", label: "Pi", probeCommand: ["pi", "--version"] }
+];
+var TARGET_FLAGS = new Map(INSTALL_TARGETS.map((target) => [target.flag, target.target]));
+function orderInstallTargets(targets) {
+  const selectedTargets = new Set(targets);
+  return INSTALL_TARGETS.map((target) => target.target).filter((target) => selectedTargets.has(target));
+}
+function runInstallTargetsInOrder(targets, runTarget) {
+  targets.forEach(runTarget);
+}
+
+// src/bin/hook/install/selection.ts
+var PROBE_TIMEOUT_MS = 2000;
+var ASYNC_PROBE_TIMEOUT_MS = 1000;
+function titleCaseAction(action) {
+  return action === "install" ? "Install" : "Uninstall";
+}
+function activeVerb(action) {
+  return action === "install" ? "Installing" : "Uninstalling";
+}
+function targetPreposition(action) {
+  return action === "install" ? "into" : "from";
+}
+function isAvailable(choice) {
+  return choice?.available === true;
+}
+function selectedInChoiceOrder(choices, selected) {
+  const selectedTargets = new Set(selected);
+  return choices.filter((choice) => selectedTargets.has(choice.target)).map((choice) => choice.target);
+}
+function nextSelectableCursor(choices, cursor, direction) {
+  if (choices.length === 0 || choices.every((choice) => !choice.available))
+    return 0;
+  return Array.from({ length: choices.length }, (_, index) => index + 1).map((offset) => (cursor + offset * direction + choices.length) % choices.length).find((index) => isAvailable(choices[index]));
+}
+function mapKeyPress(input, key) {
+  if (key.ctrl && key.name === "c")
+    return "abort";
+  if (key.name === "escape" || input === "q")
+    return "abort";
+  if (key.name === "up" || input === "k")
+    return "up";
+  if (key.name === "down" || input === "j")
+    return "down";
+  if (key.name === "space" || input === " ")
+    return "toggle";
+  if (key.name === "return" || key.name === "enter")
+    return "confirm";
+  return null;
+}
+function defaultInstallTargetProbe(command2) {
+  const result = spawnSync2(command2[0], command2.slice(1), {
+    env: process.env,
+    stdio: "ignore",
+    timeout: PROBE_TIMEOUT_MS
+  });
+  return !result.error && result.status === 0;
+}
+function defaultAsyncInstallTargetProbe(command2) {
+  return new Promise((resolve11) => {
+    const proc = spawn3(command2[0], command2.slice(1), {
+      env: process.env,
+      stdio: "ignore"
+    });
+    let settled = false;
+    const finish = (available) => {
+      if (settled)
+        return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve11(available);
+    };
+    const timeoutId = setTimeout(() => {
+      proc.kill();
+      finish(false);
+    }, ASYNC_PROBE_TIMEOUT_MS);
+    proc.on("error", () => finish(false));
+    proc.on("close", (code) => finish(code === 0));
+  });
+}
+function buildInstallTargetChoices(probe = defaultInstallTargetProbe, options2 = {}) {
+  const configuredTargets = new Set(options2.configuredTargets ?? []);
+  if (options2.async) {
+    return Promise.all(INSTALL_TARGETS.map(async (target) => ({
+      target: target.target,
+      flag: target.flag,
+      label: target.label,
+      ...getChoiceAvailability(options2.action, await probe(target.probeCommand), configuredTargets.has(target.target))
+    })));
+  }
+  const syncProbe = probe;
+  return INSTALL_TARGETS.map((target) => ({
+    target: target.target,
+    flag: target.flag,
+    label: target.label,
+    ...getChoiceAvailability(options2.action, syncProbe(target.probeCommand), configuredTargets.has(target.target))
+  }));
+}
+function buildInstallTargetChoicesAsync(probe = defaultAsyncInstallTargetProbe, options2 = {}) {
+  return buildInstallTargetChoices(probe, { ...options2, async: true });
+}
+function applyInstallTargetState(choices, options2) {
+  const configuredTargets = new Set(options2.configuredTargets ?? []);
+  return choices.map((choice) => ({
+    ...choice,
+    ...getChoiceAvailability(options2.action, choice.available, configuredTargets.has(choice.target))
+  }));
+}
+function getChoiceAvailability(action, cliAvailable, configured) {
+  if (!cliAvailable)
+    return { available: false, unavailableReason: "CLI not installed" };
+  if (action === "install" && configured)
+    return { available: false, unavailableReason: "already installed" };
+  if (action === "uninstall" && !configured)
+    return { available: false, unavailableReason: "not installed" };
+  return { available: true };
+}
+function createInstallSelectionState(choices) {
+  return {
+    cursor: choices.findIndex((choice) => choice.available),
+    selected: []
+  };
+}
+function reduceInstallSelectionState(state, choices, key) {
+  if (key === "confirm" || key === "abort")
+    return { state, done: key };
+  if (key === "up") {
+    return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, -1) } };
+  }
+  if (key === "down") {
+    return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, 1) } };
+  }
+  const choice = choices[state.cursor];
+  if (!isAvailable(choice))
+    return { state };
+  const selected = state.selected.includes(choice.target) ? state.selected.filter((target) => target !== choice.target) : selectedInChoiceOrder(choices, [...state.selected, choice.target]);
+  return { state: { ...state, selected } };
+}
+function renderInstallSelection(action, choices, state, options2 = {}) {
+  const formatDim = options2.color === false ? (value) => value : colors.dim;
+  const formatSelected = options2.color === false ? (value) => value : colors.green;
+  return [
+    `${titleCaseAction(action)} CC Safety Net ${targetPreposition(action)}:`,
+    "",
+    ...choices.map((choice, index) => {
+      const selected = state.selected.includes(choice.target);
+      const marker = selected ? "[x]" : "[ ]";
+      const prefix = index === state.cursor ? ">" : " ";
+      const label = `${marker} ${choice.label}${choice.available ? "" : ` (${choice.unavailableReason ?? "not installed"})`}`;
+      const formatted = choice.available ? selected ? formatSelected(label) : label : formatDim(label);
+      return `${prefix} ${formatted}`;
+    }),
+    "",
+    "Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel"
+  ].join(`
+`);
+}
+function canPromptInstallTargets(input = process.stdin, output = process.stdout) {
+  return Boolean(input.isTTY && output.isTTY && typeof input.setRawMode === "function");
+}
+function promptInstallTargets(action, choices, options2 = {}) {
+  const input = options2.input ?? process.stdin;
+  const output = options2.output ?? process.stdout;
+  let state = createInstallSelectionState(choices);
+  if (choices.every((choice) => !choice.available)) {
+    output.write(`${renderInstallSelection(action, choices, state)}
+`);
+    output.write(`No selectable integrations found for ${action}.
+`);
+    return Promise.resolve(null);
+  }
+  readline.emitKeypressEvents(input);
+  const wasRaw = input.isRaw === true;
+  input.setRawMode(true);
+  input.resume();
+  let renderedLines = 0;
+  const clearFrame = () => {
+    if (renderedLines === 0)
+      return;
+    readline.moveCursor(output, 0, -renderedLines);
+    readline.cursorTo(output, 0);
+    readline.clearScreenDown(output);
+  };
+  const draw = () => {
+    clearFrame();
+    const frame = renderInstallSelection(action, choices, state);
+    output.write(`${frame}
+`);
+    renderedLines = frame.split(`
+`).length;
+  };
+  return new Promise((resolve11) => {
+    const cleanup = () => {
+      input.off("keypress", onKeyPress);
+      input.setRawMode(wasRaw);
+      input.pause();
+      clearFrame();
+    };
+    const finish = (targets) => {
+      cleanup();
+      if (targets && targets.length > 0) {
+        output.write(`${activeVerb(action)} selected integrations...
+`);
+      }
+      resolve11(targets);
+    };
+    function onKeyPress(inputValue, key) {
+      const mappedKey = mapKeyPress(inputValue, key);
+      if (!mappedKey)
+        return;
+      const next = reduceInstallSelectionState(state, choices, mappedKey);
+      state = next.state;
+      if (next.done === "abort") {
+        finish(null);
+        return;
+      }
+      if (next.done === "confirm") {
+        if (state.selected.length === 0) {
+          output.write("\x07");
+          draw();
+          return;
+        }
+        finish(state.selected);
+        return;
+      }
+      draw();
+    }
+    input.on("keypress", onKeyPress);
+    draw();
+  });
+}
+
 // src/bin/hook/install.ts
-var TARGET_FLAGS = new Map([
-  ["--codex", "codex"],
-  ["--claude-code", "claude-code"],
-  ["--agy-cli", "antigravity-cli"],
-  ["--gemini-cli", "gemini-cli"],
-  ["--copilot-cli", "copilot-cli"],
-  ["--kimi-code", "kimi-code"],
-  ["--opencode", "opencode"],
-  ["--pi", "pi"]
-]);
 var NATIVE_INSTALLS = {
   "claude-code": {
     name: "Claude Code",
@@ -14508,6 +14775,68 @@ function parseInstallTarget(args, action) {
     throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(", ")}`);
   return targets[0];
 }
+async function detectConfiguredInstallTargets() {
+  const piRawPromise = defaultVersionFetcher(["pi", "--version"]);
+  const copilotBinaryVersionPromise = defaultVersionFetcher(["copilot", "--binary-version"]);
+  const copilotFallbackVersionPromise = defaultVersionFetcher(["copilot", "--version"]);
+  const piProbePromise = piRawPromise.then((piRaw) => {
+    if (!piRaw)
+      return { status: "unavailable", installedAndEnabled: false, matched: [] };
+    return defaultPiProbeRunner(process.cwd());
+  });
+  const [
+    claudePluginListOutput,
+    geminiExtensionsListOutput,
+    copilotBinaryVersion,
+    copilotFallbackVersion,
+    copilotPluginListOutput,
+    piSafetyNetProbe
+  ] = await Promise.all([
+    defaultVersionFetcher(["claude", "plugin", "list"]),
+    defaultVersionFetcher(["gemini", "extensions", "list"]),
+    copilotBinaryVersionPromise,
+    copilotFallbackVersionPromise,
+    defaultVersionFetcher(["copilot", "plugin", "list"]),
+    piProbePromise
+  ]);
+  return detectAllHooks(process.cwd(), {
+    claudePluginListOutput,
+    geminiExtensionsListOutput,
+    copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
+    copilotPluginInstalled: hasCopilotSafetyNetPlugin2(copilotPluginListOutput),
+    piSafetyNetProbe
+  }).filter((hook) => hook.status !== "n/a").map((hook) => hook.platform);
+}
+function hasCopilotSafetyNetPlugin2(output) {
+  return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? "");
+}
+async function resolveInstallTargets(action, args, options2) {
+  if (args.length > 0)
+    return [parseInstallTarget(args, action)];
+  if (!options2.selectTargets && !canPromptInstallTargets(options2.input, options2.output)) {
+    return [parseInstallTarget(args, action)];
+  }
+  const configuredTargetsPromise = (options2.detectConfiguredTargets ?? detectConfiguredInstallTargets)();
+  const choicesPromise = buildInstallTargetChoicesAsync(options2.probeTargets);
+  if (!options2.selectTargets)
+    (options2.output ?? process.stdout).write(`Checking coding CLI integrations...
+`);
+  const [choices, configuredTargets] = await Promise.all([
+    choicesPromise,
+    configuredTargetsPromise
+  ]);
+  const targetChoices = applyInstallTargetState(choices, {
+    action,
+    configuredTargets
+  });
+  const selected = options2.selectTargets ? await options2.selectTargets(action, targetChoices) : await promptInstallTargets(action, targetChoices, {
+    input: options2.input,
+    output: options2.output
+  });
+  if (!selected || selected.length === 0)
+    return null;
+  return orderInstallTargets(selected);
+}
 function isNativeInstallTarget(target) {
   return target in NATIVE_INSTALLS;
 }
@@ -14529,26 +14858,31 @@ function uninstallOpenCodeTarget(homeDir) {
   const result = uninstallOpenCode(homeDir);
   console.log(result.alreadyInstalled ? `Uninstalled OpenCode plugin from ${result.path}` : `OpenCode plugin not installed in ${result.path}`);
 }
-function runInstallCommand(action, args) {
+function runSingleInstallTarget(action, target, homeDir) {
+  if (action === "install" && isNativeInstallTarget(target)) {
+    installNativeTarget(target, homeDir);
+    return;
+  }
+  if (action === "uninstall" && target === "opencode") {
+    uninstallOpenCodeTarget(homeDir);
+    return;
+  }
+  if (action === "uninstall" && isNativeInstallTarget(target) && target !== "opencode") {
+    uninstallNativeTarget(target);
+    return;
+  }
+  const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
+  const name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI";
+  const pastTense = action === "install" ? "Installed" : "Uninstalled";
+  console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
+}
+async function runInstallCommand(action, args, options2 = {}) {
   try {
-    const target = parseInstallTarget(args, action);
+    const targets = await resolveInstallTargets(action, args, options2);
+    if (!targets)
+      return 1;
     const homeDir = getHomeDir();
-    if (action === "install" && isNativeInstallTarget(target)) {
-      installNativeTarget(target, homeDir);
-      return 0;
-    }
-    if (action === "uninstall" && target === "opencode") {
-      uninstallOpenCodeTarget(homeDir);
-      return 0;
-    }
-    if (action === "uninstall" && isNativeInstallTarget(target) && target !== "opencode") {
-      uninstallNativeTarget(target);
-      return 0;
-    }
-    const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
-    const name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI";
-    const pastTense = action === "install" ? "Installed" : "Uninstalled";
-    console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
+    runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));
     return 0;
   } catch (e) {
     console.error(formatInstallError(e));
@@ -15703,10 +16037,10 @@ var commandHandlers = {
     await command2.integration.run();
   },
   install: async (command2) => {
-    process.exit(runInstallCommand("install", command2.args));
+    process.exit(await runInstallCommand("install", command2.args));
   },
   uninstall: async (command2) => {
-    process.exit(runInstallCommand("uninstall", command2.args));
+    process.exit(await runInstallCommand("uninstall", command2.args));
   },
   rule: async (command2) => {
     process.exit(await runRuleCommand(command2.args));
