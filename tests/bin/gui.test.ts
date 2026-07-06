@@ -146,15 +146,20 @@ describe('policy GUI server', () => {
       expect(html).toContain('Protection disabled. Saved rule settings are preserved.');
       expect(html).toContain('Disable secret protection?');
       expect(html).toContain(
-        'Default sensitive path patterns and deny paths will stop blocking access until you turn this back on.',
+        'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.',
       );
       expect(html).not.toContain('Configured deny paths are part of Secret protection.');
       expect(html).toContain('input.checked = true;');
       expect(html).toContain("confirmLabel: 'Reset policy'");
       expect(html).not.toContain('Confirm reset');
       expect(html).not.toContain('Search secret patterns');
-      expect(html).toContain('Default secret patterns');
-      expect(html).toContain('Block default sensitive path patterns and configured deny paths.');
+      expect(html).toContain('Default sensitive paths');
+      expect(html).toContain(
+        'Block default sensitive paths, coding CLI credential locations, and configured deny paths.',
+      );
+      expect(html).not.toContain(
+        'Block default sensitive path patterns and configured deny paths.',
+      );
       expect(html).toContain('Exact normalized paths are blocked while Secret protection is on.');
       expect(html).not.toContain('Deny paths remain active');
       expect(html).not.toContain('Deny paths are always blocked');

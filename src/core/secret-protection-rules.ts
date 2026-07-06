@@ -139,6 +139,59 @@ export const SECRET_HOME_PATH_RULES = [
   },
 ] as const satisfies readonly SecretProtectionMatcherRule[];
 
+export const SECRET_CODING_CLI_RULES = [
+  {
+    id: 'secret.cli.claude-code',
+    category: 'Coding CLI',
+    label: 'Claude Code credentials',
+    description:
+      'Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations.',
+  },
+  {
+    id: 'secret.cli.antigravity',
+    category: 'Coding CLI',
+    label: 'Antigravity CLI credentials',
+    description: 'Blocks Antigravity CLI hook config under the shared Gemini config directory.',
+  },
+  {
+    id: 'secret.cli.codex',
+    category: 'Coding CLI',
+    label: 'Codex credentials',
+    description: 'Blocks Codex auth and config files, including CODEX_HOME relocations.',
+  },
+  {
+    id: 'secret.cli.gemini',
+    category: 'Coding CLI',
+    label: 'Gemini CLI credentials',
+    description: 'Blocks Gemini CLI OAuth, account, settings, and keychain fallback files.',
+  },
+  {
+    id: 'secret.cli.copilot-cli',
+    category: 'Coding CLI',
+    label: 'GitHub Copilot CLI credentials',
+    description: 'Blocks Copilot CLI auth config and MCP OAuth credential storage.',
+  },
+  {
+    id: 'secret.cli.kimi-code',
+    category: 'Coding CLI',
+    label: 'Kimi Code credentials',
+    description: 'Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files.',
+  },
+  {
+    id: 'secret.cli.opencode',
+    category: 'Coding CLI',
+    label: 'OpenCode credentials',
+    description:
+      'Blocks OpenCode auth stores and credential-bearing global or managed config files.',
+  },
+  {
+    id: 'secret.cli.pi',
+    category: 'Coding CLI',
+    label: 'Pi credentials',
+    description: 'Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations.',
+  },
+] as const satisfies readonly SecretProtectionRuleMetadata[];
+
 export const SECRET_DIRECTORY_RULES = [
   {
     id: 'secret.dir.secrets',
@@ -262,6 +315,7 @@ export const SECRET_PROTECTION_RULE_METADATA = [
   ...SECRET_BASENAME_RULES,
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
+  ...SECRET_CODING_CLI_RULES,
   ...SECRET_DIRECTORY_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,

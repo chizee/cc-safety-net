@@ -102,6 +102,47 @@ export declare const SECRET_HOME_PATH_RULES: readonly [{
     readonly description: "Blocks GitHub CLI host credential files.";
     readonly suffixParts: readonly [".config", "gh", "hosts.yml"];
 }];
+export declare const SECRET_CODING_CLI_RULES: readonly [{
+    readonly id: "secret.cli.claude-code";
+    readonly category: "Coding CLI";
+    readonly label: "Claude Code credentials";
+    readonly description: "Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations.";
+}, {
+    readonly id: "secret.cli.antigravity";
+    readonly category: "Coding CLI";
+    readonly label: "Antigravity CLI credentials";
+    readonly description: "Blocks Antigravity CLI hook config under the shared Gemini config directory.";
+}, {
+    readonly id: "secret.cli.codex";
+    readonly category: "Coding CLI";
+    readonly label: "Codex credentials";
+    readonly description: "Blocks Codex auth and config files, including CODEX_HOME relocations.";
+}, {
+    readonly id: "secret.cli.gemini";
+    readonly category: "Coding CLI";
+    readonly label: "Gemini CLI credentials";
+    readonly description: "Blocks Gemini CLI OAuth, account, settings, and keychain fallback files.";
+}, {
+    readonly id: "secret.cli.copilot-cli";
+    readonly category: "Coding CLI";
+    readonly label: "GitHub Copilot CLI credentials";
+    readonly description: "Blocks Copilot CLI auth config and MCP OAuth credential storage.";
+}, {
+    readonly id: "secret.cli.kimi-code";
+    readonly category: "Coding CLI";
+    readonly label: "Kimi Code credentials";
+    readonly description: "Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files.";
+}, {
+    readonly id: "secret.cli.opencode";
+    readonly category: "Coding CLI";
+    readonly label: "OpenCode credentials";
+    readonly description: "Blocks OpenCode auth stores and credential-bearing global or managed config files.";
+}, {
+    readonly id: "secret.cli.pi";
+    readonly category: "Coding CLI";
+    readonly label: "Pi credentials";
+    readonly description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations.";
+}];
 export declare const SECRET_DIRECTORY_RULES: readonly [{
     readonly id: "secret.dir.secrets";
     readonly category: "Directory";

@@ -5359,6 +5359,56 @@ var SECRET_HOME_PATH_RULES = [
     suffixParts: [".config", "gh", "hosts.yml"]
   }
 ];
+var SECRET_CODING_CLI_RULES = [
+  {
+    id: "secret.cli.claude-code",
+    category: "Coding CLI",
+    label: "Claude Code credentials",
+    description: "Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations."
+  },
+  {
+    id: "secret.cli.antigravity",
+    category: "Coding CLI",
+    label: "Antigravity CLI credentials",
+    description: "Blocks Antigravity CLI hook config under the shared Gemini config directory."
+  },
+  {
+    id: "secret.cli.codex",
+    category: "Coding CLI",
+    label: "Codex credentials",
+    description: "Blocks Codex auth and config files, including CODEX_HOME relocations."
+  },
+  {
+    id: "secret.cli.gemini",
+    category: "Coding CLI",
+    label: "Gemini CLI credentials",
+    description: "Blocks Gemini CLI OAuth, account, settings, and keychain fallback files."
+  },
+  {
+    id: "secret.cli.copilot-cli",
+    category: "Coding CLI",
+    label: "GitHub Copilot CLI credentials",
+    description: "Blocks Copilot CLI auth config and MCP OAuth credential storage."
+  },
+  {
+    id: "secret.cli.kimi-code",
+    category: "Coding CLI",
+    label: "Kimi Code credentials",
+    description: "Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files."
+  },
+  {
+    id: "secret.cli.opencode",
+    category: "Coding CLI",
+    label: "OpenCode credentials",
+    description: "Blocks OpenCode auth stores and credential-bearing global or managed config files."
+  },
+  {
+    id: "secret.cli.pi",
+    category: "Coding CLI",
+    label: "Pi credentials",
+    description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
+  }
+];
 var SECRET_DIRECTORY_RULES = [
   {
     id: "secret.dir.secrets",
@@ -5472,6 +5522,7 @@ var SECRET_PROTECTION_RULE_METADATA = [
   ...SECRET_BASENAME_RULES,
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
+  ...SECRET_CODING_CLI_RULES,
   ...SECRET_DIRECTORY_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,
@@ -8220,6 +8271,8 @@ function isSensitivePath(target, cwd, config) {
       return true;
     }
   }
+  if (matchesCodingCliPath(normalized, cwd, config))
+    return true;
   for (const rule of SECRET_DIRECTORY_RULES) {
     if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config)) {
       return true;
@@ -8259,6 +8312,95 @@ function isSensitivePath(target, cwd, config) {
 }
 function matchesHomePathSuffix(comparablePath, suffix) {
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
+}
+function matchesCodingCliPath(normalized, cwd, config) {
+  return SECRET_CODING_CLI_RULES.some((rule) => {
+    if (!isSecretRuleEnabled(rule.id, config))
+      return false;
+    if (rule.id === "secret.cli.claude-code")
+      return matchesClaudeCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.antigravity")
+      return matchesAntigravityPath(normalized, cwd);
+    if (rule.id === "secret.cli.codex")
+      return matchesCodexPath(normalized, cwd);
+    if (rule.id === "secret.cli.gemini")
+      return matchesGeminiPath(normalized, cwd);
+    if (rule.id === "secret.cli.copilot-cli")
+      return matchesCopilotCliPath(normalized, cwd);
+    if (rule.id === "secret.cli.kimi-code")
+      return matchesKimiCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.opencode")
+      return matchesOpenCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.pi")
+      return matchesPiPath(normalized, cwd);
+    return false;
+  });
+}
+function matchesClaudeCodePath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd), [
+    "settings.json",
+    "settings.local.json",
+    ".credentials.json"
+  ]) || matchesExactPath(normalized, "~/.claude.json", cwd);
+}
+function matchesAntigravityPath(normalized, cwd) {
+  return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd);
+}
+function matchesCodexPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd), [
+    "config.toml",
+    "auth.json",
+    ".credentials.json"
+  ]);
+}
+function matchesGeminiPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd), ".gemini"), [
+    "oauth_creds.json",
+    "mcp-oauth-tokens.json",
+    "a2a-oauth-tokens.json",
+    "google_accounts.json",
+    "settings.json",
+    "gemini-credentials.json"
+  ]);
+}
+function matchesCopilotCliPath(normalized, cwd) {
+  const root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd);
+  return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
+}
+function matchesKimiCodePath(normalized, cwd) {
+  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd);
+  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd);
+  return matchesFileInRoot(normalized, currentRoot, ["config.toml", "mcp.json", "server.token"]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
+}
+function matchesOpenCodePath(normalized, cwd) {
+  const dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode");
+  const configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode");
+  const programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
+  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, root, ["opencode.json", "opencode.jsonc"]));
+}
+function matchesPiPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd), ["auth.json"]);
+}
+function codingCliRoot(envValue, fallback, cwd) {
+  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd);
+}
+function matchesFileInRoot(normalized, root, files) {
+  return files.some((file) => sameComparablePath(normalized, appendPath(root, file)));
+}
+function matchesDirInRoot(normalized, root, dirs) {
+  return dirs.some((dir) => isSameOrChildPath(comparable(normalized), comparable(appendPath(root, dir))));
+}
+function matchesExactPath(normalized, path, cwd) {
+  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd));
+}
+function matchesOptionalExactPath(normalized, path, cwd) {
+  return path?.trim() ? matchesExactPath(normalized, path, cwd) : false;
+}
+function sameComparablePath(a, b) {
+  return comparable(a) === comparable(b);
+}
+function appendPath(root, ...parts) {
+  return normalizePathText([root, ...parts].filter(Boolean).join("/"));
 }
 function isSensitiveDirSegment(comparablePath, dirName) {
   return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.includes(`/${dirName}/`);

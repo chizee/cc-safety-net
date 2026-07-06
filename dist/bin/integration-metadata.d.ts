@@ -66,7 +66,7 @@ type RuntimeHookIntegrationMetadata = Extract<(typeof integrationMetadata)[numbe
     runtimeHook: object;
 }>;
 export type RuntimeHookIntegrationId = RuntimeHookIntegrationMetadata['id'];
-export declare const doctorIntegrationOrder: ("claude-code" | "antigravity-cli" | "codex" | "copilot-cli" | "gemini-cli" | "kimi-code" | "opencode" | "pi")[];
+export declare const doctorIntegrationOrder: ("opencode" | "claude-code" | "antigravity-cli" | "codex" | "copilot-cli" | "gemini-cli" | "kimi-code" | "pi")[];
 export declare const runtimeHookIntegrationMetadata: {
     id: "claude-code" | "antigravity-cli" | "copilot-cli" | "gemini-cli" | "kimi-code";
     displayName: "Claude Code" | "Antigravity CLI" | "Copilot CLI" | "Gemini CLI" | "Kimi Code";

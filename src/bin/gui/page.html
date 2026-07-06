@@ -83,7 +83,7 @@
       <header class="panel-head">
         <div class="panel-title">
           <h2><button class="panel-toggle" type="button" aria-expanded="false" aria-controls="secret-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Secret Protection</span></button></h2>
-          <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
+          <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
         </div>
       </header>
       <div id="secret-panel-content" hidden>
@@ -520,7 +520,7 @@
         summaryId: 'secret-summary',
         targetId: 'secret-patterns',
         dataAttribute: 'data-secret-active',
-        emptyText: 'No secret patterns match the search.',
+        emptyText: 'No secret protections match the search.',
         summaryText: secretSummaryText,
         disabled: !draftPolicy.secret_protection.enabled
       });
@@ -534,7 +534,7 @@
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>';
       qs('secret').innerHTML =
-        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Exact normalized paths are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
         '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
@@ -650,7 +650,7 @@
         void (async () => {
           if (!input.checked && !(await confirmProtectionDisable({
             title: 'Disable secret protection?',
-            body: 'Default sensitive path patterns and deny paths will stop blocking access until you turn this back on.'
+            body: 'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.'
           }))) {
             input.checked = true;
             return;

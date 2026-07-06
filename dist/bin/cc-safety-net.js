@@ -5363,6 +5363,56 @@ var SECRET_HOME_PATH_RULES = [
     suffixParts: [".config", "gh", "hosts.yml"]
   }
 ];
+var SECRET_CODING_CLI_RULES = [
+  {
+    id: "secret.cli.claude-code",
+    category: "Coding CLI",
+    label: "Claude Code credentials",
+    description: "Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations."
+  },
+  {
+    id: "secret.cli.antigravity",
+    category: "Coding CLI",
+    label: "Antigravity CLI credentials",
+    description: "Blocks Antigravity CLI hook config under the shared Gemini config directory."
+  },
+  {
+    id: "secret.cli.codex",
+    category: "Coding CLI",
+    label: "Codex credentials",
+    description: "Blocks Codex auth and config files, including CODEX_HOME relocations."
+  },
+  {
+    id: "secret.cli.gemini",
+    category: "Coding CLI",
+    label: "Gemini CLI credentials",
+    description: "Blocks Gemini CLI OAuth, account, settings, and keychain fallback files."
+  },
+  {
+    id: "secret.cli.copilot-cli",
+    category: "Coding CLI",
+    label: "GitHub Copilot CLI credentials",
+    description: "Blocks Copilot CLI auth config and MCP OAuth credential storage."
+  },
+  {
+    id: "secret.cli.kimi-code",
+    category: "Coding CLI",
+    label: "Kimi Code credentials",
+    description: "Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files."
+  },
+  {
+    id: "secret.cli.opencode",
+    category: "Coding CLI",
+    label: "OpenCode credentials",
+    description: "Blocks OpenCode auth stores and credential-bearing global or managed config files."
+  },
+  {
+    id: "secret.cli.pi",
+    category: "Coding CLI",
+    label: "Pi credentials",
+    description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
+  }
+];
 var SECRET_DIRECTORY_RULES = [
   {
     id: "secret.dir.secrets",
@@ -5476,6 +5526,7 @@ var SECRET_PROTECTION_RULE_METADATA = [
   ...SECRET_BASENAME_RULES,
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
+  ...SECRET_CODING_CLI_RULES,
   ...SECRET_DIRECTORY_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,
@@ -8224,6 +8275,8 @@ function isSensitivePath(target, cwd, config) {
       return true;
     }
   }
+  if (matchesCodingCliPath(normalized, cwd, config))
+    return true;
   for (const rule of SECRET_DIRECTORY_RULES) {
     if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config)) {
       return true;
@@ -8263,6 +8316,95 @@ function isSensitivePath(target, cwd, config) {
 }
 function matchesHomePathSuffix(comparablePath, suffix) {
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
+}
+function matchesCodingCliPath(normalized, cwd, config) {
+  return SECRET_CODING_CLI_RULES.some((rule) => {
+    if (!isSecretRuleEnabled(rule.id, config))
+      return false;
+    if (rule.id === "secret.cli.claude-code")
+      return matchesClaudeCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.antigravity")
+      return matchesAntigravityPath(normalized, cwd);
+    if (rule.id === "secret.cli.codex")
+      return matchesCodexPath(normalized, cwd);
+    if (rule.id === "secret.cli.gemini")
+      return matchesGeminiPath(normalized, cwd);
+    if (rule.id === "secret.cli.copilot-cli")
+      return matchesCopilotCliPath(normalized, cwd);
+    if (rule.id === "secret.cli.kimi-code")
+      return matchesKimiCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.opencode")
+      return matchesOpenCodePath(normalized, cwd);
+    if (rule.id === "secret.cli.pi")
+      return matchesPiPath(normalized, cwd);
+    return false;
+  });
+}
+function matchesClaudeCodePath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd), [
+    "settings.json",
+    "settings.local.json",
+    ".credentials.json"
+  ]) || matchesExactPath(normalized, "~/.claude.json", cwd);
+}
+function matchesAntigravityPath(normalized, cwd) {
+  return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd);
+}
+function matchesCodexPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd), [
+    "config.toml",
+    "auth.json",
+    ".credentials.json"
+  ]);
+}
+function matchesGeminiPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd), ".gemini"), [
+    "oauth_creds.json",
+    "mcp-oauth-tokens.json",
+    "a2a-oauth-tokens.json",
+    "google_accounts.json",
+    "settings.json",
+    "gemini-credentials.json"
+  ]);
+}
+function matchesCopilotCliPath(normalized, cwd) {
+  const root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd);
+  return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
+}
+function matchesKimiCodePath(normalized, cwd) {
+  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd);
+  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd);
+  return matchesFileInRoot(normalized, currentRoot, ["config.toml", "mcp.json", "server.token"]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
+}
+function matchesOpenCodePath(normalized, cwd) {
+  const dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode");
+  const configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode");
+  const programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
+  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, root, ["opencode.json", "opencode.jsonc"]));
+}
+function matchesPiPath(normalized, cwd) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd), ["auth.json"]);
+}
+function codingCliRoot(envValue, fallback, cwd) {
+  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd);
+}
+function matchesFileInRoot(normalized, root, files) {
+  return files.some((file) => sameComparablePath(normalized, appendPath(root, file)));
+}
+function matchesDirInRoot(normalized, root, dirs) {
+  return dirs.some((dir) => isSameOrChildPath(comparable(normalized), comparable(appendPath(root, dir))));
+}
+function matchesExactPath(normalized, path, cwd) {
+  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd));
+}
+function matchesOptionalExactPath(normalized, path, cwd) {
+  return path?.trim() ? matchesExactPath(normalized, path, cwd) : false;
+}
+function sameComparablePath(a, b) {
+  return comparable(a) === comparable(b);
+}
+function appendPath(root, ...parts) {
+  return normalizePathText([root, ...parts].filter(Boolean).join("/"));
 }
 function isSensitiveDirSegment(comparablePath, dirName) {
   return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.includes(`/${dirName}/`);
@@ -13112,7 +13254,7 @@ var page_default = `<!doctype html>
       <header class="panel-head">
         <div class="panel-title">
           <h2><button class="panel-toggle" type="button" aria-expanded="false" aria-controls="secret-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Secret Protection</span></button></h2>
-          <p class="panel-sub muted" id="secret-summary">Default secret patterns can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
+          <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
         </div>
       </header>
       <div id="secret-panel-content" hidden>
@@ -13549,7 +13691,7 @@ var page_default = `<!doctype html>
         summaryId: 'secret-summary',
         targetId: 'secret-patterns',
         dataAttribute: 'data-secret-active',
-        emptyText: 'No secret patterns match the search.',
+        emptyText: 'No secret protections match the search.',
         summaryText: secretSummaryText,
         disabled: !draftPolicy.secret_protection.enabled
       });
@@ -13563,7 +13705,7 @@ var page_default = `<!doctype html>
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>';
       qs('secret').innerHTML =
-        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive path patterns and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Exact normalized paths are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
         '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
@@ -13679,7 +13821,7 @@ var page_default = `<!doctype html>
         void (async () => {
           if (!input.checked && !(await confirmProtectionDisable({
             title: 'Disable secret protection?',
-            body: 'Default sensitive path patterns and deny paths will stop blocking access until you turn this back on.'
+            body: 'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.'
           }))) {
             input.checked = true;
             return;
