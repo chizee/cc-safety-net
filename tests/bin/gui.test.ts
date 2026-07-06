@@ -10,7 +10,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPolicyGuiServer, runGuiCommand, starRepo } from '@/bin/gui';
+import {
+  createPolicyGuiServer,
+  fetchStarContext,
+  runGuiCommand,
+  starRepo,
+  userHasStarredRepo,
+} from '@/bin/gui';
 
 interface PolicyApiResponse {
   exists: boolean;
@@ -26,6 +32,12 @@ interface PolicyApiResponse {
 
 interface WriteApiResponse {
   errors: string[];
+}
+
+interface StarContextApiResponse {
+  starred: boolean | null;
+  starCount: number | null;
+  blockedTotal: number;
 }
 
 describe('policy GUI server', () => {
@@ -198,40 +210,73 @@ describe('policy GUI server', () => {
       expect(html).toContain('>Repair</button>');
       expect(html).toContain('readonly></textarea>');
       expect(html).toContain('Read-only mirror of the controls.');
-      expect(html).toContain('<footer class="page-footer">');
-      expect(html).toContain('If CC Safety Net is useful to you, consider starring it on GitHub.');
-      expect(html).toContain('aria-label="Star CC Safety Net on GitHub"');
-      expect(html).toContain('<span class="star-icon" id="star-icon" aria-hidden="true">');
+      expect(html).toContain('<div class="star-row" id="star-row" hidden>');
+      expect(html).toContain('<span id="star-pitch-text"></span>');
+      expect(html).toContain('<span class="star-mechanism" id="star-mechanism" hidden>');
+      expect(html).toContain('One click via your GitHub CLI. No redirect.');
+      expect(html).toContain('<span id="star-slot"></span>');
+      expect(html.indexOf('id="star-row"')).toBeGreaterThan(html.indexOf('id="reset"'));
+      expect(html.indexOf('id="star-row"')).toBeLessThan(html.indexOf('id="app-status"'));
+      expect(html).not.toContain('<footer class="page-footer">');
+      expect(html).toContain('If CC Safety Net is useful to you, star it on GitHub.');
       expect(html).toContain('const starIcons =');
-      expect(html).toContain('id="star-repo"');
-      expect(html).toContain('Star on GitHub');
+      expect(html).not.toContain('id="star-repo"');
+      expect(html).not.toContain('starCtaDismissedKey');
+      expect(html).toContain('const formatStarCount = (count) => {');
+      expect(html).toContain(
+        "if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k`;",
+      );
+      expect(html).toContain('const renderStarCta = (context) => {');
+      expect(html).toContain('if (context.starred === true) {');
+      expect(html).not.toContain('localStorage.getItem(starCtaDismissedKey)');
+      expect(html).toContain(
+        'aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI."',
+      );
+      expect(html).toContain(
+        "CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? ",
+      );
+      expect(html).toContain("qs('star-mechanism').hidden = context.starred !== false;");
+      expect(html).toContain('const renderStarPitch = (context, starred = false) => {');
+      expect(html).toContain('${evidence} If it saved your work, star it on GitHub.');
+      expect(html).toContain('renderStarPitch(activeStarContext, true);');
+      expect(html).toContain('target="_blank" rel="noopener"');
+      expect(html).toContain('aria-label="Star CC Safety Net on GitHub (opens github.com)"');
+      expect(html).not.toContain('aria-label="Hide star button"');
+      expect(html).not.toContain('star-dismiss');
       expect(html).toContain(
         "const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';",
       );
-      expect(html).toContain("const starRepoButton = qs('star-repo');");
       expect(html).toContain("const result = await requestJson('/api/star', { method: 'POST' });");
-      expect(html).toContain("textContent = 'Starred. Thank you.';");
       expect(html).toContain(
-        "window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');",
+        "button.querySelector('.star-label').textContent = 'Starred. Thank you.';",
       );
+      expect(html).toContain(
+        'renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);',
+      );
+      expect(html).not.toContain('window.location.href');
+      expect(html).not.toContain('Could not star via GitHub CLI (gh missing or not authenticated)');
+      expect(html).not.toContain('window.open(');
       expect(html).not.toContain("window.open('', '_blank')");
-      expect(html).toContain("starRepoButton.classList.add('starred');");
-      expect(html).toContain(
-        "starRepoButton.setAttribute('aria-label', 'CC Safety Net starred on GitHub');",
-      );
-      expect(html).toContain("qs('star-icon').innerHTML = starIcons.filled;");
       expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
-      expect(html).toContain('.page-footer {');
+      expect(html).not.toContain('.page-footer {');
+      expect(html).toContain('.star-row {');
+      expect(html).toContain('.star-pitch {');
+      expect(html).toContain('.star-mechanism {');
       expect(html).toContain('.star-cta {');
       expect(html).toContain('.star-icon {');
-      expect(html).toContain('.star-copy {');
+      expect(html).not.toContain('.star-copy {');
+      expect(html).toContain('.star-count {');
+      expect(html).not.toContain('.star-dismiss {');
       expect(html).toContain('border-color: var(--border-strong);');
-      expect(html).toContain('background: var(--surface);');
       expect(html).not.toContain('background: var(--star-bg);');
       expect(html).not.toContain('border-color: var(--star-border);');
-      expect(html).toContain('align-self: center;');
-      expect(html).toContain('#star-repo.starred:disabled {');
+      expect(html).not.toContain('.star-cta {\n    align-self: center;');
+      expect(html).toContain('.star-cta.starred:disabled {');
       expect(html).toContain('cursor: default;');
+      expect(html).toContain('.star-row .star-cta,\n  .star-row #star-slot {');
+      expect(html).toContain('#star-slot {');
+      expect(html).toContain('white-space: nowrap;');
+      expect(html).toContain('href="${escapeHtml(href)}"');
       expect(html).not.toContain('rawIsManual');
       expect(html).not.toContain("if (input.id === 'raw')");
       expect(html).not.toContain("JSON.parse(qs('raw')");
@@ -503,6 +548,108 @@ describe('policy GUI server', () => {
       });
     } finally {
       await server.close();
+    }
+  });
+
+  test('GET api star context requires URL token and returns injected context', async () => {
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      fetchStarContext: async () => ({ starred: false, starCount: 1234, blockedTotal: 14 }),
+    });
+    try {
+      expect((await fetch(`${server.origin}/api/star/context`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/api/star/context?token=wrong`)).status).toBe(403);
+      expect(
+        await getJson<StarContextApiResponse>(
+          `${server.origin}/api/star/context?token=${server.token}`,
+        ),
+      ).toEqual({ starred: false, starCount: 1234, blockedTotal: 14 });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('star context reads all-time blocked activity and degrades failed fields independently', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    writeFileSync(
+      join(logsDir, 'session.jsonl'),
+      [
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          decision: 'block',
+          command: 'rm -rf .',
+          reason: 'destructive',
+        }),
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          decision: 'allow',
+          command: 'git status',
+          reason: 'safe',
+        }),
+        JSON.stringify({
+          ts: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+          decision: 'block',
+          command: 'git reset --hard',
+          reason: 'destructive',
+        }),
+      ].join('\n'),
+      'utf-8',
+    );
+
+    expect(
+      await fetchStarContext({
+        command: join(tempDir, 'missing-gh'),
+        logsDir,
+        fetchRepo: async () => {
+          throw new Error('offline');
+        },
+      }),
+    ).toEqual({ starred: null, starCount: null, blockedTotal: 2 });
+  });
+
+  test('userHasStarredRepo uses gh CLI with fixed argv and maps exits', async () => {
+    const localTempDir = mkdtempSync(join(process.cwd(), '.tmp-star-check-'));
+    const binDir = join(localTempDir, 'bin');
+    const ghPath = join(binDir, 'gh');
+    const starLog = join(localTempDir, 'star-check-argv.txt');
+    mkdirSync(binDir);
+    writeFileSync(
+      ghPath,
+      '#!/bin/sh\nprintf "%s\\n" "$@" > "$STAR_LOG"\nexit "$STAR_EXIT"\n',
+      'utf-8',
+    );
+    chmodSync(ghPath, 0o755);
+
+    const originalStarLog = process.env.STAR_LOG;
+    const originalStarExit = process.env.STAR_EXIT;
+    process.env.STAR_LOG = starLog;
+    try {
+      process.env.STAR_EXIT = '0';
+      expect(await userHasStarredRepo(ghPath)).toBe(true);
+      expect(readFileSync(starLog, 'utf-8')).toBe('api\n/user/starred/kenryu42/cc-safety-net\n');
+
+      process.env.STAR_EXIT = '1';
+      expect(await userHasStarredRepo(ghPath)).toBe(false);
+      expect(await userHasStarredRepo(join(localTempDir, 'missing-gh'))).toBeNull();
+    } finally {
+      restoreEnv('STAR_LOG', originalStarLog);
+      restoreEnv('STAR_EXIT', originalStarExit);
+      rmSync(localTempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('star helpers return fallback states on timeout', async () => {
+    const localTempDir = mkdtempSync(join(process.cwd(), '.tmp-star-timeout-'));
+    const ghPath = join(localTempDir, 'gh');
+    writeFileSync(ghPath, '#!/bin/sh\n/bin/sleep 1\n', 'utf-8');
+    chmodSync(ghPath, 0o755);
+
+    try {
+      expect(await starRepo(ghPath, 10)).toEqual({ ok: false });
+      expect(await userHasStarredRepo(ghPath, 10)).toBeNull();
+    } finally {
+      rmSync(localTempDir, { recursive: true, force: true });
     }
   });
 

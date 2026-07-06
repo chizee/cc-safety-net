@@ -12818,24 +12818,40 @@ textarea {
   min-height: 280px;
 }
 
-.page-footer {
+.star-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  gap: 12px;
+  flex: 1 0 100%;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
+  border-radius: var(--radius);
+  background: var(--surface-2);
 }
 
-.star-copy {
+.star-pitch {
+  flex: 1 1 auto;
   min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
-.star-copy p {
-  margin: 0;
-  font-size: 12.5px;
+.star-pitch strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.star-mechanism {
+  display: block;
+  margin-top: 2px;
+  color: var(--meta);
+  font-size: 11.5px;
+}
+
+#star-slot {
+  display: inline-flex;
+  flex: none;
 }
 
 .star-cta {
@@ -12844,29 +12860,58 @@ textarea {
   justify-content: center;
   gap: 8px;
   flex: none;
-  border-color: var(--border-strong);
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
   background: var(--surface);
-  color: var(--ink);
+  border-color: var(--border-strong);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .star-cta:hover:not(:disabled) {
-  border-color: var(--muted);
+  border-color: color-mix(in srgb, var(--star) 45%, var(--border-strong));
   background: var(--surface-2);
+  color: var(--ink);
+}
+
+.star-cta:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .star-icon {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   color: var(--star);
 }
 
 .star-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
-#star-repo.starred:disabled {
+.star-count {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  border-left: 1px solid var(--border-strong);
+  padding-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.star-cta.starred:disabled {
   opacity: 1;
   cursor: default;
 }
@@ -12910,13 +12955,14 @@ textarea {
     padding: 16px;
   }
 
-  .page-footer {
-    align-items: flex-start;
-    flex-direction: column;
+  .star-row {
+    flex-wrap: wrap;
   }
 
-  .star-cta {
-    align-self: center;
+  .star-row .star-cta,
+  .star-row #star-slot {
+    flex: 1 1 100%;
+    justify-content: center;
   }
 
   .panel-head {
@@ -12965,6 +13011,10 @@ var page_default = `<!doctype html>
         <button type="button" id="theme-toggle"></button>
         <button class="primary" id="save">Save</button>
         <button class="danger" id="reset">Reset</button>
+      </div>
+      <div class="star-row" id="star-row" hidden>
+        <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
+        <span id="star-slot"></span>
       </div>
       <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
     </div>
@@ -13032,15 +13082,6 @@ var page_default = `<!doctype html>
       </div>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
-    <footer class="page-footer">
-      <div class="star-copy">
-        <p class="muted">If CC Safety Net is useful to you, consider starring it on GitHub.</p>
-      </div>
-      <button type="button" id="star-repo" class="star-cta" aria-label="Star CC Safety Net on GitHub">
-        <span class="star-icon" id="star-icon" aria-hidden="true"></span>
-        <span>Star on GitHub</span>
-      </button>
-    </footer>
   </main>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
     <form method="dialog">
@@ -13082,6 +13123,7 @@ var page_default = `<!doctype html>
     let draftPolicy;
     let dirty = false;
     let rawCopyResetTimer = null;
+    let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
     const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
       ...init,
       headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
@@ -13229,21 +13271,78 @@ var page_default = `<!doctype html>
         qs('raw-copy').disabled = false;
       }
     };
-    const starRepo = async () => {
-      const starRepoButton = qs('star-repo');
-      starRepoButton.disabled = true;
+    const formatStarCount = (count) => {
+      if (typeof count !== 'number') return '';
+      if (count >= 1000) return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k\`;
+      return String(count);
+    };
+    const starCountHtml = (count) => {
+      const formatted = formatStarCount(count);
+      return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : '';
+    };
+    const hideStarCta = () => {
+      qs('star-row').hidden = true;
+      qs('star-slot').innerHTML = '';
+    };
+    const renderStarPitch = (context, starred = false) => {
+      const evidence = context.blockedTotal > 0
+        ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command\${context.blockedTotal === 1 ? '' : 's'} on this machine.\`
+        : '';
+      if (starred) {
+        qs('star-pitch-text').innerHTML = evidence;
+        return;
+      }
+      qs('star-pitch-text').innerHTML = evidence
+        ? \`\${evidence} If it saved your work, star it on GitHub.\`
+        : 'If CC Safety Net is useful to you, star it on GitHub.';
+    };
+    const renderStarLink = (context, href = fallbackRepoUrl) => {
+      qs('star-slot').innerHTML = \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
+          <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+          <span class="star-label">Star on GitHub</span>
+          \${starCountHtml(context.starCount)}
+        </a>\`;
+      qs('star-row').hidden = false;
+    };
+    const renderStarCta = (context) => {
+      activeStarContext = context;
+      if (context.starred === true) {
+        hideStarCta();
+        return;
+      }
+      renderStarPitch(context);
+      qs('star-mechanism').hidden = context.starred !== false;
+      if (context.starred === null) {
+        renderStarLink(context);
+        return;
+      }
+      qs('star-slot').innerHTML = \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
+          <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+          <span class="star-label">Star on GitHub</span>
+          \${starCountHtml(context.starCount)}
+        </button>\`;
+      qs('star-row').hidden = false;
+    };
+    const starRepo = async (button) => {
+      button.disabled = true;
       const result = await requestJson('/api/star', { method: 'POST' });
       if (result.ok && result.data?.ok === true) {
-        qs('star-icon').innerHTML = starIcons.filled;
-        starRepoButton.querySelector('span:last-child').textContent = 'Starred. Thank you.';
-        starRepoButton.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
-        starRepoButton.classList.add('starred');
+        button.querySelector('.star-icon').innerHTML = starIcons.filled;
+        button.querySelector('.star-label').textContent = 'Starred. Thank you.';
+        button.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
+        button.classList.add('starred');
+        qs('star-mechanism').hidden = true;
+        renderStarPitch(activeStarContext, true);
         setAppStatus('Starred on GitHub', 'ok');
         setDetailStatus('');
         return;
       }
-      window.open(result.data?.fallbackUrl ?? fallbackRepoUrl, '_blank', 'noopener');
-      starRepoButton.disabled = false;
+      qs('star-mechanism').hidden = true;
+      renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);
+    };
+    const loadStarContext = async () => {
+      const result = await requestJson('/api/star/context');
+      renderStarCta(result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 });
     };
     const syncRawFromForm = () => {
       if (state?.errors.length) return;
@@ -13554,6 +13653,11 @@ var page_default = `<!doctype html>
       }
       const removeButton = event.target.closest?.('[data-deny-path-remove]');
       if (removeButton) removeDenyPath(Number(removeButton.dataset.denyPathRemove));
+      const starButton = event.target.closest?.('.star-cta');
+      if (starButton?.tagName === 'BUTTON') {
+        void starRepo(starButton);
+        return;
+      }
     });
     qs('save').onclick = () => {
       if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
@@ -13604,12 +13708,8 @@ var page_default = `<!doctype html>
       });
     };
     setRawCopyCopied(false);
-    qs('star-icon').innerHTML = starIcons.outline;
     qs('raw-copy').onclick = () => {
       void copyRawToClipboard();
-    };
-    qs('star-repo').onclick = () => {
-      void starRepo();
     };
     const themeOrder = ['auto', 'light', 'dark'];
     const themeIcons = {
@@ -13633,7 +13733,9 @@ var page_default = `<!doctype html>
       else localStorage.setItem('cc-safety-net-theme', themePref);
       applyTheme(themePref);
     };
-    load().catch((error) => {
+    load().then((loaded) => {
+      if (loaded) void loadStarContext();
+    }).catch((error) => {
       setAppStatus('Load failed', 'error');
       setDetailStatus(String(error), 'error');
     });
@@ -13744,6 +13846,10 @@ async function handleRequest(request, response, token, options2) {
     sendJson(response, 200, repairUserPolicyForGui(options2));
     return;
   }
+  if (request.method === "GET" && url.pathname === "/api/star/context") {
+    sendJson(response, 200, await (options2.fetchStarContext ?? (() => fetchStarContext({ logsDir: options2.activityLogsDir })))());
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/star") {
     const result = await (options2.starRepo ?? starRepo)();
     sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
@@ -13831,29 +13937,64 @@ function openBrowser(url) {
     child.once("spawn", handleSpawn);
   });
 }
-function starRepo(command2 = "gh") {
+async function starRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
+  return {
+    ok: await runGhCommand(command2, ["api", "-X", "PUT", `/user/starred/${REPO}`], timeoutMs) === 0
+  };
+}
+async function fetchStarContext(options2 = {}) {
+  const [starred, starCount, blockedTotal] = await Promise.all([
+    userHasStarredRepo(options2.command),
+    fetchStarCount(options2.fetchRepo),
+    Promise.resolve(getActivitySummary(36500, options2.logsDir).totalBlocked)
+  ]);
+  return { starred, starCount, blockedTotal };
+}
+async function userHasStarredRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
+  const starredExitCode = await runGhCommand(command2, ["api", `/user/starred/${REPO}`], timeoutMs);
+  if (starredExitCode === 0)
+    return true;
+  if (starredExitCode === null)
+    return null;
+  return false;
+}
+function runGhCommand(command2, args, timeoutMs) {
   return new Promise((resolve11) => {
-    const child = spawn2(command2, ["api", "-X", "PUT", `/user/starred/${REPO}`], {
+    const child = spawn2(command2, args, {
       stdio: "ignore",
       windowsHide: true
     });
     let settled = false;
     let timeout;
-    const finish = (ok) => {
+    const finish = (code) => {
       if (settled)
         return;
       settled = true;
       if (timeout)
         clearTimeout(timeout);
-      resolve11({ ok });
+      resolve11(code);
     };
-    child.once("error", () => finish(false));
-    child.once("close", (code) => finish(code === 0));
+    child.once("error", () => finish(null));
+    child.once("close", finish);
     timeout = setTimeout(() => {
       child.kill();
-      finish(false);
-    }, STAR_TIMEOUT_MS);
+      finish(null);
+    }, timeoutMs);
   });
+}
+async function fetchStarCount(fetchRepo = fetch) {
+  try {
+    const response = await fetchRepo(`https://api.github.com/repos/${REPO}`, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(STAR_TIMEOUT_MS)
+    });
+    if (!response.ok)
+      return null;
+    const body = await response.json();
+    return typeof body.stargazers_count === "number" ? body.stargazers_count : null;
+  } catch {
+    return null;
+  }
 }
 
 // src/bin/help.ts

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { getActivitySummary } from '@/bin/doctor/activity';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
 import {
   DEFAULT_GUI_POLICY,
@@ -17,6 +18,14 @@ import { renderPolicyGuiHtml } from './page';
 const REPO = 'kenryu42/cc-safety-net';
 const REPO_URL = `https://github.com/${REPO}`;
 const STAR_TIMEOUT_MS = 10_000;
+type StarCountFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+/** @internal */
+export interface StarContext {
+  starred: boolean | null;
+  starCount: number | null;
+  blockedTotal: number;
+}
 
 /** @internal */
 export interface PolicyGuiServer {
@@ -28,6 +37,8 @@ export interface PolicyGuiServer {
 
 interface PolicyGuiServerOptions extends RulesPolicyOptions {
   starRepo?: () => Promise<{ ok: boolean }>;
+  fetchStarContext?: () => Promise<StarContext>;
+  activityLogsDir?: string;
   token?: string;
 }
 
@@ -159,6 +170,17 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/star/context') {
+    sendJson(
+      response,
+      200,
+      await (
+        options.fetchStarContext ?? (() => fetchStarContext({ logsDir: options.activityLogsDir }))
+      )(),
+    );
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/star') {
     const result = await (options.starRepo ?? starRepo)();
     sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
@@ -258,25 +280,76 @@ function openBrowser(url: string): Promise<void> {
 }
 
 /** @internal */
-export function starRepo(command = 'gh'): Promise<{ ok: boolean }> {
+export async function starRepo(
+  command = 'gh',
+  timeoutMs = STAR_TIMEOUT_MS,
+): Promise<{ ok: boolean }> {
+  return {
+    ok:
+      (await runGhCommand(command, ['api', '-X', 'PUT', `/user/starred/${REPO}`], timeoutMs)) === 0,
+  };
+}
+
+/** @internal */
+export async function fetchStarContext(
+  options: { command?: string; logsDir?: string; fetchRepo?: StarCountFetch } = {},
+): Promise<StarContext> {
+  const [starred, starCount, blockedTotal] = await Promise.all([
+    userHasStarredRepo(options.command),
+    fetchStarCount(options.fetchRepo),
+    Promise.resolve(getActivitySummary(36_500, options.logsDir).totalBlocked),
+  ]);
+  return { starred, starCount, blockedTotal };
+}
+
+/** @internal */
+export async function userHasStarredRepo(
+  command = 'gh',
+  timeoutMs = STAR_TIMEOUT_MS,
+): Promise<boolean | null> {
+  const starredExitCode = await runGhCommand(command, ['api', `/user/starred/${REPO}`], timeoutMs);
+  if (starredExitCode === 0) return true;
+  if (starredExitCode === null) return null;
+  return false;
+}
+
+function runGhCommand(
+  command: string,
+  args: readonly string[],
+  timeoutMs: number,
+): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn(command, ['api', '-X', 'PUT', `/user/starred/${REPO}`], {
+    const child = spawn(command, args, {
       stdio: 'ignore',
       windowsHide: true,
     });
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const finish = (ok: boolean) => {
+    const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
-      resolve({ ok });
+      resolve(code);
     };
-    child.once('error', () => finish(false));
-    child.once('close', (code) => finish(code === 0));
+    child.once('error', () => finish(null));
+    child.once('close', finish);
     timeout = setTimeout(() => {
       child.kill();
-      finish(false);
-    }, STAR_TIMEOUT_MS);
+      finish(null);
+    }, timeoutMs);
   });
+}
+
+async function fetchStarCount(fetchRepo: StarCountFetch = fetch): Promise<number | null> {
+  try {
+    const response = await fetchRepo(`https://api.github.com/repos/${REPO}`, {
+      headers: { accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(STAR_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { stargazers_count?: unknown };
+    return typeof body.stargazers_count === 'number' ? body.stargazers_count : null;
+  } catch {
+    return null;
+  }
 }
