@@ -3,6 +3,7 @@ import { detectAllHooks } from '@/bin/doctor/hooks';
 import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system-info';
 import type { PiProbeInfo } from '@/bin/doctor/types';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
+import { printInstallBanner } from '@/bin/hook/install/banner';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
 import { type NativeCommand, runNativeCommands } from '@/bin/hook/install/native';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
@@ -269,6 +270,9 @@ export async function runInstallCommand(
   options: RunInstallCommandOptions = {},
 ): Promise<number> {
   try {
+    if (action === 'install')
+      await printInstallBanner({ output: options.output ?? process.stdout });
+
     const targets = await resolveInstallTargets(action, args, options);
     if (!targets) return 1;
 
