@@ -1806,7 +1806,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Codex: n/a when output contains old plugin name without repository URL', () => {
+  test('Codex: n/a when output contains marketplace id without repository URL', () => {
     const tmpBase = join(tmpdir(), `doctor-codex-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');

@@ -213,7 +213,7 @@ describe('install command', () => {
       ['codex'],
       [
         'codex plugin marketplace add kenryu42/cc-marketplace',
-        'codex plugin add cc-safety-net@cc-marketplace',
+        'codex plugin add safety-net@cc-marketplace',
       ],
       'Installed Codex integration',
       {
@@ -232,7 +232,7 @@ describe('install command', () => {
       ['claude'],
       [
         'claude plugin marketplace add kenryu42/cc-marketplace',
-        'claude plugin install cc-safety-net',
+        'claude plugin install safety-net@cc-marketplace',
       ],
       'Installed Claude Code integration',
     );
@@ -253,7 +253,7 @@ describe('install command', () => {
       ['copilot'],
       [
         'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
+        'copilot plugin install safety-net@cc-marketplace',
       ],
       'Installed GitHub Copilot CLI integration',
     );
@@ -619,7 +619,10 @@ describe('uninstall command', () => {
     await expectNativeUninstall(
       '--claude-code',
       ['claude'],
-      ['claude plugin uninstall cc-safety-net', 'claude plugin marketplace remove cc-marketplace'],
+      [
+        'claude plugin uninstall safety-net@cc-marketplace',
+        'claude plugin marketplace remove cc-marketplace',
+      ],
       'Uninstalled Claude Code integration',
     );
   });

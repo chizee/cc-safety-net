@@ -54,10 +54,10 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     name: 'Claude Code',
     installCommands: [
       ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['claude', 'plugin', 'install', 'cc-safety-net'],
+      ['claude', 'plugin', 'install', 'safety-net@cc-marketplace'],
     ],
     uninstallCommands: [
-      ['claude', 'plugin', 'uninstall', 'cc-safety-net'],
+      ['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace'],
       ['claude', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
   },
@@ -65,7 +65,7 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     name: 'Codex',
     installCommands: [
       ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
+      ['codex', 'plugin', 'add', 'safety-net@cc-marketplace'],
     ],
     uninstallCommands: [
       ['codex', 'plugin', 'remove', 'safety-net@cc-marketplace'],
@@ -78,7 +78,7 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     name: 'GitHub Copilot CLI',
     installCommands: [
       ['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['copilot', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
+      ['copilot', 'plugin', 'install', 'safety-net@cc-marketplace'],
     ],
     uninstallCommands: [
       ['copilot', 'plugin', 'uninstall', 'safety-net@cc-marketplace'],
@@ -147,6 +147,7 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
 
   const [
     claudePluginListOutput,
+    codexPluginListOutput,
     geminiExtensionsListOutput,
     copilotBinaryVersion,
     copilotFallbackVersion,
@@ -154,6 +155,7 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
     piSafetyNetProbe,
   ] = await Promise.all([
     defaultVersionFetcher(['claude', 'plugin', 'list']),
+    defaultVersionFetcher(['codex', 'plugin', 'list']),
     defaultVersionFetcher(['gemini', 'extensions', 'list']),
     copilotBinaryVersionPromise,
     copilotFallbackVersionPromise,
@@ -163,6 +165,7 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
 
   return detectAllHooks(process.cwd(), {
     claudePluginListOutput,
+    codexPluginListOutput,
     geminiExtensionsListOutput,
     copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
     copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
