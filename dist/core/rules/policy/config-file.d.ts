@@ -16,4 +16,6 @@ export declare function readScopeRulesConfig(path: string): {
 };
 export declare function writeDefaultRulesConfig(path: string, rules?: string[]): void;
 export declare function writeStarterRulebook(path: string, name?: string): void;
-export declare function writeJsonAtomic(path: string, value: unknown): void;
+/** @internal */
+export declare function createAtomicTempPath(path: string): string;
+export declare function writeJsonAtomic(path: string, value: unknown, mode?: number): void;

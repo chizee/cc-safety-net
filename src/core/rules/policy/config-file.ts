@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { BLOCK_INTENTS, COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
@@ -189,9 +190,23 @@ export function writeStarterRulebook(path: string, name = 'project-rules'): void
   });
 }
 
-export function writeJsonAtomic(path: string, value: unknown): void {
+/** @internal */
+export function createAtomicTempPath(path: string): string {
+  return `${path}.${randomBytes(8).toString('hex')}.tmp`;
+}
+
+export function writeJsonAtomic(path: string, value: unknown, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
-  renameSync(tempPath, path);
+  const tempPath = createAtomicTempPath(path);
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: 'utf-8',
+      flag: 'wx',
+      mode,
+    });
+    renameSync(tempPath, path);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
 }

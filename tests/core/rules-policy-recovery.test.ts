@@ -31,7 +31,7 @@ import {
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/core/rules/policy';
-import { validateRulesConfig } from '@/core/rules/policy/config-file';
+import { createAtomicTempPath, validateRulesConfig } from '@/core/rules/policy/config-file';
 import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getProjectRulesLockPath, getRulebookCachePath } from '@/core/rules/policy/paths';
 import {
@@ -215,6 +215,28 @@ describe('rules policy recovery coverage', () => {
       expect(readRulesConfig(configPath).config?.rules).toEqual(['project-rules']);
       writeStarterRulebook(join(tempDir, 'starter.json'), 'user-rules');
       expect(readFileSync(join(tempDir, 'starter.json'), 'utf-8')).toContain('User-specific');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('atomic config temp paths use unpredictable filenames', () => {
+    const tempDir = makeTempDir('rules-policy-atomic-temp');
+    const configPath = join(tempDir, 'rule.json');
+
+    try {
+      const tempPaths = Array.from({ length: 4 }, () => createAtomicTempPath(configPath));
+
+      expect(new Set(tempPaths).size).toBe(tempPaths.length);
+      for (const tempPath of tempPaths) {
+        expect(tempPath.startsWith(`${configPath}.`)).toBe(true);
+        expect(tempPath.endsWith('.tmp')).toBe(true);
+        expect(tempPath).not.toContain(`.${process.pid}.`);
+        expect(tempPath).not.toMatch(/\.\d{13}\.tmp$/);
+      }
+
+      writeDefaultRulesConfig(configPath, ['project-rules']);
+      expect(readRulesConfig(configPath).config?.rules).toEqual(['project-rules']);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

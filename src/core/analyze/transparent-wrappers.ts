@@ -27,17 +27,14 @@ export function unwrapTransparentWrapper(
     return null;
   }
 
-  const childIndex = tokens[1] === '--' ? 2 : 1;
-  const child = tokens[childIndex];
-  if (!child || getBasename(child) === getBasename(head)) {
-    return null;
-  }
-
-  if (!isProtectableCommand(child, config)) {
-    return null;
-  }
-
-  return { wrapper: getBasename(head), tokens: [...tokens.slice(childIndex)] };
+  const wrapper = getBasename(head);
+  const startIndex = tokens[1] === '--' ? 2 : 1;
+  const childIndex = tokens.findIndex(
+    (child, index) =>
+      index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, config),
+  );
+  if (childIndex < 0) return null;
+  return { wrapper, tokens: [...tokens.slice(childIndex)] };
 }
 
 function isProtectableCommand(

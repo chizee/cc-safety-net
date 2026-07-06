@@ -34,6 +34,19 @@ const TRANSPARENT_RTK_CONFIG: Config = {
   rules: [],
   transparent_wrappers: ['rtk'],
 };
+const TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG: Config = {
+  version: 1,
+  transparent_wrappers: ['rtk'],
+  rules: [
+    {
+      name: 'block-docker-prune',
+      command: 'docker',
+      subcommand: 'system',
+      block_args: ['prune'],
+      reason: 'Use targeted Docker cleanup.',
+    },
+  ],
+};
 
 async function analyzeInLinkedWorktree(command: (mainWorktree: string) => string) {
   return withLinkedWorktreeFixture((fixture) =>
@@ -267,22 +280,28 @@ describe('analyzeCommand (coverage)', () => {
     expect(result?.segment).toBe('rtk git reset --hard');
   });
 
+  test('transparent wrapper finds custom-rule child command after wrapper arguments', () => {
+    const result = analyzeCommand('rtk -x arg docker system prune', {
+      cwd: '/tmp',
+      config: TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG,
+    });
+    expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
+    expect(result?.segment).toBe('rtk -x arg docker system prune');
+  });
+
+  test('transparent wrapper finds custom-rule child command after wrapper env assignment', () => {
+    const result = analyzeCommand('rtk VAR=val docker system prune', {
+      cwd: '/tmp',
+      config: TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG,
+    });
+    expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
+    expect(result?.segment).toBe('rtk VAR=val docker system prune');
+  });
+
   test('transparent wrapper lets custom rules protect non-built-in child command', () => {
     const result = analyzeCommand('rtk docker system prune', {
       cwd: '/tmp',
-      config: {
-        version: 1,
-        transparent_wrappers: ['rtk'],
-        rules: [
-          {
-            name: 'block-docker-prune',
-            command: 'docker',
-            subcommand: 'system',
-            block_args: ['prune'],
-            reason: 'Use targeted Docker cleanup.',
-          },
-        ],
-      },
+      config: TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG,
     });
     expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
   });

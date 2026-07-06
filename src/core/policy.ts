@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
@@ -6,6 +6,7 @@ import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 
+import { writeJsonAtomic } from '@/core/rules/policy/config-file';
 import { getUserRulesDir } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
@@ -162,12 +163,7 @@ export function writeUserPolicyFromGui(
   }
 
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmpPath, `${JSON.stringify(normalizedPolicy, null, 2)}\n`, {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
-  renameSync(tmpPath, path);
+  writeJsonAtomic(path, normalizedPolicy, 0o600);
   chmodSync(path, 0o600);
   return { path, policy: normalizedPolicy, errors: [] };
 }

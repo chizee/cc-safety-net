@@ -3859,15 +3859,12 @@ function unwrapTransparentWrapper(tokens, config) {
   if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
     return null;
   }
-  const childIndex = tokens[1] === "--" ? 2 : 1;
-  const child = tokens[childIndex];
-  if (!child || getBasename(child) === getBasename(head)) {
+  const wrapper = getBasename(head);
+  const startIndex = tokens[1] === "--" ? 2 : 1;
+  const childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, config));
+  if (childIndex < 0)
     return null;
-  }
-  if (!isProtectableCommand(child, config)) {
-    return null;
-  }
-  return { wrapper: getBasename(head), tokens: [...tokens.slice(childIndex)] };
+  return { wrapper, tokens: [...tokens.slice(childIndex)] };
 }
 function isProtectableCommand(token, config) {
   const basename = getBasename(token);
@@ -5237,8 +5234,8 @@ import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:
 import { resolve as resolve7 } from "node:path";
 
 // src/core/policy.ts
-import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
-import { dirname as dirname5, join as join5 } from "node:path";
+import { chmodSync, existsSync as existsSync5, mkdirSync as mkdirSync2, readFileSync as readFileSync4 } from "node:fs";
+import { dirname as dirname6, join as join5 } from "node:path";
 
 // src/core/secret-protection-rules.ts
 var SECRET_BASENAME_RULES = [
@@ -5541,6 +5538,11 @@ var SECRET_PROTECTION_RULE_METADATA = [
 }));
 var SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);
 var SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
+// src/core/rules/policy/config-file.ts
+import { randomBytes } from "node:crypto";
+import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname as dirname5 } from "node:path";
+
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname4, join as join4, resolve as resolve4 } from "node:path";
@@ -5623,6 +5625,350 @@ function getRulesCacheDir(options2) {
   return join4(dirname4(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
 }
 
+// src/core/rules/policy/sources.ts
+var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
+var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
+var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
+var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
+var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
+function getRulebookSourceSyntaxError(source) {
+  if (isGitHubRulebookSource(source)) {
+    try {
+      parseGitHubSource(source);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
+}
+function parseGitHubSource(spec) {
+  if (spec.startsWith("github:")) {
+    throw new Error(`Invalid rulebook source: ${spec}`);
+  }
+  const match = spec.match(GITHUB_SOURCE_RE);
+  if (!match?.[1] || !match[2] || !match[3]) {
+    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
+  }
+  const [ref, name, ...extraParts] = match[3].split("/");
+  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
+    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
+  }
+  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
+    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
+  }
+  return {
+    owner: match[1],
+    repo: match[2],
+    ref,
+    path: getRepositoryRulebookPath(name),
+    name
+  };
+}
+function isGitHubRepositorySource(source) {
+  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
+}
+function isGitHubRulebookSource(source) {
+  return GITHUB_SOURCE_RE.test(source);
+}
+function assertBareRulebookName(source) {
+  if (!NAME_PATTERN.test(source)) {
+    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
+  }
+}
+function getSelectedUpdateSpecs(config, lock, match) {
+  const exactMatches = config.rules.filter((spec) => spec === match);
+  if (exactMatches.length > 0) {
+    return { ok: true, specs: exactMatches };
+  }
+  if (!lock) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        errors: [
+          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
+        ],
+        warnings: [],
+        entries: []
+      }
+    };
+  }
+  const configuredSpecs = new Set(config.rules);
+  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
+  if (nameMatches.length === 1) {
+    return { ok: true, specs: nameMatches };
+  }
+  return noRulebookMatch(match, nameMatches);
+}
+function getRemoveMatches(rules, lock, match) {
+  const exactMatches = rules.filter((spec) => spec === match);
+  if (exactMatches.length > 0)
+    return { ok: true, specs: exactMatches };
+  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
+  if (githubRefMatches.length > 0)
+    return { ok: true, specs: githubRefMatches };
+  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
+  if (!githubRepositoryMatches.ok)
+    return githubRepositoryMatches;
+  if (githubRepositoryMatches.specs.length > 0) {
+    return { ok: true, specs: githubRepositoryMatches.specs };
+  }
+  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
+  if (nameMatches.length === 1)
+    return { ok: true, specs: nameMatches };
+  return noRulebookMatch(match, nameMatches);
+}
+function noRulebookMatch(match, nameMatches) {
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getGitHubRepositoryRefMatches(rules, match) {
+  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
+  if (!parsed?.[1] || !parsed[2] || !parsed[3])
+    return [];
+  return rules.filter((spec) => {
+    const source = getConfiguredGitHubSource(spec);
+    if (!source)
+      return false;
+    return source.owner === parsed[1] && source.repo === parsed[2] && source.ref === parsed[3];
+  });
+}
+function getGitHubRepositoryMatches(rules, match) {
+  if (!isGitHubRepositorySource(match))
+    return { ok: true, specs: [] };
+  const specs = rules.filter((spec) => {
+    const source = getConfiguredGitHubSource(spec);
+    if (!source)
+      return false;
+    return source.owner === match.split("/")[0] && source.repo === match.split("/")[1];
+  });
+  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
+  if (refs.size < 2)
+    return { ok: true, specs };
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      errors: [
+        `Multiple refs are configured for ${match}. Use an explicit ref:`,
+        `  cc-safety-net rule remove ${match}#<ref>`
+      ],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getConfiguredGitHubSource(spec) {
+  try {
+    return parseGitHubSource(spec);
+  } catch {
+    return null;
+  }
+}
+
+// src/core/rules/policy/types.ts
+var DEFAULT_CONFIG = {
+  version: 1,
+  rules: [],
+  overrides: {},
+  transparent_wrappers: []
+};
+
+// src/core/rules/policy/config-file.ts
+function validateRulesConfig(config) {
+  const errors = [];
+  const sources = new Set;
+  if (!config || typeof config !== "object") {
+    return { errors: ["Config must be an object"], sources };
+  }
+  const cfg = config;
+  if (cfg.version !== 1) {
+    errors.push("version must be 1");
+  }
+  if (cfg.rules === undefined) {} else if (!Array.isArray(cfg.rules)) {
+    errors.push("rules must be an array of rulebook source strings");
+  } else {
+    for (let i = 0;i < cfg.rules.length; i++) {
+      if (typeof cfg.rules[i] !== "string") {
+        errors.push(`rules[${i}]: must be a rulebook source string`);
+        continue;
+      }
+      if (cfg.rules[i].trim() === "") {
+        errors.push(`rules[${i}]: must be a non-empty rulebook source string`);
+        continue;
+      }
+      if (sources.has(cfg.rules[i])) {
+        errors.push(`rules[${i}]: duplicate rulebook source "${cfg.rules[i]}"`);
+        continue;
+      }
+      const sourceError = getRulebookSourceSyntaxError(cfg.rules[i]);
+      if (sourceError) {
+        errors.push(`rules[${i}]: ${sourceError}`);
+        continue;
+      }
+      sources.add(cfg.rules[i]);
+    }
+  }
+  if (cfg.overrides !== undefined) {
+    if (!cfg.overrides || typeof cfg.overrides !== "object" || Array.isArray(cfg.overrides)) {
+      errors.push("overrides must be an object if provided");
+    } else {
+      for (const [key, value] of Object.entries(cfg.overrides)) {
+        if (!/^[^/]+\/[^/]+$/.test(key)) {
+          errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
+        }
+        if (value === "off") {
+          continue;
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          errors.push(`overrides.${key}: must be "off" or an object`);
+          continue;
+        }
+        const reason = value.reason;
+        if (typeof reason !== "string" || reason === "") {
+          errors.push(`overrides.${key}.reason: required non-empty string`);
+        } else if (reason.length > MAX_REASON_LENGTH) {
+          errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
+        }
+        const intent = value.intent;
+        if (intent !== undefined && !isBlockIntent(intent)) {
+          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
+        }
+      }
+    }
+  }
+  if (cfg.transparent_wrappers !== undefined) {
+    validateTransparentWrappers(cfg.transparent_wrappers, errors);
+  }
+  return { errors, sources };
+}
+function isBlockIntent(value) {
+  return typeof value === "string" && BLOCK_INTENTS.includes(value);
+}
+function validateTransparentWrappers(value, errors) {
+  if (!Array.isArray(value)) {
+    errors.push("transparent_wrappers must be an array of command strings");
+    return;
+  }
+  const seen = new Set;
+  for (let i = 0;i < value.length; i++) {
+    const command2 = value[i];
+    if (typeof command2 !== "string") {
+      errors.push(`transparent_wrappers[${i}]: must be a command string`);
+      continue;
+    }
+    if (!COMMAND_PATTERN.test(command2)) {
+      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    if (isReservedTransparentWrapper(command2)) {
+      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
+      continue;
+    }
+    seen.add(command2);
+  }
+}
+function readRulesConfig(path) {
+  if (!existsSync4(path)) {
+    return { config: null, errors: [] };
+  }
+  try {
+    const content = readFileSync3(path, "utf-8");
+    if (!content.trim()) {
+      return { config: null, errors: ["Config file is empty"] };
+    }
+    const parsed = JSON.parse(content);
+    const validation = validateRulesConfig(parsed);
+    if (validation.errors.length > 0) {
+      return { config: null, errors: validation.errors };
+    }
+    const cfg = parsed;
+    return {
+      config: {
+        version: 1,
+        rules: cfg.rules ?? [],
+        overrides: cfg.overrides ?? {},
+        transparent_wrappers: cfg.transparent_wrappers ?? []
+      },
+      errors: []
+    };
+  } catch (error) {
+    return {
+      config: null,
+      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+function readScopeRulesConfig(path) {
+  const loaded = readRulesConfig(path);
+  if (loaded.errors.length > 0) {
+    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
+  }
+  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
+}
+function writeDefaultRulesConfig(path, rules = []) {
+  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
+}
+function writeStarterRulebook(path, name = "project-rules") {
+  writeJsonAtomic(path, {
+    rulebook_version: 1,
+    name,
+    version: "1.0.0",
+    description: name === "project-rules" ? "Project-specific CC Safety Net rules." : "User-specific CC Safety Net rules.",
+    author: name === "project-rules" ? "project" : "user",
+    allowed_commands: ["docker"],
+    rules: [
+      {
+        name: "block-docker-system-prune",
+        command: "docker",
+        subcommand: "system",
+        block_args: ["prune"],
+        reason: "Use targeted cleanup instead."
+      }
+    ],
+    tests: [
+      {
+        command: "docker system prune",
+        expect: "blocked",
+        rule: "block-docker-system-prune"
+      }
+    ]
+  });
+}
+function createAtomicTempPath(path) {
+  return `${path}.${randomBytes(8).toString("hex")}.tmp`;
+}
+function writeJsonAtomic(path, value, mode) {
+  mkdirSync(dirname5(path), { recursive: true });
+  const tempPath = createAtomicTempPath(path);
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
+`, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode
+    });
+    renameSync(tempPath, path);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
+}
+
 // src/core/policy.ts
 var POLICY_FILE = "policy.json";
 var TOP_LEVEL_FIELDS = new Set([
@@ -5658,11 +6004,11 @@ var DEFAULT_GUI_POLICY = {
   }
 };
 function getUserPolicyPath(options2) {
-  return join5(dirname5(getUserRulesDir(options2)), POLICY_FILE);
+  return join5(dirname6(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   const path = getUserPolicyPath(options2);
-  if (!existsSync4(path)) {
+  if (!existsSync5(path)) {
     return {
       path,
       exists: false,
@@ -5671,7 +6017,7 @@ function readUserPolicyForGui(options2 = {}) {
       errors: []
     };
   }
-  const raw = readFileSync3(path, "utf-8");
+  const raw = readFileSync4(path, "utf-8");
   if (!raw.trim()) {
     return {
       path,
@@ -5708,22 +6054,16 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   if (errors.length > 0) {
     return { path, policy: normalizedPolicy, errors };
   }
-  mkdirSync(dirname5(path), { recursive: true, mode: 448 });
-  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmpPath, `${JSON.stringify(normalizedPolicy, null, 2)}
-`, {
-    encoding: "utf-8",
-    mode: 384
-  });
-  renameSync(tmpPath, path);
+  mkdirSync2(dirname6(path), { recursive: true, mode: 448 });
+  writeJsonAtomic(path, normalizedPolicy, 384);
   chmodSync(path, 384);
   return { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
   const path = getUserPolicyPath(options2);
-  if (!existsSync4(path))
+  if (!existsSync5(path))
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  const raw = readFileSync3(path, "utf-8");
+  const raw = readFileSync4(path, "utf-8");
   if (!raw.trim())
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
   try {
@@ -5842,10 +6182,10 @@ function normalizeGuiPolicy(policy) {
 }
 function readPolicyConfig(path) {
   const empty = createEmptyPolicy();
-  if (!existsSync4(path))
+  if (!existsSync5(path))
     return { policy: empty, errors: [] };
   try {
-    const content = readFileSync3(path, "utf-8");
+    const content = readFileSync4(path, "utf-8");
     if (!content.trim()) {
       return { policy: empty, errors: [`${path}: Config file is empty`] };
     }
@@ -6097,349 +6437,13 @@ function validateCustomRule(rule, index, ruleNames, options2 = {}) {
   } else if (r.reason.length > MAX_REASON_LENGTH) {
     errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
   }
-  if (r.intent !== undefined && !isBlockIntent(r.intent)) {
+  if (r.intent !== undefined && !isBlockIntent2(r.intent)) {
     errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
   }
   return errors;
 }
-function isBlockIntent(value) {
-  return typeof value === "string" && BLOCK_INTENTS.includes(value);
-}
-
-// src/core/rules/policy/config-file.ts
-import { existsSync as existsSync5, mkdirSync as mkdirSync2, readFileSync as readFileSync4, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname6 } from "node:path";
-
-// src/core/rules/policy/sources.ts
-var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
-var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
-var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
-var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
-var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
-function getRulebookSourceSyntaxError(source) {
-  if (isGitHubRulebookSource(source)) {
-    try {
-      parseGitHubSource(source);
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  }
-  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
-}
-function parseGitHubSource(spec) {
-  if (spec.startsWith("github:")) {
-    throw new Error(`Invalid rulebook source: ${spec}`);
-  }
-  const match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
-  }
-  const [ref, name, ...extraParts] = match[3].split("/");
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
-    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  }
-  return {
-    owner: match[1],
-    repo: match[2],
-    ref,
-    path: getRepositoryRulebookPath(name),
-    name
-  };
-}
-function isGitHubRepositorySource(source) {
-  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
-}
-function isGitHubRulebookSource(source) {
-  return GITHUB_SOURCE_RE.test(source);
-}
-function assertBareRulebookName(source) {
-  if (!NAME_PATTERN.test(source)) {
-    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
-  }
-}
-function getSelectedUpdateSpecs(config, lock, match) {
-  const exactMatches = config.rules.filter((spec) => spec === match);
-  if (exactMatches.length > 0) {
-    return { ok: true, specs: exactMatches };
-  }
-  if (!lock) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        errors: [
-          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
-        ],
-        warnings: [],
-        entries: []
-      }
-    };
-  }
-  const configuredSpecs = new Set(config.rules);
-  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
-  if (nameMatches.length === 1) {
-    return { ok: true, specs: nameMatches };
-  }
-  return noRulebookMatch(match, nameMatches);
-}
-function getRemoveMatches(rules, lock, match) {
-  const exactMatches = rules.filter((spec) => spec === match);
-  if (exactMatches.length > 0)
-    return { ok: true, specs: exactMatches };
-  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
-  if (githubRefMatches.length > 0)
-    return { ok: true, specs: githubRefMatches };
-  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
-  if (!githubRepositoryMatches.ok)
-    return githubRepositoryMatches;
-  if (githubRepositoryMatches.specs.length > 0) {
-    return { ok: true, specs: githubRepositoryMatches.specs };
-  }
-  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
-  if (nameMatches.length === 1)
-    return { ok: true, specs: nameMatches };
-  return noRulebookMatch(match, nameMatches);
-}
-function noRulebookMatch(match, nameMatches) {
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getGitHubRepositoryRefMatches(rules, match) {
-  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  if (!parsed?.[1] || !parsed[2] || !parsed[3])
-    return [];
-  return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === parsed[1] && source.repo === parsed[2] && source.ref === parsed[3];
-  });
-}
-function getGitHubRepositoryMatches(rules, match) {
-  if (!isGitHubRepositorySource(match))
-    return { ok: true, specs: [] };
-  const specs = rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === match.split("/")[0] && source.repo === match.split("/")[1];
-  });
-  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
-  if (refs.size < 2)
-    return { ok: true, specs };
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: [
-        `Multiple refs are configured for ${match}. Use an explicit ref:`,
-        `  cc-safety-net rule remove ${match}#<ref>`
-      ],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getConfiguredGitHubSource(spec) {
-  try {
-    return parseGitHubSource(spec);
-  } catch {
-    return null;
-  }
-}
-
-// src/core/rules/policy/types.ts
-var DEFAULT_CONFIG = {
-  version: 1,
-  rules: [],
-  overrides: {},
-  transparent_wrappers: []
-};
-
-// src/core/rules/policy/config-file.ts
-function validateRulesConfig(config) {
-  const errors = [];
-  const sources = new Set;
-  if (!config || typeof config !== "object") {
-    return { errors: ["Config must be an object"], sources };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
-    errors.push("version must be 1");
-  }
-  if (cfg.rules === undefined) {} else if (!Array.isArray(cfg.rules)) {
-    errors.push("rules must be an array of rulebook source strings");
-  } else {
-    for (let i = 0;i < cfg.rules.length; i++) {
-      if (typeof cfg.rules[i] !== "string") {
-        errors.push(`rules[${i}]: must be a rulebook source string`);
-        continue;
-      }
-      if (cfg.rules[i].trim() === "") {
-        errors.push(`rules[${i}]: must be a non-empty rulebook source string`);
-        continue;
-      }
-      if (sources.has(cfg.rules[i])) {
-        errors.push(`rules[${i}]: duplicate rulebook source "${cfg.rules[i]}"`);
-        continue;
-      }
-      const sourceError = getRulebookSourceSyntaxError(cfg.rules[i]);
-      if (sourceError) {
-        errors.push(`rules[${i}]: ${sourceError}`);
-        continue;
-      }
-      sources.add(cfg.rules[i]);
-    }
-  }
-  if (cfg.overrides !== undefined) {
-    if (!cfg.overrides || typeof cfg.overrides !== "object" || Array.isArray(cfg.overrides)) {
-      errors.push("overrides must be an object if provided");
-    } else {
-      for (const [key, value] of Object.entries(cfg.overrides)) {
-        if (!/^[^/]+\/[^/]+$/.test(key)) {
-          errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
-        }
-        if (value === "off") {
-          continue;
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          errors.push(`overrides.${key}: must be "off" or an object`);
-          continue;
-        }
-        const reason = value.reason;
-        if (typeof reason !== "string" || reason === "") {
-          errors.push(`overrides.${key}.reason: required non-empty string`);
-        } else if (reason.length > MAX_REASON_LENGTH) {
-          errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-        }
-        const intent = value.intent;
-        if (intent !== undefined && !isBlockIntent2(intent)) {
-          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-        }
-      }
-    }
-  }
-  if (cfg.transparent_wrappers !== undefined) {
-    validateTransparentWrappers(cfg.transparent_wrappers, errors);
-  }
-  return { errors, sources };
-}
 function isBlockIntent2(value) {
   return typeof value === "string" && BLOCK_INTENTS.includes(value);
-}
-function validateTransparentWrappers(value, errors) {
-  if (!Array.isArray(value)) {
-    errors.push("transparent_wrappers must be an array of command strings");
-    return;
-  }
-  const seen = new Set;
-  for (let i = 0;i < value.length; i++) {
-    const command2 = value[i];
-    if (typeof command2 !== "string") {
-      errors.push(`transparent_wrappers[${i}]: must be a command string`);
-      continue;
-    }
-    if (!COMMAND_PATTERN.test(command2)) {
-      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command2)) {
-      errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
-      continue;
-    }
-    if (isReservedTransparentWrapper(command2)) {
-      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
-      continue;
-    }
-    seen.add(command2);
-  }
-}
-function readRulesConfig(path) {
-  if (!existsSync5(path)) {
-    return { config: null, errors: [] };
-  }
-  try {
-    const content = readFileSync4(path, "utf-8");
-    if (!content.trim()) {
-      return { config: null, errors: ["Config file is empty"] };
-    }
-    const parsed = JSON.parse(content);
-    const validation = validateRulesConfig(parsed);
-    if (validation.errors.length > 0) {
-      return { config: null, errors: validation.errors };
-    }
-    const cfg = parsed;
-    return {
-      config: {
-        version: 1,
-        rules: cfg.rules ?? [],
-        overrides: cfg.overrides ?? {},
-        transparent_wrappers: cfg.transparent_wrappers ?? []
-      },
-      errors: []
-    };
-  } catch (error) {
-    return {
-      config: null,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
-    };
-  }
-}
-function readScopeRulesConfig(path) {
-  const loaded = readRulesConfig(path);
-  if (loaded.errors.length > 0) {
-    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
-  }
-  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
-}
-function writeDefaultRulesConfig(path, rules = []) {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
-}
-function writeStarterRulebook(path, name = "project-rules") {
-  writeJsonAtomic(path, {
-    rulebook_version: 1,
-    name,
-    version: "1.0.0",
-    description: name === "project-rules" ? "Project-specific CC Safety Net rules." : "User-specific CC Safety Net rules.",
-    author: name === "project-rules" ? "project" : "user",
-    allowed_commands: ["docker"],
-    rules: [
-      {
-        name: "block-docker-system-prune",
-        command: "docker",
-        subcommand: "system",
-        block_args: ["prune"],
-        reason: "Use targeted cleanup instead."
-      }
-    ],
-    tests: [
-      {
-        command: "docker system prune",
-        expect: "blocked",
-        rule: "block-docker-system-prune"
-      }
-    ]
-  });
-}
-function writeJsonAtomic(path, value) {
-  mkdirSync2(dirname6(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync2(tempPath, `${JSON.stringify(value, null, 2)}
-`, "utf-8");
-  renameSync2(tempPath, path);
 }
 
 // src/core/rules/policy/scope-policy.ts
@@ -7178,9 +7182,9 @@ import {
   readdirSync,
   readFileSync as readFileSync8,
   rmdirSync,
-  rmSync,
+  rmSync as rmSync2,
   unlinkSync,
-  writeFileSync as writeFileSync3
+  writeFileSync as writeFileSync2
 } from "node:fs";
 import { dirname as dirname8, isAbsolute as isAbsolute7, join as join8, relative as relative2, resolve as resolve6, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
@@ -7402,7 +7406,7 @@ function addRuleCount(entry, ruleCountsBySpec) {
 function writeCache(content, entry, configDir, options2) {
   const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
   mkdirSync3(dirname8(path), { recursive: true });
-  writeFileSync3(path, content, "utf-8");
+  writeFileSync2(path, content, "utf-8");
 }
 function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
   const internalOptions = options2;
@@ -7485,7 +7489,7 @@ function pruneRulebookCacheDir(path, options2) {
     options2._testPruneRulebookCacheDir(path);
     return;
   }
-  rmSync(path, { recursive: true, force: true });
+  rmSync2(path, { recursive: true, force: true });
 }
 function deleteLocalSourceDir(dir, options2) {
   if (options2._testDeleteLocalSourceDir) {
@@ -7497,10 +7501,10 @@ function deleteLocalSourceDir(dir, options2) {
 }
 function restoreConfig(path, content) {
   if (content === null) {
-    rmSync(path, { force: true });
+    rmSync2(path, { force: true });
     return;
   }
-  writeFileSync3(path, content, "utf-8");
+  writeFileSync2(path, content, "utf-8");
 }
 function failWithError(error) {
   return {
@@ -12199,7 +12203,7 @@ function formatTraceJson(result) {
 }
 // src/bin/gui/index.ts
 import { spawn as spawn2 } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import { createServer } from "node:http";
 
 // src/bin/gui/custom.css
@@ -14020,7 +14024,7 @@ async function runGuiCommand(args, options2 = {}) {
   return 0;
 }
 async function createPolicyGuiServer(options2 = {}) {
-  const token = options2.token ?? randomBytes(24).toString("base64url");
+  const token = options2.token ?? randomBytes2(24).toString("base64url");
   const server = createServer((request, response) => {
     handleRequest(request, response, token, options2);
   });
@@ -14352,7 +14356,7 @@ function showCommandHelp(commandName) {
 import { homedir as homedir8 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
-import { existsSync as existsSync16, mkdirSync as mkdirSync5, readFileSync as readFileSync12, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync5, readFileSync as readFileSync12, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname10, join as join13 } from "node:path";
 var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli";
 var MANAGED_HOOK_NAME = "cc-safety-net";
@@ -14431,7 +14435,7 @@ function removeManagedHook(config) {
   return removed;
 }
 function writeAntigravityHooksConfig(configPath, config) {
-  writeFileSync4(configPath, `${JSON.stringify(config, null, 2)}
+  writeFileSync3(configPath, `${JSON.stringify(config, null, 2)}
 `);
 }
 function installAntigravityCli(homeDir) {
@@ -14461,7 +14465,7 @@ function uninstallAntigravityCli(homeDir) {
 }
 
 // src/bin/hook/install/kimi-code.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync6, readFileSync as readFileSync13, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync17, mkdirSync as mkdirSync6, readFileSync as readFileSync13, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname11, join as join14 } from "node:path";
 
 // src/bin/hook/config-edit.ts
@@ -14647,14 +14651,14 @@ function installKimiCode(homeDir) {
   const configPath = getKimiConfigPath(homeDir);
   mkdirSync6(dirname11(configPath), { recursive: true });
   if (!existsSync17(configPath)) {
-    writeFileSync5(configPath, `${KIMI_HOOK_BLOCK}
+    writeFileSync4(configPath, `${KIMI_HOOK_BLOCK}
 `);
     return { path: configPath, alreadyInstalled: false };
   }
   const content = readFileSync13(configPath, "utf-8");
   if (content.includes(KIMI_HOOK_COMMAND))
     return { path: configPath, alreadyInstalled: true };
-  writeFileSync5(configPath, appendKimiHook(content));
+  writeFileSync4(configPath, appendKimiHook(content));
   return { path: configPath, alreadyInstalled: false };
 }
 function uninstallKimiCode(homeDir) {
@@ -14667,7 +14671,7 @@ function uninstallKimiCode(homeDir) {
   const inlineHooksRange = findTopLevelInlineHooksArray(content);
   const updated = inlineHooksRange ? removeKimiInlineHook(content, inlineHooksRange) : `${removeKimiTableHookBlocks(content)}
 `;
-  writeFileSync5(configPath, updated);
+  writeFileSync4(configPath, updated);
   return { path: configPath, alreadyInstalled: true };
 }
 
@@ -14702,7 +14706,7 @@ ${output}`.trim()));
 }
 
 // src/bin/hook/install/opencode.ts
-import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync18, readFileSync as readFileSync14, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { join as join15 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net";
 var OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
@@ -14717,7 +14721,7 @@ function getOpenCodeCachePath(homeDir) {
   return join15(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
-  rmSync2(getOpenCodeCachePath(homeDir), { recursive: true, force: true });
+  rmSync3(getOpenCodeCachePath(homeDir), { recursive: true, force: true });
 }
 function skipJsonComment(content, index) {
   if (content[index] === "/" && content[index + 1] === "/") {
@@ -14864,7 +14868,7 @@ function uninstallOpenCode(homeDir) {
       const content = readFileSync14(configPath, "utf-8");
       if (!hasManagedPlugin(parseOpenCodeConfig(content, configPath)))
         continue;
-      writeFileSync6(configPath, removeManagedPlugins(content, configPath));
+      writeFileSync5(configPath, removeManagedPlugins(content, configPath));
       return { path: configPath, alreadyInstalled: true };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
@@ -15640,7 +15644,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { existsSync as existsSync19, readFileSync as readFileSync15, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync19, readFileSync as readFileSync15, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { dirname as dirname12, join as join16 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json";
 var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
@@ -15705,7 +15709,7 @@ async function migrateRulesScope(options2) {
     console.error(`Migration cleanup verification failed for ${options2.legacyPath}`);
     return false;
   }
-  rmSync3(options2.legacyPath, { force: true });
+  rmSync4(options2.legacyPath, { force: true });
   console.log(`Deleted legacy config at ${options2.legacyPath}`);
   return true;
 }
@@ -15789,15 +15793,15 @@ function snapshotFile(path) {
 function restoreFiles(snapshots) {
   for (const snapshot of snapshots) {
     if (snapshot.content === null) {
-      rmSync3(snapshot.path, { force: true });
+      rmSync4(snapshot.path, { force: true });
       continue;
     }
-    writeFileSync7(snapshot.path, snapshot.content, "utf-8");
+    writeFileSync6(snapshot.path, snapshot.content, "utf-8");
   }
 }
 
 // src/bin/rule/verify.ts
-import { existsSync as existsSync20, readdirSync as readdirSync4, readFileSync as readFileSync16, statSync as statSync3, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync20, readdirSync as readdirSync4, readFileSync as readFileSync16, statSync as statSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { dirname as dirname13, join as join17, resolve as resolve12 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
@@ -16067,7 +16071,7 @@ function addRulesSchemaIfMissing(path) {
     const parsed = JSON.parse(content);
     if (parsed.$schema)
       return false;
-    writeFileSync8(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
+    writeFileSync7(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
     return true;
   } catch {
     return false;
