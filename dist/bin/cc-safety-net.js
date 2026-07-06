@@ -10819,6 +10819,118 @@ async function checkForUpdates() {
   }
 }
 
+// src/bin/utils/lolcat.ts
+var ANSI_RESET2 = "\x1B[0m";
+var ANSI_RESET_FOREGROUND = "\x1B[39m";
+var DEFAULT_DURATION = 12;
+var DEFAULT_FREQUENCY = 0.1;
+var DEFAULT_SPEED = 20;
+var DEFAULT_SPREAD = 3;
+var HIDE_CURSOR = "\x1B[?25l";
+var RESTORE_CURSOR = "\x1B8";
+var SAVE_CURSOR = "\x1B7";
+var SHOW_CURSOR = "\x1B[?25h";
+function wait(milliseconds) {
+  return new Promise((resolve10) => setTimeout(resolve10, milliseconds));
+}
+function positiveOrDefault(value, fallback) {
+  return value && value > 0 ? value : fallback;
+}
+function byte(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+function rainbow(frequency, offset) {
+  return {
+    blue: byte(Math.sin(frequency * offset + 4 * Math.PI / 3) * 127 + 128),
+    green: byte(Math.sin(frequency * offset + 2 * Math.PI / 3) * 127 + 128),
+    red: byte(Math.sin(frequency * offset) * 127 + 128)
+  };
+}
+function colorizeCharacter(character, frequency, offset) {
+  const color = rainbow(frequency, offset);
+  return `\x1B[38;2;${color.red};${color.green};${color.blue}m${character}${ANSI_RESET_FOREGROUND}`;
+}
+function renderLolcat(text, options2 = {}) {
+  if (!text)
+    return "";
+  const frequency = positiveOrDefault(options2.frequency, DEFAULT_FREQUENCY);
+  const seed = options2.seed ?? 0;
+  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
+  return `${text.split(`
+`).map((line, lineIndex) => Array.from(line).map((character, characterIndex) => colorizeCharacter(character, frequency, seed + lineIndex + characterIndex / spread)).join("")).join(`
+`)}${ANSI_RESET2}`;
+}
+function createLolcatAnimationFrames(text, options2 = {}) {
+  const duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, DEFAULT_DURATION)));
+  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
+  return Array.from({ length: duration }, (_value, index) => renderLolcat(text, {
+    frequency: options2.frequency,
+    seed: (options2.seed ?? 0) + (index + 1) * spread,
+    spread
+  }));
+}
+async function writeAnimatedLolcat(text, options2 = {}) {
+  if (!text)
+    return;
+  const output = options2.output ?? process.stdout;
+  const sleep = options2.sleep ?? wait;
+  const speed = positiveOrDefault(options2.speed, DEFAULT_SPEED);
+  output.write(HIDE_CURSOR);
+  try {
+    for (const [lineIndex, line] of text.split(`
+`).entries()) {
+      if (line) {
+        output.write(SAVE_CURSOR);
+        for (const frame of createLolcatAnimationFrames(line, {
+          ...options2,
+          seed: (options2.seed ?? 0) + lineIndex
+        })) {
+          output.write(RESTORE_CURSOR);
+          output.write(frame);
+          await sleep(1000 / speed);
+        }
+      }
+      output.write(`
+`);
+    }
+  } finally {
+    output.write(`${ANSI_RESET2}${SHOW_CURSOR}`);
+  }
+}
+
+// src/bin/hook/install/banner.ts
+var INSTALL_ASCII_ART = [
+  "┏━┛┏━┛  ┏━┛┏━┃┏━┛┏━┛━┏┛┃ ┃  ┏━ ┏━┛━┏┛",
+  "┃  ┃    ━━┃┏━┃┏━┛┏━┛ ┃ ━┏┛  ┃ ┃┏━┛ ┃ ",
+  "━━┛━━┛  ━━┛┛ ┛┛  ━━┛ ┛  ┛   ┛ ┛━━┛ ┛ "
+].join(`
+`);
+function shouldPrintInstallBanner(output) {
+  return Boolean(output.isTTY);
+}
+async function printInstallBanner(options2 = {}) {
+  const output = options2.output ?? process.stdout;
+  if (!shouldPrintInstallBanner(output))
+    return;
+  await writeAnimatedLolcat(INSTALL_ASCII_ART, {
+    duration: options2.duration,
+    frequency: options2.frequency,
+    output,
+    seed: options2.seed ?? Math.random() * 8192,
+    sleep: options2.sleep,
+    speed: options2.speed,
+    spread: options2.spread
+  });
+}
+
+// src/bin/startup/banner.ts
+async function resolveAfterOptionalBanner(showBanner, startWork, printBanner) {
+  const work = startWork();
+  if (showBanner)
+    await printBanner();
+  return work.finish();
+}
+
 // src/bin/doctor/flags.ts
 function parseDoctorFlags(args) {
   return {
@@ -10829,6 +10941,23 @@ function parseDoctorFlags(args) {
 
 // src/bin/doctor/index.ts
 async function runDoctor(options2 = {}) {
+  const report = await resolveAfterOptionalBanner(!options2.json, () => {
+    const reportPromise = collectDoctorReport(options2);
+    return {
+      finish: () => reportPromise
+    };
+  }, () => printInstallBanner());
+  if (options2.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    printReport(report);
+  }
+  return doctorHasFailure(report.hooks, {
+    userConfig: report.userConfig,
+    projectConfig: report.projectConfig
+  }) ? 1 : 0;
+}
+async function collectDoctorReport(options2) {
   const cwd = options2.cwd ?? process.cwd();
   const system = await getSystemInfo(undefined, { cwd });
   const hooks = detectAllHooks(cwd, {
@@ -10869,13 +10998,7 @@ async function runDoctor(options2 = {}) {
     update,
     system
   };
-  if (options2.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    printReport(report);
-  }
-  const hasFailure = doctorHasFailure(hooks, configInfo);
-  return hasFailure ? 1 : 0;
+  return report;
 }
 function doctorHasFailure(hooks, configInfo) {
   return hooks.length > 0 && hooks.every((h) => h.status !== "configured") || hooks.some((h) => h.selfTest && h.selfTest.failed > 0) || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
@@ -14009,110 +14132,6 @@ function uninstallAntigravityCli(homeDir) {
   return { path: configPath, alreadyInstalled: true };
 }
 
-// src/bin/utils/lolcat.ts
-var ANSI_RESET2 = "\x1B[0m";
-var ANSI_RESET_FOREGROUND = "\x1B[39m";
-var DEFAULT_DURATION = 12;
-var DEFAULT_FREQUENCY = 0.1;
-var DEFAULT_SPEED = 20;
-var DEFAULT_SPREAD = 3;
-var HIDE_CURSOR = "\x1B[?25l";
-var RESTORE_CURSOR = "\x1B8";
-var SAVE_CURSOR = "\x1B7";
-var SHOW_CURSOR = "\x1B[?25h";
-function wait(milliseconds) {
-  return new Promise((resolve11) => setTimeout(resolve11, milliseconds));
-}
-function positiveOrDefault(value, fallback) {
-  return value && value > 0 ? value : fallback;
-}
-function byte(value) {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-function rainbow(frequency, offset) {
-  return {
-    blue: byte(Math.sin(frequency * offset + 4 * Math.PI / 3) * 127 + 128),
-    green: byte(Math.sin(frequency * offset + 2 * Math.PI / 3) * 127 + 128),
-    red: byte(Math.sin(frequency * offset) * 127 + 128)
-  };
-}
-function colorizeCharacter(character, frequency, offset) {
-  const color = rainbow(frequency, offset);
-  return `\x1B[38;2;${color.red};${color.green};${color.blue}m${character}${ANSI_RESET_FOREGROUND}`;
-}
-function renderLolcat(text, options2 = {}) {
-  if (!text)
-    return "";
-  const frequency = positiveOrDefault(options2.frequency, DEFAULT_FREQUENCY);
-  const seed = options2.seed ?? 0;
-  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
-  return `${text.split(`
-`).map((line, lineIndex) => Array.from(line).map((character, characterIndex) => colorizeCharacter(character, frequency, seed + lineIndex + characterIndex / spread)).join("")).join(`
-`)}${ANSI_RESET2}`;
-}
-function createLolcatAnimationFrames(text, options2 = {}) {
-  const duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, DEFAULT_DURATION)));
-  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
-  return Array.from({ length: duration }, (_value, index) => renderLolcat(text, {
-    frequency: options2.frequency,
-    seed: (options2.seed ?? 0) + (index + 1) * spread,
-    spread
-  }));
-}
-async function writeAnimatedLolcat(text, options2 = {}) {
-  if (!text)
-    return;
-  const output = options2.output ?? process.stdout;
-  const sleep = options2.sleep ?? wait;
-  const speed = positiveOrDefault(options2.speed, DEFAULT_SPEED);
-  output.write(HIDE_CURSOR);
-  try {
-    for (const [lineIndex, line] of text.split(`
-`).entries()) {
-      if (line) {
-        output.write(SAVE_CURSOR);
-        for (const frame of createLolcatAnimationFrames(line, {
-          ...options2,
-          seed: (options2.seed ?? 0) + lineIndex
-        })) {
-          output.write(RESTORE_CURSOR);
-          output.write(frame);
-          await sleep(1000 / speed);
-        }
-      }
-      output.write(`
-`);
-    }
-  } finally {
-    output.write(`${ANSI_RESET2}${SHOW_CURSOR}`);
-  }
-}
-
-// src/bin/hook/install/banner.ts
-var INSTALL_ASCII_ART = [
-  "┏━┛┏━┛  ┏━┛┏━┃┏━┛┏━┛━┏┛┃ ┃  ┏━ ┏━┛━┏┛",
-  "┃  ┃    ━━┃┏━┃┏━┛┏━┛ ┃ ━┏┛  ┃ ┃┏━┛ ┃ ",
-  "━━┛━━┛  ━━┛┛ ┛┛  ━━┛ ┛  ┛   ┛ ┛━━┛ ┛ "
-].join(`
-`);
-function shouldPrintInstallBanner(output) {
-  return Boolean(output.isTTY);
-}
-async function printInstallBanner(options2 = {}) {
-  const output = options2.output ?? process.stdout;
-  if (!shouldPrintInstallBanner(output))
-    return;
-  await writeAnimatedLolcat(INSTALL_ASCII_ART, {
-    duration: options2.duration,
-    frequency: options2.frequency,
-    output,
-    seed: options2.seed ?? Math.random() * 8192,
-    sleep: options2.sleep,
-    speed: options2.speed,
-    spread: options2.spread
-  });
-}
-
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync17, mkdirSync as mkdirSync6, readFileSync as readFileSync13, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname11, join as join14 } from "node:path";
@@ -14808,14 +14827,6 @@ function promptInstallTargets(action, choices, options2 = {}) {
   });
 }
 
-// src/bin/hook/install/startup.ts
-async function resolveAfterOptionalInstallBanner(action, startResolution, printBanner) {
-  const resolution = startResolution();
-  if (action === "install")
-    await printBanner();
-  return resolution.finish();
-}
-
 // src/bin/hook/install.ts
 var NATIVE_INSTALLS = {
   "claude-code": {
@@ -15009,7 +15020,7 @@ function runSingleInstallTarget(action, target, homeDir) {
 }
 async function runInstallCommand(action, args, options2 = {}) {
   try {
-    const targets = await resolveAfterOptionalInstallBanner(action, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({ output: options2.output ?? process.stdout }));
+    const targets = await resolveAfterOptionalBanner(true, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({ output: options2.output ?? process.stdout }));
     if (!targets)
       return 1;
     const homeDir = getHomeDir();

@@ -15,7 +15,6 @@ import {
   type InstallTargetProbe,
   promptInstallTargets,
 } from '@/bin/hook/install/selection';
-import { resolveAfterOptionalInstallBanner } from '@/bin/hook/install/startup';
 import {
   type InstallAction,
   type InstallTarget,
@@ -23,6 +22,7 @@ import {
   runInstallTargetsInOrder,
   TARGET_FLAGS,
 } from '@/bin/hook/install/targets';
+import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget>;
@@ -295,8 +295,8 @@ export async function runInstallCommand(
   options: RunInstallCommandOptions = {},
 ): Promise<number> {
   try {
-    const targets = await resolveAfterOptionalInstallBanner(
-      action,
+    const targets = await resolveAfterOptionalBanner(
+      true,
       () => startResolveInstallTargets(action, args, options),
       () => printInstallBanner({ output: options.output ?? process.stdout }),
     );

@@ -20,15 +20,42 @@ import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
 import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
+import { printInstallBanner } from '@/bin/hook/install/banner';
+import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { loadConfig } from '@/core/config';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
 
 export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
+  const report = await resolveAfterOptionalBanner(
+    !options.json,
+    () => {
+      const reportPromise = collectDoctorReport(options);
+      return {
+        finish: () => reportPromise,
+      };
+    },
+    () => printInstallBanner(),
+  );
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    printReport(report);
+  }
+
+  return doctorHasFailure(report.hooks, {
+    userConfig: report.userConfig,
+    projectConfig: report.projectConfig,
+  })
+    ? 1
+    : 0;
+}
+
+async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport> {
   const cwd = options.cwd ?? process.cwd();
 
-  // Collect all data
   const system = await getSystemInfo(undefined, { cwd });
   const hooks = detectAllHooks(cwd, {
     claudePluginListOutput: system.claudePluginListOutput,
@@ -71,18 +98,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     update,
     system,
   };
-
-  // Output
-  if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    printReport(report);
-  }
-
-  // Exit code
-  const hasFailure = doctorHasFailure(hooks, configInfo);
-
-  return hasFailure ? 1 : 0;
+  return report;
 }
 
 function doctorHasFailure(

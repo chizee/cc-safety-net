@@ -1,49 +1,27 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveAfterOptionalInstallBanner } from '@/bin/hook/install/startup';
+import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
+import { expectBannerWaitsForStartedWork } from '../startup-test-helpers';
 
 describe('install startup orchestration', () => {
   test('starts resolving targets before waiting for the install banner', async () => {
-    const events: string[] = [];
-    let finishBanner = () => {};
-
-    const result = resolveAfterOptionalInstallBanner(
-      'install',
-      () => {
-        events.push('start resolution');
-        return {
-          finish: async () => {
-            events.push('finish resolution');
-            return 'targets';
-          },
-        };
-      },
-      async () => {
-        events.push('start banner');
-        await new Promise<void>((resolve) => {
-          finishBanner = resolve;
-        });
-        events.push('finish banner');
-      },
-    );
-
-    await Promise.resolve();
-
-    expect(events).toEqual(['start resolution', 'start banner']);
-
-    finishBanner();
-
-    expect(await result).toBe('targets');
-    expect(events).toEqual([
-      'start resolution',
-      'start banner',
-      'finish banner',
-      'finish resolution',
-    ]);
+    await expectBannerWaitsForStartedWork({
+      startEvent: 'start resolution',
+      finishEvent: 'finish resolution',
+      result: 'targets',
+    });
   });
 
-  test('skips the install banner for uninstall', async () => {
-    const result = await resolveAfterOptionalInstallBanner(
-      'uninstall',
+  test('starts resolving targets before waiting for the uninstall banner', async () => {
+    await expectBannerWaitsForStartedWork({
+      startEvent: 'start resolution',
+      finishEvent: 'finish resolution',
+      result: 'targets',
+    });
+  });
+
+  test('skips the banner when disabled', async () => {
+    const result = await resolveAfterOptionalBanner(
+      false,
       () => ({
         finish: async () => 'targets',
       }),
