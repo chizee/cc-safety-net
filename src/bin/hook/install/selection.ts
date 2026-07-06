@@ -250,6 +250,11 @@ export function reduceInstallSelectionState(
   return { state: { ...state, selected } };
 }
 
+const CHECKBOX_ON = '◉';
+const CHECKBOX_OFF = '◯';
+const CURSOR_ON = '>';
+const CURSOR_OFF = ' ';
+
 /** @internal */
 export function renderInstallSelection(
   action: InstallAction,
@@ -257,8 +262,10 @@ export function renderInstallSelection(
   state: InstallSelectionState,
   options: { color?: boolean } = {},
 ): string {
-  const formatDim = options.color === false ? (value: string) => value : colors.dim;
-  const formatSelected = options.color === false ? (value: string) => value : colors.green;
+  const useColor = options.color !== false;
+  const formatDim = useColor ? colors.dim : (value: string) => value;
+  const formatCheckboxOn = useColor ? colors.green : (value: string) => value;
+  const formatFocus = useColor ? colors.bold : (value: string) => value;
 
   return [
     '',
@@ -266,17 +273,19 @@ export function renderInstallSelection(
     '',
     ...choices.map((choice, index) => {
       const selected = state.selected.includes(choice.target);
-      const marker = selected ? '[x]' : '[ ]';
-      const prefix = index === state.cursor ? '>' : ' ';
-      const label = `${marker} ${choice.label}${
-        choice.available ? '' : ` (${choice.unavailableReason ?? 'not installed'})`
-      }`;
-      const formatted = choice.available
-        ? selected
-          ? formatSelected(label)
-          : label
-        : formatDim(label);
-      return `${prefix} ${formatted}`;
+      const focused = index === state.cursor;
+      const marker = selected ? CHECKBOX_ON : CHECKBOX_OFF;
+      const cursor = focused ? CURSOR_ON : CURSOR_OFF;
+      const suffix = choice.available ? '' : ` (${choice.unavailableReason ?? 'not installed'})`;
+      const rowBody = `${marker} ${choice.label}${suffix}`;
+      const formatted = !choice.available
+        ? formatDim(rowBody)
+        : selected
+          ? formatCheckboxOn(rowBody)
+          : focused
+            ? formatFocus(rowBody)
+            : rowBody;
+      return `${cursor} ${formatted}`;
     }),
     '',
     'Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel',

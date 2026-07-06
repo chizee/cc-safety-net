@@ -307,8 +307,8 @@ describe('install selection state', () => {
     );
 
     expect(output).toContain('Install CC Safety Net into:');
-    expect(output).toContain('[x] Claude Code');
-    expect(output).toContain('[ ] Codex (not installed)');
+    expect(output).toContain('◉ Claude Code');
+    expect(output).toContain('◯ Codex (not installed)');
     expect(output).toContain('Space: select');
   });
 });

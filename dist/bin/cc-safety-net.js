@@ -14732,20 +14732,28 @@ function reduceInstallSelectionState(state, choices, key) {
   const selected = state.selected.includes(choice.target) ? state.selected.filter((target) => target !== choice.target) : selectedInChoiceOrder(choices, [...state.selected, choice.target]);
   return { state: { ...state, selected } };
 }
+var CHECKBOX_ON = "◉";
+var CHECKBOX_OFF = "◯";
+var CURSOR_ON = ">";
+var CURSOR_OFF = " ";
 function renderInstallSelection(action, choices, state, options2 = {}) {
-  const formatDim = options2.color === false ? (value) => value : colors.dim;
-  const formatSelected = options2.color === false ? (value) => value : colors.green;
+  const useColor = options2.color !== false;
+  const formatDim = useColor ? colors.dim : (value) => value;
+  const formatCheckboxOn = useColor ? colors.green : (value) => value;
+  const formatFocus = useColor ? colors.bold : (value) => value;
   return [
     "",
     `${titleCaseAction(action)} CC Safety Net ${targetPreposition(action)}:`,
     "",
     ...choices.map((choice, index) => {
       const selected = state.selected.includes(choice.target);
-      const marker = selected ? "[x]" : "[ ]";
-      const prefix = index === state.cursor ? ">" : " ";
-      const label = `${marker} ${choice.label}${choice.available ? "" : ` (${choice.unavailableReason ?? "not installed"})`}`;
-      const formatted = choice.available ? selected ? formatSelected(label) : label : formatDim(label);
-      return `${prefix} ${formatted}`;
+      const focused = index === state.cursor;
+      const marker = selected ? CHECKBOX_ON : CHECKBOX_OFF;
+      const cursor = focused ? CURSOR_ON : CURSOR_OFF;
+      const suffix = choice.available ? "" : ` (${choice.unavailableReason ?? "not installed"})`;
+      const rowBody = `${marker} ${choice.label}${suffix}`;
+      const formatted = !choice.available ? formatDim(rowBody) : selected ? formatCheckboxOn(rowBody) : focused ? formatFocus(rowBody) : rowBody;
+      return `${cursor} ${formatted}`;
     }),
     "",
     "Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel"
