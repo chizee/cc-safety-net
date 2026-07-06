@@ -307,6 +307,7 @@ export async function userHasStarredRepo(
   command = 'gh',
   timeoutMs = STAR_TIMEOUT_MS,
 ): Promise<boolean | null> {
+  if ((await runGhCommand(command, ['auth', 'status'], timeoutMs)) !== 0) return null;
   const starredExitCode = await runGhCommand(command, ['api', `/user/starred/${REPO}`], timeoutMs);
   if (starredExitCode === 0) return true;
   if (starredExitCode === null) return null;

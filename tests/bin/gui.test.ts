@@ -236,6 +236,8 @@ describe('policy GUI server', () => {
         "CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? ",
       );
       expect(html).toContain("qs('star-mechanism').hidden = context.starred !== false;");
+      expect(html).toContain('if (context.starred === null) {');
+      expect(html).toContain('renderStarLink(context);');
       expect(html).toContain('const renderStarPitch = (context, starred = false) => {');
       expect(html).toContain('${evidence} If it saved your work, star it on GitHub.');
       expect(html).toContain('renderStarPitch(activeStarContext, true);');
@@ -608,7 +610,7 @@ describe('policy GUI server', () => {
     ).toEqual({ starred: null, starCount: null, blockedTotal: 2 });
   });
 
-  test('userHasStarredRepo uses gh CLI with fixed argv and maps exits', async () => {
+  test('userHasStarredRepo checks gh auth before starred state and maps exits', async () => {
     const localTempDir = mkdtempSync(join(process.cwd(), '.tmp-star-check-'));
     const binDir = join(localTempDir, 'bin');
     const ghPath = join(binDir, 'gh');
@@ -616,24 +618,46 @@ describe('policy GUI server', () => {
     mkdirSync(binDir);
     writeFileSync(
       ghPath,
-      '#!/bin/sh\nprintf "%s\\n" "$@" > "$STAR_LOG"\nexit "$STAR_EXIT"\n',
+      [
+        '#!/bin/sh',
+        'printf "%s\\n" "$@" >> "$STAR_LOG"',
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit "$AUTH_EXIT"; fi',
+        'exit "$STAR_EXIT"',
+        '',
+      ].join('\n'),
       'utf-8',
     );
     chmodSync(ghPath, 0o755);
 
     const originalStarLog = process.env.STAR_LOG;
+    const originalAuthExit = process.env.AUTH_EXIT;
     const originalStarExit = process.env.STAR_EXIT;
     process.env.STAR_LOG = starLog;
     try {
+      process.env.AUTH_EXIT = '0';
       process.env.STAR_EXIT = '0';
       expect(await userHasStarredRepo(ghPath)).toBe(true);
-      expect(readFileSync(starLog, 'utf-8')).toBe('api\n/user/starred/kenryu42/cc-safety-net\n');
+      expect(readFileSync(starLog, 'utf-8')).toBe(
+        'auth\nstatus\napi\n/user/starred/kenryu42/cc-safety-net\n',
+      );
 
+      writeFileSync(starLog, '', 'utf-8');
       process.env.STAR_EXIT = '1';
       expect(await userHasStarredRepo(ghPath)).toBe(false);
+      expect(readFileSync(starLog, 'utf-8')).toBe(
+        'auth\nstatus\napi\n/user/starred/kenryu42/cc-safety-net\n',
+      );
+
+      writeFileSync(starLog, '', 'utf-8');
+      process.env.AUTH_EXIT = '1';
+      process.env.STAR_EXIT = '0';
+      expect(await userHasStarredRepo(ghPath)).toBeNull();
+      expect(readFileSync(starLog, 'utf-8')).toBe('auth\nstatus\n');
+
       expect(await userHasStarredRepo(join(localTempDir, 'missing-gh'))).toBeNull();
     } finally {
       restoreEnv('STAR_LOG', originalStarLog);
+      restoreEnv('AUTH_EXIT', originalAuthExit);
       restoreEnv('STAR_EXIT', originalStarExit);
       rmSync(localTempDir, { recursive: true, force: true });
     }

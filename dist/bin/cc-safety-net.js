@@ -13951,6 +13951,8 @@ async function fetchStarContext(options2 = {}) {
   return { starred, starCount, blockedTotal };
 }
 async function userHasStarredRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
+  if (await runGhCommand(command2, ["auth", "status"], timeoutMs) !== 0)
+    return null;
   const starredExitCode = await runGhCommand(command2, ["api", `/user/starred/${REPO}`], timeoutMs);
   if (starredExitCode === 0)
     return true;
