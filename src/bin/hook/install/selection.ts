@@ -261,6 +261,7 @@ export function renderInstallSelection(
   const formatSelected = options.color === false ? (value: string) => value : colors.green;
 
   return [
+    '',
     `${titleCaseAction(action)} CC Safety Net ${targetPreposition(action)}:`,
     '',
     ...choices.map((choice, index) => {

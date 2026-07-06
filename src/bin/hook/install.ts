@@ -15,6 +15,7 @@ import {
   type InstallTargetProbe,
   promptInstallTargets,
 } from '@/bin/hook/install/selection';
+import { resolveAfterOptionalInstallBanner } from '@/bin/hook/install/startup';
 import {
   type InstallAction,
   type InstallTarget,
@@ -43,6 +44,10 @@ type NativeInstallDefinition = {
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
 };
+type InstallTargetResolution = {
+  finish: () => Promise<readonly InstallTarget[] | null>;
+};
+type SettledResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
@@ -118,6 +123,19 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
   return targets[0] as InstallTarget;
 }
 
+async function settle<T>(promise: Promise<T>): Promise<SettledResult<T>> {
+  try {
+    return { ok: true, value: await promise };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function unwrapSettled<T>(result: SettledResult<T>): T {
+  if (result.ok) return result.value;
+  throw result.error;
+}
+
 async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
   const piRawPromise = defaultVersionFetcher(['pi', '--version']);
   const copilotBinaryVersionPromise = defaultVersionFetcher(['copilot', '--binary-version']);
@@ -158,39 +176,46 @@ function hasCopilotSafetyNetPlugin(output: string | null): boolean {
   return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? '');
 }
 
-async function resolveInstallTargets(
+function startResolveInstallTargets(
   action: InstallAction,
   args: readonly string[],
   options: RunInstallCommandOptions,
-): Promise<readonly InstallTarget[] | null> {
-  if (args.length > 0) return [parseInstallTarget(args, action)];
+): InstallTargetResolution {
+  if (args.length > 0)
+    return {
+      finish: async () => [parseInstallTarget(args, action)],
+    };
   if (!options.selectTargets && !canPromptInstallTargets(options.input, options.output)) {
-    return [parseInstallTarget(args, action)];
+    return {
+      finish: async () => [parseInstallTarget(args, action)],
+    };
   }
 
-  const configuredTargetsPromise = (
-    options.detectConfiguredTargets ?? detectConfiguredInstallTargets
-  )();
-  const choicesPromise = buildInstallTargetChoicesAsync(options.probeTargets);
-  if (!options.selectTargets)
-    (options.output ?? process.stdout).write('Checking coding CLI integrations...\n');
-  const [choices, configuredTargets] = await Promise.all([
-    choicesPromise,
-    configuredTargetsPromise,
-  ]);
-  const targetChoices = applyInstallTargetState(choices, {
-    action,
-    configuredTargets,
-  });
-  const selected = options.selectTargets
-    ? await options.selectTargets(action, targetChoices)
-    : await promptInstallTargets(action, targetChoices, {
-        input: options.input,
-        output: options.output,
-      });
-  if (!selected || selected.length === 0) return null;
+  const detectConfiguredTargets = options.detectConfiguredTargets ?? detectConfiguredInstallTargets;
+  const configuredTargetsPromise = settle(detectConfiguredTargets());
+  const choicesPromise = settle(buildInstallTargetChoicesAsync(options.probeTargets));
 
-  return orderInstallTargets(selected);
+  return {
+    finish: async () => {
+      const [choices, configuredTargets] = await Promise.all([
+        choicesPromise,
+        configuredTargetsPromise,
+      ]);
+      const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
+        action,
+        configuredTargets: unwrapSettled(configuredTargets),
+      });
+      const selected = options.selectTargets
+        ? await options.selectTargets(action, targetChoices)
+        : await promptInstallTargets(action, targetChoices, {
+            input: options.input,
+            output: options.output,
+          });
+      if (!selected || selected.length === 0) return null;
+
+      return orderInstallTargets(selected);
+    },
+  };
 }
 
 function isNativeInstallTarget(target: InstallTarget): target is NativeInstallTarget {
@@ -270,10 +295,11 @@ export async function runInstallCommand(
   options: RunInstallCommandOptions = {},
 ): Promise<number> {
   try {
-    if (action === 'install')
-      await printInstallBanner({ output: options.output ?? process.stdout });
-
-    const targets = await resolveInstallTargets(action, args, options);
+    const targets = await resolveAfterOptionalInstallBanner(
+      action,
+      () => startResolveInstallTargets(action, args, options),
+      () => printInstallBanner({ output: options.output ?? process.stdout }),
+    );
     if (!targets) return 1;
 
     const homeDir = getHomeDir();

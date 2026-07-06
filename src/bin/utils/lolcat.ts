@@ -127,13 +127,21 @@ export async function writeAnimatedLolcat(text: string, options: LolcatAnimation
   const speed = positiveOrDefault(options.speed, DEFAULT_SPEED);
 
   output.write(HIDE_CURSOR);
-  output.write(SAVE_CURSOR);
 
   try {
-    for (const frame of createLolcatAnimationFrames(text, options)) {
-      output.write(RESTORE_CURSOR);
-      output.write(`${frame}\n`);
-      await sleep(1000 / speed);
+    for (const [lineIndex, line] of text.split('\n').entries()) {
+      if (line) {
+        output.write(SAVE_CURSOR);
+        for (const frame of createLolcatAnimationFrames(line, {
+          ...options,
+          seed: (options.seed ?? 0) + lineIndex,
+        })) {
+          output.write(RESTORE_CURSOR);
+          output.write(frame);
+          await sleep(1000 / speed);
+        }
+      }
+      output.write('\n');
     }
   } finally {
     output.write(`${ANSI_RESET}${SHOW_CURSOR}`);

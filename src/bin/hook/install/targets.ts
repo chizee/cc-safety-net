@@ -17,19 +17,19 @@ export const INSTALL_TARGETS: readonly {
   label: string;
   probeCommand: NativeCommand;
 }[] = [
-  { target: 'codex', flag: '--codex', label: 'Codex', probeCommand: ['codex', '--version'] },
-  {
-    target: 'claude-code',
-    flag: '--claude-code',
-    label: 'Claude Code',
-    probeCommand: ['claude', '--version'],
-  },
   {
     target: 'antigravity-cli',
     flag: '--agy-cli',
     label: 'Antigravity CLI',
     probeCommand: ['agy', '--version'],
   },
+  {
+    target: 'claude-code',
+    flag: '--claude-code',
+    label: 'Claude Code',
+    probeCommand: ['claude', '--version'],
+  },
+  { target: 'codex', flag: '--codex', label: 'Codex', probeCommand: ['codex', '--version'] },
   {
     target: 'gemini-cli',
     flag: '--gemini-cli',

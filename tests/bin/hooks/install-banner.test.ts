@@ -1,25 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { printInstallBanner } from '@/bin/hook/install/banner';
-import type { LolcatOutput } from '@/bin/utils/lolcat';
 import { withEnv } from '../../helpers';
-
-function createOutput(isTTY: boolean) {
-  const chunks: string[] = [];
-  const output = {
-    isTTY,
-    write(chunk: string) {
-      chunks.push(chunk);
-      return true;
-    },
-  } satisfies LolcatOutput;
-
-  return { chunks, output };
-}
-
-function stripAnsi(value: string) {
-  const esc = String.fromCharCode(27);
-  return value.replace(new RegExp(`${esc}\\[[0-?]*[ -/]*[@-~]|${esc}[78]`, 'g'), '');
-}
+import { createLolcatOutput, stripAnsi } from '../lolcat-test-helpers';
 
 async function withoutNoColor<T>(fn: () => Promise<T>) {
   const original = process.env.NO_COLOR;
@@ -38,7 +20,7 @@ async function withoutNoColor<T>(fn: () => Promise<T>) {
 
 describe('install banner', () => {
   test('prints animated rainbow ASCII art when stdout is a TTY', async () => {
-    const { chunks, output } = createOutput(true);
+    const { chunks, output } = createLolcatOutput();
 
     await withoutNoColor(() =>
       printInstallBanner({
@@ -60,7 +42,7 @@ describe('install banner', () => {
   });
 
   test('does not print when stdout is not a TTY', async () => {
-    const { chunks, output } = createOutput(false);
+    const { chunks, output } = createLolcatOutput(false);
 
     await printInstallBanner({
       output,
@@ -71,7 +53,7 @@ describe('install banner', () => {
   });
 
   test('prints when NO_COLOR is set to match lolcat behavior', async () => {
-    const { chunks, output } = createOutput(true);
+    const { chunks, output } = createLolcatOutput();
 
     await withEnv({ NO_COLOR: '1' }, () =>
       printInstallBanner({

@@ -94,9 +94,9 @@ describe('install target availability', () => {
       const choices = buildInstallTargetChoices();
 
       expect(choices.map((choice) => choice.target)).toEqual([
-        'codex',
-        'claude-code',
         'antigravity-cli',
+        'claude-code',
+        'codex',
         'gemini-cli',
         'copilot-cli',
         'kimi-code',
@@ -164,8 +164,8 @@ describe('install target availability', () => {
     });
 
     expectAvailableTargets(choices, [
-      'claude-code',
       'antigravity-cli',
+      'claude-code',
       'gemini-cli',
       'copilot-cli',
       'opencode',

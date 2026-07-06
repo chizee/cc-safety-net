@@ -1,23 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  createLolcatAnimationFrames,
-  type LolcatOutput,
-  renderLolcat,
-  writeAnimatedLolcat,
-} from '@/bin/utils/lolcat';
-
-function createOutput() {
-  const chunks: string[] = [];
-  const output = {
-    isTTY: true,
-    write(chunk: string) {
-      chunks.push(chunk);
-      return true;
-    },
-  } satisfies LolcatOutput;
-
-  return { chunks, output };
-}
+import { createLolcatAnimationFrames, renderLolcat, writeAnimatedLolcat } from '@/bin/utils/lolcat';
+import { createLolcatOutput, stripAnsi } from '../lolcat-test-helpers';
 
 describe('lolcat port', () => {
   test('renders a deterministic truecolor rainbow for text', () => {
@@ -47,7 +30,7 @@ describe('lolcat port', () => {
   });
 
   test('writes animated frames with cursor save and restore escapes', async () => {
-    const { chunks, output } = createOutput();
+    const { chunks, output } = createLolcatOutput();
     const sleeps: number[] = [];
 
     await writeAnimatedLolcat('A', {
@@ -67,5 +50,22 @@ describe('lolcat port', () => {
     expect(printed).toContain('\x1b[38;2;');
     expect(printed.endsWith('\x1b[0m\x1b[?25h')).toBe(true);
     expect(sleeps).toEqual([100, 100]);
+  });
+
+  test('animates multi-line text one row at a time', async () => {
+    const { chunks, output } = createLolcatOutput();
+
+    await writeAnimatedLolcat('A\nB', {
+      duration: 2,
+      output,
+      seed: 0,
+      sleep: async () => {},
+      speed: 10,
+      spread: 1,
+    });
+
+    expect(
+      chunks.filter((chunk) => chunk.includes('\x1b[38;2;')).map((chunk) => stripAnsi(chunk)),
+    ).toEqual(['A', 'A', 'B', 'B']);
   });
 });

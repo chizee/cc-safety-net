@@ -14066,13 +14066,22 @@ async function writeAnimatedLolcat(text, options2 = {}) {
   const sleep = options2.sleep ?? wait;
   const speed = positiveOrDefault(options2.speed, DEFAULT_SPEED);
   output.write(HIDE_CURSOR);
-  output.write(SAVE_CURSOR);
   try {
-    for (const frame of createLolcatAnimationFrames(text, options2)) {
-      output.write(RESTORE_CURSOR);
-      output.write(`${frame}
+    for (const [lineIndex, line] of text.split(`
+`).entries()) {
+      if (line) {
+        output.write(SAVE_CURSOR);
+        for (const frame of createLolcatAnimationFrames(line, {
+          ...options2,
+          seed: (options2.seed ?? 0) + lineIndex
+        })) {
+          output.write(RESTORE_CURSOR);
+          output.write(frame);
+          await sleep(1000 / speed);
+        }
+      }
+      output.write(`
 `);
-      await sleep(1000 / speed);
     }
   } finally {
     output.write(`${ANSI_RESET2}${SHOW_CURSOR}`);
@@ -14529,19 +14538,19 @@ import * as readline from "node:readline";
 
 // src/bin/hook/install/targets.ts
 var INSTALL_TARGETS = [
-  { target: "codex", flag: "--codex", label: "Codex", probeCommand: ["codex", "--version"] },
-  {
-    target: "claude-code",
-    flag: "--claude-code",
-    label: "Claude Code",
-    probeCommand: ["claude", "--version"]
-  },
   {
     target: "antigravity-cli",
     flag: "--agy-cli",
     label: "Antigravity CLI",
     probeCommand: ["agy", "--version"]
   },
+  {
+    target: "claude-code",
+    flag: "--claude-code",
+    label: "Claude Code",
+    probeCommand: ["claude", "--version"]
+  },
+  { target: "codex", flag: "--codex", label: "Codex", probeCommand: ["codex", "--version"] },
   {
     target: "gemini-cli",
     flag: "--gemini-cli",
@@ -14708,6 +14717,7 @@ function renderInstallSelection(action, choices, state, options2 = {}) {
   const formatDim = options2.color === false ? (value) => value : colors.dim;
   const formatSelected = options2.color === false ? (value) => value : colors.green;
   return [
+    "",
     `${titleCaseAction(action)} CC Safety Net ${targetPreposition(action)}:`,
     "",
     ...choices.map((choice, index) => {
@@ -14798,6 +14808,14 @@ function promptInstallTargets(action, choices, options2 = {}) {
   });
 }
 
+// src/bin/hook/install/startup.ts
+async function resolveAfterOptionalInstallBanner(action, startResolution, printBanner) {
+  const resolution = startResolution();
+  if (action === "install")
+    await printBanner();
+  return resolution.finish();
+}
+
 // src/bin/hook/install.ts
 var NATIVE_INSTALLS = {
   "claude-code": {
@@ -14870,6 +14888,18 @@ function parseInstallTarget(args, action) {
     throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(", ")}`);
   return targets[0];
 }
+async function settle(promise) {
+  try {
+    return { ok: true, value: await promise };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+function unwrapSettled(result) {
+  if (result.ok)
+    return result.value;
+  throw result.error;
+}
 async function detectConfiguredInstallTargets() {
   const piRawPromise = defaultVersionFetcher(["pi", "--version"]);
   const copilotBinaryVersionPromise = defaultVersionFetcher(["copilot", "--binary-version"]);
@@ -14905,32 +14935,38 @@ async function detectConfiguredInstallTargets() {
 function hasCopilotSafetyNetPlugin2(output) {
   return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? "");
 }
-async function resolveInstallTargets(action, args, options2) {
+function startResolveInstallTargets(action, args, options2) {
   if (args.length > 0)
-    return [parseInstallTarget(args, action)];
+    return {
+      finish: async () => [parseInstallTarget(args, action)]
+    };
   if (!options2.selectTargets && !canPromptInstallTargets(options2.input, options2.output)) {
-    return [parseInstallTarget(args, action)];
+    return {
+      finish: async () => [parseInstallTarget(args, action)]
+    };
   }
-  const configuredTargetsPromise = (options2.detectConfiguredTargets ?? detectConfiguredInstallTargets)();
-  const choicesPromise = buildInstallTargetChoicesAsync(options2.probeTargets);
-  if (!options2.selectTargets)
-    (options2.output ?? process.stdout).write(`Checking coding CLI integrations...
-`);
-  const [choices, configuredTargets] = await Promise.all([
-    choicesPromise,
-    configuredTargetsPromise
-  ]);
-  const targetChoices = applyInstallTargetState(choices, {
-    action,
-    configuredTargets
-  });
-  const selected = options2.selectTargets ? await options2.selectTargets(action, targetChoices) : await promptInstallTargets(action, targetChoices, {
-    input: options2.input,
-    output: options2.output
-  });
-  if (!selected || selected.length === 0)
-    return null;
-  return orderInstallTargets(selected);
+  const detectConfiguredTargets = options2.detectConfiguredTargets ?? detectConfiguredInstallTargets;
+  const configuredTargetsPromise = settle(detectConfiguredTargets());
+  const choicesPromise = settle(buildInstallTargetChoicesAsync(options2.probeTargets));
+  return {
+    finish: async () => {
+      const [choices, configuredTargets] = await Promise.all([
+        choicesPromise,
+        configuredTargetsPromise
+      ]);
+      const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
+        action,
+        configuredTargets: unwrapSettled(configuredTargets)
+      });
+      const selected = options2.selectTargets ? await options2.selectTargets(action, targetChoices) : await promptInstallTargets(action, targetChoices, {
+        input: options2.input,
+        output: options2.output
+      });
+      if (!selected || selected.length === 0)
+        return null;
+      return orderInstallTargets(selected);
+    }
+  };
 }
 function isNativeInstallTarget(target) {
   return target in NATIVE_INSTALLS;
@@ -14973,9 +15009,7 @@ function runSingleInstallTarget(action, target, homeDir) {
 }
 async function runInstallCommand(action, args, options2 = {}) {
   try {
-    if (action === "install")
-      await printInstallBanner({ output: options2.output ?? process.stdout });
-    const targets = await resolveInstallTargets(action, args, options2);
+    const targets = await resolveAfterOptionalInstallBanner(action, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({ output: options2.output ?? process.stdout }));
     if (!targets)
       return 1;
     const homeDir = getHomeDir();
