@@ -204,6 +204,13 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Allow paths');
       expect(html).not.toContain('id="allow-paths"');
       expect(html).toContain('Raw JSON');
+      expect(html).toContain(
+        '<div class="panel-head raw-json-head">\n        <div class="panel-title">\n          <h2>Raw JSON</h2>',
+      );
+      expect(html).toContain('.raw-json-head {\n  flex-wrap: nowrap;');
+      expect(html).toContain('.raw-json-head .panel-title {');
+      expect(html).toContain('.raw-json-head #raw-copy {');
+      expect(html).toContain('.raw-json-head {\n    flex-direction: row;');
       expect(html).toContain('id="raw-copy"');
       expect(html).toContain('aria-label="Copy raw JSON to clipboard"');
       expect(html).toContain('id="repair"');
@@ -217,7 +224,14 @@ describe('policy GUI server', () => {
       expect(html).toContain('<span id="star-slot"></span>');
       expect(html.indexOf('id="star-row"')).toBeGreaterThan(html.indexOf('id="reset"'));
       expect(html.indexOf('id="star-row"')).toBeLessThan(html.indexOf('id="app-status"'));
-      expect(html).not.toContain('<footer class="page-footer">');
+      expect(html).toContain('<footer class="page-footer">');
+      expect(html.indexOf('<footer class="page-footer">')).toBeGreaterThan(html.indexOf('</main>'));
+      expect(html).toContain(
+        '<a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>',
+      );
+      expect(html).toContain(
+        '<a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>',
+      );
       expect(html).toContain('If CC Safety Net is useful to you, star it on GitHub.');
       expect(html).toContain('const starIcons =');
       expect(html).not.toContain('id="star-repo"');
@@ -260,7 +274,8 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('window.open(');
       expect(html).not.toContain("window.open('', '_blank')");
       expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
-      expect(html).not.toContain('.page-footer {');
+      expect(html).toContain('.page-footer {');
+      expect(html).toContain('.page-footer a {');
       expect(html).toContain('.star-row {');
       expect(html).toContain('.star-pitch {');
       expect(html).toContain('.star-mechanism {');

@@ -12400,6 +12400,18 @@ main {
   min-width: 0;
 }
 
+.raw-json-head {
+  flex-wrap: nowrap;
+}
+
+.raw-json-head .panel-title {
+  flex: 1 1 auto;
+}
+
+.raw-json-head #raw-copy {
+  flex: none;
+}
+
 .panel-toggle {
   display: inline-flex;
   align-items: center;
@@ -12916,6 +12928,33 @@ textarea {
   cursor: default;
 }
 
+.page-footer {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 28px 28px;
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  color: var(--meta);
+  font-size: 12px;
+}
+
+.page-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-footer a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.page-footer a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none;
@@ -12936,6 +12975,10 @@ textarea {
 
   main {
     padding: 18px 16px 40px;
+  }
+
+  .page-footer {
+    padding: 0 16px 24px;
   }
 
   .actions {
@@ -12967,6 +13010,10 @@ textarea {
 
   .panel-head {
     flex-direction: column;
+  }
+
+  .raw-json-head {
+    flex-direction: row;
   }
 
   .grid {
@@ -13073,7 +13120,7 @@ var page_default = `<!doctype html>
       </div>
     </section>
     <section class="panel">
-      <div class="panel-head">
+      <div class="panel-head raw-json-head">
         <div class="panel-title">
           <h2>Raw JSON</h2>
           <p class="panel-sub muted" id="raw-source">Read-only mirror of the controls.</p>
@@ -13083,6 +13130,10 @@ var page_default = `<!doctype html>
       <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
     </section>
   </main>
+  <footer class="page-footer">
+    <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
+  </footer>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
     <form method="dialog">
       <h2 id="confirm-dialog-title"></h2>
