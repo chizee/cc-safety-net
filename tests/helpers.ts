@@ -197,6 +197,10 @@ export const mockVersionFetcher: VersionFetcher = async (args: string[]) => {
     Status: ✔ enabled`;
   }
 
+  if (args[0] === 'codex' && args[1] === 'plugin') {
+    return 'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed, enabled';
+  }
+
   // Handle multi-word commands like `copilot plugin list`
   if (args[0] === 'copilot' && args[1] === 'plugin') {
     return 'Installed plugins:\n  • copilot-safety-net (v1.0.0)';

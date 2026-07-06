@@ -145,6 +145,8 @@ export interface SystemInfo {
   antigravityCliVersion: string | null;
   /** Codex CLI version (from `codex --version`) */
   codexCliVersion: string | null;
+  /** Codex plugin list output (from `codex plugin list`) */
+  codexPluginListOutput: string | null;
   /** Gemini CLI version (from `gemini --version`) */
   geminiCliVersion: string | null;
   /** Gemini CLI extension list output (from `gemini extensions list`) */

@@ -19,6 +19,34 @@ import { getSystemInfo } from '@/bin/doctor/system-info';
 import type { DoctorReport, EffectiveRule, HookStatus, SystemInfo } from '@/bin/doctor/types';
 import { mockVersionFetcher, withStdoutColor } from '../../helpers.ts';
 
+function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
+  return {
+    version: '0.6.0',
+    claudeCodeVersion: null,
+    claudePluginListOutput: null,
+    antigravityCliVersion: null,
+    openCodeVersion: null,
+    codexCliVersion: null,
+    codexPluginListOutput: null,
+    geminiCliVersion: null,
+    geminiExtensionsListOutput: null,
+    copilotCliVersion: null,
+    kimiCodeVersion: null,
+    piCliVersion: null,
+    nodeVersion: '22.0.0',
+    npmVersion: '10.0.0',
+    bunVersion: '1.0.0',
+    copilotPluginInstalled: false,
+    piSafetyNetProbe: {
+      status: 'unavailable',
+      installedAndEnabled: false,
+      matched: [],
+    },
+    platform: 'darwin',
+    ...overrides,
+  };
+}
+
 function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport {
   return {
     hooks: [],
@@ -37,29 +65,7 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
     },
     activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [] },
     update: { currentVersion: '0.6.0', latestVersion: '0.6.0', updateAvailable: false },
-    system: {
-      version: '0.6.0',
-      claudeCodeVersion: null,
-      claudePluginListOutput: null,
-      antigravityCliVersion: null,
-      openCodeVersion: null,
-      codexCliVersion: null,
-      geminiCliVersion: null,
-      geminiExtensionsListOutput: null,
-      copilotCliVersion: null,
-      kimiCodeVersion: null,
-      piCliVersion: null,
-      nodeVersion: '22.0.0',
-      npmVersion: '10.0.0',
-      bunVersion: '1.0.0',
-      copilotPluginInstalled: false,
-      piSafetyNetProbe: {
-        status: 'unavailable',
-        installedAndEnabled: false,
-        matched: [],
-      },
-      platform: 'darwin',
-    },
+    system: createSystemInfo(),
     ...overrides,
   };
 }
@@ -480,29 +486,11 @@ describe('formatSystemInfoSection', () => {
   });
 
   test('formats null versions as "not found"', () => {
-    const sysInfo: SystemInfo = {
+    const sysInfo = createSystemInfo({
       version: 'dev',
-      claudeCodeVersion: null,
-      claudePluginListOutput: null,
-      antigravityCliVersion: null,
-      openCodeVersion: null,
-      codexCliVersion: null,
-      geminiCliVersion: null,
-      geminiExtensionsListOutput: null,
-      copilotCliVersion: null,
-      kimiCodeVersion: null,
-      piCliVersion: null,
-      nodeVersion: '22.0.0',
       npmVersion: null,
-      bunVersion: '1.0.0',
-      copilotPluginInstalled: false,
-      piSafetyNetProbe: {
-        status: 'unavailable',
-        installedAndEnabled: false,
-        matched: [],
-      },
       platform: 'darwin arm64',
-    };
+    });
     const output = formatSystemInfoSection(sysInfo);
     expect(output).toContain('not found');
   });

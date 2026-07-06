@@ -157,6 +157,9 @@ describe('getSystemInfo', () => {
     expect(sysInfo.codexCliVersion === null || typeof sysInfo.codexCliVersion === 'string').toBe(
       true,
     );
+    expect(
+      sysInfo.codexPluginListOutput === null || typeof sysInfo.codexPluginListOutput === 'string',
+    ).toBe(true);
     expect(sysInfo.geminiCliVersion === null || typeof sysInfo.geminiCliVersion === 'string').toBe(
       true,
     );
@@ -214,6 +217,13 @@ describe('getSystemInfo', () => {
   test('includes Codex CLI version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.codexCliVersion).toBe('1.2.0');
+  });
+
+  test('includes Codex plugin list output with mock fetcher', async () => {
+    const sysInfo = await getSystemInfo(mockVersionFetcher);
+    expect(sysInfo.codexPluginListOutput).toContain(
+      'https://github.com/kenryu42/cc-safety-net.git',
+    );
   });
 
   test('includes successful Pi safety-net probe result', async () => {
@@ -423,6 +433,7 @@ describe('getSystemInfo', () => {
     expect(result.claudePluginListOutput).toBeNull();
     expect(result.copilotCliVersion).toBeNull();
     expect(result.codexCliVersion).toBeNull();
+    expect(result.codexPluginListOutput).toBeNull();
     expect(result.kimiCodeVersion).toBeNull();
     expect(result.piCliVersion).toBeNull();
     expect(result.geminiExtensionsListOutput).toBeNull();

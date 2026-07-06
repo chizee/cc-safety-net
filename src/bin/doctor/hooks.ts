@@ -20,6 +20,7 @@ import type { Config } from '@/types';
 interface HookDetectOptions extends LoadConfigOptions {
   homeDir?: string;
   claudePluginListOutput?: string | null;
+  codexPluginListOutput?: string | null;
   geminiExtensionsListOutput?: string | null;
   copilotCliVersion?: string | null;
   copilotPluginInstalled?: boolean;
@@ -50,22 +51,16 @@ interface CopilotDetectionState {
   disabledBy?: string;
 }
 
-interface CodexConfig {
-  pluginHooks?: boolean;
-  safetyNetEnabled?: boolean;
-}
-
 const COPILOT_PLUGIN_CONFIG_PATH = 'copilot-plugin';
 const CLAUDE_PLUGIN_LIST_CONFIG_PATH = 'claude plugin list';
 const CLAUDE_SAFETY_NET_PLUGIN_ID = 'safety-net@cc-marketplace';
+const CODEX_PLUGIN_LIST_CONFIG_PATH = 'codex plugin list';
+const CODEX_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/cc-safety-net.git';
 const GEMINI_EXTENSIONS_LIST_CONFIG_PATH = 'gemini extensions list';
 const GEMINI_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/gemini-safety-net';
 const ANTIGRAVITY_HOOK_COMMAND_PATTERN =
   /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
 const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
-const CODEX_PLUGIN_HOOKS_WARNING =
-  'Codex plugin hooks are behind a feature flag. Add `plugin_hooks = true` under [features] in $CODEX_HOME/config.toml.';
-const CODEX_SAFETY_NET_PLUGIN_ID = 'safety-net@cc-marketplace';
 
 /** Self-test cases for validating the analyzer */
 const SELF_TEST_CASES: SelfTestCase[] = [
@@ -558,102 +553,38 @@ function _parseGeminiEnabledValue(block: string, scope: 'User' | 'Workspace'): b
   return match[1] === 'true';
 }
 
-function _getCodexHome(homeDir: string): string {
-  return process.env.CODEX_HOME || join(homeDir, '.codex');
-}
-
-function _parseCodexConfig(content: string): CodexConfig {
-  const result: CodexConfig = {};
-  content.split('\n').reduce<string | undefined>((activeSection, line) => {
-    const trimmed = line.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) return activeSection;
-
-    const sectionMatch = /^\[([^\]]+)]\s*(?:#.*)?$/.exec(trimmed);
-    if (sectionMatch) return sectionMatch[1];
-
-    if (activeSection === 'features') {
-      const pluginHooksMatch = /^plugin_hooks\s*=\s*(true|false)\s*(?:#.*)?$/.exec(trimmed);
-      if (pluginHooksMatch) result.pluginHooks = pluginHooksMatch[1] === 'true';
-    }
-
-    if (activeSection === `plugins."${CODEX_SAFETY_NET_PLUGIN_ID}"`) {
-      const enabledMatch = /^enabled\s*=\s*(true|false)\s*(?:#.*)?$/.exec(trimmed);
-      if (enabledMatch) result.safetyNetEnabled = enabledMatch[1] === 'true';
-    }
-
-    return activeSection;
-  }, undefined);
-
-  return result;
-}
-
-function _readCodexConfig(configPath: string, errors: string[]): CodexConfig {
-  try {
-    return _parseCodexConfig(readFileSync(configPath, 'utf-8'));
-  } catch (e) {
-    errors.push(`Failed to read ${configPath}: ${e instanceof Error ? e.message : String(e)}`);
-    return {};
-  }
-}
-
 /**
  * Detect Codex plugin configuration.
  */
-function detectCodex(homeDir: string): HookStatus {
-  const codexHome = _getCodexHome(homeDir);
-  const pluginCachePath = join(codexHome, 'plugins', 'cache', 'cc-marketplace', 'safety-net');
-  const errors: string[] = [];
-
-  if (!existsSync(pluginCachePath)) {
-    return { platform: 'codex', status: 'n/a', configPath: pluginCachePath };
+function detectCodex(pluginListOutput: string | null | undefined): HookStatus {
+  if (!pluginListOutput) {
+    return { platform: 'codex', status: 'n/a' };
   }
 
-  try {
-    if (readdirSync(pluginCachePath).length === 0) {
-      return { platform: 'codex', status: 'n/a', configPath: pluginCachePath };
-    }
-  } catch (e) {
-    return {
-      platform: 'codex',
-      status: 'n/a',
-      configPath: pluginCachePath,
-      errors: [`Failed to read ${pluginCachePath}: ${e instanceof Error ? e.message : String(e)}`],
-    };
+  const pluginLine = pluginListOutput
+    .split('\n')
+    .find((line) => line.includes(CODEX_SAFETY_NET_SOURCE));
+
+  if (!pluginLine) {
+    return { platform: 'codex', status: 'n/a' };
   }
 
-  const configPath = join(codexHome, 'config.toml');
-  const config = _readCodexConfig(configPath, errors);
-
-  if (config.safetyNetEnabled !== true) {
+  if (!pluginLine.includes('installed, enabled')) {
     return {
       platform: 'codex',
       status: 'disabled',
-      method: 'plugin cache',
-      configPath,
-      errors: [
-        ...errors,
-        `Codex plugin ${CODEX_SAFETY_NET_PLUGIN_ID} is not enabled. Add enabled = true under [plugins."${CODEX_SAFETY_NET_PLUGIN_ID}"] in $CODEX_HOME/config.toml.`,
-      ],
-    };
-  }
-
-  if (config.pluginHooks !== true) {
-    return {
-      platform: 'codex',
-      status: 'disabled',
-      method: 'plugin cache',
-      configPath,
-      errors: [...errors, CODEX_PLUGIN_HOOKS_WARNING],
+      method: CODEX_PLUGIN_LIST_CONFIG_PATH,
+      configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
+      errors: [`Codex plugin line for ${CODEX_SAFETY_NET_SOURCE} must contain installed, enabled.`],
     };
   }
 
   return {
     platform: 'codex',
     status: 'configured',
-    method: 'plugin cache',
-    configPath,
+    method: CODEX_PLUGIN_LIST_CONFIG_PATH,
+    configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
     selfTest: runSelfTest(),
-    errors: errors.length > 0 ? errors : undefined,
   };
 }
 
@@ -957,7 +888,7 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
       case 'pi':
         return detectPi(options?.piSafetyNetProbe);
       case 'codex':
-        return detectCodex(homeDir);
+        return detectCodex(options?.codexPluginListOutput);
     }
     return platform satisfies never;
   });

@@ -59,6 +59,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
   const system = await getSystemInfo(undefined, { cwd });
   const hooks = detectAllHooks(cwd, {
     claudePluginListOutput: system.claudePluginListOutput,
+    codexPluginListOutput: system.codexPluginListOutput,
     geminiExtensionsListOutput: system.geminiExtensionsListOutput,
     copilotCliVersion: system.copilotCliVersion,
     copilotPluginInstalled: system.copilotPluginInstalled,

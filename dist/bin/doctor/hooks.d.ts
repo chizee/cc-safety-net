@@ -6,6 +6,7 @@ import type { LoadConfigOptions } from '@/core/config';
 interface HookDetectOptions extends LoadConfigOptions {
     homeDir?: string;
     claudePluginListOutput?: string | null;
+    codexPluginListOutput?: string | null;
     geminiExtensionsListOutput?: string | null;
     copilotCliVersion?: string | null;
     copilotPluginInstalled?: boolean;
