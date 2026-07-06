@@ -1,7 +1,7 @@
-import { resolve } from 'node:path';
 import { analyzeCommand, loadConfig } from '@/core/analyze';
 import { redactSecrets, writeAuditLog } from '@/core/audit';
 import type { LoadConfigOptions } from '@/core/config';
+import { resolveContainedCwd } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
 import { formatBlockedMessage } from '@/core/format';
 import {
@@ -213,7 +213,9 @@ function getPiToolCall(
   if (typeof command !== 'string') return { malformed: true };
 
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
-  const cwd = typeof cwdInput === 'string' ? resolve(ctx.cwd, cwdInput) : ctx.cwd;
+  const cwd = typeof cwdInput === 'string' ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
+  if (!cwd) return { malformed: true };
+
   return { toolName: toolCall.toolName, input: toolCall.input, cwd, command };
 }
 

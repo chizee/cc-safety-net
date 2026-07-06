@@ -316,9 +316,6 @@ function buildSafetyNetCommandPrompt(args) {
 
 ${args.trim() || DEFAULT_USER_REQUEST}`;
 }
-// src/pi/tool-call.ts
-import { resolve as resolve10 } from "node:path";
-
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
@@ -7695,6 +7692,34 @@ function redactSecrets(text) {
   return result;
 }
 
+// src/core/cwd-containment.ts
+import { realpathSync as realpathSync8, statSync as statSync2 } from "node:fs";
+import { isAbsolute as isAbsolute9, relative as relative3, resolve as resolve8 } from "node:path";
+function resolveContainedCwd(requestedCwd, trustedRoots) {
+  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
+  if (!roots[0])
+    return;
+  const requested = canonicalDirectory(isAbsolute9(requestedCwd) ? requestedCwd : resolve8(roots[0], requestedCwd))[0];
+  if (!requested)
+    return;
+  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+}
+function firstTrustedRoot(trustedRoots) {
+  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
+}
+function canonicalDirectory(path) {
+  try {
+    const realPath = realpathSync8(path);
+    return statSync2(realPath).isDirectory() ? [realPath] : [];
+  } catch {
+    return [];
+  }
+}
+function isSameOrInside(path, root) {
+  const rel = relative3(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute9(rel);
+}
+
 // src/core/format.ts
 function formatBlockedMessage(input) {
   const { reason, command: command2, segment, toolName } = input;
@@ -7751,11 +7776,11 @@ function excerpt(text, maxLen) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute10, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { isAbsolute as isAbsolute11, normalize as normalize4, resolve as resolve10 } from "node:path";
 
 // src/core/secret-protection.ts
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute9, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute10, resolve as resolve9 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
@@ -8457,7 +8482,7 @@ function normalizeCandidatePath(target, cwd) {
   if (!home) {
     return normalized;
   }
-  const absolute = isAbsolute9(normalized) ? normalized : normalizePathText(resolve8(cwd, normalized));
+  const absolute = isAbsolute10(normalized) ? normalized : normalizePathText(resolve9(cwd, normalized));
   if (!isSameOrChildPath(absolute, home)) {
     return normalized;
   }
@@ -8672,8 +8697,8 @@ function normalizeCandidatePath2(target, cwd) {
   const unix = target.trim().replace(/\\/g, "/");
   if (!unix)
     return "";
-  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
-  return normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)).replace(/\\/g, "/");
+  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
+  return normalize4(isAbsolute11(expanded) ? expanded : resolve10(cwd, expanded)).replace(/\\/g, "/");
 }
 function isOperator3(token) {
   const op = getParseOp(token);
@@ -8785,7 +8810,9 @@ function getPiToolCall(event, ctx) {
   if (typeof command2 !== "string")
     return { malformed: true };
   const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
-  const cwd = typeof cwdInput === "string" ? resolve10(ctx.cwd, cwdInput) : ctx.cwd;
+  const cwd = typeof cwdInput === "string" ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
+  if (!cwd)
+    return { malformed: true };
   return { toolName: toolCall.toolName, input: toolCall.input, cwd, command: command2 };
 }
 function blockPiToolCall(reason, command2, segment, manualPermissionAdvice, ruleId, intent) {

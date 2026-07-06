@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
 import {
   antigravityShellInput,
   expectNoHookOutput,
   expectSecretProtectionDeny,
   getHookDenyReason,
+  type HookTestContext,
   runAntigravityHook,
   withHookTestContext,
   writeUserPolicy,
@@ -22,6 +26,118 @@ describe('Antigravity CLI hook', () => {
   describe('allowed commands', () => {
     test('allows safe commands with no output', async () => {
       await expectNoHookOutput(runAntigravityHook, antigravityShellInput('git status'));
+    });
+
+    test('allows Cwd equal to workspace path', async () => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(context.runAntigravityHook, {
+          toolCall: {
+            name: 'run_command',
+            args: { CommandLine: 'git status', Cwd: context.cwd },
+          },
+          conversationId: 'antigravity-test-session',
+          workspacePaths: [context.cwd],
+        });
+      });
+    });
+
+    test('allows Cwd inside workspace path', async () => {
+      await withHookTestContext(async (context) => {
+        mkdirSync(join(context.cwd, 'app'));
+
+        await expectNoHookOutput(context.runAntigravityHook, {
+          toolCall: {
+            name: 'run_command',
+            args: { CommandLine: 'git status', Cwd: 'app' },
+          },
+          conversationId: 'antigravity-test-session',
+          workspacePaths: [context.cwd],
+        });
+      });
+    });
+
+    test('allows Cwd inside any listed workspace path', async () => {
+      await withHookTestContext(async (context) => {
+        const secondWorkspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
+        try {
+          mkdirSync(join(secondWorkspace, 'app'));
+
+          await expectNoHookOutput(context.runAntigravityHook, {
+            toolCall: {
+              name: 'run_command',
+              args: { CommandLine: 'git status', Cwd: join(secondWorkspace, 'app') },
+            },
+            conversationId: 'antigravity-test-session',
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+        } finally {
+          rmSync(secondWorkspace, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('resolves omitted Cwd to first usable workspace path', async () => {
+      await withHookTestContext((context) => {
+        expect(
+          resolveAntigravityCwd(
+            {
+              toolCall: { name: 'run_command', args: { CommandLine: 'git status' } },
+              workspacePaths: [join(context.cwd, 'missing'), context.cwd],
+            },
+            () => {},
+          ),
+        ).toBe(realpathSync(context.cwd));
+      });
+    });
+  });
+
+  describe('Cwd containment', () => {
+    test('denies relative Cwd outside workspace path', async () => {
+      await withHookTestContext(async (context) => {
+        await expectAntigravityCwdFail(context, '..');
+      });
+    });
+
+    test('denies absolute Cwd outside workspace path', async () => {
+      await withHookTestContext(async (context) => {
+        const outside = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-outside-'));
+        try {
+          await expectAntigravityCwdFail(context, outside);
+        } finally {
+          rmSync(outside, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('denies Cwd that escapes workspace path through symlink', async () => {
+      await withHookTestContext(async (context) => {
+        const outside = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-symlink-outside-'));
+        try {
+          symlinkSync(outside, join(context.cwd, 'outside-link'));
+          await expectAntigravityCwdFail(context, 'outside-link');
+        } finally {
+          rmSync(outside, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('resolver fails closed for uncontained Cwd', async () => {
+      await withHookTestContext((context) => {
+        const denyReasons: string[] = [];
+
+        expect(
+          resolveAntigravityCwd(
+            {
+              toolCall: { name: 'run_command', args: { CommandLine: 'git status', Cwd: '..' } },
+              workspacePaths: [context.cwd],
+            },
+            (reason) => {
+              denyReasons.push(reason);
+            },
+          ),
+        ).toBeNull();
+        expect(denyReasons[0]).toContain('CC Safety Net failed closed');
+      });
     });
   });
 
@@ -133,3 +249,16 @@ describe('Antigravity CLI hook', () => {
     });
   });
 });
+
+async function expectAntigravityCwdFail(context: HookTestContext, cwd: string): Promise<void> {
+  const result = await context.runAntigravityHook({
+    toolCall: {
+      name: 'run_command',
+      args: { CommandLine: 'git status', Cwd: cwd },
+    },
+    conversationId: 'antigravity-test-session',
+    workspacePaths: [context.cwd],
+  });
+
+  expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+}

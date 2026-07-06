@@ -29,7 +29,7 @@ type HookAdapter<T> = {
   isSupported: (input: T) => boolean;
   getToolInput: (input: T, outputDeny: HookDenyOutput) => unknown;
   getCommand?: (toolInput: unknown) => string | undefined;
-  getCwd: (input: T) => string | undefined;
+  getCwd: (input: T, outputDeny: HookDenyOutput) => string | null | undefined;
   getSessionId: (input: T) => string | undefined;
 };
 
@@ -187,7 +187,12 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     return;
   }
 
-  const cwd = adapter.getCwd(input) ?? process.cwd();
+  const cwdInput = adapter.getCwd(input, adapter.outputDeny);
+  if (cwdInput === null) {
+    return;
+  }
+
+  const cwd = cwdInput ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
   const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);

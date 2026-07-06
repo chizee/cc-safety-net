@@ -5,7 +5,7 @@ type HookAdapter<T> = {
     isSupported: (input: T) => boolean;
     getToolInput: (input: T, outputDeny: HookDenyOutput) => unknown;
     getCommand?: (toolInput: unknown) => string | undefined;
-    getCwd: (input: T) => string | undefined;
+    getCwd: (input: T, outputDeny: HookDenyOutput) => string | null | undefined;
     getSessionId: (input: T) => string | undefined;
 };
 type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {

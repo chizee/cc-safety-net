@@ -8778,7 +8778,11 @@ async function runHookAdapter(adapter) {
   if (!adapter.isSupported(input)) {
     return;
   }
-  const cwd = adapter.getCwd(input) ?? process.cwd();
+  const cwdInput = adapter.getCwd(input, adapter.outputDeny);
+  if (cwdInput === null) {
+    return;
+  }
+  const cwd = cwdInput ?? process.cwd();
   const toolInput = adapter.getToolInput(input, adapter.outputDeny);
   const toolName = getToolName(input);
   const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);
@@ -8843,6 +8847,34 @@ async function runConfiguredHookAdapter(adapter) {
   });
 }
 
+// src/core/cwd-containment.ts
+import { realpathSync as realpathSync8, statSync as statSync2 } from "node:fs";
+import { isAbsolute as isAbsolute11, relative as relative3, resolve as resolve10 } from "node:path";
+function resolveContainedCwd(requestedCwd, trustedRoots) {
+  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
+  if (!roots[0])
+    return;
+  const requested = canonicalDirectory(isAbsolute11(requestedCwd) ? requestedCwd : resolve10(roots[0], requestedCwd))[0];
+  if (!requested)
+    return;
+  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+}
+function firstTrustedRoot(trustedRoots) {
+  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
+}
+function canonicalDirectory(path) {
+  try {
+    const realPath = realpathSync8(path);
+    return statSync2(realPath).isDirectory() ? [realPath] : [];
+  } catch {
+    return [];
+  }
+}
+function isSameOrInside(path, root) {
+  const rel = relative3(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute11(rel);
+}
+
 // src/bin/hook/antigravity-cli.ts
 async function runAntigravityCliHook() {
   await runConfiguredHookAdapter({
@@ -8852,9 +8884,25 @@ async function runAntigravityCliHook() {
     }),
     isSupported: (input) => typeof input.toolCall?.name === "string",
     getToolInput: (input) => normalizeAntigravityToolArgs(input.toolCall?.args),
-    getCwd: (input) => typeof input.toolCall?.args?.Cwd === "string" ? input.toolCall.args.Cwd : undefined,
+    getCwd: resolveAntigravityCwd,
     getSessionId: (input) => input.conversationId
   });
+}
+function resolveAntigravityCwd(input, outputDeny) {
+  const trustedRoots = usableWorkspacePaths(input);
+  const cwd = input.toolCall?.args?.Cwd;
+  if (typeof cwd !== "string") {
+    return firstTrustedRoot(trustedRoots);
+  }
+  const containedCwd = resolveContainedCwd(cwd, trustedRoots);
+  if (containedCwd)
+    return containedCwd;
+  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof input.toolCall?.args?.CommandLine === "string" ? input.toolCall.args.CommandLine : undefined, cwd, undefined, input.toolCall?.name, undefined, "stop_and_explain");
+  return null;
+}
+function usableWorkspacePaths(input) {
+  const workspacePaths = input.workspacePaths?.filter((path) => typeof path === "string") ?? [];
+  return firstTrustedRoot(workspacePaths) ? workspacePaths : [process.cwd()];
 }
 function normalizeAntigravityToolArgs(args) {
   if (!args)
@@ -10536,7 +10584,7 @@ var defaultVersionFetcher = async (args) => {
   const [cmd, ...rest] = args;
   if (!cmd)
     return null;
-  return new Promise((resolve10) => {
+  return new Promise((resolve11) => {
     try {
       const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
       const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
@@ -10556,7 +10604,7 @@ var defaultVersionFetcher = async (args) => {
           return;
         isSettled = true;
         clearTimeout(timeoutId);
-        resolve10(value);
+        resolve11(value);
       };
       const timeoutId = setTimeout(() => {
         proc.kill();
@@ -10569,7 +10617,7 @@ var defaultVersionFetcher = async (args) => {
         finish(null);
       });
     } catch {
-      resolve10(null);
+      resolve11(null);
     }
   });
 };
@@ -10620,7 +10668,7 @@ function runCommand(args, options2) {
   if (!cmd) {
     return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false });
   }
-  return new Promise((resolve10) => {
+  return new Promise((resolve11) => {
     try {
       const env = { ...process.env, ...options2.env ?? {} };
       const spawnCommand = getSpawnCommand([cmd, ...rest], env);
@@ -10643,7 +10691,7 @@ function runCommand(args, options2) {
           return;
         isSettled = true;
         clearTimeout(timeoutId);
-        resolve10(result);
+        resolve11(result);
       };
       const timeoutId = setTimeout(() => {
         proc.kill();
@@ -10656,7 +10704,7 @@ function runCommand(args, options2) {
         finish({ code: null, stdout, stderr, timedOut: false, error: error.message });
       });
     } catch (error) {
-      resolve10({
+      resolve11({
         code: null,
         stdout: "",
         stderr: "",
@@ -10916,7 +10964,7 @@ var RESTORE_CURSOR = "\x1B8";
 var SAVE_CURSOR = "\x1B7";
 var SHOW_CURSOR = "\x1B[?25h";
 function wait(milliseconds) {
-  return new Promise((resolve10) => setTimeout(resolve10, milliseconds));
+  return new Promise((resolve11) => setTimeout(resolve11, milliseconds));
 }
 function positiveOrDefault(value, fallback) {
   return value && value > 0 ? value : fallback;
@@ -11109,7 +11157,7 @@ function printReport(report) {
 
 // src/bin/explain/config.ts
 import { existsSync as existsSync15 } from "node:fs";
-import { resolve as resolve10 } from "node:path";
+import { resolve as resolve11 } from "node:path";
 function getConfigSource(options2) {
   const projectPath = getProjectRulesConfigPath(options2?.cwd);
   if (existsSync15(projectPath)) {
@@ -11127,7 +11175,7 @@ function getConfigSource(options2) {
   return { configSource: null, configValid: true };
 }
 function buildAnalyzeOptions(explainOptions) {
-  const cwd = resolve10(explainOptions?.cwd ?? process.cwd());
+  const cwd = resolve11(explainOptions?.cwd ?? process.cwd());
   const config = explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir });
   const modes = getCCSafetyNetEnvModes(config);
   return {
@@ -13976,11 +14024,11 @@ async function createPolicyGuiServer(options2 = {}) {
   const server = createServer((request, response) => {
     handleRequest(request, response, token, options2);
   });
-  await new Promise((resolve11, reject) => {
+  await new Promise((resolve12, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       server.off("error", reject);
-      resolve11();
+      resolve12();
     });
   });
   const address = server.address();
@@ -14094,19 +14142,19 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 function closeServer(server) {
-  return new Promise((resolve11, reject) => {
-    server.close((error) => error ? reject(error) : resolve11());
+  return new Promise((resolve12, reject) => {
+    server.close((error) => error ? reject(error) : resolve12());
   });
 }
 function waitForShutdown(server) {
-  return new Promise((resolve11) => {
+  return new Promise((resolve12) => {
     const cleanup = () => {
       process.off("SIGINT", shutdown);
       process.off("SIGTERM", shutdown);
     };
     const shutdown = () => {
       cleanup();
-      server.close().then(resolve11);
+      server.close().then(resolve12);
     };
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
@@ -14115,7 +14163,7 @@ function waitForShutdown(server) {
 function openBrowser(url) {
   const command2 = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  return new Promise((resolve11, reject) => {
+  return new Promise((resolve12, reject) => {
     const child = spawn2(command2, args, { detached: true, stdio: "ignore" });
     const handleError = (error) => {
       child.off("spawn", handleSpawn);
@@ -14124,7 +14172,7 @@ function openBrowser(url) {
     const handleSpawn = () => {
       child.off("error", handleError);
       child.unref();
-      resolve11();
+      resolve12();
     };
     child.once("error", handleError);
     child.once("spawn", handleSpawn);
@@ -14154,7 +14202,7 @@ async function userHasStarredRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) 
   return false;
 }
 function runGhCommand(command2, args, timeoutMs) {
-  return new Promise((resolve11) => {
+  return new Promise((resolve12) => {
     const child = spawn2(command2, args, {
       stdio: "ignore",
       windowsHide: true
@@ -14167,7 +14215,7 @@ function runGhCommand(command2, args, timeoutMs) {
       settled = true;
       if (timeout)
         clearTimeout(timeout);
-      resolve11(code);
+      resolve12(code);
     };
     child.once("error", () => finish(null));
     child.once("close", finish);
@@ -14933,7 +14981,7 @@ function defaultInstallTargetProbe(command2) {
   return !result.error && result.status === 0;
 }
 function defaultAsyncInstallTargetProbe(command2) {
-  return new Promise((resolve11) => {
+  return new Promise((resolve12) => {
     const proc = spawn3(command2[0], command2.slice(1), {
       env: process.env,
       stdio: "ignore"
@@ -14944,7 +14992,7 @@ function defaultAsyncInstallTargetProbe(command2) {
         return;
       settled = true;
       clearTimeout(timeoutId);
-      resolve11(available);
+      resolve12(available);
     };
     const timeoutId = setTimeout(() => {
       proc.kill();
@@ -15074,7 +15122,7 @@ function promptInstallTargets(action, choices, options2 = {}) {
     renderedLines = frame.split(`
 `).length;
   };
-  return new Promise((resolve11) => {
+  return new Promise((resolve12) => {
     const cleanup = () => {
       input.off("keypress", onKeyPress);
       input.setRawMode(wasRaw);
@@ -15087,7 +15135,7 @@ function promptInstallTargets(action, choices, options2 = {}) {
         output.write(`${activeVerb(action)} selected integrations...
 `);
       }
-      resolve11(targets);
+      resolve12(targets);
     };
     function onKeyPress(inputValue, key) {
       const mappedKey = mapKeyPress(inputValue, key);
@@ -15749,8 +15797,8 @@ function restoreFiles(snapshots) {
 }
 
 // src/bin/rule/verify.ts
-import { existsSync as existsSync20, readdirSync as readdirSync4, readFileSync as readFileSync16, statSync as statSync2, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname13, join as join17, resolve as resolve11 } from "node:path";
+import { existsSync as existsSync20, readdirSync as readdirSync4, readFileSync as readFileSync16, statSync as statSync3, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname13, join as join17, resolve as resolve12 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
 var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
@@ -15761,7 +15809,7 @@ function runRulesVerify(options2 = {}) {
   const projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd);
   const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
   const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
-  const githubSourceRulesDir = resolve11(cwd, RULES_DIR);
+  const githubSourceRulesDir = resolve12(cwd, RULES_DIR);
   const userConfigDir = dirname13(userConfig);
   let hasErrors = false;
   let hasWarnings = false;
@@ -15810,7 +15858,7 @@ function runRulesVerify(options2 = {}) {
     }));
     configsChecked.push({
       scope: "Project",
-      path: resolve11(projectConfig),
+      path: resolve12(projectConfig),
       result,
       schema: "rules",
       sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig)
@@ -15827,7 +15875,7 @@ function runRulesVerify(options2 = {}) {
     const result = validateConfigFile(legacyProjectConfig);
     configsChecked.push({
       scope: "Project",
-      path: resolve11(legacyProjectConfig),
+      path: resolve12(legacyProjectConfig),
       result,
       schema: "legacy",
       sourceDisplayMap: new Map,
@@ -15897,7 +15945,7 @@ function validateGitHubSourceRules(path) {
   const errors = [];
   const ruleNames = new Set;
   try {
-    if (!statSync2(path).isDirectory()) {
+    if (!statSync3(path).isDirectory()) {
       return { errors: [`${RULES_DIR} must be a directory`], ruleNames };
     }
   } catch (error) {
@@ -16303,7 +16351,7 @@ async function readStdinAsync() {
   if (process.stdin.isTTY) {
     return null;
   }
-  return new Promise((resolve12) => {
+  return new Promise((resolve13) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
@@ -16311,10 +16359,10 @@ async function readStdinAsync() {
     });
     process.stdin.on("end", () => {
       const trimmed = data.trim();
-      resolve12(trimmed || null);
+      resolve13(trimmed || null);
     });
     process.stdin.on("error", () => {
-      resolve12(null);
+      resolve13(null);
     });
   });
 }

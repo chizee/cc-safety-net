@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
@@ -132,6 +132,7 @@ describe('Pi tool_call event', () => {
   test('uses Grok Shell working_directory for secret protection', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-secret-'));
     try {
+      mkdirSync(join(dir, 'app'));
       const result = handlePiToolCall(
         shellToolCall({ command: 'cat .env', working_directory: 'app' }),
         piContext(dir),
@@ -167,13 +168,87 @@ describe('Pi tool_call event', () => {
           handlePiToolCall(
             shellToolCall({
               command: 'git reset --hard',
-              working_directory: fixture.linkedWorktree,
             }),
-            piContext(fixture.mainWorktree),
+            piContext(fixture.linkedWorktree),
           ),
         ).toBeUndefined();
       });
     });
+  });
+
+  test('allows Grok Shell working_directory equal to ctx cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-cwd-'));
+    try {
+      expect(
+        handlePiToolCall(
+          shellToolCall({ command: 'git status', working_directory: '.' }),
+          piContext(dir),
+        ),
+      ).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('allows Grok Shell working_directory inside ctx cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-subdir-'));
+    try {
+      mkdirSync(join(dir, 'app'));
+
+      expect(
+        handlePiToolCall(
+          shellToolCall({ command: 'git status', working_directory: 'app' }),
+          piContext(dir),
+        ),
+      ).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when Grok Shell working_directory escapes ctx cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-escape-'));
+    try {
+      expectShellWorkingDirectoryFail(dir, '..');
+      expectShellWorkingDirectoryFail(dir, '../../outside');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when Grok Shell working_directory is absolute outside ctx cwd', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-absolute-'));
+    const outside = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-outside-'));
+    try {
+      expectShellWorkingDirectoryFail(dir, outside);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when Grok Shell working_directory escapes through symlink', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-symlink-'));
+    const outside = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-symlink-outside-'));
+    try {
+      symlinkSync(outside, join(dir, 'outside-link'));
+      expectShellWorkingDirectoryFail(dir, 'outside-link');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when Grok Shell working_directory is missing or a file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-invalid-cwd-'));
+    try {
+      writeFileSync(join(dir, 'file.txt'), 'not a directory', 'utf-8');
+
+      expectShellWorkingDirectoryFail(dir, 'missing');
+      expectShellWorkingDirectoryFail(dir, 'file.txt');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('ignores unknown custom tools', () => {
@@ -418,6 +493,15 @@ function toolCall(toolName: string, input: Record<string, unknown>) {
     toolName,
     input,
   };
+}
+
+function expectShellWorkingDirectoryFail(cwd: string, workingDirectory: string): void {
+  expect(
+    handlePiToolCall(
+      shellToolCall({ command: 'git status', working_directory: workingDirectory }),
+      piContext(cwd),
+    )?.reason,
+  ).toContain('CC Safety Net failed closed');
 }
 
 function piContext(cwd: string, options: Partial<Parameters<typeof handlePiToolCall>[1]> = {}) {
