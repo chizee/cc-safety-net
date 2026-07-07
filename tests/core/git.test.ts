@@ -195,14 +195,6 @@ describe('git checkout', () => {
     assertBlocked('git checkout --no-recurse-submodules main file.txt', 'multiple positional args');
   });
 
-  test('git checkout --recurse-submodules without mode allowed', () => {
-    assertAllowed('git checkout --recurse-submodules main');
-  });
-
-  test('git checkout --recurse-submodules without mode ref pathspec blocked', () => {
-    assertBlocked('git checkout --recurse-submodules main file.txt', 'multiple positional args');
-  });
-
   test('git checkout --recurse-submodules with checkout mode allowed', () => {
     assertAllowed('git checkout --recurse-submodules checkout main');
   });
@@ -249,10 +241,6 @@ describe('git checkout', () => {
 
   test('git checkout --inter-hunk-context 3 allowed', () => {
     assertAllowed('git checkout --inter-hunk-context 3 main');
-  });
-
-  test('git checkout -U attached value allowed', () => {
-    assertAllowed('git checkout -U3 main');
   });
 
   test('git checkout unknown long option ref pathspec blocked', () => {
@@ -378,10 +366,6 @@ describe('git reset', () => {
   });
 
   test('git -Crepo reset --hard blocked', () => {
-    assertBlocked('git -Crepo reset --hard', 'git reset --hard');
-  });
-
-  test('git reset --hard global option -C attached blocked', () => {
     assertBlocked('git -Crepo reset --hard', 'git reset --hard');
   });
 

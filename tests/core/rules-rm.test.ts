@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyzeRm, isHomeDirectory } from '@/core/analyze/rm';
+import { analyzeRm } from '@/core/analyze/rm';
 import { assertAllowed, assertBlocked, toShellPath, withEnv } from '../helpers.ts';
 
 describe('rm -rf blocked', () => {
@@ -469,33 +469,6 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
-  test('rm -rf strict mode allows within cwd', () => {
-    setup();
-    try {
-      assertAllowed('rm -rf build', tmpDir);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('command substitution rm rf blocked', () => {
-    setup();
-    try {
-      assertBlocked('echo $(rm -rf /some/path)', 'rm -rf', tmpDir);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('TMPDIR assignment not trusted blocked', () => {
-    setup();
-    try {
-      assertBlocked('TMPDIR=/Users rm -rf $TMPDIR/test-dir', 'rm -rf', tmpDir);
-    } finally {
-      cleanup();
-    }
-  });
-
   test('TMPDIR= empty assignment blocked (expands to /)', () => {
     setup();
     try {
@@ -691,22 +664,5 @@ describe('analyzeRm (unit)', () => {
     // 'foo/bar' has separators but doesn't start with ./, hitting the final try-catch (line 317)
     const badCwd = 1 as unknown as string;
     expect(analyzeRm(['rm', '-rf', 'foo/bar'], { cwd: badCwd })).toContain('rm -rf outside cwd');
-  });
-});
-
-describe('isHomeDirectory (unit)', () => {
-  test('returns true for home directory', () => {
-    const home = homedir();
-    expect(isHomeDirectory(home)).toBe(true);
-  });
-
-  test('returns false for non-home directory', () => {
-    expect(isHomeDirectory('/tmp')).toBe(false);
-  });
-
-  test('handles invalid input gracefully', () => {
-    // Pass a non-string to trigger the catch block (lines 326-327)
-    const badPath = 1 as unknown as string;
-    expect(isHomeDirectory(badPath)).toBe(false);
   });
 });

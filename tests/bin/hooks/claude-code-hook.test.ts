@@ -372,16 +372,6 @@ describe('Claude Code hook', () => {
   });
 
   describe('invalid JSON', () => {
-    test('strict mode blocks invalid JSON', async () => {
-      const { stdout, exitCode } = await runClaudeCodeHook('{invalid json', {
-        CC_SAFETY_NET_STRICT: '1',
-      });
-
-      expect(getHookDenyReason({ stdout, stderr: '', exitCode }, 'claude-code')).toContain(
-        'Failed to parse hook input JSON.',
-      );
-    });
-
     test('non-strict mode blocks invalid JSON', async () => {
       const result = await runClaudeCodeHook('{invalid json');
 

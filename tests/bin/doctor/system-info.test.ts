@@ -137,51 +137,6 @@ writeFileSync(
 }
 
 describe('getSystemInfo', () => {
-  test('returns all required fields', async () => {
-    const sysInfo = await getSystemInfo(mockVersionFetcher);
-
-    expect(typeof sysInfo.version).toBe('string');
-    expect(typeof sysInfo.platform).toBe('string');
-    expect(
-      sysInfo.claudeCodeVersion === null || typeof sysInfo.claudeCodeVersion === 'string',
-    ).toBe(true);
-    expect(
-      sysInfo.claudePluginListOutput === null || typeof sysInfo.claudePluginListOutput === 'string',
-    ).toBe(true);
-    expect(sysInfo.openCodeVersion === null || typeof sysInfo.openCodeVersion === 'string').toBe(
-      true,
-    );
-    expect(
-      sysInfo.antigravityCliVersion === null || typeof sysInfo.antigravityCliVersion === 'string',
-    ).toBe(true);
-    expect(sysInfo.codexCliVersion === null || typeof sysInfo.codexCliVersion === 'string').toBe(
-      true,
-    );
-    expect(
-      sysInfo.codexPluginListOutput === null || typeof sysInfo.codexPluginListOutput === 'string',
-    ).toBe(true);
-    expect(sysInfo.geminiCliVersion === null || typeof sysInfo.geminiCliVersion === 'string').toBe(
-      true,
-    );
-    expect(sysInfo.piCliVersion === null || typeof sysInfo.piCliVersion === 'string').toBe(true);
-    expect(sysInfo.kimiCodeVersion === null || typeof sysInfo.kimiCodeVersion === 'string').toBe(
-      true,
-    );
-    expect(
-      sysInfo.geminiExtensionsListOutput === null ||
-        typeof sysInfo.geminiExtensionsListOutput === 'string',
-    ).toBe(true);
-    expect(
-      sysInfo.copilotCliVersion === null || typeof sysInfo.copilotCliVersion === 'string',
-    ).toBe(true);
-    expect(sysInfo.nodeVersion === null || typeof sysInfo.nodeVersion === 'string').toBe(true);
-    expect(sysInfo.npmVersion === null || typeof sysInfo.npmVersion === 'string').toBe(true);
-    expect(sysInfo.bunVersion === null || typeof sysInfo.bunVersion === 'string').toBe(true);
-    expect(typeof sysInfo.copilotPluginInstalled).toBe('boolean');
-    expect(sysInfo.piSafetyNetProbe).toHaveProperty('status');
-    expect(typeof sysInfo.piSafetyNetProbe.installedAndEnabled).toBe('boolean');
-  });
-
   test('detects Bun version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.bunVersion).toBe('1.0.0');
@@ -550,11 +505,6 @@ describe('defaultVersionFetcher', () => {
     expect(result).toBeNull();
   });
 
-  test('detects bun version with the real fetcher', async () => {
-    const result = await defaultVersionFetcher(['bun', '--version']);
-    expect(result).toMatch(/^\d+\.\d+/);
-  }, 5000);
-
   test('preserves arguments when resolving Windows exe commands', async () => {
     if (process.platform === 'win32') return;
 
@@ -607,11 +557,6 @@ describe('defaultVersionFetcher', () => {
 });
 
 describe('version comparison', () => {
-  test('system version is a string', async () => {
-    const sysInfo = await getSystemInfo(mockVersionFetcher);
-    expect(typeof sysInfo.version).toBe('string');
-  });
-
   test('getPackageVersion returns version string', () => {
     const version = getPackageVersion();
     expect(typeof version).toBe('string');

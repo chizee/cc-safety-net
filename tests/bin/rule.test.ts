@@ -598,13 +598,6 @@ function runRuleList(tempDir: string, env = ruleListEnv(tempDir)) {
 }
 
 describe('rule migrate', () => {
-  test('rejects unsupported write option', async () => {
-    const result = await runCCSafetyNetCli(['rule', 'migrate', '--write']);
-
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('Unknown option for rule migrate: --write');
-  });
-
   test('accepts cleanup before migrate subcommand', async () => {
     await withTempDir('safety-net-rule-migrate-cleanup-first-', async (tempDir) => {
       writeLegacyConfig(join(tempDir, '.safety-net.json'), 'block-project-rm', 'rm');

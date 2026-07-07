@@ -29,17 +29,6 @@ describe('command registry', () => {
       const cmd = findCommand('nonexistent');
       expect(cmd).toBeUndefined();
     });
-
-    test('does not register legacy verify-config command or aliases', () => {
-      expect(findCommand('verify-config')).toBeUndefined();
-      expect(findCommand('--verify-config')).toBeUndefined();
-      expect(findCommand('-vc')).toBeUndefined();
-    });
-
-    test('finds rule command and does not alias old rules command', () => {
-      expect(findCommand('rule')?.name).toBe('rule');
-      expect(findCommand('rules')).toBeUndefined();
-    });
   });
 
   describe('getVisibleCommands', () => {

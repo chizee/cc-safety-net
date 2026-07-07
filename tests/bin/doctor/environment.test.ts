@@ -20,17 +20,6 @@ describe('getEnvironmentInfo', () => {
     expect(names).toContain('CC_SAFETY_NET_HOME');
   });
 
-  test('each env var has required fields', () => {
-    const envInfo = getEnvironmentInfo();
-
-    for (const v of envInfo) {
-      expect(typeof v.name).toBe('string');
-      expect(typeof v.description).toBe('string');
-      expect(typeof v.defaultBehavior).toBe('string');
-      expect(typeof v.isSet).toBe('boolean');
-    }
-  });
-
   test('reports legacy fallback status', () => {
     process.env.SAFETY_NET_STRICT = '1';
     try {

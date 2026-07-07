@@ -162,14 +162,6 @@ describe('install target availability', () => {
     });
   });
 
-  test('accepts an injected probe for deterministic availability tests', () => {
-    const choices = buildInstallTargetChoices(
-      (command) => command[0] === 'codex' || command[0] === 'gemini',
-    );
-
-    expectAvailableTargets(choices, ['codex', 'gemini-cli']);
-  });
-
   test('can build choices with async probes in parallel', async () => {
     let active = 0;
     let maxActive = 0;

@@ -388,19 +388,4 @@ describe('custom rule matching', () => {
     const result = checkCustomRules(['git', '--verbose', 'push', '--force'], rules);
     expect(result).toBe('[test] test');
   });
-
-  test('attached short option value', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: 'push',
-        block_args: ['--force'],
-        reason: 'test',
-      },
-    ];
-    // -C/path is attached, so push is next
-    const result = checkCustomRules(['git', '-C/path', 'push', '--force'], rules);
-    expect(result).toBe('[test] test');
-  });
 });

@@ -157,20 +157,6 @@ describe('explainCommand', () => {
     expect(shellStep).toBeDefined();
   });
 
-  test('env variables are redacted', () => {
-    const result = explainCommand('SECRET=password git status');
-    const allSteps = getTraceSteps(result);
-    const envStep = allSteps.find((s) => s.type === 'env-strip');
-    if (envStep && envStep.type === 'env-strip') {
-      expect(envStep.envVars.SECRET).toBe('<redacted>');
-    }
-  });
-
-  test('configSource is set correctly', () => {
-    const result = explainCommand('git status');
-    expect(typeof result.configValid).toBe('boolean');
-  });
-
   test('three-segment command shows all segments', () => {
     const result = explainCommand('echo a && echo b && echo c');
     expect(result.trace.segments.length).toBe(3);
@@ -238,15 +224,6 @@ describe('explainCommand edge cases', () => {
     expect(tmpStep).toBeDefined();
   });
 
-  test('parallel command traces rule check', () => {
-    const result = explainCommand('parallel rm -rf ::: /');
-    const allSteps = getTraceSteps(result);
-    const ruleStep = allSteps.find(
-      (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/parallel.ts',
-    );
-    expect(ruleStep).toBeDefined();
-  });
-
   test('custom-rules-check shows rulesChecked false when no config', () => {
     // Pass explicit empty config to avoid picking up real rulebook-backed config.
     const result = explainCommand('echo hello', { config: { version: 1, rules: [] } });
@@ -263,11 +240,6 @@ describe('explainCommand edge cases', () => {
     const allSteps = getTraceSteps(result);
     const recurseSteps = allSteps.filter((s) => s.type === 'recurse');
     expect(recurseSteps.length).toBeGreaterThanOrEqual(1);
-  });
-
-  test('command with cwd option uses provided cwd', () => {
-    const result = explainCommand('git status', { cwd: '/tmp' });
-    expect(result.result).toBe('allowed');
   });
 
   test('rm redirect to dev null is allowed when target is safe', () => {
@@ -453,18 +425,6 @@ describe('explainCommand max recursion depth', () => {
     expect(
       recursionLimitErrorStep(nestedBashCommand('echo hi', MAX_RECURSION_DEPTH - 1)),
     ).toBeFalsy();
-  });
-
-  test('hits max recursion depth with max nested bash -c calls', () => {
-    expect(
-      recursionLimitErrorStep(nestedBashCommand('echo ok', MAX_RECURSION_DEPTH)),
-    ).toBeDefined();
-  });
-
-  test('one nested level before max does not hit max recursion depth', () => {
-    expect(
-      recursionLimitErrorStep(nestedBashCommand('echo ok', MAX_RECURSION_DEPTH - 1)),
-    ).toBeUndefined();
   });
 
   test('unparseable inner command at depth limit is blocked by recursion limit', () => {

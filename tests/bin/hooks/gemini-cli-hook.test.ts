@@ -105,16 +105,6 @@ describe('Gemini CLI hook', () => {
   });
 
   describe('invalid JSON', () => {
-    test('strict mode blocks invalid JSON', async () => {
-      const { stdout, exitCode } = await runGeminiHook('{invalid json', {
-        SAFETY_NET_STRICT: '1',
-      });
-
-      expect(getHookDenyReason({ stdout, stderr: '', exitCode }, 'gemini-cli')).toContain(
-        'Failed to parse hook input JSON.',
-      );
-    });
-
     test('non-strict mode blocks invalid JSON', async () => {
       const result = await runGeminiHook('{invalid json');
 

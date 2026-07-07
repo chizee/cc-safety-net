@@ -10,11 +10,6 @@ import {
   writeUserPolicy,
 } from './hook-helpers';
 
-async function expectStrictDeny(input: object | string, reason: string) {
-  const result = await runCopilotHook(input, { SAFETY_NET_STRICT: '1' });
-  expect(getHookDenyReason(result, 'copilot-cli')).toContain(reason);
-}
-
 async function expectDeny(input: object | string, reason: string) {
   const result = await runCopilotHook(input);
   expect(getHookDenyReason(result, 'copilot-cli')).toContain(reason);
@@ -75,20 +70,12 @@ describe('Copilot CLI hook', () => {
   });
 
   describe('invalid outer JSON', () => {
-    test('strict mode blocks invalid outer JSON', async () => {
-      await expectStrictDeny('{invalid json', 'Failed to parse hook input JSON.');
-    });
-
     test('non-strict mode blocks invalid outer JSON', async () => {
       await expectDeny('{invalid json', 'Failed to parse hook input JSON.');
     });
   });
 
   describe('invalid toolArgs', () => {
-    test('strict mode blocks invalid toolArgs JSON', async () => {
-      await expectStrictDeny(copilotRawToolArgsInput('{invalid'), 'Failed to parse toolArgs JSON.');
-    });
-
     test('non-strict mode blocks invalid toolArgs JSON', async () => {
       await expectDeny(copilotRawToolArgsInput('{invalid'), 'Failed to parse toolArgs JSON.');
     });

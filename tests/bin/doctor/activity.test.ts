@@ -47,14 +47,6 @@ describe('getActivitySummary', () => {
     }
   });
 
-  test('returns activity summary structure', () => {
-    const activity = getActivitySummary(7);
-
-    expect(typeof activity.totalBlocked).toBe('number');
-    expect(typeof activity.sessionCount).toBe('number');
-    expect(Array.isArray(activity.recentEntries)).toBe(true);
-  });
-
   test('returns empty result when logs directory does not exist', () => {
     const nonExistentDir = join(tmpdir(), `non-existent-${Date.now()}`);
     const activity = getActivitySummary(7, nonExistentDir);

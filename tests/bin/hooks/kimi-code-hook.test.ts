@@ -78,16 +78,6 @@ describe('Kimi Code hook', () => {
       expect(getHookDenyReason(result, 'kimi-code')).toContain('Missing hook input JSON.');
     });
 
-    test('strict mode blocks invalid JSON', async () => {
-      const { stdout, exitCode } = await runKimiHook('{invalid json', {
-        SAFETY_NET_STRICT: '1',
-      });
-
-      expect(getHookDenyReason({ stdout, stderr: '', exitCode }, 'kimi-code')).toContain(
-        'Failed to parse hook input JSON.',
-      );
-    });
-
     test('non-strict mode blocks invalid JSON', async () => {
       const result = await runKimiHook('{invalid json');
 

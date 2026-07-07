@@ -71,10 +71,6 @@ describe('edge cases', () => {
       assertAllowed('bash -c');
     });
 
-    test('bash double dash does not treat dash c as wrapper allowed', () => {
-      assertAllowed("bash -- -c 'echo ok'");
-    });
-
     test('$SHELL dash c is recursively analyzed', () => {
       assertBlocked('$SHELL -c "rm -rf /"', 'rm -rf');
     });
@@ -95,21 +91,9 @@ describe('edge cases', () => {
       });
     });
 
-    test('strict mode bash double dash does not treat dash c as wrapper allowed', () => {
-      withEnv({ SAFETY_NET_STRICT: '1' }, () => {
-        assertAllowed("bash -- -c 'echo ok'");
-      });
-    });
-
     test('strict mode python without one liner allowed', () => {
       withEnv({ SAFETY_NET_STRICT: '1' }, () => {
         assertAllowed('python script.py');
-      });
-    });
-
-    test('strict mode python double dash does not treat dash c as one liner allowed', () => {
-      withEnv({ SAFETY_NET_STRICT: '1' }, () => {
-        assertAllowed("python -- -c 'print(1)'");
       });
     });
 

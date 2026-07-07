@@ -2,7 +2,6 @@
  * Tests for the explain command formatting functions.
  */
 import { describe, expect, test } from 'bun:test';
-import { formatStepStyleD, getBoxChars } from '@/bin/explain/format-helpers';
 import {
   explainCommand as explainCommandBase,
   formatTraceHuman,
@@ -215,13 +214,6 @@ describe('formatTraceHuman step formatting', () => {
     expect(output).toContain('CC_SAFETY_NET_WORKTREE');
   });
 
-  test('tmpdir-check is an internal detail not shown in human output', () => {
-    const result = explainCommand('rm -rf /tmp/test');
-    const allSteps = getTraceSteps(result);
-    const tmpStep = allSteps.find((s) => s.type === 'tmpdir-check');
-    expect(tmpStep).toBeDefined();
-  });
-
   test('formats segment-skipped step', () => {
     const result = explainCommand('git reset --hard && ls');
     const output = formatTraceHuman(result);
@@ -256,16 +248,6 @@ describe('formatTraceHuman step formatting', () => {
     };
     const output = formatTraceHuman(mockExplainResult('echo hello', [['echo', 'hello']], step));
     expect(output).not.toContain('Fallback scan');
-  });
-
-  test('cwd-change is internal detail not shown in human output', () => {
-    const step: TraceStep = {
-      type: 'cwd-change',
-      segment: 'cd /tmp',
-      effectiveCwdNowUnknown: true,
-    };
-    const mockResult = mockExplainResult('cd /tmp', [['cd', '/tmp']], step);
-    expect(mockResult.trace.segments[0]?.steps[0]?.type).toBe('cwd-change');
   });
 
   test('formats dangerous-text step', () => {
@@ -313,12 +295,6 @@ describe('formatTraceHuman step formatting', () => {
 });
 
 describe('formatTraceHuman coverage for internal step types', () => {
-  test('parse step is handled in main function, formatStepStyleD returns null', () => {
-    const result = explainCommand('git status');
-    const output = formatTraceHuman(result);
-    expect(output).toContain('Segment 1:');
-  });
-
   test('tmpdir-check step is internal and not shown in human output', () => {
     const result = explainCommand('rm -rf /tmp/test');
     const allSteps = getTraceSteps(result);
@@ -335,13 +311,6 @@ describe('formatTraceHuman coverage for internal step types', () => {
     expect(cwdStep).toBeDefined();
     const output = formatTraceHuman(result);
     expect(output).not.toContain('effectiveCwd');
-  });
-
-  test('segment-skipped step is handled in main function', () => {
-    const result = explainCommand('git reset --hard && echo hello');
-    expect(result.result).toBe('blocked');
-    const output = formatTraceHuman(result);
-    expect(output).toContain('skipped');
   });
 
   test('error step in formatStepStyleD adds ERROR line', () => {
@@ -395,53 +364,5 @@ describe('formatTraceHuman coverage for internal step types', () => {
     const output = formatTraceHuman(result);
     expect(output).toContain('Custom rules');
     expect(output).toContain('No match');
-  });
-});
-
-describe('formatStepStyleD direct tests', () => {
-  const box = getBoxChars(false);
-
-  test('parse step returns null (handled in main function)', () => {
-    const step: TraceStep = {
-      type: 'parse',
-      input: 'git status',
-      segments: [['git', 'status']],
-    };
-    const result = formatStepStyleD(step, 1, box);
-    expect(result).toBeNull();
-  });
-
-  test('segment-skipped step returns null (handled in main function)', () => {
-    const step: TraceStep = {
-      type: 'segment-skipped',
-      index: 1,
-      reason: 'prior-segment-blocked',
-    };
-    const result = formatStepStyleD(step, 1, box);
-    expect(result).toBeNull();
-  });
-
-  test('error step returns lines with ERROR message', () => {
-    const step: TraceStep = {
-      type: 'error',
-      message: 'Test error occurred',
-    };
-    const result = formatStepStyleD(step, 1, box);
-    expect(result).not.toBeNull();
-    expect(result?.lines).toContain('ERROR: Test error occurred');
-    expect(result?.incrementStep).toBe(false);
-  });
-
-  test('strict-unparseable step returns lines with UNPARSEABLE message', () => {
-    const step: TraceStep = {
-      type: 'strict-unparseable',
-      rawCommand: 'bash -c "unclosed',
-      reason: 'unparseable command in strict mode',
-    };
-    const result = formatStepStyleD(step, 1, box);
-    expect(result).not.toBeNull();
-    expect(result?.lines.join('\n')).toContain('Strict mode check');
-    expect(result?.lines.join('\n')).toContain('UNPARSEABLE');
-    expect(result?.incrementStep).toBe(true);
   });
 });

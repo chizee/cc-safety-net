@@ -11,14 +11,6 @@ describe('install startup orchestration', () => {
     });
   });
 
-  test('starts resolving targets before waiting for the uninstall banner', async () => {
-    await expectBannerWaitsForStartedWork({
-      startEvent: 'start resolution',
-      finishEvent: 'finish resolution',
-      result: 'targets',
-    });
-  });
-
   test('skips the banner when disabled', async () => {
     const result = await resolveAfterOptionalBanner(
       false,

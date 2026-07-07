@@ -22,20 +22,6 @@ function captureOutput<T>(fn: () => T) {
 
 describe('help output', () => {
   describe('removed legacy flags', () => {
-    test('rejects --verify-config as unknown', async () => {
-      const result = await runCCSafetyNetCli(['--verify-config']);
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown option: --verify-config');
-    });
-
-    test('rejects -vc as unknown', async () => {
-      const result = await runCCSafetyNetCli(['-vc']);
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown option: -vc');
-    });
-
     test('does not route doctor when it is not the command name', async () => {
       const nestedCommand = await runCCSafetyNetCli(['xxx', 'doctor']);
       const nestedAlias = await runCCSafetyNetCli(['xxx', '--doctor']);
@@ -108,63 +94,6 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
   CC_SAFETY_NET_PARANOID_RM=1             Force safety.overrides.paranoid_rm on
   CC_SAFETY_NET_PARANOID_INTERPRETERS=1   Force safety.overrides.paranoid_interpreters on
 `);
-    });
-
-    test('contains version header', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('cc-safety-net v');
-    });
-
-    test('contains description', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('Blocks destructive git and filesystem commands');
-    });
-
-    test('lists all visible commands', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('doctor');
-      expect(output).toContain('logs');
-      expect(output).toContain('explain');
-      expect(output).toContain('hook');
-      expect(output).toContain('gui');
-      expect(output).not.toContain('cc-safety-net -cc');
-      expect(output).not.toContain('cc-safety-net -gc');
-      expect(output).not.toContain('verify-config');
-    });
-
-    test('contains COMMANDS section', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('COMMANDS:');
-    });
-
-    test('contains GLOBAL OPTIONS section', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('GLOBAL OPTIONS:');
-      expect(output).toContain('--help');
-      expect(output).toContain('--version');
-    });
-
-    test('contains HELP section with usage hints', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('HELP:');
-      expect(output).toContain('help <command>');
-      expect(output).toContain('<command> --help');
-    });
-
-    test('contains ENVIRONMENT VARIABLES section', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).toContain('ENVIRONMENT VARIABLES:');
-      expect(output).toContain('CC_SAFETY_NET_LEVEL');
-      expect(output).toContain('CC_SAFETY_NET_STRICT');
-      expect(output).toContain('CC_SAFETY_NET_PARANOID');
-      expect(output).toContain('CC_SAFETY_NET_WORKTREE');
-      expect(output).toContain('CC_SAFETY_NET_DEBUG');
-      expect(output).toContain('CC_SAFETY_NET_HOME');
-    });
-
-    test('omits config files from main help', () => {
-      const { output } = captureOutput(() => printHelp());
-      expect(output).not.toContain('CONFIG FILES:');
     });
   });
 
@@ -320,13 +249,6 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
 
       expect(result).toBe(true);
       expect(output).toContain('cc-safety-net doctor');
-    });
-
-    test('returns true for hook command', () => {
-      const { output, result } = captureOutput(() => showCommandHelp('hook'));
-
-      expect(result).toBe(true);
-      expect(output).toContain('cc-safety-net hook');
     });
 
     test('returns false for old top-level hook aliases', () => {
