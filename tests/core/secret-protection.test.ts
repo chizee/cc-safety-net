@@ -275,6 +275,41 @@ describe('secret protection command target extraction', () => {
     ).toBeNull();
   });
 
+  test('blocks awk system calls reading sensitive paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      `awk 'BEGIN{system("cat ~/.ssh/id_rsa")}'`,
+      `gawk 'BEGIN { system("cat ~/.ssh/id_rsa") }'`,
+      `nawk 'BEGIN { system("cat ~/.ssh/id_rsa") }'`,
+      `mawk 'BEGIN { system("cat ~/.ssh/id_rsa") }'`,
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+    }
+  });
+
+  test('blocks awk getline redirects reading sensitive paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(`awk 'BEGIN { getline < "~/.ssh/id_rsa" }'`, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `gawk 'BEGIN { while ((getline line < ".env") > 0) print line }'`,
+        cwd,
+      ),
+    ).not.toBeNull();
+  });
+
+  test('allows benign awk programs and non-sensitive reads', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand(`awk '/TODO/ { print }' README.md`, cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand(`awk 'BEGIN { system("cat README.md") }'`, cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand(`awk 'BEGIN { getline < "README.md" }'`, cwd)).toBeNull();
+  });
+
   test('blocks variable indirection by capturing assignment values', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

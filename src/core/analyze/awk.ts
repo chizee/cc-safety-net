@@ -38,7 +38,9 @@ export function analyzeAwkSystemCallMatch(
   return null;
 }
 
-function extractAwkSystemCommands(code: string): { dynamic: boolean; commands: string[] } | null {
+export function extractAwkSystemCommands(
+  code: string,
+): { dynamic: boolean; commands: string[] } | null {
   const commands: string[] = [];
   let sawSystem = false;
   let searchIndex = 0;

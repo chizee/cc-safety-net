@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
+import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import {
   SECRET_BASENAME_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
@@ -253,6 +254,9 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
   if (PATH_ROOT_COMMANDS.has(command)) {
     return [...assignmentValues, ...extractFindCommandTargets(post)];
   }
+  if (AWK_INTERPRETERS.has(command)) {
+    return [...assignmentValues, ...extractAwkPathTargets(post)];
+  }
   if (isCodeInterpreter(command)) {
     return [...assignmentValues, ...extractInterpreterPathTargets(post)];
   }
@@ -374,6 +378,27 @@ function extractInterpreterPathTargets(tokens: readonly string[]): string[] {
     }
   }
   return candidates;
+}
+
+function extractAwkPathTargets(tokens: readonly string[]): string[] {
+  return [
+    ...tokens.flatMap((token) => extractOperandPathCandidates('awk', token)),
+    ...tokens.flatMap(extractAwkSystemCommandTargets),
+    ...tokens.flatMap(extractAwkGetlineRedirectTargets),
+  ];
+}
+
+function extractAwkSystemCommandTargets(code: string): string[] {
+  if (!code.includes('system')) return [];
+  return extractAwkSystemCommands(code)?.commands.flatMap(extractCommandPathTargets) ?? [];
+}
+
+function extractAwkGetlineRedirectTargets(code: string): string[] {
+  return Array.from(
+    code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g),
+  )
+    .map((match) => match[1])
+    .filter((value): value is string => value !== undefined && value !== '');
 }
 
 // Pulls candidate paths out of an interpreter code body: every quoted string
