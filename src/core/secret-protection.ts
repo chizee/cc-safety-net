@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
+import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
   SECRET_BASENAME_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
@@ -117,6 +118,8 @@ const PATH_LIKE_KEYS = new Set([
 ]);
 
 const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
+const PIPE_OPERATORS = new Set(['|', '|&']);
+const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
 
 type SecretTarget = {
   target: string;
@@ -198,6 +201,7 @@ function extractCommandPathTargets(command: string): string[] {
   const targets = extractDecodedCommandSubstitutionTargets(command);
   const tokens = parse(command.replace(/\n/g, ' ; '), {});
   let segment: string[] = [];
+  let pipeProducer: string[] | null = null;
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] as ParseEntry;
@@ -205,7 +209,13 @@ function extractCommandPathTargets(command: string): string[] {
     if (isOperator(token)) {
       if (segment.length > 0) {
         targets.push(...extractSegmentPathTargets(segment));
+        if (pipeProducer !== null) {
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+        }
+        pipeProducer = isPipeOperator(token) ? segment : null;
         segment = [];
+      } else {
+        pipeProducer = null;
       }
       continue;
     }
@@ -225,6 +235,9 @@ function extractCommandPathTargets(command: string): string[] {
 
   if (segment.length > 0) {
     targets.push(...extractSegmentPathTargets(segment));
+    if (pipeProducer !== null) {
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+    }
   }
 
   return targets;
@@ -264,6 +277,58 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
   ];
+}
+
+function extractPipeCarrierPathTargets(
+  producer: readonly string[],
+  consumer: readonly string[],
+): string[] {
+  if (!xargsReadsPipeInputAsPath(consumer)) {
+    return [];
+  }
+  return extractDisplayCommandOperands(producer);
+}
+
+function extractDisplayCommandOperands(tokens: readonly string[]): string[] {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return [];
+  }
+
+  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
+  if (!NON_PATH_OPERAND_COMMANDS.has(command)) {
+    return [];
+  }
+
+  return stripped.slice(commandIndex + 1);
+}
+
+function xargsReadsPipeInputAsPath(tokens: readonly string[]): boolean {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1 || basename(stripped[commandIndex] ?? '').toLowerCase() !== 'xargs') {
+    return false;
+  }
+
+  const xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
+  if (xargs.childTokens.length === 0) {
+    return false;
+  }
+  if (xargs.replacementToken === '') {
+    return false;
+  }
+
+  const replacementToken = xargs.replacementToken;
+  const childTokens =
+    replacementToken === null
+      ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER]
+      : xargs.childTokens.map((token) =>
+          token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER),
+        );
+  return extractSegmentPathTargets(childTokens).some((target) =>
+    target.includes(PIPE_INPUT_PATH_MARKER),
+  );
 }
 
 function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
@@ -492,6 +557,14 @@ function extractCommandSubstitutionBodies(command: string): string[] {
         bodies.push(substitution.body);
         i = substitution.endIndex;
       }
+      continue;
+    }
+    if (!quoteState.inSingle && char === '`') {
+      const substitution = readBacktickCommandSubstitutionBody(command, i);
+      if (substitution !== null) {
+        bodies.push(substitution.body);
+        i = substitution.endIndex;
+      }
     }
   }
   return bodies;
@@ -517,6 +590,29 @@ function readCommandSubstitutionBody(
       if (depth === 0) {
         return { body: command.slice(startIndex + 1, i), endIndex: i };
       }
+    }
+  }
+  return null;
+}
+
+function readBacktickCommandSubstitutionBody(
+  command: string,
+  startIndex: number,
+): { body: string; endIndex: number } | null {
+  let escaped = false;
+  for (let i = startIndex + 1; i < command.length; i++) {
+    const char = command[i];
+    if (!char) break;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '`') {
+      return { body: command.slice(startIndex + 1, i), endIndex: i };
     }
   }
   return null;
@@ -1026,6 +1122,12 @@ function normalizeToolInputKey(key: string): string {
 function isOperator(token: ParseEntry): boolean {
   return (
     typeof token === 'object' && token !== null && 'op' in token && SHELL_OPERATORS.has(token.op)
+  );
+}
+
+function isPipeOperator(token: ParseEntry): boolean {
+  return (
+    typeof token === 'object' && token !== null && 'op' in token && PIPE_OPERATORS.has(token.op)
   );
 }
 
