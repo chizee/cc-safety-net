@@ -19,7 +19,7 @@ export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
   const maxLen = input.maxLen ?? 200;
   const redact = input.redact ?? ((t: string) => t);
 
-  let message = `BLOCKED by CC Safety Net\n\nReason: ${reason}`;
+  let message = `BLOCKED by CC Safety Net\n\nReason: ${redact(reason)}`;
 
   if (input.ruleId) {
     message += `\n\nRule: ${input.ruleId}`;
