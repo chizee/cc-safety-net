@@ -3734,7 +3734,8 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
   if (!head) {
     return null;
   }
-  if (SHELL_WRAPPERS.has(head)) {
+  const normalizedHead = normalizeCommandToken(head);
+  if (SHELL_WRAPPERS.has(normalizedHead)) {
     const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : undefined);
     if (options2.dynamicInput && shellDynamicMatch) {
       return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
@@ -3748,7 +3749,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     }
     return null;
   }
-  if (head === "rm" && hasRecursiveForceFlags(tokens)) {
+  if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens)) {
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
@@ -3756,13 +3757,13 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       allowTmpdirVar: context.allowTmpdirVar
     }), context.config) ?? getDynamicRmReason(options2, context);
   }
-  if (head === "find") {
+  if (normalizedHead === "find") {
     return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
       analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
     }), context.config);
   }
-  if (head === "git") {
+  if (normalizedHead === "git") {
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
@@ -4557,10 +4558,7 @@ function isShellWrapperCommand(head, normalizedHead) {
   return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
 }
 function getCommandAnalyzer(context) {
-  if (context.basename.toLowerCase() === "git") {
-    return COMMAND_ANALYZERS.get("git");
-  }
-  return COMMAND_ANALYZERS.get(context.basename);
+  return COMMAND_ANALYZERS.get(context.normalizedHead);
 }
 function analyzeEmbeddedCommand(context, index) {
   const token = context.tokens[index];
@@ -6126,10 +6124,10 @@ function readPolicyConfig(path) {
     if (errors.length > 0)
       return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
     return { policy: normalizePolicyConfig(parsed), errors: [] };
-  } catch (error) {
+  } catch {
     return {
       policy: empty,
-      errors: [`${path}: Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+      errors: [`${path}: Invalid JSON`]
     };
   }
 }
@@ -7620,8 +7618,9 @@ var PROVIDER_TOKENS = [
 ];
 function redactSecrets(text) {
   let result = text;
-  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted>");
-  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_URL)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
+  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>");
+  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>");
+  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
   result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
   result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3");
   result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@");
@@ -7642,7 +7641,7 @@ function formatBlockedMessage(input) {
   const redact = input.redact ?? ((t) => t);
   let message = `BLOCKED by CC Safety Net
 
-Reason: ${reason}`;
+Reason: ${redact(reason)}`;
   if (input.ruleId) {
     message += `
 
@@ -7729,6 +7728,24 @@ var CODE_INTERPRETERS = new Set([
   "ksh"
 ]);
 var CODE_EVAL_FLAGS = new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]);
+var CLUSTERED_CODE_EVAL_FLAGS = new Map([
+  ["bash", new Set(["c"])],
+  ["sh", new Set(["c"])],
+  ["zsh", new Set(["c"])],
+  ["dash", new Set(["c"])],
+  ["ksh", new Set(["c"])],
+  ["python", new Set(["c"])],
+  ["python2", new Set(["c"])],
+  ["python3", new Set(["c"])],
+  ["node", new Set(["e"])],
+  ["deno", new Set(["e"])],
+  ["bun", new Set(["e"])],
+  ["ruby", new Set(["e"])],
+  ["perl", new Set(["e", "E"])],
+  ["php", new Set(["r"])],
+  ["rscript", new Set(["e"])],
+  ["osascript", new Set(["e"])]
+]);
 var PATTERN_FIRST_COMMANDS = new Set(["grep", "rg"]);
 var PATTERN_FILE_SHORT = "f";
 var PATTERN_FILE_LONG = "file";
@@ -7761,6 +7778,8 @@ var PATH_LIKE_KEYS = new Set([
   "target_file"
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
+var PIPE_OPERATORS = new Set(["|", "|&"]);
+var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config)) {
@@ -7815,12 +7834,19 @@ function extractCommandPathTargets(command2) {
   const targets = extractDecodedCommandSubstitutionTargets(command2);
   const tokens = $parse(command2.replace(/\n/g, " ; "), {});
   let segment = [];
+  let pipeProducer = null;
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
     if (isOperator2(token)) {
       if (segment.length > 0) {
         targets.push(...extractSegmentPathTargets(segment));
+        if (pipeProducer !== null) {
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+        }
+        pipeProducer = isPipeOperator(token) ? segment : null;
         segment = [];
+      } else {
+        pipeProducer = null;
       }
       continue;
     }
@@ -7838,6 +7864,9 @@ function extractCommandPathTargets(command2) {
   }
   if (segment.length > 0) {
     targets.push(...extractSegmentPathTargets(segment));
+    if (pipeProducer !== null) {
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+    }
   }
   return targets;
 }
@@ -7859,13 +7888,51 @@ function extractSegmentPathTargets(tokens) {
   if (PATH_ROOT_COMMANDS.has(command2)) {
     return [...assignmentValues, ...extractFindCommandTargets(post)];
   }
+  if (AWK_INTERPRETERS.has(command2)) {
+    return [...assignmentValues, ...extractAwkPathTargets(post)];
+  }
   if (isCodeInterpreter(command2)) {
-    return [...assignmentValues, ...extractInterpreterPathTargets(post)];
+    return [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
   }
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
   ];
+}
+function extractPipeCarrierPathTargets(producer, consumer) {
+  if (!xargsReadsPipeInputAsPath(consumer)) {
+    return [];
+  }
+  return extractDisplayCommandOperands(producer);
+}
+function extractDisplayCommandOperands(tokens) {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return [];
+  }
+  const command2 = basename(stripped[commandIndex] ?? "").toLowerCase();
+  if (!NON_PATH_OPERAND_COMMANDS.has(command2)) {
+    return [];
+  }
+  return stripped.slice(commandIndex + 1);
+}
+function xargsReadsPipeInputAsPath(tokens) {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1 || basename(stripped[commandIndex] ?? "").toLowerCase() !== "xargs") {
+    return false;
+  }
+  const xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
+  if (xargs.childTokens.length === 0) {
+    return false;
+  }
+  if (xargs.replacementToken === "") {
+    return false;
+  }
+  const replacementToken = xargs.replacementToken;
+  const childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
+  return extractSegmentPathTargets(childTokens).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
 }
 function extractLeadingAssignmentValues(tokens) {
   const values = [];
@@ -7942,13 +8009,13 @@ function normalizeFindPathPattern(pattern) {
 function isCodeInterpreter(command2) {
   return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
 }
-function extractInterpreterPathTargets(tokens) {
+function extractInterpreterPathTargets(command2, tokens) {
   const candidates = [];
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
     if (token === undefined)
       break;
-    if (CODE_EVAL_FLAGS.has(token)) {
+    if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token)) {
       const code = tokens[i + 1];
       if (code !== undefined) {
         candidates.push(...extractPathLiteralsFromCode(code));
@@ -7966,6 +8033,27 @@ function extractInterpreterPathTargets(tokens) {
     }
   }
   return candidates;
+}
+function isClusteredCodeEvalFlag(command2, token) {
+  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
+    return false;
+  const evalFlags = /^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2);
+  return evalFlags?.has(token[token.length - 1] ?? "") ?? false;
+}
+function extractAwkPathTargets(tokens) {
+  return [
+    ...tokens.flatMap((token) => extractOperandPathCandidates("awk", token)),
+    ...tokens.flatMap(extractAwkSystemCommandTargets),
+    ...tokens.flatMap(extractAwkGetlineRedirectTargets)
+  ];
+}
+function extractAwkSystemCommandTargets(code) {
+  if (!code.includes("system"))
+    return [];
+  return extractAwkSystemCommands(code)?.commands.flatMap(extractCommandPathTargets) ?? [];
+}
+function extractAwkGetlineRedirectTargets(code) {
+  return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== undefined && value !== "");
 }
 function extractPathLiteralsFromCode(code) {
   const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== undefined && value !== "");
@@ -8042,6 +8130,14 @@ function extractCommandSubstitutionBodies(command2) {
         bodies.push(substitution.body);
         i = substitution.endIndex;
       }
+      continue;
+    }
+    if (!quoteState.inSingle && char === "`") {
+      const substitution = readBacktickCommandSubstitutionBody(command2, i);
+      if (substitution !== null) {
+        bodies.push(substitution.body);
+        i = substitution.endIndex;
+      }
     }
   }
   return bodies;
@@ -8065,6 +8161,26 @@ function readCommandSubstitutionBody(command2, startIndex) {
       if (depth === 0) {
         return { body: command2.slice(startIndex + 1, i), endIndex: i };
       }
+    }
+  }
+  return null;
+}
+function readBacktickCommandSubstitutionBody(command2, startIndex) {
+  let escaped = false;
+  for (let i = startIndex + 1;i < command2.length; i++) {
+    const char = command2[i];
+    if (!char)
+      break;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "`") {
+      return { body: command2.slice(startIndex + 1, i), endIndex: i };
     }
   }
   return null;
@@ -8423,6 +8539,9 @@ function normalizeToolInputKey(key) {
 function isOperator2(token) {
   return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS2.has(token.op);
 }
+function isPipeOperator(token) {
+  return typeof token === "object" && token !== null && "op" in token && PIPE_OPERATORS.has(token.op);
+}
 function isRedirectOp(token) {
   return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
 }
@@ -8538,6 +8657,9 @@ function findUnsafePolicyConfigSegmentTarget(segment, cwd) {
   const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
   if (scriptTarget)
     return scriptTarget;
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
+  if (sedWriteTarget)
+    return sedWriteTarget;
   const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token)).find((token) => isPolicyConfigPath(token, cwd));
   if (!target)
     return null;
@@ -8561,6 +8683,47 @@ function findScriptArgumentPolicyConfigTarget(segment, cwd) {
   }
   const target = extractPolicyConfigPathCandidates(script).find((candidate) => isPolicyConfigPath(candidate, cwd));
   return target ? { target } : null;
+}
+function findSedScriptWritePolicyConfigTarget(segment, cwd) {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
+    return null;
+  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+function extractSedScriptArguments(tokens) {
+  const scripts = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined)
+      break;
+    if (token === "-e" || token === "--expression") {
+      const script = tokens[i + 1];
+      if (script !== undefined)
+        scripts.push(script);
+      i++;
+      continue;
+    }
+    const expression = /^--expression=(.*)$/.exec(token);
+    if (expression?.[1]) {
+      scripts.push(expression[1]);
+      continue;
+    }
+    if (token === "-f" || token === "--file") {
+      i++;
+      continue;
+    }
+    if (token.startsWith("-f") || token.startsWith("--file="))
+      continue;
+    if (token.startsWith("-"))
+      continue;
+    scripts.push(token);
+    break;
+  }
+  return scripts;
+}
+function extractSedWritePathCandidates(script) {
+  return Array.from(script.matchAll(/(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g)).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ""));
 }
 function isReadOnlySegment(tokens) {
   const stripped = stripEnvAssignments(stripWrappers([...tokens]));
