@@ -269,10 +269,7 @@ function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
 }
 
 function getCommandAnalyzer(context: CommandAnalysisContext): CommandAnalyzer | undefined {
-  if (context.basename.toLowerCase() === 'git') {
-    return COMMAND_ANALYZERS.get('git');
-  }
-  return COMMAND_ANALYZERS.get(context.basename);
+  return COMMAND_ANALYZERS.get(context.normalizedHead);
 }
 
 function analyzeEmbeddedCommand(

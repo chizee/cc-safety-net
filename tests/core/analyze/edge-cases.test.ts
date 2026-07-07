@@ -34,6 +34,11 @@ describe('edge cases', () => {
     test('case insensitive matching blocks', () => {
       assertBlocked('GIT CHECKOUT -- file', 'git checkout --');
     });
+
+    test('case insensitive rm and find analyzer dispatch blocks', () => {
+      assertBlocked('RM -rf /', 'extremely dangerous');
+      assertBlocked('FIND . -delete', 'find -delete');
+    });
   });
 
   describe('strict mode', () => {
@@ -320,6 +325,34 @@ describe('edge cases', () => {
   describe('xargs', () => {
     test('xargs rm -rf blocked', () => {
       assertBlocked('echo / | xargs rm -rf', 'rm -rf');
+    });
+
+    test('uppercase xargs analyzer dispatch blocks dynamic child rm', () => {
+      assertBlocked('echo / | XARGS rm -rf', 'rm -rf');
+    });
+
+    test('xargs full path child rm blocked', () => {
+      assertBlocked('echo / | xargs /usr/bin/rm -rf', 'rm -rf');
+    });
+
+    test('xargs full path child shell blocked', () => {
+      assertBlocked("echo ok | xargs /bin/bash -c 'rm -rf /'", 'xargs');
+    });
+
+    test('xargs full path child find blocked', () => {
+      assertBlocked('echo ok | xargs /bin/find . -delete', 'find -delete');
+    });
+
+    test('xargs full path child git blocked', () => {
+      assertBlocked('echo ok | xargs /usr/bin/git reset --hard', 'git reset --hard');
+    });
+
+    test('xargs nested find full path shell blocked', () => {
+      assertBlocked('echo ok | xargs find . -exec /bin/bash -c "rm -rf /" \\;', 'xargs');
+    });
+
+    test('xargs full path safe child allowed', () => {
+      assertAllowed('echo ok | xargs /bin/echo ok');
     });
 
     test('xargs delimiter option still blocks child rm', () => {
