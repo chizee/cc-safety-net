@@ -65,6 +65,24 @@ const CODE_INTERPRETERS = new Set([
   'ksh',
 ]);
 const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
+const CLUSTERED_CODE_EVAL_FLAGS = new Map([
+  ['bash', new Set(['c'])],
+  ['sh', new Set(['c'])],
+  ['zsh', new Set(['c'])],
+  ['dash', new Set(['c'])],
+  ['ksh', new Set(['c'])],
+  ['python', new Set(['c'])],
+  ['python2', new Set(['c'])],
+  ['python3', new Set(['c'])],
+  ['node', new Set(['e'])],
+  ['deno', new Set(['e'])],
+  ['bun', new Set(['e'])],
+  ['ruby', new Set(['e'])],
+  ['perl', new Set(['e', 'E'])],
+  ['php', new Set(['r'])],
+  ['rscript', new Set(['e'])],
+  ['osascript', new Set(['e'])],
+]);
 
 // grep/rg read the search PATTERN either from the first positional operand
 // or from a -e/--regexp/-f/--file option. extractPatternCommandTargets drops
@@ -271,7 +289,7 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
     return [...assignmentValues, ...extractAwkPathTargets(post)];
   }
   if (isCodeInterpreter(command)) {
-    return [...assignmentValues, ...extractInterpreterPathTargets(post)];
+    return [...assignmentValues, ...extractInterpreterPathTargets(command, post)];
   }
   return [
     ...assignmentValues,
@@ -417,13 +435,13 @@ function isCodeInterpreter(command: string): boolean {
   return CODE_INTERPRETERS.has(command) || /^python\d/.test(command);
 }
 
-function extractInterpreterPathTargets(tokens: readonly string[]): string[] {
+function extractInterpreterPathTargets(command: string, tokens: readonly string[]): string[] {
   const candidates: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token === undefined) break;
 
-    if (CODE_EVAL_FLAGS.has(token)) {
+    if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command, token)) {
       const code = tokens[i + 1];
       if (code !== undefined) {
         candidates.push(...extractPathLiteralsFromCode(code));
@@ -443,6 +461,15 @@ function extractInterpreterPathTargets(tokens: readonly string[]): string[] {
     }
   }
   return candidates;
+}
+
+function isClusteredCodeEvalFlag(command: string, token: string): boolean {
+  if (!token.startsWith('-') || token.startsWith('--') || token.length <= 2) return false;
+
+  const evalFlags = /^python\d/.test(command)
+    ? CLUSTERED_CODE_EVAL_FLAGS.get('python')
+    : CLUSTERED_CODE_EVAL_FLAGS.get(command);
+  return evalFlags?.has(token[token.length - 1] ?? '') ?? false;
 }
 
 function extractAwkPathTargets(tokens: readonly string[]): string[] {

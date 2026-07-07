@@ -246,6 +246,15 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('python3 ~/.ssh/id_rsa', cwd)).not.toBeNull();
   });
 
+  test('blocks clustered shell eval flags reading sensitive paths from inline code', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand('bash -c "cat .env"', cwd)?.target).toBe('.env');
+    expect(findSensitiveTargetInCommand('bash -lc "cat .env"', cwd)?.target).toBe('.env');
+    expect(findSensitiveTargetInCommand('zsh -fc "cat .env"', cwd)?.target).toBe('.env');
+    expect(findSensitiveTargetInCommand('zsh -fl "cat .env"', cwd)).toBeNull();
+  });
+
   test('blocks base64-decoded sensitive paths from inline interpreter literals', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
