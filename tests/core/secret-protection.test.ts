@@ -151,6 +151,15 @@ describe('secret protection command target extraction', () => {
     expect(
       findSensitiveTargetInCommand('printf ".env files should not be committed\\n"', cwd),
     ).toBeNull();
+    expect(
+      findSensitiveTargetInCommand('echo "Add .env to .gitignore" | xargs echo', cwd),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        'printf ".env files should not be committed\\n" | xargs echo',
+        cwd,
+      ),
+    ).toBeNull();
     expect(findSensitiveTargetInCommand("cat 'unterminated .env", cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('tar -czf secrets.tgz README.md', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('zip secrets.zip README.md', cwd)).toBeNull();
@@ -291,6 +300,9 @@ describe('secret protection command target extraction', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     expect(
+      findSensitiveTargetInCommand('cat `echo fi8uc3NoL2lkX3JzYQ== | base64 -d`', cwd),
+    ).not.toBeNull();
+    expect(
       findSensitiveTargetInCommand(
         `b64=$(echo LmVudg== | base64 -d); python3 -c "print(open('$b64').read())"`,
         cwd,
@@ -314,6 +326,20 @@ describe('secret protection command target extraction', () => {
         cwd,
       ),
     ).not.toBeNull();
+  });
+
+  test('blocks echo and printf path carriers into xargs readers', () => {
+    const home = join(tmpdir(), 'secret-protection-home');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home }, () => {
+      expect(
+        findSensitiveTargetInCommand(`echo ${join(home, '.ssh', 'id_rsa')} | xargs cat`, cwd),
+      ).not.toBeNull();
+      expect(
+        findSensitiveTargetInCommand(`printf %s ${join(home, '.ssh', 'id_rsa')} | xargs cat`, cwd),
+      ).not.toBeNull();
+    });
   });
 
   test('does not decode base64-looking text outside decoder substitutions', () => {
