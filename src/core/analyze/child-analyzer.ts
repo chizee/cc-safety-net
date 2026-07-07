@@ -4,6 +4,7 @@ import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
+import { normalizeCommandToken } from '@/core/shell';
 import {
   type AnalyzeNestedOverrides,
   type Config,
@@ -56,7 +57,9 @@ export function analyzeChildCommandMatch(
     return null;
   }
 
-  if (SHELL_WRAPPERS.has(head)) {
+  const normalizedHead = normalizeCommandToken(head);
+
+  if (SHELL_WRAPPERS.has(normalizedHead)) {
     const shellDynamicMatch =
       options.shellDynamicMatch ??
       (options.shellDynamicReason
@@ -76,7 +79,7 @@ export function analyzeChildCommandMatch(
     return null;
   }
 
-  if (head === 'rm' && hasRecursiveForceFlags(tokens)) {
+  if (normalizedHead === 'rm' && hasRecursiveForceFlags(tokens)) {
     return (
       filterDestructiveCommandMatch(
         analyzeRmMatch([...tokens], {
@@ -90,7 +93,7 @@ export function analyzeChildCommandMatch(
     );
   }
 
-  if (head === 'find') {
+  if (normalizedHead === 'find') {
     return filterDestructiveCommandMatch(
       analyzeFindMatch(tokens, {
         ...context,
@@ -101,7 +104,7 @@ export function analyzeChildCommandMatch(
     );
   }
 
-  if (head === 'git') {
+  if (normalizedHead === 'git') {
     return filterDestructiveCommandMatch(
       analyzeGitMatch(tokens, {
         cwd: context.cwd,
