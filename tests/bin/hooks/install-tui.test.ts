@@ -88,6 +88,61 @@ async function withFakeInstallProbePath<T>(prefix: string, fn: () => T | Promise
   });
 }
 
+async function runInstallDispatchProbe(
+  homeDir: string,
+  options: { args?: readonly string[]; selectedTargets?: readonly InstallTarget[] | null },
+) {
+  const selectTargets =
+    options.selectedTargets === undefined
+      ? ''
+      : `,
+  selectTargets: async (_action, choices) => {
+    events.push("select:" + choices.length);
+    return ${JSON.stringify(options.selectedTargets)};
+  }`;
+  const proc = Bun.spawn(
+    [
+      'bun',
+      '--eval',
+      `
+import { Writable } from "node:stream";
+import { runInstallCommand } from "./src/bin/hook/install.ts";
+
+const events = [];
+console.log = () => {};
+const exitCode = await runInstallCommand("install", ${JSON.stringify(options.args ?? [])}, {
+  detectConfiguredTargets: async () => [],
+  output: new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  }),
+  probeTargets: (command) => {
+    events.push("probe:" + command[0]);
+    return command[0] === "kimi";
+  }${selectTargets}
+});
+
+process.stdout.write(JSON.stringify({ exitCode, events }));
+`,
+    ],
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, HOME: homeDir },
+      stderr: 'pipe',
+      stdout: 'pipe',
+    },
+  );
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  expect(await proc.exited).toBe(0);
+  expect(stderr).toBe('');
+  return JSON.parse(stdout) as { exitCode: number; events: string[] };
+}
+
 describe('install target availability', () => {
   test('probes target CLIs and preserves install help order', async () => {
     await withFakeInstallProbePath('safety-net-install-probe-', () => {
@@ -314,6 +369,35 @@ describe('install selection state', () => {
 });
 
 describe('interactive install dispatch', () => {
+  test('selects targets before executable probes for no-argument install', async () => {
+    await withTempDir('safety-net-install-select-before-probe-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, { selectedTargets: null });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.events).toEqual(['select:8']);
+    });
+  });
+
+  test('probes no unselected targets after interactive selection', async () => {
+    await withTempDir('safety-net-install-selected-probe-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, { selectedTargets: ['kimi-code'] });
+
+      expect(result.exitCode).toBe(0);
+      expect(
+        result.events.filter((event) => event !== 'probe:kimi' && event !== 'select:8'),
+      ).toEqual([]);
+    });
+  });
+
+  test('probes no unrequested targets for explicit install target', async () => {
+    await withTempDir('safety-net-install-explicit-probe-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, { args: ['--kimi-code'] });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.events.filter((event) => event !== 'probe:kimi')).toEqual([]);
+    });
+  });
+
   test('runs selected targets in order and stops on the first failure', async () => {
     const ordered = orderInstallTargets(['pi', 'codex', 'gemini-cli']);
     const calls: InstallTarget[] = [];
