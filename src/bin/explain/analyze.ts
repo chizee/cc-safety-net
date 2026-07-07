@@ -6,12 +6,17 @@ import { buildAnalyzeOptions, getConfigSource } from '@/bin/explain/config';
 import { redactEnvAssignmentsInString, redactEnvAssignmentTokens } from '@/bin/explain/redact';
 import { explainSegment, isUnparseableCommand } from '@/bin/explain/segment';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
+import {
+  analyzePowerShellRemoveItemMatch,
+  shouldAnalyzePowerShellRemoveItem,
+} from '@/core/analyze/powershell/remove-item';
 import { resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
 } from '@/core/analyze/shell-git-env';
+import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { loadRulesPolicy } from '@/core/rules/policy';
@@ -155,6 +160,40 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     applyShellGitContextEnvSegment(segment, shellGitContextState);
 
     trace.segments.push({ index: i, steps: segmentSteps });
+  }
+
+  if (
+    !blocked &&
+    !analyzeOpts.config?.failClosedReason &&
+    shouldAnalyzePowerShellRemoveItem(command)
+  ) {
+    const match = filterDestructiveCommandMatch(
+      analyzePowerShellRemoveItemMatch(command, {
+        cwd: analyzeOpts.effectiveCwd ?? analyzeOpts.cwd,
+        originalCwd: analyzeOpts.cwd,
+        paranoid: analyzeOpts.paranoidRm,
+        allowTmpdirVar: analyzeOpts.allowTmpdirVar,
+      }),
+      analyzeOpts.config,
+    );
+    const step: TraceStep = {
+      type: 'rule-check',
+      ruleModule: 'analyze/powershell/remove-item.ts',
+      ruleFunction: 'analyzePowerShellRemoveItemMatch',
+      matched: !!match,
+      reason: match?.reason,
+    };
+    const lastSegment = trace.segments[trace.segments.length - 1];
+    if (lastSegment) {
+      lastSegment.steps.push(step);
+    } else {
+      trace.segments.push({ index: 0, steps: [step] });
+    }
+    if (match) {
+      blocked = true;
+      blockReason = match.reason;
+      blockSegment = redactEnvAssignmentsInString(command);
+    }
   }
 
   return {

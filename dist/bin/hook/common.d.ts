@@ -1,4 +1,4 @@
-import type { BlockIntent, Config } from '@/types';
+import type { BlockIntent, Config, ShellKind } from '@/types';
 type HookDenyOutput = (reason: string, command?: string, segment?: string, manualPermissionAdvice?: boolean, toolName?: string, ruleId?: string, intent?: BlockIntent) => void;
 type HookAdapter<T> = {
     agent: string;
@@ -14,6 +14,6 @@ type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {
 };
 export declare function parseHookJson<T>(inputText: string, outputDeny: (reason: string) => void, strictReason: string): T | null;
 /** @internal - exported for direct test coverage */
-export declare function handleBlockedHookCommand(command: string, cwd: string, sessionId: string | undefined, outputDeny: HookDenyOutput, config?: Config, agent?: string): void;
+export declare function handleBlockedHookCommand(command: string, cwd: string, sessionId: string | undefined, outputDeny: HookDenyOutput, config?: Config, agent?: string, shell?: ShellKind): void;
 export declare function runConfiguredHookAdapter<T>(adapter: ConfiguredHookAdapter<T>): Promise<void>;
 export {};

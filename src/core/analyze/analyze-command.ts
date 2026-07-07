@@ -1,4 +1,8 @@
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
+import {
+  analyzePowerShellRemoveItemMatch,
+  shouldAnalyzePowerShellRemoveItem,
+} from '@/core/analyze/powershell/remove-item';
 import { analyzeSegment, resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
@@ -13,6 +17,7 @@ import {
   type AnalyzeOptions,
   type AnalyzeResult,
   type Config,
+  type DestructiveCommandRuleMatch,
   MAX_RECURSION_DEPTH,
 } from '@/types';
 
@@ -44,6 +49,11 @@ export function analyzeCommandInternal(
     command.includes(' ')
   ) {
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
+  }
+
+  if (options.shell === 'powershell' && !options.config.failClosedReason) {
+    const result = analyzePowerShellRemoveItemCommand(command, options);
+    if (result) return result;
   }
 
   const originalCwd = options.cwd;
@@ -122,7 +132,52 @@ export function analyzeCommandInternal(
     applyShellGitContextEnvSegment(segment, shellGitContextState);
   }
 
+  if (
+    (options.shell === undefined || options.shell === 'auto') &&
+    !options.config.failClosedReason &&
+    shouldAnalyzePowerShellRemoveItem(command)
+  ) {
+    const result = analyzePowerShellRemoveItemCommand(command, options);
+    if (result) return result;
+  }
+
   return null;
+}
+
+function analyzePowerShellRemoveItemCommand(
+  command: string,
+  options: InternalOptions,
+): AnalyzeResult | null {
+  return resultFromCommandMatch(
+    command,
+    filterDestructiveCommandMatch(
+      analyzePowerShellRemoveItemMatch(command, getPowerShellRemoveItemOptions(options)),
+      options.config,
+    ),
+  );
+}
+
+function resultFromCommandMatch(
+  command: string,
+  match: DestructiveCommandRuleMatch | null,
+): AnalyzeResult | null {
+  if (!match) return null;
+  return {
+    reason: match.reason,
+    segment: command,
+    ruleId: match.id,
+    intent: match.intent,
+  };
+}
+
+function getPowerShellRemoveItemOptions(options: InternalOptions) {
+  const cwdUnknown = options.effectiveCwd === null;
+  return {
+    cwd: cwdUnknown ? undefined : (options.effectiveCwd ?? options.cwd),
+    originalCwd: cwdUnknown ? undefined : options.cwd,
+    paranoid: options.paranoidRm,
+    allowTmpdirVar: options.allowTmpdirVar,
+  };
 }
 
 function appendDynamicSubstitutionSentinelForGit(tokens: string[]): string[] {

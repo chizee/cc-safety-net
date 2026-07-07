@@ -40,6 +40,36 @@ describe('Claude Code hook', () => {
       expect(getHookDenyReason(result, 'claude-code')).toContain('rm -rf');
     });
 
+    test('PowerShell Remove-Item command is denied', async () => {
+      await withHookTestContext(async (context) => {
+        const result = await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'PowerShell',
+          tool_input: { command: 'Remove-Item . -Recurse -Force' },
+        });
+
+        const reason = getHookDenyReason(result, 'claude-code');
+        expect(reason).toContain('Remove-Item -Recurse -Force');
+        expect(reason).toContain('powershell.remove-item-recursive-force-cwd-self');
+      });
+    });
+
+    test('PowerShell tool still denies Bash-like git commands', async () => {
+      await withHookTestContext(async (context) => {
+        const result = await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'PowerShell',
+          tool_input: { command: 'git reset --hard' },
+        });
+
+        const reason = getHookDenyReason(result, 'claude-code');
+        expect(reason).toContain('git reset --hard');
+        expect(reason).toContain('git.reset-hard');
+      });
+    });
+
     test('policy fail-closed denial shows repair command without manual permission footer', async () => {
       await withHookTestContext(async (context) => {
         writeProjectRulesConfigWithoutLock(context.cwd);
@@ -118,6 +148,17 @@ describe('Claude Code hook', () => {
   describe('allowed commands', () => {
     test('allowed command produces no output', async () => {
       await expectNoHookOutput(runClaudeCodeHook, claudeCodeBashInput('git status'));
+    });
+
+    test('PowerShell WhatIf Remove-Item command produces no output', async () => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          cwd: context.cwd,
+          tool_name: 'PowerShell',
+          tool_input: { command: 'Remove-Item .\\dist -Recurse -Force -WhatIf' },
+        });
+      });
     });
 
     test('debug mode logs allowed command without output', async () => {

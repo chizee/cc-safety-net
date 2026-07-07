@@ -12,7 +12,7 @@ import {
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
-import type { BlockIntent, Config } from '@/types';
+import type { BlockIntent, Config, ShellKind } from '@/types';
 
 type HookDenyOutput = (
   reason: string,
@@ -96,9 +96,10 @@ export function parseHookJson<T>(
   }
 }
 
-function analyzeHookCommand(command: string, cwd: string, config?: Config) {
+function analyzeHookCommand(command: string, cwd: string, config?: Config, shell?: ShellKind) {
   return analyzeCommand(command, {
     cwd,
+    shell,
     config: config ?? loadConfig(cwd, { repairLocalRulebooks: true }),
   });
 }
@@ -139,10 +140,11 @@ export function handleBlockedHookCommand(
   outputDeny: HookDenyOutput,
   config?: Config,
   agent?: string,
+  shell?: ShellKind,
 ): void {
   let result: ReturnType<typeof analyzeHookCommand>;
   try {
-    result = analyzeHookCommand(command, cwd, config);
+    result = analyzeHookCommand(command, cwd, config, shell);
   } catch (error) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(
@@ -294,6 +296,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     adapter.outputDeny,
     config,
     adapter.agent,
+    getShellKindForToolName(toolName),
   );
 }
 
@@ -312,6 +315,10 @@ function getToolName(input: unknown): string {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function getShellKindForToolName(toolName: string): ShellKind | undefined {
+  return toolName.toLowerCase() === 'powershell' ? 'powershell' : undefined;
 }
 
 export async function runConfiguredHookAdapter<T>(

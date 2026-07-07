@@ -232,6 +232,32 @@ describe('runtime config loading', () => {
     );
   });
 
+  test('PowerShell Remove-Item built-in ids are granular by target classification', () => {
+    writeUserPolicy({
+      version: 1,
+      destructive_command_protection: {
+        overrides: { 'powershell.remove-item-recursive-force-cwd-self': 'off' },
+      },
+    });
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+
+    expect(
+      analyzeCommand('Remove-Item . -Recurse -Force', {
+        cwd: tempDir,
+        config,
+        shell: 'powershell',
+      }),
+    ).toBeNull();
+    expect(
+      analyzeCommand('Remove-Item ~ -Recurse -Force', {
+        cwd: tempDir,
+        config,
+        shell: 'powershell',
+      })?.reason,
+    ).toContain('root or home directory');
+  });
+
   test('nested and dynamic execution built-in ids honor overrides', () => {
     writeUserPolicy({
       version: 1,

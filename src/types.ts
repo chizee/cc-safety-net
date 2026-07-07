@@ -191,10 +191,14 @@ export interface AntigravityCliHookOutput {
   reason: string;
 }
 
+export type ShellKind = 'posix' | 'powershell' | 'auto';
+
 /** Options for command analysis */
 export interface AnalyzeOptions {
   /** Current working directory */
   cwd?: string;
+  /** Shell syntax to use for command-specific analysis */
+  shell?: ShellKind;
   /** Effective cwd after cd commands (null = unknown, undefined = use cwd) */
   effectiveCwd?: string | null;
   /** Environment assignments inherited by nested command analysis */

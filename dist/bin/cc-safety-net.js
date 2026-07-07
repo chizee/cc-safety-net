@@ -625,6 +625,14 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "rm.recursive-force-cwd-self",
   "rm.recursive-force-outside-cwd",
   "rm.recursive-force-paranoid",
+  "powershell.remove-item-root-or-home",
+  "powershell.remove-item-recursive-force-root-or-home",
+  "powershell.remove-item-recursive-force-dynamic-target",
+  "powershell.remove-item-recursive-force-home-cwd",
+  "powershell.remove-item-recursive-force-cwd-self",
+  "powershell.remove-item-recursive-force-outside-cwd",
+  "powershell.remove-item-recursive-force-paranoid",
+  "powershell.remove-item-pipeline-dynamic-target",
   "find.delete",
   "find.exec-rm-recursive-force",
   "interpreter.dangerous-command",
@@ -835,6 +843,62 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     intent: "scope_down"
   },
   {
+    id: "powershell.remove-item-root-or-home",
+    category: "PowerShell",
+    label: "Remove-Item root or home",
+    description: "Blocks PowerShell Remove-Item targeting root or home paths.",
+    intent: "hard_stop"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-root-or-home",
+    category: "PowerShell",
+    label: "Remove-Item recursive force root or home",
+    description: "Blocks recursive forced PowerShell removal of root or home paths.",
+    intent: "hard_stop"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-dynamic-target",
+    category: "PowerShell",
+    label: "Remove-Item recursive force dynamic target",
+    description: "Blocks recursive forced PowerShell removal with dynamic targets.",
+    intent: "scope_down"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-home-cwd",
+    category: "PowerShell",
+    label: "Remove-Item recursive force from home cwd",
+    description: "Blocks recursive forced PowerShell removal while working in home.",
+    intent: "scope_down"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-cwd-self",
+    category: "PowerShell",
+    label: "Remove-Item recursive force current directory",
+    description: "Blocks recursive forced PowerShell removal of the current directory.",
+    intent: "scope_down"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-outside-cwd",
+    category: "PowerShell",
+    label: "Remove-Item recursive force outside cwd",
+    description: "Blocks recursive forced PowerShell removal outside the original cwd.",
+    intent: "scope_down"
+  },
+  {
+    id: "powershell.remove-item-recursive-force-paranoid",
+    category: "PowerShell",
+    label: "Remove-Item recursive force paranoid mode",
+    description: "Blocks non-temp recursive forced PowerShell removal when paranoid rm is enabled.",
+    intent: "scope_down"
+  },
+  {
+    id: "powershell.remove-item-pipeline-dynamic-target",
+    category: "PowerShell",
+    label: "Remove-Item pipeline dynamic target",
+    description: "Blocks PowerShell Remove-Item with unverifiable pipeline input.",
+    intent: "scope_down"
+  },
+  {
     id: "find.delete",
     category: "Filesystem",
     label: "find delete",
@@ -990,6 +1054,647 @@ function dangerousInTextMatch(text) {
     }
   }
   return null;
+}
+
+// src/core/analyze/powershell/tokenize.ts
+function tokenizePowerShell(command) {
+  const tokens = [];
+  let text = "";
+  let dynamic = false;
+  const pushWord = () => {
+    if (!text)
+      return;
+    tokens.push({
+      kind: "word",
+      text,
+      dynamic: dynamic || isDynamicText(text)
+    });
+    text = "";
+    dynamic = false;
+  };
+  let i = 0;
+  while (i < command.length) {
+    const char = command[i];
+    if (!char)
+      break;
+    if (/\s/.test(char)) {
+      pushWord();
+      if (char === `
+`) {
+        tokens.push({ kind: "operator", text: ";" });
+      }
+      i++;
+      continue;
+    }
+    if (char === ";") {
+      pushWord();
+      tokens.push({ kind: "operator", text: ";" });
+      i++;
+      continue;
+    }
+    if (char === "&" && command[i + 1] === "&") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "&&" });
+      i += 2;
+      continue;
+    }
+    if (char === "|" && command[i + 1] === "|") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "||" });
+      i += 2;
+      continue;
+    }
+    if (char === "|") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "|" });
+      i++;
+      continue;
+    }
+    if (char === "'") {
+      const result = readSingleQuoted(command, i + 1);
+      text += result.text;
+      i = result.nextIndex;
+      continue;
+    }
+    if (char === '"') {
+      const result = readDoubleQuoted(command, i + 1);
+      text += result.text;
+      dynamic = dynamic || result.dynamic;
+      i = result.nextIndex;
+      continue;
+    }
+    if (char === "`") {
+      const next = command[i + 1];
+      if (!next) {
+        i++;
+        continue;
+      }
+      text += next;
+      i += 2;
+      continue;
+    }
+    if (char === "$") {
+      dynamic = true;
+    }
+    text += char;
+    i++;
+  }
+  pushWord();
+  return tokens;
+}
+function readSingleQuoted(command, start) {
+  let text = "";
+  let i = start;
+  while (i < command.length) {
+    const char = command[i];
+    if (char === "'" && command[i + 1] === "'") {
+      text += "'";
+      i += 2;
+      continue;
+    }
+    if (char === "'") {
+      return { text, nextIndex: i + 1 };
+    }
+    text += char ?? "";
+    i++;
+  }
+  return { text, nextIndex: i };
+}
+function readDoubleQuoted(command, start) {
+  let text = "";
+  let dynamic = false;
+  let i = start;
+  while (i < command.length) {
+    const char = command[i];
+    if (char === "`") {
+      const next = command[i + 1];
+      if (!next) {
+        i++;
+        continue;
+      }
+      text += next;
+      i += 2;
+      continue;
+    }
+    if (char === '"') {
+      return { text, dynamic, nextIndex: i + 1 };
+    }
+    if (char === "$") {
+      dynamic = true;
+    }
+    text += char ?? "";
+    i++;
+  }
+  return { text, dynamic, nextIndex: i };
+}
+function isDynamicText(text) {
+  return text.startsWith("$") || text.startsWith("@") || text.includes("$(") || text.includes("${") || text.includes("$_");
+}
+
+// src/core/analyze/recursive-delete-targets.ts
+import { realpathSync } from "node:fs";
+import { homedir as homedir2, tmpdir } from "node:os";
+import { normalize, resolve as resolve2, sep } from "node:path";
+var IS_WINDOWS = process.platform === "win32";
+function createRecursiveDeleteTargetContext(options = {}) {
+  return {
+    anchoredCwd: options.originalCwd ?? options.cwd ?? null,
+    resolvedCwd: options.cwd ?? null,
+    paranoid: options.paranoid ?? false,
+    trustTmpdirVar: options.allowTmpdirVar ?? true,
+    homeDir: getHomeDirForRmPolicy()
+  };
+}
+function classifyRecursiveDeleteTarget(target, ctx) {
+  if (isDangerousRootOrHomeTarget(target)) {
+    return { kind: "root_or_home_target" };
+  }
+  if (isTempTarget(target, ctx.trustTmpdirVar)) {
+    return { kind: "temp_target" };
+  }
+  if (isDynamicTarget(target)) {
+    return { kind: "dynamic_target" };
+  }
+  const anchoredCwd = ctx.anchoredCwd;
+  if (anchoredCwd) {
+    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
+      return { kind: "home_cwd_target" };
+    }
+    if (isCwdSelfTarget(target, anchoredCwd)) {
+      return { kind: "cwd_self_target" };
+    }
+    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
+      return { kind: "within_anchored_cwd" };
+    }
+  }
+  return { kind: "outside_anchored_cwd" };
+}
+function isDangerousRootOrHomeTarget(path) {
+  const normalized = path.trim();
+  if (normalized === "/" || normalized === "/*") {
+    return true;
+  }
+  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
+    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
+      return true;
+    }
+  }
+  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
+    return true;
+  }
+  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
+    return true;
+  }
+  return false;
+}
+function normalizePathForComparison(p) {
+  let normalized = normalize(p);
+  if (IS_WINDOWS) {
+    normalized = normalized.replace(/\//g, "\\").toLowerCase();
+    if (normalized.length > 3 && normalized.endsWith("\\")) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  }
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+function isTempTarget(path, allowTmpdirVar) {
+  const normalized = path.trim();
+  if (hasParentDirectoryComponent(normalized)) {
+    return false;
+  }
+  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
+    return true;
+  }
+  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
+    return true;
+  }
+  const normalizedTmpdir = normalizePathForComparison(tmpdir());
+  const pathToCompare = normalizePathForComparison(normalized);
+  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep}`) || pathToCompare === normalizedTmpdir) {
+    return true;
+  }
+  if (allowTmpdirVar) {
+    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
+      return true;
+    }
+    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
+      return true;
+    }
+  }
+  return false;
+}
+function hasParentDirectoryComponent(path) {
+  return path.split(/[\\/]+/).includes("..");
+}
+function getHomeDirForRmPolicy() {
+  return process.env.HOME ?? homedir2();
+}
+function isDynamicTarget(target) {
+  return target.includes("$") || target.includes("`");
+}
+function isCwdHomeForRmPolicy(cwd, homeDir) {
+  try {
+    return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+  } catch {
+    return false;
+  }
+}
+function isCwdSelfTarget(target, cwd) {
+  if (target === "." || target === "./" || target === ".\\") {
+    return true;
+  }
+  try {
+    return normalizePathForComparison(realpathSync(resolve2(cwd, target))) === normalizePathForComparison(realpathSync(cwd));
+  } catch {
+    try {
+      return normalizePathForComparison(resolve2(cwd, target)) === normalizePathForComparison(cwd);
+    } catch {
+      return false;
+    }
+  }
+}
+function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
+  const resolveCwd = effectiveCwd ?? originalCwd;
+  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
+    return false;
+  }
+  if (isDynamicTarget(target)) {
+    return false;
+  }
+  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
+    try {
+      return isResolvedPathWithinCwd(target, originalCwd);
+    } catch {
+      return false;
+    }
+  }
+  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
+    try {
+      return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
+    } catch {
+      return false;
+    }
+  }
+  if (target.startsWith("../")) {
+    return false;
+  }
+  try {
+    return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
+  } catch {
+    return false;
+  }
+}
+function isResolvedPathWithinCwd(resolvedTarget, cwd) {
+  try {
+    return isNormalizedPathWithin(realpathSync(resolvedTarget), realpathSync(cwd));
+  } catch {
+    return isNormalizedPathWithin(resolvedTarget, cwd);
+  }
+}
+function isNormalizedPathWithin(target, cwd) {
+  const normalizedTarget = normalizePathForComparison(target);
+  const normalizedCwd = normalizePathForComparison(cwd);
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep}`) || normalizedTarget === normalizedCwd;
+}
+
+// src/core/env.ts
+var ENV_FLAGS = {
+  level: { name: "CC_SAFETY_NET_LEVEL" },
+  strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
+  paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
+  paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
+  paranoidInterpreters: {
+    name: "CC_SAFETY_NET_PARANOID_INTERPRETERS",
+    legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
+  },
+  worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
+  debug: { name: "CC_SAFETY_NET_DEBUG" }
+};
+var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
+function expandSafetyLevel(level) {
+  return {
+    failClosed: level === "strict" || level === "paranoid",
+    paranoidRm: level === "paranoid",
+    paranoidInterpreters: level === "paranoid"
+  };
+}
+function maxSafetyLevel(policyLevel, envLevel) {
+  if (!envLevel)
+    return policyLevel;
+  return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
+}
+function parseEnvLevel() {
+  const value = getEnvFlagValue(ENV_FLAGS.level);
+  if (value === undefined)
+    return;
+  if (SAFETY_LEVELS.includes(value))
+    return value;
+  if (envTruthy(ENV_FLAGS.debug)) {
+    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
+  }
+  return;
+}
+function deriveEffectiveLevel(values) {
+  if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
+    return "paranoid";
+  if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "strict";
+  if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "standard";
+  return "custom";
+}
+function getCCSafetyNetEnvModes(policy = {}) {
+  const policyLevel = policy.safety?.level ?? "standard";
+  const envLevel = parseEnvLevel();
+  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
+  const values = expandSafetyLevel(baseLevel);
+  const sources = {
+    failClosed: [`policy safety.level=${policyLevel}`],
+    paranoidRm: [`policy safety.level=${policyLevel}`],
+    paranoidInterpreters: [`policy safety.level=${policyLevel}`],
+    worktreeMode: []
+  };
+  if (envLevel && envLevel !== policyLevel) {
+    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+  }
+  if (policy.safety?.overrides?.failClosed !== undefined) {
+    values.failClosed = policy.safety.overrides.failClosed;
+    sources.failClosed.push("policy safety.overrides.fail_closed");
+  }
+  if (policy.safety?.overrides?.paranoidRm !== undefined) {
+    values.paranoidRm = policy.safety.overrides.paranoidRm;
+    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
+  }
+  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
+    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
+    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
+  }
+  if (envTruthy(ENV_FLAGS.strict)) {
+    values.failClosed = true;
+    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoid)) {
+    values.paranoidRm = true;
+    values.paranoidInterpreters = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidRm)) {
+    values.paranoidRm = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
+    values.paranoidInterpreters = true;
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
+  }
+  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
+  if (policy.worktreeMode)
+    sources.worktreeMode.push("policy workflow.worktree_mode");
+  if (envTruthy(ENV_FLAGS.worktree))
+    sources.worktreeMode.push(`env ${ENV_FLAGS.worktree.name}`);
+  return {
+    strict: values.failClosed,
+    paranoidRm: values.paranoidRm,
+    paranoidInterpreters: values.paranoidInterpreters,
+    worktreeMode,
+    effectiveLevel: deriveEffectiveLevel(values),
+    sources
+  };
+}
+function envTruthy(flag) {
+  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
+  return value === "1" || value?.toLowerCase() === "true";
+}
+function getEnvFlagValue(flag) {
+  if (process.env[flag.name] !== undefined) {
+    return process.env[flag.name];
+  }
+  if (flag.legacyName) {
+    return process.env[flag.legacyName];
+  }
+  return;
+}
+function envFlagIsSet(flag) {
+  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
+}
+
+// src/core/analyze/powershell/remove-item.ts
+var REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]);
+var AUTO_REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]);
+var REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
+var REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.";
+var REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.";
+var REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.";
+var REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
+function analyzePowerShellRemoveItemMatch(command, options = {}) {
+  const ctx = createRecursiveDeleteTargetContext(options);
+  let segment = [];
+  let hasPipelineInput = false;
+  for (const token of tokenizePowerShell(command)) {
+    if (token.kind === "word") {
+      segment.push(token);
+      continue;
+    }
+    const match = analyzePowerShellSegment(segment, hasPipelineInput, ctx);
+    if (match)
+      return match;
+    segment = [];
+    hasPipelineInput = token.text === "|";
+    if (token.text !== "|") {
+      hasPipelineInput = false;
+    }
+  }
+  return analyzePowerShellSegment(segment, hasPipelineInput, ctx);
+}
+function shouldAnalyzePowerShellRemoveItem(command) {
+  const words = tokenizePowerShell(command).filter((token) => token.kind === "word");
+  for (let i = 0;i < words.length; i++) {
+    const token = words[i];
+    if (!token || token.kind !== "word")
+      continue;
+    const normalized = normalizeCommandName(token.text);
+    if (AUTO_REMOVE_ITEM_ALIASES.has(normalized))
+      return true;
+    if (normalized === "rm" && words.slice(i + 1).some((word) => isPowerShellSpecificRmParameter(word))) {
+      return true;
+    }
+  }
+  return false;
+}
+function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
+  const words = segment.filter((token) => token.kind === "word");
+  const commandIndex = getCommandIndex(words);
+  const command = words[commandIndex];
+  if (!command || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command.text))) {
+    return null;
+  }
+  const parsed = parseRemoveItem(words.slice(commandIndex + 1));
+  if (parsed.whatIfProtected) {
+    return null;
+  }
+  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
+    return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
+  }
+  for (const target of parsed.targets) {
+    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))) {
+      return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    }
+  }
+  if (!parsed.recursive || !parsed.force) {
+    return null;
+  }
+  if (parsed.hasDynamicTarget || parsed.targets.length === 0) {
+    return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
+  }
+  for (const target of parsed.targets) {
+    const match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
+    if (match)
+      return match;
+  }
+  return null;
+}
+function parseRemoveItem(args) {
+  const targets = [];
+  let recursive = false;
+  let force = false;
+  let whatIfProtected = false;
+  let hasDynamicTarget = false;
+  let pastEndOfParameters = false;
+  for (let i = 0;i < args.length; i++) {
+    const token = args[i];
+    if (!token || token.kind !== "word")
+      continue;
+    if (pastEndOfParameters) {
+      targets.push(targetFromToken(token));
+      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      continue;
+    }
+    if (token.text === "--") {
+      pastEndOfParameters = true;
+      continue;
+    }
+    const parameter = parseParameter(token.text);
+    if (!parameter) {
+      targets.push(targetFromToken(token));
+      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      continue;
+    }
+    if (isPathParameter(parameter.name)) {
+      const value = parameter.value ? parameterValueToken(parameter.value, token) : args[++i];
+      if (value?.kind === "word") {
+        targets.push(targetFromToken(value));
+        hasDynamicTarget = hasDynamicTarget || value.dynamic;
+      } else {
+        hasDynamicTarget = true;
+      }
+      continue;
+    }
+    if (isRecurseParameter(parameter.name)) {
+      recursive = true;
+      continue;
+    }
+    if (isForceParameter(parameter.name)) {
+      force = true;
+      continue;
+    }
+    if (isWhatIfParameter(parameter.name)) {
+      whatIfProtected = isProtectiveSwitchValue(parameter.value);
+    }
+  }
+  return { targets, recursive, force, whatIfProtected, hasDynamicTarget };
+}
+function getCommandIndex(words) {
+  const first = words[0];
+  if (first?.kind === "word" && first.text === "&" || first?.text === ".") {
+    return words.length > 1 ? 1 : 0;
+  }
+  return 0;
+}
+function targetFromToken(token) {
+  return {
+    text: token.kind === "word" ? token.text : "",
+    dynamic: token.kind === "word" && token.dynamic
+  };
+}
+function powerShellTargetForPolicy(target) {
+  return target.replace(/\\/g, "/");
+}
+function parameterValueToken(value, source) {
+  return {
+    kind: "word",
+    text: value,
+    dynamic: source.kind === "word" && (source.dynamic || value.includes("$"))
+  };
+}
+function parseParameter(text) {
+  if (!text.startsWith("-") || text === "-") {
+    return null;
+  }
+  const raw = text.slice(1);
+  const colonIndex = raw.indexOf(":");
+  if (colonIndex === -1) {
+    return { name: raw.toLowerCase() };
+  }
+  return {
+    name: raw.slice(0, colonIndex).toLowerCase(),
+    value: raw.slice(colonIndex + 1)
+  };
+}
+function isPathParameter(name) {
+  return "path".startsWith(name) || "literalpath".startsWith(name);
+}
+function isRecurseParameter(name) {
+  return "recurse".startsWith(name);
+}
+function isForceParameter(name) {
+  return name.length >= 2 && "force".startsWith(name);
+}
+function isWhatIfParameter(name) {
+  return name === "wi" || "whatif".startsWith(name);
+}
+function isProtectiveSwitchValue(value) {
+  if (value === undefined || value === "") {
+    return true;
+  }
+  const normalized = value.toLowerCase();
+  return normalized === "$true" || normalized === "true";
+}
+function isPowerShellSpecificRmParameter(token) {
+  if (token.kind !== "word")
+    return false;
+  const parameter = parseParameter(token.text);
+  if (!parameter)
+    return false;
+  return isForceParameter(parameter.name) && parameter.name !== "f" || isRecurseParameter(parameter.name) && parameter.name !== "r" || isPathParameter(parameter.name) || isWhatIfParameter(parameter.name) || parameter.name === "confirm" || parameter.name === "cf";
+}
+function normalizeCommandName(name) {
+  return name.toLowerCase();
+}
+function matchForClassification(classification, ctx) {
+  switch (classification.kind) {
+    case "root_or_home_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    case "temp_target":
+      return null;
+    case "dynamic_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
+    case "home_cwd_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-home-cwd", REASON_REMOVE_ITEM_HOME_CWD);
+    case "cwd_self_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-cwd-self", REASON_REMOVE_ITEM_RF);
+    case "within_anchored_cwd":
+      if (!ctx.paranoid)
+        return null;
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-paranoid", `${REASON_REMOVE_ITEM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
+    case "outside_anchored_cwd":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-outside-cwd", REASON_REMOVE_ITEM_RF);
+  }
 }
 
 // src/core/analyze/segment.ts
@@ -2096,7 +2801,7 @@ function _isShellTokenBoundaryChar(char) {
   return _isWhitespaceChar(char) || ";|&()<>".includes(char);
 }
 // src/core/shell/wrappers.ts
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute3, parse as parsePath2 } from "node:path";
 
 // src/core/git/env.ts
@@ -2157,8 +2862,8 @@ function hasAnyEnvAssignment(envAssignments, names) {
 }
 
 // src/core/path.ts
-import { lstatSync, realpathSync } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
+import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute2, parse as parsePath, sep as sep2 } from "node:path";
 function resolveChdirTarget(baseCwd, target) {
   const root = isAbsolute2(target) ? getPathRoot(target) : "";
   let current = root || baseCwd;
@@ -2171,12 +2876,12 @@ function resolveChdirTarget(baseCwd, target) {
       continue;
     }
     const candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
+    current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
   }
   return current;
 }
 function appendPathWithoutNormalizing(base, target) {
-  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
+  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep2}${target}`;
 }
 function getPathRoot(target) {
   return parsePath(target).root;
@@ -2431,7 +3136,7 @@ function resolveWrapperCwd(cwd, target) {
     if (!cwd && !isAbsolute3(target)) {
       return null;
     }
-    const baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync2(cwd ?? "/");
+    const baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -2638,150 +3343,6 @@ function containsDangerousCode(code) {
 }
 
 // src/core/analyze/rm.ts
-import { realpathSync as realpathSync3 } from "node:fs";
-import { homedir as homedir2, tmpdir } from "node:os";
-import { normalize, resolve as resolve2, sep as sep2 } from "node:path";
-
-// src/core/env.ts
-var ENV_FLAGS = {
-  level: { name: "CC_SAFETY_NET_LEVEL" },
-  strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
-  paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
-  paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
-  paranoidInterpreters: {
-    name: "CC_SAFETY_NET_PARANOID_INTERPRETERS",
-    legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
-  },
-  worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" }
-};
-var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
-function expandSafetyLevel(level) {
-  return {
-    failClosed: level === "strict" || level === "paranoid",
-    paranoidRm: level === "paranoid",
-    paranoidInterpreters: level === "paranoid"
-  };
-}
-function maxSafetyLevel(policyLevel, envLevel) {
-  if (!envLevel)
-    return policyLevel;
-  return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
-}
-function parseEnvLevel() {
-  const value = getEnvFlagValue(ENV_FLAGS.level);
-  if (value === undefined)
-    return;
-  if (SAFETY_LEVELS.includes(value))
-    return value;
-  if (envTruthy(ENV_FLAGS.debug)) {
-    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
-  }
-  return;
-}
-function deriveEffectiveLevel(values) {
-  if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
-    return "paranoid";
-  if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
-    return "strict";
-  if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
-    return "standard";
-  return "custom";
-}
-function getCCSafetyNetEnvModes(policy = {}) {
-  const policyLevel = policy.safety?.level ?? "standard";
-  const envLevel = parseEnvLevel();
-  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
-  const values = expandSafetyLevel(baseLevel);
-  const sources = {
-    failClosed: [`policy safety.level=${policyLevel}`],
-    paranoidRm: [`policy safety.level=${policyLevel}`],
-    paranoidInterpreters: [`policy safety.level=${policyLevel}`],
-    worktreeMode: []
-  };
-  if (envLevel && envLevel !== policyLevel) {
-    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-  }
-  if (policy.safety?.overrides?.failClosed !== undefined) {
-    values.failClosed = policy.safety.overrides.failClosed;
-    sources.failClosed.push("policy safety.overrides.fail_closed");
-  }
-  if (policy.safety?.overrides?.paranoidRm !== undefined) {
-    values.paranoidRm = policy.safety.overrides.paranoidRm;
-    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
-  }
-  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
-    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
-    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
-  }
-  if (envTruthy(ENV_FLAGS.strict)) {
-    values.failClosed = true;
-    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoid)) {
-    values.paranoidRm = true;
-    values.paranoidInterpreters = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidRm)) {
-    values.paranoidRm = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
-    values.paranoidInterpreters = true;
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
-  }
-  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
-  if (policy.worktreeMode)
-    sources.worktreeMode.push("policy workflow.worktree_mode");
-  if (envTruthy(ENV_FLAGS.worktree))
-    sources.worktreeMode.push(`env ${ENV_FLAGS.worktree.name}`);
-  return {
-    strict: values.failClosed,
-    paranoidRm: values.paranoidRm,
-    paranoidInterpreters: values.paranoidInterpreters,
-    worktreeMode,
-    effectiveLevel: deriveEffectiveLevel(values),
-    sources
-  };
-}
-function envTruthy(flag) {
-  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
-  return value === "1" || value?.toLowerCase() === "true";
-}
-function getEnvFlagValue(flag) {
-  if (process.env[flag.name] !== undefined) {
-    return process.env[flag.name];
-  }
-  if (flag.legacyName) {
-    return process.env[flag.legacyName];
-  }
-  return;
-}
-function envFlagIsSet(flag) {
-  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
-}
-
-// src/core/analyze/rm.ts
-var IS_WINDOWS = process.platform === "win32";
-function normalizePathForComparison(p) {
-  let normalized = normalize(p);
-  if (IS_WINDOWS) {
-    normalized = normalized.replace(/\//g, "\\");
-    normalized = normalized.toLowerCase();
-    if (normalized.length > 3 && normalized.endsWith("\\")) {
-      normalized = normalized.slice(0, -1);
-    }
-  } else {
-    if (normalized.length > 1 && normalized.endsWith("/")) {
-      normalized = normalized.slice(0, -1);
-    }
-  }
-  return normalized;
-}
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
 var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
 var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
@@ -2790,22 +3351,13 @@ function analyzeRm(tokens, options2 = {}) {
   return analyzeRmMatch(tokens, options2)?.reason ?? null;
 }
 function analyzeRmMatch(tokens, options2 = {}) {
-  const { cwd, originalCwd, paranoid = false, allowTmpdirVar = true } = options2;
-  const anchoredCwd = originalCwd ?? cwd ?? null;
-  const resolvedCwd = cwd ?? null;
-  const ctx = {
-    anchoredCwd,
-    resolvedCwd,
-    paranoid,
-    trustTmpdirVar: allowTmpdirVar,
-    homeDir: getHomeDirForRmPolicy()
-  };
+  const ctx = createRecursiveDeleteTargetContext(options2);
   if (!hasRecursiveForceFlags(tokens)) {
     return null;
   }
   const targets = extractTargets(tokens);
   for (const target of targets) {
-    const classification = classifyTarget(target, ctx);
+    const classification = classifyRecursiveDeleteTarget(target, ctx);
     const reason = reasonForClassification(classification, ctx);
     if (reason) {
       return reason;
@@ -2834,30 +3386,6 @@ function extractTargets(tokens) {
   }
   return targets;
 }
-function classifyTarget(target, ctx) {
-  if (isDangerousRootOrHomeTarget(target)) {
-    return { kind: "root_or_home_target" };
-  }
-  if (isTempTarget(target, ctx.trustTmpdirVar)) {
-    return { kind: "temp_target" };
-  }
-  if (isDynamicTarget(target)) {
-    return { kind: "dynamic_target" };
-  }
-  const anchoredCwd = ctx.anchoredCwd;
-  if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
-      return { kind: "home_cwd_target" };
-    }
-    if (isCwdSelfTarget(target, anchoredCwd)) {
-      return { kind: "cwd_self_target" };
-    }
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
-      return { kind: "within_anchored_cwd" };
-    }
-  }
-  return { kind: "outside_anchored_cwd" };
-}
 function reasonForClassification(classification, ctx) {
   switch (classification.kind) {
     case "root_or_home_target":
@@ -2878,130 +3406,6 @@ function reasonForClassification(classification, ctx) {
     case "outside_anchored_cwd":
       return destructiveCommandMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
   }
-}
-function isDangerousRootOrHomeTarget(path) {
-  const normalized = path.trim();
-  if (normalized === "/" || normalized === "/*") {
-    return true;
-  }
-  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
-    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
-      return true;
-    }
-  }
-  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
-    return true;
-  }
-  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
-    return true;
-  }
-  return false;
-}
-function isTempTarget(path, allowTmpdirVar) {
-  const normalized = path.trim();
-  if (hasParentDirectoryComponent(normalized)) {
-    return false;
-  }
-  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
-    return true;
-  }
-  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
-    return true;
-  }
-  const systemTmpdir = tmpdir();
-  const normalizedTmpdir = normalizePathForComparison(systemTmpdir);
-  const pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep2}`) || pathToCompare === normalizedTmpdir) {
-    return true;
-  }
-  if (allowTmpdirVar) {
-    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
-      return true;
-    }
-    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
-      return true;
-    }
-  }
-  return false;
-}
-function hasParentDirectoryComponent(path) {
-  return path.split(/[\\/]+/).includes("..");
-}
-function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir2();
-}
-function isDynamicTarget(target) {
-  return target.includes("$") || target.includes("`");
-}
-function isCwdHomeForRmPolicy(cwd, homeDir) {
-  try {
-    return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
-  } catch {
-    return false;
-  }
-}
-function isCwdSelfTarget(target, cwd) {
-  if (target === "." || target === "./" || target === ".\\") {
-    return true;
-  }
-  try {
-    const resolved = resolve2(cwd, target);
-    const realCwd = realpathSync3(cwd);
-    const realResolved = realpathSync3(resolved);
-    return normalizePathForComparison(realResolved) === normalizePathForComparison(realCwd);
-  } catch {
-    try {
-      const resolved = resolve2(cwd, target);
-      return normalizePathForComparison(resolved) === normalizePathForComparison(cwd);
-    } catch {
-      return false;
-    }
-  }
-}
-function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
-  const resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
-    return false;
-  }
-  if (isDynamicTarget(target)) {
-    return false;
-  }
-  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
-    try {
-      return isResolvedPathWithinCwd(target, originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
-    try {
-      const resolved = resolve2(resolveCwd, target);
-      return isResolvedPathWithinCwd(resolved, originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("../")) {
-    return false;
-  }
-  try {
-    const resolved = resolve2(resolveCwd, target);
-    return isResolvedPathWithinCwd(resolved, originalCwd);
-  } catch {
-    return false;
-  }
-}
-function isResolvedPathWithinCwd(resolvedTarget, cwd) {
-  try {
-    return isNormalizedPathWithin(realpathSync3(resolvedTarget), realpathSync3(cwd));
-  } catch {
-    return isNormalizedPathWithin(resolvedTarget, cwd);
-  }
-}
-function isNormalizedPathWithin(target, cwd) {
-  const normalizedTarget = normalizePathForComparison(target);
-  const normalizedCwd = normalizePathForComparison(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep2}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/shell-wrappers.ts
@@ -5386,6 +5790,11 @@ function analyzeCommandInternal(command2, depth, options2) {
   if (options2.strict && segments2.length === 1 && segments2[0]?.tokens.length === 1 && segments2[0].tokens[0] === command2 && command2.includes(" ")) {
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   }
+  if (options2.shell === "powershell" && !options2.config.failClosedReason) {
+    const result = analyzePowerShellRemoveItemCommand(command2, options2);
+    if (result)
+      return result;
+  }
   const originalCwd = options2.cwd;
   let effectiveCwd = options2.effectiveCwd !== undefined ? options2.effectiveCwd : options2.cwd;
   const shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
@@ -5439,7 +5848,34 @@ function analyzeCommandInternal(command2, depth, options2) {
     }
     applyShellGitContextEnvSegment(segment, shellGitContextState);
   }
+  if ((options2.shell === undefined || options2.shell === "auto") && !options2.config.failClosedReason && shouldAnalyzePowerShellRemoveItem(command2)) {
+    const result = analyzePowerShellRemoveItemCommand(command2, options2);
+    if (result)
+      return result;
+  }
   return null;
+}
+function analyzePowerShellRemoveItemCommand(command2, options2) {
+  return resultFromCommandMatch(command2, filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, getPowerShellRemoveItemOptions(options2)), options2.config));
+}
+function resultFromCommandMatch(command2, match) {
+  if (!match)
+    return null;
+  return {
+    reason: match.reason,
+    segment: command2,
+    ruleId: match.id,
+    intent: match.intent
+  };
+}
+function getPowerShellRemoveItemOptions(options2) {
+  const cwdUnknown = options2.effectiveCwd === null;
+  return {
+    cwd: cwdUnknown ? undefined : options2.effectiveCwd ?? options2.cwd,
+    originalCwd: cwdUnknown ? undefined : options2.cwd,
+    paranoid: options2.paranoidRm,
+    allowTmpdirVar: options2.allowTmpdirVar
+  };
 }
 function appendDynamicSubstitutionSentinelForGit(tokens) {
   if (!tokens.some((token) => getBasename(token).toLowerCase() === "git")) {
@@ -9029,9 +9465,10 @@ function parseHookJson(inputText, outputDeny, strictReason) {
     return null;
   }
 }
-function analyzeHookCommand(command2, cwd, config) {
+function analyzeHookCommand(command2, cwd, config, shell) {
   return analyzeCommand(command2, {
     cwd,
+    shell,
     config: config ?? loadConfig(cwd, { repairLocalRulebooks: true })
   });
 }
@@ -9054,10 +9491,10 @@ function handleSecretProtection(toolInput, cwd, config, sessionId, toolName, age
   outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName);
   return true;
 }
-function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config, agent) {
+function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config, agent, shell) {
   let result;
   try {
-    result = analyzeHookCommand(command2, cwd, config);
+    result = analyzeHookCommand(command2, cwd, config, shell);
   } catch (error) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(`CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
@@ -9133,7 +9570,7 @@ async function runHookAdapter(adapter) {
     }
     return;
   }
-  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny, config, adapter.agent);
+  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny, config, adapter.agent, getShellKindForToolName(toolName));
 }
 function getToolName(input) {
   if (!input || typeof input !== "object") {
@@ -9144,6 +9581,9 @@ function getToolName(input) {
 }
 function stringField(value) {
   return typeof value === "string" ? value : undefined;
+}
+function getShellKindForToolName(toolName) {
+  return toolName.toLowerCase() === "powershell" ? "powershell" : undefined;
 }
 async function runConfiguredHookAdapter(adapter) {
   const outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent);
@@ -12136,6 +12576,32 @@ function explainCommand2(command2, options2) {
     }
     applyShellGitContextEnvSegment(segment, shellGitContextState);
     trace.segments.push({ index: i, steps: segmentSteps });
+  }
+  if (!blocked && !analyzeOpts.config?.failClosedReason && shouldAnalyzePowerShellRemoveItem(command2)) {
+    const match = filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, {
+      cwd: analyzeOpts.effectiveCwd ?? analyzeOpts.cwd,
+      originalCwd: analyzeOpts.cwd,
+      paranoid: analyzeOpts.paranoidRm,
+      allowTmpdirVar: analyzeOpts.allowTmpdirVar
+    }), analyzeOpts.config);
+    const step = {
+      type: "rule-check",
+      ruleModule: "analyze/powershell/remove-item.ts",
+      ruleFunction: "analyzePowerShellRemoveItemMatch",
+      matched: !!match,
+      reason: match?.reason
+    };
+    const lastSegment = trace.segments[trace.segments.length - 1];
+    if (lastSegment) {
+      lastSegment.steps.push(step);
+    } else {
+      trace.segments.push({ index: 0, steps: [step] });
+    }
+    if (match) {
+      blocked = true;
+      blockReason = match.reason;
+      blockSegment = redactEnvAssignmentsInString(command2);
+    }
   }
   return {
     trace,

@@ -207,6 +207,21 @@ describe('explainCommand edge cases', () => {
     expect(ruleStep).toBeDefined();
   });
 
+  test('PowerShell Remove-Item traces rule check', () => {
+    const result = explainCommand('Remove-Item . -Recurse -Force');
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toContain('Remove-Item -Recurse -Force');
+    const allSteps = getTraceSteps(result);
+    const ruleStep = allSteps.find(
+      (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/powershell/remove-item.ts',
+    );
+    expect(ruleStep).toBeDefined();
+    if (ruleStep?.type === 'rule-check') {
+      expect(ruleStep.matched).toBe(true);
+      expect(ruleStep.reason).toContain('Remove-Item -Recurse -Force');
+    }
+  });
+
   test('find -delete traces rule check', () => {
     const result = explainCommand('find . -delete');
     expect(result.result).toBe('blocked');
