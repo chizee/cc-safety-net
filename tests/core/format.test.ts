@@ -135,6 +135,17 @@ describe('formatBlockedMessage', () => {
     expect(result).not.toContain('secret');
   });
 
+  test('applies redact function to reason', () => {
+    const redactFn = (text: string) => text.replace(/secret/g, '***');
+    const result = formatBlockedMessage({
+      reason: 'invalid policy JSON near secret',
+      redact: redactFn,
+    });
+
+    expect(result).toContain('Reason: invalid policy JSON near ***');
+    expect(result).not.toContain('secret');
+  });
+
   test('applies redact function to segment', () => {
     const redactFn = (text: string) => text.replace(/password/g, '***');
     const result = formatBlockedMessage({

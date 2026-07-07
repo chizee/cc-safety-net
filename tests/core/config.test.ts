@@ -150,6 +150,11 @@ describe('runtime config loading', () => {
     writeFileSync(join(dirname(userRulesDir), 'policy.json'), JSON.stringify(policy), 'utf-8');
   }
 
+  function writeUserPolicyRaw(policy: string): void {
+    mkdirSync(dirname(userRulesDir), { recursive: true });
+    writeFileSync(join(dirname(userRulesDir), 'policy.json'), policy, 'utf-8');
+  }
+
   function writeProjectPolicy(policy: unknown): void {
     mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
     writeFileSync(join(tempDir, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
@@ -321,6 +326,21 @@ describe('runtime config loading', () => {
     expect(config.failClosedReason).toContain(
       'secret_protection.overrides.secret.ext.pem must be "off"',
     );
+  });
+
+  test('malformed policy JSON fails closed without exposing policy bytes', () => {
+    const token = 'sk-proj_1234567890abcdefghijklmnopqrstuv';
+    writeUserPolicyRaw(`{"version":1,"token":"${token}"`);
+
+    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const result = analyzeCommand('echo ok', { cwd: tempDir, config });
+
+    expect(config.failClosedReason).toContain('invalid policy config');
+    expect(config.failClosedReason).toContain('Invalid JSON');
+    expect(config.failClosedReason).toContain('Fix or remove the policy file manually');
+    expect(config.failClosedReason).not.toContain(token);
+    expect(config.failClosedReason).not.toContain('Invalid JSON:');
+    expect(result?.reason).toBe(config.failClosedReason);
   });
 
   test('user secret overrides and deny paths apply', () => {

@@ -343,10 +343,10 @@ function readPolicyConfig(path: string): { policy: PartialPolicy; errors: string
     if (errors.length > 0)
       return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
     return { policy: normalizePolicyConfig(parsed as Record<string, unknown>), errors: [] };
-  } catch (error) {
+  } catch {
     return {
       policy: empty,
-      errors: [`${path}: Invalid JSON: ${error instanceof Error ? error.message : String(error)}`],
+      errors: [`${path}: Invalid JSON`],
     };
   }
 }
