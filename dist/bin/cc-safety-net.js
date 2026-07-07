@@ -365,7 +365,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join as join2 } from "node:path";
 function listAuditLogFiles(logsDir) {
   try {
-    return readdirSync(logsDir, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".jsonl")).map((file) => join2(logsDir, file));
+    return readdirSync(logsDir, { withFileTypes: true, encoding: "utf8" }).flatMap((entry) => {
+      const filePath = join2(logsDir, entry.name);
+      if (entry.isDirectory())
+        return listAuditLogFiles(filePath);
+      if (entry.name.endsWith(".jsonl"))
+        return [filePath];
+      return [];
+    });
   } catch {
     return [];
   }
@@ -510,9 +517,18 @@ function matchesProject(cwd, project) {
   return cwd === project || cwd.startsWith(`${project}/`);
 }
 function formatLogEntry(entry) {
-  const decision = entry.decision ?? "deny";
-  const cwd = entry.cwd ? `  [${entry.cwd}]` : "";
-  return `${entry.ts.slice(0, 19)}Z  ${decision.padEnd(5)}  ${(entry.agent ?? "-").padEnd(15)}  ${(entry.ruleId ?? "-").padEnd(20)}  ${entry.command}${cwd}`;
+  const decision = renderTerminalText(entry.decision ?? "deny");
+  const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "";
+  return `${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(entry.command)}${cwd}`;
+}
+function renderTerminalText(value) {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code >= 127 && code <= 159) {
+      return `\\x${code.toString(16).padStart(2, "0")}`;
+    }
+    return character;
+  }).join("");
 }
 function parsePositiveNumber(value) {
   if (value === undefined)
