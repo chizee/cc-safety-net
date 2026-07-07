@@ -135,6 +135,9 @@ function findUnsafePolicyConfigSegmentTarget(
   const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
   if (scriptTarget) return scriptTarget;
 
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
+  if (sedWriteTarget) return sedWriteTarget;
+
   const target = segment
     .flatMap((token) => extractPolicyConfigPathCandidates(token))
     .find((token) => isPolicyConfigPath(token, cwd));
@@ -166,6 +169,60 @@ function findScriptArgumentPolicyConfigTarget(
     isPolicyConfigPath(candidate, cwd),
   );
   return target ? { target } : null;
+}
+
+function findSedScriptWritePolicyConfigTarget(
+  segment: readonly string[],
+  cwd: string,
+): PolicyConfigTarget | null {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (getBasename(stripped[0] ?? '').toLowerCase() !== 'sed') return null;
+
+  const target = extractSedScriptArguments(stripped.slice(1))
+    .flatMap((script) => extractSedWritePathCandidates(script))
+    .find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+
+function extractSedScriptArguments(tokens: readonly string[]): string[] {
+  const scripts: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined) break;
+
+    if (token === '-e' || token === '--expression') {
+      const script = tokens[i + 1];
+      if (script !== undefined) scripts.push(script);
+      i++;
+      continue;
+    }
+
+    const expression = /^--expression=(.*)$/.exec(token);
+    if (expression?.[1]) {
+      scripts.push(expression[1]);
+      continue;
+    }
+
+    if (token === '-f' || token === '--file') {
+      i++;
+      continue;
+    }
+    if (token.startsWith('-f') || token.startsWith('--file=')) continue;
+
+    if (token.startsWith('-')) continue;
+
+    scripts.push(token);
+    break;
+  }
+  return scripts;
+}
+
+function extractSedWritePathCandidates(script: string): string[] {
+  return Array.from(
+    script.matchAll(
+      /(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g,
+    ),
+  ).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ''));
 }
 
 function isReadOnlySegment(tokens: readonly string[]): boolean {

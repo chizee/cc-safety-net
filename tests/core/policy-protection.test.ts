@@ -81,6 +81,32 @@ describe('policy config protection', () => {
     }
   });
 
+  test('denies sed script writes targeting policy files', () => {
+    const policyPath = getUserPolicyPath();
+
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Bash',
+        { command: `sed 'w ${policyPath}' README.md` },
+        cwd,
+      )?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Bash',
+        { command: `sed -e 'w ${policyPath}' README.md` },
+        cwd,
+      )?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Bash',
+        { command: `sed -n '1p' ${policyPath}` },
+        cwd,
+      ),
+    ).toBeNull();
+  });
+
   test('denies policy writes inside interpreter command arguments', () => {
     const policyPath = getUserPolicyPath();
     for (const command of [
