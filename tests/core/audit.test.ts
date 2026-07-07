@@ -165,6 +165,15 @@ describe('redactSecrets', () => {
     expect(result).toBe('<redacted>');
   });
 
+  test('redacts PEM private key blocks case-insensitively', () => {
+    expect(
+      redactSecrets('-----begin rsa private key-----\nabc\n-----end rsa private key-----'),
+    ).toBe('<redacted>');
+    expect(redactSecrets('-----Begin EC Private Key-----\nabc\n-----eNd EC Private Key-----')).toBe(
+      '<redacted>',
+    );
+  });
+
   test('redacts JWT tokens and AWS access key IDs', () => {
     const result = redactSecrets(
       'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature AKIAIOSFODNN7EXAMPLE',
@@ -192,6 +201,24 @@ describe('redactSecrets', () => {
     const result = redactSecrets('DATABASE_URL=postgres://user:password@db.example/app');
     expect(result).not.toContain('password');
     expect(result).toBe('DATABASE_URL=<redacted>');
+  });
+
+  test('redacts database URI env vars', () => {
+    expect(redactSecrets('DATABASE_URI=postgres://user:pass@db.internal:5432/mydb')).toBe(
+      'DATABASE_URI=<redacted>',
+    );
+  });
+
+  test('redacts database DSN env vars containing spaces', () => {
+    expect(redactSecrets('POSTGRES_DSN=host=db user=me password=secret dbname=mydb')).toBe(
+      'POSTGRES_DSN=<redacted>',
+    );
+  });
+
+  test('redacts database connection string env vars', () => {
+    expect(redactSecrets('DATABASE_CONNECTION_STRING=postgres://user:pass@db.example/app')).toBe(
+      'DATABASE_CONNECTION_STRING=<redacted>',
+    );
   });
 
   test('redacts quoted KEY=VALUE secrets containing spaces', () => {
