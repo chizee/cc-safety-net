@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
@@ -23,6 +23,26 @@ describe('listAuditLogFiles', () => {
 
   test('returns empty array for missing directory', () => {
     expect(listAuditLogFiles(join(tmpdir(), 'missing-audit-scan-dir'))).toEqual([]);
+  });
+
+  test('keeps readable jsonl files when a nested directory is unreadable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-audit-scan-'));
+    const unreadableDir = join(dir, 'unreadable');
+    try {
+      writeFileSync(join(dir, 'a.jsonl'), '{}\n');
+      mkdirSync(join(dir, 'readable', '2026-07'), { recursive: true });
+      writeFileSync(join(dir, 'readable', '2026-07', 'b.jsonl'), '{}\n');
+      mkdirSync(unreadableDir);
+      writeFileSync(join(unreadableDir, 'hidden.jsonl'), '{}\n');
+      chmodSync(unreadableDir, 0o000);
+
+      expect(listAuditLogFiles(dir).sort()).toEqual(
+        [join(dir, 'a.jsonl'), join(dir, 'readable', '2026-07', 'b.jsonl')].sort(),
+      );
+    } finally {
+      chmodSync(unreadableDir, 0o700);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

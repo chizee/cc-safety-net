@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getActivitySummary } from '@/bin/doctor/activity';
@@ -130,6 +130,30 @@ describe('getActivitySummary', () => {
       expect(activity.totalBlocked).toBe(2);
       expect(activity.sessionCount).toBe(2);
     } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('counts readable entries when a nested child cannot be traversed', () => {
+    const logsDir = createLogsDir();
+    const unreadableDir = join(logsDir, 'unreadable');
+
+    try {
+      writeJsonlFixture(join(logsDir, 'readable.jsonl'), [
+        { ts: new Date().toISOString(), command: 'visible', reason: 'Blocked' },
+      ]);
+      mkdirSync(unreadableDir);
+      writeJsonlFixture(join(unreadableDir, 'hidden.jsonl'), [
+        { ts: new Date().toISOString(), command: 'hidden', reason: 'Blocked' },
+      ]);
+      chmodSync(unreadableDir, 0o000);
+
+      const activity = getActivitySummary(7, logsDir);
+
+      expect(activity.totalBlocked).toBe(1);
+      expect(activity.recentEntries[0]?.command).toBe('visible');
+    } finally {
+      chmodSync(unreadableDir, 0o700);
       rmSync(logsDir, { recursive: true, force: true });
     }
   });

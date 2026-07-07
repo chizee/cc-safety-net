@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runLogsCommand } from '@/bin/audit-log';
@@ -99,6 +99,28 @@ function createLogsFixture(): LogsFixture {
   };
 }
 
+function writeControlLogFixture(logsDir: string, command: string, cwd: string): void {
+  writeJsonlFixture(join(logsDir, 'controls.jsonl'), [
+    {
+      ts: new Date().toISOString(),
+      decision: 'deny',
+      agent: 'claude-code',
+      command,
+      segment: command,
+      reason: 'blocked',
+      ruleId: 'control.test',
+      cwd,
+    },
+  ]);
+}
+
+function hasTerminalControlBytes(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+  });
+}
+
 describe('runLogsCommand', () => {
   test('reads default logs from the configured audit home', async () => {
     const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-default-'));
@@ -137,6 +159,45 @@ describe('runLogsCommand', () => {
       expect(result.stdout).not.toContain('git status');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test('prints readable entries when a nested child cannot be traversed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-permissions-'));
+    const logsDir = join(root, 'logs');
+    const unreadableDir = join(logsDir, 'unreadable');
+
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'readable.jsonl'), [
+        {
+          ts: new Date().toISOString(),
+          decision: 'deny',
+          command: 'visible blocked',
+          segment: 'visible blocked',
+          reason: 'blocked',
+        },
+      ]);
+      mkdirSync(unreadableDir);
+      writeJsonlFixture(join(unreadableDir, 'hidden.jsonl'), [
+        {
+          ts: new Date().toISOString(),
+          decision: 'deny',
+          command: 'hidden blocked',
+          segment: 'hidden blocked',
+          reason: 'blocked',
+        },
+      ]);
+      chmodSync(unreadableDir, 0o000);
+
+      const result = await captureLogsCommand([], logsDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('visible blocked');
+      expect(result.stdout).not.toContain('hidden blocked');
+    } finally {
+      chmodSync(unreadableDir, 0o700);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -234,6 +295,49 @@ describe('runLogsCommand', () => {
       expect(entries[0]?.command).toBe('cat .env');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test('escapes terminal control bytes in human output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-controls-'));
+    const logsDir = join(root, 'logs');
+    const command = 'printf \x1b]52;c;SGk=\x07 && rm \x1b[31m-rf\x1f/tmp';
+    const cwd = '/tmp/\x1bproject\x7f';
+
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeControlLogFixture(logsDir, command, cwd);
+
+      const result = await captureLogsCommand([], logsDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(hasTerminalControlBytes(result.stdout)).toBe(false);
+      expect(result.stdout).toContain(String.raw`printf \x1b]52;c;SGk=\x07`);
+      expect(result.stdout).toContain(String.raw`rm \x1b[31m-rf\x1f/tmp`);
+      expect(result.stdout).toContain(String.raw`[/tmp/\x1bproject\x7f]`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps raw terminal control bytes in JSON output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-json-controls-'));
+    const logsDir = join(root, 'logs');
+    const command = 'printf \x1b]52;c;SGk=\x07';
+    const cwd = '/tmp/\x1bproject';
+
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeControlLogFixture(logsDir, command, cwd);
+
+      const result = await captureLogsCommand(['--json'], logsDir);
+      const entries = JSON.parse(result.stdout) as AuditLogEntry[];
+
+      expect(result.exitCode).toBe(0);
+      expect(entries[0]?.command).toBe(command);
+      expect(entries[0]?.cwd).toBe(cwd);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

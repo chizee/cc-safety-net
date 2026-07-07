@@ -4,9 +4,12 @@ import type { AuditLogEntry } from '@/types';
 
 export function listAuditLogFiles(logsDir: string): string[] {
   try {
-    return readdirSync(logsDir, { recursive: true, encoding: 'utf8' })
-      .filter((file) => file.endsWith('.jsonl'))
-      .map((file) => join(logsDir, file));
+    return readdirSync(logsDir, { withFileTypes: true, encoding: 'utf8' }).flatMap((entry) => {
+      const filePath = join(logsDir, entry.name);
+      if (entry.isDirectory()) return listAuditLogFiles(filePath);
+      if (entry.name.endsWith('.jsonl')) return [filePath];
+      return [];
+    });
   } catch {
     return [];
   }

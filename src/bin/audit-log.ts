@@ -153,9 +153,19 @@ function matchesProject(cwd: string | null | undefined, project: string): boolea
 }
 
 function formatLogEntry(entry: AuditLogEntry): string {
-  const decision = entry.decision ?? 'deny';
-  const cwd = entry.cwd ? `  [${entry.cwd}]` : '';
-  return `${entry.ts.slice(0, 19)}Z  ${decision.padEnd(5)}  ${(entry.agent ?? '-').padEnd(15)}  ${(entry.ruleId ?? '-').padEnd(20)}  ${entry.command}${cwd}`;
+  const decision = renderTerminalText(entry.decision ?? 'deny');
+  const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : '';
+  return `${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(entry.command)}${cwd}`;
+}
+
+function renderTerminalText(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return `\\x${code.toString(16).padStart(2, '0')}`;
+    }
+    return character;
+  }).join('');
 }
 
 function parsePositiveNumber(value: string | undefined): number | null {
