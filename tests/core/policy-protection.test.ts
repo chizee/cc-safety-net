@@ -149,4 +149,14 @@ describe('policy config protection', () => {
       findPolicyConfigMutationTargetInToolInput('Write', { file_path: 'README.md' }, cwd),
     ).toBeNull();
   });
+
+  test('does not inherit secret-only path-like tool input keys', () => {
+    const policyPath = getUserPolicyPath();
+    expect(
+      findPolicyConfigMutationTargetInToolInput('Write', { glob: policyPath }, cwd),
+    ).toBeNull();
+    expect(
+      findPolicyConfigMutationTargetInToolInput('Write', { pattern: policyPath }, cwd),
+    ).toBeNull();
+  });
 });

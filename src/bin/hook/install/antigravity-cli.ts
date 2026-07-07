@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import type { InstallResult } from '@/bin/hook/install/types';
 
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
@@ -23,10 +24,6 @@ type AntigravityHookDefinition = {
 };
 
 type AntigravityHooksConfig = Record<string, AntigravityHookDefinition>;
-
-function getAntigravityHooksPath(homeDir: string) {
-  return join(homeDir, '.gemini', 'config', 'hooks.json');
-}
 
 function managedHookEntry(): AntigravityHookDefinition {
   return {

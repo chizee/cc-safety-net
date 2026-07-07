@@ -15,8 +15,16 @@ import {
   SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_VARIANT_SEPARATOR_RULES,
 } from '@/core/secret-protection-rules';
-import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import {
+  advanceQuoteScanState,
+  ENV_PROXY,
+  getCommandTokenText,
+  hasUnclosedQuotes,
+} from '@/core/shell/shared';
+import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
 import type { SecretProtectionConfig } from '@/types';
+
+export { getCommandFromToolInput } from '@/core/tool-input';
 
 export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
 
@@ -182,35 +190,7 @@ export function findSensitiveTargetInToolInput(
     if (commandTarget) return commandTarget;
   }
 
-  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd, config);
-}
-
-export function getCommandFromToolInput(input: unknown): string | undefined {
-  if (!input || typeof input !== 'object') {
-    return undefined;
-  }
-  const command = (input as Record<string, unknown>).command;
-  return typeof command === 'string' && command !== '' ? command : undefined;
-}
-
-function extractPathLikeToolValues(input: unknown): string[] {
-  if (!input || typeof input !== 'object') {
-    return [];
-  }
-
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPathLikeToolValues(value));
-  }
-
-  return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string' && PATH_LIKE_KEYS.has(normalizeToolInputKey(key))) {
-      return [value];
-    }
-    if (value && typeof value === 'object') {
-      return extractPathLikeToolValues(value);
-    }
-    return [];
-  });
+  return findSensitivePathTarget(extractPathLikeToolValues(input, PATH_LIKE_KEYS), cwd, config);
 }
 
 function extractCommandPathTargets(command: string): string[] {
@@ -579,7 +559,7 @@ function extractCommandSubstitutionBodies(command: string): string[] {
   for (let i = 0; i < command.length; i++) {
     const char = command[i];
     if (!char) break;
-    if (advanceQuoteState(char, quoteState)) continue;
+    if (advanceQuoteScanState(char, quoteState)) continue;
     if (startsCommandSubstitution(command, i, quoteState)) {
       const substitution = readCommandSubstitutionBody(command, i + 1);
       if (substitution !== null) {
@@ -608,7 +588,7 @@ function readCommandSubstitutionBody(
   for (let i = startIndex + 1; i < command.length; i++) {
     const char = command[i];
     if (!char) break;
-    if (advanceQuoteState(char, quoteState)) continue;
+    if (advanceQuoteScanState(char, quoteState)) continue;
     if (startsCommandSubstitution(command, i, quoteState)) {
       depth++;
       i++;
@@ -658,29 +638,6 @@ function startsCommandSubstitution(
     command[index + 1] === '(' &&
     command[index + 2] !== '('
   );
-}
-
-function advanceQuoteState(
-  char: string,
-  state: { inSingle: boolean; inDouble: boolean; escaped: boolean },
-): boolean {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-  if (char === '\\' && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-  if (char === "'" && !state.inDouble) {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-  if (char === '"' && !state.inSingle) {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-  return false;
 }
 
 function extractPatternCommandTargets(tokens: readonly string[]): string[] {
@@ -1146,10 +1103,6 @@ function basename(token: string): string {
       .pop()
       ?.replace(/\.exe$/i, '') ?? token
   );
-}
-
-function normalizeToolInputKey(key: string): string {
-  return key.replace(/-/g, '_').toLowerCase();
 }
 
 function isOperator(token: ParseEntry): boolean {

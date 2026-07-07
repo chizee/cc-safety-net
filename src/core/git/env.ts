@@ -60,25 +60,24 @@ export function parseGitContextAppendEnvAssignment(
 }
 
 export function hasGitSshEnvAssignment(envAssignments?: ReadonlyMap<string, string>): boolean {
-  if (!envAssignments) {
-    return false;
-  }
-  for (const key of envAssignments.keys()) {
-    if (GIT_SSH_ENV_NAMES.has(key)) {
-      return true;
-    }
-  }
-  return false;
+  return hasAnyEnvAssignment(envAssignments, GIT_SSH_ENV_NAMES);
 }
 
 export function hasConfigAffectingEnvAssignment(
   envAssignments?: ReadonlyMap<string, string>,
 ): boolean {
+  return hasAnyEnvAssignment(envAssignments, GIT_CONFIG_AFFECTING_ENV_NAMES);
+}
+
+function hasAnyEnvAssignment(
+  envAssignments: ReadonlyMap<string, string> | undefined,
+  names: ReadonlySet<string>,
+): boolean {
   if (!envAssignments) {
     return false;
   }
   for (const key of envAssignments.keys()) {
-    if (GIT_CONFIG_AFFECTING_ENV_NAMES.has(key)) {
+    if (names.has(key)) {
       return true;
     }
   }

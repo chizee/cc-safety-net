@@ -8,6 +8,11 @@ import {
 } from './paths';
 import type { RulesConfig, RulesLockfile, SyncRulesConfigResult } from './types';
 
+type RulebookMatchResult =
+  | { ok: true; specs: string[] }
+  | { ok: false; result: SyncRulesConfigResult };
+type ConfiguredGitHubSource = { owner: string; repo: string; ref: string };
+
 const GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
 const GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
 const GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
@@ -84,8 +89,8 @@ export function getSelectedUpdateSpecs(
   config: RulesConfig,
   lock: RulesLockfile | null,
   match: string,
-): { ok: true; specs: string[] } | { ok: false; result: SyncRulesConfigResult } {
-  const exactMatches = config.rules.filter((spec) => spec === match);
+): RulebookMatchResult {
+  const exactMatches = getExactSpecMatches(config.rules, match);
   if (exactMatches.length > 0) {
     return { ok: true, specs: exactMatches };
   }
@@ -116,8 +121,8 @@ export function getRemoveMatches(
   rules: string[],
   lock: RulesLockfile | null,
   match: string,
-): { ok: true; specs: string[] } | { ok: false; result: SyncRulesConfigResult } {
-  const exactMatches = rules.filter((spec) => spec === match);
+): RulebookMatchResult {
+  const exactMatches = getExactSpecMatches(rules, match);
   if (exactMatches.length > 0) return { ok: true, specs: exactMatches };
 
   const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
@@ -140,7 +145,7 @@ export function getRemoveMatches(
 function noRulebookMatch(
   match: string,
   nameMatches: string[],
-): { ok: false; result: SyncRulesConfigResult } {
+): Extract<RulebookMatchResult, { ok: false }> {
   return {
     ok: false,
     result: {
@@ -155,26 +160,27 @@ function noRulebookMatch(
   };
 }
 
+function getExactSpecMatches(rules: string[], match: string): string[] {
+  return rules.filter((spec) => spec === match);
+}
+
 function getGitHubRepositoryRefMatches(rules: string[], match: string): string[] {
   const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  if (!parsed?.[1] || !parsed[2] || !parsed[3]) return [];
-  return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source) return false;
-    return source.owner === parsed[1] && source.repo === parsed[2] && source.ref === parsed[3];
+  const owner = parsed?.[1];
+  const repo = parsed?.[2];
+  const ref = parsed?.[3];
+  if (!owner || !repo || !ref) return [];
+  return getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo && source.ref === ref;
   });
 }
 
-function getGitHubRepositoryMatches(
-  rules: string[],
-  match: string,
-): { ok: true; specs: string[] } | { ok: false; result: SyncRulesConfigResult } {
+function getGitHubRepositoryMatches(rules: string[], match: string): RulebookMatchResult {
   if (!isGitHubRepositorySource(match)) return { ok: true, specs: [] };
 
-  const specs = rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source) return false;
-    return source.owner === match.split('/')[0] && source.repo === match.split('/')[1];
+  const [owner, repo] = match.split('/');
+  const specs = getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo;
   });
   const refs = new Set(
     specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref): ref is string => !!ref),
@@ -195,12 +201,20 @@ function getGitHubRepositoryMatches(
   };
 }
 
-function getConfiguredGitHubSource(
-  spec: string,
-): { owner: string; repo: string; ref: string } | null {
+function getConfiguredGitHubSource(spec: string): ConfiguredGitHubSource | null {
   try {
     return parseGitHubSource(spec);
   } catch {
     return null;
   }
+}
+
+function getConfiguredGitHubSourceMatches(
+  rules: string[],
+  matches: (source: ConfiguredGitHubSource) => boolean,
+): string[] {
+  return rules.filter((spec) => {
+    const source = getConfiguredGitHubSource(spec);
+    return source ? matches(source) : false;
+  });
 }

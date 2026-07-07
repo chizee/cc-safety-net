@@ -1,6 +1,12 @@
 import { type ParseEntry, parse } from 'shell-quote';
 import { SHELL_OPERATORS } from '@/types';
-import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from './shared';
+import {
+  advanceQuoteScanState,
+  ENV_PROXY,
+  getCommandTokenText,
+  hasUnclosedQuotes,
+  type QuoteScanState,
+} from './shared';
 
 const ARITHMETIC_SENTINEL = '__CC_SAFETY_NET_ARITH_SENTINEL__';
 const BACKTICK_ATTACHED_SUFFIX_SENTINEL = '__CC_SAFETY_NET_BACKTICK_SUFFIX__';
@@ -133,12 +139,6 @@ export function splitShellCommandsWithInfo(command: string): ShellCommandSegment
   return segments;
 }
 
-interface QuoteScanState {
-  inSingle: boolean;
-  inDouble: boolean;
-  escaped: boolean;
-}
-
 function extractInlineCommandSubstitutions(token: string): string[][] {
   const segments: string[][] = [];
   let i = 0;
@@ -150,7 +150,7 @@ function extractInlineCommandSubstitutions(token: string): string[][] {
       break;
     }
 
-    if (advanceQuotedScanState(char, quoteState)) {
+    if (advanceQuoteScanState(char, quoteState)) {
       i++;
       continue;
     }
@@ -825,7 +825,7 @@ function _findInlineCommandSubstitutionEnd(token: string, startIndex: number): n
       break;
     }
 
-    if (advanceQuotedScanState(char, quoteState)) {
+    if (advanceQuoteScanState(char, quoteState)) {
       continue;
     }
 
@@ -842,30 +842,6 @@ function _findInlineCommandSubstitutionEnd(token: string, startIndex: number): n
   }
 
   return -1;
-}
-
-function advanceQuotedScanState(char: string, state: QuoteScanState): boolean {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-
-  if (char === '\\' && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-
-  if (!state.inDouble && char === "'") {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-
-  if (!state.inSingle && char === '"') {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-
-  return false;
 }
 
 function _findBacktickEnd(command: string, startIndex: number): number {

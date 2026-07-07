@@ -12,6 +12,7 @@ import type {
   SelfTestResult,
   SelfTestSummary,
 } from '@/bin/doctor/types';
+import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import { doctorIntegrationOrder } from '@/bin/integration-metadata';
 import { analyzeCommand } from '@/core/analyze';
 import type { LoadConfigOptions } from '@/core/config';
@@ -389,10 +390,6 @@ function _getKimiConfigPath(homeDir: string): string {
   return join(process.env.KIMI_CODE_HOME || join(homeDir, '.kimi-code'), 'config.toml');
 }
 
-function _getAntigravityHooksPath(homeDir: string): string {
-  return join(homeDir, '.gemini', 'config', 'hooks.json');
-}
-
 function _findAntigravitySafetyNetHooks(
   config: unknown,
 ): Array<{ enabled: boolean; command: string }> {
@@ -423,7 +420,7 @@ function _findAntigravitySafetyNetHooks(
 }
 
 function detectAntigravityCli(homeDir: string): HookStatus {
-  const configPath = _getAntigravityHooksPath(homeDir);
+  const configPath = getAntigravityHooksPath(homeDir);
 
   if (!existsSync(configPath)) {
     return { platform: 'antigravity-cli', status: 'n/a', configPath };

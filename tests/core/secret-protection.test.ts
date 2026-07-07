@@ -509,6 +509,8 @@ describe('secret protection generic tool input extraction', () => {
 
     expect(findSensitiveTargetInToolInput({ command: 'cat .env' }, cwd)).not.toBeNull();
     expect(findSensitiveTargetInToolInput({ nested: [{ file_path: '.env' }] }, cwd)).not.toBeNull();
+    expect(findSensitiveTargetInToolInput({ nested: [{ pattern: '.env' }] }, cwd)).not.toBeNull();
+    expect(findSensitiveTargetInToolInput({ nested: [{ glob: '.npmrc' }] }, cwd)).not.toBeNull();
     expect(findSensitiveTargetInToolInput({ nested: { path: 'README.md' } }, cwd)).toBeNull();
   });
 

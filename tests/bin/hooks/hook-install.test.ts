@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import { runCli } from './hook-helpers';
 
 const KIMI_HOOK_BLOCK = `[[hooks]]
@@ -25,12 +26,8 @@ function writeKimiConfig(homeDir: string, content: string) {
   return configPath;
 }
 
-function getAntigravityConfigPath(homeDir: string) {
-  return join(homeDir, '.gemini', 'config', 'hooks.json');
-}
-
 function writeAntigravityConfig(homeDir: string, config: unknown) {
-  const configPath = getAntigravityConfigPath(homeDir);
+  const configPath = getAntigravityHooksPath(homeDir);
   mkdirSync(join(configPath, '..'), { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2));
   return configPath;
@@ -205,7 +202,7 @@ describe('install command', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Choose exactly one install target:');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
-      expect(existsSync(getAntigravityConfigPath(homeDir))).toBe(false);
+      expect(existsSync(getAntigravityHooksPath(homeDir))).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -338,7 +335,7 @@ exit 42
 
     try {
       const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
-      const configPath = getAntigravityConfigPath(homeDir);
+      const configPath = getAntigravityHooksPath(homeDir);
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
 
       expect(result.exitCode).toBe(0);
@@ -426,7 +423,7 @@ exit 42
 
   test('Antigravity CLI: rejects malformed hooks.json without rewriting', async () => {
     const homeDir = makeTempHome('safety-net-antigravity-install');
-    const configPath = getAntigravityConfigPath(homeDir);
+    const configPath = getAntigravityHooksPath(homeDir);
     mkdirSync(join(configPath, '..'), { recursive: true });
     writeFileSync(configPath, '{ invalid json');
 

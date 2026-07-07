@@ -1043,30 +1043,35 @@ var DANGEROUS_PATTERNS = [
 var ENV_PROXY = new Proxy({}, {
   get: (_, name) => `$${String(name)}`
 });
+function advanceQuoteScanState(char, state) {
+  if (state.escaped) {
+    state.escaped = false;
+    return true;
+  }
+  if (char === "\\" && !state.inSingle) {
+    state.escaped = true;
+    return true;
+  }
+  if (char === "'" && !state.inDouble) {
+    state.inSingle = !state.inSingle;
+    return true;
+  }
+  if (char === '"' && !state.inSingle) {
+    state.inDouble = !state.inDouble;
+    return true;
+  }
+  return false;
+}
 function hasUnclosedQuotes(command) {
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
+  const state = { inSingle: false, inDouble: false, escaped: false };
   for (let i = 0;i < command.length; i++) {
     const char = command[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "#" && !inSingle && !inDouble && startsShellComment(command, i)) {
+    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
       break;
     }
-    if (char === "\\" && !inSingle) {
-      escaped = true;
-      continue;
-    }
-    if (char === "'" && !inDouble) {
-      inSingle = !inSingle;
-    } else if (char === '"' && !inSingle) {
-      inDouble = !inDouble;
-    }
+    advanceQuoteScanState(char ?? "", state);
   }
-  return inSingle || inDouble;
+  return state.inSingle || state.inDouble;
 }
 function startsShellComment(command, index) {
   return index === 0 || /\s/.test(command[index - 1] ?? "");
@@ -1202,7 +1207,7 @@ function extractInlineCommandSubstitutions(token) {
     if (!char) {
       break;
     }
-    if (advanceQuotedScanState(char, quoteState)) {
+    if (advanceQuoteScanState(char, quoteState)) {
       i++;
       continue;
     }
@@ -1715,7 +1720,7 @@ function _findInlineCommandSubstitutionEnd(token, startIndex) {
     if (!char) {
       break;
     }
-    if (advanceQuotedScanState(char, quoteState)) {
+    if (advanceQuoteScanState(char, quoteState)) {
       continue;
     }
     if (!quoteState.inSingle && !quoteState.inDouble) {
@@ -1730,25 +1735,6 @@ function _findInlineCommandSubstitutionEnd(token, startIndex) {
     }
   }
   return -1;
-}
-function advanceQuotedScanState(char, state) {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-  if (char === "\\" && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-  if (!state.inDouble && char === "'") {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-  if (!state.inSingle && char === '"') {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-  return false;
 }
 function _findBacktickEnd(command, startIndex) {
   let escaped = false;
@@ -1874,22 +1860,17 @@ function parseGitContextAppendEnvAssignment(token) {
   return { name, value: token.slice(eqIdx + 1) };
 }
 function hasGitSshEnvAssignment(envAssignments) {
-  if (!envAssignments) {
-    return false;
-  }
-  for (const key of envAssignments.keys()) {
-    if (GIT_SSH_ENV_NAMES.has(key)) {
-      return true;
-    }
-  }
-  return false;
+  return hasAnyEnvAssignment(envAssignments, GIT_SSH_ENV_NAMES);
 }
 function hasConfigAffectingEnvAssignment(envAssignments) {
+  return hasAnyEnvAssignment(envAssignments, GIT_CONFIG_AFFECTING_ENV_NAMES);
+}
+function hasAnyEnvAssignment(envAssignments, names) {
   if (!envAssignments) {
     return false;
   }
   for (const key of envAssignments.keys()) {
-    if (GIT_CONFIG_AFFECTING_ENV_NAMES.has(key)) {
+    if (names.has(key)) {
       return true;
     }
   }
@@ -2882,33 +2863,33 @@ function isLinkedWorktree(cwd) {
   }
 }
 function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
-  const backlinkPath = join(gitDir, "gitdir");
-  if (!existsSync(backlinkPath)) {
-    return false;
-  }
-  const rawBacklink = readFileSync(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-  if (rawBacklink === "") {
-    return false;
-  }
-  const linkedDotGitPath = isAbsolute3(rawBacklink) ? rawBacklink : resolve2(gitDir, rawBacklink);
-  try {
-    return sameFilesystemPath(linkedDotGitPath, dotGitPath);
-  } catch {
-    return false;
-  }
+  const rawBacklink = readWorktreeGitdirBacklink(gitDir);
+  return rawBacklink === null ? false : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
 }
 function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
+  const configuredWorktree = readWorktreeConfigWorktree(gitDir);
+  return configuredWorktree === null ? true : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
+}
+function readWorktreeGitdirBacklink(gitDir) {
+  const backlinkPath = join(gitDir, "gitdir");
+  if (!existsSync(backlinkPath))
+    return null;
+  const rawBacklink = readFileSync(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return rawBacklink === "" ? null : rawBacklink;
+}
+function readWorktreeConfigWorktree(gitDir) {
   const configWorktreePath = join(gitDir, "config.worktree");
-  if (!existsSync(configWorktreePath)) {
-    return true;
-  }
-  const configuredWorktree = readCoreWorktree(configWorktreePath);
-  if (configuredWorktree === null) {
-    return true;
-  }
-  const resolvedConfiguredWorktree = isAbsolute3(configuredWorktree) ? configuredWorktree : resolve2(gitDir, configuredWorktree);
+  return existsSync(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
+}
+function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
+  return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
+}
+function resolveGitDirPath(gitDir, target) {
+  return isAbsolute3(target) ? target : resolve2(gitDir, target);
+}
+function sameFilesystemPathOrFalse(left, right) {
   try {
-    return sameFilesystemPath(resolvedConfiguredWorktree, worktreeRoot);
+    return sameFilesystemPath(left, right);
   } catch {
     return false;
   }
@@ -5670,7 +5651,7 @@ function assertBareRulebookName(source) {
   }
 }
 function getSelectedUpdateSpecs(config, lock, match) {
-  const exactMatches = config.rules.filter((spec) => spec === match);
+  const exactMatches = getExactSpecMatches(config.rules, match);
   if (exactMatches.length > 0) {
     return { ok: true, specs: exactMatches };
   }
@@ -5695,7 +5676,7 @@ function getSelectedUpdateSpecs(config, lock, match) {
   return noRulebookMatch(match, nameMatches);
 }
 function getRemoveMatches(rules, lock, match) {
-  const exactMatches = rules.filter((spec) => spec === match);
+  const exactMatches = getExactSpecMatches(rules, match);
   if (exactMatches.length > 0)
     return { ok: true, specs: exactMatches };
   const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
@@ -5723,25 +5704,26 @@ function noRulebookMatch(match, nameMatches) {
     }
   };
 }
+function getExactSpecMatches(rules, match) {
+  return rules.filter((spec) => spec === match);
+}
 function getGitHubRepositoryRefMatches(rules, match) {
   const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  if (!parsed?.[1] || !parsed[2] || !parsed[3])
+  const owner = parsed?.[1];
+  const repo = parsed?.[2];
+  const ref = parsed?.[3];
+  if (!owner || !repo || !ref)
     return [];
-  return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === parsed[1] && source.repo === parsed[2] && source.ref === parsed[3];
+  return getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo && source.ref === ref;
   });
 }
 function getGitHubRepositoryMatches(rules, match) {
   if (!isGitHubRepositorySource(match))
     return { ok: true, specs: [] };
-  const specs = rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === match.split("/")[0] && source.repo === match.split("/")[1];
+  const [owner, repo] = match.split("/");
+  const specs = getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo;
   });
   const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
   if (refs.size < 2)
@@ -5765,6 +5747,12 @@ function getConfiguredGitHubSource(spec) {
   } catch {
     return null;
   }
+}
+function getConfiguredGitHubSourceMatches(rules, matches) {
+  return rules.filter((spec) => {
+    const source = getConfiguredGitHubSource(spec);
+    return source ? matches(source) : false;
+  });
 }
 
 // src/core/rules/policy/types.ts
@@ -7792,12 +7780,264 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute11, normalize as normalize4, resolve as resolve10 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { isAbsolute as isAbsolute10, normalize as normalize4, resolve as resolve9 } from "node:path";
+
+// src/core/tool-input.ts
+function getCommandFromToolInput(input) {
+  if (!input || typeof input !== "object")
+    return;
+  const command2 = input.command;
+  return typeof command2 === "string" && command2 !== "" ? command2 : undefined;
+}
+function extractPathLikeToolValues(input, pathLikeKeys) {
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)))
+      return [value];
+    if (value && typeof value === "object")
+      return extractPathLikeToolValues(value, pathLikeKeys);
+    return [];
+  });
+}
+function normalizeToolInputKey(key) {
+  return key.replace(/-/g, "_").toLowerCase();
+}
+
+// src/core/policy-protection.ts
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
+var READ_ONLY_TOOLS = new Set([
+  "find_by_name",
+  "glob",
+  "grep",
+  "grep_search",
+  "list_dir",
+  "list_permissions",
+  "ls",
+  "read",
+  "read_url_content",
+  "readfile",
+  "read_file",
+  "search_web",
+  "view_file"
+]);
+var PATH_LIKE_KEYS = new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
+  "file",
+  "file_path",
+  "filepath",
+  "path",
+  "searchdirectory",
+  "search_directory",
+  "targetfile",
+  "target_file"
+]);
+var READ_ONLY_COMMANDS = new Set([
+  "cat",
+  "file",
+  "grep",
+  "head",
+  "less",
+  "ls",
+  "more",
+  "rg",
+  "sed",
+  "stat",
+  "tail",
+  "wc"
+]);
+var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
+var WRITE_REDIRECTS = new Set([">", ">>", "<>", ">&", "&>", "&>>"]);
+var SCRIPT_ARGUMENT_OPTIONS = new Map([
+  ["bash", new Set(["-c"])],
+  ["sh", new Set(["-c"])],
+  ["python", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["node", new Set(["-e", "--eval"])],
+  ["perl", new Set(["-e"])]
+]);
+function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
+  const command2 = getCommandFromToolInput(input);
+  if (command2)
+    return findPolicyConfigMutationTargetInCommand(command2, cwd);
+  const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) => isPolicyConfigPath(value, cwd));
+  if (!target)
+    return null;
+  return isReadOnlyTool(toolName) ? null : { target };
+}
+function findPolicyConfigMutationTargetInCommand(command2, cwd) {
+  if (hasUnclosedQuotes(command2)) {
+    return findPolicyConfigTargetInText(command2, cwd);
+  }
+  let tokens;
+  try {
+    tokens = $parse(command2.replace(/\n/g, " ; "), {});
+  } catch {
+    return findPolicyConfigTargetInText(command2, cwd);
+  }
+  const redirectTarget = findWriteRedirectTarget(tokens, cwd);
+  if (redirectTarget)
+    return redirectTarget;
+  let segment = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (isOperator2(token)) {
+      const target = findUnsafePolicyConfigSegmentTarget(segment, cwd);
+      if (target)
+        return target;
+      segment = [];
+      continue;
+    }
+    if (isRedirectOp(token)) {
+      i++;
+      continue;
+    }
+    const tokenText = getCommandTokenText(token);
+    if (tokenText !== null)
+      segment.push(tokenText);
+  }
+  return findUnsafePolicyConfigSegmentTarget(segment, cwd);
+}
+function findWriteRedirectTarget(tokens, cwd) {
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!isRedirectOp(token) || !WRITE_REDIRECTS.has(token.op))
+      continue;
+    const target = getCommandTokenText(tokens[i + 1]);
+    if (target && isPolicyConfigPath(target, cwd))
+      return { target };
+  }
+  return null;
+}
+function findUnsafePolicyConfigSegmentTarget(segment, cwd) {
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
+  if (scriptTarget)
+    return scriptTarget;
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
+  if (sedWriteTarget)
+    return sedWriteTarget;
+  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token)).find((token) => isPolicyConfigPath(token, cwd));
+  if (!target)
+    return null;
+  return isReadOnlySegment(segment) ? null : { target };
+}
+function findScriptArgumentPolicyConfigTarget(segment, cwd) {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (stripped.length < 3)
+    return null;
+  const options2 = SCRIPT_ARGUMENT_OPTIONS.get(getBasename(stripped[0] ?? "").toLowerCase());
+  if (!options2)
+    return null;
+  const optionIndex = stripped.findIndex((token) => options2.has(token));
+  if (optionIndex === -1)
+    return null;
+  const script = stripped[optionIndex + 1];
+  if (!script)
+    return null;
+  if (getBasename(stripped[0] ?? "").match(/^(?:ba|z)?sh$/)) {
+    return findPolicyConfigMutationTargetInCommand(script, cwd);
+  }
+  const target = extractPolicyConfigPathCandidates(script).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+function findSedScriptWritePolicyConfigTarget(segment, cwd) {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
+    return null;
+  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+function extractSedScriptArguments(tokens) {
+  const scripts = [];
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined)
+      break;
+    if (token === "-e" || token === "--expression") {
+      const script = tokens[i + 1];
+      if (script !== undefined)
+        scripts.push(script);
+      i++;
+      continue;
+    }
+    const expression = /^--expression=(.*)$/.exec(token);
+    if (expression?.[1]) {
+      scripts.push(expression[1]);
+      continue;
+    }
+    if (token === "-f" || token === "--file") {
+      i++;
+      continue;
+    }
+    if (token.startsWith("-f") || token.startsWith("--file="))
+      continue;
+    if (token.startsWith("-"))
+      continue;
+    scripts.push(token);
+    break;
+  }
+  return scripts;
+}
+function extractSedWritePathCandidates(script) {
+  return Array.from(script.matchAll(/(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g)).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ""));
+}
+function isReadOnlySegment(tokens) {
+  const stripped = stripEnvAssignments(stripWrappers([...tokens]));
+  if (stripped.length === 0)
+    return false;
+  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
+  if (!READ_ONLY_COMMANDS.has(command2))
+    return false;
+  if (command2 !== "sed")
+    return true;
+  return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
+}
+function stripEnvAssignments(tokens) {
+  const firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+  return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
+}
+function isReadOnlyTool(toolName) {
+  return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+}
+function isPolicyConfigPath(target, cwd) {
+  const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
+  return normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase();
+}
+function findPolicyConfigTargetInText(text, cwd) {
+  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  return target ? { target } : null;
+}
+function extractPolicyConfigPathCandidates(text) {
+  return text.split(/[^A-Za-z0-9_./\\~:-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
+}
+function normalizeCandidatePath(target, cwd) {
+  const unix = target.trim().replace(/\\/g, "/");
+  if (!unix)
+    return "";
+  const expanded = unix === "~" ? homedir4() : unix.startsWith("~/") ? resolve9(homedir4(), unix.slice(2)) : unix;
+  return normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)).replace(/\\/g, "/");
+}
+function isOperator2(token) {
+  const op = getParseOp(token);
+  return op !== null && SHELL_OPERATORS2.has(op);
+}
+function isRedirectOp(token) {
+  const op = getParseOp(token);
+  return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
+}
+function getParseOp(token) {
+  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
+}
 
 // src/core/secret-protection.ts
-import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute10, resolve as resolve9 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute11, resolve as resolve10 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
@@ -7864,7 +8104,7 @@ var PATTERN_ARG_LONG = new Set([
   "context",
   "max-count"
 ]);
-var PATH_LIKE_KEYS = new Set([
+var PATH_LIKE_KEYS2 = new Set([
   "absolutepath",
   "directorypath",
   "directory_path",
@@ -7880,7 +8120,7 @@ var PATH_LIKE_KEYS = new Set([
   "targetfile",
   "target_file"
 ]);
-var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
+var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var PIPE_OPERATORS = new Set(["|", "|&"]);
 var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
@@ -7905,31 +8145,7 @@ function findSensitiveTargetInToolInput(input, cwd = process.cwd(), config) {
     if (commandTarget)
       return commandTarget;
   }
-  return findSensitivePathTarget(extractPathLikeToolValues(input), cwd, config);
-}
-function getCommandFromToolInput(input) {
-  if (!input || typeof input !== "object") {
-    return;
-  }
-  const command2 = input.command;
-  return typeof command2 === "string" && command2 !== "" ? command2 : undefined;
-}
-function extractPathLikeToolValues(input) {
-  if (!input || typeof input !== "object") {
-    return [];
-  }
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPathLikeToolValues(value));
-  }
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATH_LIKE_KEYS.has(normalizeToolInputKey(key))) {
-      return [value];
-    }
-    if (value && typeof value === "object") {
-      return extractPathLikeToolValues(value);
-    }
-    return [];
-  });
+  return findSensitivePathTarget(extractPathLikeToolValues(input, PATH_LIKE_KEYS2), cwd, config);
 }
 function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
@@ -7941,7 +8157,7 @@ function extractCommandPathTargets(command2) {
   let pipeProducer = null;
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
-    if (isOperator2(token)) {
+    if (isOperator3(token)) {
       if (segment.length > 0) {
         targets.push(...extractSegmentPathTargets(segment));
         if (pipeProducer !== null) {
@@ -7954,7 +8170,7 @@ function extractCommandPathTargets(command2) {
       }
       continue;
     }
-    if (isRedirectOp(token)) {
+    if (isRedirectOp2(token)) {
       const target = getCommandTokenText(tokens[i + 1]);
       if (target)
         targets.push(target);
@@ -8175,7 +8391,7 @@ function commandSubstitutionDecodesBase64(command2) {
       continue;
     }
     for (let j = i + 1;j < tokens.length; j++) {
-      if (isOperator2(tokens[j]))
+      if (isOperator3(tokens[j]))
         break;
       const flag = getCommandTokenText(tokens[j]);
       if (flag && isBase64DecodeFlag(flag))
@@ -8226,7 +8442,7 @@ function extractCommandSubstitutionBodies(command2) {
     const char = command2[i];
     if (!char)
       break;
-    if (advanceQuoteState(char, quoteState))
+    if (advanceQuoteScanState(char, quoteState))
       continue;
     if (startsCommandSubstitution(command2, i, quoteState)) {
       const substitution = readCommandSubstitutionBody(command2, i + 1);
@@ -8253,7 +8469,7 @@ function readCommandSubstitutionBody(command2, startIndex) {
     const char = command2[i];
     if (!char)
       break;
-    if (advanceQuoteState(char, quoteState))
+    if (advanceQuoteScanState(char, quoteState))
       continue;
     if (startsCommandSubstitution(command2, i, quoteState)) {
       depth++;
@@ -8291,25 +8507,6 @@ function readBacktickCommandSubstitutionBody(command2, startIndex) {
 }
 function startsCommandSubstitution(command2, index, state) {
   return !state.inSingle && command2[index] === "$" && command2[index + 1] === "(" && command2[index + 2] !== "(";
-}
-function advanceQuoteState(char, state) {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-  if (char === "\\" && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-  if (char === "'" && !state.inDouble) {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-  if (char === '"' && !state.inSingle) {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-  return false;
 }
 function extractPatternCommandTargets(tokens) {
   const optionFileTargets = [];
@@ -8418,7 +8615,7 @@ var SKIPPABLE_PATH_SEGMENT_PAIRS = [
   ["vendor", "cache"]
 ];
 function isSensitivePath(target, cwd, config) {
-  const normalized = normalizeCandidatePath(target, cwd);
+  const normalized = normalizeCandidatePath2(target, cwd);
   if (!normalized) {
     return null;
   }
@@ -8544,7 +8741,7 @@ function matchesPiPath(normalized, cwd) {
   return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd), ["auth.json"]);
 }
 function codingCliRoot(envValue, fallback, cwd) {
-  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd);
+  return normalizeCandidatePath2(envValue?.trim() ? envValue : fallback, cwd);
 }
 function matchesFileInRoot(normalized, root, files) {
   return files.some((file) => sameComparablePath(normalized, appendPath(root, file)));
@@ -8553,7 +8750,7 @@ function matchesDirInRoot(normalized, root, dirs) {
   return dirs.some((dir) => isSameOrChildPath(comparable(normalized), comparable(appendPath(root, dir))));
 }
 function matchesExactPath(normalized, path, cwd) {
-  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd));
+  return sameComparablePath(normalized, normalizeCandidatePath2(path, cwd));
 }
 function matchesOptionalExactPath(normalized, path, cwd) {
   return path?.trim() ? matchesExactPath(normalized, path, cwd) : false;
@@ -8576,8 +8773,8 @@ function isDeniedByPolicy(target, cwd, config) {
 function matchesPolicyPath(target, cwd, paths) {
   if (paths.length === 0)
     return false;
-  const normalized = comparable(normalizeCandidatePath(target, cwd));
-  return paths.some((path) => comparable(normalizeCandidatePath(path, cwd)) === normalized);
+  const normalized = comparable(normalizeCandidatePath2(target, cwd));
+  return paths.some((path) => comparable(normalizeCandidatePath2(path, cwd)) === normalized);
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
   const parts = comparablePath.split("/");
@@ -8610,16 +8807,16 @@ function comparable(value) {
 function isSecretRuleEnabled(id, config) {
   return !config?.disabledRules?.has(id);
 }
-function normalizeCandidatePath(target, cwd) {
+function normalizeCandidatePath2(target, cwd) {
   const normalized = normalizePathText(target);
   if (!normalized || normalized === "~" || normalized.startsWith("~/")) {
     return normalized;
   }
-  const home = normalizePathText(process.env.HOME ?? homedir4());
+  const home = normalizePathText(process.env.HOME ?? homedir5());
   if (!home) {
     return normalized;
   }
-  const absolute = isAbsolute10(normalized) ? normalized : normalizePathText(resolve9(cwd, normalized));
+  const absolute = isAbsolute11(normalized) ? normalized : normalizePathText(resolve10(cwd, normalized));
   if (!isSameOrChildPath(absolute, home)) {
     return normalized;
   }
@@ -8639,261 +8836,14 @@ function isSameOrChildPath(path, parent) {
 function basename(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
-function normalizeToolInputKey(key) {
-  return key.replace(/-/g, "_").toLowerCase();
-}
-function isOperator2(token) {
-  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS2.has(token.op);
+function isOperator3(token) {
+  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS3.has(token.op);
 }
 function isPipeOperator(token) {
   return typeof token === "object" && token !== null && "op" in token && PIPE_OPERATORS.has(token.op);
 }
-function isRedirectOp(token) {
-  return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
-}
-
-// src/core/policy-protection.ts
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
-var READ_ONLY_TOOLS = new Set([
-  "find_by_name",
-  "glob",
-  "grep",
-  "grep_search",
-  "list_dir",
-  "list_permissions",
-  "ls",
-  "read",
-  "read_url_content",
-  "readfile",
-  "read_file",
-  "search_web",
-  "view_file"
-]);
-var PATH_LIKE_KEYS2 = new Set([
-  "absolutepath",
-  "directorypath",
-  "directory_path",
-  "file",
-  "file_path",
-  "filepath",
-  "path",
-  "searchdirectory",
-  "search_directory",
-  "targetfile",
-  "target_file"
-]);
-var READ_ONLY_COMMANDS = new Set([
-  "cat",
-  "file",
-  "grep",
-  "head",
-  "less",
-  "ls",
-  "more",
-  "rg",
-  "sed",
-  "stat",
-  "tail",
-  "wc"
-]);
-var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-var WRITE_REDIRECTS = new Set([">", ">>", "<>", ">&", "&>", "&>>"]);
-var SCRIPT_ARGUMENT_OPTIONS = new Map([
-  ["bash", new Set(["-c"])],
-  ["sh", new Set(["-c"])],
-  ["python", new Set(["-c"])],
-  ["python3", new Set(["-c"])],
-  ["node", new Set(["-e", "--eval"])],
-  ["perl", new Set(["-e"])]
-]);
-function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
-  const command2 = getCommandFromToolInput(input);
-  if (command2)
-    return findPolicyConfigMutationTargetInCommand(command2, cwd);
-  const target = extractPathLikeToolValues2(input).find((value) => isPolicyConfigPath(value, cwd));
-  if (!target)
-    return null;
-  return isReadOnlyTool(toolName) ? null : { target };
-}
-function findPolicyConfigMutationTargetInCommand(command2, cwd) {
-  if (hasUnclosedQuotes(command2)) {
-    return findPolicyConfigTargetInText(command2, cwd);
-  }
-  let tokens;
-  try {
-    tokens = $parse(command2.replace(/\n/g, " ; "), {});
-  } catch {
-    return findPolicyConfigTargetInText(command2, cwd);
-  }
-  const redirectTarget = findWriteRedirectTarget(tokens, cwd);
-  if (redirectTarget)
-    return redirectTarget;
-  let segment = [];
-  for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (isOperator3(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, cwd);
-      if (target)
-        return target;
-      segment = [];
-      continue;
-    }
-    if (isRedirectOp2(token)) {
-      i++;
-      continue;
-    }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null)
-      segment.push(tokenText);
-  }
-  return findUnsafePolicyConfigSegmentTarget(segment, cwd);
-}
-function findWriteRedirectTarget(tokens, cwd) {
-  for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!isRedirectOp2(token) || !WRITE_REDIRECTS.has(token.op))
-      continue;
-    const target = getCommandTokenText(tokens[i + 1]);
-    if (target && isPolicyConfigPath(target, cwd))
-      return { target };
-  }
-  return null;
-}
-function findUnsafePolicyConfigSegmentTarget(segment, cwd) {
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
-  if (scriptTarget)
-    return scriptTarget;
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
-  if (sedWriteTarget)
-    return sedWriteTarget;
-  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token)).find((token) => isPolicyConfigPath(token, cwd));
-  if (!target)
-    return null;
-  return isReadOnlySegment(segment) ? null : { target };
-}
-function findScriptArgumentPolicyConfigTarget(segment, cwd) {
-  const stripped = stripEnvAssignments(stripWrappers([...segment]));
-  if (stripped.length < 3)
-    return null;
-  const options2 = SCRIPT_ARGUMENT_OPTIONS.get(getBasename(stripped[0] ?? "").toLowerCase());
-  if (!options2)
-    return null;
-  const optionIndex = stripped.findIndex((token) => options2.has(token));
-  if (optionIndex === -1)
-    return null;
-  const script = stripped[optionIndex + 1];
-  if (!script)
-    return null;
-  if (getBasename(stripped[0] ?? "").match(/^(?:ba|z)?sh$/)) {
-    return findPolicyConfigMutationTargetInCommand(script, cwd);
-  }
-  const target = extractPolicyConfigPathCandidates(script).find((candidate) => isPolicyConfigPath(candidate, cwd));
-  return target ? { target } : null;
-}
-function findSedScriptWritePolicyConfigTarget(segment, cwd) {
-  const stripped = stripEnvAssignments(stripWrappers([...segment]));
-  if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
-    return null;
-  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).find((candidate) => isPolicyConfigPath(candidate, cwd));
-  return target ? { target } : null;
-}
-function extractSedScriptArguments(tokens) {
-  const scripts = [];
-  for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === undefined)
-      break;
-    if (token === "-e" || token === "--expression") {
-      const script = tokens[i + 1];
-      if (script !== undefined)
-        scripts.push(script);
-      i++;
-      continue;
-    }
-    const expression = /^--expression=(.*)$/.exec(token);
-    if (expression?.[1]) {
-      scripts.push(expression[1]);
-      continue;
-    }
-    if (token === "-f" || token === "--file") {
-      i++;
-      continue;
-    }
-    if (token.startsWith("-f") || token.startsWith("--file="))
-      continue;
-    if (token.startsWith("-"))
-      continue;
-    scripts.push(token);
-    break;
-  }
-  return scripts;
-}
-function extractSedWritePathCandidates(script) {
-  return Array.from(script.matchAll(/(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g)).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ""));
-}
-function isReadOnlySegment(tokens) {
-  const stripped = stripEnvAssignments(stripWrappers([...tokens]));
-  if (stripped.length === 0)
-    return false;
-  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
-  if (!READ_ONLY_COMMANDS.has(command2))
-    return false;
-  if (command2 !== "sed")
-    return true;
-  return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
-}
-function stripEnvAssignments(tokens) {
-  const firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
-  return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
-}
-function extractPathLikeToolValues2(input) {
-  if (!input || typeof input !== "object")
-    return [];
-  if (Array.isArray(input))
-    return input.flatMap((value) => extractPathLikeToolValues2(value));
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATH_LIKE_KEYS2.has(normalizeToolInputKey2(key))) {
-      return [value];
-    }
-    if (value && typeof value === "object")
-      return extractPathLikeToolValues2(value);
-    return [];
-  });
-}
-function isReadOnlyTool(toolName) {
-  return READ_ONLY_TOOLS.has(toolName.toLowerCase());
-}
-function normalizeToolInputKey2(key) {
-  return key.replace(/-/g, "_").toLowerCase();
-}
-function isPolicyConfigPath(target, cwd) {
-  const normalized = normalizeCandidatePath2(target, cwd).toLowerCase();
-  return normalized === normalizeCandidatePath2(getUserPolicyPath(), cwd).toLowerCase();
-}
-function findPolicyConfigTargetInText(text, cwd) {
-  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
-  return target ? { target } : null;
-}
-function extractPolicyConfigPathCandidates(text) {
-  return text.split(/[^A-Za-z0-9_./\\~:-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
-}
-function normalizeCandidatePath2(target, cwd) {
-  const unix = target.trim().replace(/\\/g, "/");
-  if (!unix)
-    return "";
-  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
-  return normalize4(isAbsolute11(expanded) ? expanded : resolve10(cwd, expanded)).replace(/\\/g, "/");
-}
-function isOperator3(token) {
-  const op = getParseOp(token);
-  return op !== null && SHELL_OPERATORS3.has(op);
-}
 function isRedirectOp2(token) {
-  const op = getParseOp(token);
-  return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
-}
-function getParseOp(token) {
-  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
+  return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
 }
 
 // src/pi/tool-call.ts

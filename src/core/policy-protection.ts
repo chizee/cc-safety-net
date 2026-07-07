@@ -4,7 +4,7 @@ import { type ParseEntry, parse } from 'shell-quote';
 import { getUserPolicyPath } from '@/core/policy';
 import { getBasename, stripWrappers } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
-import { getCommandFromToolInput } from './secret-protection';
+import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'Policy config is protected and you must not modify it.';
@@ -74,7 +74,9 @@ export function findPolicyConfigMutationTargetInToolInput(
   const command = getCommandFromToolInput(input);
   if (command) return findPolicyConfigMutationTargetInCommand(command, cwd);
 
-  const target = extractPathLikeToolValues(input).find((value) => isPolicyConfigPath(value, cwd));
+  const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) =>
+    isPolicyConfigPath(value, cwd),
+  );
   if (!target) return null;
   return isReadOnlyTool(toolName) ? null : { target };
 }
@@ -245,25 +247,8 @@ function stripEnvAssignments(tokens: readonly string[]): string[] {
   return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
 }
 
-function extractPathLikeToolValues(input: unknown): string[] {
-  if (!input || typeof input !== 'object') return [];
-  if (Array.isArray(input)) return input.flatMap((value) => extractPathLikeToolValues(value));
-
-  return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string' && PATH_LIKE_KEYS.has(normalizeToolInputKey(key))) {
-      return [value];
-    }
-    if (value && typeof value === 'object') return extractPathLikeToolValues(value);
-    return [];
-  });
-}
-
 function isReadOnlyTool(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
-}
-
-function normalizeToolInputKey(key: string): string {
-  return key.replace(/-/g, '_').toLowerCase();
 }
 
 function isPolicyConfigPath(target: string, cwd: string): boolean {

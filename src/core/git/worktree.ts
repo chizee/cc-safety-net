@@ -147,42 +147,41 @@ export function isLinkedWorktree(cwd: string): boolean {
 }
 
 function worktreeGitdirBacklinkMatches(gitDir: string, dotGitPath: string): boolean {
-  const backlinkPath = join(gitDir, 'gitdir');
-  if (!existsSync(backlinkPath)) {
-    return false;
-  }
-
-  const rawBacklink = readFileSync(backlinkPath, 'utf-8').split(/\r?\n/, 1)[0]?.trim() ?? '';
-  if (rawBacklink === '') {
-    return false;
-  }
-
-  const linkedDotGitPath = isAbsolute(rawBacklink) ? rawBacklink : resolve(gitDir, rawBacklink);
-
-  try {
-    return sameFilesystemPath(linkedDotGitPath, dotGitPath);
-  } catch {
-    return false;
-  }
+  const rawBacklink = readWorktreeGitdirBacklink(gitDir);
+  return rawBacklink === null ? false : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
 }
 
 function worktreeConfigMatchesRoot(gitDir: string, worktreeRoot: string): boolean {
+  const configuredWorktree = readWorktreeConfigWorktree(gitDir);
+  return configuredWorktree === null
+    ? true
+    : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
+}
+
+function readWorktreeGitdirBacklink(gitDir: string): string | null {
+  const backlinkPath = join(gitDir, 'gitdir');
+  if (!existsSync(backlinkPath)) return null;
+
+  const rawBacklink = readFileSync(backlinkPath, 'utf-8').split(/\r?\n/, 1)[0]?.trim() ?? '';
+  return rawBacklink === '' ? null : rawBacklink;
+}
+
+function readWorktreeConfigWorktree(gitDir: string): string | null {
   const configWorktreePath = join(gitDir, 'config.worktree');
-  if (!existsSync(configWorktreePath)) {
-    return true;
-  }
+  return existsSync(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
+}
 
-  const configuredWorktree = readCoreWorktree(configWorktreePath);
-  if (configuredWorktree === null) {
-    return true;
-  }
+function gitDirPathReferenceMatches(gitDir: string, target: string, expectedPath: string): boolean {
+  return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
+}
 
-  const resolvedConfiguredWorktree = isAbsolute(configuredWorktree)
-    ? configuredWorktree
-    : resolve(gitDir, configuredWorktree);
+function resolveGitDirPath(gitDir: string, target: string): string {
+  return isAbsolute(target) ? target : resolve(gitDir, target);
+}
 
+function sameFilesystemPathOrFalse(left: string, right: string): boolean {
   try {
-    return sameFilesystemPath(resolvedConfiguredWorktree, worktreeRoot);
+    return sameFilesystemPath(left, right);
   } catch {
     return false;
   }

@@ -7,32 +7,48 @@ export const ENV_PROXY = new Proxy(
   },
 );
 
+export interface QuoteScanState {
+  inSingle: boolean;
+  inDouble: boolean;
+  escaped: boolean;
+}
+
+export function advanceQuoteScanState(char: string, state: QuoteScanState): boolean {
+  if (state.escaped) {
+    state.escaped = false;
+    return true;
+  }
+
+  if (char === '\\' && !state.inSingle) {
+    state.escaped = true;
+    return true;
+  }
+
+  if (char === "'" && !state.inDouble) {
+    state.inSingle = !state.inSingle;
+    return true;
+  }
+
+  if (char === '"' && !state.inSingle) {
+    state.inDouble = !state.inDouble;
+    return true;
+  }
+
+  return false;
+}
+
 export function hasUnclosedQuotes(command: string): boolean {
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
+  const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
 
   for (let i = 0; i < command.length; i++) {
     const char = command[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === '#' && !inSingle && !inDouble && startsShellComment(command, i)) {
+    if (char === '#' && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
       break;
     }
-    if (char === '\\' && !inSingle) {
-      escaped = true;
-      continue;
-    }
-    if (char === "'" && !inDouble) {
-      inSingle = !inSingle;
-    } else if (char === '"' && !inSingle) {
-      inDouble = !inDouble;
-    }
+    advanceQuoteScanState(char ?? '', state);
   }
 
-  return inSingle || inDouble;
+  return state.inSingle || state.inDouble;
 }
 
 function startsShellComment(command: string, index: number): boolean {
