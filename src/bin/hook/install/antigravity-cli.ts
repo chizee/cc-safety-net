@@ -76,12 +76,28 @@ function getManagedHookDefinition(config: AntigravityHooksConfig): AntigravityHo
   return existing;
 }
 
-function hasManagedHook(config: AntigravityHooksConfig): boolean {
-  return Object.values(config).some((definition) =>
+function hasManagedHookCommand(definition: AntigravityHookDefinition): boolean {
+  return (
     definition.PreToolUse?.some((entry) =>
       entry.hooks?.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND),
-    ),
+    ) ?? false
   );
+}
+
+function hasActiveManagedHook(config: AntigravityHooksConfig): boolean {
+  return Object.values(config).some(
+    (definition) => definition.enabled !== false && hasManagedHookCommand(definition),
+  );
+}
+
+function enableManagedHookDefinition(config: AntigravityHooksConfig): boolean {
+  if (config[MANAGED_HOOK_NAME] === undefined) return false;
+
+  const definition = getManagedHookDefinition(config);
+  if (definition.enabled !== false || !hasManagedHookCommand(definition)) return false;
+
+  definition.enabled = true;
+  return true;
 }
 
 function appendManagedHook(config: AntigravityHooksConfig): void {
@@ -92,6 +108,7 @@ function appendManagedHook(config: AntigravityHooksConfig): void {
 
   const definition = getManagedHookDefinition(config);
   definition.PreToolUse ??= [];
+  definition.enabled = true;
   definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
 }
 
@@ -124,7 +141,11 @@ export function installAntigravityCli(homeDir: string): InstallResult {
   }
 
   const config = parseAntigravityHooksConfig(configPath);
-  if (hasManagedHook(config)) return { path: configPath, alreadyInstalled: true };
+  if (hasActiveManagedHook(config)) return { path: configPath, alreadyInstalled: true };
+  if (enableManagedHookDefinition(config)) {
+    writeAntigravityHooksConfig(configPath, config);
+    return { path: configPath, alreadyInstalled: false };
+  }
 
   appendManagedHook(config);
   writeAntigravityHooksConfig(configPath, config);

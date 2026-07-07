@@ -173,6 +173,10 @@ function expectInstalledKimiInlineHook(
   expect(installed.content).not.toContain('[[hooks]]');
 }
 
+function expectSingleAntigravityHook(config: unknown) {
+  expect(JSON.stringify(config).match(/cc-safety-net hook --agy-cli/g)?.length).toBe(1);
+}
+
 describe('install command', () => {
   test('requires exactly one install target', async () => {
     const homeDir = makeTempHome('safety-net-install');
@@ -389,11 +393,32 @@ exit 42
 
     try {
       const installed = await runAntigravityInstall(homeDir, configPath);
-      const serialized = JSON.stringify(installed.config);
 
       expect(installed.result.exitCode).toBe(0);
-      expect(serialized.match(/cc-safety-net hook --agy-cli/g)?.length).toBe(1);
+      expectSingleAntigravityHook(installed.config);
       expect(installed.result.stdout).toContain('already installed');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Antigravity CLI: enables disabled managed hook during install', async () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = writeAntigravityConfig(homeDir, {
+      'cc-safety-net': {
+        enabled: false,
+        PreToolUse: [{ hooks: [{ command: ANTIGRAVITY_HOOK_COMMAND }] }],
+      },
+    });
+
+    try {
+      const installed = await runAntigravityInstall(homeDir, configPath);
+
+      expect(installed.result.exitCode).toBe(0);
+      expect(installed.config['cc-safety-net'].enabled).toBe(true);
+      expectSingleAntigravityHook(installed.config);
+      expect(installed.result.stdout).toContain(`Installed Antigravity CLI hook in ${configPath}`);
+      expect(installed.result.stdout).not.toContain('already installed');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
