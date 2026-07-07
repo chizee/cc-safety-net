@@ -180,6 +180,7 @@ export async function runCli(
   env?: Record<string, string>,
   cwd = TEST_HOOK_CWD,
 ): Promise<HookResult> {
+  const home = env?.HOME ?? join(cwd, 'home');
   const baseEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) {
@@ -189,7 +190,8 @@ export async function runCli(
 
   const mergedEnv: Record<string, string> = {
     ...baseEnv,
-    HOME: join(cwd, 'home'),
+    HOME: home,
+    CC_SAFETY_NET_AUDIT_HOME: env?.CC_SAFETY_NET_AUDIT_HOME ?? home,
     ...(env ?? {}),
   };
 

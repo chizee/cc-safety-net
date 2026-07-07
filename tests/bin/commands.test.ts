@@ -50,6 +50,7 @@ describe('command registry', () => {
       const names = visible.map((c) => c.name);
       expect(names).toEqual([
         'doctor',
+        'logs',
         'explain',
         'rule',
         'install',

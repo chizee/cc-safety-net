@@ -4,6 +4,7 @@ import type { GeminiHookInput, GeminiHookOutput } from '@/types';
 
 export async function runGeminiCLIHook(): Promise<void> {
   await runConfiguredHookAdapter<GeminiHookInput>({
+    agent: 'gemini-cli',
     // Gemini CLI expects exit code 0 with JSON for policy blocks; exit 2 is for hook errors.
     createDenyOutput: (message): GeminiHookOutput => ({
       decision: 'deny',

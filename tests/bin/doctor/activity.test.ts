@@ -7,6 +7,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getActivitySummary } from '@/bin/doctor/activity';
+import { writeAuditLog } from '@/core/audit';
+import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
 
 function createLogsDir(): string {
   const logsDir = join(tmpdir(), `doctor-logs-${Date.now()}`);
@@ -14,7 +16,37 @@ function createLogsDir(): string {
   return logsDir;
 }
 
+function expectActivityCounts(logsDir: string, totalBlocked: number, sessionCount: number): void {
+  const activity = getActivitySummary(7, logsDir);
+  expect(activity.totalBlocked).toBe(totalBlocked);
+  expect(activity.sessionCount).toBe(sessionCount);
+}
+
 describe('getActivitySummary', () => {
+  test('reads default logs from the configured audit home', () => {
+    const root = join(tmpdir(), `doctor-audit-home-${Date.now()}`);
+    const auditHome = join(root, 'audit-home');
+
+    try {
+      withEnv({ CC_SAFETY_NET_AUDIT_HOME: auditHome }, () => {
+        writeAuditLog(
+          'doctor-configured-home-session',
+          'git reset --hard',
+          'git reset --hard',
+          'blocked',
+          root,
+        );
+
+        const activity = getActivitySummary(7);
+        expect(activity.totalBlocked).toBe(1);
+        expect(activity.sessionCount).toBe(1);
+        expect(activity.recentEntries[0]?.command).toBe('git reset --hard');
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('returns activity summary structure', () => {
     const activity = getActivitySummary(7);
 
@@ -60,6 +92,95 @@ describe('getActivitySummary', () => {
       expect(activity.recentEntries[1]?.command).toBe('rm -rf /');
       expect(activity.newestEntry).toBe(entry1.ts);
       expect(activity.oldestEntry).toBe(entry2.ts);
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reads nested project/month log files', () => {
+    const logsDir = createLogsDir();
+    const now = new Date();
+    const entry = {
+      ts: now.toISOString(),
+      sessionId: 'nested-session',
+      command: 'git reset --hard',
+      reason: 'Blocked by safety net',
+    };
+
+    try {
+      writeNestedAuditLogFixture(logsDir, '-tmp-proj', entry);
+
+      const activity = getActivitySummary(7, logsDir);
+      expect(activity.totalBlocked).toBe(1);
+      expect(activity.sessionCount).toBe(1);
+      expect(activity.recentEntries[0]?.command).toBe('git reset --hard');
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reads mixed legacy and nested log files', () => {
+    const logsDir = createLogsDir();
+    const now = new Date();
+
+    try {
+      writeJsonlFixture(join(logsDir, 'legacy-session.jsonl'), [
+        { ts: now.toISOString(), command: 'legacy', reason: 'Blocked' },
+      ]);
+      writeNestedAuditLogFixture(logsDir, '-tmp-proj', {
+        ts: new Date(now.getTime() - 1000).toISOString(),
+        sessionId: 'nested-session',
+        command: 'nested',
+        reason: 'Blocked',
+      });
+
+      const activity = getActivitySummary(7, logsDir);
+      expect(activity.totalBlocked).toBe(2);
+      expect(activity.sessionCount).toBe(2);
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('dedupes sessions split across files by session id', () => {
+    const logsDir = createLogsDir();
+    const now = new Date();
+
+    try {
+      writeNestedAuditLogFixture(logsDir, '-tmp-one', {
+        ts: now.toISOString(),
+        sessionId: 'shared-session',
+        command: 'first',
+        reason: 'Blocked',
+      });
+      writeNestedAuditLogFixture(logsDir, '-tmp-two', {
+        ts: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+        sessionId: 'shared-session',
+        command: 'second',
+        reason: 'Blocked',
+      });
+
+      expectActivityCounts(logsDir, 2, 1);
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('uses legacy filename as session key when entry lacks session id', () => {
+    const logsDir = createLogsDir();
+    const now = new Date();
+
+    try {
+      writeJsonlFixture(join(logsDir, 'legacy-sess.jsonl'), [
+        { ts: now.toISOString(), command: 'first', reason: 'Blocked' },
+        {
+          ts: new Date(now.getTime() - 1000).toISOString(),
+          command: 'second',
+          reason: 'Blocked',
+        },
+      ]);
+
+      expectActivityCounts(logsDir, 2, 1);
     } finally {
       rmSync(logsDir, { recursive: true, force: true });
     }

@@ -141,6 +141,7 @@ const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
 
 type SecretTarget = {
   target: string;
+  ruleId: string;
 };
 
 /** @internal */
@@ -151,10 +152,11 @@ export function findSensitivePathTarget(
 ): SecretTarget | null {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config)) {
-      return { target };
+      return { target, ruleId: 'secret.deny-path' };
     }
-    if (isSensitivePath(target, cwd, config)) {
-      return { target };
+    const ruleId = isSensitivePath(target, cwd, config);
+    if (ruleId) {
+      return { target, ruleId };
     }
   }
   return null;
@@ -802,10 +804,10 @@ function isSensitivePath(
   target: string,
   cwd: string,
   config: SecretProtectionConfig | undefined,
-): boolean {
+): string | null {
   const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
-    return false;
+    return null;
   }
 
   const comparableName = comparable(normalized.split('/').pop() ?? '');
@@ -813,7 +815,7 @@ function isSensitivePath(
 
   // Env templates (.env.example, ...) stay readable even inside sensitive
   // directories, matching the original caller-side exemption.
-  if (isAllowedSensitiveTemplate(comparableName)) return false;
+  if (isAllowedSensitiveTemplate(comparableName)) return null;
 
   // Sensitive directories (~/.ssh, ~/.aws, secrets/, ...) are deny-by-default
   // wholesale and take priority over the public-key exemption below: a .pub
@@ -823,29 +825,30 @@ function isSensitivePath(
       matchesHomePathSuffix(comparablePath, rule.suffixParts.join('/')) &&
       isSecretRuleEnabled(rule.id, config)
     ) {
-      return true;
+      return rule.id;
     }
   }
-  if (matchesCodingCliPath(normalized, cwd, config)) return true;
+  const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
+  if (codingCliRuleId) return codingCliRuleId;
   for (const rule of SECRET_DIRECTORY_RULES) {
     if (
       isSensitiveDirSegment(comparablePath, rule.basename) &&
       isSecretRuleEnabled(rule.id, config)
     ) {
-      return true;
+      return rule.id;
     }
   }
 
   // Public keys are non-secret; exempt them outside sensitive directories.
-  if (PUBLIC_KEY_BASENAMES.has(comparableName)) return false;
+  if (PUBLIC_KEY_BASENAMES.has(comparableName)) return null;
   for (const rule of SECRET_BASENAME_RULES) {
-    if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config)) return true;
+    if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config)) return rule.id;
   }
   if (
     comparableName.startsWith(ENV_PREFIX) &&
     isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)
   ) {
-    return true;
+    return SECRET_ENV_VARIANT_RULE.id;
   }
 
   // Catch rename-shielded variants (id_rsa.bak, id_rsa-old) without flagging
@@ -853,7 +856,7 @@ function isSensitivePath(
   for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
     if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
       const next = comparableName.slice(rule.prefix.length)[0];
-      if ((next === '-' || next === '_') && isSecretRuleEnabled(rule.id, config)) return true;
+      if ((next === '-' || next === '_') && isSecretRuleEnabled(rule.id, config)) return rule.id;
     }
   }
   for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {
@@ -862,21 +865,22 @@ function isSensitivePath(
         comparableName.slice(rule.prefix.length) === rule.suffix &&
         isSecretRuleEnabled(rule.id, config)
       ) {
-        return true;
+        return rule.id;
       }
     }
   }
 
-  if (isSkippablePathForBroadSignatures(comparablePath)) return false;
+  if (isSkippablePathForBroadSignatures(comparablePath)) return null;
   if (
     hasBroadSshKeyBasename(comparableName) &&
     isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)
   ) {
-    return true;
+    return SECRET_BROAD_SSH_KEY_BASENAME_RULE.id;
   }
-  if (hasSensitiveExtension(comparableName, config)) return true;
+  const extensionRuleId = hasSensitiveExtension(comparableName, config);
+  if (extensionRuleId) return extensionRuleId;
 
-  return false;
+  return null;
 }
 
 function matchesHomePathSuffix(comparablePath: string, suffix: string): boolean {
@@ -887,19 +891,21 @@ function matchesCodingCliPath(
   normalized: string,
   cwd: string,
   config: SecretProtectionConfig | undefined,
-): boolean {
-  return SECRET_CODING_CLI_RULES.some((rule) => {
-    if (!isSecretRuleEnabled(rule.id, config)) return false;
-    if (rule.id === 'secret.cli.claude-code') return matchesClaudeCodePath(normalized, cwd);
-    if (rule.id === 'secret.cli.antigravity') return matchesAntigravityPath(normalized, cwd);
-    if (rule.id === 'secret.cli.codex') return matchesCodexPath(normalized, cwd);
-    if (rule.id === 'secret.cli.gemini') return matchesGeminiPath(normalized, cwd);
-    if (rule.id === 'secret.cli.copilot-cli') return matchesCopilotCliPath(normalized, cwd);
-    if (rule.id === 'secret.cli.kimi-code') return matchesKimiCodePath(normalized, cwd);
-    if (rule.id === 'secret.cli.opencode') return matchesOpenCodePath(normalized, cwd);
-    if (rule.id === 'secret.cli.pi') return matchesPiPath(normalized, cwd);
-    return false;
-  });
+): string | null {
+  return (
+    SECRET_CODING_CLI_RULES.find((rule) => {
+      if (!isSecretRuleEnabled(rule.id, config)) return false;
+      if (rule.id === 'secret.cli.claude-code') return matchesClaudeCodePath(normalized, cwd);
+      if (rule.id === 'secret.cli.antigravity') return matchesAntigravityPath(normalized, cwd);
+      if (rule.id === 'secret.cli.codex') return matchesCodexPath(normalized, cwd);
+      if (rule.id === 'secret.cli.gemini') return matchesGeminiPath(normalized, cwd);
+      if (rule.id === 'secret.cli.copilot-cli') return matchesCopilotCliPath(normalized, cwd);
+      if (rule.id === 'secret.cli.kimi-code') return matchesKimiCodePath(normalized, cwd);
+      if (rule.id === 'secret.cli.opencode') return matchesOpenCodePath(normalized, cwd);
+      if (rule.id === 'secret.cli.pi') return matchesPiPath(normalized, cwd);
+      return false;
+    })?.id ?? null
+  );
 }
 
 function matchesClaudeCodePath(normalized: string, cwd: string): boolean {
@@ -1070,16 +1076,16 @@ function hasBroadSshKeyBasename(comparableName: string): boolean {
 function hasSensitiveExtension(
   comparableName: string,
   config: SecretProtectionConfig | undefined,
-): boolean {
+): string | null {
   const extension = getExtension(comparableName);
-  if (extension === '') return false;
+  if (extension === '') return null;
   for (const rule of SECRET_EXTENSION_RULES) {
-    if (extension === rule.extension && isSecretRuleEnabled(rule.id, config)) return true;
+    if (extension === rule.extension && isSecretRuleEnabled(rule.id, config)) return rule.id;
   }
   for (const rule of SECRET_EXTENSION_PATTERN_RULES) {
-    if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config)) return true;
+    if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config)) return rule.id;
   }
-  return false;
+  return null;
 }
 
 function getExtension(comparableName: string): string {

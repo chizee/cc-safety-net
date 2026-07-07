@@ -15,6 +15,7 @@ type AntigravityDenyOutput = (
 
 export async function runAntigravityCliHook(): Promise<void> {
   await runConfiguredHookAdapter<AntigravityCliHookInput>({
+    agent: 'antigravity-cli',
     createDenyOutput: (message): AntigravityCliHookOutput => ({
       decision: 'deny',
       reason: message,

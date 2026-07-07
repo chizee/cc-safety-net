@@ -2,10 +2,11 @@
  * Audit log activity summary for the doctor command.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { ActivitySummary } from '@/bin/doctor/types';
+import { getAuditLogsDir } from '@/core/audit';
+import { listAuditLogFiles } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
 function formatRelativeTime(date: Date): string {
@@ -22,34 +23,23 @@ function formatRelativeTime(date: Date): string {
 
 export function getActivitySummary(
   days: number = 7,
-  logsDir: string = join(homedir(), '.cc-safety-net', 'logs'),
+  logsDir: string | null = getAuditLogsDir(),
 ): ActivitySummary {
-  if (!existsSync(logsDir)) {
-    return { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
-  }
-
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const recentEntries: AuditLogEntry[] = [];
+  const recentSessions = new Set<string>();
   let totalBlocked = 0;
-  let sessionCount = 0;
   let oldestEntry: string | undefined;
   let oldestEntryTs: number | undefined;
   let newestEntry: string | undefined;
   let newestEntryTs: number | undefined;
-
-  let files: string[];
-  try {
-    files = readdirSync(logsDir).filter((f) => f.endsWith('.jsonl'));
-  } catch {
-    return { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
-  }
+  const files = logsDir ? listAuditLogFiles(logsDir) : [];
 
   for (const file of files) {
     try {
-      const content = readFileSync(join(logsDir, file), 'utf-8');
+      const content = readFileSync(file, 'utf-8');
       const lines = content.trim().split('\n').filter(Boolean);
 
-      let hasRecentEntry = false;
       for (const line of lines) {
         try {
           const entry = JSON.parse(line) as AuditLogEntry;
@@ -59,7 +49,7 @@ export function getActivitySummary(
           const ts = new Date(entry.ts).getTime();
           if (ts >= cutoff) {
             totalBlocked++;
-            hasRecentEntry = true;
+            recentSessions.add(entry.sessionId ?? basename(file, '.jsonl'));
             if (oldestEntryTs === undefined || ts <= oldestEntryTs) {
               oldestEntry = entry.ts;
               oldestEntryTs = ts;
@@ -73,10 +63,6 @@ export function getActivitySummary(
         } catch {
           // Skip malformed lines
         }
-      }
-
-      if (hasRecentEntry) {
-        sessionCount++;
       }
     } catch {
       // Skip unreadable files
@@ -92,7 +78,7 @@ export function getActivitySummary(
 
   return {
     totalBlocked,
-    sessionCount,
+    sessionCount: recentSessions.size,
     recentEntries: displayEntries,
     oldestEntry,
     newestEntry,

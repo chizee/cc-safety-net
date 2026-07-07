@@ -1,14 +1,15 @@
 import { expect } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { VersionFetcher } from '@/bin/doctor/system-info';
 import { analyzeCommand } from '@/core/analyze';
+import { listAuditLogFiles } from '@/core/audit-scan';
 import { loadConfig } from '@/core/config';
 import { envTruthy } from '@/core/env';
-import type { AnalyzeOptions, Config, ExplainResult, TraceStep } from '@/types';
+import type { AnalyzeOptions, AuditLogEntry, Config, ExplainResult, TraceStep } from '@/types';
 
 // Default empty config for tests that don't specify a cwd.
 // This prevents loading the project's rulebook-backed config.
@@ -95,15 +96,48 @@ export function writeLockedGitHubRulebookPolicy(
   writeFileSync(cachePath, content);
 }
 
+export function readLatestAuditLogEntry(homeDir: string, sessionId: string): AuditLogEntry {
+  const files = listAuditLogFiles(join(homeDir, '.cc-safety-net', 'logs'))
+    .filter((file) => file.endsWith(`${sessionId}.jsonl`))
+    .sort();
+  expect(files.length).toBeGreaterThan(0);
+  const lines = readFileSync(files[files.length - 1] ?? '', 'utf-8')
+    .trim()
+    .split('\n');
+  return JSON.parse(lines[lines.length - 1] ?? '{}') as AuditLogEntry;
+}
+
+export function writeJsonlFixture(
+  filePath: string,
+  entries: readonly Record<string, unknown>[],
+): void {
+  writeFileSync(filePath, entries.map((entry) => JSON.stringify(entry)).join('\n'));
+}
+
+export function writeNestedAuditLogFixture(
+  logsDir: string,
+  projectDir: string,
+  entry: Record<string, unknown> & { ts: string; sessionId: string },
+): void {
+  const date = entry.ts.slice(0, 10);
+  const monthDir = join(logsDir, projectDir, date.slice(0, 7));
+  mkdirSync(monthDir, { recursive: true });
+  writeJsonlFixture(join(monthDir, `${date}-${entry.sessionId}.jsonl`), [entry]);
+}
+
 export function withEnv<T>(env: Record<string, string>, fn: () => T): T {
+  const effectiveEnv =
+    env.HOME !== undefined && env.CC_SAFETY_NET_AUDIT_HOME === undefined
+      ? { ...env, CC_SAFETY_NET_AUDIT_HOME: env.HOME }
+      : env;
   const original: Record<string, string | undefined> = {};
-  for (const key of Object.keys(env)) {
+  for (const key of Object.keys(effectiveEnv)) {
     original[key] = process.env[key];
-    process.env[key] = env[key];
+    process.env[key] = effectiveEnv[key];
   }
 
   const restore = () => {
-    for (const key of Object.keys(env)) {
+    for (const key of Object.keys(effectiveEnv)) {
       if (original[key] === undefined) {
         delete process.env[key];
       } else {

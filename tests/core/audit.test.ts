@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir, userInfo } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
+  encodeCwdForLogDirname,
   getAuditLogHomeDir,
   redactSecrets,
   sanitizeSessionIdForFilename,
@@ -46,6 +47,27 @@ describe('sanitizeSessionIdForFilename', () => {
     const result = sanitizeSessionIdForFilename('../../etc/passwd');
     expect(result).not.toContain('/');
     expect(result).not.toContain('..');
+  });
+});
+
+describe('encodeCwdForLogDirname', () => {
+  test('encodes project paths for directory names', () => {
+    expect(encodeCwdForLogDirname('/Users/kenryu/Developer/420024-lab/cc-safety-net')).toBe(
+      '-Users-kenryu-Developer-420024-lab-cc-safety-net',
+    );
+  });
+
+  test('uses no-cwd for null or empty cwd', () => {
+    expect(encodeCwdForLogDirname(null)).toBe('no-cwd');
+    expect(encodeCwdForLogDirname('')).toBe('no-cwd');
+  });
+
+  test('caps encoded paths at 180 characters', () => {
+    expect(encodeCwdForLogDirname(`/tmp/${'a'.repeat(240)}`).length).toBe(180);
+  });
+
+  test('preserves non-empty symbol-only encodings', () => {
+    expect(encodeCwdForLogDirname('///')).toBe('---');
   });
 });
 
@@ -356,21 +378,33 @@ describe('writeAuditLog', () => {
   });
 
   function getLogFile(sessionId: string): string {
-    return join(testDir, '.cc-safety-net', 'logs', `${sessionId}.jsonl`);
+    return listLogFiles().find((file) => file.endsWith(`${sessionId}.jsonl`)) ?? '';
   }
 
   function getLogsDir(): string {
     return join(testDir, '.cc-safety-net', 'logs');
   }
 
+  function listLogFiles(): string[] {
+    if (!existsSync(getLogsDir())) return [];
+    return readdirSync(getLogsDir(), { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.jsonl'))
+      .map((file) => join(getLogsDir(), file));
+  }
+
+  function getOnlyLogFile(): string {
+    const files = listLogFiles();
+    expect(files.length).toBe(1);
+    return files[0] ?? '';
+  }
+
   function expectAuditLogStayedInLogsDir(escapedPath: string): void {
     expect(existsSync(escapedPath)).toBe(false);
-    const logsDir = join(testDir, '.cc-safety-net', 'logs');
-    if (!existsSync(logsDir)) return;
-    const files = readdirSync(logsDir).filter((f) => f.endsWith('.jsonl'));
+    if (!existsSync(getLogsDir())) return;
+    const files = listLogFiles();
     expect(files.length).toBe(1);
     for (const file of files) {
-      expect(join(logsDir, file).startsWith(logsDir)).toBe(true);
+      expect(file.startsWith(getLogsDir())).toBe(true);
     }
   }
 
@@ -400,6 +434,28 @@ describe('writeAuditLog', () => {
     const entries = readLogEntries(sessionId);
     expect(entries.length).toBe(1);
     expect(entries[0]?.command).toContain('git reset --hard');
+  });
+
+  test('writes project/month/date-prefixed log file and records session id', () => {
+    const sessionId = 'test-session-layout';
+    writeAuditLog(sessionId, 'git status', 'git status', 'reason', '/tmp/proj', {
+      homeDir: testDir,
+    });
+
+    const logFile = getOnlyLogFile();
+    const entry = JSON.parse(readFileSync(logFile, 'utf-8').trim()) as AuditLogEntry;
+    const date = entry.ts.slice(0, 10);
+    expect(logFile).toBe(
+      join(
+        testDir,
+        '.cc-safety-net',
+        'logs',
+        '-tmp-proj',
+        date.slice(0, 7),
+        `${date}-${sessionId}.jsonl`,
+      ),
+    );
+    expect(entry.sessionId).toBe(sessionId);
   });
 
   test('log format has correct fields', () => {
@@ -448,6 +504,27 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.intent).toBe('use_alternative');
   });
 
+  test('log entry can include agent', () => {
+    const sessionId = 'test-session-agent-metadata';
+    writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
+      homeDir: testDir,
+      agent: 'claude-code',
+    });
+
+    const entries = readLogEntries(sessionId);
+    expect(entries[0]?.agent).toBe('claude-code');
+  });
+
+  test('omits agent when not provided', () => {
+    const sessionId = 'test-session-no-agent-metadata';
+    writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
+      homeDir: testDir,
+    });
+
+    const entries = readLogEntries(sessionId);
+    expect('agent' in (entries[0] ?? {})).toBe(false);
+  });
+
   test('log redacts secrets', () => {
     const sessionId = 'test-session-redact';
     writeAuditLog(
@@ -491,6 +568,7 @@ describe('writeAuditLog', () => {
     });
 
     const entries = readLogEntries(sessionId);
+    expect(listLogFiles().length).toBe(1);
     expect(entries.length).toBe(3);
     expect(entries[0]?.command).toContain('git reset --hard');
     expect(entries[1]?.command).toContain('git clean -f');
@@ -524,6 +602,7 @@ describe('writeAuditLog', () => {
     const entries = readLogEntries(sessionId);
     expect(entries.length).toBe(1);
     expect(entries[0]?.cwd).toBeNull();
+    expect(getOnlyLogFile()).toContain(`${join('logs', 'no-cwd')}/`);
   });
 
   test('truncates long commands', () => {
@@ -559,6 +638,7 @@ describe('writeAuditLog', () => {
     });
 
     expect(statSync(getLogsDir()).mode & 0o777).toBe(0o700);
+    expect(statSync(dirname(getOnlyLogFile())).mode & 0o777).toBe(0o700);
   });
 
   test('creates log file with 0600', () => {
@@ -574,5 +654,22 @@ describe('writeAuditLog', () => {
 
   test('empty HOME env falls back to os homedir', () => {
     expect(getAuditLogHomeDir('')).toBe(userInfo().homedir);
+  });
+
+  test('audit home env overrides HOME by default', () => {
+    const originalAuditHome = process.env.CC_SAFETY_NET_AUDIT_HOME;
+    const originalHome = process.env.HOME;
+    const auditHome = join(tmpdir(), `safety-net-audit-home-${Date.now()}`);
+    process.env.CC_SAFETY_NET_AUDIT_HOME = auditHome;
+    process.env.HOME = join(tmpdir(), 'not-audit-home');
+
+    try {
+      expect(getAuditLogHomeDir()).toBe(auditHome);
+    } finally {
+      if (originalAuditHome === undefined) delete process.env.CC_SAFETY_NET_AUDIT_HOME;
+      if (originalAuditHome !== undefined) process.env.CC_SAFETY_NET_AUDIT_HOME = originalAuditHome;
+      if (originalHome === undefined) delete process.env.HOME;
+      if (originalHome !== undefined) process.env.HOME = originalHome;
+    }
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeDefaultRulesConfig, writeStarterRulebook } from '@/core/rules/policy';
+import { readLatestAuditLogEntry } from '../../helpers';
 import {
   claudeCodeBashInput,
   expectNoHookOutput,
@@ -130,9 +131,7 @@ describe('Claude Code hook', () => {
           { CC_SAFETY_NET_DEBUG: '1' },
         );
 
-        const logFile = join(context.home, '.cc-safety-net', 'logs', 'debug-session.jsonl');
-        expect(existsSync(logFile)).toBe(true);
-        const entry = JSON.parse(readFileSync(logFile, 'utf-8').trim());
+        const entry = readLatestAuditLogEntry(context.home, 'debug-session');
         expect(entry.decision).toBe('allow');
         expect(entry.reason).toBe('allowed');
         expect(entry.command).toContain('<redacted>');

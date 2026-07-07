@@ -4,6 +4,7 @@ import type { HookInput, HookOutput } from '@/types';
 
 export async function runClaudeCodeHook(): Promise<void> {
   await runConfiguredHookAdapter<HookInput>({
+    agent: 'claude-code',
     createDenyOutput: (message): HookOutput => ({
       hookSpecificOutput: {
         hookEventName: CLAUDE_CODE_HOOK_EVENT,

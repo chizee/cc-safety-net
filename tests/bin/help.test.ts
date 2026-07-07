@@ -79,6 +79,7 @@ Blocks destructive git and filesystem commands before execution.
 
 COMMANDS:
   cc-safety-net doctor [options]             Run diagnostic checks to verify installation and configuration
+  cc-safety-net logs [options]               Browse audit log entries recorded by hooks
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
   cc-safety-net install [coding cli]         Install CC Safety Net into a coding agent CLI
@@ -122,6 +123,7 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
     test('lists all visible commands', () => {
       const { output } = captureOutput(() => printHelp());
       expect(output).toContain('doctor');
+      expect(output).toContain('logs');
       expect(output).toContain('explain');
       expect(output).toContain('hook');
       expect(output).toContain('gui');
@@ -294,6 +296,21 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('cc-safety-net gui');
       expect(output).toContain('--no-open');
       expect(output).toContain('Open the local policy editor GUI');
+    });
+
+    test('logs command prints filter options', () => {
+      const cmd = findCommand('logs');
+      if (!cmd) throw new Error('logs command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+      expect(output).toContain('cc-safety-net logs');
+      expect(output).toContain('--agent');
+      expect(output).toContain('--rule');
+      expect(output).toContain('--project');
+      expect(output).toContain('--session');
+      expect(output).toContain('--since');
+      expect(output).toContain('--limit');
+      expect(output).toContain('--all');
+      expect(output).toContain('--json');
     });
   });
 

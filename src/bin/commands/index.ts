@@ -3,6 +3,7 @@ import { explainCommand } from './explain';
 import { guiCommand } from './gui';
 import { hookCommand } from './hook';
 import { installCommand, uninstallCommand } from './install';
+import { logsCommand } from './logs';
 import { ruleCommand } from './rule';
 import { statuslineCommand } from './statusline';
 import type { Command } from './types';
@@ -17,6 +18,7 @@ export type { Command, CommandOption, CommandSubcommand } from './types';
  */
 export const commands = [
   doctorCommand,
+  logsCommand,
   explainCommand,
   ruleCommand,
   installCommand,

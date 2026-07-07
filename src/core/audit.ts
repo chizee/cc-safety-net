@@ -30,9 +30,15 @@ export function sanitizeSessionIdForFilename(sessionId: string): string | null {
   return safe;
 }
 
+/** @internal Exported for testing */
+export function encodeCwdForLogDirname(cwd: string | null): string {
+  const encoded = (cwd ?? '').replace(/[^A-Za-z0-9]/g, '-').slice(0, 180);
+  return encoded || 'no-cwd';
+}
+
 /**
  * Write an audit log entry for a denied command.
- * Logs are written to ~/.cc-safety-net/logs/<session_id>.jsonl
+ * Logs are written to ~/.cc-safety-net/logs/<encoded_cwd>/<YYYY-MM>/<YYYY-MM-DD>-<session_id>.jsonl
  */
 export function writeAuditLog(
   sessionId: string,
@@ -43,6 +49,7 @@ export function writeAuditLog(
   options: {
     homeDir?: string;
     decision?: AuditLogDecision;
+    agent?: string;
     ruleId?: string;
     intent?: BlockIntent;
   } = {},
@@ -56,15 +63,22 @@ export function writeAuditLog(
   if (!home) {
     return;
   }
-  const logsDir = join(home, '.cc-safety-net', 'logs');
+  const logsDir = getAuditLogsDir(home);
+  if (!logsDir) {
+    return;
+  }
 
   try {
-    mkdirSync(logsDir, { recursive: true, mode: 0o700 });
+    const ts = new Date().toISOString();
+    const sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
 
-    const logFile = join(logsDir, `${safeSessionId}.jsonl`);
+    const logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`);
     const entry: AuditLogEntry = {
-      ts: new Date().toISOString(),
+      ts,
+      sessionId: safeSessionId,
       decision: options.decision ?? 'deny',
+      agent: options.agent,
       command: redactSecrets(command).slice(0, 300),
       segment: redactSecrets(segment).slice(0, 300),
       reason,
@@ -80,9 +94,15 @@ export function writeAuditLog(
 }
 
 /** @internal */
-export function getAuditLogHomeDir(homeFromEnv = process.env.HOME): string | null {
+export function getAuditLogHomeDir(
+  homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME,
+): string | null {
   const home = homeFromEnv || homedir() || userInfo().homedir;
   return home && isAbsolute(home) ? home : null;
+}
+
+export function getAuditLogsDir(homeDir = getAuditLogHomeDir()): string | null {
+  return homeDir ? join(homeDir, '.cc-safety-net', 'logs') : null;
 }
 
 // Provider/API token formats. One anchored regex per known key shape.

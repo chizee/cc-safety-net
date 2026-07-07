@@ -194,7 +194,9 @@ export interface AnalyzeNestedOverrides {
 /** Audit log entry */
 export interface AuditLogEntry {
     ts: string;
+    sessionId?: string;
     decision?: 'allow' | 'deny';
+    agent?: string;
     command: string;
     segment: string;
     reason: string;

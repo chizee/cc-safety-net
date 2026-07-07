@@ -50,6 +50,29 @@ describe('secret protection path matching', () => {
     expect(findSensitivePathTarget(['src/env.ts'], cwd)).toBeNull();
   });
 
+  test('returns rule id for project env files', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitivePathTarget(['.env'], cwd)?.ruleId).toBe('secret.basename.env');
+  });
+
+  test('returns synthetic rule id for explicit deny paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitivePathTarget(['blocked.txt'], cwd, {
+        disabledRules: new Set(),
+        denyPaths: ['blocked.txt'],
+      })?.ruleId,
+    ).toBe('secret.deny-path');
+  });
+
+  test('returns rule id for sensitive extensions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitivePathTarget(['server.pem'], cwd)?.ruleId).toBe('secret.ext.pem');
+  });
+
   test('allows common env template files', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

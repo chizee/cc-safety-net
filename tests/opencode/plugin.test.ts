@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { CCSafetyNetPlugin } from '@/index';
+import { readLatestAuditLogEntry } from '../helpers';
 import {
   gitCommitRule,
   syncInitialGitRulebook,
@@ -214,9 +215,7 @@ describe('OpenCode plugin', () => {
           ),
         ).rejects.toThrow('git reset --hard');
 
-        const logFile = join(homeDir, '.cc-safety-net', 'logs', 'opencode-test-session.jsonl');
-        expect(existsSync(logFile)).toBe(true);
-        const entry = JSON.parse(readFileSync(logFile, 'utf-8').trim());
+        const entry = readLatestAuditLogEntry(homeDir, 'opencode-test-session');
         expect(entry.decision).toBe('deny');
         expect(entry.command).toBe('git reset --hard');
         expect(entry.segment).toBe('git reset --hard');
@@ -240,9 +239,7 @@ describe('OpenCode plugin', () => {
           ),
         ).rejects.toThrow('Access to a sensitive path is not allowed.');
 
-        const logFile = join(homeDir, '.cc-safety-net', 'logs', 'opencode-secret-session.jsonl');
-        expect(existsSync(logFile)).toBe(true);
-        const entry = JSON.parse(readFileSync(logFile, 'utf-8').trim());
+        const entry = readLatestAuditLogEntry(homeDir, 'opencode-secret-session');
         expect(entry.decision).toBe('deny');
         expect(entry.command).toBe('.env');
         expect(entry.segment).toBe('.env');

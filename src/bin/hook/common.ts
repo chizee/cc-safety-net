@@ -25,6 +25,7 @@ type HookDenyOutput = (
 ) => void;
 
 type HookAdapter<T> = {
+  agent: string;
   outputDeny: HookDenyOutput;
   isSupported: (input: T) => boolean;
   getToolInput: (input: T, outputDeny: HookDenyOutput) => unknown;
@@ -108,6 +109,7 @@ function handleSecretProtection(
   config: Config,
   sessionId: string | undefined,
   toolName: string,
+  agent: string,
   outputDeny: HookDenyOutput,
 ): boolean {
   if (config.secretProtection?.enabled === false) {
@@ -119,7 +121,11 @@ function handleSecretProtection(
   }
   const command = getCommandFromToolInput(toolInput) ?? match.target;
   if (sessionId) {
-    writeAuditLog(sessionId, command, match.target, REASON_SECRET_PROTECTION, cwd);
+    writeAuditLog(sessionId, command, match.target, REASON_SECRET_PROTECTION, cwd, {
+      agent,
+      ruleId: match.ruleId,
+      intent: 'hard_stop',
+    });
   }
   outputDeny(REASON_SECRET_PROTECTION, command, match.target, false, toolName);
   return true;
@@ -132,6 +138,7 @@ export function handleBlockedHookCommand(
   sessionId: string | undefined,
   outputDeny: HookDenyOutput,
   config?: Config,
+  agent?: string,
 ): void {
   let result: ReturnType<typeof analyzeHookCommand>;
   try {
@@ -155,7 +162,7 @@ export function handleBlockedHookCommand(
   }
   if (!result) {
     if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command, command, 'allowed', cwd, { decision: 'allow' });
+      writeAuditLog(sessionId, command, command, 'allowed', cwd, { decision: 'allow', agent });
     }
     return;
   }
@@ -164,6 +171,7 @@ export function handleBlockedHookCommand(
     writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
       ruleId: result.ruleId,
       intent: result.intent,
+      agent,
     });
   }
   outputDeny(
@@ -238,6 +246,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
       config,
       adapter.getSessionId(input),
       toolName,
+      adapter.agent,
       adapter.outputDeny,
     );
   } catch (error) {
@@ -278,7 +287,14 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     return;
   }
 
-  handleBlockedHookCommand(command, cwd, adapter.getSessionId(input), adapter.outputDeny, config);
+  handleBlockedHookCommand(
+    command,
+    cwd,
+    adapter.getSessionId(input),
+    adapter.outputDeny,
+    config,
+    adapter.agent,
+  );
 }
 
 function getToolName(input: unknown): string {
@@ -322,6 +338,7 @@ export async function runConfiguredHookAdapter<T>(
     );
 
   await runHookAdapter<T>({
+    agent: adapter.agent,
     outputDeny,
     isSupported: adapter.isSupported,
     getToolInput: adapter.getToolInput,

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { handlePiToolCall } from '@/pi/tool-call';
-import { withEnv, withLinkedWorktreeFixture } from '../helpers';
+import { readLatestAuditLogEntry, withEnv, withLinkedWorktreeFixture } from '../helpers';
 import {
   syncInitialGitRulebook,
   updatedGitRule,
@@ -394,11 +394,7 @@ describe('Pi tool_call event', () => {
         });
 
         expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
-        expect(
-          JSON.parse(
-            readFileSync(join(home, '.cc-safety-net', 'logs', 'pi-session.jsonl'), 'utf-8'),
-          ),
-        ).toEqual(
+        expect(readLatestAuditLogEntry(home, 'pi-session')).toEqual(
           expect.objectContaining({
             decision: 'deny',
             command: 'cat .env',

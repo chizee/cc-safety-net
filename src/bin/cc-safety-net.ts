@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runLogsCommand } from '@/bin/audit-log';
 import { type CommandName, findCommand } from '@/bin/commands';
 import { parseDoctorFlags, runDoctor } from '@/bin/doctor/index';
 import {
@@ -26,6 +27,7 @@ type ParsedCommand =
   | { mode: 'statusline' }
   | { mode: 'gui'; args: string[] }
   | { mode: 'doctor'; args: string[] }
+  | { mode: 'logs'; args: string[] }
   | { mode: 'explain'; args: string[] };
 
 type ParsedCommandHandler<T extends ParsedCommand['mode']> = (
@@ -109,6 +111,7 @@ const commandParsers = {
   install: (args: string[]): ParsedCommand => ({ mode: 'install', args }),
   uninstall: (args: string[]): ParsedCommand => ({ mode: 'uninstall', args }),
   doctor: (args: string[]): ParsedCommand => ({ mode: 'doctor', args }),
+  logs: (args: string[]): ParsedCommand => ({ mode: 'logs', args }),
   gui: (args: string[]): ParsedCommand => ({ mode: 'gui', args }),
 } satisfies Record<CommandName, (args: string[]) => ParsedCommand>;
 
@@ -177,6 +180,9 @@ const commandHandlers = {
     });
     process.exit(exitCode);
   },
+  logs: async (command) => {
+    process.exit(await runLogsCommand(command.args));
+  },
   gui: async (command) => {
     process.exit(await runGuiCommand(command.args));
   },
@@ -227,6 +233,9 @@ async function runParsedCommand(command: ParsedCommand): Promise<void> {
       return;
     case 'doctor':
       await commandHandlers.doctor(command);
+      return;
+    case 'logs':
+      await commandHandlers.logs(command);
       return;
     case 'gui':
       await commandHandlers.gui(command);

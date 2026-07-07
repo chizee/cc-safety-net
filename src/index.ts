@@ -62,6 +62,9 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
             directory,
             {
               homeDir,
+              agent: 'opencode',
+              ruleId: secretTarget.ruleId,
+              intent: 'hard_stop',
             },
           );
         }
@@ -106,6 +109,7 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
           if (input.sessionID) {
             writeAuditLog(input.sessionID, command, result.segment, result.reason, directory, {
               homeDir,
+              agent: 'opencode',
               ruleId: result.ruleId,
               intent: result.intent,
             });

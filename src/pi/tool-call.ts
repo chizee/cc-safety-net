@@ -118,7 +118,18 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
       const secretCommand = getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
       const sessionId = ctx.sessionManager.getSessionFile();
       if (sessionId) {
-        writeAuditLog(sessionId, secretCommand, secretTarget.target, REASON_SECRET_PROTECTION, cwd);
+        writeAuditLog(
+          sessionId,
+          secretCommand,
+          secretTarget.target,
+          REASON_SECRET_PROTECTION,
+          cwd,
+          {
+            agent: 'pi',
+            ruleId: secretTarget.ruleId,
+            intent: 'hard_stop',
+          },
+        );
       }
       return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false);
     }
@@ -170,6 +181,7 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
     if (sessionId && envTruthy(ENV_FLAGS.debug)) {
       writeAuditLog(sessionId, command, command, 'allowed', cwd, {
         decision: 'allow',
+        agent: 'pi',
       });
     }
     return undefined;
@@ -178,6 +190,7 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
   const sessionId = ctx.sessionManager.getSessionFile();
   if (sessionId) {
     writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
+      agent: 'pi',
       ruleId: result.ruleId,
       intent: result.intent,
     });

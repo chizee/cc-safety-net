@@ -3,6 +3,7 @@ import type { CopilotCliHookInput, CopilotCliHookOutput } from '@/types';
 
 export async function runCopilotCliHook(): Promise<void> {
   await runConfiguredHookAdapter<CopilotCliHookInput>({
+    agent: 'copilot-cli',
     createDenyOutput: (message): CopilotCliHookOutput => ({
       permissionDecision: 'deny',
       permissionDecisionReason: message,

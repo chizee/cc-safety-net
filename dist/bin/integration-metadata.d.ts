@@ -66,9 +66,9 @@ type RuntimeHookIntegrationMetadata = Extract<(typeof integrationMetadata)[numbe
     runtimeHook: object;
 }>;
 export type RuntimeHookIntegrationId = RuntimeHookIntegrationMetadata['id'];
-export declare const doctorIntegrationOrder: ("opencode" | "claude-code" | "antigravity-cli" | "codex" | "copilot-cli" | "gemini-cli" | "kimi-code" | "pi")[];
+export declare const doctorIntegrationOrder: ("opencode" | "antigravity-cli" | "claude-code" | "copilot-cli" | "gemini-cli" | "kimi-code" | "codex" | "pi")[];
 export declare const runtimeHookIntegrationMetadata: {
-    id: "claude-code" | "antigravity-cli" | "copilot-cli" | "gemini-cli" | "kimi-code";
+    id: "antigravity-cli" | "claude-code" | "copilot-cli" | "gemini-cli" | "kimi-code";
     displayName: "Claude Code" | "Antigravity CLI" | "Copilot CLI" | "Gemini CLI" | "Kimi Code";
     flags: readonly ["-cc", "--claude-code"] | readonly ["-ac", "--agy-cli"] | readonly ["-cp", "--copilot-cli"] | readonly ["-gc", "--gemini-cli"] | readonly ["-kc", "--kimi-code"];
     description: "Run as Claude Code PreToolUse hook" | "Run as Antigravity CLI PreToolUse hook" | "Run as Copilot CLI PreToolUse hook" | "Run as Gemini CLI BeforeTool hook" | "Run as Kimi Code PreToolUse hook";

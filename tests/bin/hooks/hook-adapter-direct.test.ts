@@ -11,7 +11,7 @@ import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 import { getUserPolicyPath } from '@/core/policy';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
-import { writeLockedGitHubRulebookPolicy } from '../../helpers';
+import { readLatestAuditLogEntry, writeLockedGitHubRulebookPolicy } from '../../helpers';
 import {
   antigravityShellInput,
   claudeCodeBashInput,
@@ -91,6 +91,16 @@ describe('hook adapter direct integration', () => {
 
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('git reset --hard');
+  });
+
+  test('Kimi Code hook writes agent metadata to audit log', async () => {
+    await runHookJson(runKimiCodeHook, kimiShellInput('git reset --hard'));
+    const auditHome = process.env.CC_SAFETY_NET_AUDIT_HOME;
+    if (!auditHome) throw new Error('CC_SAFETY_NET_AUDIT_HOME must be set by tests/setup.ts');
+    const entry = readLatestAuditLogEntry(auditHome, 'kimi-test-session');
+
+    expect(entry.agent).toBe('kimi-code');
+    expect(entry.decision).toBe('deny');
   });
 
   test('Copilot CLI hook parses toolArgs before blocking bash commands', async () => {

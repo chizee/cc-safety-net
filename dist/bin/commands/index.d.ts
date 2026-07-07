@@ -17,6 +17,27 @@ export declare const commands: readonly [{
     }[];
     examples: string[];
 }, {
+    name: "logs";
+    description: string;
+    usage: string;
+    options: ({
+        flags: string;
+        argument: string;
+        description: string;
+        default: string;
+    } | {
+        flags: string;
+        argument: string;
+        description: string;
+        default?: undefined;
+    } | {
+        flags: string;
+        description: string;
+        argument?: undefined;
+        default?: undefined;
+    })[];
+    examples: string[];
+}, {
     name: "explain";
     description: string;
     usage: string;

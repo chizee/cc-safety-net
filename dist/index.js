@@ -7563,6 +7563,10 @@ function sanitizeSessionIdForFilename(sessionId) {
   }
   return safe;
 }
+function encodeCwdForLogDirname(cwd) {
+  const encoded = (cwd ?? "").replace(/[^A-Za-z0-9]/g, "-").slice(0, 180);
+  return encoded || "no-cwd";
+}
 function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {}) {
   const safeSessionId = sanitizeSessionIdForFilename(sessionId);
   if (!safeSessionId) {
@@ -7572,13 +7576,20 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
   if (!home) {
     return;
   }
-  const logsDir = join9(home, ".cc-safety-net", "logs");
+  const logsDir = getAuditLogsDir(home);
+  if (!logsDir) {
+    return;
+  }
   try {
-    mkdirSync4(logsDir, { recursive: true, mode: 448 });
-    const logFile = join9(logsDir, `${safeSessionId}.jsonl`);
+    const ts = new Date().toISOString();
+    const sessionDir = join9(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    mkdirSync4(sessionDir, { recursive: true, mode: 448 });
+    const logFile = join9(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`);
     const entry = {
-      ts: new Date().toISOString(),
+      ts,
+      sessionId: safeSessionId,
       decision: options2.decision ?? "deny",
+      agent: options2.agent,
       command: redactSecrets(command2).slice(0, 300),
       segment: redactSecrets(segment).slice(0, 300),
       reason,
@@ -7590,9 +7601,12 @@ function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {})
 `, { encoding: "utf-8", mode: 384 });
   } catch {}
 }
-function getAuditLogHomeDir(homeFromEnv = process.env.HOME) {
+function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
   const home = homeFromEnv || homedir3() || userInfo().homedir;
   return home && isAbsolute8(home) ? home : null;
+}
+function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
+  return homeDir ? join9(homeDir, ".cc-safety-net", "logs") : null;
 }
 var PROVIDER_TOKENS = [
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
@@ -7783,10 +7797,11 @@ var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config)) {
-      return { target };
+      return { target, ruleId: "secret.deny-path" };
     }
-    if (isSensitivePath(target, cwd, config)) {
-      return { target };
+    const ruleId = isSensitivePath(target, cwd, config);
+    if (ruleId) {
+      return { target, ruleId };
     }
   }
   return null;
@@ -8316,61 +8331,63 @@ var SKIPPABLE_PATH_SEGMENT_PAIRS = [
 function isSensitivePath(target, cwd, config) {
   const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
-    return false;
+    return null;
   }
   const comparableName = comparable(normalized.split("/").pop() ?? "");
   const comparablePath = comparable(normalized);
   if (isAllowedSensitiveTemplate(comparableName))
-    return false;
+    return null;
   for (const rule of SECRET_HOME_PATH_RULES) {
     if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config)) {
-      return true;
+      return rule.id;
     }
   }
-  if (matchesCodingCliPath(normalized, cwd, config))
-    return true;
+  const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
+  if (codingCliRuleId)
+    return codingCliRuleId;
   for (const rule of SECRET_DIRECTORY_RULES) {
     if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config)) {
-      return true;
+      return rule.id;
     }
   }
   if (PUBLIC_KEY_BASENAMES.has(comparableName))
-    return false;
+    return null;
   for (const rule of SECRET_BASENAME_RULES) {
     if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config))
-      return true;
+      return rule.id;
   }
   if (comparableName.startsWith(ENV_PREFIX) && isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)) {
-    return true;
+    return SECRET_ENV_VARIANT_RULE.id;
   }
   for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
     if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
       const next = comparableName.slice(rule.prefix.length)[0];
       if ((next === "-" || next === "_") && isSecretRuleEnabled(rule.id, config))
-        return true;
+        return rule.id;
     }
   }
   for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {
     if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
       if (comparableName.slice(rule.prefix.length) === rule.suffix && isSecretRuleEnabled(rule.id, config)) {
-        return true;
+        return rule.id;
       }
     }
   }
   if (isSkippablePathForBroadSignatures(comparablePath))
-    return false;
+    return null;
   if (hasBroadSshKeyBasename(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)) {
-    return true;
+    return SECRET_BROAD_SSH_KEY_BASENAME_RULE.id;
   }
-  if (hasSensitiveExtension(comparableName, config))
-    return true;
-  return false;
+  const extensionRuleId = hasSensitiveExtension(comparableName, config);
+  if (extensionRuleId)
+    return extensionRuleId;
+  return null;
 }
 function matchesHomePathSuffix(comparablePath, suffix) {
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
 function matchesCodingCliPath(normalized, cwd, config) {
-  return SECRET_CODING_CLI_RULES.some((rule) => {
+  return SECRET_CODING_CLI_RULES.find((rule) => {
     if (!isSecretRuleEnabled(rule.id, config))
       return false;
     if (rule.id === "secret.cli.claude-code")
@@ -8390,7 +8407,7 @@ function matchesCodingCliPath(normalized, cwd, config) {
     if (rule.id === "secret.cli.pi")
       return matchesPiPath(normalized, cwd);
     return false;
-  });
+  })?.id ?? null;
 }
 function matchesClaudeCodePath(normalized, cwd) {
   return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd), [
@@ -8483,16 +8500,16 @@ function hasBroadSshKeyBasename(comparableName) {
 function hasSensitiveExtension(comparableName, config) {
   const extension = getExtension(comparableName);
   if (extension === "")
-    return false;
+    return null;
   for (const rule of SECRET_EXTENSION_RULES) {
     if (extension === rule.extension && isSecretRuleEnabled(rule.id, config))
-      return true;
+      return rule.id;
   }
   for (const rule of SECRET_EXTENSION_PATTERN_RULES) {
     if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config))
-      return true;
+      return rule.id;
   }
-  return false;
+  return null;
 }
 function getExtension(comparableName) {
   const index = comparableName.lastIndexOf(".");
@@ -8869,7 +8886,10 @@ var CCSafetyNetPlugin = async ({ directory, homeDir }) => {
         const command2 = getCommandFromToolInput(toolInput) ?? secretTarget.target;
         if (input.sessionID) {
           writeAuditLog(input.sessionID, command2, secretTarget.target, REASON_SECRET_PROTECTION, directory, {
-            homeDir
+            homeDir,
+            agent: "opencode",
+            ruleId: secretTarget.ruleId,
+            intent: "hard_stop"
           });
         }
         throwBlocked(REASON_SECRET_PROTECTION, command2, secretTarget.target, false);
@@ -8897,6 +8917,7 @@ var CCSafetyNetPlugin = async ({ directory, homeDir }) => {
           if (input.sessionID) {
             writeAuditLog(input.sessionID, command2, result.segment, result.reason, directory, {
               homeDir,
+              agent: "opencode",
               ruleId: result.ruleId,
               intent: result.intent
             });

@@ -4,6 +4,7 @@ import type { HookOutput, KimiCodeHookInput } from '@/types';
 
 export async function runKimiCodeHook(): Promise<void> {
   await runConfiguredHookAdapter<KimiCodeHookInput>({
+    agent: 'kimi-code',
     createDenyOutput: (message): HookOutput => ({
       hookSpecificOutput: {
         hookEventName: KIMI_CODE_HOOK_EVENT,

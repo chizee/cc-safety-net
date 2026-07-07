@@ -2,7 +2,6 @@
 .cursor
 .claude
 .agents
-log*
 .safety-net.json
 .opencode
 .gemini
