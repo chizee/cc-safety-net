@@ -4,6 +4,10 @@ import { type ParseEntry, parse } from 'shell-quote';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
+  expandSupportedPathEnvironmentVariables,
+  resolveExistingPath,
+} from '@/core/path-canonicalization';
+import {
   SECRET_BASENAME_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
   SECRET_CODING_CLI_RULES,
@@ -198,8 +202,8 @@ function extractCommandPathTargets(command: string): string[] {
     return [];
   }
 
-  const targets = extractDecodedCommandSubstitutionTargets(command);
-  const tokens = parse(command.replace(/\n/g, ' ; '), {});
+  const targets = extractCommandSubstitutionPathTargets(command);
+  const tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY);
   let segment: string[] = [];
   let pipeProducer: string[] | null = null;
 
@@ -488,12 +492,13 @@ function extractPathLiteralsFromCode(code: string): string[] {
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 
-function extractDecodedCommandSubstitutionTargets(command: string): string[] {
-  return extractCommandSubstitutionBodies(command).flatMap((body) =>
-    commandSubstitutionDecodesBase64(body)
+function extractCommandSubstitutionPathTargets(command: string): string[] {
+  return extractCommandSubstitutionBodies(command).flatMap((body) => [
+    ...extractCommandPathTargets(body),
+    ...(commandSubstitutionDecodesBase64(body)
       ? extractBase64DecodedPathCandidates(parse(body.replace(/\n/g, ' ; '), ENV_PROXY))
-      : [],
-  );
+      : []),
+  ]);
 }
 
 function commandSubstitutionDecodesBase64(command: string): boolean {
@@ -938,7 +943,10 @@ function matchesOpenCodePath(normalized: string, cwd: string): boolean {
     matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
     matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) ||
     ['/Library/Application Support/opencode', '/etc/opencode', ...programDataConfig].some((root) =>
-      matchesFileInRoot(normalized, root, ['opencode.json', 'opencode.jsonc']),
+      matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd), [
+        'opencode.json',
+        'opencode.jsonc',
+      ]),
     )
   );
 }
@@ -1059,12 +1067,13 @@ function isSecretRuleEnabled(id: string, config: SecretProtectionConfig | undefi
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {
-  const normalized = normalizePathText(target);
+  const normalized = normalizePathText(expandSupportedPathEnvironmentVariables(target));
   if (!normalized || normalized === '~' || normalized.startsWith('~/')) {
     return normalized;
   }
 
-  const home = normalizePathText(process.env.HOME ?? homedir());
+  const homeValue = process.env.HOME ?? homedir();
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : '';
   if (!home) {
     return normalized;
   }
@@ -1072,11 +1081,13 @@ function normalizeCandidatePath(target: string, cwd: string): string {
   const absolute = isAbsolute(normalized)
     ? normalized
     : normalizePathText(resolve(cwd, normalized));
-  if (!isSameOrChildPath(absolute, home)) {
-    return normalized;
+  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  if (!isSameOrChildPath(canonicalAbsolute, home)) {
+    if (isAbsolute(normalized)) return canonicalAbsolute;
+    return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
 
-  const relativeHomePath = absolute.slice(home.length);
+  const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : '~';
 }
 
