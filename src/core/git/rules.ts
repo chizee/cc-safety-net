@@ -28,6 +28,8 @@ const REASON_CLEAN =
   "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.";
 const REASON_PUSH_FORCE =
   'git push --force destroys remote history. Use --force-with-lease for safer force push.';
+const REASON_PUSH_DELETE =
+  'git push deletes remote refs. Ask the user to run it manually if deletion is intended.';
 const REASON_BRANCH_DELETE =
   'git branch -D force-deletes without merge check. Use -d for safe delete.';
 const REASON_REBASE_ABORT =
@@ -331,15 +333,45 @@ function analyzeGitClean(tokens: readonly string[]): DestructiveCommandRuleMatch
 }
 
 function analyzeGitPush(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
-  const shortOpts = extractShortOpts(tokens.filter((t) => t !== '--'));
+  const { before, after } = splitAtDoubleDash(tokens);
+  const shortOpts = extractShortOpts(before);
   const hasForce =
-    tokens.some((token) => matchesGitLongOption(token, '--force')) || shortOpts.has('-f');
+    before.some((token) => matchesGitLongOption(token, '--force')) ||
+    shortOpts.has('-f') ||
+    getPushRefspecCandidates(before, after).some(isForcePushRefspec);
 
   if (hasForce) {
     return destructiveCommandMatch('git.push-force', REASON_PUSH_FORCE);
   }
 
+  const hasDelete =
+    before.some((token) => matchesGitLongOption(token, '--delete')) ||
+    shortOpts.has('-d') ||
+    getPushRefspecCandidates(before, after).some(isDeletePushRefspec);
+
+  if (hasDelete) {
+    return destructiveCommandMatch('git.push-delete', REASON_PUSH_DELETE);
+  }
+
   return null;
+}
+
+function getPushRefspecCandidates(
+  beforeDoubleDash: readonly string[],
+  afterDoubleDash: readonly string[],
+): string[] {
+  return [
+    ...beforeDoubleDash.filter((token) => token !== '' && !token.startsWith('-')),
+    ...afterDoubleDash,
+  ];
+}
+
+function isForcePushRefspec(token: string): boolean {
+  return token.startsWith('+') || token.includes(':+');
+}
+
+function isDeletePushRefspec(token: string): boolean {
+  return token.length > 1 && token.startsWith(':');
 }
 
 function analyzeGitBranch(tokens: readonly string[]): DestructiveCommandRuleMatch | null {

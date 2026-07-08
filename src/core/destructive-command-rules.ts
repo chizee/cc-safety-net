@@ -2,6 +2,7 @@ import type { BlockIntent, Config, DestructiveCommandRuleMatch } from '@/types';
 
 export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.ssh-env',
+  'git.alias-config',
   'git.checkout-force',
   'git.checkout-double-dash',
   'git.checkout-ref-path',
@@ -15,6 +16,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.reset-merge',
   'git.clean-force',
   'git.push-force',
+  'git.push-delete',
   'git.branch-force-delete',
   'git.rebase-abort',
   'git.merge-abort',
@@ -69,6 +71,13 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git SSH environment override',
     description: 'Blocks Git network operations with SSH environment overrides.',
+    intent: 'manual_only',
+  },
+  {
+    id: 'git.alias-config',
+    category: 'Git',
+    label: 'Git command-line alias',
+    description: 'Blocks command-line Git aliases that cannot be safely resolved.',
     intent: 'manual_only',
   },
   {
@@ -161,6 +170,13 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: 'Git push force',
     description: 'Blocks force pushes.',
     intent: 'use_alternative',
+  },
+  {
+    id: 'git.push-delete',
+    category: 'Git',
+    label: 'Git push delete',
+    description: 'Blocks remote ref deletion through push.',
+    intent: 'manual_only',
   },
   {
     id: 'git.branch-force-delete',

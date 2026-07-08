@@ -20,6 +20,8 @@ interface ShellCommandInfo {
   leadingAssignments: Map<string, GitContextAssignment>;
 }
 
+type PrefixOptionAction = 'skip' | 'stop' | 'abort';
+
 export function createShellGitContextEnvState(
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): ShellGitContextEnvState {
@@ -144,20 +146,33 @@ function getShellCommandInfo(tokens: readonly string[]): ShellCommandInfo | null
 
   let commandIndex = i;
   let command = tokens[commandIndex] ?? null;
-  if (command === 'builtin') {
-    commandIndex++;
-    if (tokens[commandIndex] === '--') {
+
+  while (command === 'builtin' || command === 'command' || command === 'time') {
+    if (command === 'builtin') {
       commandIndex++;
+      if (tokens[commandIndex] === '--') {
+        commandIndex++;
+      }
+      command = tokens[commandIndex] ?? null;
+      continue;
     }
-    command = tokens[commandIndex] ?? null;
-  }
-  if (command === 'command') {
-    const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
-    if (!commandBuiltinInfo) {
+
+    if (command === 'command') {
+      const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
+      if (!commandBuiltinInfo) {
+        return null;
+      }
+      commandIndex = commandBuiltinInfo.commandIndex;
+      command = commandBuiltinInfo.command;
+      continue;
+    }
+
+    const timePrefixInfo = getTimePrefixTarget(tokens, commandIndex);
+    if (!timePrefixInfo) {
       return null;
     }
-    commandIndex = commandBuiltinInfo.commandIndex;
-    command = commandBuiltinInfo.command;
+    commandIndex = timePrefixInfo.commandIndex;
+    command = timePrefixInfo.command;
   }
   if (command === null) {
     return null;
@@ -170,6 +185,28 @@ function getCommandBuiltinTarget(
   tokens: readonly string[],
   commandIndex: number,
 ): { command: string; commandIndex: number } | null {
+  return getPrefixedCommandTarget(tokens, commandIndex, (token) => {
+    if (token === '-p') {
+      return 'skip';
+    }
+    return token === '-v' || token === '-V' ? 'abort' : 'stop';
+  });
+}
+
+function getTimePrefixTarget(
+  tokens: readonly string[],
+  commandIndex: number,
+): { command: string; commandIndex: number } | null {
+  return getPrefixedCommandTarget(tokens, commandIndex, (token) =>
+    token.startsWith('-') ? 'skip' : 'stop',
+  );
+}
+
+function getPrefixedCommandTarget(
+  tokens: readonly string[],
+  commandIndex: number,
+  optionAction: (token: string) => PrefixOptionAction,
+): { command: string; commandIndex: number } | null {
   let i = commandIndex + 1;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -180,12 +217,13 @@ function getCommandBuiltinTarget(
       i++;
       break;
     }
-    if (token === '-p') {
+    const action = optionAction(token);
+    if (action === 'abort') {
+      return null;
+    }
+    if (action === 'skip') {
       i++;
       continue;
-    }
-    if (token === '-v' || token === '-V') {
-      return null;
     }
     break;
   }

@@ -111,8 +111,11 @@ function envRecursiveSubmoduleConfig(envAssignments?: ReadonlyMap<string, string
 
   let recursiveSubmoduleConfig: boolean | null = null;
   for (let i = 0; i < count; i++) {
-    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments);
-    if (key?.toLowerCase() !== 'submodule.recurse') {
+    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.toLowerCase();
+    if (key && isIncludeConfigKey(key)) {
+      return true;
+    }
+    if (key !== 'submodule.recurse') {
       continue;
     }
     const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);

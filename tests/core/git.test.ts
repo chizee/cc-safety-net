@@ -14,9 +14,25 @@ import {
   withReadonlyLinkedWorktreeFixture,
 } from '../helpers.ts';
 
+const gitResetHard = ['git', 'reset', '--hard'].join(' ');
+const gitResetHardReason = ['git reset', '--hard'].join(' ');
+
 describe('analyzeGit direct', () => {
   test('empty tokens returns null', () => {
     expect(analyzeGit([])).toBeNull();
+  });
+
+  test('blocks destructive command-line aliases before global config parsing', () => {
+    assertBlocked(`git -c alias.nuke=reset nuke --hard`, gitResetHardReason);
+    assertBlocked('git -calias.force=push force origin +main', 'push --force');
+  });
+
+  test('fails closed on command-line shell aliases', () => {
+    assertBlocked('git -c alias.nuke=!echo nuke', 'Git aliases');
+  });
+
+  test('allows safe command-line aliases', () => {
+    assertAllowed('git -c alias.st=status st');
   });
 
   test('blocks reset after global config-env option', () => {
@@ -701,6 +717,25 @@ describe('git linked worktree mode', () => {
     }
   });
 
+  test('SAFETY_NET_WORKTREE tracks time-prefixed shell git context updates', () => {
+    const fixture = createLinkedWorktreeFixture();
+    const mainWorktree = toShellPath(fixture.mainWorktree);
+    try {
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `time export GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          `time set -a; GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+        ];
+
+        for (const command of commands) {
+          assertBlocked(command, gitResetHardReason, fixture.linkedWorktree);
+        }
+      });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   test('SAFETY_NET_WORKTREE honors disabled allexport before later assignments', () => {
     const fixture = createLinkedWorktreeFixture();
     const mainWorktree = toShellPath(fixture.mainWorktree);
@@ -1276,6 +1311,24 @@ describe('git linked worktree mode', () => {
     }
   });
 
+  test('SAFETY_NET_WORKTREE fails closed on include config count values', () => {
+    const fixture = createLinkedWorktreeFixture();
+    try {
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0=.gitconfig-extra ${gitResetHard}`,
+          `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=includeIf.gitdir:./.path GIT_CONFIG_VALUE_0=.gitconfig-extra ${gitResetHard}`,
+        ];
+
+        for (const command of commands) {
+          assertBlocked(command, gitResetHardReason, fixture.linkedWorktree);
+        }
+      });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   test('SAFETY_NET_WORKTREE keeps forced branch resets blocked', () => {
     const fixture = createLinkedWorktreeFixture();
     try {
@@ -1565,6 +1618,19 @@ describe('git push', () => {
     assertBlocked('git push --forc origin main', 'push --force');
   });
 
+  test('git push leading plus refspecs are blocked as force pushes', () => {
+    assertBlocked('git push origin +main', 'push --force');
+    assertBlocked('git push origin refs/heads/main:+refs/heads/main', 'push --force');
+    assertBlocked('git push origin -- +refs/heads/main', 'push --force');
+  });
+
+  test('git push deletion refspecs are blocked', () => {
+    assertBlocked('git push --delete origin old-branch', 'git push delete');
+    assertBlocked('git push origin --delete old-branch', 'git push delete');
+    assertBlocked('git push origin :old-branch', 'git push delete');
+    assertBlocked('git push origin :refs/heads/old-branch', 'git push delete');
+  });
+
   test('git push --force-with-lease allowed', () => {
     assertAllowed('git push --force-with-lease');
   });
@@ -1587,6 +1653,10 @@ describe('git push', () => {
 
   test('git push origin main allowed', () => {
     assertAllowed('git push origin main');
+  });
+
+  test('git push matching refspec allowed', () => {
+    assertAllowed('git push origin main:main');
   });
 });
 
@@ -1744,6 +1814,21 @@ describe('git ssh environment overrides', () => {
 
   test('GIT_SSH_COMMAND still allows non-network git status', () => {
     assertAllowed('GIT_SSH_COMMAND=./helper git status');
+  });
+
+  test('core.sshCommand blocks network operations', () => {
+    assertBlocked(
+      'git -c core.sshCommand=./malicious fetch origin',
+      'Git SSH environment overrides',
+    );
+    assertBlocked(
+      'git -ccore.sshCommand=./malicious push origin main',
+      'Git SSH environment overrides',
+    );
+  });
+
+  test('core.sshCommand still allows non-network git status', () => {
+    assertAllowed('git -c core.sshCommand=./helper status');
   });
 });
 
