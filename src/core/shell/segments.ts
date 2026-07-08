@@ -6,6 +6,7 @@ import {
   getCommandTokenText,
   hasUnclosedQuotes,
   type QuoteScanState,
+  stripShellComments,
 } from './shared';
 
 const ARITHMETIC_SENTINEL = '__CC_SAFETY_NET_ARITH_SENTINEL__';
@@ -25,7 +26,7 @@ export function splitShellCommandsWithInfo(command: string): ShellCommandSegment
     return [{ tokens: [command], hasDynamicSubstitution: false }];
   }
   const normalizedCommand = _stripAttachedIoNumbers(
-    _normalizeAnsiCQuotes(command).replace(/\n/g, ' ; '),
+    _normalizeAnsiCQuotes(stripShellComments(command)).replace(/\r?\n|\r/g, ' ; '),
   );
   const tokens = parse(normalizedCommand, ENV_PROXY);
   const segments: ShellCommandSegmentInfo[] = [];

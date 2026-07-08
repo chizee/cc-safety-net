@@ -11,6 +11,10 @@ import {
   withEnv,
 } from '../../helpers.ts';
 
+const RM_RF_REASON = ['rm', '-rf'].join(' ');
+const RM_RF_ROOT = [RM_RF_REASON, '/'].join(' ');
+const GIT_RESET_HARD = ['git', 'reset', '--hard'].join(' ');
+
 describe('edge cases', () => {
   let tempDir: string;
 
@@ -38,6 +42,11 @@ describe('edge cases', () => {
     test('case insensitive rm and find analyzer dispatch blocks', () => {
       assertBlocked('RM -rf /', 'extremely dangerous');
       assertBlocked('FIND . -delete', 'find -delete');
+    });
+
+    test('commands after shell comment newlines are still analyzed', () => {
+      assertBlocked(`echo ok # ignored\n${RM_RF_ROOT}`, RM_RF_REASON);
+      assertBlocked(`echo ok # 'ignored quote\n${RM_RF_ROOT}`, RM_RF_REASON);
     });
   });
 
@@ -113,6 +122,14 @@ describe('edge cases', () => {
   describe('shell wrappers', () => {
     test('sh -lc wrapper blocked', () => {
       assertBlocked("sh -lc 'git reset --hard'", 'git reset --hard');
+    });
+
+    test('bash -c option terminator wrapper blocked', () => {
+      assertBlocked("bash -c -- 'git reset --hard'", 'git reset --hard');
+    });
+
+    test('clustered shell flags with option terminator blocked', () => {
+      assertBlocked(`zsh -lc -- '${RM_RF_ROOT}'`, RM_RF_REASON);
     });
   });
 
@@ -925,6 +942,24 @@ describe('edge cases', () => {
     test('safe combined interpreter execution flags allowed', () => {
       assertAllowed('node -pe "1 + 1"');
     });
+
+    test('node long eval dangerous blocked', () => {
+      assertBlocked(`node --eval "${RM_RF_ROOT}"`, RM_RF_REASON);
+      assertBlocked(`node --eval="${RM_RF_ROOT}"`, RM_RF_REASON);
+    });
+
+    test('node long eval safe allowed', () => {
+      assertAllowed('node --eval "console.log(\\"ok\\")"');
+      assertAllowed('node --eval="console.log(\\"ok\\")"');
+    });
+
+    test('perl uppercase eval dangerous blocked', () => {
+      assertBlocked(`perl -E 'system("${RM_RF_ROOT}")'`, 'dangerous');
+    });
+
+    test('perl uppercase eval safe allowed', () => {
+      assertAllowed('perl -E "say 1"');
+    });
   });
 
   describe('paranoid mode', () => {
@@ -937,6 +972,14 @@ describe('edge cases', () => {
     test('global paranoid mode python one liner denies', () => {
       withEnv({ SAFETY_NET_PARANOID: '1' }, () => {
         assertBlocked('python -c "print(\'ok\')"', 'Paranoid mode');
+      });
+    });
+
+    test('paranoid mode blocks long and uppercase eval forms', () => {
+      withEnv({ SAFETY_NET_PARANOID_INTERPRETERS: '1' }, () => {
+        assertBlocked('node --eval "console.log(1)"', 'Paranoid mode');
+        assertBlocked('node --eval="console.log(1)"', 'Paranoid mode');
+        assertBlocked('perl -E "say 1"', 'Paranoid mode');
       });
     });
   });
@@ -1071,6 +1114,20 @@ describe('edge cases', () => {
 
     test('awk dynamic system command blocked conservatively', () => {
       assertBlocked("awk '{ system($0) }'", 'awk system');
+    });
+
+    test('awk pipe getline command blocked', () => {
+      assertBlocked(`awk 'BEGIN { "${RM_RF_ROOT}" | getline }'`, RM_RF_REASON);
+      assertBlocked(`awk 'BEGIN { "${GIT_RESET_HARD}" | getline line }'`, GIT_RESET_HARD);
+    });
+
+    test('awk output pipe command blocked', () => {
+      assertBlocked(`awk 'BEGIN { print "x" | "${GIT_RESET_HARD}" }'`, GIT_RESET_HARD);
+    });
+
+    test('awk benign pipe commands allowed', () => {
+      assertAllowed('awk \'BEGIN { "printf ok" | getline line; print line }\'');
+      assertAllowed('awk \'BEGIN { print "x" | "cat >/tmp/cc-safety-net-test" }\'');
     });
 
     test('head with git clean -f allowed', () => {

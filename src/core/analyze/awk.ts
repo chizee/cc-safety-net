@@ -4,7 +4,7 @@ import type { DestructiveCommandRuleMatch } from '@/types';
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 
 export const REASON_AWK_SYSTEM_DYNAMIC =
-  'Detected awk system() call with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system().';
+  'Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.';
 
 export function analyzeAwkSystemCalls(
   tokens: readonly string[],
@@ -23,9 +23,7 @@ export function analyzeAwkSystemCallMatch(
   analyzeNested: (command: string) => DestructiveCommandRuleMatch | null,
 ): DestructiveCommandRuleMatch | null {
   for (const token of tokens.slice(1)) {
-    if (!token.includes('system')) continue;
-
-    const commands = extractAwkSystemCommands(token);
+    const commands = extractAwkExternalCommands(token);
     if (!commands) continue;
     if (commands.dynamic)
       return destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
@@ -36,6 +34,17 @@ export function analyzeAwkSystemCallMatch(
     }
   }
   return null;
+}
+
+function extractAwkExternalCommands(code: string): { dynamic: boolean; commands: string[] } | null {
+  const systemCommands = code.includes('system') ? extractAwkSystemCommands(code) : null;
+  const pipeCommands = extractAwkPipeCommands(code);
+  if (!systemCommands && !pipeCommands) return null;
+
+  return {
+    dynamic: !!systemCommands?.dynamic || !!pipeCommands?.dynamic,
+    commands: [...(systemCommands?.commands ?? []), ...(pipeCommands?.commands ?? [])],
+  };
 }
 
 export function extractAwkSystemCommands(
@@ -81,6 +90,71 @@ export function extractAwkSystemCommands(
 
   if (!sawSystem) return null;
   return commands.length > 0 ? { dynamic: false, commands } : { dynamic: true, commands };
+}
+
+function extractAwkPipeCommands(code: string): { dynamic: boolean; commands: string[] } | null {
+  const commands: string[] = [];
+  let dynamic = false;
+  let sawPipeCommand = false;
+  let i = 0;
+
+  while (i < code.length) {
+    const char = code[i];
+    if (!char) break;
+
+    if (char === '"' || char === "'") {
+      const parsed = readAwkStringLiteral(code, i, char);
+      i = parsed?.endIndex ?? i + 1;
+      continue;
+    }
+
+    if (char === '#') {
+      i = findAwkLineEnd(code, i + 1);
+      continue;
+    }
+
+    if (char === '/' && isLikelyAwkRegexStart(code, i)) {
+      i = findAwkRegexEnd(code, i + 1) ?? i + 1;
+      continue;
+    }
+
+    if (char !== '|' || code[i - 1] === '|' || code[i + 1] === '|') {
+      i++;
+      continue;
+    }
+
+    const operatorEnd = code[i + 1] === '&' ? i + 2 : i + 1;
+    const afterPipe = skipAwkWhitespace(code, operatorEnd);
+    if (startsAwkKeyword(code, afterPipe, 'getline')) {
+      sawPipeCommand = true;
+      const command = readAwkStringBeforePipe(code, i);
+      if (command === null) {
+        dynamic = true;
+      } else {
+        commands.push(command);
+      }
+      i = operatorEnd;
+      continue;
+    }
+
+    if (isAwkPrintPipe(code, i)) {
+      sawPipeCommand = true;
+      const parsed = readAwkStringAt(code, afterPipe);
+      if (!parsed) {
+        dynamic = true;
+        i = operatorEnd;
+        continue;
+      }
+      commands.push(parsed.value);
+      i = parsed.endIndex;
+      continue;
+    }
+
+    i++;
+  }
+
+  if (!sawPipeCommand) return null;
+  return { dynamic, commands };
 }
 
 function isAwkIdentifierChar(char: string | undefined): boolean {
@@ -131,6 +205,28 @@ function readAwkStringLiteral(
   return null;
 }
 
+function readAwkStringAt(code: string, index: number): { value: string; endIndex: number } | null {
+  const quote = code[index];
+  if (quote !== '"' && quote !== "'") return null;
+  return readAwkStringLiteral(code, index, quote);
+}
+
+function readAwkStringBeforePipe(code: string, pipeIndex: number): string | null {
+  const endIndex = skipAwkWhitespaceBack(code, pipeIndex);
+  const quote = code[endIndex - 1];
+  if (quote !== '"' && quote !== "'") return null;
+
+  for (let i = endIndex - 2; i >= 0; i--) {
+    if (code[i] !== quote) continue;
+
+    const parsed = readAwkStringLiteral(code, i, quote);
+    if (parsed?.endIndex === endIndex) {
+      return parsed.value;
+    }
+  }
+  return null;
+}
+
 function decodeAwkEscape(code: string, index: number): { value: string; endIndex: number } | null {
   const char = code[index];
   if (!char) return null;
@@ -160,4 +256,71 @@ function decodeAwkEscape(code: string, index: number): { value: string; endIndex
     v: '\v',
   };
   return { value: simpleEscapes[char] ?? char, endIndex: index };
+}
+
+function skipAwkWhitespaceBack(code: string, index: number): number {
+  let i = index;
+  while (i > 0 && /\s/.test(code[i - 1] ?? '')) {
+    i--;
+  }
+  return i;
+}
+
+function startsAwkKeyword(code: string, index: number, keyword: string): boolean {
+  return (
+    code.startsWith(keyword, index) &&
+    !isAwkIdentifierChar(code[index - 1]) &&
+    !isAwkIdentifierChar(code[index + keyword.length])
+  );
+}
+
+function isAwkPrintPipe(code: string, pipeIndex: number): boolean {
+  return /\b(?:print|printf)\b/.test(code.slice(findAwkStatementStart(code, pipeIndex), pipeIndex));
+}
+
+function findAwkStatementStart(code: string, index: number): number {
+  const starts = [';', '\n', '{', '}'].map((marker) => code.lastIndexOf(marker, index - 1));
+  return Math.max(...starts) + 1;
+}
+
+function findAwkLineEnd(code: string, index: number): number {
+  const lineEnd = code.indexOf('\n', index);
+  return lineEnd === -1 ? code.length : lineEnd + 1;
+}
+
+function isLikelyAwkRegexStart(code: string, index: number): boolean {
+  const previousIndex = findPreviousAwkNonWhitespace(code, index);
+  if (previousIndex === -1) return true;
+  return '{([,;!~'.includes(code[previousIndex] ?? '');
+}
+
+function findPreviousAwkNonWhitespace(code: string, index: number): number {
+  for (let i = index - 1; i >= 0; i--) {
+    if (!/\s/.test(code[i] ?? '')) return i;
+  }
+  return -1;
+}
+
+function findAwkRegexEnd(code: string, index: number): number | null {
+  let escaped = false;
+
+  for (let i = index; i < code.length; i++) {
+    const char = code[i];
+    if (!char) break;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '/') {
+      return i + 1;
+    }
+  }
+  return null;
 }
