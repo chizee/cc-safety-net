@@ -1,13 +1,17 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
+import {
+  expandSupportedPathEnvironmentVariables,
+  resolveExistingPath,
+} from '@/core/path-canonicalization';
 import { getUserPolicyPath } from '@/core/policy';
 import { readRulesConfig } from '@/core/rules/policy/config-file';
 import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
 import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
 import { getBasename, stripWrappers } from '@/core/shell';
-import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
@@ -95,7 +99,7 @@ function findPolicyConfigMutationTargetInCommand(
 
   let tokens: ParseEntry[];
   try {
-    tokens = parse(command.replace(/\n/g, ' ; '), {}) as ParseEntry[];
+    tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY) as ParseEntry[];
   } catch {
     return findPolicyConfigTargetInText(command, cwd);
   }
@@ -309,11 +313,13 @@ function extractPolicyConfigPathCandidates(text: string): string[] {
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {
-  const unix = target.trim().replace(/\\/g, '/');
+  const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, '/');
   if (!unix) return '';
   const expanded =
     unix === '~' ? homedir() : unix.startsWith('~/') ? resolve(homedir(), unix.slice(2)) : unix;
-  return normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)).replace(/\\/g, '/');
+  return resolveExistingPath(
+    normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
+  ).replace(/\\/g, '/');
 }
 
 function isOperator(token: ParseEntry): boolean {

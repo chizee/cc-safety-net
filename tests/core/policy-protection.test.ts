@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
@@ -94,6 +94,75 @@ describe('policy config protection', () => {
           findPolicyConfigMutationTargetInToolInput('Read', { file_path: path }, cwd),
         ).toBeNull();
       }
+    });
+  });
+
+  test('denies environment-expanded writes targeting policy files', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      for (const path of [
+        '$CC_SAFETY_NET_HOME/policy.json',
+        '${CC_SAFETY_NET_HOME}/rules/rule.json',
+        '$CC_SAFETY_NET_HOME/rules/rule.lock',
+      ]) {
+        expect(
+          findPolicyConfigMutationTargetInToolInput(
+            'Write',
+            { file_path: path, content: '{}' },
+            cwd,
+          )?.target,
+        ).toBe(path);
+      }
+
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Bash',
+          { command: 'cat package.json > $CC_SAFETY_NET_HOME/policy.json' },
+          cwd,
+        )?.target,
+      ).toBe('$CC_SAFETY_NET_HOME/policy.json');
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Read',
+          { file_path: '$CC_SAFETY_NET_HOME/policy.json' },
+          cwd,
+        ),
+      ).toBeNull();
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Bash',
+          { command: 'cat $CC_SAFETY_NET_HOME/policy.json' },
+          cwd,
+        ),
+      ).toBeNull();
+    });
+  });
+
+  test('denies write aliases through symlinks to policy files', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      const policyPath = getUserPolicyPath();
+      mkdirSync(dirname(policyPath), { recursive: true });
+      writeFileSync(policyPath, '{}');
+
+      const policyAlias = join(cwd, 'policy-alias.json');
+      symlinkSync(policyPath, policyAlias);
+
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Write',
+          { file_path: policyAlias, content: '{}' },
+          cwd,
+        )?.target,
+      ).toBe(policyAlias);
+      expect(
+        findPolicyConfigMutationTargetInToolInput('Read', { file_path: policyAlias }, cwd),
+      ).toBeNull();
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Bash',
+          { command: `cat package.json > ${policyAlias}` },
+          cwd,
+        )?.target,
+      ).toBe(policyAlias);
     });
   });
 

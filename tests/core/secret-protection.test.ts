@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -99,6 +100,51 @@ describe('secret protection path matching', () => {
     expect(findSensitivePathTarget(['~/.netrc'], cwd)).not.toBeNull();
     expect(findSensitivePathTarget(['~/.git-credentials'], cwd)).not.toBeNull();
     expect(findSensitivePathTarget(['~/.config/gh/hosts.yml'], cwd)).not.toBeNull();
+  });
+
+  test('matches supported environment-expanded credential paths', () => {
+    const home = join(tmpdir(), 'secret-protection-env-home');
+    const codexHome = join(home, 'state', 'codex');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home, CODEX_HOME: codexHome }, () => {
+      for (const target of [
+        '$HOME/.ssh/id_rsa',
+        '${HOME}/.aws/credentials',
+        '$CODEX_HOME/auth.json',
+        '${CODEX_HOME}/config.toml',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+      }
+
+      expect(findSensitiveTargetInCommand('cat $CODEX_HOME/auth.json', cwd)).not.toBeNull();
+      expect(
+        findSensitiveTargetInToolInput({ file_path: '${CODEX_HOME}/config.toml' }, cwd),
+      ).not.toBeNull();
+    });
+  });
+
+  test('matches symlink aliases to coding CLI credential files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'secret-protection-symlink-'));
+
+    try {
+      const codexHome = join(root, 'codex-home');
+      const cwd = join(root, 'project');
+      const credentialPath = join(codexHome, 'auth.json');
+      const aliasPath = join(cwd, 'session-cache.json');
+      mkdirSync(codexHome, { recursive: true });
+      mkdirSync(cwd, { recursive: true });
+      writeFileSync(credentialPath, '{}');
+      symlinkSync(credentialPath, aliasPath);
+
+      withEnv({ CODEX_HOME: codexHome, HOME: join(root, 'home') }, () => {
+        expect(findSensitivePathTarget([aliasPath], cwd)).not.toBeNull();
+        expect(findSensitiveTargetInToolInput({ file_path: aliasPath }, cwd)).not.toBeNull();
+        expect(findSensitiveTargetInCommand(`cat ${aliasPath}`, cwd)).not.toBeNull();
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('normalizes Windows-style separators', () => {
@@ -393,6 +439,17 @@ describe('secret protection command target extraction', () => {
         cwd,
       ),
     ).not.toBeNull();
+  });
+
+  test('blocks legacy backtick substitutions that read sensitive operands', () => {
+    const home = join(tmpdir(), 'secret-protection-backtick-home');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home }, () => {
+      expect(findSensitiveTargetInCommand('echo `cat .env`', cwd)).not.toBeNull();
+      expect(findSensitiveTargetInCommand('printf %s `cat $HOME/.ssh/id_rsa`', cwd)).not.toBeNull();
+      expect(findSensitiveTargetInCommand('echo `cat README.md`', cwd)).toBeNull();
+    });
   });
 
   test('blocks echo and printf path carriers into xargs readers', () => {
