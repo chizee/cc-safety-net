@@ -181,6 +181,19 @@ describe('edge cases', () => {
       assertBlocked("git push --force origin main 'unterminated", 'push --force');
     });
 
+    test('non strict unparseable git push plus refspec still blocked by heuristic', () => {
+      assertBlocked("git push origin +main 'unterminated", 'push --force');
+      assertBlocked(
+        "git push origin refs/heads/main:+refs/heads/main 'unterminated",
+        'push --force',
+      );
+    });
+
+    test('non strict unparseable git push delete still blocked by heuristic', () => {
+      assertBlocked("git push --delete origin old-branch 'unterminated", 'git push delete');
+      assertBlocked("git push origin :refs/heads/old-branch 'unterminated", 'git push delete');
+    });
+
     test('unparseable echo mentions find delete allowed', () => {
       assertAllowed('echo "find . -delete');
     });

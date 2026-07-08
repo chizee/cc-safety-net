@@ -42,6 +42,14 @@ export function dangerousInTextMatch(text: string): DestructiveCommandRuleMatch 
       label: 'git push --force',
     },
     {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:\s\+[^\s;|&]+|[^\s;|&]*:\+[^\s;|&]*)/,
+      label: 'git push --force',
+    },
+    {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:--de(?:l(?:e(?:t(?:e)?)?)?)?\b|\s:[^\s;|&]+)/,
+      label: 'git push delete',
+    },
+    {
       regex:
         /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
       label: 'git branch -D',

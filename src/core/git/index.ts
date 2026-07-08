@@ -1,6 +1,10 @@
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { hasGitSshEnvAssignment } from '@/core/git/env';
-import { extractGitSubcommandAndRest } from '@/core/git/parse';
+import {
+  extractGitSubcommandAndRest,
+  hasGitCommandLineSshCommandConfig,
+  resolveGitCommandLineAliases,
+} from '@/core/git/parse';
 import { analyzeGitRule } from '@/core/git/rules';
 import {
   type GitAnalyzeOptions,
@@ -31,14 +35,28 @@ export function analyzeGitMatch(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
 ): DestructiveCommandRuleMatch | null {
-  if (hasGitSshEnvAssignment(options.envAssignments) && isGitNetworkOperation(tokens)) {
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
+  if (aliasResolution.blockedReason) {
+    return destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason);
+  }
+
+  const analysisTokens = aliasResolution.tokens;
+  if (
+    (hasGitSshEnvAssignment(options.envAssignments) ||
+      hasGitCommandLineSshCommandConfig(tokens, options.envAssignments)) &&
+    isGitNetworkOperation(analysisTokens)
+  ) {
     return destructiveCommandMatch('git.ssh-env', REASON_GIT_SSH_ENV);
   }
 
-  const match = analyzeGitRule(tokens);
+  const match = analyzeGitRule(analysisTokens);
 
   if (!match) {
     return null;
+  }
+
+  if (aliasResolution.expanded) {
+    return match;
   }
 
   if (getGitWorktreeRelaxationForMatch(tokens, match, options)) {
@@ -57,7 +75,12 @@ export function getGitWorktreeRelaxation(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
 ): GitWorktreeRelaxation | null {
-  const match = analyzeGitRule(tokens);
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
+  if (aliasResolution.blockedReason || aliasResolution.expanded) {
+    return null;
+  }
+
+  const match = analyzeGitRule(aliasResolution.tokens);
   if (!match) {
     return null;
   }
