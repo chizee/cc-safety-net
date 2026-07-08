@@ -175,6 +175,42 @@ describe('custom rule matching', () => {
     expect(result).toBe('[test] No force push.');
   });
 
+  test('docker subcommand skips known global option values', () => {
+    const rules: CustomRule[] = [
+      {
+        name: 'block-docker-system-prune',
+        command: 'docker',
+        subcommand: 'system',
+        block_args: ['prune'],
+        reason: 'Use targeted cleanup.',
+      },
+    ];
+
+    expect(checkCustomRules(['docker', '--context', 'prod', 'system', 'prune'], rules)).toBe(
+      '[block-docker-system-prune] Use targeted cleanup.',
+    );
+    expect(checkCustomRules(['docker', '--context=prod', 'system', 'prune'], rules)).toBe(
+      '[block-docker-system-prune] Use targeted cleanup.',
+    );
+    expect(
+      checkCustomRules(['docker', '-H', 'tcp://docker.example', 'system', 'prune'], rules),
+    ).toBe('[block-docker-system-prune] Use targeted cleanup.');
+  });
+
+  test('docker subcommand does not treat known global option values as subcommands', () => {
+    const rules: CustomRule[] = [
+      {
+        name: 'block-docker-system-prune',
+        command: 'docker',
+        subcommand: 'system',
+        block_args: ['prune'],
+        reason: 'Use targeted cleanup.',
+      },
+    ];
+
+    expect(checkCustomRules(['docker', '--context', 'system', 'prune'], rules)).toBeNull();
+  });
+
   test('subcommand skips unmodeled global option value before target', () => {
     const rules: CustomRule[] = [
       {

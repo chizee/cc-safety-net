@@ -72,12 +72,11 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   ]);
   const userOverrides = user.config?.overrides ?? {};
   const projectOverrides = project.config?.overrides ?? {};
-  const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
 
   return {
     rules: [
       ...applyOverrides(userPolicy.rules, userOverrides),
-      ...applyOverrides(projectPolicy.rules, { ...userOverrides, ...projectOverrides }),
+      ...applyOverrides(projectPolicy.rules, projectOverrides),
     ],
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
@@ -87,10 +86,13 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
       ...(userPolicy.canValidateOverrides
+        ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds)
+        : []),
+      ...(userPolicy.canValidateOverrides
         ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds)
         : []),
-      ...(userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides
-        ? getUnknownOverrideErrors({ ...userOverrides, ...projectOverrides }, knownRuleIds)
+      ...(projectPolicy.canValidateOverrides
+        ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds)
         : []),
     ],
     userConfig: user.config ?? undefined,

@@ -21,7 +21,7 @@ export function checkCustomRuleMatch(
       continue;
     }
 
-    if (!matchesSubcommand(tokens, rule.subcommand)) {
+    if (!matchesSubcommand(command, tokens, rule.subcommand)) {
       continue;
     }
 
@@ -41,15 +41,19 @@ function matchesCommand(command: string, ruleCommand: string): boolean {
   return command === normalizeCommandToken(ruleCommand);
 }
 
-function matchesSubcommand(tokens: string[], ruleSubcommand: string | undefined): boolean {
+function matchesSubcommand(
+  command: string,
+  tokens: string[],
+  ruleSubcommand: string | undefined,
+): boolean {
   if (!ruleSubcommand) {
     return true;
   }
 
-  return matchesSubcommandFrom(tokens, 1, ruleSubcommand);
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command));
 }
 
-const OPTIONS_WITH_VALUES = new Set([
+const GIT_OPTIONS_WITH_VALUES = new Set([
   '-c',
   '-C',
   '--git-dir',
@@ -58,10 +62,32 @@ const OPTIONS_WITH_VALUES = new Set([
   '--config-env',
 ]);
 
+const DOCKER_OPTIONS_WITH_VALUES = new Set([
+  '-c',
+  '-H',
+  '-l',
+  '--config',
+  '--context',
+  '--host',
+  '--log-level',
+  '--tlscacert',
+  '--tlscert',
+  '--tlskey',
+]);
+
+const EMPTY_OPTIONS_WITH_VALUES = new Set<string>();
+
+function getOptionsWithValues(command: string): ReadonlySet<string> {
+  if (command === 'git') return GIT_OPTIONS_WITH_VALUES;
+  if (command === 'docker') return DOCKER_OPTIONS_WITH_VALUES;
+  return EMPTY_OPTIONS_WITH_VALUES;
+}
+
 function matchesSubcommandFrom(
   tokens: string[],
   startIndex: number,
   expectedSubcommand: string,
+  optionsWithValues: ReadonlySet<string>,
 ): boolean {
   let skipNext = false;
   for (let i = startIndex; i < tokens.length; i++) {
@@ -81,13 +107,16 @@ function matchesSubcommandFrom(
       return false;
     }
 
-    if (OPTIONS_WITH_VALUES.has(token)) {
+    if (optionsWithValues.has(token)) {
       skipNext = true;
       continue;
     }
 
     if (token.startsWith('-')) {
-      if (!token.includes('=') && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand)) {
+      if (
+        !token.includes('=') &&
+        shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)
+      ) {
         return true;
       }
       continue;
@@ -103,13 +132,14 @@ function shouldSkipPossibleOptionValue(
   tokens: string[],
   optionIndex: number,
   expectedSubcommand: string,
+  optionsWithValues: ReadonlySet<string>,
 ): boolean {
   const value = tokens[optionIndex + 1];
   if (!value || value.startsWith('-')) {
     return false;
   }
 
-  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand);
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
 }
 
 function matchesBlockArgs(tokens: string[], blockArgs: string[], shortOpts: Set<string>): boolean {
