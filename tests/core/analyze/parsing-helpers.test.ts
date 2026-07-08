@@ -8,7 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
-import { containsDangerousCode } from '@/core/analyze/interpreters';
+import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
@@ -35,8 +35,16 @@ describe('shell parsing helpers', () => {
       expect(extractDashCArg(['bash', '-c', 'echo ok'])).toBe('echo ok');
     });
 
+    test('extracts arg after standalone -c and option terminator', () => {
+      expect(extractDashCArg(['bash', '-c', '--', 'echo ok'])).toBe('echo ok');
+    });
+
     test('extracts arg after bundled -lc', () => {
       expect(extractDashCArg(['bash', '-lc', 'echo ok'])).toBe('echo ok');
+    });
+
+    test('extracts arg after bundled -lc and option terminator', () => {
+      expect(extractDashCArg(['bash', '-lc', '--', 'echo ok'])).toBe('echo ok');
     });
 
     test('extracts arg after bundled -xc', () => {
@@ -112,6 +120,20 @@ describe('shell parsing helpers', () => {
 
     test('ignores trailing shell comments without creating extra segments', () => {
       expect(splitShellCommands('echo hi # comment')).toEqual([['echo', 'hi']]);
+    });
+
+    test('keeps commands after shell comments on physical newlines visible', () => {
+      expect(splitShellCommands('echo hi # comment\nrm -rf /')).toEqual([
+        ['echo', 'hi'],
+        ['rm', '-rf', '/'],
+      ]);
+    });
+
+    test('ignores quotes inside comments without hiding the following line', () => {
+      expect(splitShellCommands("echo hi # 'comment\nrm -rf /")).toEqual([
+        ['echo', 'hi'],
+        ['rm', '-rf', '/'],
+      ]);
     });
 
     test('extracts arithmetic substitution segments (nested parens)', () => {
@@ -626,6 +648,26 @@ describe('containsDangerousCode', () => {
     expect(containsDangerousCode('import os; os.system("rm --force --recursive /some/path")')).toBe(
       true,
     );
+  });
+});
+
+describe('extractInterpreterCodeArg', () => {
+  test('extracts long eval argument', () => {
+    expect(extractInterpreterCodeArg(['node', '--eval', 'rm -rf /'])).toBe('rm -rf /');
+  });
+
+  test('extracts inline long eval argument', () => {
+    expect(extractInterpreterCodeArg(['node', '--eval=rm -rf /'])).toBe('rm -rf /');
+  });
+
+  test('extracts uppercase perl eval argument', () => {
+    expect(extractInterpreterCodeArg(['perl', '-E', 'system("rm -rf /")'])).toBe(
+      'system("rm -rf /")',
+    );
+  });
+
+  test('does not treat python -E as an eval flag', () => {
+    expect(extractInterpreterCodeArg(['python', '-E', 'script.py'])).toBeNull();
   });
 });
 

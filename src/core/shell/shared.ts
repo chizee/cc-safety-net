@@ -40,15 +40,41 @@ export function advanceQuoteScanState(char: string, state: QuoteScanState): bool
 export function hasUnclosedQuotes(command: string): boolean {
   const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
 
-  for (let i = 0; i < command.length; i++) {
-    const char = command[i];
-    if (char === '#' && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
-      break;
-    }
-    advanceQuoteScanState(char ?? '', state);
+  for (const char of stripShellComments(command)) {
+    advanceQuoteScanState(char, state);
   }
 
   return state.inSingle || state.inDouble;
+}
+
+export function stripShellComments(command: string): string {
+  let result = '';
+  const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
+  let inComment = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (!char) break;
+
+    if (inComment) {
+      if (char === '\n' || char === '\r') {
+        result += char;
+        inComment = false;
+        state.escaped = false;
+      }
+      continue;
+    }
+
+    if (char === '#' && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
+      inComment = true;
+      continue;
+    }
+
+    result += char;
+    advanceQuoteScanState(char, state);
+  }
+
+  return result;
 }
 
 function startsShellComment(command: string, index: number): boolean {
