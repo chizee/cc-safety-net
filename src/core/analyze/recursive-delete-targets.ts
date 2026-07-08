@@ -161,9 +161,16 @@ function isDynamicTarget(target: string): boolean {
 
 function isCwdHomeForRmPolicy(cwd: string, homeDir: string): boolean {
   try {
-    return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+    return (
+      normalizePathForComparison(realpathSync(cwd)) ===
+      normalizePathForComparison(realpathSync(homeDir))
+    );
   } catch {
-    return false;
+    try {
+      return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+    } catch {
+      return false;
+    }
   }
 }
 

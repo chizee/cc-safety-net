@@ -156,6 +156,7 @@ function parseRemoveItem(args: PowerShellToken[]): ParsedRemoveItem {
   for (let i = 0; i < args.length; i++) {
     const token = args[i];
     if (!token || token.kind !== 'word') continue;
+    if (isArraySeparator(token)) continue;
 
     if (pastEndOfParameters) {
       targets.push(targetFromToken(token));
@@ -217,6 +218,10 @@ function targetFromToken(token: PowerShellToken): RemoveItemTarget {
     text: token.kind === 'word' ? token.text : '',
     dynamic: token.kind === 'word' && token.dynamic,
   };
+}
+
+function isArraySeparator(token: PowerShellToken): boolean {
+  return token.kind === 'word' && token.text === ',';
 }
 
 function powerShellTargetForPolicy(target: string): string {

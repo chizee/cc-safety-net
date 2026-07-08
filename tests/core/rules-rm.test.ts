@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeRm } from '@/core/analyze/rm';
-import { assertAllowed, assertBlocked, toShellPath, withEnv } from '../helpers.ts';
+import {
+  assertAllowed,
+  assertBlocked,
+  toShellPath,
+  withEnv,
+  withSymlinkedHomeCwd,
+} from '../helpers.ts';
 
 describe('rm -rf blocked', () => {
   test('rm -rf blocked', () => {
@@ -185,6 +191,14 @@ describe('rm -rf cwd-aware', () => {
     } finally {
       cleanup();
     }
+  });
+
+  test('rm -rf relative path in symlinked home cwd blocked', () => {
+    withSymlinkedHomeCwd('safety-net-rm-home-link-', (home, cwd) => {
+      withEnv({ HOME: home }, () => {
+        assertBlocked('rm -rf build', 'home directory', cwd);
+      });
+    });
   });
 
   test('rm -rf /tmp target in home cwd allowed', () => {
