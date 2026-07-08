@@ -4,7 +4,7 @@ import {
   normalizeChildCommand,
 } from '@/core/analyze/child-command';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import type { DestructiveCommandRuleMatch } from '@/types';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
@@ -12,7 +12,12 @@ const REASON_XARGS_SHELL =
   'xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
 const XARGS_APPENDED_INPUT = '__CC_SAFETY_NET_XARGS_INPUT__';
 
-export type XargsAnalyzeContext = NestedCommandAnalyzeContext;
+export interface XargsAnalyzeContext extends NestedCommandAnalyzeContext {
+  analyzeNested: (
+    command: string,
+    overrides?: AnalyzeNestedOverrides,
+  ) => DestructiveCommandRuleMatch | null;
+}
 
 export function analyzeXargs(
   tokens: readonly string[],
@@ -30,9 +35,11 @@ export function analyzeXargs(
       cwd: childCommand.cwd,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
+      paranoidInterpreters: context.paranoidInterpreters,
       allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
       worktreeMode: context.worktreeMode,
+      analyzeNested: context.analyzeNested,
       config: context.config,
     },
     {
@@ -61,9 +68,11 @@ export function analyzeXargs(
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
+    paranoidInterpreters: context.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
+    analyzeNested: context.analyzeNested,
     config: context.config,
   });
 }
@@ -83,6 +92,8 @@ export function extractXargsChildCommandWithInfo(tokens: readonly string[]): Xar
     '-s',
     '-a',
     '-E',
+    '-R',
+    '-S',
     '-e',
     '-d',
     '-J',
