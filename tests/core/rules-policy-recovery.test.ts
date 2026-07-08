@@ -514,6 +514,45 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
+  test('cross-scope user override cannot disable project-scoped rule ids', async () => {
+    const tempDir = makeTempDir('rules-policy-user-cross-scope-override');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      mkdirSync(userConfigDir, { recursive: true });
+      writeFileSync(
+        getUserRulesConfigPath({ userConfigDir }),
+        JSON.stringify({
+          version: 1,
+          rules: [],
+          overrides: { 'project-rules/block-docker-prune': 'off' },
+        }),
+        'utf-8',
+      );
+
+      writeProjectRulebook(tempDir);
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      const config = rulesPolicyToConfig(policy);
+
+      expect(policy.rules.map((rule) => rule.name)).toEqual(['project-rules/block-docker-prune']);
+      expect(policy.errors).toContain('unknown override key "project-rules/block-docker-prune"');
+      expect(config.failClosedReason).toContain(
+        'unknown override key "project-rules/block-docker-prune"',
+      );
+      expect(
+        analyzeCommand('docker system prune', {
+          cwd: tempDir,
+          config,
+        })?.reason,
+      ).toContain('unknown override key "project-rules/block-docker-prune"');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('project overrides cannot disable user-scoped rule ids', async () => {
     const tempDir = makeTempDir('rules-policy-cross-scope-override');
     const userConfigDir = join(tempDir, 'user');
