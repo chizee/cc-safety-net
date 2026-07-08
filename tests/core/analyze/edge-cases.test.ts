@@ -371,6 +371,29 @@ describe('edge cases', () => {
       assertBlocked("echo ok | xargs bash -c 'git reset --hard'", 'xargs');
     });
 
+    test('xargs child interpreter dangerous code blocked', () => {
+      assertBlocked(
+        'echo ok | xargs python -c \'import os; os.system("rm -rf /")\'',
+        'dangerous command',
+      );
+    });
+
+    test('xargs child interpreter safe code allowed', () => {
+      assertAllowed('echo ok | xargs python -c \'print("ok")\'');
+    });
+
+    test('xargs child awk system command blocked', () => {
+      assertBlocked('echo ok | xargs awk \'BEGIN { system("rm -rf /") }\'', 'rm -rf');
+    });
+
+    test('xargs child awk dynamic system command blocked', () => {
+      assertBlocked("echo ok | xargs awk '{ system($0) }'", 'awk system');
+    });
+
+    test('xargs child awk safe program allowed', () => {
+      assertAllowed("echo ok | xargs awk '{ print }'");
+    });
+
     test('xargs child wrappers only allowed', () => {
       assertAllowed('echo ok | xargs sudo --');
     });
@@ -459,6 +482,17 @@ describe('edge cases', () => {
       assertBlocked('echo / | xargs -J {} rm -rf {}', 'rm -rf');
     });
 
+    test('xargs BSD R consumes value still blocks child interpreter', () => {
+      assertBlocked(
+        'echo ok | xargs -R 2 python -c \'import os; os.system("rm -rf /")\'',
+        'dangerous command',
+      );
+    });
+
+    test('xargs BSD S consumes value still blocks child awk', () => {
+      assertBlocked('echo ok | xargs -S 4096 awk \'BEGIN { system("rm -rf /") }\'', 'rm -rf');
+    });
+
     test('xargs rm double dash prevents dash rf as option allowed', () => {
       assertAllowed('echo ok | xargs rm -- -rf', tempDir);
     });
@@ -508,6 +542,29 @@ describe('edge cases', () => {
 
     test('parallel git reset hard blocked', () => {
       assertBlocked('parallel git reset --hard ::: ok', 'git reset --hard');
+    });
+
+    test('parallel child interpreter dangerous code blocked', () => {
+      assertBlocked(
+        'parallel python -c \'import os; os.system("rm -rf /")\' ::: ok',
+        'dangerous command',
+      );
+    });
+
+    test('parallel child interpreter safe code allowed', () => {
+      assertAllowed('parallel python -c \'print("ok")\' ::: ok');
+    });
+
+    test('parallel child awk system command blocked', () => {
+      assertBlocked('parallel awk \'BEGIN { system("rm -rf /") }\' ::: ok', 'rm -rf');
+    });
+
+    test('parallel child awk dynamic system command blocked', () => {
+      assertBlocked("parallel awk '{ system($0) }' ::: ok", 'awk system');
+    });
+
+    test('parallel child awk safe program allowed', () => {
+      assertAllowed("parallel awk '{ print }' ::: ok");
     });
 
     test('parallel find delete blocked', () => {

@@ -159,6 +159,7 @@ export function analyzeParallel(
         cwd: childCommand.cwd,
         originalCwd: context.originalCwd,
         paranoidRm: context.paranoidRm,
+        paranoidInterpreters: context.paranoidInterpreters,
         allowTmpdirVar: context.allowTmpdirVar,
         envAssignments: childCommand.envAssignments,
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,

@@ -4,7 +4,12 @@ import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk'
 import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
 import { analyzeFindMatch } from '@/core/analyze/find';
-import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
+import {
+  containsDangerousCode,
+  extractInterpreterCodeArg,
+  REASON_INTERPRETER_BLOCKED,
+  REASON_INTERPRETER_DANGEROUS,
+} from '@/core/analyze/interpreters';
 import { analyzeParallel } from '@/core/analyze/parallel';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
@@ -34,11 +39,6 @@ import {
   INTERPRETERS,
   SHELL_WRAPPERS,
 } from '@/types';
-
-export const REASON_INTERPRETER_DANGEROUS =
-  'Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.';
-export const REASON_INTERPRETER_BLOCKED =
-  'Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)';
 
 export type InternalOptions = AnalyzeOptions & {
   config: Config;
@@ -345,7 +345,11 @@ function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommand
 }
 
 function analyzeXargsCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+  return analyzeXargs(context.tokens, {
+    ...getNestedCommandAnalyzeContext(context),
+    analyzeNested: (command, overrides) =>
+      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
+  });
 }
 
 function analyzeParallelCommand(
@@ -377,6 +381,7 @@ function getNestedCommandAnalyzeContext(
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoidRm: context.options.paranoidRm,
+    paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,

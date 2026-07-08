@@ -724,4 +724,14 @@ describe('xargs parsing helpers', () => {
     const result = extractXargsChildCommandWithInfo(['xargs', 'rm', '-rf']);
     expect(result.replacementToken).toBeNull();
   });
+
+  test('BSD R option consumes following value', () => {
+    const result = extractXargsChildCommandWithInfo(['xargs', '-R', '2', 'rm', '-rf']);
+    expect(result.childTokens).toEqual(['rm', '-rf']);
+  });
+
+  test('BSD S option consumes following value', () => {
+    const result = extractXargsChildCommandWithInfo(['xargs', '-S', '4096', 'rm', '-rf']);
+    expect(result.childTokens).toEqual(['rm', '-rf']);
+  });
 });

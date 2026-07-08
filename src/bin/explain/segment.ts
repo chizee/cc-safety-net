@@ -16,14 +16,15 @@ import {
 import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { analyzeFind } from '@/core/analyze/find';
-import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
-import { analyzeParallel } from '@/core/analyze/parallel';
-import { analyzeRm } from '@/core/analyze/rm';
 import {
+  containsDangerousCode,
+  extractInterpreterCodeArg,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
-  segmentChangesCwd,
-} from '@/core/analyze/segment';
+} from '@/core/analyze/interpreters';
+import { analyzeParallel } from '@/core/analyze/parallel';
+import { analyzeRm } from '@/core/analyze/rm';
+import { segmentChangesCwd } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
   createShellGitContextEnvState,
@@ -332,6 +333,33 @@ export function explainSegment(
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
   // Use command-scoped TMPDIR if set, otherwise fall back to process.env
   const tmpdirValue = envAssignments.get('TMPDIR') ?? process.env.TMPDIR ?? null;
+  const analyzeNested = (
+    cmd: string,
+    overrides?: AnalyzeNestedOverrides,
+  ): DestructiveCommandRuleMatch | null => {
+    const overriddenOptions = {
+      ...nestedOptions,
+      effectiveCwd:
+        overrides && Object.hasOwn(overrides, 'effectiveCwd')
+          ? overrides.effectiveCwd
+          : nestedOptions.effectiveCwd,
+      envAssignments: overrides?.envAssignments ?? nestedOptions.envAssignments,
+      worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode,
+    };
+    const result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
+    return result ? { id: '', reason: result.reason, intent: 'manual_only' } : null;
+  };
+  const nestedCommandContext = {
+    cwd: cwdForRm,
+    originalCwd,
+    paranoidRm: options.paranoidRm,
+    paranoidInterpreters: options.paranoidInterpreters,
+    allowTmpdirVar,
+    envAssignments,
+    worktreeMode: options.worktreeMode,
+    config,
+    analyzeNested,
+  };
 
   // git uses case-insensitive matching (matches guard: basename.toLowerCase() === 'git')
   // rm/find/xargs/parallel use case-sensitive matching (matches guard)
@@ -405,15 +433,7 @@ export function explainSegment(
   }
 
   if (isXargs) {
-    const match = analyzeXargs(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoidRm: options.paranoidRm,
-      allowTmpdirVar,
-      envAssignments,
-      worktreeMode: options.worktreeMode,
-      config,
-    });
+    const match = analyzeXargs(strippedTokens, nestedCommandContext);
     steps.push({
       type: 'rule-check',
       ruleModule: 'analyze/xargs.ts',
@@ -425,32 +445,7 @@ export function explainSegment(
   }
 
   if (isParallel) {
-    const analyzeNested = (
-      cmd: string,
-      overrides?: AnalyzeNestedOverrides,
-    ): DestructiveCommandRuleMatch | null => {
-      const overriddenOptions = {
-        ...nestedOptions,
-        effectiveCwd:
-          overrides && Object.hasOwn(overrides, 'effectiveCwd')
-            ? overrides.effectiveCwd
-            : nestedOptions.effectiveCwd,
-        envAssignments: overrides?.envAssignments ?? nestedOptions.envAssignments,
-        worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode,
-      };
-      const result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
-      return result ? { id: '', reason: result.reason, intent: 'manual_only' } : null;
-    };
-    const match = analyzeParallel(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoidRm: options.paranoidRm,
-      allowTmpdirVar,
-      envAssignments,
-      worktreeMode: options.worktreeMode,
-      config,
-      analyzeNested,
-    });
+    const match = analyzeParallel(strippedTokens, nestedCommandContext);
     steps.push({
       type: 'rule-check',
       ruleModule: 'analyze/parallel.ts',
