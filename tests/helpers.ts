@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { VersionFetcher } from '@/bin/doctor/system-info';
@@ -164,6 +164,19 @@ export async function withTempDir<T>(prefix: string, fn: (dir: string) => T | Pr
     return result;
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function withSymlinkedHomeCwd<T>(prefix: string, fn: (home: string, cwd: string) => T): T {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    const home = join(root, 'home');
+    const cwd = join(root, 'home-link');
+    mkdirSync(home);
+    symlinkSync(home, cwd, 'dir');
+    return fn(home, cwd);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 }
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
 import type { Config } from '@/types';
-import { withEnv } from '../helpers.ts';
+import { withEnv, withSymlinkedHomeCwd } from '../helpers.ts';
 
 const config: Config = { version: 1, rules: [] };
 
@@ -108,9 +108,29 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
+  test('blocks invocation operator script block form', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('& { Remove-Item . -Recurse -Force }', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+      expect(analyzePowerShell('. { Remove-Item . -Recurse -Force }', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+    });
+  });
+
   test('allows recursive forced deletion of an explicit child path in standard mode', () => {
     withTempProject((cwd) => {
       expect(analyzePowerShell('Remove-Item .\\dist -Recurse -Force', cwd)).toBeNull();
+    });
+  });
+
+  test('does not treat braces inside path text as script block boundaries', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('Remove-Item .\\{dist} -Recurse -Force', cwd)).toBeNull();
+      expect(analyzePowerShell('Remove-Item ../{other} -Recurse -Force', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-outside-cwd',
+      );
     });
   });
 
@@ -118,6 +138,26 @@ describe('PowerShell Remove-Item support', () => {
     withTempProject((cwd) => {
       expect(analyzePowerShell('Remove-Item -Path .\\dist -Recurse -Force', cwd)).toBeNull();
       expect(analyzePowerShell('Remove-Item -LiteralPath:.\\dist -Recurse -Force', cwd)).toBeNull();
+    });
+  });
+
+  test('blocks recursive forced deletion with comma-separated path arrays', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('Remove-Item -Path .\\dist,/ -Recurse -Force', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-root-or-home',
+      );
+      expect(analyzePowerShell('Remove-Item .\\dist,/ -Recurse -Force', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-root-or-home',
+      );
+      expect(
+        analyzePowerShell('Remove-Item -Path .\\dist,../other -Recurse -Force', cwd)?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-outside-cwd');
+    });
+  });
+
+  test('allows quoted comma path inside cwd as one literal target', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell("Remove-Item -Path '.\\dist,old' -Recurse -Force", cwd)).toBeNull();
     });
   });
 
@@ -136,6 +176,16 @@ describe('PowerShell Remove-Item support', () => {
   test('blocks relative targets when cwd is home', () => {
     withTempProject((cwd) => {
       withEnv({ HOME: cwd }, () => {
+        expect(analyzePowerShell('Remove-Item build -Recurse -Force', cwd)?.ruleId).toBe(
+          'powershell.remove-item-recursive-force-home-cwd',
+        );
+      });
+    });
+  });
+
+  test('blocks relative targets when cwd is a symlink to home', () => {
+    withSymlinkedHomeCwd('safety-net-powershell-home-link-', (home, cwd) => {
+      withEnv({ HOME: home }, () => {
         expect(analyzePowerShell('Remove-Item build -Recurse -Force', cwd)?.ruleId).toBe(
           'powershell.remove-item-recursive-force-home-cwd',
         );

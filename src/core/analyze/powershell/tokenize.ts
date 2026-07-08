@@ -46,6 +46,20 @@ export function tokenizePowerShell(command: string): PowerShellToken[] {
       continue;
     }
 
+    if (char === ',') {
+      pushWord();
+      tokens.push({ kind: 'word', text: ',', dynamic: false });
+      i++;
+      continue;
+    }
+
+    if ((char === '{' || char === '}') && !isPathLikeWord(text)) {
+      pushWord();
+      tokens.push({ kind: 'operator', text: ';' });
+      i++;
+      continue;
+    }
+
     if (char === '&' && command[i + 1] === '&') {
       pushWord();
       tokens.push({ kind: 'operator', text: '&&' });
@@ -94,6 +108,13 @@ export function tokenizePowerShell(command: string): PowerShellToken[] {
     }
 
     if (char === '$') {
+      if (command[i + 1] === '{') {
+        const result = readBracedVariable(command, i + 2);
+        text += result.text;
+        dynamic = true;
+        i = result.nextIndex;
+        continue;
+      }
       dynamic = true;
     }
 
@@ -103,6 +124,20 @@ export function tokenizePowerShell(command: string): PowerShellToken[] {
 
   pushWord();
   return tokens;
+}
+
+function readBracedVariable(command: string, start: number): { text: string; nextIndex: number } {
+  let text = '${';
+  let i = start;
+  while (i < command.length) {
+    const char = command[i];
+    text += char ?? '';
+    i++;
+    if (char === '}') {
+      return { text, nextIndex: i };
+    }
+  }
+  return { text, nextIndex: i };
 }
 
 function readSingleQuoted(command: string, start: number): { text: string; nextIndex: number } {
@@ -163,4 +198,8 @@ function isDynamicText(text: string): boolean {
     text.includes('${') ||
     text.includes('$_')
   );
+}
+
+function isPathLikeWord(text: string): boolean {
+  return text.includes('/') || text.includes('\\') || text.startsWith('~');
 }
