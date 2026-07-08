@@ -4713,14 +4713,13 @@ function checkCustomRuleMatch(tokens, rules) {
   if (tokens.length === 0 || rules.length === 0) {
     return null;
   }
-  const command2 = getBasename(tokens[0] ?? "");
-  const subcommand = extractSubcommand(tokens);
+  const command2 = normalizeCommandToken(tokens[0] ?? "");
   const shortOpts = extractShortOpts(tokens);
   for (const rule of rules) {
     if (!matchesCommand(command2, rule.command)) {
       continue;
     }
-    if (rule.subcommand && subcommand !== rule.subcommand) {
+    if (!matchesSubcommand(tokens, rule.subcommand)) {
       continue;
     }
     if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
@@ -4734,7 +4733,13 @@ function checkCustomRuleMatch(tokens, rules) {
   return null;
 }
 function matchesCommand(command2, ruleCommand) {
-  return command2 === ruleCommand;
+  return command2 === normalizeCommandToken(ruleCommand);
+}
+function matchesSubcommand(tokens, ruleSubcommand) {
+  if (!ruleSubcommand) {
+    return true;
+  }
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand);
 }
 var OPTIONS_WITH_VALUES = new Set([
   "-c",
@@ -4744,9 +4749,9 @@ var OPTIONS_WITH_VALUES = new Set([
   "--namespace",
   "--config-env"
 ]);
-function extractSubcommand(tokens) {
+function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand) {
   let skipNext = false;
-  for (let i = 1;i < tokens.length; i++) {
+  for (let i = startIndex;i < tokens.length; i++) {
     const token = tokens[i];
     if (!token)
       continue;
@@ -4757,25 +4762,30 @@ function extractSubcommand(tokens) {
     if (token === "--") {
       const nextToken = tokens[i + 1];
       if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken;
+        return nextToken === expectedSubcommand;
       }
-      return null;
+      return false;
     }
     if (OPTIONS_WITH_VALUES.has(token)) {
       skipNext = true;
       continue;
     }
     if (token.startsWith("-")) {
-      for (const opt of OPTIONS_WITH_VALUES) {
-        if (token.startsWith(`${opt}=`)) {
-          break;
-        }
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand)) {
+        return true;
       }
       continue;
     }
-    return token;
+    return token === expectedSubcommand;
   }
-  return null;
+  return false;
+}
+function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand) {
+  const value = tokens[optionIndex + 1];
+  if (!value || value.startsWith("-")) {
+    return false;
+  }
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand);
 }
 function matchesBlockArgs(tokens, blockArgs, shortOpts) {
   const blockArgsSet = new Set(blockArgs);
@@ -7241,10 +7251,14 @@ function loadRulesPolicy(options2 = {}) {
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
   ]);
-  const overrides = { ...user.config?.overrides ?? {}, ...project.config?.overrides ?? {} };
+  const userOverrides = user.config?.overrides ?? {};
+  const projectOverrides = project.config?.overrides ?? {};
   const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
   return {
-    rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    rules: [
+      ...applyOverrides(userPolicy.rules, userOverrides),
+      ...applyOverrides(projectPolicy.rules, { ...userOverrides, ...projectOverrides })
+    ],
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
@@ -7252,7 +7266,8 @@ function loadRulesPolicy(options2 = {}) {
       ...userPolicy.errors,
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
-      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(overrides, knownRuleIds) : []
+      ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
+      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors({ ...userOverrides, ...projectOverrides }, knownRuleIds) : []
     ],
     userConfig: user.config ?? undefined,
     projectConfig: project.config ?? undefined,
@@ -7498,6 +7513,9 @@ function applyOverrides(rules, overrides) {
 }
 function getUnknownOverrideErrors(overrides, knownRuleIds) {
   return Object.keys(overrides).filter((key) => !knownRuleIds.has(key)).map((key) => `unknown override key "${key}"`);
+}
+function getProjectOverrideUserRuleErrors(projectOverrides, userRuleIds) {
+  return Object.keys(projectOverrides).filter((key) => userRuleIds.has(key)).map((key) => `project override cannot target user-scoped rule "${key}"`);
 }
 function getDuplicateRulebookNames(entries) {
   const seen = new Set;
@@ -8128,7 +8146,7 @@ function excerpt(text, maxLen) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve8 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, normalize as normalize4, resolve as resolve8 } from "node:path";
 
 // src/core/tool-input.ts
 function getCommandFromToolInput(input) {
@@ -8354,7 +8372,33 @@ function isReadOnlyTool(toolName) {
 }
 function isPolicyConfigPath(target, cwd) {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase();
+  return getPolicyConfigProtectedPaths(cwd).some((path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase());
+}
+function getPolicyConfigProtectedPaths(cwd) {
+  const paths = getPolicyPaths({ cwd });
+  return [
+    getUserPolicyPath(),
+    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
+    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath)
+  ];
+}
+function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
+  const configDir = dirname9(configPath);
+  const loaded = readRulesConfig(configPath);
+  if (!loaded.config)
+    return [dirname9(configDir), configDir, configPath, lockPath];
+  const configuredSources = new Set(loaded.config.rules);
+  return [
+    dirname9(configDir),
+    configDir,
+    configPath,
+    lockPath,
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join10(configDir, source), join10(configDir, source, RULEBOOK_FILE)]),
+    ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
+      const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
+      return [dirname9(cachePath), cachePath];
+    })
+  ];
 }
 function findPolicyConfigTargetInText(text, cwd) {
   const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));

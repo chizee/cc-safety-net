@@ -34,6 +34,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
 - \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
+- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.
 - \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
 - Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
 - Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.

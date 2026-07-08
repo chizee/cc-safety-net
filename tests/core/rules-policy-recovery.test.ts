@@ -470,6 +470,105 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
+  test('same-scope rule overrides still disable matching rules', async () => {
+    const tempDir = makeTempDir('rules-policy-same-scope-overrides');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
+      writeFileSync(
+        getUserRulesConfigPath({ userConfigDir }),
+        JSON.stringify({
+          version: 1,
+          rules: ['user-rules'],
+          overrides: { 'user-rules/block-docker-prune': 'off' },
+        }),
+        'utf-8',
+      );
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+
+      writeProjectRulebook(tempDir);
+      writeFileSync(
+        getProjectRulesConfigPath(tempDir),
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: { 'project-rules/block-docker-prune': 'off' },
+        }),
+        'utf-8',
+      );
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+
+      expect(policy.errors).toEqual([]);
+      expect(policy.rules.map((rule) => rule.name)).toEqual([]);
+      expect(
+        analyzeCommand('docker system prune', {
+          cwd: tempDir,
+          config: rulesPolicyToConfig(policy),
+        }),
+      ).toBeNull();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('project overrides cannot disable user-scoped rule ids', async () => {
+    const tempDir = makeTempDir('rules-policy-cross-scope-override');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
+      writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+
+      const userOnlyConfig = rulesPolicyToConfig(loadRulesPolicy({ cwd: tempDir, userConfigDir }));
+      expect(
+        analyzeCommand('docker system prune', {
+          cwd: tempDir,
+          config: userOnlyConfig,
+        })?.reason,
+      ).toContain('[user-rules/block-docker-prune] Use targeted cleanup.');
+
+      writeProjectRulebook(tempDir);
+      writeFileSync(
+        getProjectRulesConfigPath(tempDir),
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: { 'user-rules/block-docker-prune': 'off' },
+        }),
+        'utf-8',
+      );
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      const config = rulesPolicyToConfig(policy);
+
+      expect(policy.rules.map((rule) => rule.name)).toEqual([
+        'user-rules/block-docker-prune',
+        'project-rules/block-docker-prune',
+      ]);
+      expect(policy.errors).toContain(
+        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
+      );
+      expect(config.failClosedReason).toContain(
+        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
+      );
+      expect(
+        analyzeCommand('echo ok', {
+          cwd: tempDir,
+          config,
+        })?.reason,
+      ).toContain(
+        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('removes clean local rulebook source directory when requested', async () => {
     const tempDir = makeTempDir('rules-policy-remove-delete-source');
 

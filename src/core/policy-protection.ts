@@ -1,7 +1,11 @@
 import { homedir } from 'node:os';
-import { isAbsolute, normalize, resolve } from 'node:path';
+import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { type ParseEntry, parse } from 'shell-quote';
 import { getUserPolicyPath } from '@/core/policy';
+import { readRulesConfig } from '@/core/rules/policy/config-file';
+import { readLockfile } from '@/core/rules/policy/lockfile';
+import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
+import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
 import { getBasename, stripWrappers } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
@@ -253,7 +257,41 @@ function isReadOnlyTool(toolName: string): boolean {
 
 function isPolicyConfigPath(target: string, cwd: string): boolean {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase();
+  return getPolicyConfigProtectedPaths(cwd).some(
+    (path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase(),
+  );
+}
+
+function getPolicyConfigProtectedPaths(cwd: string): string[] {
+  const paths = getPolicyPaths({ cwd });
+  return [
+    getUserPolicyPath(),
+    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
+    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath),
+  ];
+}
+
+function getScopePolicyConfigProtectedPaths(configPath: string, lockPath: string): string[] {
+  const configDir = dirname(configPath);
+  const loaded = readRulesConfig(configPath);
+  if (!loaded.config) return [dirname(configDir), configDir, configPath, lockPath];
+
+  const configuredSources = new Set(loaded.config.rules);
+  return [
+    dirname(configDir),
+    configDir,
+    configPath,
+    lockPath,
+    ...loaded.config.rules
+      .filter((source) => !isGitHubRulebookSource(source))
+      .flatMap((source) => [join(configDir, source), join(configDir, source, RULEBOOK_FILE)]),
+    ...(readLockfile(lockPath).lock?.rulebooks ?? [])
+      .filter((entry) => configuredSources.has(entry.spec))
+      .flatMap((entry) => {
+        const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
+        return [dirname(cachePath), cachePath];
+      }),
+  ];
 }
 
 function findPolicyConfigTargetInText(text: string, cwd: string): PolicyConfigTarget | null {

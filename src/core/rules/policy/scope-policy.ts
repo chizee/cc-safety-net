@@ -70,11 +70,15 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
     ...(user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : []),
     ...(project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []),
   ]);
-  const overrides = { ...(user.config?.overrides ?? {}), ...(project.config?.overrides ?? {}) };
+  const userOverrides = user.config?.overrides ?? {};
+  const projectOverrides = project.config?.overrides ?? {};
   const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
 
   return {
-    rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    rules: [
+      ...applyOverrides(userPolicy.rules, userOverrides),
+      ...applyOverrides(projectPolicy.rules, { ...userOverrides, ...projectOverrides }),
+    ],
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
@@ -82,8 +86,11 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
       ...userPolicy.errors,
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
+      ...(userPolicy.canValidateOverrides
+        ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds)
+        : []),
       ...(userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides
-        ? getUnknownOverrideErrors(overrides, knownRuleIds)
+        ? getUnknownOverrideErrors({ ...userOverrides, ...projectOverrides }, knownRuleIds)
         : []),
     ],
     userConfig: user.config ?? undefined,
@@ -413,6 +420,15 @@ function getUnknownOverrideErrors(
   return Object.keys(overrides)
     .filter((key) => !knownRuleIds.has(key))
     .map((key) => `unknown override key "${key}"`);
+}
+
+function getProjectOverrideUserRuleErrors(
+  projectOverrides: Record<string, RuleOverride>,
+  userRuleIds: Set<string>,
+): string[] {
+  return Object.keys(projectOverrides)
+    .filter((key) => userRuleIds.has(key))
+    .map((key) => `project override cannot target user-scoped rule "${key}"`);
 }
 
 function getDuplicateRulebookNames(entries: RulebookLockEntry[]): string[] {

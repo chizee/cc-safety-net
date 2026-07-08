@@ -1,4 +1,4 @@
-import { extractShortOpts, getBasename } from '@/core/shell';
+import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
 import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
 
 export function checkCustomRules(tokens: string[], rules: CustomRule[]): string | null {
@@ -13,8 +13,7 @@ export function checkCustomRuleMatch(
     return null;
   }
 
-  const command = getBasename(tokens[0] ?? '');
-  const subcommand = extractSubcommand(tokens);
+  const command = normalizeCommandToken(tokens[0] ?? '');
   const shortOpts = extractShortOpts(tokens);
 
   for (const rule of rules) {
@@ -22,7 +21,7 @@ export function checkCustomRuleMatch(
       continue;
     }
 
-    if (rule.subcommand && subcommand !== rule.subcommand) {
+    if (!matchesSubcommand(tokens, rule.subcommand)) {
       continue;
     }
 
@@ -39,7 +38,15 @@ export function checkCustomRuleMatch(
 }
 
 function matchesCommand(command: string, ruleCommand: string): boolean {
-  return command === ruleCommand;
+  return command === normalizeCommandToken(ruleCommand);
+}
+
+function matchesSubcommand(tokens: string[], ruleSubcommand: string | undefined): boolean {
+  if (!ruleSubcommand) {
+    return true;
+  }
+
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand);
 }
 
 const OPTIONS_WITH_VALUES = new Set([
@@ -51,9 +58,13 @@ const OPTIONS_WITH_VALUES = new Set([
   '--config-env',
 ]);
 
-function extractSubcommand(tokens: string[]): string | null {
+function matchesSubcommandFrom(
+  tokens: string[],
+  startIndex: number,
+  expectedSubcommand: string,
+): boolean {
   let skipNext = false;
-  for (let i = 1; i < tokens.length; i++) {
+  for (let i = startIndex; i < tokens.length; i++) {
     const token = tokens[i];
     if (!token) continue;
 
@@ -65,9 +76,9 @@ function extractSubcommand(tokens: string[]): string | null {
     if (token === '--') {
       const nextToken = tokens[i + 1];
       if (nextToken && !nextToken.startsWith('-')) {
-        return nextToken;
+        return nextToken === expectedSubcommand;
       }
-      return null;
+      return false;
     }
 
     if (OPTIONS_WITH_VALUES.has(token)) {
@@ -76,18 +87,29 @@ function extractSubcommand(tokens: string[]): string | null {
     }
 
     if (token.startsWith('-')) {
-      for (const opt of OPTIONS_WITH_VALUES) {
-        if (token.startsWith(`${opt}=`)) {
-          break;
-        }
+      if (!token.includes('=') && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand)) {
+        return true;
       }
       continue;
     }
 
-    return token;
+    return token === expectedSubcommand;
   }
 
-  return null;
+  return false;
+}
+
+function shouldSkipPossibleOptionValue(
+  tokens: string[],
+  optionIndex: number,
+  expectedSubcommand: string,
+): boolean {
+  const value = tokens[optionIndex + 1];
+  if (!value || value.startsWith('-')) {
+    return false;
+  }
+
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand);
 }
 
 function matchesBlockArgs(tokens: string[], blockArgs: string[], shortOpts: Set<string>): boolean {

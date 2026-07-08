@@ -5069,14 +5069,13 @@ function checkCustomRuleMatch(tokens, rules) {
   if (tokens.length === 0 || rules.length === 0) {
     return null;
   }
-  const command2 = getBasename(tokens[0] ?? "");
-  const subcommand = extractSubcommand(tokens);
+  const command2 = normalizeCommandToken(tokens[0] ?? "");
   const shortOpts = extractShortOpts(tokens);
   for (const rule of rules) {
     if (!matchesCommand(command2, rule.command)) {
       continue;
     }
-    if (rule.subcommand && subcommand !== rule.subcommand) {
+    if (!matchesSubcommand(tokens, rule.subcommand)) {
       continue;
     }
     if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
@@ -5090,7 +5089,13 @@ function checkCustomRuleMatch(tokens, rules) {
   return null;
 }
 function matchesCommand(command2, ruleCommand) {
-  return command2 === ruleCommand;
+  return command2 === normalizeCommandToken(ruleCommand);
+}
+function matchesSubcommand(tokens, ruleSubcommand) {
+  if (!ruleSubcommand) {
+    return true;
+  }
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand);
 }
 var OPTIONS_WITH_VALUES = new Set([
   "-c",
@@ -5100,9 +5105,9 @@ var OPTIONS_WITH_VALUES = new Set([
   "--namespace",
   "--config-env"
 ]);
-function extractSubcommand(tokens) {
+function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand) {
   let skipNext = false;
-  for (let i = 1;i < tokens.length; i++) {
+  for (let i = startIndex;i < tokens.length; i++) {
     const token = tokens[i];
     if (!token)
       continue;
@@ -5113,25 +5118,30 @@ function extractSubcommand(tokens) {
     if (token === "--") {
       const nextToken = tokens[i + 1];
       if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken;
+        return nextToken === expectedSubcommand;
       }
-      return null;
+      return false;
     }
     if (OPTIONS_WITH_VALUES.has(token)) {
       skipNext = true;
       continue;
     }
     if (token.startsWith("-")) {
-      for (const opt of OPTIONS_WITH_VALUES) {
-        if (token.startsWith(`${opt}=`)) {
-          break;
-        }
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand)) {
+        return true;
       }
       continue;
     }
-    return token;
+    return token === expectedSubcommand;
   }
-  return null;
+  return false;
+}
+function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand) {
+  const value = tokens[optionIndex + 1];
+  if (!value || value.startsWith("-")) {
+    return false;
+  }
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand);
 }
 function matchesBlockArgs(tokens, blockArgs, shortOpts) {
   const blockArgsSet = new Set(blockArgs);
@@ -7597,10 +7607,14 @@ function loadRulesPolicy(options2 = {}) {
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
   ]);
-  const overrides = { ...user.config?.overrides ?? {}, ...project.config?.overrides ?? {} };
+  const userOverrides = user.config?.overrides ?? {};
+  const projectOverrides = project.config?.overrides ?? {};
   const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
   return {
-    rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
+    rules: [
+      ...applyOverrides(userPolicy.rules, userOverrides),
+      ...applyOverrides(projectPolicy.rules, { ...userOverrides, ...projectOverrides })
+    ],
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
@@ -7608,7 +7622,8 @@ function loadRulesPolicy(options2 = {}) {
       ...userPolicy.errors,
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
-      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(overrides, knownRuleIds) : []
+      ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
+      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors({ ...userOverrides, ...projectOverrides }, knownRuleIds) : []
     ],
     userConfig: user.config ?? undefined,
     projectConfig: project.config ?? undefined,
@@ -7854,6 +7869,9 @@ function applyOverrides(rules, overrides) {
 }
 function getUnknownOverrideErrors(overrides, knownRuleIds) {
   return Object.keys(overrides).filter((key) => !knownRuleIds.has(key)).map((key) => `unknown override key "${key}"`);
+}
+function getProjectOverrideUserRuleErrors(projectOverrides, userRuleIds) {
+  return Object.keys(projectOverrides).filter((key) => userRuleIds.has(key)).map((key) => `project override cannot target user-scoped rule "${key}"`);
 }
 function getDuplicateRulebookNames(entries) {
   const seen = new Set;
@@ -8383,7 +8401,7 @@ function excerpt(text, maxLen) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute9, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute9, join as join11, normalize as normalize4, resolve as resolve9 } from "node:path";
 
 // src/core/tool-input.ts
 function getCommandFromToolInput(input) {
@@ -8609,7 +8627,33 @@ function isReadOnlyTool(toolName) {
 }
 function isPolicyConfigPath(target, cwd) {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return normalized === normalizeCandidatePath(getUserPolicyPath(), cwd).toLowerCase();
+  return getPolicyConfigProtectedPaths(cwd).some((path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase());
+}
+function getPolicyConfigProtectedPaths(cwd) {
+  const paths = getPolicyPaths({ cwd });
+  return [
+    getUserPolicyPath(),
+    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
+    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath)
+  ];
+}
+function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
+  const configDir = dirname10(configPath);
+  const loaded = readRulesConfig(configPath);
+  if (!loaded.config)
+    return [dirname10(configDir), configDir, configPath, lockPath];
+  const configuredSources = new Set(loaded.config.rules);
+  return [
+    dirname10(configDir),
+    configDir,
+    configPath,
+    lockPath,
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join11(configDir, source), join11(configDir, source, RULEBOOK_FILE)]),
+    ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
+      const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
+      return [dirname10(cachePath), cachePath];
+    })
+  ];
 }
 function findPolicyConfigTargetInText(text, cwd) {
   const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
@@ -10163,7 +10207,7 @@ function insertRecentEntry(entries, entry, ts) {
 
 // src/bin/doctor/config.ts
 import { existsSync as existsSync11 } from "node:fs";
-import { dirname as dirname10 } from "node:path";
+import { dirname as dirname11 } from "node:path";
 function getConfigSourceInfo(path, lockPath, userConfigDir) {
   if (!existsSync11(path)) {
     return { path, exists: false, valid: false, ruleCount: 0 };
@@ -10191,7 +10235,7 @@ function toEffectiveRule(rule, source) {
 function getConfigInfo(cwd, options2) {
   const userPath = options2?.userConfigPath ?? getUserRulesConfigPath();
   const projectPath = options2?.projectConfigPath ?? getProjectRulesConfigPath(cwd);
-  const userConfigDir = dirname10(userPath);
+  const userConfigDir = dirname11(userPath);
   const policy = loadRulesPolicy({
     cwd,
     userConfigPath: userPath,
@@ -10698,12 +10742,12 @@ All checks passed.`);
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync12, readdirSync as readdirSync3, readFileSync as readFileSync12 } from "node:fs";
 import { homedir as homedir6, tmpdir as tmpdir3 } from "node:os";
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 
 // src/bin/hook/antigravity.ts
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 function getAntigravityHooksPath(homeDir) {
-  return join11(homeDir, ".gemini", "config", "hooks.json");
+  return join12(homeDir, ".gemini", "config", "hooks.json");
 }
 
 // src/bin/doctor/hooks.ts
@@ -10723,7 +10767,7 @@ var SELF_TEST_CASES = [
 ];
 var SELF_TEST_CONFIG = { version: 1, rules: [] };
 function runSelfTest() {
-  const selfTestCwd = join12(tmpdir3(), "cc-safety-net-self-test");
+  const selfTestCwd = join13(tmpdir3(), "cc-safety-net-self-test");
   const results = SELF_TEST_CASES.map((tc) => {
     const result = analyzeCommand(tc.command, {
       cwd: selfTestCwd,
@@ -10881,10 +10925,10 @@ function _escapeRegExp(value) {
 }
 function detectOpenCode(homeDir) {
   const errors = [];
-  const configDir = join12(homeDir, ".config", "opencode");
+  const configDir = join13(homeDir, ".config", "opencode");
   const candidates = ["opencode.json", "opencode.jsonc"];
   for (const filename of candidates) {
-    const configPath = join12(configDir, filename);
+    const configPath = join13(configDir, filename);
     if (existsSync12(configPath)) {
       try {
         const content = readFileSync12(configPath, "utf-8");
@@ -10943,7 +10987,7 @@ function detectGeminiCLI(extensionsListOutput) {
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join12(process.env.KIMI_CODE_HOME || join12(homeDir, ".kimi-code"), "config.toml");
+  return join13(process.env.KIMI_CODE_HOME || join13(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -11150,7 +11194,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join12(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join13(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   const preToolUseHooks = config.hooks?.preToolUse ?? [];
@@ -11181,7 +11225,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   const matches = [];
   for (const filename of _listJsonFiles(dirPath, errors)) {
-    const configPath = join12(dirPath, filename);
+    const configPath = join13(dirPath, filename);
     const config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config)) {
       matches.push(configPath);
@@ -11220,15 +11264,15 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   const configHome = _getCopilotConfigHome(homeDir);
-  const repoHookDir = join12(cwd, ".github", "hooks");
-  const userHookDir = join12(configHome, "hooks");
-  const repoConfigDir = join12(cwd, ".github", "copilot");
+  const repoHookDir = join13(cwd, ".github", "hooks");
+  const userHookDir = join13(configHome, "hooks");
+  const repoConfigDir = join13(cwd, ".github", "copilot");
   const inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion);
   const inlineErrors = inlineSupport === true ? errors : undefined;
   const inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join12(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join12(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join12(repoConfigDir, "settings.local.json"), inlineErrors)
+    userConfig: _collectCopilotInlineConfig(join13(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join13(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join13(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== false) {
     const disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -11245,7 +11289,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   const userHookFiles = existsSync12(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [];
   const userHookPaths = [];
   for (const filename of userHookFiles) {
-    const configPath = join12(userHookDir, filename);
+    const configPath = join13(userHookDir, filename);
     const config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config)) {
       userHookPaths.push(configPath);
@@ -11345,7 +11389,7 @@ import { spawn } from "node:child_process";
 import { existsSync as existsSync13 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
-import { delimiter, extname, join as join13 } from "node:path";
+import { delimiter, extname, join as join14 } from "node:path";
 var CURRENT_VERSION = "1.0.6";
 var VERSION_FETCH_TIMEOUT_MS = 2000;
 var PI_PROBE_TIMEOUT_MS = 5000;
@@ -11379,7 +11423,7 @@ function resolveWindowsCommand(command2, env) {
   if (command2.includes("/") || command2.includes("\\")) {
     return candidates.find((candidate) => existsSync13(candidate)) ?? command2;
   }
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join13(dir, candidate))).find((candidate) => existsSync13(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join14(dir, candidate))).find((candidate) => existsSync13(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -11538,10 +11582,10 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  const tempDir = await mkdtemp(join13(tmpdir4(), "cc-safety-net-pi-probe-"));
-  const probePath = join13(tempDir, "pi-extension-probe.ts");
-  const resultPath = join13(tempDir, "result.json");
-  const stdoutPath = join13(tempDir, "stdout.jsonl");
+  const tempDir = await mkdtemp(join14(tmpdir4(), "cc-safety-net-pi-probe-"));
+  const probePath = join14(tempDir, "pi-extension-probe.ts");
+  const resultPath = join14(tempDir, "result.json");
+  const stdoutPath = join14(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     const result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -15202,7 +15246,7 @@ import { homedir as homedir7 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync15, mkdirSync as mkdirSync5, readFileSync as readFileSync13, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname11 } from "node:path";
+import { dirname as dirname12 } from "node:path";
 var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli";
 var MANAGED_HOOK_NAME = "cc-safety-net";
 function managedHookEntry() {
@@ -15295,7 +15339,7 @@ function writeAntigravityHooksConfig(configPath, config) {
 }
 function installAntigravityCli(homeDir) {
   const configPath = getAntigravityHooksPath(homeDir);
-  mkdirSync5(dirname11(configPath), { recursive: true });
+  mkdirSync5(dirname12(configPath), { recursive: true });
   if (!existsSync15(configPath)) {
     writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() });
     return { path: configPath, alreadyInstalled: false };
@@ -15325,7 +15369,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync6, readFileSync as readFileSync14, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname12, join as join14 } from "node:path";
+import { dirname as dirname13, join as join15 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -15418,7 +15462,7 @@ event = "PreToolUse"
 command = "${KIMI_HOOK_COMMAND}"`;
 var KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join14(process.env.KIMI_CODE_HOME ?? join14(homeDir, ".kimi-code"), "config.toml");
+  return join15(process.env.KIMI_CODE_HOME ?? join15(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   const result = content.split(`
@@ -15508,7 +15552,7 @@ function removeKimiInlineHook(content, hooksRange) {
 }
 function installKimiCode(homeDir) {
   const configPath = getKimiConfigPath(homeDir);
-  mkdirSync6(dirname12(configPath), { recursive: true });
+  mkdirSync6(dirname13(configPath), { recursive: true });
   if (!existsSync16(configPath)) {
     writeFileSync4(configPath, `${KIMI_HOOK_BLOCK}
 `);
@@ -15566,18 +15610,18 @@ ${output}`.trim()));
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync17, readFileSync as readFileSync15, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net";
 var OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
 var OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
-  return join15(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+  return join16(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
 function getOpenCodeConfigPaths(homeDir) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join15(homeDir, ".config", "opencode", filename));
+  return OPENCODE_CONFIG_FILES.map((filename) => join16(homeDir, ".config", "opencode", filename));
 }
 function getOpenCodeCachePath(homeDir) {
-  return join15(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+  return join16(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
   rmSync3(getOpenCodeCachePath(homeDir), { recursive: true, force: true });
@@ -16267,7 +16311,7 @@ Check that every parent path component is a directory.`;
 
 // src/bin/rule/index.ts
 import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
-import { dirname as dirname15, join as join18 } from "node:path";
+import { dirname as dirname16, join as join19 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = `# Custom Rules Reference
@@ -16306,6 +16350,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
 - \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
 - Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
+- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.
 - \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
 - Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
 - Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.
@@ -16518,7 +16563,7 @@ function printResultWarnings(result) {
 
 // src/bin/rule/migrate.ts
 import { existsSync as existsSync18, readFileSync as readFileSync16, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname13, join as join16 } from "node:path";
+import { dirname as dirname14, join as join17 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json";
 var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
@@ -16560,8 +16605,8 @@ async function migrateRulesScope(options2) {
     return false;
   }
   const config = loaded.config ?? { version: 1, rules: [], overrides: {} };
-  const rulebookName = getMigratedRulebookName(dirname13(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
-  const rulebookPath = join16(dirname13(options2.configPath), rulebookName, "rulebook.json");
+  const rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
+  const rulebookPath = join17(dirname14(options2.configPath), rulebookName, "rulebook.json");
   const snapshots = [
     snapshotFile(options2.configPath),
     snapshotFile(rulebookPath),
@@ -16624,11 +16669,11 @@ function getMigratedRulebookName(configDir, sources, defaultRulebookName, migrat
   const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
-  if (!existsSync18(join16(configDir, defaultRulebookName, "rulebook.json")))
+  if (!existsSync18(join17(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
     const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync18(join16(configDir, name, "rulebook.json")))
+    if (!existsSync18(join17(configDir, name, "rulebook.json")))
       return name;
   }
 }
@@ -16675,7 +16720,7 @@ function restoreFiles(snapshots) {
 
 // src/bin/rule/verify.ts
 import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync17, statSync as statSync3, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname14, join as join17, resolve as resolve13 } from "node:path";
+import { dirname as dirname15, join as join18, resolve as resolve13 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config";
 var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
 var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
@@ -16687,7 +16732,7 @@ function runRulesVerify(options2 = {}) {
   const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
   const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
   const githubSourceRulesDir = resolve13(cwd, RULES_DIR);
-  const userConfigDir = dirname14(userConfig);
+  const userConfigDir = dirname15(userConfig);
   let hasErrors = false;
   let hasWarnings = false;
   const configsChecked = [];
@@ -16846,7 +16891,7 @@ function validateGitHubSourceRules(path) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    const rulebookPath = join17(path, entry.name, "rulebook.json");
+    const rulebookPath = join18(path, entry.name, "rulebook.json");
     if (!existsSync19(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -16988,8 +17033,8 @@ async function runRuleCommand(args) {
     const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
     const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
     ensureRulesConfig(configPath);
-    mkdirSync7(join18(dirname15(dir), "cache", "rulebooks"), { recursive: true });
-    const rulebookPath = join18(dir, "example-rules", "rulebook.json");
+    mkdirSync7(join19(dirname16(dir), "cache", "rulebooks"), { recursive: true });
+    const rulebookPath = join19(dir, "example-rules", "rulebook.json");
     if (flags.example && !existsSync20(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
     const result = await syncRulesConfig(options2);
@@ -17223,7 +17268,7 @@ function printTransparentWrappers(wrappers2) {
 // src/bin/statusline.ts
 import { existsSync as existsSync21, readFileSync as readFileSync18 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY) {
     return null;
@@ -17247,7 +17292,7 @@ function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH) {
     return process.env.CLAUDE_SETTINGS_PATH;
   }
-  return join19(homedir8(), ".claude", "settings.json");
+  return join20(homedir8(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   const settingsPath = getSettingsPath();

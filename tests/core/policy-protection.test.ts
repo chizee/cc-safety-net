@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { findPolicyConfigMutationTargetInToolInput } from '@/core/policy-protection';
+import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import { readLockfile } from '@/core/rules/policy/lockfile';
+import {
+  getProjectRulesConfigPath,
+  getProjectRulesLockPath,
+  getRulebookCachePath,
+  getUserRulesConfigPath,
+  getUserRulesLockPath,
+} from '@/core/rules/policy/paths';
+import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers';
 
 describe('policy config protection', () => {
   let cwd: string;
@@ -63,6 +73,111 @@ describe('policy config protection', () => {
         cwd,
       )?.target,
     ).toBe(policyPath);
+  });
+
+  test('denies writes targeting active rule config and lock files', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      for (const path of [
+        getUserRulesConfigPath(),
+        getProjectRulesConfigPath(cwd),
+        getUserRulesLockPath(),
+        getProjectRulesLockPath(cwd),
+      ]) {
+        expect(
+          findPolicyConfigMutationTargetInToolInput(
+            'Write',
+            { file_path: path, content: '{}' },
+            cwd,
+          )?.target,
+        ).toBe(path);
+        expect(
+          findPolicyConfigMutationTargetInToolInput('Read', { file_path: path }, cwd),
+        ).toBeNull();
+      }
+    });
+  });
+
+  test('denies writes targeting configured local rulebooks', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      writeDefaultRulesConfig(getUserRulesConfigPath(), ['user-rules']);
+      writeDefaultRulesConfig(getProjectRulesConfigPath(cwd), ['project-rules']);
+
+      const userRulebookPath = join(
+        dirname(getUserRulesConfigPath()),
+        'user-rules',
+        'rulebook.json',
+      );
+      const projectRulebookPath = join(
+        dirname(getProjectRulesConfigPath(cwd)),
+        'project-rules',
+        'rulebook.json',
+      );
+
+      for (const path of [userRulebookPath, projectRulebookPath]) {
+        expect(
+          findPolicyConfigMutationTargetInToolInput(
+            'Write',
+            { file_path: path, content: '{}' },
+            cwd,
+          )?.target,
+        ).toBe(path);
+        expect(
+          findPolicyConfigMutationTargetInToolInput(
+            'Bash',
+            { command: `cat package.json > ${path}` },
+            cwd,
+          )?.target,
+        ).toBe(path);
+        expect(
+          findPolicyConfigMutationTargetInToolInput('Read', { file_path: path }, cwd),
+        ).toBeNull();
+      }
+
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Write',
+          {
+            file_path: join(
+              dirname(getProjectRulesConfigPath(cwd)),
+              'inactive-rules',
+              'rulebook.json',
+            ),
+            content: '{}',
+          },
+          cwd,
+        ),
+      ).toBeNull();
+    });
+  });
+
+  test('denies writes targeting active rulebook cache files', () => {
+    writeLockedGitHubRulebookPolicy(
+      cwd,
+      JSON.stringify({
+        rulebook_version: 1,
+        name: 'policy',
+        version: '1.0.0',
+        rules: [],
+        tests: [],
+      }),
+    );
+
+    const entry = readLockfile(getProjectRulesLockPath(cwd)).lock?.rulebooks[0];
+    if (!entry) throw new Error('Expected project lock entry fixture');
+
+    const cachePath = getRulebookCachePath(entry, {
+      cacheConfigDir: dirname(getProjectRulesConfigPath(cwd)),
+    });
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Write',
+        { file_path: cachePath, content: '{}' },
+        cwd,
+      )?.target,
+    ).toBe(cachePath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput('Read', { file_path: cachePath }, cwd),
+    ).toBeNull();
   });
 
   test('denies bash writes and ambiguous commands targeting policy files', () => {

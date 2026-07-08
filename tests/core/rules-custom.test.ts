@@ -103,7 +103,7 @@ describe('custom rule matching', () => {
     expect(result).toBe('[rule1] Rule 1 reason');
   });
 
-  test('case sensitive command matching', () => {
+  test('command matching normalizes executable token case', () => {
     const rules: CustomRule[] = [
       {
         name: 'test',
@@ -113,13 +113,14 @@ describe('custom rule matching', () => {
         reason: 'test',
       },
     ];
-    // Lowercase git matches
     let result = checkCustomRules(['git', '-A'], rules);
     expect(result).toBe('[test] test');
 
-    // Uppercase GIT does NOT match (case-sensitive)
     result = checkCustomRules(['GIT', '-A'], rules);
-    expect(result).toBeNull();
+    expect(result).toBe('[test] test');
+
+    result = checkCustomRules(['C:\\Tools\\GIT.EXE', '-A'], rules);
+    expect(result).toBe('[test] test');
   });
 
   test('case sensitive arg matching', () => {
@@ -172,6 +173,29 @@ describe('custom rule matching', () => {
     // Attached form -C/path also works
     result = checkCustomRules(['git', '-C/path', 'push', '--force'], rules);
     expect(result).toBe('[test] No force push.');
+  });
+
+  test('subcommand skips unmodeled global option value before target', () => {
+    const rules: CustomRule[] = [
+      {
+        name: 'test',
+        command: 'toolx',
+        subcommand: 'deploy',
+        block_args: ['--admin'],
+        reason: 'No admin deploy.',
+      },
+    ];
+    let result = checkCustomRules(['toolx', '--profile', 'sandbox', 'deploy', '--admin'], rules);
+    expect(result).toBe('[test] No admin deploy.');
+
+    result = checkCustomRules(
+      ['toolx', '--profile', 'sandbox', '--region', 'us', 'deploy', '--admin'],
+      rules,
+    );
+    expect(result).toBe('[test] No admin deploy.');
+
+    result = checkCustomRules(['toolx', 'sandbox', 'deploy', '--admin'], rules);
+    expect(result).toBeNull();
   });
 
   test('docker compose pattern', () => {

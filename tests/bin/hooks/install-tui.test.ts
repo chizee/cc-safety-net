@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import {
@@ -67,15 +67,7 @@ function writeFakeInstallProbeBinaries(binDir: string) {
   mkdirSync(binDir);
   ['codex', 'claude', 'agy', 'gemini', 'copilot', 'kimi', 'opencode', 'pi'].forEach((command) => {
     const installed = command === 'codex' || command === 'gemini';
-    const commandPath = join(binDir, command);
-    writeFileSync(
-      commandPath,
-      `#!/usr/bin/env sh
-echo "${command} 1.0.0"
-exit ${installed ? 0 : 1}
-`,
-    );
-    chmodSync(commandPath, 0o755);
+    symlinkSync(installed ? '/usr/bin/true' : '/usr/bin/false', join(binDir, command));
   });
 }
 
