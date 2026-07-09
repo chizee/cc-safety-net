@@ -116,7 +116,7 @@ function handleSecretProtection(
   if (config.secretProtection?.enabled === false) {
     return false;
   }
-  const match = findSensitiveTargetInToolInput(toolInput, cwd, config.secretProtection);
+  const match = findSensitiveTargetInToolInput(toolName, toolInput, cwd, config.secretProtection);
   if (!match) {
     return false;
   }

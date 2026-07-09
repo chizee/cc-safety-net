@@ -238,6 +238,26 @@ describe('Claude Code hook', () => {
       });
     });
 
+    test('secret protection ignores sensitive-looking edit content and grep patterns', async () => {
+      const envFile = ['.', 'env'].join('');
+      const keyName = ['id', 'rsa'].join('_');
+
+      await expectNoHookOutput(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Edit',
+        tool_input: {
+          file_path: 'tests/core/secret-protection.test.ts',
+          old_string: keyName,
+          new_string: envFile,
+        },
+      });
+      await expectNoHookOutput(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Grep',
+        tool_input: { pattern: envFile, path: 'src' },
+      });
+    });
+
     test('secret protection blocks directory targets', async () => {
       const result = await runClaudeCodeHook({
         hook_event_name: 'PreToolUse',

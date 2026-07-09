@@ -9,4 +9,4 @@ type SecretTarget = {
 export declare function findSensitivePathTarget(targets: readonly string[], cwd?: string, config?: SecretProtectionConfig): SecretTarget | null;
 /** @internal */
 export declare function findSensitiveTargetInCommand(command: string, cwd?: string, config?: SecretProtectionConfig): SecretTarget | null;
-export declare function findSensitiveTargetInToolInput(input: unknown, cwd?: string, config?: SecretProtectionConfig): SecretTarget | null;
+export declare function findSensitiveTargetInToolInput(toolName: string, input: unknown, cwd?: string, config?: SecretProtectionConfig): SecretTarget | null;

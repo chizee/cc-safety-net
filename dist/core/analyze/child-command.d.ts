@@ -7,6 +7,7 @@ export interface ChildCommandContext {
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
     originalCwd: string | undefined;
     paranoidRm: boolean | undefined;
+    paranoidInterpreters?: boolean;
     allowTmpdirVar: boolean;
     worktreeMode?: boolean;
 }

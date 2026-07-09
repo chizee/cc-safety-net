@@ -50,7 +50,12 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
       const secretTarget =
         config.secretProtection?.enabled === false
           ? null
-          : findSensitiveTargetInToolInput(toolInput, directory, config.secretProtection);
+          : findSensitiveTargetInToolInput(
+              input.tool,
+              toolInput,
+              directory,
+              config.secretProtection,
+            );
       if (secretTarget) {
         const command = getCommandFromToolInput(toolInput) ?? secretTarget.target;
         if (input.sessionID) {

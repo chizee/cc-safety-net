@@ -3,6 +3,7 @@ export interface ChildCommandAnalysisContext {
     cwd: string | undefined;
     originalCwd: string | undefined;
     paranoidRm: boolean | undefined;
+    paranoidInterpreters?: boolean;
     allowTmpdirVar: boolean;
     envAssignments: ReadonlyMap<string, string>;
     worktreeMode?: boolean;

@@ -7,4 +7,5 @@ export interface QuoteScanState {
 }
 export declare function advanceQuoteScanState(char: string, state: QuoteScanState): boolean;
 export declare function hasUnclosedQuotes(command: string): boolean;
+export declare function stripShellComments(command: string): string;
 export declare function getCommandTokenText(token: ParseEntry | undefined): string | null;

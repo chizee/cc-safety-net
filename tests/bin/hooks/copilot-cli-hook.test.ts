@@ -57,6 +57,17 @@ describe('Copilot CLI hook', () => {
 
       expectSecretProtectionDeny(result, 'copilot-cli');
     });
+
+    test('secret protection ignores grep pattern text for non-sensitive search roots', async () => {
+      const envFile = ['.', 'env'].join('');
+
+      await expectNoHookOutput(runCopilotHook, {
+        timestamp: Date.now(),
+        cwd: process.cwd(),
+        toolName: 'grep',
+        toolArgs: JSON.stringify({ pattern: envFile, path: 'src' }),
+      });
+    });
   });
 
   describe('empty stdin', () => {

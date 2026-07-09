@@ -119,7 +119,7 @@ describe('secret protection path matching', () => {
 
       expect(findSensitiveTargetInCommand('cat $CODEX_HOME/auth.json', cwd)).not.toBeNull();
       expect(
-        findSensitiveTargetInToolInput({ file_path: '${CODEX_HOME}/config.toml' }, cwd),
+        findSensitiveTargetInToolInput('Read', { file_path: '${CODEX_HOME}/config.toml' }, cwd),
       ).not.toBeNull();
     });
   });
@@ -139,7 +139,9 @@ describe('secret protection path matching', () => {
 
       withEnv({ CODEX_HOME: codexHome, HOME: join(root, 'home') }, () => {
         expect(findSensitivePathTarget([aliasPath], cwd)).not.toBeNull();
-        expect(findSensitiveTargetInToolInput({ file_path: aliasPath }, cwd)).not.toBeNull();
+        expect(
+          findSensitiveTargetInToolInput('Read', { file_path: aliasPath }, cwd),
+        ).not.toBeNull();
         expect(findSensitiveTargetInCommand(`cat ${aliasPath}`, cwd)).not.toBeNull();
       });
     } finally {
@@ -561,21 +563,167 @@ describe('secret protection command target extraction', () => {
 });
 
 describe('secret protection generic tool input extraction', () => {
+  test('blocks sensitive read and edit targets without scanning edit content', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+    const keyName = ['id', 'rsa'].join('_');
+
+    expect(findSensitiveTargetInToolInput('Read', { file_path: envFile }, cwd)).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Write', { path: envFile, content: '' }, cwd),
+    ).not.toBeNull();
+    expect(findSensitiveTargetInToolInput('Edit', { file_path: envFile }, cwd)).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'Edit',
+        {
+          file_path: 'tests/core/secret-protection.test.ts',
+          old_string: keyName,
+          new_string: envFile,
+        },
+        cwd,
+      ),
+    ).toBeNull();
+  });
+
+  test('treats search patterns and patch hunks as text, not file targets', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+    const keyName = ['id', 'rsa'].join('_');
+
+    expect(
+      findSensitiveTargetInToolInput('Grep', { pattern: envFile, path: 'src' }, cwd),
+    ).toBeNull();
+    expect(findSensitiveTargetInToolInput('Glob', { pattern: envFile }, cwd)).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Glob', { path: '~/.ssh', pattern: '*' }, cwd),
+    ).not.toBeNull();
+    expect(findSensitiveTargetInToolInput('Glob', { path: 'src', pattern: '*' }, cwd)).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'apply_patch',
+        {
+          patch: [
+            '*** Begin Patch',
+            '*** Update File: tests/core/secret-protection.test.ts',
+            '@@',
+            `+const sample = "${envFile} ${keyName}"`,
+            `--- a/${envFile}`,
+            `+++ b/${envFile}`,
+            '*** End Patch',
+          ].join('\n'),
+        },
+        cwd,
+      ),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'apply_patch',
+        {
+          patch: [
+            '*** Begin Patch',
+            `*** Update File: ${envFile}`,
+            '@@',
+            '+safe',
+            '*** End Patch',
+          ].join('\n'),
+        },
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'patch',
+        {
+          patch: [
+            '--- src/safe.txt',
+            '+++ src/safe.txt',
+            '@@ -1 +1 @@',
+            `--- ${envFile}`,
+            `+++ ${envFile}`,
+          ].join('\n'),
+        },
+        cwd,
+      ),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'apply_patch',
+        {
+          patch: [
+            '--- src/safe.txt',
+            '+++ src/safe.txt',
+            '@@ -1 +1 @@',
+            '-safe',
+            '+safe',
+            '--- /dev/null',
+            `+++ ${envFile}`,
+            '@@ -0,0 +1 @@',
+            '+TOKEN=secret',
+          ].join('\n'),
+        },
+        cwd,
+      ),
+    ).not.toBeNull();
+  });
+
   test('extracts commands and path-like values from nested tool input', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+    const npmrcFile = ['.', 'npmrc'].join('');
 
-    expect(findSensitiveTargetInToolInput({ command: 'cat .env' }, cwd)).not.toBeNull();
-    expect(findSensitiveTargetInToolInput({ nested: [{ file_path: '.env' }] }, cwd)).not.toBeNull();
-    expect(findSensitiveTargetInToolInput({ nested: [{ pattern: '.env' }] }, cwd)).not.toBeNull();
-    expect(findSensitiveTargetInToolInput({ nested: [{ glob: '.npmrc' }] }, cwd)).not.toBeNull();
-    expect(findSensitiveTargetInToolInput({ nested: { path: 'README.md' } }, cwd)).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Bash', { command: ['cat', envFile].join(' ') }, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Read', { nested: [{ file_path: envFile }] }, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Glob', { nested: [{ pattern: envFile }] }, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Glob', { nested: [{ glob: npmrcFile }] }, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('unknown', { nested: [{ pattern: envFile }] }, cwd),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('unknown', { nested: [{ glob: npmrcFile }] }, cwd),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('Read', { nested: { path: 'README.md' } }, cwd),
+    ).toBeNull();
+  });
+
+  test('blocks command and path targets for unknown command-style tools', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+
+    expect(
+      findSensitiveTargetInToolInput(
+        'execute_command',
+        { command: ['cat', envFile].join(' ') },
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput(
+        'mcp__shell__run',
+        { command: ['cat', envFile].join(' ') },
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInToolInput('unknown', { command: 'true', path: envFile }, cwd),
+    ).not.toBeNull();
   });
 
   test('ignores non-object tool input and non-string commands', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
 
-    expect(findSensitiveTargetInToolInput(null, cwd)).toBeNull();
-    expect(findSensitiveTargetInToolInput('cat .env', cwd)).toBeNull();
+    expect(findSensitiveTargetInToolInput('Read', null, cwd)).toBeNull();
+    expect(findSensitiveTargetInToolInput('Bash', ['cat', envFile].join(' '), cwd)).toBeNull();
     expect(getCommandFromToolInput(null)).toBeUndefined();
     expect(getCommandFromToolInput({ command: '' })).toBeUndefined();
     expect(getCommandFromToolInput({ command: 1 })).toBeUndefined();

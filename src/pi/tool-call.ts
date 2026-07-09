@@ -113,7 +113,12 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
     const secretTarget =
       config.secretProtection?.enabled === false
         ? null
-        : findSensitiveTargetInToolInput(toolCall.input, cwd, config.secretProtection);
+        : findSensitiveTargetInToolInput(
+            toolCall.toolName,
+            toolCall.input,
+            cwd,
+            config.secretProtection,
+          );
     if (secretTarget) {
       const secretCommand = getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
       const sessionId = ctx.sessionManager.getSessionFile();

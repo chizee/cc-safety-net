@@ -319,6 +319,7 @@ ${args.trim() || DEFAULT_USER_REQUEST}`;
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
+  "git.alias-config",
   "git.checkout-force",
   "git.checkout-double-dash",
   "git.checkout-ref-path",
@@ -332,6 +333,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.reset-merge",
   "git.clean-force",
   "git.push-force",
+  "git.push-delete",
   "git.branch-force-delete",
   "git.rebase-abort",
   "git.merge-abort",
@@ -372,6 +374,13 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: "Git",
     label: "Git SSH environment override",
     description: "Blocks Git network operations with SSH environment overrides.",
+    intent: "manual_only"
+  },
+  {
+    id: "git.alias-config",
+    category: "Git",
+    label: "Git command-line alias",
+    description: "Blocks command-line Git aliases that cannot be safely resolved.",
     intent: "manual_only"
   },
   {
@@ -464,6 +473,13 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: "Git push force",
     description: "Blocks force pushes.",
     intent: "use_alternative"
+  },
+  {
+    id: "git.push-delete",
+    category: "Git",
+    label: "Git push delete",
+    description: "Blocks remote ref deletion through push.",
+    intent: "manual_only"
   },
   {
     id: "git.branch-force-delete",
@@ -740,6 +756,14 @@ function dangerousInTextMatch(text) {
       label: "git push --force"
     },
     {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:\s\+[^\s;|&]+|[^\s;|&]*:\+[^\s;|&]*)/,
+      label: "git push --force"
+    },
+    {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:--de(?:l(?:e(?:t(?:e)?)?)?)?\b|\s:[^\s;|&]+)/,
+      label: "git push delete"
+    },
+    {
       regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
       label: "git branch -D",
       caseSensitive: true
@@ -813,6 +837,18 @@ function tokenizePowerShell(command) {
       i++;
       continue;
     }
+    if (char === ",") {
+      pushWord();
+      tokens.push({ kind: "word", text: ",", dynamic: false });
+      i++;
+      continue;
+    }
+    if ((char === "{" || char === "}") && !isPathLikeWord(text)) {
+      pushWord();
+      tokens.push({ kind: "operator", text: ";" });
+      i++;
+      continue;
+    }
     if (char === "&" && command[i + 1] === "&") {
       pushWord();
       tokens.push({ kind: "operator", text: "&&" });
@@ -855,6 +891,13 @@ function tokenizePowerShell(command) {
       continue;
     }
     if (char === "$") {
+      if (command[i + 1] === "{") {
+        const result = readBracedVariable(command, i + 2);
+        text += result.text;
+        dynamic = true;
+        i = result.nextIndex;
+        continue;
+      }
       dynamic = true;
     }
     text += char;
@@ -862,6 +905,19 @@ function tokenizePowerShell(command) {
   }
   pushWord();
   return tokens;
+}
+function readBracedVariable(command, start) {
+  let text = "${";
+  let i = start;
+  while (i < command.length) {
+    const char = command[i];
+    text += char ?? "";
+    i++;
+    if (char === "}") {
+      return { text, nextIndex: i };
+    }
+  }
+  return { text, nextIndex: i };
 }
 function readSingleQuoted(command, start) {
   let text = "";
@@ -910,6 +966,9 @@ function readDoubleQuoted(command, start) {
 }
 function isDynamicText(text) {
   return text.startsWith("$") || text.startsWith("@") || text.includes("$(") || text.includes("${") || text.includes("$_");
+}
+function isPathLikeWord(text) {
+  return text.includes("/") || text.includes("\\") || text.startsWith("~");
 }
 
 // src/core/analyze/recursive-delete-targets.ts
@@ -1019,9 +1078,13 @@ function isDynamicTarget(target) {
 }
 function isCwdHomeForRmPolicy(cwd, homeDir) {
   try {
-    return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+    return normalizePathForComparison(realpathSync(cwd)) === normalizePathForComparison(realpathSync(homeDir));
   } catch {
-    return false;
+    try {
+      return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+    } catch {
+      return false;
+    }
   }
 }
 function isCwdSelfTarget(target, cwd) {
@@ -1291,6 +1354,8 @@ function parseRemoveItem(args) {
     const token = args[i];
     if (!token || token.kind !== "word")
       continue;
+    if (isArraySeparator(token))
+      continue;
     if (pastEndOfParameters) {
       targets.push(targetFromToken(token));
       hasDynamicTarget = hasDynamicTarget || token.dynamic;
@@ -1342,6 +1407,9 @@ function targetFromToken(token) {
     text: token.kind === "word" ? token.text : "",
     dynamic: token.kind === "word" && token.dynamic
   };
+}
+function isArraySeparator(token) {
+  return token.kind === "word" && token.text === ",";
 }
 function powerShellTargetForPolicy(target) {
   return target.replace(/\\/g, "/");
@@ -1424,7 +1492,7 @@ import { normalize as normalize3 } from "node:path";
 
 // src/core/analyze/awk.ts
 var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
-var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system() call with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system().";
+var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
 function analyzeAwkSystemCalls(tokens, analyzeNested) {
   return analyzeAwkSystemCallMatch(tokens, (command) => {
     const reason = analyzeNested(command);
@@ -1433,9 +1501,7 @@ function analyzeAwkSystemCalls(tokens, analyzeNested) {
 }
 function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   for (const token of tokens.slice(1)) {
-    if (!token.includes("system"))
-      continue;
-    const commands2 = extractAwkSystemCommands(token);
+    const commands2 = extractAwkExternalCommands(token);
     if (!commands2)
       continue;
     if (commands2.dynamic)
@@ -1447,6 +1513,16 @@ function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
     }
   }
   return null;
+}
+function extractAwkExternalCommands(code) {
+  const systemCommands = code.includes("system") ? extractAwkSystemCommands(code) : null;
+  const pipeCommands = extractAwkPipeCommands(code);
+  if (!systemCommands && !pipeCommands)
+    return null;
+  return {
+    dynamic: !!systemCommands?.dynamic || !!pipeCommands?.dynamic,
+    commands: [...systemCommands?.commands ?? [], ...pipeCommands?.commands ?? []]
+  };
 }
 function extractAwkSystemCommands(code) {
   const commands2 = [];
@@ -1486,6 +1562,63 @@ function extractAwkSystemCommands(code) {
     return null;
   return commands2.length > 0 ? { dynamic: false, commands: commands2 } : { dynamic: true, commands: commands2 };
 }
+function extractAwkPipeCommands(code) {
+  const commands2 = [];
+  let dynamic = false;
+  let sawPipeCommand = false;
+  let i = 0;
+  while (i < code.length) {
+    const char = code[i];
+    if (!char)
+      break;
+    if (char === '"' || char === "'") {
+      const parsed = readAwkStringLiteral(code, i, char);
+      i = parsed?.endIndex ?? i + 1;
+      continue;
+    }
+    if (char === "#") {
+      i = findAwkLineEnd(code, i + 1);
+      continue;
+    }
+    if (char === "/" && isLikelyAwkRegexStart(code, i)) {
+      i = findAwkRegexEnd(code, i + 1) ?? i + 1;
+      continue;
+    }
+    if (char !== "|" || code[i - 1] === "|" || code[i + 1] === "|") {
+      i++;
+      continue;
+    }
+    const operatorEnd = code[i + 1] === "&" ? i + 2 : i + 1;
+    const afterPipe = skipAwkWhitespace(code, operatorEnd);
+    if (startsAwkKeyword(code, afterPipe, "getline")) {
+      sawPipeCommand = true;
+      const command = readAwkStringBeforePipe(code, i);
+      if (command === null) {
+        dynamic = true;
+      } else {
+        commands2.push(command);
+      }
+      i = operatorEnd;
+      continue;
+    }
+    if (isAwkPrintPipe(code, i)) {
+      sawPipeCommand = true;
+      const parsed = readAwkStringAt(code, afterPipe);
+      if (!parsed) {
+        dynamic = true;
+        i = operatorEnd;
+        continue;
+      }
+      commands2.push(parsed.value);
+      i = parsed.endIndex;
+      continue;
+    }
+    i++;
+  }
+  if (!sawPipeCommand)
+    return null;
+  return { dynamic, commands: commands2 };
+}
 function isAwkIdentifierChar(char) {
   return !!char && /[A-Za-z0-9_]/.test(char);
 }
@@ -1523,6 +1656,27 @@ function readAwkStringLiteral(code, startIndex, quote) {
   }
   return null;
 }
+function readAwkStringAt(code, index) {
+  const quote = code[index];
+  if (quote !== '"' && quote !== "'")
+    return null;
+  return readAwkStringLiteral(code, index, quote);
+}
+function readAwkStringBeforePipe(code, pipeIndex) {
+  const endIndex = skipAwkWhitespaceBack(code, pipeIndex);
+  const quote = code[endIndex - 1];
+  if (quote !== '"' && quote !== "'")
+    return null;
+  for (let i = endIndex - 2;i >= 0; i--) {
+    if (code[i] !== quote)
+      continue;
+    const parsed = readAwkStringLiteral(code, i, quote);
+    if (parsed?.endIndex === endIndex) {
+      return parsed.value;
+    }
+  }
+  return null;
+}
 function decodeAwkEscape(code, index) {
   const char = code[index];
   if (!char)
@@ -1553,6 +1707,62 @@ function decodeAwkEscape(code, index) {
     v: "\v"
   };
   return { value: simpleEscapes[char] ?? char, endIndex: index };
+}
+function skipAwkWhitespaceBack(code, index) {
+  let i = index;
+  while (i > 0 && /\s/.test(code[i - 1] ?? "")) {
+    i--;
+  }
+  return i;
+}
+function startsAwkKeyword(code, index, keyword) {
+  return code.startsWith(keyword, index) && !isAwkIdentifierChar(code[index - 1]) && !isAwkIdentifierChar(code[index + keyword.length]);
+}
+function isAwkPrintPipe(code, pipeIndex) {
+  return /\b(?:print|printf)\b/.test(code.slice(findAwkStatementStart(code, pipeIndex), pipeIndex));
+}
+function findAwkStatementStart(code, index) {
+  const starts = [";", `
+`, "{", "}"].map((marker) => code.lastIndexOf(marker, index - 1));
+  return Math.max(...starts) + 1;
+}
+function findAwkLineEnd(code, index) {
+  const lineEnd = code.indexOf(`
+`, index);
+  return lineEnd === -1 ? code.length : lineEnd + 1;
+}
+function isLikelyAwkRegexStart(code, index) {
+  const previousIndex = findPreviousAwkNonWhitespace(code, index);
+  if (previousIndex === -1)
+    return true;
+  return "{([,;!~".includes(code[previousIndex] ?? "");
+}
+function findPreviousAwkNonWhitespace(code, index) {
+  for (let i = index - 1;i >= 0; i--) {
+    if (!/\s/.test(code[i] ?? ""))
+      return i;
+  }
+  return -1;
+}
+function findAwkRegexEnd(code, index) {
+  let escaped = false;
+  for (let i = index;i < code.length; i++) {
+    const char = code[i];
+    if (!char)
+      break;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "/") {
+      return i + 1;
+    }
+  }
+  return null;
 }
 
 // src/core/analyze/constants.ts
@@ -1769,14 +1979,36 @@ function advanceQuoteScanState(char, state) {
 }
 function hasUnclosedQuotes(command) {
   const state = { inSingle: false, inDouble: false, escaped: false };
-  for (let i = 0;i < command.length; i++) {
-    const char = command[i];
-    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
-      break;
-    }
-    advanceQuoteScanState(char ?? "", state);
+  for (const char of stripShellComments(command)) {
+    advanceQuoteScanState(char, state);
   }
   return state.inSingle || state.inDouble;
+}
+function stripShellComments(command) {
+  let result = "";
+  const state = { inSingle: false, inDouble: false, escaped: false };
+  let inComment = false;
+  for (let i = 0;i < command.length; i++) {
+    const char = command[i];
+    if (!char)
+      break;
+    if (inComment) {
+      if (char === `
+` || char === "\r") {
+        result += char;
+        inComment = false;
+        state.escaped = false;
+      }
+      continue;
+    }
+    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
+      inComment = true;
+      continue;
+    }
+    result += char;
+    advanceQuoteScanState(char, state);
+  }
+  return result;
 }
 function startsShellComment(command, index) {
   return index === 0 || /\s/.test(command[index - 1] ?? "");
@@ -1801,7 +2033,7 @@ function splitShellCommandsWithInfo(command) {
   if (hasUnclosedQuotes(command)) {
     return [{ tokens: [command], hasDynamicSubstitution: false }];
   }
-  const normalizedCommand = _stripAttachedIoNumbers(_normalizeAnsiCQuotes(command).replace(/\n/g, " ; "));
+  const normalizedCommand = _stripAttachedIoNumbers(_normalizeAnsiCQuotes(stripShellComments(command)).replace(/\r?\n|\r/g, " ; "));
   const tokens = $parse(normalizedCommand, ENV_PROXY);
   const segments = [];
   let current = [];
@@ -3040,19 +3272,55 @@ function findPrimaryTakesValue(token) {
 }
 
 // src/core/analyze/interpreters.ts
+var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
+var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
+var CODE_FLAGS = new Map([
+  ["python", new Set(["-c"])],
+  ["python2", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["node", new Set(["-e", "--eval"])],
+  ["ruby", new Set(["-e"])],
+  ["perl", new Set(["-e", "-E"])]
+]);
+var CLUSTERED_CODE_FLAGS = new Map([
+  ["python", new Set(["c"])],
+  ["python2", new Set(["c"])],
+  ["python3", new Set(["c"])],
+  ["node", new Set(["e"])],
+  ["ruby", new Set(["e"])],
+  ["perl", new Set(["e", "E"])]
+]);
 function extractInterpreterCodeArg(tokens) {
+  const interpreter = getBasename(tokens[0] ?? "").toLowerCase();
   for (let i = 1;i < tokens.length; i++) {
     const token = tokens[i];
     if (!token)
       continue;
-    if ((token === "-c" || token === "-e") && tokens[i + 1]) {
+    if (isInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
       return tokens[i + 1] ?? null;
     }
-    if (token.startsWith("-") && !token.startsWith("--") && (token.includes("c") || token.includes("e")) && tokens[i + 1]) {
+    const inlineEval = /^--eval=(.*)$/s.exec(token);
+    if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
+      return inlineEval[1];
+    }
+    if (isClusteredInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
       return tokens[i + 1] ?? null;
     }
   }
   return null;
+}
+function isInterpreterCodeFlag(interpreter, token) {
+  return CODE_FLAGS.get(interpreter)?.has(token) ?? false;
+}
+function supportsInlineEval(interpreter) {
+  return CODE_FLAGS.get(interpreter)?.has("--eval") ?? false;
+}
+function isClusteredInterpreterCodeFlag(interpreter, token) {
+  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2) {
+    return false;
+  }
+  const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
+  return Array.from(token.slice(1)).some((flag) => flags?.has(flag) ?? false);
 }
 function containsDangerousCode(code) {
   for (const pattern of DANGEROUS_PATTERNS) {
@@ -3135,17 +3403,24 @@ function extractDashCArg(tokens) {
     const token = tokens[i];
     if (!token)
       continue;
-    if (token === "-c" && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
+    if (token === "-c") {
+      return getCommandStringAfterDashC(tokens, i, true);
     }
     if (token.startsWith("-") && token.includes("c") && !token.startsWith("--")) {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken;
-      }
+      return getCommandStringAfterDashC(tokens, i, false);
     }
   }
   return null;
+}
+function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
+  if (tokens[dashCIndex + 1] === "--") {
+    return tokens[dashCIndex + 2] || null;
+  }
+  const commandString = tokens[dashCIndex + 1];
+  if (!commandString || !allowDashCommand && commandString.startsWith("-")) {
+    return null;
+  }
+  return commandString;
 }
 
 // src/core/git/worktree.ts
@@ -3423,6 +3698,8 @@ function findDotGitInAncestors(cwd) {
 }
 
 // src/core/git/parse.ts
+var MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
+var REASON_GIT_ALIAS_CONFIG = "Git aliases supplied through command-line config can hide or execute commands. Run git without command-line alias overrides, or ask the user to run it manually.";
 function splitAtDoubleDash(tokens) {
   const index = tokens.indexOf("--");
   if (index === -1) {
@@ -3433,6 +3710,32 @@ function splitAtDoubleDash(tokens) {
     before: tokens.slice(0, index),
     after: tokens.slice(index + 1)
   };
+}
+function resolveGitCommandLineAliases(tokens, envAssignments) {
+  const aliases = getGitCommandLineAliases(tokens, envAssignments);
+  if (aliases.size === 0) {
+    return { blockedReason: null, expanded: false, tokens };
+  }
+  let currentTokens = tokens;
+  let expanded = false;
+  for (let depth = 0;depth < MAX_GIT_ALIAS_EXPANSION_DEPTH; depth++) {
+    const { subcommand, rest } = extractGitSubcommandAndRest(currentTokens);
+    const aliasName = subcommand?.toLowerCase();
+    if (!aliasName || !aliases.has(aliasName)) {
+      return { blockedReason: null, expanded, tokens: currentTokens };
+    }
+    const aliasValue = aliases.get(aliasName);
+    const aliasTokens = parseGitAliasValue(aliasValue);
+    if (aliasTokens === null || aliasTokens.length === 0) {
+      return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: true, tokens: currentTokens };
+    }
+    currentTokens = ["git", ...aliasTokens, ...rest];
+    expanded = true;
+  }
+  return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: true, tokens: currentTokens };
+}
+function hasGitCommandLineSshCommandConfig(tokens, envAssignments) {
+  return getGitCommandLineConfigEntries(tokens, envAssignments).some((entry) => entry.key.toLowerCase() === "core.sshcommand");
 }
 function extractGitSubcommandAndRest(tokens) {
   if (tokens.length === 0) {
@@ -3471,6 +3774,114 @@ function extractGitSubcommandAndRest(tokens) {
   }
   return { subcommand: null, rest: [] };
 }
+function getGitCommandLineAliases(tokens, envAssignments) {
+  const aliases = new Map;
+  for (const entry of getGitCommandLineConfigEntries(tokens, envAssignments)) {
+    const key = entry.key.toLowerCase();
+    if (!key.startsWith("alias.")) {
+      continue;
+    }
+    const name = key.slice("alias.".length);
+    if (name !== "") {
+      aliases.set(name, entry.value);
+    }
+  }
+  return aliases;
+}
+function getGitCommandLineConfigEntries(tokens, envAssignments) {
+  if (tokens.length === 0) {
+    return [];
+  }
+  const firstToken = tokens[0];
+  const command2 = firstToken ? getBasename(firstToken).toLowerCase() : null;
+  if (command2 !== "git") {
+    return [];
+  }
+  const entries = [];
+  let i = 1;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (!token || token === "--" || !token.startsWith("-")) {
+      return entries;
+    }
+    if (token === "-c") {
+      const entry = parseGitConfigEntry(tokens[i + 1]);
+      if (entry) {
+        entries.push(entry);
+      }
+      i += 2;
+      continue;
+    }
+    if (token.startsWith("-c") && token.length > 2) {
+      const entry = parseGitConfigEntry(token.slice(2));
+      if (entry) {
+        entries.push(entry);
+      }
+      i++;
+      continue;
+    }
+    if (token === "--config-env") {
+      const entry = parseGitConfigEnvEntry(tokens[i + 1], envAssignments);
+      if (entry) {
+        entries.push(entry);
+      }
+      i += 2;
+      continue;
+    }
+    if (token.startsWith("--config-env=")) {
+      const entry = parseGitConfigEnvEntry(token.slice("--config-env=".length), envAssignments);
+      if (entry) {
+        entries.push(entry);
+      }
+      i++;
+      continue;
+    }
+    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
+      i += 2;
+      continue;
+    }
+    i++;
+  }
+  return entries;
+}
+function parseGitConfigEntry(config) {
+  if (!config) {
+    return null;
+  }
+  const eqIdx = config.indexOf("=");
+  return {
+    key: (eqIdx === -1 ? config : config.slice(0, eqIdx)).trim(),
+    value: eqIdx === -1 ? undefined : config.slice(eqIdx + 1)
+  };
+}
+function parseGitConfigEnvEntry(configEnv, envAssignments) {
+  const eqIdx = configEnv?.indexOf("=") ?? -1;
+  if (!configEnv || eqIdx === -1) {
+    return null;
+  }
+  return {
+    key: configEnv.slice(0, eqIdx).trim(),
+    value: getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments)
+  };
+}
+function getEnvConfigValue(name, envAssignments) {
+  return envAssignments?.get(name) ?? process.env[name];
+}
+function parseGitAliasValue(value) {
+  const trimmedValue = value?.trimStart();
+  if (!trimmedValue || trimmedValue.startsWith("!") || hasUnclosedQuotes(trimmedValue)) {
+    return null;
+  }
+  const result = [];
+  for (const entry of $parse(trimmedValue, ENV_PROXY)) {
+    const token = getCommandTokenText(entry);
+    if (token === null) {
+      return null;
+    }
+    result.push(token);
+  }
+  return result;
+}
 
 // src/core/git/rules.ts
 var REASON_CHECKOUT_DOUBLE_DASH = "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.";
@@ -3486,6 +3897,7 @@ var REASON_RESET_HARD = "git reset --hard destroys all uncommitted changes perma
 var REASON_RESET_MERGE = "git reset --merge can lose uncommitted changes. Use 'git stash' first.";
 var REASON_CLEAN = "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.";
 var REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-with-lease for safer force push.";
+var REASON_PUSH_DELETE = "git push deletes remote refs. Ask the user to run it manually if deletion is intended.";
 var REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.";
 var REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
 var REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
@@ -3724,12 +4136,29 @@ function analyzeGitClean(tokens) {
   return null;
 }
 function analyzeGitPush(tokens) {
-  const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
-  const hasForce = tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
+  const { before, after } = splitAtDoubleDash(tokens);
+  const shortOpts = extractShortOpts(before);
+  const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f") || getPushRefspecCandidates(before, after).some(isForcePushRefspec);
   if (hasForce) {
     return destructiveCommandMatch("git.push-force", REASON_PUSH_FORCE);
   }
+  const hasDelete = before.some((token) => matchesGitLongOption(token, "--delete")) || shortOpts.has("-d") || getPushRefspecCandidates(before, after).some(isDeletePushRefspec);
+  if (hasDelete) {
+    return destructiveCommandMatch("git.push-delete", REASON_PUSH_DELETE);
+  }
   return null;
+}
+function getPushRefspecCandidates(beforeDoubleDash, afterDoubleDash) {
+  return [
+    ...beforeDoubleDash.filter((token) => token !== "" && !token.startsWith("-")),
+    ...afterDoubleDash
+  ];
+}
+function isForcePushRefspec(token) {
+  return token.startsWith("+") || token.includes(":+");
+}
+function isDeletePushRefspec(token) {
+  return token.length > 1 && token.startsWith(":");
 }
 function analyzeGitBranch(tokens) {
   const { before } = splitAtDoubleDash(tokens);
@@ -3857,10 +4286,10 @@ function commandLineRecursiveSubmoduleConfig(tokens, envAssignments) {
   return recursiveSubmoduleConfig;
 }
 function envRecursiveSubmoduleConfig(envAssignments) {
-  if (getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments) !== undefined) {
+  if (getEnvConfigValue2("GIT_CONFIG_PARAMETERS", envAssignments) !== undefined) {
     return true;
   }
-  const countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
+  const countValue = getEnvConfigValue2("GIT_CONFIG_COUNT", envAssignments);
   if (countValue === undefined) {
     return null;
   }
@@ -3870,16 +4299,19 @@ function envRecursiveSubmoduleConfig(envAssignments) {
   }
   let recursiveSubmoduleConfig = null;
   for (let i = 0;i < count; i++) {
-    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments);
-    if (key?.toLowerCase() !== "submodule.recurse") {
+    const key = getEnvConfigValue2(`GIT_CONFIG_KEY_${i}`, envAssignments)?.toLowerCase();
+    if (key && isIncludeConfigKey(key)) {
+      return true;
+    }
+    if (key !== "submodule.recurse") {
       continue;
     }
-    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    const value = getEnvConfigValue2(`GIT_CONFIG_VALUE_${i}`, envAssignments);
     recursiveSubmoduleConfig = value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
   }
   return recursiveSubmoduleConfig;
 }
-function getEnvConfigValue(name, envAssignments) {
+function getEnvConfigValue2(name, envAssignments) {
   return envAssignments?.get(name) ?? process.env[name];
 }
 function effectiveGitConfigEnablesRecursiveSubmodules(cwd, gitBinary = getTrustedGitBinary()) {
@@ -4049,7 +4481,7 @@ function recursiveSubmoduleConfigEnvValue(configEnv, envAssignments) {
   if (key !== "submodule.recurse") {
     return null;
   }
-  const value = getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments);
+  const value = getEnvConfigValue2(configEnv.slice(eqIdx + 1), envAssignments);
   return value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
 }
 function isIncludeConfigKey(key) {
@@ -4147,12 +4579,20 @@ function analyzeGit(tokens, options2 = {}) {
   return analyzeGitMatch(tokens, options2)?.reason ?? null;
 }
 function analyzeGitMatch(tokens, options2 = {}) {
-  if (hasGitSshEnvAssignment(options2.envAssignments) && isGitNetworkOperation(tokens)) {
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
+  if (aliasResolution.blockedReason) {
+    return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
+  }
+  const analysisTokens = aliasResolution.tokens;
+  if ((hasGitSshEnvAssignment(options2.envAssignments) || hasGitCommandLineSshCommandConfig(tokens, options2.envAssignments)) && isGitNetworkOperation(analysisTokens)) {
     return destructiveCommandMatch("git.ssh-env", REASON_GIT_SSH_ENV);
   }
-  const match = analyzeGitRule(tokens);
+  const match = analyzeGitRule(analysisTokens);
   if (!match) {
     return null;
+  }
+  if (aliasResolution.expanded) {
+    return match;
   }
   if (getGitWorktreeRelaxationForMatch(tokens, match, options2)) {
     return null;
@@ -4164,7 +4604,11 @@ function isGitNetworkOperation(tokens) {
   return GIT_NETWORK_SUBCOMMANDS.has(subcommand?.toLowerCase() ?? "");
 }
 function getGitWorktreeRelaxation(tokens, options2 = {}) {
-  const match = analyzeGitRule(tokens);
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
+  if (aliasResolution.blockedReason || aliasResolution.expanded) {
+    return null;
+  }
+  const match = analyzeGitRule(aliasResolution.tokens);
   if (!match) {
     return null;
   }
@@ -4194,6 +4638,29 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       });
     }
     return null;
+  }
+  if (AWK_INTERPRETERS.has(normalizedHead)) {
+    return filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(tokens, (command2) => context.analyzeNested ? context.analyzeNested(command2, {
+      effectiveCwd: context.cwd,
+      envAssignments: context.envAssignments
+    }) : null), context.config);
+  }
+  if (INTERPRETERS.has(normalizedHead)) {
+    const codeArg = extractInterpreterCodeArg(tokens);
+    if (!codeArg) {
+      return null;
+    }
+    if (context.paranoidInterpreters) {
+      return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.config);
+    }
+    const nestedResult = context.analyzeNested?.(codeArg, {
+      effectiveCwd: context.cwd,
+      envAssignments: context.envAssignments
+    });
+    if (nestedResult) {
+      return nestedResult;
+    }
+    return containsDangerousCode(codeArg) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.config) : null;
   }
   if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens)) {
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
@@ -4383,6 +4850,7 @@ function analyzeParallel(tokens, context) {
       cwd: childCommand.cwd,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
+      paranoidInterpreters: context.paranoidInterpreters,
       allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
       worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
@@ -4669,9 +5137,11 @@ function analyzeXargs(tokens, context) {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
+    paranoidInterpreters: context.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
     worktreeMode: context.worktreeMode,
+    analyzeNested: context.analyzeNested,
     config: context.config
   }, {
     dynamicInput: childCommand.head !== "git",
@@ -4690,9 +5160,11 @@ function analyzeXargs(tokens, context) {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
+    paranoidInterpreters: context.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
+    analyzeNested: context.analyzeNested,
     config: context.config
   });
 }
@@ -4704,6 +5176,8 @@ function extractXargsChildCommandWithInfo(tokens) {
     "-s",
     "-a",
     "-E",
+    "-R",
+    "-S",
     "-e",
     "-d",
     "-J",
@@ -4780,7 +5254,7 @@ function checkCustomRuleMatch(tokens, rules) {
     if (!matchesCommand(command2, rule.command)) {
       continue;
     }
-    if (!matchesSubcommand(tokens, rule.subcommand)) {
+    if (!matchesSubcommand(command2, tokens, rule.subcommand)) {
       continue;
     }
     if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
@@ -4796,13 +5270,13 @@ function checkCustomRuleMatch(tokens, rules) {
 function matchesCommand(command2, ruleCommand) {
   return command2 === normalizeCommandToken(ruleCommand);
 }
-function matchesSubcommand(tokens, ruleSubcommand) {
+function matchesSubcommand(command2, tokens, ruleSubcommand) {
   if (!ruleSubcommand) {
     return true;
   }
-  return matchesSubcommandFrom(tokens, 1, ruleSubcommand);
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command2));
 }
-var OPTIONS_WITH_VALUES = new Set([
+var GIT_OPTIONS_WITH_VALUES = new Set([
   "-c",
   "-C",
   "--git-dir",
@@ -4810,7 +5284,27 @@ var OPTIONS_WITH_VALUES = new Set([
   "--namespace",
   "--config-env"
 ]);
-function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand) {
+var DOCKER_OPTIONS_WITH_VALUES = new Set([
+  "-c",
+  "-H",
+  "-l",
+  "--config",
+  "--context",
+  "--host",
+  "--log-level",
+  "--tlscacert",
+  "--tlscert",
+  "--tlskey"
+]);
+var EMPTY_OPTIONS_WITH_VALUES = new Set;
+function getOptionsWithValues(command2) {
+  if (command2 === "git")
+    return GIT_OPTIONS_WITH_VALUES;
+  if (command2 === "docker")
+    return DOCKER_OPTIONS_WITH_VALUES;
+  return EMPTY_OPTIONS_WITH_VALUES;
+}
+function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues) {
   let skipNext = false;
   for (let i = startIndex;i < tokens.length; i++) {
     const token = tokens[i];
@@ -4827,12 +5321,12 @@ function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand) {
       }
       return false;
     }
-    if (OPTIONS_WITH_VALUES.has(token)) {
+    if (optionsWithValues.has(token)) {
       skipNext = true;
       continue;
     }
     if (token.startsWith("-")) {
-      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand)) {
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)) {
         return true;
       }
       continue;
@@ -4841,12 +5335,12 @@ function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand) {
   }
   return false;
 }
-function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand) {
+function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues) {
   const value = tokens[optionIndex + 1];
   if (!value || value.startsWith("-")) {
     return false;
   }
-  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand);
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
 }
 function matchesBlockArgs(tokens, blockArgs, shortOpts) {
   const blockArgsSet = new Set(blockArgs);
@@ -4864,8 +5358,6 @@ function matchesBlockArgs(tokens, blockArgs, shortOpts) {
 }
 
 // src/core/analyze/segment.ts
-var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
-var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
 var COMMAND_ANALYZERS = new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
@@ -5075,7 +5567,10 @@ function analyzeFindCommand(context) {
   });
 }
 function analyzeXargsCommand(context) {
-  return analyzeXargs(context.tokens, getNestedCommandAnalyzeContext(context));
+  return analyzeXargs(context.tokens, {
+    ...getNestedCommandAnalyzeContext(context),
+    analyzeNested: (command2, overrides) => matchFromBlockResult(context.options.analyzeNested(command2, overrides))
+  });
 }
 function analyzeParallelCommand(context) {
   return analyzeParallel(context.tokens, {
@@ -5095,6 +5590,7 @@ function getNestedCommandAnalyzeContext(context) {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     paranoidRm: context.options.paranoidRm,
+    paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
@@ -5286,20 +5782,30 @@ function getShellCommandInfo(tokens) {
   }
   let commandIndex = i;
   let command2 = tokens[commandIndex] ?? null;
-  if (command2 === "builtin") {
-    commandIndex++;
-    if (tokens[commandIndex] === "--") {
+  while (command2 === "builtin" || command2 === "command" || command2 === "time") {
+    if (command2 === "builtin") {
       commandIndex++;
+      if (tokens[commandIndex] === "--") {
+        commandIndex++;
+      }
+      command2 = tokens[commandIndex] ?? null;
+      continue;
     }
-    command2 = tokens[commandIndex] ?? null;
-  }
-  if (command2 === "command") {
-    const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
-    if (!commandBuiltinInfo) {
+    if (command2 === "command") {
+      const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
+      if (!commandBuiltinInfo) {
+        return null;
+      }
+      commandIndex = commandBuiltinInfo.commandIndex;
+      command2 = commandBuiltinInfo.command;
+      continue;
+    }
+    const timePrefixInfo = getTimePrefixTarget(tokens, commandIndex);
+    if (!timePrefixInfo) {
       return null;
     }
-    commandIndex = commandBuiltinInfo.commandIndex;
-    command2 = commandBuiltinInfo.command;
+    commandIndex = timePrefixInfo.commandIndex;
+    command2 = timePrefixInfo.command;
   }
   if (command2 === null) {
     return null;
@@ -5307,6 +5813,17 @@ function getShellCommandInfo(tokens) {
   return { command: command2, commandIndex, leadingAssignments };
 }
 function getCommandBuiltinTarget(tokens, commandIndex) {
+  return getPrefixedCommandTarget(tokens, commandIndex, (token) => {
+    if (token === "-p") {
+      return "skip";
+    }
+    return token === "-v" || token === "-V" ? "abort" : "stop";
+  });
+}
+function getTimePrefixTarget(tokens, commandIndex) {
+  return getPrefixedCommandTarget(tokens, commandIndex, (token) => token.startsWith("-") ? "skip" : "stop");
+}
+function getPrefixedCommandTarget(tokens, commandIndex, optionAction) {
   let i = commandIndex + 1;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -5317,12 +5834,13 @@ function getCommandBuiltinTarget(tokens, commandIndex) {
       i++;
       break;
     }
-    if (token === "-p") {
+    const action = optionAction(token);
+    if (action === "abort") {
+      return null;
+    }
+    if (action === "skip") {
       i++;
       continue;
-    }
-    if (token === "-v" || token === "-V") {
-      return null;
     }
     break;
   }
@@ -7314,11 +7832,10 @@ function loadRulesPolicy(options2 = {}) {
   ]);
   const userOverrides = user.config?.overrides ?? {};
   const projectOverrides = project.config?.overrides ?? {};
-  const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
   return {
     rules: [
       ...applyOverrides(userPolicy.rules, userOverrides),
-      ...applyOverrides(projectPolicy.rules, { ...userOverrides, ...projectOverrides })
+      ...applyOverrides(projectPolicy.rules, projectOverrides)
     ],
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
@@ -7327,8 +7844,9 @@ function loadRulesPolicy(options2 = {}) {
       ...userPolicy.errors,
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
+      ...userPolicy.canValidateOverrides ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds) : [],
       ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
-      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors({ ...userOverrides, ...projectOverrides }, knownRuleIds) : []
+      ...projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds) : []
     ],
     userConfig: user.config ?? undefined,
     projectConfig: project.config ?? undefined,
@@ -8234,8 +8752,51 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/policy-protection.ts
+import { homedir as homedir5 } from "node:os";
+import { dirname as dirname10, isAbsolute as isAbsolute10, join as join11, normalize as normalize4, resolve as resolve9 } from "node:path";
+
+// src/core/path-canonicalization.ts
+import { realpathSync as realpathSync9 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { dirname as dirname9, isAbsolute as isAbsolute10, join as join10, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { basename, dirname as dirname9, join as join10 } from "node:path";
+var SUPPORTED_PATH_ENV_NAMES = new Set([
+  "CC_SAFETY_NET_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "COPILOT_HOME",
+  "GEMINI_CLI_HOME",
+  "HOME",
+  "KIMI_CODE_HOME",
+  "KIMI_SHARE_DIR",
+  "OPENCODE_CONFIG",
+  "OPENCODE_CONFIG_DIR",
+  "PI_CODING_AGENT_DIR",
+  "ProgramData",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME"
+]);
+function expandSupportedPathEnvironmentVariables(value) {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
+}
+function resolveExistingPath(path) {
+  if (!path)
+    return path;
+  try {
+    return realpathSync9(path);
+  } catch {
+    const parent = dirname9(path);
+    if (parent === path)
+      return path;
+    return join10(resolveExistingPath(parent), basename(path));
+  }
+}
+function getSupportedPathEnvironmentValue(name) {
+  if (!SUPPORTED_PATH_ENV_NAMES.has(name))
+    return null;
+  if (name === "HOME")
+    return process.env.HOME ?? homedir4();
+  return process.env[name] ?? null;
+}
 
 // src/core/tool-input.ts
 function getCommandFromToolInput(input) {
@@ -8331,7 +8892,7 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd) {
   }
   let tokens;
   try {
-    tokens = $parse(command2.replace(/\n/g, " ; "), {});
+    tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
   } catch {
     return findPolicyConfigTargetInText(command2, cwd);
   }
@@ -8472,20 +9033,20 @@ function getPolicyConfigProtectedPaths(cwd) {
   ];
 }
 function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
-  const configDir = dirname9(configPath);
+  const configDir = dirname10(configPath);
   const loaded = readRulesConfig(configPath);
   if (!loaded.config)
-    return [dirname9(configDir), configDir, configPath, lockPath];
+    return [dirname10(configDir), configDir, configPath, lockPath];
   const configuredSources = new Set(loaded.config.rules);
   return [
-    dirname9(configDir),
+    dirname10(configDir),
     configDir,
     configPath,
     lockPath,
-    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join10(configDir, source), join10(configDir, source, RULEBOOK_FILE)]),
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join11(configDir, source), join11(configDir, source, RULEBOOK_FILE)]),
     ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
       const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
-      return [dirname9(cachePath), cachePath];
+      return [dirname10(cachePath), cachePath];
     })
   ];
 }
@@ -8497,11 +9058,11 @@ function extractPolicyConfigPathCandidates(text) {
   return text.split(/[^A-Za-z0-9_./\\~:-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
 }
 function normalizeCandidatePath(target, cwd) {
-  const unix = target.trim().replace(/\\/g, "/");
+  const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  const expanded = unix === "~" ? homedir4() : unix.startsWith("~/") ? resolve9(homedir4(), unix.slice(2)) : unix;
-  return normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)).replace(/\\/g, "/");
+  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded))).replace(/\\/g, "/");
 }
 function isOperator2(token) {
   const op = getParseOp(token);
@@ -8516,7 +9077,7 @@ function getParseOp(token) {
 }
 
 // src/core/secret-protection.ts
-import { homedir as homedir5 } from "node:os";
+import { homedir as homedir6 } from "node:os";
 import { isAbsolute as isAbsolute11, resolve as resolve10 } from "node:path";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
@@ -8584,22 +9145,41 @@ var PATTERN_ARG_LONG = new Set([
   "context",
   "max-count"
 ]);
-var PATH_LIKE_KEYS2 = new Set([
+var PATH_TARGET_KEYS = new Set([
   "absolutepath",
   "directorypath",
   "directory_path",
   "file",
   "file_path",
   "filepath",
-  "glob",
   "notebook_path",
   "path",
-  "pattern",
   "searchdirectory",
   "search_directory",
   "targetfile",
   "target_file"
 ]);
+var GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob"]);
+var GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob", "pattern"]);
+var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch"]);
+var SHELL_TOOL_NAMES = new Set(["bash", "powershell", "runcommand", "runshellcommand", "shell"]);
+var PATH_TARGET_TOOL_NAMES = new Set([
+  "create",
+  "edit",
+  "multiedit",
+  "notebookedit",
+  "read",
+  "readfile",
+  "replacefilecontent",
+  "strreplaceeditor",
+  "view",
+  "viewfile",
+  "write",
+  "writefile"
+]);
+var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
+var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
+var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
 var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var PIPE_OPERATORS = new Set(["|", "|&"]);
 var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
@@ -8615,24 +9195,163 @@ function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   }
   return null;
 }
-function findSensitiveTargetInCommand(command2, cwd = process.cwd(), config) {
-  return findSensitivePathTarget(extractCommandPathTargets(command2), cwd, config);
+function findSensitiveTargetInToolInput(toolName, input, cwd = process.cwd(), config) {
+  return findSensitivePathTarget(extractToolPathTargets(toolName, input), cwd, config);
 }
-function findSensitiveTargetInToolInput(input, cwd = process.cwd(), config) {
-  const command2 = getCommandFromToolInput(input);
-  if (command2) {
-    const commandTarget = findSensitiveTargetInCommand(command2, cwd, config);
-    if (commandTarget)
-      return commandTarget;
+function extractToolPathTargets(toolName, input) {
+  const normalized = normalizeToolName(toolName);
+  if (SHELL_TOOL_NAMES.has(normalized)) {
+    const command3 = getCommandFromToolInput(input);
+    return command3 ? extractCommandPathTargets(command3) : [];
   }
-  return findSensitivePathTarget(extractPathLikeToolValues(input, PATH_LIKE_KEYS2), cwd, config);
+  if (GREP_TOOL_NAMES.has(normalized))
+    return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
+  if (GLOB_TOOL_NAMES.has(normalized))
+    return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
+  if (PATCH_TOOL_NAMES.has(normalized)) {
+    return [...extractPathLikeToolValues(input, PATH_TARGET_KEYS), ...extractPatchTargets(input)];
+  }
+  if (PATH_TARGET_TOOL_NAMES.has(normalized)) {
+    return [
+      ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
+      ...normalized === "edit" ? extractPatchTargets(input) : []
+    ];
+  }
+  const command2 = getCommandFromToolInput(input);
+  return [
+    ...command2 ? extractCommandPathTargets(command2) : [],
+    ...extractPathLikeToolValues(input, PATH_TARGET_KEYS)
+  ];
+}
+function extractPatchTargets(input) {
+  return extractPatchTexts(input).flatMap(extractPatchTargetsFromText);
+}
+function extractPatchTexts(input) {
+  if (typeof input === "string")
+    return [input];
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input))
+    return input.flatMap(extractPatchTexts);
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (typeof value === "string" && PATCH_TEXT_KEYS.has(normalizeToolInputKey2(key)))
+      return [value];
+    if (value && typeof value === "object")
+      return extractPatchTexts(value);
+    return [];
+  });
+}
+function extractPatchTargetsFromText(text) {
+  const targets = [];
+  const lines = text.split(/\r?\n/);
+  let inHunk = false;
+  let inApplyPatch = false;
+  let oldHunkLinesRemaining = null;
+  let newHunkLinesRemaining = null;
+  const resetHunk = () => {
+    inHunk = false;
+    oldHunkLinesRemaining = null;
+    newHunkLinesRemaining = null;
+  };
+  for (let index = 0;index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (line === "*** Begin Patch") {
+      inApplyPatch = true;
+      resetHunk();
+      continue;
+    }
+    if (line === "*** End Patch") {
+      inApplyPatch = false;
+      resetHunk();
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const hunkLines = parseUnifiedHunkLineCounts(line);
+      inHunk = true;
+      oldHunkLinesRemaining = hunkLines?.oldLines ?? null;
+      newHunkLinesRemaining = hunkLines?.newLines ?? null;
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (line.startsWith("*** ")) {
+      resetHunk();
+      targets.push(...extractPatchTargetsFromLine(line, false));
+      continue;
+    }
+    if (!inApplyPatch && line.startsWith("diff --git ")) {
+      resetHunk();
+      targets.push(...extractPatchTargetsFromLine(line, false));
+      continue;
+    }
+    if (!inApplyPatch && !inHunk && line.startsWith("--- ")) {
+      const nextLine = lines[index + 1] ?? "";
+      if (nextLine.startsWith("+++ ")) {
+        resetHunk();
+        targets.push(...extractPatchTargetsFromLine(line, false));
+        targets.push(...extractPatchTargetsFromLine(nextLine, false));
+        index++;
+        continue;
+      }
+    }
+    targets.push(...extractPatchTargetsFromLine(line, inHunk || inApplyPatch));
+    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
+      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
+      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
+      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
+      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+    }
+  }
+  return targets;
+}
+function parseUnifiedHunkLineCounts(line) {
+  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+  if (!hunkHeader)
+    return null;
+  return {
+    oldLines: Number(hunkHeader[1] ?? 1),
+    newLines: Number(hunkHeader[2] ?? 1)
+  };
+}
+function extractPatchTargetsFromLine(line, inHunk) {
+  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
+  if (applyPatchTarget?.[1])
+    return cleanPatchTarget(applyPatchTarget[1]);
+  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
+  if (moveTarget?.[1])
+    return cleanPatchTarget(moveTarget[1]);
+  const gitDiffTarget = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+  if (gitDiffTarget?.[1] && gitDiffTarget[2]) {
+    return [gitDiffTarget[1], gitDiffTarget[2]].flatMap(cleanPatchTarget);
+  }
+  if (inHunk)
+    return [];
+  const oldTarget = /^--- (?:a\/)?(.+)$/.exec(line);
+  if (oldTarget?.[1])
+    return cleanPatchTarget(oldTarget[1]);
+  const newTarget = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
+  if (newTarget?.[1])
+    return cleanPatchTarget(newTarget[1]);
+  return [];
+}
+function cleanPatchTarget(target) {
+  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  return path === "" || path === "/dev/null" ? [] : [path];
+}
+function normalizeToolName(toolName) {
+  return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function normalizeToolInputKey2(key) {
+  return key.replace(/-/g, "_").toLowerCase();
 }
 function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
     return [];
   }
-  const targets = extractDecodedCommandSubstitutionTargets(command2);
-  const tokens = $parse(command2.replace(/\n/g, " ; "), {});
+  const targets = extractCommandSubstitutionPathTargets(command2);
+  const tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
   let segment = [];
   let pipeProducer = null;
   for (let i = 0;i < tokens.length; i++) {
@@ -8677,7 +9396,7 @@ function extractSegmentPathTargets(tokens) {
   if (commandIndex === -1) {
     return assignmentValues;
   }
-  const command2 = basename(stripped[commandIndex] ?? "").toLowerCase();
+  const command2 = basename2(stripped[commandIndex] ?? "").toLowerCase();
   const post = stripped.slice(commandIndex + 1);
   if (NON_PATH_OPERAND_COMMANDS.has(command2)) {
     return assignmentValues;
@@ -8711,7 +9430,7 @@ function extractDisplayCommandOperands(tokens) {
   if (commandIndex === -1) {
     return [];
   }
-  const command2 = basename(stripped[commandIndex] ?? "").toLowerCase();
+  const command2 = basename2(stripped[commandIndex] ?? "").toLowerCase();
   if (!NON_PATH_OPERAND_COMMANDS.has(command2)) {
     return [];
   }
@@ -8720,7 +9439,7 @@ function extractDisplayCommandOperands(tokens) {
 function xargsReadsPipeInputAsPath(tokens) {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
   const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1 || basename(stripped[commandIndex] ?? "").toLowerCase() !== "xargs") {
+  if (commandIndex === -1 || basename2(stripped[commandIndex] ?? "").toLowerCase() !== "xargs") {
     return false;
   }
   const xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
@@ -8860,14 +9579,17 @@ function extractPathLiteralsFromCode(code) {
   const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
-function extractDecodedCommandSubstitutionTargets(command2) {
-  return extractCommandSubstitutionBodies(command2).flatMap((body) => commandSubstitutionDecodesBase64(body) ? extractBase64DecodedPathCandidates($parse(body.replace(/\n/g, " ; "), ENV_PROXY)) : []);
+function extractCommandSubstitutionPathTargets(command2) {
+  return extractCommandSubstitutionBodies(command2).flatMap((body) => [
+    ...extractCommandPathTargets(body),
+    ...commandSubstitutionDecodesBase64(body) ? extractBase64DecodedPathCandidates($parse(body.replace(/\n/g, " ; "), ENV_PROXY)) : []
+  ]);
 }
 function commandSubstitutionDecodesBase64(command2) {
   const tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
   for (let i = 0;i < tokens.length; i++) {
     const token = getCommandTokenText(tokens[i]);
-    if (token === null || basename(token).toLowerCase() !== "base64") {
+    if (token === null || basename2(token).toLowerCase() !== "base64") {
       continue;
     }
     for (let j = i + 1;j < tokens.length; j++) {
@@ -9215,7 +9937,10 @@ function matchesOpenCodePath(normalized, cwd) {
   const dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode");
   const configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode");
   const programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
-  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, root, ["opencode.json", "opencode.jsonc"]));
+  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath2(root, cwd), [
+    "opencode.json",
+    "opencode.jsonc"
+  ]));
 }
 function matchesPiPath(normalized, cwd) {
   return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd), ["auth.json"]);
@@ -9288,19 +10013,23 @@ function isSecretRuleEnabled(id, config) {
   return !config?.disabledRules?.has(id);
 }
 function normalizeCandidatePath2(target, cwd) {
-  const normalized = normalizePathText(target);
+  const normalized = normalizePathText(expandSupportedPathEnvironmentVariables(target));
   if (!normalized || normalized === "~" || normalized.startsWith("~/")) {
     return normalized;
   }
-  const home = normalizePathText(process.env.HOME ?? homedir5());
+  const homeValue = process.env.HOME ?? homedir6();
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
   if (!home) {
     return normalized;
   }
   const absolute = isAbsolute11(normalized) ? normalized : normalizePathText(resolve10(cwd, normalized));
-  if (!isSameOrChildPath(absolute, home)) {
-    return normalized;
+  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  if (!isSameOrChildPath(canonicalAbsolute, home)) {
+    if (isAbsolute11(normalized))
+      return canonicalAbsolute;
+    return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
-  const relativeHomePath = absolute.slice(home.length);
+  const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
 function normalizePathText(value) {
@@ -9313,7 +10042,7 @@ function normalizePathText(value) {
 function isSameOrChildPath(path, parent) {
   return path === parent || path.startsWith(`${parent}/`);
 }
-function basename(token) {
+function basename2(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
 function isOperator3(token) {
@@ -9358,7 +10087,7 @@ function handlePiToolCall(event, ctx) {
       repairLocalRulebooks: true,
       ...ctx.safetyNetConfigOptions
     });
-    const secretTarget = config.secretProtection?.enabled === false ? null : findSensitiveTargetInToolInput(toolCall.input, cwd, config.secretProtection);
+    const secretTarget = config.secretProtection?.enabled === false ? null : findSensitiveTargetInToolInput(toolCall.toolName, toolCall.input, cwd, config.secretProtection);
     if (secretTarget) {
       const secretCommand = getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
       const sessionId2 = ctx.sessionManager.getSessionFile();
