@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { analyzeCommand } from '@/core/analyze';
 import {
   assertAllowed,
   assertBlocked,
@@ -14,6 +15,9 @@ import {
 const RM_RF_REASON = ['rm', '-rf'].join(' ');
 const RM_RF_ROOT = [RM_RF_REASON, '/'].join(' ');
 const GIT_RESET_HARD = ['git', 'reset', '--hard'].join(' ');
+const SHELL_DOLLAR = String.fromCharCode(36);
+const SHELL_SEMICOLON = String.fromCharCode(59);
+const TMPDIR_BUILD_TARGET = [SHELL_DOLLAR, 'TMPDIR/build'].join('');
 
 describe('edge cases', () => {
   let tempDir: string;
@@ -336,6 +340,21 @@ describe('edge cases', () => {
     });
   });
 
+  describe('command substitution dynamic output', () => {
+    test('command substitution dynamic rm target blocked', () => {
+      assertBlocked([RM_RF_REASON, '$(printf /)'].join(' '), 'shell variables', tempDir);
+    });
+
+    test('command substitution dynamic executable blocked', () => {
+      assertBlocked(['$(printf r)m', '-rf', '/'].join(' '), 'dynamic command', tempDir);
+      assertBlocked(['r$(printf m)', '-rf', '/'].join(' '), 'dynamic command', tempDir);
+    });
+
+    test('safe command substitution argument remains allowed', () => {
+      assertAllowed('echo $(printf ok)', tempDir);
+    });
+  });
+
   describe('xargs', () => {
     test('xargs rm -rf blocked', () => {
       assertBlocked('echo / | xargs rm -rf', 'rm -rf');
@@ -408,6 +427,12 @@ describe('edge cases', () => {
       );
     });
 
+    test('xargs child interpreter attached dangerous code blocked', () => {
+      const payload = `import os; os.system("${RM_RF_ROOT}")`;
+
+      assertBlocked(`echo ok | xargs python -c'${payload}'`, 'dangerous command');
+    });
+
     test('xargs child interpreter safe code allowed', () => {
       assertAllowed('echo ok | xargs python -c \'print("ok")\'');
     });
@@ -442,6 +467,14 @@ describe('edge cases', () => {
 
     test('xargs arg file option still blocks child rm', () => {
       assertBlocked('echo ok | xargs -a /tmp/paths rm -rf', 'rm -rf');
+    });
+
+    test('xargs process slot var option still blocks child rm', () => {
+      assertBlocked('echo / | xargs --process-slot-var SLOT rm -rf /', 'rm -rf');
+    });
+
+    test('xargs process slot var option allows safe child', () => {
+      assertAllowed('echo ok | xargs --process-slot-var SLOT echo ok');
     });
 
     test('xargs echo allowed', () => {
@@ -609,8 +642,12 @@ describe('edge cases', () => {
       assertAllowed('parallel busybox find . -name foo ::: ok');
     });
 
-    test('parallel stdin without template allowed', () => {
-      assertAllowed('echo ok | parallel');
+    test('parallel command stream from stdin blocks destructive payload', () => {
+      assertBlocked(`printf '${RM_RF_ROOT}\\n' | parallel`, 'executable commands');
+    });
+
+    test('parallel command stream from stdin denies safe-looking payload', () => {
+      assertBlocked("printf 'echo ok\\n' | parallel", 'executable commands');
     });
 
     test('parallel marker without template allowed', () => {
@@ -998,6 +1035,12 @@ describe('edge cases', () => {
       assertBlocked('node -pe \'require("child_process").execSync("rm -rf /")\'', 'dangerous');
     });
 
+    test('attached interpreter code with dangerous command blocked', () => {
+      const payload = `import os; os.system("${RM_RF_ROOT}")`;
+
+      assertBlocked(`python -c'${payload}'`, 'dangerous');
+    });
+
     test('interpreter rm recursive force variants blocked', () => {
       assertBlocked('python -c \'import os; os.system("rm -Rf /")\'', 'dangerous');
       assertBlocked('python -c \'import os; os.system("rm -FR /")\'', 'dangerous');
@@ -1029,6 +1072,20 @@ describe('edge cases', () => {
 
     test('perl uppercase eval safe allowed', () => {
       assertAllowed('perl -E "say 1"');
+    });
+
+    test('versioned python dangerous code blocked', () => {
+      const payload = `import os; os.system("${RM_RF_ROOT}")`;
+
+      assertBlocked(`python3.11 -c '${payload}'`, 'dangerous');
+    });
+
+    test('versioned python safe code allowed', () => {
+      assertAllowed('python3.11 -c \'print("ok")\'');
+    });
+
+    test('python config command is not treated as an interpreter', () => {
+      assertAllowed(`python-config -c '${RM_RF_ROOT}'`);
     });
   });
 
@@ -1114,6 +1171,115 @@ describe('edge cases', () => {
         'dangerous command',
         tempDir,
       );
+    });
+  });
+
+  describe('dynamic wrapper cwd', () => {
+    test('dynamic wrapper cwd blocks relative recursive delete', () => {
+      const unknownCwd = `${SHELL_DOLLAR}UNKNOWN_CWD`;
+      for (const command of [
+        ['env', '-C', unknownCwd, RM_RF_REASON, 'build'].join(' '),
+        ['env', `--chdir=${unknownCwd}`, RM_RF_REASON, 'build'].join(' '),
+        ['sudo', '-D', unknownCwd, RM_RF_REASON, 'build'].join(' '),
+        ['sudo', `--chdir=${unknownCwd}`, RM_RF_REASON, 'build'].join(' '),
+      ]) {
+        assertBlocked(command, 'outside cwd', tempDir);
+      }
+    });
+
+    test('resolved wrapper cwd keeps contained recursive delete allowed', () => {
+      const projectDir = join(tempDir, 'project');
+      const innerDir = join(projectDir, 'inner');
+      mkdirSync(join(innerDir, 'build'), { recursive: true });
+
+      assertAllowed(
+        ['env', '-C', toShellPath(innerDir), RM_RF_REASON, 'build'].join(' '),
+        projectDir,
+      );
+    });
+  });
+
+  describe('recursive rm target expansion', () => {
+    test('globbed relative recursive delete targets blocked', () => {
+      assertBlocked([RM_RF_REASON, './build-*'].join(' '), 'shell variables', tempDir);
+      assertBlocked([RM_RF_REASON, 'build?'].join(' '), 'shell variables', tempDir);
+      assertBlocked([RM_RF_REASON, 'dist[0-9]'].join(' '), 'shell variables', tempDir);
+    });
+
+    test('unresolved glob under cwd blocked', () => {
+      assertBlocked([RM_RF_REASON, './missing-*'].join(' '), 'shell variables', tempDir);
+    });
+
+    test('glob can traverse a symlinked directory outside cwd', () => {
+      const projectDir = join(tempDir, 'project');
+      const outsideDir = join(tempDir, 'outside');
+      mkdirSync(join(outsideDir, 'nested'), { recursive: true });
+      mkdirSync(projectDir);
+      symlinkSync(outsideDir, join(projectDir, 'external'), 'dir');
+
+      assertBlocked([RM_RF_REASON, './*/nested'].join(' '), 'shell variables', projectDir);
+    });
+
+    test('literal cwd-contained recursive delete target remains allowed', () => {
+      mkdirSync(join(tempDir, 'build'), { recursive: true });
+      assertAllowed([RM_RF_REASON, 'build'].join(' '), tempDir);
+    });
+  });
+
+  describe('TMPDIR handling', () => {
+    test('inherited non-temp TMPDIR blocks recursive delete through TMPDIR', () => {
+      const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
+
+      withEnv({ TMPDIR: unsafeTmpdir }, () => {
+        assertBlocked([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), 'shell variables', tempDir);
+      });
+    });
+
+    test('envAssignments non-temp TMPDIR blocks recursive delete through TMPDIR', () => {
+      const result = analyzeCommand([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), {
+        cwd: tempDir,
+        config: { version: 1, rules: [] },
+        envAssignments: new Map([['TMPDIR', join(process.cwd(), 'unsafe-tmpdir')]]),
+      });
+
+      expect(result?.reason).toContain('shell variables');
+    });
+
+    test('exported non-temp TMPDIR across segments blocks recursive delete through TMPDIR', () => {
+      const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
+      const assignment = ['TMPDIR', toShellPath(unsafeTmpdir)].join('=');
+      const command = [
+        ['export', assignment].join(' '),
+        [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
+      ].join(` ${SHELL_SEMICOLON} `);
+
+      assertBlocked(command, 'shell variables', tempDir);
+    });
+
+    test('inherited and exported temp TMPDIR remain allowed', () => {
+      const safeTmpdir = join(tmpdir(), 'cc-safety-net-safe-tmpdir');
+      const assignment = ['TMPDIR', toShellPath(safeTmpdir)].join('=');
+      const command = [
+        ['export', assignment].join(' '),
+        [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
+      ].join(` ${SHELL_SEMICOLON} `);
+
+      withEnv({ TMPDIR: safeTmpdir }, () => {
+        assertAllowed([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), tempDir);
+      });
+      assertAllowed(command, tempDir);
+    });
+
+    test('unset TMPDIR removes inherited trust for recursive delete through TMPDIR', () => {
+      const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
+      const command = [
+        ['unset', 'TMPDIR'].join(' '),
+        [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
+      ].join(` ${SHELL_SEMICOLON} `);
+
+      withEnv({ TMPDIR: unsafeTmpdir }, () => {
+        assertBlocked(command, 'shell variables', tempDir);
+      });
     });
   });
 

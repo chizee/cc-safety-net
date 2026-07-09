@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { getRulebookLockEntrySourceIdentityError } from './sources';
 import type { GitHubRulebookLockEntry, RulebookLockEntry, RulesLockfile } from './types';
 
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
@@ -60,15 +61,18 @@ function parseLockEntry(
   if (errors.length > 0) return { entry: null, errors };
 
   if (candidate.kind === 'local-directory') {
+    const localEntry: RulebookLockEntry = {
+      spec: requiredString(candidate, 'spec'),
+      kind: 'local-directory',
+      path: requiredString(candidate, 'path'),
+      name: requiredString(candidate, 'name'),
+      version: requiredString(candidate, 'version'),
+      digest: requiredString(candidate, 'digest'),
+    };
+    const identityError = getLockEntrySourceIdentityError(localEntry, prefix);
+    if (identityError) return { entry: null, errors: [identityError] };
     return {
-      entry: {
-        spec: requiredString(candidate, 'spec'),
-        kind: 'local-directory',
-        path: requiredString(candidate, 'path'),
-        name: requiredString(candidate, 'name'),
-        version: requiredString(candidate, 'version'),
-        digest: requiredString(candidate, 'digest'),
-      },
+      entry: localEntry,
       errors: [],
     };
   }
@@ -85,6 +89,8 @@ function parseLockEntry(
     version: requiredString(candidate, 'version'),
     digest: requiredString(candidate, 'digest'),
   };
+  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
+  if (identityError) return { entry: null, errors: [identityError] };
   return {
     entry:
       typeof candidate.display_ref === 'string' && candidate.display_ref !== ''
@@ -129,6 +135,11 @@ function validateKindFields(candidate: Record<string, unknown>, prefix: string):
     );
   }
   return [];
+}
+
+function getLockEntrySourceIdentityError(entry: RulebookLockEntry, prefix: string): string | null {
+  const error = getRulebookLockEntrySourceIdentityError(entry);
+  return error ? `${prefix}: ${error}` : null;
 }
 
 function requiredString(candidate: Record<string, unknown>, field: string): string {

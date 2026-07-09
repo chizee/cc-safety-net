@@ -4,8 +4,9 @@ import {
   extractGitSubcommandAndRest,
   hasGitCommandLineSshCommandConfig,
   resolveGitCommandLineAliases,
+  splitAtDoubleDash,
 } from '@/core/git/parse';
-import { analyzeGitRule } from '@/core/git/rules';
+import { analyzeGitRule, matchesGitLongOption } from '@/core/git/rules';
 import {
   type GitAnalyzeOptions,
   type GitWorktreeRelaxation,
@@ -67,8 +68,30 @@ export function analyzeGitMatch(
 }
 
 function isGitNetworkOperation(tokens: readonly string[]): boolean {
-  const { subcommand } = extractGitSubcommandAndRest(tokens);
-  return GIT_NETWORK_SUBCOMMANDS.has(subcommand?.toLowerCase() ?? '');
+  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
+  const subcommandName = subcommand?.toLowerCase();
+  if (!subcommandName) {
+    return false;
+  }
+  if (GIT_NETWORK_SUBCOMMANDS.has(subcommandName)) {
+    return true;
+  }
+  if (subcommandName === 'archive') {
+    return splitAtDoubleDash(rest).before.some((token) => matchesGitLongOption(token, '--remote'));
+  }
+  return subcommandName === 'remote' && isGitRemoteUpdateOperation(rest);
+}
+
+function isGitRemoteUpdateOperation(tokens: readonly string[]): boolean {
+  return tokens.find((token) => !isGitRemotePrefixOption(token))?.toLowerCase() === 'update';
+}
+
+function isGitRemotePrefixOption(token: string): boolean {
+  return (
+    token === '-v' ||
+    matchesGitLongOption(token, '--verbose') ||
+    matchesGitLongOption(token, '--no-verbose')
+  );
 }
 
 export function getGitWorktreeRelaxation(

@@ -19,6 +19,7 @@ import { analyzeFind } from '@/core/analyze/find';
 import {
   containsDangerousCode,
   extractInterpreterCodeArg,
+  isInterpreterCommand,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
@@ -49,7 +50,7 @@ import type {
   DestructiveCommandRuleMatch,
   TraceStep,
 } from '@/types';
-import { INTERPRETERS, MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/types';
+import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/types';
 
 export interface SegmentResult {
   reason: string;
@@ -275,7 +276,7 @@ export function explainSegment(
     }
   }
 
-  if (INTERPRETERS.has(baseNameLower)) {
+  if (isInterpreterCommand(baseNameLower)) {
     const codeArg = extractInterpreterCodeArg(strippedTokens);
     if (codeArg) {
       const paranoidBlocked = !!options.paranoidInterpreters;

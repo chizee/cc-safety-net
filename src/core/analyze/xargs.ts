@@ -104,6 +104,7 @@ export function extractXargsChildCommandWithInfo(tokens: readonly string[]): Xar
     '--eof',
     '--delimiter',
     '--max-lines',
+    '--process-slot-var',
   ]);
 
   let replacementToken: string | null = null;

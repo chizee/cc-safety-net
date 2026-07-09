@@ -219,6 +219,7 @@ export declare const SHELL_OPERATORS: Set<string>;
 export declare const SHELL_WRAPPERS: Set<string>;
 /** Interpreters that can execute code */
 export declare const INTERPRETERS: Set<string>;
+export declare const PYTHON_INTERPRETER_PATTERN: RegExp;
 /** Dangerous commands to detect in interpreter code */
 export declare const DANGEROUS_PATTERNS: RegExp[];
 /** Trace step for explain command - discriminated union of all step types */

@@ -11,7 +11,7 @@ import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
 import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
 import { getBasename, stripWrappers } from '@/core/shell';
-import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
@@ -83,6 +83,19 @@ const CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
   ['perl', new Set(['e'])],
 ]);
 const POLICY_ENV_PATH_NAMES = new Set(['CC_SAFETY_NET_HOME']);
+const SHELL_COMMAND_TOOLS = new Set([
+  'bash',
+  'powershell',
+  'runcommand',
+  'runshellcommand',
+  'shell',
+]);
+const SHELL_ENV_PROXY = new Proxy(
+  {},
+  {
+    get: (_, name) => ['$', '{', String(name), '}'].join(''),
+  },
+);
 
 type PolicyConfigTarget = {
   target: string;
@@ -99,7 +112,9 @@ export function findPolicyConfigMutationTargetInToolInput(
   cwd = process.cwd(),
 ): PolicyConfigTarget | null {
   const command = getCommandFromToolInput(input);
-  if (command) return findPolicyConfigMutationTargetInCommand(command, cwd);
+  const commandTarget = command ? findPolicyConfigMutationTargetInCommand(command, cwd) : null;
+  if (commandTarget) return commandTarget;
+  if (command && isShellCommandTool(toolName)) return null;
 
   const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) =>
     isPolicyConfigPath(value, cwd),
@@ -119,7 +134,7 @@ function findPolicyConfigMutationTargetInCommand(
 
   let tokens: ParseEntry[];
   try {
-    tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY) as ParseEntry[];
+    tokens = parse(command.replace(/\n/g, ' ; '), SHELL_ENV_PROXY) as ParseEntry[];
   } catch {
     return findPolicyConfigTargetInText(command, cwd);
   }
@@ -142,7 +157,7 @@ function findPolicyConfigMutationTargetInCommand(
         target &&
         isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)
       ) {
-        return { target };
+        return { target: formatShellPolicyTarget(target) };
       }
       i = targetIndex ?? i + 1;
       continue;
@@ -328,6 +343,14 @@ function isReadOnlyTool(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
 }
 
+function isShellCommandTool(toolName: string): boolean {
+  return SHELL_COMMAND_TOOLS.has(normalizeToolName(toolName));
+}
+
+function normalizeToolName(toolName: string): string {
+  return toolName.replace(/[-_\s]/g, '').toLowerCase();
+}
+
 function isPolicyConfigPath(target: string, cwd: string): boolean {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
   return getPolicyConfigProtectedPaths(cwd).some(
@@ -374,6 +397,10 @@ function findPolicyConfigTargetInText(text: string, cwd: string): PolicyConfigTa
   return target ? { target } : null;
 }
 
+function formatShellPolicyTarget(target: string): string {
+  return target.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, '$$$1');
+}
+
 function extractPolicyConfigPathCandidates(text: string): string[] {
   return text
     .split(/[^A-Za-z0-9_./\\~:$-]+/)
@@ -397,6 +424,17 @@ function extractConstructedPolicyPathCandidates(text: string): string[] {
 
 function expandShellVariables(text: string, variables: ReadonlyMap<string, string>): string {
   return text
+    .replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g,
+      (match, name: string, operator: string, word: string) => {
+        const value = variables.get(name);
+        if (value === undefined) return match;
+
+        const isUsable = operator.startsWith(':') ? value !== '' : true;
+        if (operator.endsWith('-')) return isUsable ? value : expandShellVariables(word, variables);
+        return isUsable ? expandShellVariables(word, variables) : '';
+      },
+    )
     .replace(
       /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
       (match, name: string) => variables.get(name) ?? match,

@@ -6,6 +6,7 @@ import { getRulebookCachePath, RULE_SYNC_COMMAND, RULEBOOK_FILE, RULES_DIR } fro
 import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
+  getRulebookLockEntrySourceIdentityError,
   isGitHubRulebookSource,
   parseGitHubSource,
 } from './sources';
@@ -162,6 +163,10 @@ async function readLockedGitHubRulebook(
   configDir: string,
   options: RulesPolicyOptions,
 ): Promise<ResolvedRulebook> {
+  const identityError = getRulebookLockEntrySourceIdentityError(entry);
+  if (identityError) {
+    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
+  }
   const cachePath = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
   if (existsSync(cachePath)) {
     const content = readFileSync(cachePath, 'utf-8');

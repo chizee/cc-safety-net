@@ -4,9 +4,17 @@ import { sep } from 'node:path';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 
 describe('isTmpdirOverriddenToNonTemp', () => {
+  test('allows when TMPDIR is not assigned', () => {
+    expect(isTmpdirOverriddenToNonTemp(new Map())).toBe(false);
+  });
+
   test('allows known temp subpaths', () => {
     expect(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', '/tmp/subdir']]))).toBe(false);
     expect(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', '/var/tmp/subdir']]))).toBe(false);
+  });
+
+  test('blocks values that cannot be resolved safely', () => {
+    expect(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', '\0']]))).toBe(true);
   });
 
   test('blocks traversal that escapes /tmp', () => {

@@ -35,6 +35,21 @@ describe('analyzeGit direct', () => {
     assertAllowed('git -c alias.st=status st');
   });
 
+  test('blocks destructive aliases from Git config env', () => {
+    assertBlocked(
+      'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.nuke GIT_CONFIG_VALUE_0=reset git nuke --hard',
+      gitResetHardReason,
+    );
+  });
+
+  test('allows safe aliases from Git config env', () => {
+    assertAllowed('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.st GIT_CONFIG_VALUE_0=status git st');
+  });
+
+  test('blocks destructive aliases from GIT_CONFIG_PARAMETERS', () => {
+    assertBlocked(`GIT_CONFIG_PARAMETERS="'alias.nuke=reset'" git nuke --hard`, gitResetHardReason);
+  });
+
   test('blocks reset after global config-env option', () => {
     assertBlocked(
       'git --config-env submodule.recurse=RECURSE_SUBMODULES reset --hard',
@@ -1618,6 +1633,14 @@ describe('git push', () => {
     assertBlocked('git push --forc origin main', 'push --force');
   });
 
+  test('git push mirror blocked', () => {
+    assertBlocked('git push --mirror origin', 'push --mirror');
+  });
+
+  test('git push abbreviated mirror blocked conservatively', () => {
+    assertBlocked('git push --mir origin', 'push --mirror');
+  });
+
   test('git push leading plus refspecs are blocked as force pushes', () => {
     assertBlocked('git push origin +main', 'push --force');
     assertBlocked('git push origin refs/heads/main:+refs/heads/main', 'push --force');
@@ -1812,8 +1835,31 @@ describe('git ssh environment overrides', () => {
     );
   });
 
+  test('GIT_SSH_COMMAND blocks remote archive operations', () => {
+    assertBlocked(
+      'GIT_SSH_COMMAND=./helper git archive --remote=ssh://example/repo HEAD',
+      'Git SSH environment overrides',
+    );
+  });
+
+  test('GIT_SSH_COMMAND blocks remote update operations', () => {
+    assertBlocked('GIT_SSH_COMMAND=./helper git remote update', 'Git SSH environment overrides');
+  });
+
+  test('GIT_SSH_COMMAND blocks verbose remote update operations', () => {
+    assertBlocked('GIT_SSH_COMMAND=./helper git remote -v update', 'Git SSH environment overrides');
+  });
+
   test('GIT_SSH_COMMAND still allows non-network git status', () => {
     assertAllowed('GIT_SSH_COMMAND=./helper git status');
+  });
+
+  test('GIT_SSH_COMMAND still allows local archive operations', () => {
+    assertAllowed('GIT_SSH_COMMAND=./helper git archive HEAD');
+  });
+
+  test('GIT_SSH_COMMAND still allows local remote listing operations', () => {
+    assertAllowed('GIT_SSH_COMMAND=./helper git remote -v');
   });
 
   test('core.sshCommand blocks network operations', () => {
@@ -1829,6 +1875,50 @@ describe('git ssh environment overrides', () => {
 
   test('core.sshCommand still allows non-network git status', () => {
     assertAllowed('git -c core.sshCommand=./helper status');
+  });
+
+  test('core.sshCommand from Git config env blocks network operations', () => {
+    assertBlocked(
+      'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0=ssh git fetch origin',
+      'Git SSH environment overrides',
+    );
+  });
+
+  test('core.sshCommand from Git config env still allows non-network git status', () => {
+    assertAllowed(
+      'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0=ssh git status',
+    );
+  });
+
+  test('core.sshCommand from GIT_CONFIG_PARAMETERS blocks network operations', () => {
+    assertBlocked(
+      `GIT_CONFIG_PARAMETERS="'core.sshCommand=ssh'" git fetch origin`,
+      'Git SSH environment overrides',
+    );
+  });
+
+  test('inherited GIT_SSH_COMMAND blocks network operations', () => {
+    withEnv({ GIT_SSH_COMMAND: './malicious' }, () => {
+      assertBlocked('git fetch origin', 'Git SSH environment overrides');
+    });
+  });
+
+  test('inherited GIT_SSH blocks network operations', () => {
+    withEnv({ GIT_SSH: './malicious' }, () => {
+      assertBlocked('git fetch origin', 'Git SSH environment overrides');
+    });
+  });
+
+  test('inherited Git SSH env still allows non-network git status', () => {
+    withEnv({ GIT_SSH_COMMAND: './helper', GIT_SSH: './helper' }, () => {
+      assertAllowed('git status');
+    });
+  });
+
+  test('unset inherited Git SSH env allows later network operations', () => {
+    withEnv({ GIT_SSH_COMMAND: './malicious', GIT_SSH: './malicious' }, () => {
+      assertAllowed('unset GIT_SSH_COMMAND GIT_SSH; git fetch origin');
+    });
   });
 });
 

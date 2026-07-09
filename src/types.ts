@@ -253,6 +253,7 @@ export const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'ksh', 'dash', 'fish
 
 /** Interpreters that can execute code */
 export const INTERPRETERS = new Set(['python', 'python3', 'python2', 'node', 'ruby', 'perl']);
+export const PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 
 const RM_RECURSIVE_FORCE_PATTERN =
   /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/;

@@ -7,6 +7,7 @@ import { analyzeFindMatch } from '@/core/analyze/find';
 import {
   containsDangerousCode,
   extractInterpreterCodeArg,
+  isInterpreterCommand,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
@@ -26,6 +27,7 @@ import { checkCustomRuleMatch } from '@/core/rules/custom';
 import {
   getBasename,
   normalizeCommandToken,
+  SHELL_DYNAMIC_SUBSTITUTION_TOKEN,
   stripEnvAssignmentsWithInfo,
   stripWrappers,
   stripWrappersWithInfo,
@@ -36,7 +38,6 @@ import {
   type AnalyzeResult,
   type Config,
   type DestructiveCommandRuleMatch,
-  INTERPRETERS,
   SHELL_WRAPPERS,
 } from '@/types';
 
@@ -63,6 +64,9 @@ interface CommandAnalysisContext {
 }
 
 type CommandAnalyzer = (context: CommandAnalysisContext) => DestructiveCommandRuleMatch | null;
+
+const REASON_DYNAMIC_EXECUTABLE =
+  'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';
 
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['git', analyzeGitCommand],
@@ -125,8 +129,17 @@ export function analyzeSegment(
   const normalizedHead = normalizeCommandToken(head);
   const basename = getBasename(head);
   const cwdForRm = wrapperCwd === null ? undefined : (wrapperCwd ?? baseCwdForRm);
+  const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+
+  const dynamicExecutableMatch = filterDestructiveCommandMatch(
+    analyzeDynamicExecutable(head),
+    options.config,
+  );
+  if (dynamicExecutableMatch) {
+    return blockResultFromMatch(dynamicExecutableMatch);
+  }
 
   const transparentWrapper = unwrapTransparentWrapper(stripped, options.config);
   if (transparentWrapper) {
@@ -164,7 +177,7 @@ export function analyzeSegment(
     }
   }
 
-  if (INTERPRETERS.has(normalizedHead)) {
+  if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options.paranoidInterpreters) {
@@ -207,7 +220,7 @@ export function analyzeSegment(
     normalizedHead,
     basename,
     cwdForRm,
-    originalCwd,
+    originalCwd: originalCwdForRm,
     envAssignments,
     allowTmpdirVar,
     depth,
@@ -257,6 +270,12 @@ export function analyzeSegment(
 
 function blockResultFromMatch(match: DestructiveCommandRuleMatch): AnalyzeBlockResult {
   return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
+}
+
+function analyzeDynamicExecutable(head: string): DestructiveCommandRuleMatch | null {
+  return head.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN)
+    ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
+    : null;
 }
 
 function isShellWrapperCommand(head: string, normalizedHead: string): boolean {

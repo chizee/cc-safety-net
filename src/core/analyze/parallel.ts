@@ -21,6 +21,8 @@ const REASON_PARALLEL_RM =
   'parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.';
 const REASON_PARALLEL_SHELL =
   'parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
+const REASON_PARALLEL_COMMAND_STREAM =
+  'parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.';
 const PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 
 export interface ParallelAnalyzeContext extends NestedCommandAnalyzeContext {
@@ -40,7 +42,19 @@ export function analyzeParallel(
     return null;
   }
 
-  const { template, args, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult;
+  const {
+    template,
+    args,
+    templateHasPlaceholder,
+    runsRemotely,
+    usesStdin,
+    envNames,
+    readsCommandsFromInput,
+  } = parseResult;
+
+  if (readsCommandsFromInput) {
+    return parallelCommandStreamDynamicReason(context);
+  }
 
   if (template.length === 0) {
     // parallel ::: 'cmd1' 'cmd2' - commands mode
@@ -192,6 +206,15 @@ function parallelShellDynamicReason(
   );
 }
 
+function parallelCommandStreamDynamicReason(
+  context: ParallelAnalyzeContext,
+): DestructiveCommandRuleMatch | null {
+  return filterDestructiveCommandMatch(
+    destructiveCommandMatch('parallel.command-stream-dynamic', REASON_PARALLEL_COMMAND_STREAM),
+    context.config,
+  );
+}
+
 function parallelRmDynamicReason(
   context: ParallelAnalyzeContext,
 ): DestructiveCommandRuleMatch | null {
@@ -319,6 +342,7 @@ interface ParallelParseResult {
   runsRemotely: boolean;
   usesStdin: boolean;
   envNames: string[];
+  readsCommandsFromInput: boolean;
 }
 
 function replaceParallelPlaceholder(token: string, arg: string): string {
@@ -469,9 +493,18 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
   // Determine if template has placeholder
   const templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
 
-  // If no template and no marker, no valid parallel command
+  // If no template and no marker, stdin or arg files provide executable commands.
   if (templateTokens.length === 0 && markerIndex === -1) {
-    return null;
+    return {
+      template: [],
+      args: [],
+      childCommandTokens: [],
+      templateHasPlaceholder: false,
+      runsRemotely,
+      usesStdin: true,
+      envNames,
+      readsCommandsFromInput: true,
+    };
   }
 
   return {
@@ -482,6 +515,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
     envNames,
+    readsCommandsFromInput: false,
   };
 }
 

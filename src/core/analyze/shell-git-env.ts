@@ -1,4 +1,8 @@
-import { isTrackedGitEnvName, parseGitContextAppendEnvAssignment } from '@/core/git/env';
+import {
+  GIT_SSH_ENV_NAMES,
+  isTrackedGitEnvName,
+  parseGitContextAppendEnvAssignment,
+} from '@/core/git/env';
 import { parseEnvAssignment } from '@/core/shell';
 
 export interface ShellGitContextEnvState {
@@ -21,14 +25,17 @@ interface ShellCommandInfo {
 }
 
 type PrefixOptionAction = 'skip' | 'stop' | 'abort';
+const TMPDIR_ENV_NAME = 'TMPDIR';
 
 export function createShellGitContextEnvState(
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): ShellGitContextEnvState {
+  const initialEffectiveEnvAssignments =
+    getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
   return {
-    effectiveEnvAssignments,
+    effectiveEnvAssignments: initialEffectiveEnvAssignments,
     shellAssignments: new Map(),
-    exportedNames: getInitiallyExportedGitContextNames(effectiveEnvAssignments),
+    exportedNames: getInitiallyExportedShellEnvNames(initialEffectiveEnvAssignments),
     allexport: false,
     keywordExport: false,
   };
@@ -58,6 +65,17 @@ export function applyShellGitContextEnvSegment(
     }
     if (changes.keywordExport !== null) {
       state.keywordExport = changes.keywordExport;
+    }
+    return;
+  }
+
+  if (command === 'unset') {
+    const operandsStart = getUnsetOperandsStart(tokens, commandIndex);
+    if (operandsStart === null) {
+      return;
+    }
+    for (const token of tokens.slice(operandsStart)) {
+      unsetTrackedGitContextEnvName(state, token);
     }
     return;
   }
@@ -134,7 +152,7 @@ function getShellCommandInfo(tokens: readonly string[]): ShellCommandInfo | null
     if (!assignment) {
       break;
     }
-    if (isTrackedGitEnvName(assignment.name)) {
+    if (isTrackedShellEnvName(assignment.name)) {
       leadingAssignments.set(assignment.name, assignment);
     }
     i++;
@@ -238,23 +256,44 @@ function parseShellAssignment(token: string): GitContextAssignment | null {
 
 function parseGitContextEnvAssignment(token: string): GitContextAssignment | null {
   const assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-  if (!assignment || !isTrackedGitEnvName(assignment.name)) {
+  if (!assignment || !isTrackedShellEnvName(assignment.name)) {
     return null;
   }
   return assignment;
 }
 
-function getInitiallyExportedGitContextNames(
+function isTrackedShellEnvName(name: string): boolean {
+  return name === TMPDIR_ENV_NAME || isTrackedGitEnvName(name);
+}
+
+function getInitialEffectiveShellEnvAssignments(
+  effectiveEnvAssignments?: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> | undefined {
+  const inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME]
+    .map((name) => {
+      const value = process.env[name];
+      return value === undefined ? null : ([name, value] as const);
+    })
+    .filter((assignment): assignment is readonly [string, string] => assignment !== null);
+
+  if (inheritedAssignments.length === 0) {
+    return effectiveEnvAssignments;
+  }
+
+  return new Map([...inheritedAssignments, ...(effectiveEnvAssignments ?? [])]);
+}
+
+function getInitiallyExportedShellEnvNames(
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): Set<string> {
   const exportedNames = new Set<string>();
   for (const name of Object.keys(process.env)) {
-    if (isTrackedGitEnvName(name)) {
+    if (isTrackedShellEnvName(name)) {
       exportedNames.add(name);
     }
   }
   for (const name of effectiveEnvAssignments?.keys() ?? []) {
-    if (isTrackedGitEnvName(name)) {
+    if (isTrackedShellEnvName(name)) {
       exportedNames.add(name);
     }
   }
@@ -266,7 +305,11 @@ function setShellGitContextAssignment(
   assignment: GitContextAssignment,
 ): void {
   state.shellAssignments.set(assignment.name, assignment.value);
-  if (state.allexport || state.exportedNames.has(assignment.name)) {
+  if (
+    assignment.name === TMPDIR_ENV_NAME ||
+    state.allexport ||
+    state.exportedNames.has(assignment.name)
+  ) {
     setEffectiveGitContextAssignment(state, assignment);
   }
 }
@@ -289,7 +332,7 @@ function addExportedGitContextEnvAssignment(state: ShellGitContextEnvState, toke
     return;
   }
 
-  if (isTrackedGitEnvName(token)) {
+  if (isTrackedShellEnvName(token)) {
     exportTrackedGitContextEnvName(state, token);
   }
 }
@@ -306,7 +349,11 @@ function addTypesetGitContextEnvAssignment(
     if (exports) {
       state.exportedNames.add(assignment.name);
       setEffectiveGitContextAssignment(state, assignment);
-    } else if (state.allexport || state.exportedNames.has(assignment.name)) {
+    } else if (
+      assignment.name === TMPDIR_ENV_NAME ||
+      state.allexport ||
+      state.exportedNames.has(assignment.name)
+    ) {
       setEffectiveGitContextAssignment(state, assignment);
     }
     return;
@@ -319,7 +366,7 @@ function addTypesetGitContextEnvAssignment(
     return;
   }
 
-  if (exports && isTrackedGitEnvName(token)) {
+  if (exports && isTrackedShellEnvName(token)) {
     exportTrackedGitContextEnvName(state, token);
   }
 }
@@ -332,7 +379,38 @@ function exportTrackedGitContextEnvName(state: ShellGitContextEnvState, name: st
   });
 }
 
+function unsetTrackedGitContextEnvName(state: ShellGitContextEnvState, name: string): void {
+  if (!isTrackedShellEnvName(name)) {
+    return;
+  }
+  state.shellAssignments.delete(name);
+  state.exportedNames.delete(name);
+  if (name === TMPDIR_ENV_NAME) {
+    setEffectiveGitContextAssignment(state, { name, value: '' });
+    return;
+  }
+  if (!state.effectiveEnvAssignments?.has(name)) {
+    return;
+  }
+
+  const nextEnvAssignments = new Map(state.effectiveEnvAssignments);
+  nextEnvAssignments.delete(name);
+  state.effectiveEnvAssignments = nextEnvAssignments.size === 0 ? undefined : nextEnvAssignments;
+}
+
+function getUnsetOperandsStart(tokens: readonly string[], commandIndex: number): number | null {
+  return getBuiltinOperandsStart(tokens, commandIndex, (token) => token === '-v');
+}
+
 function getExportOperandsStart(tokens: readonly string[], commandIndex: number): number | null {
+  return getBuiltinOperandsStart(tokens, commandIndex, (token) => token === '-p');
+}
+
+function getBuiltinOperandsStart(
+  tokens: readonly string[],
+  commandIndex: number,
+  skipsOption: (token: string) => boolean,
+): number | null {
   let i = commandIndex + 1;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -342,7 +420,7 @@ function getExportOperandsStart(tokens: readonly string[], commandIndex: number)
     if (token === '--') {
       return i + 1;
     }
-    if (token === '-p') {
+    if (skipsOption(token)) {
       i++;
       continue;
     }

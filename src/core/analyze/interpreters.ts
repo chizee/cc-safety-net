@@ -1,5 +1,5 @@
 import { getBasename } from '@/core/shell/command';
-import { DANGEROUS_PATTERNS } from '@/types';
+import { DANGEROUS_PATTERNS, PYTHON_INTERPRETER_PATTERN } from '@/types';
 
 export const REASON_INTERPRETER_DANGEROUS =
   'Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.';
@@ -8,8 +8,6 @@ export const REASON_INTERPRETER_BLOCKED =
 
 const CODE_FLAGS = new Map([
   ['python', new Set(['-c'])],
-  ['python2', new Set(['-c'])],
-  ['python3', new Set(['-c'])],
   ['node', new Set(['-e', '--eval'])],
   ['ruby', new Set(['-e'])],
   ['perl', new Set(['-e', '-E'])],
@@ -17,22 +15,20 @@ const CODE_FLAGS = new Map([
 
 const CLUSTERED_CODE_FLAGS = new Map([
   ['python', new Set(['c'])],
-  ['python2', new Set(['c'])],
-  ['python3', new Set(['c'])],
   ['node', new Set(['e'])],
   ['ruby', new Set(['e'])],
   ['perl', new Set(['e', 'E'])],
 ]);
 
 export function extractInterpreterCodeArg(tokens: readonly string[]): string | null {
-  const interpreter = getBasename(tokens[0] ?? '').toLowerCase();
+  const interpreter = normalizeInterpreter(tokens[0] ?? '');
 
   for (let i = 1; i < tokens.length; i++) {
     const token = tokens[i];
     if (!token) continue;
 
-    if (isInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
+    if (isInterpreterCodeFlag(interpreter, token)) {
+      return tokens[i + 1] || null;
     }
 
     const inlineEval = /^--eval=(.*)$/s.exec(token);
@@ -40,11 +36,19 @@ export function extractInterpreterCodeArg(tokens: readonly string[]): string | n
       return inlineEval[1];
     }
 
-    if (isClusteredInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
-    }
+    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
+    if (shortCodeArg) return shortCodeArg;
   }
   return null;
+}
+
+export function isInterpreterCommand(command: string): boolean {
+  return CODE_FLAGS.has(normalizeInterpreter(command));
+}
+
+function normalizeInterpreter(command: string): string {
+  const interpreter = getBasename(command).toLowerCase();
+  return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? 'python' : interpreter;
 }
 
 function isInterpreterCodeFlag(interpreter: string, token: string): boolean {
@@ -55,12 +59,18 @@ function supportsInlineEval(interpreter: string): boolean {
   return CODE_FLAGS.get(interpreter)?.has('--eval') ?? false;
 }
 
-function isClusteredInterpreterCodeFlag(interpreter: string, token: string): boolean {
+function extractShortCodeArg(
+  interpreter: string,
+  token: string,
+  nextToken: string | undefined,
+): string | null {
   if (!token.startsWith('-') || token.startsWith('--') || token.length <= 2) {
-    return false;
+    return null;
   }
   const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
-  return Array.from(token.slice(1)).some((flag) => flags?.has(flag) ?? false);
+  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
+  if (codeFlagIndex < 0) return null;
+  return token.slice(codeFlagIndex + 2) || nextToken || null;
 }
 
 export function containsDangerousCode(code: string): boolean {

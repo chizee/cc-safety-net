@@ -1,4 +1,5 @@
 import { AWK_INTERPRETERS } from '@/core/analyze/awk';
+import { isInterpreterCommand } from '@/core/analyze/interpreters';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type { Config } from '@/types';
 import { INTERPRETERS, SHELL_WRAPPERS } from '@/types';
@@ -50,12 +51,13 @@ function isProtectableCommand(
     config.transparent_wrappers?.includes(basename) ||
     SHELL_WRAPPERS.has(normalized) ||
     token === '$SHELL' ||
-    INTERPRETERS.has(normalized) ||
+    isInterpreterCommand(normalized) ||
     AWK_INTERPRETERS.has(normalized) ||
     config.rules.some((rule) => rule.command === basename)
   );
 }
 
 export function isReservedTransparentWrapper(command: string): boolean {
-  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command));
+  const normalized = normalizeCommandToken(command);
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
 }

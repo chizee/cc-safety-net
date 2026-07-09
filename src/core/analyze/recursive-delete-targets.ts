@@ -156,7 +156,25 @@ function getHomeDirForRmPolicy(): string {
 }
 
 function isDynamicTarget(target: string): boolean {
-  return target.includes('$') || target.includes('`');
+  return target.includes('$') || target.includes('`') || hasShellGlobMetachar(target);
+}
+
+function hasShellGlobMetachar(target: string): boolean {
+  let escaped = false;
+  for (const char of target) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '*' || char === '?' || char === '[') {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isCwdHomeForRmPolicy(cwd: string, homeDir: string): boolean {

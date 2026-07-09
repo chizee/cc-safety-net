@@ -30,6 +30,9 @@ const REASON_PUSH_FORCE =
   'git push --force destroys remote history. Use --force-with-lease for safer force push.';
 const REASON_PUSH_DELETE =
   'git push deletes remote refs. Ask the user to run it manually if deletion is intended.';
+const REASON_PUSH_MIRROR =
+  'git push ' +
+  '--mirror can force-update and delete remote refs. Ask the user to run it manually if mirror push is intended.';
 const REASON_BRANCH_DELETE =
   'git branch -D force-deletes without merge check. Use -d for safe delete.';
 const REASON_REBASE_ABORT =
@@ -335,6 +338,10 @@ function analyzeGitClean(tokens: readonly string[]): DestructiveCommandRuleMatch
 function analyzeGitPush(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
   const { before, after } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
+  if (before.some((token) => matchesGitLongOption(token, '--mirror'))) {
+    return destructiveCommandMatch('git.push-mirror', REASON_PUSH_MIRROR);
+  }
+
   const hasForce =
     before.some((token) => matchesGitLongOption(token, '--force')) ||
     shortOpts.has('-f') ||

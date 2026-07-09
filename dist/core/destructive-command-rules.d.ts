@@ -1,5 +1,5 @@
 import type { BlockIntent, Config, DestructiveCommandRuleMatch } from '@/types';
-export declare const DESTRUCTIVE_COMMAND_RULE_IDS: readonly ["git.ssh-env", "git.alias-config", "git.checkout-force", "git.checkout-double-dash", "git.checkout-ref-path", "git.checkout-pathspec-from-file", "git.checkout-ambiguous", "git.switch-discard-changes", "git.switch-force", "git.restore-worktree", "git.restore-unstaged", "git.reset-hard", "git.reset-merge", "git.clean-force", "git.push-force", "git.push-delete", "git.branch-force-delete", "git.rebase-abort", "git.merge-abort", "git.tag-delete", "git.reflog-delete", "git.stash-drop", "git.stash-clear", "git.worktree-remove-force", "rm.recursive-force-root-or-home", "rm.recursive-force-dynamic-target", "rm.recursive-force-home-cwd", "rm.recursive-force-cwd-self", "rm.recursive-force-outside-cwd", "rm.recursive-force-paranoid", "powershell.remove-item-root-or-home", "powershell.remove-item-recursive-force-root-or-home", "powershell.remove-item-recursive-force-dynamic-target", "powershell.remove-item-recursive-force-home-cwd", "powershell.remove-item-recursive-force-cwd-self", "powershell.remove-item-recursive-force-outside-cwd", "powershell.remove-item-recursive-force-paranoid", "powershell.remove-item-pipeline-dynamic-target", "find.delete", "find.exec-rm-recursive-force", "interpreter.dangerous-command", "interpreter.one-liner-paranoid", "awk.system-dynamic", "xargs.rm-recursive-force-dynamic", "xargs.shell-dynamic", "parallel.rm-recursive-force-dynamic", "parallel.shell-dynamic", "raw-text.dangerous-command"];
+export declare const DESTRUCTIVE_COMMAND_RULE_IDS: readonly ["git.ssh-env", "git.alias-config", "git.checkout-force", "git.checkout-double-dash", "git.checkout-ref-path", "git.checkout-pathspec-from-file", "git.checkout-ambiguous", "git.switch-discard-changes", "git.switch-force", "git.restore-worktree", "git.restore-unstaged", "git.reset-hard", "git.reset-merge", "git.clean-force", "git.push-force", "git.push-delete", "git.push-mirror", "git.branch-force-delete", "git.rebase-abort", "git.merge-abort", "git.tag-delete", "git.reflog-delete", "git.stash-drop", "git.stash-clear", "git.worktree-remove-force", "rm.recursive-force-root-or-home", "rm.recursive-force-dynamic-target", "rm.recursive-force-home-cwd", "rm.recursive-force-cwd-self", "rm.recursive-force-outside-cwd", "rm.recursive-force-paranoid", "powershell.remove-item-root-or-home", "powershell.remove-item-recursive-force-root-or-home", "powershell.remove-item-recursive-force-dynamic-target", "powershell.remove-item-recursive-force-home-cwd", "powershell.remove-item-recursive-force-cwd-self", "powershell.remove-item-recursive-force-outside-cwd", "powershell.remove-item-recursive-force-paranoid", "powershell.remove-item-pipeline-dynamic-target", "find.delete", "find.exec-rm-recursive-force", "interpreter.dangerous-command", "interpreter.one-liner-paranoid", "awk.system-dynamic", "xargs.rm-recursive-force-dynamic", "xargs.shell-dynamic", "parallel.rm-recursive-force-dynamic", "parallel.shell-dynamic", "parallel.command-stream-dynamic", "shell.dynamic-executable", "raw-text.dangerous-command"];
 export declare const DESTRUCTIVE_COMMAND_RULE_ID_SET: Set<string>;
 /** @internal */
 export type DestructiveCommandRuleId = (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number];
@@ -106,6 +106,12 @@ export declare const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly [{
     readonly category: "Git";
     readonly label: "Git push delete";
     readonly description: "Blocks remote ref deletion through push.";
+    readonly intent: "manual_only";
+}, {
+    readonly id: "git.push-mirror";
+    readonly category: "Git";
+    readonly label: "Git push mirror";
+    readonly description: "Blocks mirror pushes that can force-update or delete remote refs.";
     readonly intent: "manual_only";
 }, {
     readonly id: "git.branch-force-delete";
@@ -294,6 +300,18 @@ export declare const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly [{
     readonly description: "Blocks parallel shell execution with dynamic input.";
     readonly intent: "scope_down";
 }, {
+    readonly id: "parallel.command-stream-dynamic";
+    readonly category: "Execution";
+    readonly label: "parallel dynamic command stream";
+    readonly description: "Blocks parallel command streams from dynamic input.";
+    readonly intent: "scope_down";
+}, {
+    readonly id: "shell.dynamic-executable";
+    readonly category: "Execution";
+    readonly label: "Dynamic executable name";
+    readonly description: "Blocks executable names assembled from command substitution output.";
+    readonly intent: "manual_only";
+}, {
     readonly id: "raw-text.dangerous-command";
     readonly category: "Execution";
     readonly label: "Raw text dangerous command";
@@ -301,7 +319,7 @@ export declare const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly [{
     readonly intent: "stop_and_explain";
 }];
 export declare function destructiveCommandMatch(id: (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number], reason: string, intent?: BlockIntent): {
-    id: "git.ssh-env" | "git.alias-config" | "git.checkout-force" | "git.checkout-double-dash" | "git.checkout-ref-path" | "git.checkout-pathspec-from-file" | "git.checkout-ambiguous" | "git.switch-discard-changes" | "git.switch-force" | "git.restore-worktree" | "git.restore-unstaged" | "git.reset-hard" | "git.reset-merge" | "git.clean-force" | "git.push-force" | "git.push-delete" | "git.branch-force-delete" | "git.rebase-abort" | "git.merge-abort" | "git.tag-delete" | "git.reflog-delete" | "git.stash-drop" | "git.stash-clear" | "git.worktree-remove-force" | "rm.recursive-force-root-or-home" | "rm.recursive-force-dynamic-target" | "rm.recursive-force-home-cwd" | "rm.recursive-force-cwd-self" | "rm.recursive-force-outside-cwd" | "rm.recursive-force-paranoid" | "powershell.remove-item-root-or-home" | "powershell.remove-item-recursive-force-root-or-home" | "powershell.remove-item-recursive-force-dynamic-target" | "powershell.remove-item-recursive-force-home-cwd" | "powershell.remove-item-recursive-force-cwd-self" | "powershell.remove-item-recursive-force-outside-cwd" | "powershell.remove-item-recursive-force-paranoid" | "powershell.remove-item-pipeline-dynamic-target" | "find.delete" | "find.exec-rm-recursive-force" | "interpreter.dangerous-command" | "interpreter.one-liner-paranoid" | "awk.system-dynamic" | "xargs.rm-recursive-force-dynamic" | "xargs.shell-dynamic" | "parallel.rm-recursive-force-dynamic" | "parallel.shell-dynamic" | "raw-text.dangerous-command";
+    id: "git.ssh-env" | "git.alias-config" | "git.checkout-force" | "git.checkout-double-dash" | "git.checkout-ref-path" | "git.checkout-pathspec-from-file" | "git.checkout-ambiguous" | "git.switch-discard-changes" | "git.switch-force" | "git.restore-worktree" | "git.restore-unstaged" | "git.reset-hard" | "git.reset-merge" | "git.clean-force" | "git.push-force" | "git.push-delete" | "git.push-mirror" | "git.branch-force-delete" | "git.rebase-abort" | "git.merge-abort" | "git.tag-delete" | "git.reflog-delete" | "git.stash-drop" | "git.stash-clear" | "git.worktree-remove-force" | "rm.recursive-force-root-or-home" | "rm.recursive-force-dynamic-target" | "rm.recursive-force-home-cwd" | "rm.recursive-force-cwd-self" | "rm.recursive-force-outside-cwd" | "rm.recursive-force-paranoid" | "powershell.remove-item-root-or-home" | "powershell.remove-item-recursive-force-root-or-home" | "powershell.remove-item-recursive-force-dynamic-target" | "powershell.remove-item-recursive-force-home-cwd" | "powershell.remove-item-recursive-force-cwd-self" | "powershell.remove-item-recursive-force-outside-cwd" | "powershell.remove-item-recursive-force-paranoid" | "powershell.remove-item-pipeline-dynamic-target" | "find.delete" | "find.exec-rm-recursive-force" | "interpreter.dangerous-command" | "interpreter.one-liner-paranoid" | "awk.system-dynamic" | "xargs.rm-recursive-force-dynamic" | "xargs.shell-dynamic" | "parallel.rm-recursive-force-dynamic" | "parallel.shell-dynamic" | "parallel.command-stream-dynamic" | "shell.dynamic-executable" | "raw-text.dangerous-command";
     reason: string;
     intent: "hard_stop" | "use_alternative" | "scope_down" | "manual_only" | "stop_and_explain";
 };

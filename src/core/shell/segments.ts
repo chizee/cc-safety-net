@@ -11,6 +11,7 @@ import {
 
 const ARITHMETIC_SENTINEL = '__CC_SAFETY_NET_ARITH_SENTINEL__';
 const BACKTICK_ATTACHED_SUFFIX_SENTINEL = '__CC_SAFETY_NET_BACKTICK_SUFFIX__';
+export const SHELL_DYNAMIC_SUBSTITUTION_TOKEN = '$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__';
 
 export interface ShellCommandSegmentInfo {
   tokens: string[];
@@ -18,7 +19,15 @@ export interface ShellCommandSegmentInfo {
 }
 
 export function splitShellCommands(command: string): string[][] {
-  return splitShellCommandsWithInfo(command).map((segment) => segment.tokens);
+  return splitShellCommandsWithInfo(command).map((segment) =>
+    stripDynamicSubstitutionTokens(segment.tokens),
+  );
+}
+
+function stripDynamicSubstitutionTokens(tokens: readonly string[]): string[] {
+  return tokens
+    .map((token) => token.replaceAll(SHELL_DYNAMIC_SUBSTITUTION_TOKEN, ''))
+    .filter((token) => token !== '');
 }
 
 export function splitShellCommandsWithInfo(command: string): ShellCommandSegmentInfo[] {
@@ -77,9 +86,11 @@ export function splitShellCommandsWithInfo(command: string): ShellCommandSegment
 
     if (_isCommandSubstitutionStart(tokens, i)) {
       const substitution = getCommandSubstitution(tokens, i);
+      const hadCurrent = current.length > 0;
 
-      if (current.length > 0) {
+      if (hadCurrent) {
         currentHasDynamicSubstitution = true;
+        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         if (!substitution.shouldKeepCurrent) {
           segments.push({
             tokens: current,
@@ -88,6 +99,10 @@ export function splitShellCommandsWithInfo(command: string): ShellCommandSegment
           current = [];
           currentHasDynamicSubstitution = false;
         }
+      }
+      if (!hadCurrent) {
+        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+        currentHasDynamicSubstitution = true;
       }
       for (const seg of substitution.innerSegments) {
         segments.push({ tokens: seg, hasDynamicSubstitution: false });
@@ -104,10 +119,16 @@ export function splitShellCommandsWithInfo(command: string): ShellCommandSegment
       if (typeof tokenText === 'string') {
         const prefix = tokenText.slice(0, -1);
         if (prefix) {
-          current.push(prefix);
+          if (current.length === 0) {
+            current.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
+          } else {
+            current.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+          }
+        } else {
+          current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         }
       }
-      currentHasDynamicSubstitution = current.length > 0;
+      currentHasDynamicSubstitution = true;
       const { innerSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
       for (const seg of innerSegments) {
         segments.push({ tokens: seg, hasDynamicSubstitution: false });
@@ -263,10 +284,17 @@ function extractCommandSubstitution(
 
     if (depth === 1 && _isCommandSubstitutionStart(tokens, i)) {
       const substitution = getCommandSubstitution(tokens, i);
+      const hadCurrentSegment = currentSegment.length > 0;
 
-      if (!substitution.shouldKeepCurrent && currentSegment.length > 0) {
+      if (hadCurrentSegment) {
+        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+      }
+      if (!substitution.shouldKeepCurrent && hadCurrentSegment) {
         innerSegments.push(currentSegment);
         currentSegment = [];
+      }
+      if (!hadCurrentSegment) {
+        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
       }
       for (const seg of substitution.innerSegments) {
         innerSegments.push(seg);
@@ -282,7 +310,13 @@ function extractCommandSubstitution(
       if (typeof token === 'string') {
         const prefix = token.slice(0, -1);
         if (prefix) {
-          currentSegment.push(prefix);
+          if (currentSegment.length === 0) {
+            currentSegment.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
+          } else {
+            currentSegment.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+          }
+        } else {
+          currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         }
       }
       const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(

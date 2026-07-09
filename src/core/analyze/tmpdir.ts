@@ -2,6 +2,9 @@ import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
 
+const INITIAL_SYSTEM_TMPDIR = tmpdir();
+const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp', '/var/folders'];
+
 export function isTmpdirOverriddenToNonTemp(envAssignments: Map<string, string>): boolean {
   if (!envAssignments.has('TMPDIR')) {
     return false;
@@ -18,16 +21,19 @@ export function isTmpdirOverriddenToNonTemp(envAssignments: Map<string, string>)
     return true;
   }
 
-  // Check if it's a known temp path (exact match or subpath)
-  const sysTmpdir = tryResolveExistingPathComponents(tmpdir()) ?? normalize(tmpdir());
-  if (
-    isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents('/tmp')) ||
-    isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents('/var/tmp')) ||
-    isPathOrSubpath(normalizedTmpdirValue, sysTmpdir)
-  ) {
+  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root))) {
     return false;
   }
   return true;
+}
+
+function getTrustedTempRoots(): string[] {
+  const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize(root));
+  const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  if (initialTmpdir && roots.some((root) => isPathOrSubpath(initialTmpdir, root))) {
+    return [...roots, initialTmpdir];
+  }
+  return roots;
 }
 
 function tryResolveExistingPathComponents(path: string): string | null {

@@ -6,7 +6,7 @@ import {
   RULEBOOK_FILE,
   RULES_DIR,
 } from './paths';
-import type { RulesConfig, RulesLockfile, SyncRulesConfigResult } from './types';
+import type { RulebookLockEntry, RulesConfig, RulesLockfile, SyncRulesConfigResult } from './types';
 
 type RulebookMatchResult =
   | { ok: true; specs: string[] }
@@ -83,6 +83,45 @@ export function assertBareRulebookName(source: string): void {
       `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`,
     );
   }
+}
+
+export function getRulebookLockEntrySourceIdentityError(entry: RulebookLockEntry): string | null {
+  if (isGitHubRulebookSource(entry.spec)) {
+    return getGitHubLockEntrySourceIdentityError(entry);
+  }
+  return getLocalLockEntrySourceIdentityError(entry);
+}
+
+function getLocalLockEntrySourceIdentityError(entry: RulebookLockEntry): string | null {
+  if (!NAME_PATTERN.test(entry.spec)) {
+    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
+  }
+  if (entry.kind !== 'local-directory') {
+    return `lock entry for ${entry.spec} must use local-directory kind`;
+  }
+  if (entry.path === entry.spec && entry.name === entry.spec) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match local source identity`;
+}
+
+function getGitHubLockEntrySourceIdentityError(entry: RulebookLockEntry): string | null {
+  const syntaxError = getRulebookSourceSyntaxError(entry.spec);
+  if (syntaxError) return syntaxError;
+  const parsed = parseGitHubSource(entry.spec);
+  if (entry.kind !== 'github') {
+    return `lock entry for ${entry.spec} must use github kind`;
+  }
+  if (
+    entry.owner === parsed.owner &&
+    entry.repo === parsed.repo &&
+    entry.ref === parsed.ref &&
+    entry.path === parsed.path &&
+    entry.name === parsed.name
+  ) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match GitHub source identity`;
 }
 
 export function getSelectedUpdateSpecs(

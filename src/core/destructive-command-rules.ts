@@ -17,6 +17,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.clean-force',
   'git.push-force',
   'git.push-delete',
+  'git.push-mirror',
   'git.branch-force-delete',
   'git.rebase-abort',
   'git.merge-abort',
@@ -48,6 +49,8 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'xargs.shell-dynamic',
   'parallel.rm-recursive-force-dynamic',
   'parallel.shell-dynamic',
+  'parallel.command-stream-dynamic',
+  'shell.dynamic-executable',
   'raw-text.dangerous-command',
 ] as const;
 
@@ -176,6 +179,13 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git push delete',
     description: 'Blocks remote ref deletion through push.',
+    intent: 'manual_only',
+  },
+  {
+    id: 'git.push-mirror',
+    category: 'Git',
+    label: 'Git push mirror',
+    description: 'Blocks mirror pushes that can force-update or delete remote refs.',
     intent: 'manual_only',
   },
   {
@@ -394,6 +404,20 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: 'parallel dynamic shell',
     description: 'Blocks parallel shell execution with dynamic input.',
     intent: 'scope_down',
+  },
+  {
+    id: 'parallel.command-stream-dynamic',
+    category: 'Execution',
+    label: 'parallel dynamic command stream',
+    description: 'Blocks parallel command streams from dynamic input.',
+    intent: 'scope_down',
+  },
+  {
+    id: 'shell.dynamic-executable',
+    category: 'Execution',
+    label: 'Dynamic executable name',
+    description: 'Blocks executable names assembled from command substitution output.',
+    intent: 'manual_only',
   },
   {
     id: 'raw-text.dangerous-command',

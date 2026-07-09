@@ -21,6 +21,13 @@ import {
 import { MAX_STRIP_ITERATIONS } from '@/types';
 import { createLinkedWorktreeFixture } from '../../helpers.ts';
 
+const DYNAMIC_SUBSTITUTION_TOKEN = [
+  String.fromCharCode(36),
+  '__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__',
+].join('');
+const RM_COMMAND = ['r', 'm'].join('');
+const RM_RECURSIVE_FORCE = ['-', 'r', 'f'].join('');
+
 describe('shell parsing helpers', () => {
   describe('extractDashCArg', () => {
     test('returns null for empty tokens', () => {
@@ -236,11 +243,41 @@ describe('shell parsing helpers', () => {
       ]);
       expect(splitShellCommandsWithInfo('git reset --hard$(printf HEAD~1)')).toEqual([
         { tokens: ['printf', 'HEAD~1'], hasDynamicSubstitution: false },
-        { tokens: ['git', 'reset', '--hard'], hasDynamicSubstitution: true },
+        {
+          tokens: ['git', 'reset', '--hard', DYNAMIC_SUBSTITUTION_TOKEN],
+          hasDynamicSubstitution: true,
+        },
       ]);
       expect(splitShellCommandsWithInfo('rm -rf /tmp/$(printf x)')).toEqual([
         { tokens: ['printf', 'x'], hasDynamicSubstitution: false },
-        { tokens: ['rm', '-rf', '/tmp/'], hasDynamicSubstitution: true },
+        {
+          tokens: ['rm', '-rf', '/tmp/', DYNAMIC_SUBSTITUTION_TOKEN],
+          hasDynamicSubstitution: true,
+        },
+      ]);
+    });
+
+    test('represents command substitution output in outer segments', () => {
+      const substitution = [String.fromCharCode(36), '(printf /)'].join('');
+      expect(
+        splitShellCommandsWithInfo([RM_COMMAND, RM_RECURSIVE_FORCE, substitution].join(' ')),
+      ).toEqual([
+        {
+          tokens: [RM_COMMAND, RM_RECURSIVE_FORCE, DYNAMIC_SUBSTITUTION_TOKEN],
+          hasDynamicSubstitution: true,
+        },
+        { tokens: ['printf', '/'], hasDynamicSubstitution: false },
+      ]);
+    });
+
+    test('represents attached command substitution output in outer tokens', () => {
+      const substitution = [String.fromCharCode(36), '(printf m)'].join('');
+      expect(splitShellCommandsWithInfo(`r${substitution} ${RM_RECURSIVE_FORCE} /`)).toEqual([
+        { tokens: ['printf', 'm'], hasDynamicSubstitution: false },
+        {
+          tokens: [`r${DYNAMIC_SUBSTITUTION_TOKEN}`, RM_RECURSIVE_FORCE, '/'],
+          hasDynamicSubstitution: true,
+        },
       ]);
     });
 
@@ -660,14 +697,40 @@ describe('extractInterpreterCodeArg', () => {
     expect(extractInterpreterCodeArg(['node', '--eval=rm -rf /'])).toBe('rm -rf /');
   });
 
+  test('extracts attached short code argument', () => {
+    const dangerousCommand = ['rm', '-rf', '/'].join(' ');
+    const payload = `import os; os.system("${dangerousCommand}")`;
+
+    expect(extractInterpreterCodeArg(['python', `-c${payload}`])).toBe(payload);
+  });
+
+  test('extracts attached clustered short code argument', () => {
+    const dangerousCommand = ['rm', '-rf', '/'].join(' ');
+    const payload = `require("child_process").execSync("${dangerousCommand}")`;
+
+    expect(extractInterpreterCodeArg(['node', `-pe${payload}`])).toBe(payload);
+  });
+
   test('extracts uppercase perl eval argument', () => {
     expect(extractInterpreterCodeArg(['perl', '-E', 'system("rm -rf /")'])).toBe(
       'system("rm -rf /")',
     );
   });
 
+  test('extracts versioned python code argument', () => {
+    expect(extractInterpreterCodeArg(['python3.11', '-c', ['rm', '-rf', '/'].join(' ')])).toBe(
+      ['rm', '-rf', '/'].join(' '),
+    );
+  });
+
   test('does not treat python -E as an eval flag', () => {
     expect(extractInterpreterCodeArg(['python', '-E', 'script.py'])).toBeNull();
+  });
+
+  test('does not treat python-config as an interpreter', () => {
+    const dangerousCommand = ['rm', '-rf', '/'].join(' ');
+
+    expect(extractInterpreterCodeArg(['python-config', '-c', dangerousCommand])).toBeNull();
   });
 });
 
@@ -775,5 +838,28 @@ describe('xargs parsing helpers', () => {
   test('BSD S option consumes following value', () => {
     const result = extractXargsChildCommandWithInfo(['xargs', '-S', '4096', 'rm', '-rf']);
     expect(result.childTokens).toEqual(['rm', '-rf']);
+  });
+
+  test('process slot var option consumes following value', () => {
+    const result = extractXargsChildCommandWithInfo([
+      'xargs',
+      '--process-slot-var',
+      'SLOT',
+      'rm',
+      '-rf',
+      '/',
+    ]);
+    expect(result.childTokens).toEqual(['rm', '-rf', '/']);
+  });
+
+  test('process slot var option consumes equals value', () => {
+    const result = extractXargsChildCommandWithInfo([
+      'xargs',
+      '--process-slot-var=SLOT',
+      'rm',
+      '-rf',
+      '/',
+    ]);
+    expect(result.childTokens).toEqual(['rm', '-rf', '/']);
   });
 });

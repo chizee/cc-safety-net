@@ -629,6 +629,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.clean-force",
   "git.push-force",
   "git.push-delete",
+  "git.push-mirror",
   "git.branch-force-delete",
   "git.rebase-abort",
   "git.merge-abort",
@@ -660,6 +661,8 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "xargs.shell-dynamic",
   "parallel.rm-recursive-force-dynamic",
   "parallel.shell-dynamic",
+  "parallel.command-stream-dynamic",
+  "shell.dynamic-executable",
   "raw-text.dangerous-command"
 ];
 var DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set(DESTRUCTIVE_COMMAND_RULE_IDS);
@@ -774,6 +777,13 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: "Git",
     label: "Git push delete",
     description: "Blocks remote ref deletion through push.",
+    intent: "manual_only"
+  },
+  {
+    id: "git.push-mirror",
+    category: "Git",
+    label: "Git push mirror",
+    description: "Blocks mirror pushes that can force-update or delete remote refs.",
     intent: "manual_only"
   },
   {
@@ -992,6 +1002,20 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: "parallel dynamic shell",
     description: "Blocks parallel shell execution with dynamic input.",
     intent: "scope_down"
+  },
+  {
+    id: "parallel.command-stream-dynamic",
+    category: "Execution",
+    label: "parallel dynamic command stream",
+    description: "Blocks parallel command streams from dynamic input.",
+    intent: "scope_down"
+  },
+  {
+    id: "shell.dynamic-executable",
+    category: "Execution",
+    label: "Dynamic executable name",
+    description: "Blocks executable names assembled from command substitution output.",
+    intent: "manual_only"
   },
   {
     id: "raw-text.dangerous-command",
@@ -1369,7 +1393,24 @@ function getHomeDirForRmPolicy() {
   return process.env.HOME ?? homedir2();
 }
 function isDynamicTarget(target) {
-  return target.includes("$") || target.includes("`");
+  return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
+}
+function hasShellGlobMetachar(target) {
+  let escaped = false;
+  for (const char of target) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "*" || char === "?" || char === "[") {
+      return true;
+    }
+  }
+  return false;
 }
 function isCwdHomeForRmPolicy(cwd, homeDir) {
   try {
@@ -2236,6 +2277,7 @@ var SHELL_OPERATORS = new Set(["&&", "||", "|&", "|", "&", ";", `
 `]);
 var SHELL_WRAPPERS = new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]);
 var INTERPRETERS = new Set(["python", "python3", "python2", "node", "ruby", "perl"]);
+var PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 var RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/;
 var DANGEROUS_PATTERNS = [
   RM_RECURSIVE_FORCE_PATTERN,
@@ -2321,8 +2363,12 @@ function getCommandTokenText(token) {
 // src/core/shell/segments.ts
 var ARITHMETIC_SENTINEL = "__CC_SAFETY_NET_ARITH_SENTINEL__";
 var BACKTICK_ATTACHED_SUFFIX_SENTINEL = "__CC_SAFETY_NET_BACKTICK_SUFFIX__";
+var SHELL_DYNAMIC_SUBSTITUTION_TOKEN = "$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__";
 function splitShellCommands(command) {
-  return splitShellCommandsWithInfo(command).map((segment) => segment.tokens);
+  return splitShellCommandsWithInfo(command).map((segment) => stripDynamicSubstitutionTokens(segment.tokens));
+}
+function stripDynamicSubstitutionTokens(tokens) {
+  return tokens.map((token) => token.replaceAll(SHELL_DYNAMIC_SUBSTITUTION_TOKEN, "")).filter((token) => token !== "");
 }
 function splitShellCommandsWithInfo(command) {
   if (hasUnclosedQuotes(command)) {
@@ -2374,8 +2420,10 @@ function splitShellCommandsWithInfo(command) {
     }
     if (_isCommandSubstitutionStart(tokens, i)) {
       const substitution = getCommandSubstitution(tokens, i);
-      if (current.length > 0) {
+      const hadCurrent = current.length > 0;
+      if (hadCurrent) {
         currentHasDynamicSubstitution = true;
+        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         if (!substitution.shouldKeepCurrent) {
           segments.push({
             tokens: current,
@@ -2384,6 +2432,10 @@ function splitShellCommandsWithInfo(command) {
           current = [];
           currentHasDynamicSubstitution = false;
         }
+      }
+      if (!hadCurrent) {
+        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+        currentHasDynamicSubstitution = true;
       }
       for (const seg of substitution.innerSegments) {
         segments.push({ tokens: seg, hasDynamicSubstitution: false });
@@ -2399,10 +2451,16 @@ function splitShellCommandsWithInfo(command) {
       if (typeof tokenText2 === "string") {
         const prefix = tokenText2.slice(0, -1);
         if (prefix) {
-          current.push(prefix);
+          if (current.length === 0) {
+            current.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
+          } else {
+            current.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+          }
+        } else {
+          current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         }
       }
-      currentHasDynamicSubstitution = current.length > 0;
+      currentHasDynamicSubstitution = true;
       const { innerSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
       for (const seg of innerSegments) {
         segments.push({ tokens: seg, hasDynamicSubstitution: false });
@@ -2530,9 +2588,16 @@ function extractCommandSubstitution(tokens, startIndex) {
     }
     if (depth === 1 && _isCommandSubstitutionStart(tokens, i)) {
       const substitution = getCommandSubstitution(tokens, i);
-      if (!substitution.shouldKeepCurrent && currentSegment.length > 0) {
+      const hadCurrentSegment = currentSegment.length > 0;
+      if (hadCurrentSegment) {
+        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+      }
+      if (!substitution.shouldKeepCurrent && hadCurrentSegment) {
         innerSegments.push(currentSegment);
         currentSegment = [];
+      }
+      if (!hadCurrentSegment) {
+        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
       }
       for (const seg of substitution.innerSegments) {
         innerSegments.push(seg);
@@ -2547,7 +2612,13 @@ function extractCommandSubstitution(tokens, startIndex) {
       if (typeof token === "string") {
         const prefix = token.slice(0, -1);
         if (prefix) {
-          currentSegment.push(prefix);
+          if (currentSegment.length === 0) {
+            currentSegment.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
+          } else {
+            currentSegment.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
+          }
+        } else {
+          currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
         }
       }
       const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
@@ -3571,38 +3642,41 @@ var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous comman
 var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
 var CODE_FLAGS = new Map([
   ["python", new Set(["-c"])],
-  ["python2", new Set(["-c"])],
-  ["python3", new Set(["-c"])],
   ["node", new Set(["-e", "--eval"])],
   ["ruby", new Set(["-e"])],
   ["perl", new Set(["-e", "-E"])]
 ]);
 var CLUSTERED_CODE_FLAGS = new Map([
   ["python", new Set(["c"])],
-  ["python2", new Set(["c"])],
-  ["python3", new Set(["c"])],
   ["node", new Set(["e"])],
   ["ruby", new Set(["e"])],
   ["perl", new Set(["e", "E"])]
 ]);
 function extractInterpreterCodeArg(tokens) {
-  const interpreter = getBasename(tokens[0] ?? "").toLowerCase();
+  const interpreter = normalizeInterpreter(tokens[0] ?? "");
   for (let i = 1;i < tokens.length; i++) {
     const token = tokens[i];
     if (!token)
       continue;
-    if (isInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
+    if (isInterpreterCodeFlag(interpreter, token)) {
+      return tokens[i + 1] || null;
     }
     const inlineEval = /^--eval=(.*)$/s.exec(token);
     if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
       return inlineEval[1];
     }
-    if (isClusteredInterpreterCodeFlag(interpreter, token) && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
-    }
+    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
+    if (shortCodeArg)
+      return shortCodeArg;
   }
   return null;
+}
+function isInterpreterCommand(command2) {
+  return CODE_FLAGS.has(normalizeInterpreter(command2));
+}
+function normalizeInterpreter(command2) {
+  const interpreter = getBasename(command2).toLowerCase();
+  return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? "python" : interpreter;
 }
 function isInterpreterCodeFlag(interpreter, token) {
   return CODE_FLAGS.get(interpreter)?.has(token) ?? false;
@@ -3610,12 +3684,15 @@ function isInterpreterCodeFlag(interpreter, token) {
 function supportsInlineEval(interpreter) {
   return CODE_FLAGS.get(interpreter)?.has("--eval") ?? false;
 }
-function isClusteredInterpreterCodeFlag(interpreter, token) {
+function extractShortCodeArg(interpreter, token, nextToken) {
   if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2) {
-    return false;
+    return null;
   }
   const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
-  return Array.from(token.slice(1)).some((flag) => flags?.has(flag) ?? false);
+  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
+  if (codeFlagIndex < 0)
+    return null;
+  return token.slice(codeFlagIndex + 2) || nextToken || null;
 }
 function containsDangerousCode(code) {
   for (const pattern of DANGEROUS_PATTERNS) {
@@ -3994,7 +4071,7 @@ function findDotGitInAncestors(cwd) {
 
 // src/core/git/parse.ts
 var MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
-var REASON_GIT_ALIAS_CONFIG = "Git aliases supplied through command-line config can hide or execute commands. Run git without command-line alias overrides, or ask the user to run it manually.";
+var REASON_GIT_ALIAS_CONFIG = "Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.";
 function splitAtDoubleDash(tokens) {
   const index = tokens.indexOf("--");
   if (index === -1) {
@@ -4007,7 +4084,11 @@ function splitAtDoubleDash(tokens) {
   };
 }
 function resolveGitCommandLineAliases(tokens, envAssignments) {
-  const aliases = getGitCommandLineAliases(tokens, envAssignments);
+  const configEntries = getGitConfigEntries(tokens, envAssignments);
+  if (configEntries.blockedReason) {
+    return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
+  }
+  const aliases = getGitConfigAliases(configEntries.entries);
   if (aliases.size === 0) {
     return { blockedReason: null, expanded: false, tokens };
   }
@@ -4030,7 +4111,7 @@ function resolveGitCommandLineAliases(tokens, envAssignments) {
   return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: true, tokens: currentTokens };
 }
 function hasGitCommandLineSshCommandConfig(tokens, envAssignments) {
-  return getGitCommandLineConfigEntries(tokens, envAssignments).some((entry) => entry.key.toLowerCase() === "core.sshcommand");
+  return getGitConfigEntries(tokens, envAssignments).entries.some((entry) => entry.key.toLowerCase() === "core.sshcommand");
 }
 function extractGitSubcommandAndRest(tokens) {
   if (tokens.length === 0) {
@@ -4069,9 +4150,9 @@ function extractGitSubcommandAndRest(tokens) {
   }
   return { subcommand: null, rest: [] };
 }
-function getGitCommandLineAliases(tokens, envAssignments) {
+function getGitConfigAliases(entries) {
   const aliases = new Map;
-  for (const entry of getGitCommandLineConfigEntries(tokens, envAssignments)) {
+  for (const entry of entries) {
     const key = entry.key.toLowerCase();
     if (!key.startsWith("alias.")) {
       continue;
@@ -4083,15 +4164,25 @@ function getGitCommandLineAliases(tokens, envAssignments) {
   }
   return aliases;
 }
-function getGitCommandLineConfigEntries(tokens, envAssignments) {
+function getGitConfigEntries(tokens, envAssignments) {
   if (tokens.length === 0) {
-    return [];
+    return { blockedReason: null, entries: [] };
   }
   const firstToken = tokens[0];
   const command2 = firstToken ? getBasename(firstToken).toLowerCase() : null;
   if (command2 !== "git") {
-    return [];
+    return { blockedReason: null, entries: [] };
   }
+  const envEntries = getGitEnvConfigEntries(envAssignments);
+  if (envEntries.blockedReason) {
+    return envEntries;
+  }
+  return {
+    blockedReason: null,
+    entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)]
+  };
+}
+function getGitCommandLineConfigEntries(tokens, envAssignments) {
   const entries = [];
   let i = 1;
   while (i < tokens.length) {
@@ -4136,6 +4227,58 @@ function getGitCommandLineConfigEntries(tokens, envAssignments) {
       continue;
     }
     i++;
+  }
+  return entries;
+}
+function getGitEnvConfigEntries(envAssignments) {
+  const parameterEntries = getGitConfigParameterEntries(envAssignments);
+  if (parameterEntries === null) {
+    return { blockedReason: REASON_GIT_ALIAS_CONFIG, entries: [] };
+  }
+  return {
+    blockedReason: null,
+    entries: [...parameterEntries, ...getGitConfigCountEntries(envAssignments)]
+  };
+}
+function getGitConfigParameterEntries(envAssignments) {
+  const parameters = getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments);
+  if (parameters === undefined) {
+    return [];
+  }
+  if (hasUnclosedQuotes(parameters)) {
+    return null;
+  }
+  const entries = [];
+  for (const entry of $parse(parameters, ENV_PROXY)) {
+    const token = getCommandTokenText(entry);
+    const configEntry = parseGitConfigEntry(token ?? undefined);
+    if (!configEntry) {
+      return null;
+    }
+    entries.push(configEntry);
+  }
+  return entries;
+}
+function getGitConfigCountEntries(envAssignments) {
+  const countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
+  if (countValue === undefined) {
+    return [];
+  }
+  if (!/^\d+$/.test(countValue)) {
+    return [];
+  }
+  const count = Number.parseInt(countValue, 10);
+  if (!Number.isSafeInteger(count)) {
+    return [];
+  }
+  const entries = [];
+  for (let i = 0;i < count; i++) {
+    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
+    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    if (!key || value === undefined) {
+      return [];
+    }
+    entries.push({ key, value });
   }
   return entries;
 }
@@ -4193,6 +4336,7 @@ var REASON_RESET_MERGE = "git reset --merge can lose uncommitted changes. Use 'g
 var REASON_CLEAN = "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.";
 var REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-with-lease for safer force push.";
 var REASON_PUSH_DELETE = "git push deletes remote refs. Ask the user to run it manually if deletion is intended.";
+var REASON_PUSH_MIRROR = "git push " + "--mirror can force-update and delete remote refs. Ask the user to run it manually if mirror push is intended.";
 var REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.";
 var REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
 var REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
@@ -4433,6 +4577,9 @@ function analyzeGitClean(tokens) {
 function analyzeGitPush(tokens) {
   const { before, after } = splitAtDoubleDash(tokens);
   const shortOpts = extractShortOpts(before);
+  if (before.some((token) => matchesGitLongOption(token, "--mirror"))) {
+    return destructiveCommandMatch("git.push-mirror", REASON_PUSH_MIRROR);
+  }
   const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f") || getPushRefspecCandidates(before, after).some(isForcePushRefspec);
   if (hasForce) {
     return destructiveCommandMatch("git.push-force", REASON_PUSH_FORCE);
@@ -4895,8 +5042,24 @@ function analyzeGitMatch(tokens, options2 = {}) {
   return match;
 }
 function isGitNetworkOperation(tokens) {
-  const { subcommand } = extractGitSubcommandAndRest(tokens);
-  return GIT_NETWORK_SUBCOMMANDS.has(subcommand?.toLowerCase() ?? "");
+  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
+  const subcommandName = subcommand?.toLowerCase();
+  if (!subcommandName) {
+    return false;
+  }
+  if (GIT_NETWORK_SUBCOMMANDS.has(subcommandName)) {
+    return true;
+  }
+  if (subcommandName === "archive") {
+    return splitAtDoubleDash(rest).before.some((token) => matchesGitLongOption(token, "--remote"));
+  }
+  return subcommandName === "remote" && isGitRemoteUpdateOperation(rest);
+}
+function isGitRemoteUpdateOperation(tokens) {
+  return tokens.find((token) => !isGitRemotePrefixOption(token))?.toLowerCase() === "update";
+}
+function isGitRemotePrefixOption(token) {
+  return token === "-v" || matchesGitLongOption(token, "--verbose") || matchesGitLongOption(token, "--no-verbose");
 }
 function getGitWorktreeRelaxation(tokens, options2 = {}) {
   const aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
@@ -4940,7 +5103,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       envAssignments: context.envAssignments
     }) : null), context.config);
   }
-  if (INTERPRETERS.has(normalizedHead)) {
+  if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(tokens);
     if (!codeArg) {
       return null;
@@ -5010,10 +5173,11 @@ function unwrapTransparentWrapper(tokens, config) {
 function isProtectableCommand(token, config) {
   const basename2 = getBasename(token);
   const normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename2 === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename2) || config.transparent_wrappers?.includes(basename2) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || INTERPRETERS.has(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename2);
+  return normalized === "git" || basename2 === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename2) || config.transparent_wrappers?.includes(basename2) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename2);
 }
 function isReservedTransparentWrapper(command2) {
-  return RESERVED_TRANSPARENT_WRAPPERS.has(normalizeCommandToken(command2));
+  const normalized = normalizeCommandToken(command2);
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
 }
 
 // src/core/analyze/child-command.ts
@@ -5062,13 +5226,25 @@ function collectCommandTemplate(tokens, start) {
 // src/core/analyze/parallel.ts
 var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.";
 var REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.";
+var REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.";
 var PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 function analyzeParallel(tokens, context) {
   const parseResult = parseParallelCommand(tokens);
   if (!parseResult) {
     return null;
   }
-  const { template, args, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult;
+  const {
+    template,
+    args,
+    templateHasPlaceholder,
+    runsRemotely,
+    usesStdin,
+    envNames,
+    readsCommandsFromInput
+  } = parseResult;
+  if (readsCommandsFromInput) {
+    return parallelCommandStreamDynamicReason(context);
+  }
   if (template.length === 0) {
     const nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
     for (const arg of args) {
@@ -5164,6 +5340,9 @@ function analyzeParallel(tokens, context) {
 }
 function parallelShellDynamicReason(context) {
   return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.config);
+}
+function parallelCommandStreamDynamicReason(context) {
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.config);
 }
 function parallelRmDynamicReason(context) {
   return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.config);
@@ -5350,7 +5529,16 @@ function parseParallelCommand(tokens) {
   }
   const templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
   if (templateTokens.length === 0 && markerIndex === -1) {
-    return null;
+    return {
+      template: [],
+      args: [],
+      childCommandTokens: [],
+      templateHasPlaceholder: false,
+      runsRemotely,
+      usesStdin: true,
+      envNames,
+      readsCommandsFromInput: true
+    };
   }
   return {
     template: templateTokens,
@@ -5359,7 +5547,8 @@ function parseParallelCommand(tokens) {
     templateHasPlaceholder,
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
-    envNames
+    envNames,
+    readsCommandsFromInput: false
   };
 }
 function splitParallelEnvNames(value) {
@@ -5370,6 +5559,8 @@ function splitParallelEnvNames(value) {
 import { existsSync as existsSync3, lstatSync as lstatSync3, realpathSync as realpathSync5 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { isAbsolute as isAbsolute6, join as join5, normalize as normalize2, parse as parsePath3, sep as sep3 } from "node:path";
+var INITIAL_SYSTEM_TMPDIR = tmpdir2();
+var TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp", "/var/folders"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (!envAssignments.has("TMPDIR")) {
     return false;
@@ -5382,11 +5573,18 @@ function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (normalizedTmpdirValue === null) {
     return true;
   }
-  const sysTmpdir = tryResolveExistingPathComponents(tmpdir2()) ?? normalize2(tmpdir2());
-  if (isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents("/tmp")) || isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents("/var/tmp")) || isPathOrSubpath(normalizedTmpdirValue, sysTmpdir)) {
+  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root))) {
     return false;
   }
   return true;
+}
+function getTrustedTempRoots() {
+  const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root));
+  const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  if (initialTmpdir && roots.some((root) => isPathOrSubpath(initialTmpdir, root))) {
+    return [...roots, initialTmpdir];
+  }
+  return roots;
 }
 function tryResolveExistingPathComponents(path) {
   try {
@@ -5482,7 +5680,8 @@ function extractXargsChildCommandWithInfo(tokens) {
     "--arg-file",
     "--eof",
     "--delimiter",
-    "--max-lines"
+    "--max-lines",
+    "--process-slot-var"
   ]);
   let replacementToken = null;
   let i = 1;
@@ -5653,6 +5852,7 @@ function matchesBlockArgs(tokens, blockArgs, shortOpts) {
 }
 
 // src/core/analyze/segment.ts
+var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.";
 var COMMAND_ANALYZERS = new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
@@ -5697,8 +5897,13 @@ function analyzeSegment(tokens, depth, options2) {
   const normalizedHead = normalizeCommandToken(head);
   const basename2 = getBasename(head);
   const cwdForRm = wrapperCwd === null ? undefined : wrapperCwd ?? baseCwdForRm;
+  const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+  const dynamicExecutableMatch = filterDestructiveCommandMatch(analyzeDynamicExecutable(head), options2.config);
+  if (dynamicExecutableMatch) {
+    return blockResultFromMatch(dynamicExecutableMatch);
+  }
   const transparentWrapper = unwrapTransparentWrapper(stripped, options2.config);
   if (transparentWrapper) {
     return analyzeSegment(transparentWrapper.tokens, depth, {
@@ -5725,7 +5930,7 @@ function analyzeSegment(tokens, depth, options2) {
       return blockResultFromMatch(awkReason);
     }
   }
-  if (INTERPRETERS.has(normalizedHead)) {
+  if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
@@ -5760,7 +5965,7 @@ function analyzeSegment(tokens, depth, options2) {
     normalizedHead,
     basename: basename2,
     cwdForRm,
-    originalCwd,
+    originalCwd: originalCwdForRm,
     envAssignments,
     allowTmpdirVar,
     depth,
@@ -5796,6 +6001,9 @@ function analyzeSegment(tokens, depth, options2) {
 }
 function blockResultFromMatch(match) {
   return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
+}
+function analyzeDynamicExecutable(head) {
+  return head.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN) ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
 }
 function isShellWrapperCommand(head, normalizedHead) {
   return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
@@ -5985,11 +6193,13 @@ function stripLeadingGrouping(tokens) {
 }
 
 // src/core/analyze/shell-git-env.ts
+var TMPDIR_ENV_NAME = "TMPDIR";
 function createShellGitContextEnvState(effectiveEnvAssignments) {
+  const initialEffectiveEnvAssignments = getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
   return {
-    effectiveEnvAssignments,
+    effectiveEnvAssignments: initialEffectiveEnvAssignments,
     shellAssignments: new Map,
-    exportedNames: getInitiallyExportedGitContextNames(effectiveEnvAssignments),
+    exportedNames: getInitiallyExportedShellEnvNames(initialEffectiveEnvAssignments),
     allexport: false,
     keywordExport: false
   };
@@ -6013,6 +6223,16 @@ function applyShellGitContextEnvSegment(tokens, state) {
     }
     if (changes.keywordExport !== null) {
       state.keywordExport = changes.keywordExport;
+    }
+    return;
+  }
+  if (command2 === "unset") {
+    const operandsStart = getUnsetOperandsStart(tokens, commandIndex);
+    if (operandsStart === null) {
+      return;
+    }
+    for (const token of tokens.slice(operandsStart)) {
+      unsetTrackedGitContextEnvName(state, token);
     }
     return;
   }
@@ -6067,7 +6287,7 @@ function getShellCommandInfo(tokens) {
     if (!assignment) {
       break;
     }
-    if (isTrackedGitEnvName(assignment.name)) {
+    if (isTrackedShellEnvName(assignment.name)) {
       leadingAssignments.set(assignment.name, assignment);
     }
     i++;
@@ -6147,20 +6367,33 @@ function parseShellAssignment(token) {
 }
 function parseGitContextEnvAssignment(token) {
   const assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-  if (!assignment || !isTrackedGitEnvName(assignment.name)) {
+  if (!assignment || !isTrackedShellEnvName(assignment.name)) {
     return null;
   }
   return assignment;
 }
-function getInitiallyExportedGitContextNames(effectiveEnvAssignments) {
+function isTrackedShellEnvName(name) {
+  return name === TMPDIR_ENV_NAME || isTrackedGitEnvName(name);
+}
+function getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments) {
+  const inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME].map((name) => {
+    const value = process.env[name];
+    return value === undefined ? null : [name, value];
+  }).filter((assignment) => assignment !== null);
+  if (inheritedAssignments.length === 0) {
+    return effectiveEnvAssignments;
+  }
+  return new Map([...inheritedAssignments, ...effectiveEnvAssignments ?? []]);
+}
+function getInitiallyExportedShellEnvNames(effectiveEnvAssignments) {
   const exportedNames = new Set;
   for (const name of Object.keys(process.env)) {
-    if (isTrackedGitEnvName(name)) {
+    if (isTrackedShellEnvName(name)) {
       exportedNames.add(name);
     }
   }
   for (const name of effectiveEnvAssignments?.keys() ?? []) {
-    if (isTrackedGitEnvName(name)) {
+    if (isTrackedShellEnvName(name)) {
       exportedNames.add(name);
     }
   }
@@ -6168,7 +6401,7 @@ function getInitiallyExportedGitContextNames(effectiveEnvAssignments) {
 }
 function setShellGitContextAssignment(state, assignment) {
   state.shellAssignments.set(assignment.name, assignment.value);
-  if (state.allexport || state.exportedNames.has(assignment.name)) {
+  if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name)) {
     setEffectiveGitContextAssignment(state, assignment);
   }
 }
@@ -6185,7 +6418,7 @@ function addExportedGitContextEnvAssignment(state, token) {
     setEffectiveGitContextAssignment(state, assignment);
     return;
   }
-  if (isTrackedGitEnvName(token)) {
+  if (isTrackedShellEnvName(token)) {
     exportTrackedGitContextEnvName(state, token);
   }
 }
@@ -6196,7 +6429,7 @@ function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadin
     if (exports) {
       state.exportedNames.add(assignment.name);
       setEffectiveGitContextAssignment(state, assignment);
-    } else if (state.allexport || state.exportedNames.has(assignment.name)) {
+    } else if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name)) {
       setEffectiveGitContextAssignment(state, assignment);
     }
     return;
@@ -6207,7 +6440,7 @@ function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadin
     setEffectiveGitContextAssignment(state, readonlyAssignment);
     return;
   }
-  if (exports && isTrackedGitEnvName(token)) {
+  if (exports && isTrackedShellEnvName(token)) {
     exportTrackedGitContextEnvName(state, token);
   }
 }
@@ -6218,7 +6451,30 @@ function exportTrackedGitContextEnvName(state, name) {
     value: state.shellAssignments.get(name) ?? ""
   });
 }
+function unsetTrackedGitContextEnvName(state, name) {
+  if (!isTrackedShellEnvName(name)) {
+    return;
+  }
+  state.shellAssignments.delete(name);
+  state.exportedNames.delete(name);
+  if (name === TMPDIR_ENV_NAME) {
+    setEffectiveGitContextAssignment(state, { name, value: "" });
+    return;
+  }
+  if (!state.effectiveEnvAssignments?.has(name)) {
+    return;
+  }
+  const nextEnvAssignments = new Map(state.effectiveEnvAssignments);
+  nextEnvAssignments.delete(name);
+  state.effectiveEnvAssignments = nextEnvAssignments.size === 0 ? undefined : nextEnvAssignments;
+}
+function getUnsetOperandsStart(tokens, commandIndex) {
+  return getBuiltinOperandsStart(tokens, commandIndex, (token) => token === "-v");
+}
 function getExportOperandsStart(tokens, commandIndex) {
+  return getBuiltinOperandsStart(tokens, commandIndex, (token) => token === "-p");
+}
+function getBuiltinOperandsStart(tokens, commandIndex, skipsOption) {
   let i = commandIndex + 1;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -6228,7 +6484,7 @@ function getExportOperandsStart(tokens, commandIndex) {
     if (token === "--") {
       return i + 1;
     }
-    if (token === "-p") {
+    if (skipsOption(token)) {
       i++;
       continue;
     }
@@ -6322,7 +6578,6 @@ var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot
 var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
 
 // src/core/analyze/analyze-command.ts
-var DYNAMIC_SUBSTITUTION_TOKEN = "$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__";
 function analyzeCommandInternal(command2, depth, options2) {
   if (depth >= MAX_RECURSION_DEPTH) {
     return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
@@ -6425,7 +6680,10 @@ function appendDynamicSubstitutionSentinelForGit(tokens) {
   if (!tokens.some((token) => getBasename(token).toLowerCase() === "git")) {
     return tokens;
   }
-  return [...tokens, DYNAMIC_SUBSTITUTION_TOKEN];
+  if (tokens.some((token) => token.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN))) {
+    return tokens;
+  }
+  return [...tokens, SHELL_DYNAMIC_SUBSTITUTION_TOKEN];
 }
 function isFailClosedRepairCommand(segments2) {
   if (segments2.length !== 1 || segments2[0]?.hasDynamicSubstitution) {
@@ -6940,6 +7198,37 @@ function assertBareRulebookName(source) {
   if (!NAME_PATTERN.test(source)) {
     throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
   }
+}
+function getRulebookLockEntrySourceIdentityError(entry) {
+  if (isGitHubRulebookSource(entry.spec)) {
+    return getGitHubLockEntrySourceIdentityError(entry);
+  }
+  return getLocalLockEntrySourceIdentityError(entry);
+}
+function getLocalLockEntrySourceIdentityError(entry) {
+  if (!NAME_PATTERN.test(entry.spec)) {
+    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
+  }
+  if (entry.kind !== "local-directory") {
+    return `lock entry for ${entry.spec} must use local-directory kind`;
+  }
+  if (entry.path === entry.spec && entry.name === entry.spec) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match local source identity`;
+}
+function getGitHubLockEntrySourceIdentityError(entry) {
+  const syntaxError = getRulebookSourceSyntaxError(entry.spec);
+  if (syntaxError)
+    return syntaxError;
+  const parsed = parseGitHubSource(entry.spec);
+  if (entry.kind !== "github") {
+    return `lock entry for ${entry.spec} must use github kind`;
+  }
+  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match GitHub source identity`;
 }
 function getSelectedUpdateSpecs(config, lock, match) {
   const exactMatches = getExactSpecMatches(config.rules, match);
@@ -7930,15 +8219,19 @@ function parseLockEntry(entry, prefix) {
   if (errors.length > 0)
     return { entry: null, errors };
   if (candidate.kind === "local-directory") {
+    const localEntry = {
+      spec: requiredString(candidate, "spec"),
+      kind: "local-directory",
+      path: requiredString(candidate, "path"),
+      name: requiredString(candidate, "name"),
+      version: requiredString(candidate, "version"),
+      digest: requiredString(candidate, "digest")
+    };
+    const identityError2 = getLockEntrySourceIdentityError(localEntry, prefix);
+    if (identityError2)
+      return { entry: null, errors: [identityError2] };
     return {
-      entry: {
-        spec: requiredString(candidate, "spec"),
-        kind: "local-directory",
-        path: requiredString(candidate, "path"),
-        name: requiredString(candidate, "name"),
-        version: requiredString(candidate, "version"),
-        digest: requiredString(candidate, "digest")
-      },
+      entry: localEntry,
       errors: []
     };
   }
@@ -7954,6 +8247,9 @@ function parseLockEntry(entry, prefix) {
     version: requiredString(candidate, "version"),
     digest: requiredString(candidate, "digest")
   };
+  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
+  if (identityError)
+    return { entry: null, errors: [identityError] };
   return {
     entry: typeof candidate.display_ref === "string" && candidate.display_ref !== "" ? { ...githubEntry, display_ref: candidate.display_ref } : githubEntry,
     errors: []
@@ -7979,6 +8275,10 @@ function validateKindFields(candidate, prefix) {
     return ["owner", "repo", "ref", "commit", "path"].flatMap((field) => validateRequiredString(candidate, prefix, field));
   }
   return [];
+}
+function getLockEntrySourceIdentityError(entry, prefix) {
+  const error = getRulebookLockEntrySourceIdentityError(entry);
+  return error ? `${prefix}: ${error}` : null;
 }
 function requiredString(candidate, field) {
   const value = candidate[field];
@@ -8095,6 +8395,10 @@ async function resolveGitHubRulebook(spec) {
   };
 }
 async function readLockedGitHubRulebook(entry, configDir, options2) {
+  const identityError = getRulebookLockEntrySourceIdentityError(entry);
+  if (identityError) {
+    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
+  }
   const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
   if (existsSync7(cachePath)) {
     const content = readFileSync7(cachePath, "utf-8");
@@ -9089,10 +9393,23 @@ var CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
   ["perl", new Set(["e"])]
 ]);
 var POLICY_ENV_PATH_NAMES = new Set(["CC_SAFETY_NET_HOME"]);
+var SHELL_COMMAND_TOOLS = new Set([
+  "bash",
+  "powershell",
+  "runcommand",
+  "runshellcommand",
+  "shell"
+]);
+var SHELL_ENV_PROXY = new Proxy({}, {
+  get: (_, name) => ["$", "{", String(name), "}"].join("")
+});
 function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
   const command2 = getCommandFromToolInput(input);
-  if (command2)
-    return findPolicyConfigMutationTargetInCommand(command2, cwd);
+  const commandTarget = command2 ? findPolicyConfigMutationTargetInCommand(command2, cwd) : null;
+  if (commandTarget)
+    return commandTarget;
+  if (command2 && isShellCommandTool(toolName))
+    return null;
   const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) => isPolicyConfigPath(value, cwd));
   if (!target)
     return null;
@@ -9104,7 +9421,7 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
   }
   let tokens;
   try {
-    tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
+    tokens = $parse(command2.replace(/\n/g, " ; "), SHELL_ENV_PROXY);
   } catch {
     return findPolicyConfigTargetInText(command2, cwd);
   }
@@ -9124,7 +9441,7 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
       const targetIndex = getWriteRedirectTargetIndex(tokens, i);
       const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
       if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)) {
-        return { target };
+        return { target: formatShellPolicyTarget(target) };
       }
       i = targetIndex ?? i + 1;
       continue;
@@ -9263,6 +9580,12 @@ function isScriptArgumentOption(command2, token) {
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
 }
+function isShellCommandTool(toolName) {
+  return SHELL_COMMAND_TOOLS.has(normalizeToolName(toolName));
+}
+function normalizeToolName(toolName) {
+  return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
 function isPolicyConfigPath(target, cwd) {
   const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
   return getPolicyConfigProtectedPaths(cwd).some((path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase());
@@ -9297,6 +9620,9 @@ function findPolicyConfigTargetInText(text, cwd) {
   const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
   return target ? { target } : null;
 }
+function formatShellPolicyTarget(target) {
+  return target.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, "$$$1");
+}
 function extractPolicyConfigPathCandidates(text) {
   return text.split(/[^A-Za-z0-9_./\\~:$-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
 }
@@ -9308,7 +9634,15 @@ function extractConstructedPolicyPathCandidates(text) {
   return envNames.flatMap((name) => suffixes.map((suffix) => `$${name}${suffix}`));
 }
 function expandShellVariables(text, variables) {
-  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
+  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
+    const value = variables.get(name);
+    if (value === undefined)
+      return match;
+    const isUsable = operator.startsWith(":") ? value !== "" : true;
+    if (operator.endsWith("-"))
+      return isUsable ? value : expandShellVariables(word, variables);
+    return isUsable ? expandShellVariables(word, variables) : "";
+  }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
 }
 function normalizeCandidatePath(target, cwd) {
   const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
@@ -9470,7 +9804,7 @@ function findSensitiveTargetInToolInput(toolName, input, cwd = process.cwd(), co
   return findSensitivePathTarget(extractToolPathTargets(toolName, input), cwd, config);
 }
 function extractToolPathTargets(toolName, input) {
-  const normalized = normalizeToolName(toolName);
+  const normalized = normalizeToolName2(toolName);
   if (SHELL_TOOL_NAMES.has(normalized)) {
     const command3 = getCommandFromToolInput(input);
     return command3 ? extractCommandPathTargets(command3) : [];
@@ -9611,7 +9945,7 @@ function cleanPatchTarget(target) {
   const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
   return path === "" || path === "/dev/null" ? [] : [path];
 }
-function normalizeToolName(toolName) {
+function normalizeToolName2(toolName) {
   return toolName.replace(/[-_\s]/g, "").toLowerCase();
 }
 function normalizeToolInputKey2(key) {
@@ -13201,7 +13535,7 @@ function explainSegment(tokens, depth, options2, steps) {
       };
     }
   }
-  if (INTERPRETERS.has(baseNameLower)) {
+  if (isInterpreterCommand(baseNameLower)) {
     const codeArg = extractInterpreterCodeArg(strippedTokens);
     if (codeArg) {
       const paranoidBlocked = !!options2.paranoidInterpreters;

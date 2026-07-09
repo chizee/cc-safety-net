@@ -11,7 +11,11 @@ import {
 } from '@/core/analyze/shell-git-env';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { getBasename, splitShellCommandsWithInfo } from '@/core/shell';
+import {
+  getBasename,
+  SHELL_DYNAMIC_SUBSTITUTION_TOKEN,
+  splitShellCommandsWithInfo,
+} from '@/core/shell';
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
@@ -20,8 +24,6 @@ import {
   type DestructiveCommandRuleMatch,
   MAX_RECURSION_DEPTH,
 } from '@/types';
-
-const DYNAMIC_SUBSTITUTION_TOKEN = '$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__';
 
 export type InternalOptions = AnalyzeOptions & { config: Config };
 
@@ -184,7 +186,10 @@ function appendDynamicSubstitutionSentinelForGit(tokens: string[]): string[] {
   if (!tokens.some((token) => getBasename(token).toLowerCase() === 'git')) {
     return tokens;
   }
-  return [...tokens, DYNAMIC_SUBSTITUTION_TOKEN];
+  if (tokens.some((token) => token.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN))) {
+    return tokens;
+  }
+  return [...tokens, SHELL_DYNAMIC_SUBSTITUTION_TOKEN];
 }
 
 function isFailClosedRepairCommand(

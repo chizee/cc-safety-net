@@ -75,6 +75,38 @@ describe('policy config protection', () => {
     ).toBe(policyPath);
   });
 
+  test('denies write-like tools with benign command fields targeting policy files', () => {
+    const policyPath = getUserPolicyPath();
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Write',
+        { command: 'echo ok', file_path: policyPath, content: '{}' },
+        cwd,
+      )?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'MultiEdit',
+        { command: 'echo ok', edits: [{ path: policyPath }] },
+        cwd,
+      )?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Read',
+        { command: `cat ${policyPath}`, file_path: policyPath },
+        cwd,
+      ),
+    ).toBeNull();
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'Shell',
+        { command: `cat ${policyPath}`, file_path: policyPath },
+        cwd,
+      ),
+    ).toBeNull();
+  });
+
   test('denies writes targeting active rule config and lock files', () => {
     withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
       for (const path of [
@@ -134,6 +166,18 @@ describe('policy config protection', () => {
           cwd,
         ),
       ).toBeNull();
+    });
+  });
+
+  test('denies bash redirects with parameter expansion targeting policy files', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      expect(
+        findPolicyConfigMutationTargetInToolInput(
+          'Bash',
+          { command: 'cat package.json > ${CC_SAFETY_NET_HOME:-/tmp}/policy.json' },
+          cwd,
+        )?.target,
+      ).toBe('${CC_SAFETY_NET_HOME:-/tmp}/policy.json');
     });
   });
 

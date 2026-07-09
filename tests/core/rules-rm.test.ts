@@ -421,7 +421,7 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf after safe command substitution cd bypasses cwd allowlist blocked', () => {
     setup();
     try {
-      assertBlocked('$( cd ..; echo ok ) && rm -rf build', 'rm -rf', tmpDir);
+      assertBlocked('$( cd ..; echo ok ) && rm -rf build', 'dynamic command', tmpDir);
     } finally {
       cleanup();
     }

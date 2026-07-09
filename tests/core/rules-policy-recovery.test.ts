@@ -514,6 +514,101 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
+  test('rejects lock entries that rebind configured source identity', () => {
+    const tempDir = makeTempDir('rules-policy-lock-identity');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      const localContent = rulebookJson('other-rules');
+      const localEntry = {
+        spec: 'project-rules',
+        kind: 'local-directory' as const,
+        path: 'other-rules',
+        name: 'other-rules',
+        version: '1.0.0',
+        digest: sha256Digest(localContent),
+      };
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
+      writeRulebook(
+        join(getProjectRulesDir(tempDir), 'other-rules', 'rulebook.json'),
+        'other-rules',
+      );
+      mkdirSync(
+        dirname(
+          getRulebookCachePath(localEntry, {
+            cacheConfigDir: getProjectRulesDir(tempDir),
+            userConfigDir,
+          }),
+        ),
+        { recursive: true },
+      );
+      writeFileSync(
+        getRulebookCachePath(localEntry, {
+          cacheConfigDir: getProjectRulesDir(tempDir),
+          userConfigDir,
+        }),
+        localContent,
+        'utf-8',
+      );
+      writeFileSync(
+        getProjectRulesLockPath(tempDir),
+        JSON.stringify({ version: 1, rulebooks: [localEntry] }),
+      );
+
+      const localPolicy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+
+      expect(localPolicy.rules).toEqual([]);
+      expect(localPolicy.errors).toEqual(
+        expect.arrayContaining([expect.stringContaining('does not match local source identity')]),
+      );
+
+      const githubContent = rulebookJson('beta');
+      const githubEntry = {
+        spec: 'owner/repo#main/alpha',
+        kind: 'github' as const,
+        owner: 'attacker',
+        repo: 'repo',
+        ref: 'main',
+        commit: 'abc123',
+        path: '.cc-safety-net/rules/beta/rulebook.json',
+        name: 'beta',
+        version: '1.0.0',
+        digest: sha256Digest(githubContent),
+      };
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
+      mkdirSync(
+        dirname(
+          getRulebookCachePath(githubEntry, {
+            cacheConfigDir: getProjectRulesDir(tempDir),
+            userConfigDir,
+          }),
+        ),
+        { recursive: true },
+      );
+      writeFileSync(
+        getRulebookCachePath(githubEntry, {
+          cacheConfigDir: getProjectRulesDir(tempDir),
+          userConfigDir,
+        }),
+        githubContent,
+        'utf-8',
+      );
+      writeFileSync(
+        getProjectRulesLockPath(tempDir),
+        JSON.stringify({ version: 1, rulebooks: [githubEntry] }),
+      );
+
+      const githubPolicy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+
+      expect(githubPolicy.rules).toEqual([]);
+      expect(githubPolicy.errors).toEqual(
+        expect.arrayContaining([expect.stringContaining('does not match GitHub source identity')]),
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('cross-scope user override cannot disable project-scoped rule ids', async () => {
     const tempDir = makeTempDir('rules-policy-user-cross-scope-override');
     const userConfigDir = join(tempDir, 'user');
@@ -948,6 +1043,32 @@ describe('rules policy recovery coverage', () => {
           },
         ),
       ).rejects.toThrow('locked GitHub digest mismatch');
+
+      const mismatchedContent = rulebookJson('beta');
+      const mismatchedLocked = {
+        ...locked,
+        owner: 'attacker',
+        path: '.cc-safety-net/rules/beta/rulebook.json',
+        name: 'beta',
+        digest: sha256Digest(mismatchedContent),
+      };
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        return url.includes('raw.githubusercontent.com/attacker/repo/abc123/')
+          ? new Response(mismatchedContent)
+          : new Response('', { status: 404 });
+      }) as unknown as typeof fetch;
+      await expect(
+        resolveRulebookSourceForSync(
+          'owner/repo#main/alpha',
+          tempDir,
+          {},
+          {
+            version: 1,
+            rulebooks: [mismatchedLocked],
+          },
+        ),
+      ).rejects.toThrow('does not match GitHub source identity');
     } finally {
       globalThis.fetch = originalFetch;
       rmSync(tempDir, { recursive: true, force: true });
@@ -1178,8 +1299,8 @@ describe('rules policy recovery coverage', () => {
         getProjectRulesLockPath(tempDir),
         JSON.stringify({ version: 1, rulebooks: [{ ...syncedEntry, path: '../outside' }] }),
       );
-      expect((await syncRulesConfig({ cwd: tempDir, check: true })).errors[0]).toContain(
-        'must stay within',
+      expect((await syncRulesConfig({ cwd: tempDir, check: true })).errors).toEqual(
+        expect.arrayContaining([expect.stringContaining('does not match local source identity')]),
       );
       writeFileSync(
         getProjectRulesLockPath(tempDir),

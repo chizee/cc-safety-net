@@ -11,13 +11,18 @@ export interface GitAliasResolution {
   tokens: readonly string[];
 }
 
-interface GitCommandLineConfigEntry {
+interface GitConfigEntry {
   key: string;
   value: string | undefined;
 }
 
+interface GitConfigEntriesResolution {
+  blockedReason: string | null;
+  entries: GitConfigEntry[];
+}
+
 const REASON_GIT_ALIAS_CONFIG =
-  'Git aliases supplied through command-line config can hide or execute commands. Run git without command-line alias overrides, or ask the user to run it manually.';
+  'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
 
 export function splitAtDoubleDash(tokens: readonly string[]): {
   index: number;
@@ -39,7 +44,12 @@ export function resolveGitCommandLineAliases(
   tokens: readonly string[],
   envAssignments?: ReadonlyMap<string, string>,
 ): GitAliasResolution {
-  const aliases = getGitCommandLineAliases(tokens, envAssignments);
+  const configEntries = getGitConfigEntries(tokens, envAssignments);
+  if (configEntries.blockedReason) {
+    return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
+  }
+
+  const aliases = getGitConfigAliases(configEntries.entries);
   if (aliases.size === 0) {
     return { blockedReason: null, expanded: false, tokens };
   }
@@ -70,7 +80,7 @@ export function hasGitCommandLineSshCommandConfig(
   tokens: readonly string[],
   envAssignments?: ReadonlyMap<string, string>,
 ): boolean {
-  return getGitCommandLineConfigEntries(tokens, envAssignments).some(
+  return getGitConfigEntries(tokens, envAssignments).entries.some(
     (entry) => entry.key.toLowerCase() === 'core.sshcommand',
   );
 }
@@ -121,12 +131,9 @@ export function extractGitSubcommandAndRest(tokens: readonly string[]): {
   return { subcommand: null, rest: [] };
 }
 
-function getGitCommandLineAliases(
-  tokens: readonly string[],
-  envAssignments?: ReadonlyMap<string, string>,
-): Map<string, string | undefined> {
+function getGitConfigAliases(entries: readonly GitConfigEntry[]): Map<string, string | undefined> {
   const aliases = new Map<string, string | undefined>();
-  for (const entry of getGitCommandLineConfigEntries(tokens, envAssignments)) {
+  for (const entry of entries) {
     const key = entry.key.toLowerCase();
     if (!key.startsWith('alias.')) {
       continue;
@@ -139,21 +146,36 @@ function getGitCommandLineAliases(
   return aliases;
 }
 
-function getGitCommandLineConfigEntries(
+function getGitConfigEntries(
   tokens: readonly string[],
   envAssignments?: ReadonlyMap<string, string>,
-): GitCommandLineConfigEntry[] {
+): GitConfigEntriesResolution {
   if (tokens.length === 0) {
-    return [];
+    return { blockedReason: null, entries: [] };
   }
 
   const firstToken = tokens[0];
   const command = firstToken ? getBasename(firstToken).toLowerCase() : null;
   if (command !== 'git') {
-    return [];
+    return { blockedReason: null, entries: [] };
   }
 
-  const entries: GitCommandLineConfigEntry[] = [];
+  const envEntries = getGitEnvConfigEntries(envAssignments);
+  if (envEntries.blockedReason) {
+    return envEntries;
+  }
+
+  return {
+    blockedReason: null,
+    entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)],
+  };
+}
+
+function getGitCommandLineConfigEntries(
+  tokens: readonly string[],
+  envAssignments?: ReadonlyMap<string, string>,
+): GitConfigEntry[] {
+  const entries: GitConfigEntry[] = [];
   let i = 1;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -208,7 +230,70 @@ function getGitCommandLineConfigEntries(
   return entries;
 }
 
-function parseGitConfigEntry(config: string | undefined): GitCommandLineConfigEntry | null {
+function getGitEnvConfigEntries(
+  envAssignments?: ReadonlyMap<string, string>,
+): GitConfigEntriesResolution {
+  const parameterEntries = getGitConfigParameterEntries(envAssignments);
+  if (parameterEntries === null) {
+    return { blockedReason: REASON_GIT_ALIAS_CONFIG, entries: [] };
+  }
+
+  return {
+    blockedReason: null,
+    entries: [...parameterEntries, ...getGitConfigCountEntries(envAssignments)],
+  };
+}
+
+function getGitConfigParameterEntries(
+  envAssignments?: ReadonlyMap<string, string>,
+): GitConfigEntry[] | null {
+  const parameters = getEnvConfigValue('GIT_CONFIG_PARAMETERS', envAssignments);
+  if (parameters === undefined) {
+    return [];
+  }
+  if (hasUnclosedQuotes(parameters)) {
+    return null;
+  }
+
+  const entries: GitConfigEntry[] = [];
+  for (const entry of parse(parameters, ENV_PROXY)) {
+    const token = getCommandTokenText(entry as ParseEntry);
+    const configEntry = parseGitConfigEntry(token ?? undefined);
+    if (!configEntry) {
+      return null;
+    }
+    entries.push(configEntry);
+  }
+  return entries;
+}
+
+function getGitConfigCountEntries(envAssignments?: ReadonlyMap<string, string>): GitConfigEntry[] {
+  const countValue = getEnvConfigValue('GIT_CONFIG_COUNT', envAssignments);
+  if (countValue === undefined) {
+    return [];
+  }
+  if (!/^\d+$/.test(countValue)) {
+    return [];
+  }
+
+  const count = Number.parseInt(countValue, 10);
+  if (!Number.isSafeInteger(count)) {
+    return [];
+  }
+
+  const entries: GitConfigEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
+    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    if (!key || value === undefined) {
+      return [];
+    }
+    entries.push({ key, value });
+  }
+  return entries;
+}
+
+function parseGitConfigEntry(config: string | undefined): GitConfigEntry | null {
   if (!config) {
     return null;
   }
@@ -222,7 +307,7 @@ function parseGitConfigEntry(config: string | undefined): GitCommandLineConfigEn
 function parseGitConfigEnvEntry(
   configEnv: string | undefined,
   envAssignments?: ReadonlyMap<string, string>,
-): GitCommandLineConfigEntry | null {
+): GitConfigEntry | null {
   const eqIdx = configEnv?.indexOf('=') ?? -1;
   if (!configEnv || eqIdx === -1) {
     return null;

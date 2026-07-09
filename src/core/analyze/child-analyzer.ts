@@ -3,6 +3,7 @@ import { analyzeFindMatch } from '@/core/analyze/find';
 import {
   containsDangerousCode,
   extractInterpreterCodeArg,
+  isInterpreterCommand,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
@@ -19,7 +20,6 @@ import {
   type AnalyzeNestedOverrides,
   type Config,
   type DestructiveCommandRuleMatch,
-  INTERPRETERS,
   SHELL_WRAPPERS,
 } from '@/types';
 
@@ -105,7 +105,7 @@ export function analyzeChildCommandMatch(
     );
   }
 
-  if (INTERPRETERS.has(normalizedHead)) {
+  if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(tokens);
     if (!codeArg) {
       return null;
