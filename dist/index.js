@@ -10607,7 +10607,7 @@ var CCSafetyNetPlugin = async ({ directory, homeDir }) => {
             intent: "hard_stop"
           });
         }
-        throwBlocked(REASON_SECRET_PROTECTION, command2, secretTarget.target, false);
+        throwBlocked(REASON_SECRET_PROTECTION, command2, secretTarget.target, false, secretTarget.ruleId, "hard_stop");
       }
       if (input.tool === "bash") {
         const command2 = getCommandFromToolInput(toolInput);

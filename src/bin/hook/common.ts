@@ -128,7 +128,15 @@ function handleSecretProtection(
       intent: 'hard_stop',
     });
   }
-  outputDeny(REASON_SECRET_PROTECTION, command, match.target, false, toolName);
+  outputDeny(
+    REASON_SECRET_PROTECTION,
+    command,
+    match.target,
+    false,
+    toolName,
+    match.ruleId,
+    'hard_stop',
+  );
   return true;
 }
 

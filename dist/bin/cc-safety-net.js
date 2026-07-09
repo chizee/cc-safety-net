@@ -10833,7 +10833,7 @@ function handleSecretProtection(toolInput, cwd, config, sessionId, toolName, age
       intent: "hard_stop"
     });
   }
-  outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName);
+  outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName, match.ruleId, "hard_stop");
   return true;
 }
 function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config, agent, shell) {

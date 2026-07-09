@@ -78,7 +78,7 @@ describe('OpenCode plugin', () => {
 
       await expect(
         plugin['tool.execute.before']({ tool: 'read' }, { args: { path: '.env' } }),
-      ).rejects.toThrow('Access to a sensitive path is not allowed.');
+      ).rejects.toThrow('Rule: secret.basename.env');
       await expect(
         plugin['tool.execute.before']({ tool: 'Read' }, { args: { file_path: '.env.local' } }),
       ).rejects.toThrow('Command: .env.local');
@@ -174,7 +174,7 @@ describe('OpenCode plugin', () => {
         ).rejects.toThrow('Access to a sensitive path is not allowed.');
         await expect(
           plugin['tool.execute.before']({ tool: 'read' }, { args: { path: 'private-note.txt' } }),
-        ).rejects.toThrow('Access to a sensitive path is not allowed.');
+        ).rejects.toThrow('Rule: secret.deny-path');
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -237,13 +237,14 @@ describe('OpenCode plugin', () => {
             { tool: 'read', sessionID: 'opencode-secret-session' },
             { args: { path: '.env' } },
           ),
-        ).rejects.toThrow('Access to a sensitive path is not allowed.');
+        ).rejects.toThrow('Rule: secret.basename.env');
 
         const entry = readLatestAuditLogEntry(homeDir, 'opencode-secret-session');
         expect(entry.decision).toBe('deny');
         expect(entry.command).toBe('.env');
         expect(entry.segment).toBe('.env');
         expect(entry.reason).toBe('Access to a sensitive path is not allowed.');
+        expect(entry.ruleId).toBe('secret.basename.env');
         expect(entry.cwd).toBe(projectDir);
       },
     );

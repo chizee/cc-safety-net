@@ -10654,7 +10654,7 @@ function handlePiToolCall(event, ctx) {
           intent: "hard_stop"
         });
       }
-      return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false);
+      return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false, secretTarget.ruleId, "hard_stop");
     }
     if (!toolCall.command) {
       return config.failClosedReason ? blockPiToolCall(config.failClosedReason, undefined, undefined, undefined, undefined, "stop_and_explain") : undefined;

@@ -208,8 +208,10 @@ describe('Claude Code hook', () => {
       });
 
       expectSecretProtectionDeny(result, 'claude-code');
-      expect(getHookDenyReason(result, 'claude-code')).toContain('Command: .env');
-      expect(getHookDenyReason(result, 'claude-code')).toContain('Tool: Read');
+      const reason = getHookDenyReason(result, 'claude-code');
+      expect(reason).toContain('Rule: secret.basename.env');
+      expect(reason).toContain('Command: .env');
+      expect(reason).toContain('Tool: Read');
     });
 
     test('unknown command-scoped env assignment does not affect secret protection', async () => {
@@ -355,6 +357,7 @@ describe('Claude Code hook', () => {
         });
 
         expectSecretProtectionDeny(result, 'claude-code');
+        expect(getHookDenyReason(result, 'claude-code')).toContain('Rule: secret.basename.env');
       });
     });
 
@@ -396,6 +399,7 @@ describe('Claude Code hook', () => {
         });
 
         expectSecretProtectionDeny(result, 'claude-code');
+        expect(getHookDenyReason(result, 'claude-code')).toContain('Rule: secret.deny-path');
       });
     });
 

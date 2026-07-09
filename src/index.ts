@@ -73,7 +73,14 @@ export const CCSafetyNetPlugin = (async ({ directory, homeDir }: CCSafetyNetPlug
             },
           );
         }
-        throwBlocked(REASON_SECRET_PROTECTION, command, secretTarget.target, false);
+        throwBlocked(
+          REASON_SECRET_PROTECTION,
+          command,
+          secretTarget.target,
+          false,
+          secretTarget.ruleId,
+          'hard_stop',
+        );
       }
 
       if (input.tool === 'bash') {

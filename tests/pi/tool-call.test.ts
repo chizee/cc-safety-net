@@ -45,9 +45,10 @@ describe('Pi tool_call event', () => {
   test('blocks sensitive Pi read tool path inputs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-read-secret-'));
     try {
-      expect(
-        handlePiToolCall(toolCall('read', { path: '.env' }), piContext(dir))?.reason,
-      ).toContain('Access to a sensitive path is not allowed.');
+      const envResult = handlePiToolCall(toolCall('read', { path: '.env' }), piContext(dir));
+
+      expect(envResult?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(envResult?.reason).toContain('Rule: secret.basename.env');
       const result = handlePiToolCall(
         toolCall('Read', { file_path: '.env.local' }),
         piContext(dir),
@@ -364,9 +365,10 @@ describe('Pi tool_call event', () => {
       expect(handlePiToolCall(bashToolCall('cat id_rsa.pem'), ctx)?.reason).toContain(
         'Access to a sensitive path is not allowed.',
       );
-      expect(handlePiToolCall(bashToolCall('cat private-note.txt'), ctx)?.reason).toContain(
-        'Access to a sensitive path is not allowed.',
-      );
+      const deniedByPolicyResult = handlePiToolCall(bashToolCall('cat private-note.txt'), ctx);
+
+      expect(deniedByPolicyResult?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(deniedByPolicyResult?.reason).toContain('Rule: secret.deny-path');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -400,6 +402,7 @@ describe('Pi tool_call event', () => {
             command: 'cat .env',
             segment: '.env',
             reason: 'Access to a sensitive path is not allowed.',
+            ruleId: 'secret.basename.env',
             cwd: dir,
           }),
         );

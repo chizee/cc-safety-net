@@ -136,7 +136,14 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
           },
         );
       }
-      return blockPiToolCall(REASON_SECRET_PROTECTION, secretCommand, secretTarget.target, false);
+      return blockPiToolCall(
+        REASON_SECRET_PROTECTION,
+        secretCommand,
+        secretTarget.target,
+        false,
+        secretTarget.ruleId,
+        'hard_stop',
+      );
     }
 
     if (!toolCall.command) {
