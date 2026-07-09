@@ -87,6 +87,32 @@ export const SECRET_ENV_VARIANT_RULE = {
   description: 'Blocks environment-specific .env variants.',
 } as const satisfies SecretProtectionRuleMetadata;
 
+const SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
+  '.bak',
+  '.backup',
+  '.copy',
+  '.disabled',
+  '.old',
+  '.orig',
+  '.save',
+  '.tmp',
+] as const;
+
+const SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
+  {
+    idSlug: 'kube-config',
+    label: '~/.kube/config',
+    directoryParts: ['.kube'],
+    basename: 'config',
+  },
+  {
+    idSlug: 'docker-config',
+    label: '~/.docker/config.json',
+    directoryParts: ['.docker'],
+    basename: 'config.json',
+  },
+] as const;
+
 export const SECRET_HOME_PATH_RULES = [
   {
     id: 'secret.home.ssh',
@@ -130,6 +156,15 @@ export const SECRET_HOME_PATH_RULES = [
     description: 'Blocks home Docker credential config files.',
     suffixParts: ['.docker', 'config.json'],
   },
+  ...SECRET_HOME_PATH_CONFIG_VARIANT_BASES.flatMap((rule) =>
+    SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES.map((suffix) => ({
+      id: ['secret.home', rule.idSlug, suffix.slice(1)].join('.'),
+      category: 'Home path',
+      label: [rule.label, suffix].join(''),
+      description: ['Blocks home ', rule.label, suffix, ' credential backup files.'].join(''),
+      suffixParts: [...rule.directoryParts, [rule.basename, suffix].join('')],
+    })),
+  ),
   {
     id: 'secret.home.gh-hosts',
     category: 'Home path',
@@ -204,6 +239,7 @@ export const SECRET_DIRECTORY_RULES = [
 
 const SECRET_VARIANT_PREFIXES = [
   { prefix: 'id_rsa', slug: 'id-rsa', label: 'id_rsa' },
+  { prefix: 'id_dsa', slug: 'id-dsa', label: 'id_dsa' },
   { prefix: 'id_ed25519', slug: 'id-ed25519', label: 'id_ed25519' },
   { prefix: 'id_ecdsa', slug: 'id-ecdsa', label: 'id_ecdsa' },
   { prefix: 'credentials', slug: 'credentials', label: 'credentials' },

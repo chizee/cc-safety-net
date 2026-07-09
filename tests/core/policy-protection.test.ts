@@ -137,6 +137,22 @@ describe('policy config protection', () => {
     });
   });
 
+  test('denies shell-built writes targeting policy files', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      for (const command of [
+        'policy_dir=$CC_SAFETY_NET_HOME; echo x > "$policy_dir/policy.json"',
+        'cd $CC_SAFETY_NET_HOME && echo x > policy.json',
+        `bash -lc 'policy_dir=$CC_SAFETY_NET_HOME; echo x > "$policy_dir/policy.json"'`,
+        `python -c 'import os; open(os.environ["CC_SAFETY_NET_HOME"] + "/policy.json", "w").write("x")'`,
+      ]) {
+        expect(
+          findPolicyConfigMutationTargetInToolInput('Bash', { command }, cwd),
+          command,
+        ).not.toBe(null);
+      }
+    });
+  });
+
   test('denies write aliases through symlinks to policy files', () => {
     withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
       const policyPath = getUserPolicyPath();
@@ -253,6 +269,7 @@ describe('policy config protection', () => {
     const policyPath = getUserPolicyPath();
     for (const command of [
       `cat package.json > ${policyPath}`,
+      `cat package.json >| ${policyPath}`,
       `tee ${policyPath}`,
       `rm ${policyPath}`,
       `sed -i.bak s/a/b/ ${policyPath}`,

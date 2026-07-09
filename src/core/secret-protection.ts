@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type ParseEntry, parse } from 'shell-quote';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
@@ -169,6 +170,17 @@ const GLOB_TOOL_NAMES = new Set(['findbyname', 'glob']);
 const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
 const PIPE_OPERATORS = new Set(['|', '|&']);
 const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
+const SHELL_STDIN_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
+const PROGRAM_SELECTING_INTERPRETER_FLAGS = new Map([['python', new Set(['-m'])]]);
+const VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
+  ['bash', new Set(['-O'])],
+  ['sh', new Set(['-O'])],
+  ['zsh', new Set(['-o'])],
+  ['dash', new Set(['-o'])],
+  ['ksh', new Set(['-o'])],
+  ['python', new Set(['-W', '-X'])],
+  ['node', new Set(['-r', '--require', '--loader', '--import', '--input-type'])],
+]);
 
 type SecretTarget = {
   target: string;
@@ -370,8 +382,9 @@ function extractCommandPathTargets(command: string): string[] {
     return [];
   }
 
-  const targets = extractCommandSubstitutionPathTargets(command);
-  const tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY);
+  const expandedCommand = expandSupportedPathEnvironmentVariables(command);
+  const targets = extractCommandSubstitutionPathTargets(expandedCommand);
+  const tokens = parse(expandedCommand.replace(/\n/g, ' ; '), ENV_PROXY);
   let segment: string[] = [];
   let pipeProducer: string[] | null = null;
 
@@ -455,10 +468,20 @@ function extractPipeCarrierPathTargets(
   producer: readonly string[],
   consumer: readonly string[],
 ): string[] {
-  if (!xargsReadsPipeInputAsPath(consumer)) {
+  if (xargsReadsPipeInputAsPath(consumer)) {
+    return extractDisplayCommandOperands(producer);
+  }
+
+  const stdinInterpreter = getStdinScriptInterpreter(consumer);
+  if (stdinInterpreter === null) {
     return [];
   }
-  return extractDisplayCommandOperands(producer);
+
+  return extractDisplayCommandBodies(producer).flatMap((body) =>
+    SHELL_STDIN_INTERPRETERS.has(stdinInterpreter)
+      ? extractCommandPathTargets(body)
+      : extractPathLiteralsFromCode(body),
+  );
 }
 
 function extractDisplayCommandOperands(tokens: readonly string[]): string[] {
@@ -474,6 +497,71 @@ function extractDisplayCommandOperands(tokens: readonly string[]): string[] {
   }
 
   return stripped.slice(commandIndex + 1);
+}
+
+function extractDisplayCommandBodies(tokens: readonly string[]): string[] {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return [];
+  }
+
+  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
+  const args = stripped.slice(commandIndex + 1);
+  if (command === 'echo') {
+    return [stripEchoDisplayOptions(args).join(' ')];
+  }
+  if (command === 'printf') {
+    return extractPrintfDisplayBodies(args);
+  }
+  return [];
+}
+
+function stripEchoDisplayOptions(tokens: readonly string[]): readonly string[] {
+  const optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
+  return optionEnd === -1 ? [] : tokens.slice(optionEnd);
+}
+
+function extractPrintfDisplayBodies(tokens: readonly string[]): string[] {
+  const format = tokens[0];
+  if (format === undefined) {
+    return [];
+  }
+
+  const valuesPerFormat = getPrintfStringConversionCount(format);
+  if (valuesPerFormat === 0 || tokens.length === 1) {
+    return [decodePrintfEscapes(format)];
+  }
+
+  const values = tokens.slice(1);
+  return Array.from({ length: Math.ceil(values.length / valuesPerFormat) }, (_, index) =>
+    applyPrintfStringArguments(
+      format,
+      values.slice(index * valuesPerFormat, (index + 1) * valuesPerFormat),
+    ),
+  );
+}
+
+function getPrintfStringConversionCount(format: string): number {
+  return (format.match(/%%|%[bqs]/g) ?? []).filter((specifier) => specifier !== '%%').length;
+}
+
+function applyPrintfStringArguments(format: string, values: readonly string[]): string {
+  let valueIndex = 0;
+  return decodePrintfEscapes(
+    format.replace(/%%|%[bqs]/g, (specifier) => {
+      if (specifier === '%%') {
+        return '%';
+      }
+      const value = values[valueIndex] ?? '';
+      valueIndex++;
+      return value;
+    }),
+  );
+}
+
+function decodePrintfEscapes(value: string): string {
+  return value.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
 }
 
 function xargsReadsPipeInputAsPath(tokens: readonly string[]): boolean {
@@ -501,6 +589,64 @@ function xargsReadsPipeInputAsPath(tokens: readonly string[]): boolean {
   return extractSegmentPathTargets(childTokens).some((target) =>
     target.includes(PIPE_INPUT_PATH_MARKER),
   );
+}
+
+function getStdinScriptInterpreter(tokens: readonly string[]): string | null {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return null;
+  }
+
+  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
+  if (!isCodeInterpreter(command)) {
+    return null;
+  }
+  return interpreterReadsStdinScript(command, stripped.slice(commandIndex + 1)) ? command : null;
+}
+
+function interpreterReadsStdinScript(command: string, tokens: readonly string[]): boolean {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined) break;
+    if (
+      CODE_EVAL_FLAGS.has(token) ||
+      isClusteredCodeEvalFlag(command, token) ||
+      /^--(?:eval|exec)=/.test(token)
+    ) {
+      return false;
+    }
+    if (token === '-') {
+      return true;
+    }
+    if (token.startsWith('-')) {
+      if (interpreterFlagSelectsProgram(command, token)) {
+        return false;
+      }
+      if (interpreterFlagConsumesValue(command, token)) {
+        i++;
+      }
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function interpreterFlagSelectsProgram(command: string, token: string): boolean {
+  return (
+    PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command))?.has(token) ?? false
+  );
+}
+
+function interpreterFlagConsumesValue(command: string, token: string): boolean {
+  return (
+    VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command))?.has(token) ?? false
+  );
+}
+
+function normalizeInterpreterName(command: string): string {
+  return /^python\d/.test(command) ? 'python' : command;
 }
 
 function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
@@ -1235,28 +1381,43 @@ function isSecretRuleEnabled(id: string, config: SecretProtectionConfig | undefi
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {
-  const normalized = normalizePathText(expandSupportedPathEnvironmentVariables(target));
-  if (!normalized || normalized === '~' || normalized.startsWith('~/')) {
-    return normalized;
-  }
-
   const homeValue = process.env.HOME ?? homedir();
   const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : '';
+  const normalized = normalizePathText(
+    normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
+  );
+  if (!normalized) {
+    return '';
+  }
   if (!home) {
     return normalized;
   }
 
-  const absolute = isAbsolute(normalized)
-    ? normalized
-    : normalizePathText(resolve(cwd, normalized));
+  const expanded = expandHomePath(normalized, home);
+  const absolute = isAbsolute(expanded) ? expanded : normalizePathText(resolve(cwd, expanded));
   const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute(normalized)) return canonicalAbsolute;
+    if (isAbsolute(expanded)) return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
 
   const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : '~';
+}
+
+function normalizeFileUriPath(value: string): string {
+  if (!value.trim().toLowerCase().startsWith('file:')) return value;
+  try {
+    return fileURLToPath(value);
+  } catch {
+    return value;
+  }
+}
+
+function expandHomePath(path: string, home: string): string {
+  if (path === '~') return home;
+  if (path.startsWith('~/')) return appendPath(home, path.slice(2));
+  return path;
 }
 
 function normalizePathText(value: string): string {

@@ -22,6 +22,10 @@ const SUPPORTED_PATH_ENV_NAMES = new Set([
 export function expandSupportedPathEnvironmentVariables(value: string): string {
   return value
     .replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g,
+      (match, name: string) => getSupportedPathEnvironmentValue(name) ?? match,
+    )
+    .replace(
       /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
       (match, name: string) => getSupportedPathEnvironmentValue(name) ?? match,
     )

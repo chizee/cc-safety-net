@@ -6540,6 +6540,30 @@ var SECRET_ENV_VARIANT_RULE = {
   label: ".env.*",
   description: "Blocks environment-specific .env variants."
 };
+var SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
+  ".bak",
+  ".backup",
+  ".copy",
+  ".disabled",
+  ".old",
+  ".orig",
+  ".save",
+  ".tmp"
+];
+var SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
+  {
+    idSlug: "kube-config",
+    label: "~/.kube/config",
+    directoryParts: [".kube"],
+    basename: "config"
+  },
+  {
+    idSlug: "docker-config",
+    label: "~/.docker/config.json",
+    directoryParts: [".docker"],
+    basename: "config.json"
+  }
+];
 var SECRET_HOME_PATH_RULES = [
   {
     id: "secret.home.ssh",
@@ -6583,6 +6607,13 @@ var SECRET_HOME_PATH_RULES = [
     description: "Blocks home Docker credential config files.",
     suffixParts: [".docker", "config.json"]
   },
+  ...SECRET_HOME_PATH_CONFIG_VARIANT_BASES.flatMap((rule) => SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES.map((suffix) => ({
+    id: ["secret.home", rule.idSlug, suffix.slice(1)].join("."),
+    category: "Home path",
+    label: [rule.label, suffix].join(""),
+    description: ["Blocks home ", rule.label, suffix, " credential backup files."].join(""),
+    suffixParts: [...rule.directoryParts, [rule.basename, suffix].join("")]
+  }))),
   {
     id: "secret.home.gh-hosts",
     category: "Home path",
@@ -6652,6 +6683,7 @@ var SECRET_DIRECTORY_RULES = [
 ];
 var SECRET_VARIANT_PREFIXES = [
   { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
+  { prefix: "id_dsa", slug: "id-dsa", label: "id_dsa" },
   { prefix: "id_ed25519", slug: "id-ed25519", label: "id_ed25519" },
   { prefix: "id_ecdsa", slug: "id-ecdsa", label: "id_ecdsa" },
   { prefix: "credentials", slug: "credentials", label: "credentials" }
@@ -8942,7 +8974,7 @@ var SUPPORTED_PATH_ENV_NAMES = new Set([
   "XDG_DATA_HOME"
 ]);
 function expandSupportedPathEnvironmentVariables(value) {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
 }
 function resolveExistingPath(path) {
   if (!path)
@@ -9035,14 +9067,28 @@ var READ_ONLY_COMMANDS = new Set([
 ]);
 var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var WRITE_REDIRECTS = new Set([">", ">>", "<>", ">&", "&>", "&>>"]);
+var SHELL_SCRIPT_COMMANDS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
 var SCRIPT_ARGUMENT_OPTIONS = new Map([
   ["bash", new Set(["-c"])],
+  ["dash", new Set(["-c"])],
+  ["ksh", new Set(["-c"])],
   ["sh", new Set(["-c"])],
+  ["zsh", new Set(["-c"])],
   ["python", new Set(["-c"])],
   ["python3", new Set(["-c"])],
   ["node", new Set(["-e", "--eval"])],
   ["perl", new Set(["-e"])]
 ]);
+var CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
+  ["bash", new Set(["c"])],
+  ["dash", new Set(["c"])],
+  ["ksh", new Set(["c"])],
+  ["sh", new Set(["c"])],
+  ["zsh", new Set(["c"])],
+  ["node", new Set(["e"])],
+  ["perl", new Set(["e"])]
+]);
+var POLICY_ENV_PATH_NAMES = new Set(["CC_SAFETY_NET_HOME"]);
 function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
   const command2 = getCommandFromToolInput(input);
   if (command2)
@@ -9052,7 +9098,7 @@ function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = proces
     return null;
   return isReadOnlyTool(toolName) ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(command2, cwd) {
+function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new Map) {
   if (hasUnclosedQuotes(command2)) {
     return findPolicyConfigTargetInText(command2, cwd);
   }
@@ -9062,77 +9108,98 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd) {
   } catch {
     return findPolicyConfigTargetInText(command2, cwd);
   }
-  const redirectTarget = findWriteRedirectTarget(tokens, cwd);
-  if (redirectTarget)
-    return redirectTarget;
+  let state = { cwd, variables };
   let segment = [];
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
     if (isOperator2(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, cwd);
+      const target = findUnsafePolicyConfigSegmentTarget(segment, state);
       if (target)
         return target;
+      state = applyShellState(segment, state);
       segment = [];
       continue;
     }
     if (isRedirectOp(token)) {
-      i++;
+      const targetIndex = getWriteRedirectTargetIndex(tokens, i);
+      const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
+      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)) {
+        return { target };
+      }
+      i = targetIndex ?? i + 1;
       continue;
     }
     const tokenText = getCommandTokenText(token);
     if (tokenText !== null)
       segment.push(tokenText);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, cwd);
+  return findUnsafePolicyConfigSegmentTarget(segment, state);
 }
-function findWriteRedirectTarget(tokens, cwd) {
-  for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!isRedirectOp(token) || !WRITE_REDIRECTS.has(token.op))
-      continue;
-    const target = getCommandTokenText(tokens[i + 1]);
-    if (target && isPolicyConfigPath(target, cwd))
-      return { target };
-  }
-  return null;
-}
-function findUnsafePolicyConfigSegmentTarget(segment, cwd) {
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
+function findUnsafePolicyConfigSegmentTarget(segment, state) {
+  if (isAssignmentOnlySegment(segment))
+    return null;
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state);
   if (scriptTarget)
     return scriptTarget;
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state);
   if (sedWriteTarget)
     return sedWriteTarget;
-  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token)).find((token) => isPolicyConfigPath(token, cwd));
+  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, state.cwd));
   if (!target)
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
-function findScriptArgumentPolicyConfigTarget(segment, cwd) {
+function findScriptArgumentPolicyConfigTarget(segment, state) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
-  const options2 = SCRIPT_ARGUMENT_OPTIONS.get(getBasename(stripped[0] ?? "").toLowerCase());
-  if (!options2)
+  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
+  if (!SCRIPT_ARGUMENT_OPTIONS.has(command2))
     return null;
-  const optionIndex = stripped.findIndex((token) => options2.has(token));
+  const optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command2, token));
   if (optionIndex === -1)
     return null;
   const script = stripped[optionIndex + 1];
   if (!script)
     return null;
-  if (getBasename(stripped[0] ?? "").match(/^(?:ba|z)?sh$/)) {
-    return findPolicyConfigMutationTargetInCommand(script, cwd);
+  if (SHELL_SCRIPT_COMMANDS.has(command2)) {
+    return findPolicyConfigMutationTargetInCommand(script, state.cwd, state.variables);
   }
-  const target = extractPolicyConfigPathCandidates(script).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  const target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
+    candidate,
+    expandShellVariables(candidate, state.variables),
+    ...extractConstructedPolicyPathCandidates(script)
+  ]).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
   return target ? { target } : null;
 }
-function findSedScriptWritePolicyConfigTarget(segment, cwd) {
+function findSedScriptWritePolicyConfigTarget(segment, state) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
     return null;
-  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).find((candidate) => isPolicyConfigPath(candidate, cwd));
+  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
   return target ? { target } : null;
+}
+function applyShellState(segment, state) {
+  const variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables;
+  return {
+    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }),
+    variables
+  };
+}
+function extractShellAssignments(segment, variables) {
+  return segment.flatMap((token) => {
+    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
+    return assignment?.[1] !== undefined && assignment[2] !== undefined ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
+  });
+}
+function getSegmentCwd(segment, state) {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (getBasename(stripped[0] ?? "").toLowerCase() !== "cd")
+    return state.cwd;
+  const target = stripped[1];
+  if (!target || target === "-")
+    return state.cwd;
+  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd);
 }
 function extractSedScriptArguments(tokens) {
   const scripts = [];
@@ -9183,6 +9250,16 @@ function stripEnvAssignments(tokens) {
   const firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
   return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
 }
+function isAssignmentOnlySegment(tokens) {
+  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+}
+function isScriptArgumentOption(command2, token) {
+  if (SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token))
+    return true;
+  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
+    return false;
+  return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? false;
+}
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
 }
@@ -9221,7 +9298,17 @@ function findPolicyConfigTargetInText(text, cwd) {
   return target ? { target } : null;
 }
 function extractPolicyConfigPathCandidates(text) {
-  return text.split(/[^A-Za-z0-9_./\\~:-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
+  return text.split(/[^A-Za-z0-9_./\\~:$-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
+}
+function extractConstructedPolicyPathCandidates(text) {
+  const envNames = Array.from(text.matchAll(/(?:process\.env\.|os\.environ\[['"])([A-Za-z_][A-Za-z0-9_]*)/g)).map((match) => match[1]).filter((name) => name !== undefined && POLICY_ENV_PATH_NAMES.has(name));
+  if (envNames.length === 0)
+    return [];
+  const suffixes = Array.from(text.matchAll(/['"](\/[^'"]+)['"]/g)).map((match) => match[1]).filter((suffix) => suffix !== undefined);
+  return envNames.flatMap((name) => suffixes.map((suffix) => `$${name}${suffix}`));
+}
+function expandShellVariables(text, variables) {
+  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
 }
 function normalizeCandidatePath(target, cwd) {
   const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
@@ -9238,6 +9325,12 @@ function isRedirectOp(token) {
   const op = getParseOp(token);
   return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
 }
+function getWriteRedirectTargetIndex(tokens, index) {
+  const op = getParseOp(tokens[index]);
+  if (op === ">" && getParseOp(tokens[index + 1]) === "|")
+    return index + 2;
+  return op !== null && WRITE_REDIRECTS.has(op) ? index + 1 : null;
+}
 function getParseOp(token) {
   return typeof token === "object" && token !== null && "op" in token ? token.op : null;
 }
@@ -9245,6 +9338,7 @@ function getParseOp(token) {
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
 import { isAbsolute as isAbsolute10, resolve as resolve10 } from "node:path";
+import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
 var PATH_ROOT_COMMANDS = new Set(["find"]);
@@ -9349,6 +9443,17 @@ var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
 var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var PIPE_OPERATORS = new Set(["|", "|&"]);
 var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
+var SHELL_STDIN_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+var PROGRAM_SELECTING_INTERPRETER_FLAGS = new Map([["python", new Set(["-m"])]]);
+var VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
+  ["bash", new Set(["-O"])],
+  ["sh", new Set(["-O"])],
+  ["zsh", new Set(["-o"])],
+  ["dash", new Set(["-o"])],
+  ["ksh", new Set(["-o"])],
+  ["python", new Set(["-W", "-X"])],
+  ["node", new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
+]);
 function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config)) {
@@ -9516,8 +9621,9 @@ function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
     return [];
   }
-  const targets = extractCommandSubstitutionPathTargets(command2);
-  const tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
+  const expandedCommand = expandSupportedPathEnvironmentVariables(command2);
+  const targets = extractCommandSubstitutionPathTargets(expandedCommand);
+  const tokens = $parse(expandedCommand.replace(/\n/g, " ; "), ENV_PROXY);
   let segment = [];
   let pipeProducer = null;
   for (let i = 0;i < tokens.length; i++) {
@@ -9585,10 +9691,14 @@ function extractSegmentPathTargets(tokens) {
   ];
 }
 function extractPipeCarrierPathTargets(producer, consumer) {
-  if (!xargsReadsPipeInputAsPath(consumer)) {
+  if (xargsReadsPipeInputAsPath(consumer)) {
+    return extractDisplayCommandOperands(producer);
+  }
+  const stdinInterpreter = getStdinScriptInterpreter(consumer);
+  if (stdinInterpreter === null) {
     return [];
   }
-  return extractDisplayCommandOperands(producer);
+  return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(body) : extractPathLiteralsFromCode(body));
 }
 function extractDisplayCommandOperands(tokens) {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
@@ -9601,6 +9711,56 @@ function extractDisplayCommandOperands(tokens) {
     return [];
   }
   return stripped.slice(commandIndex + 1);
+}
+function extractDisplayCommandBodies(tokens) {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return [];
+  }
+  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  const args = stripped.slice(commandIndex + 1);
+  if (command2 === "echo") {
+    return [stripEchoDisplayOptions(args).join(" ")];
+  }
+  if (command2 === "printf") {
+    return extractPrintfDisplayBodies(args);
+  }
+  return [];
+}
+function stripEchoDisplayOptions(tokens) {
+  const optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
+  return optionEnd === -1 ? [] : tokens.slice(optionEnd);
+}
+function extractPrintfDisplayBodies(tokens) {
+  const format = tokens[0];
+  if (format === undefined) {
+    return [];
+  }
+  const valuesPerFormat = getPrintfStringConversionCount(format);
+  if (valuesPerFormat === 0 || tokens.length === 1) {
+    return [decodePrintfEscapes(format)];
+  }
+  const values = tokens.slice(1);
+  return Array.from({ length: Math.ceil(values.length / valuesPerFormat) }, (_, index) => applyPrintfStringArguments(format, values.slice(index * valuesPerFormat, (index + 1) * valuesPerFormat)));
+}
+function getPrintfStringConversionCount(format) {
+  return (format.match(/%%|%[bqs]/g) ?? []).filter((specifier) => specifier !== "%%").length;
+}
+function applyPrintfStringArguments(format, values) {
+  let valueIndex = 0;
+  return decodePrintfEscapes(format.replace(/%%|%[bqs]/g, (specifier) => {
+    if (specifier === "%%") {
+      return "%";
+    }
+    const value = values[valueIndex] ?? "";
+    valueIndex++;
+    return value;
+  }));
+}
+function decodePrintfEscapes(value) {
+  return value.replace(/\\n/g, `
+`).replace(/\\t/g, "\t").replace(/\\r/g, "\r");
 }
 function xargsReadsPipeInputAsPath(tokens) {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
@@ -9618,6 +9778,51 @@ function xargsReadsPipeInputAsPath(tokens) {
   const replacementToken = xargs.replacementToken;
   const childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
   return extractSegmentPathTargets(childTokens).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
+}
+function getStdinScriptInterpreter(tokens) {
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) {
+    return null;
+  }
+  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  if (!isCodeInterpreter(command2)) {
+    return null;
+  }
+  return interpreterReadsStdinScript(command2, stripped.slice(commandIndex + 1)) ? command2 : null;
+}
+function interpreterReadsStdinScript(command2, tokens) {
+  for (let i = 0;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined)
+      break;
+    if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token) || /^--(?:eval|exec)=/.test(token)) {
+      return false;
+    }
+    if (token === "-") {
+      return true;
+    }
+    if (token.startsWith("-")) {
+      if (interpreterFlagSelectsProgram(command2, token)) {
+        return false;
+      }
+      if (interpreterFlagConsumesValue(command2, token)) {
+        i++;
+      }
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+function interpreterFlagSelectsProgram(command2, token) {
+  return PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? false;
+}
+function interpreterFlagConsumesValue(command2, token) {
+  return VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? false;
+}
+function normalizeInterpreterName(command2) {
+  return /^python\d/.test(command2) ? "python" : command2;
 }
 function extractLeadingAssignmentValues(tokens) {
   const values = [];
@@ -10179,24 +10384,41 @@ function isSecretRuleEnabled(id, config) {
   return !config?.disabledRules?.has(id);
 }
 function normalizeCandidatePath2(target, cwd) {
-  const normalized = normalizePathText(expandSupportedPathEnvironmentVariables(target));
-  if (!normalized || normalized === "~" || normalized.startsWith("~/")) {
-    return normalized;
-  }
   const homeValue = process.env.HOME ?? homedir6();
   const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
+  const normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  if (!normalized) {
+    return "";
+  }
   if (!home) {
     return normalized;
   }
-  const absolute = isAbsolute10(normalized) ? normalized : normalizePathText(resolve10(cwd, normalized));
+  const expanded = expandHomePath(normalized, home);
+  const absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve10(cwd, expanded));
   const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute10(normalized))
+    if (isAbsolute10(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
   const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
+}
+function normalizeFileUriPath(value) {
+  if (!value.trim().toLowerCase().startsWith("file:"))
+    return value;
+  try {
+    return fileURLToPath(value);
+  } catch {
+    return value;
+  }
+}
+function expandHomePath(path, home) {
+  if (path === "~")
+    return home;
+  if (path.startsWith("~/"))
+    return appendPath(home, path.slice(2));
+  return path;
 }
 function normalizePathText(value) {
   const normalized = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");

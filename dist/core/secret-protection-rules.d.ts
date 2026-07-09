@@ -95,7 +95,13 @@ export declare const SECRET_HOME_PATH_RULES: readonly [{
     readonly label: "~/.docker/config.json";
     readonly description: "Blocks home Docker credential config files.";
     readonly suffixParts: readonly [".docker", "config.json"];
-}, {
+}, ...{
+    id: string;
+    category: string;
+    label: string;
+    description: string;
+    suffixParts: string[];
+}[], {
     readonly id: "secret.home.gh-hosts";
     readonly category: "Home path";
     readonly label: "~/.config/gh/hosts.yml";
@@ -155,15 +161,15 @@ export declare const SECRET_VARIANT_SEPARATOR_RULES: {
     category: string;
     label: string;
     description: string;
-    prefix: "id_rsa" | "id_ed25519" | "id_ecdsa" | "credentials";
+    prefix: "id_rsa" | "id_ed25519" | "id_ecdsa" | "credentials" | "id_dsa";
 }[];
 export declare const SECRET_VARIANT_DOT_SUFFIX_RULES: {
     id: string;
     category: string;
     label: string;
     description: string;
-    prefix: "id_rsa" | "id_ed25519" | "id_ecdsa" | "credentials";
-    suffix: ".bak" | ".backup" | ".copy" | ".disabled" | ".key" | ".old" | ".orig" | ".pem" | ".save" | ".tmp";
+    prefix: "id_rsa" | "id_ed25519" | "id_ecdsa" | "credentials" | "id_dsa";
+    suffix: ".bak" | ".backup" | ".copy" | ".disabled" | ".old" | ".orig" | ".save" | ".tmp" | ".key" | ".pem";
 }[];
 export declare const SECRET_BROAD_SSH_KEY_BASENAME_RULE: {
     readonly id: "secret.pattern.ssh-key-basename";

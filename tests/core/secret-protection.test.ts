@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   findSensitivePathTarget,
   findSensitiveTargetInCommand,
@@ -24,6 +25,10 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.ssh');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.dir.secrets');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-rsa.pem');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-dsa.separator');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-dsa.bak');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.kube-config.bak');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.docker-config.bak');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext.pem');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext-pattern.sql');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.claude-code');
@@ -124,6 +129,22 @@ describe('secret protection path matching', () => {
     });
   });
 
+  test('matches supported parameter-expanded credential paths', () => {
+    const home = join(tmpdir(), 'secret-protection-param-home');
+    const codexHome = join(home, 'state', 'codex');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home, CODEX_HOME: codexHome }, () => {
+      for (const command of [
+        'cat ${HOME:-/tmp}/.kube/config',
+        'cat ${HOME:?missing}/.docker/config.json',
+        'cat ${CODEX_HOME:-~/.codex}/auth.json',
+      ]) {
+        expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+      }
+    });
+  });
+
   test('matches symlink aliases to coding CLI credential files', () => {
     const root = mkdtempSync(join(tmpdir(), 'secret-protection-symlink-'));
 
@@ -147,6 +168,46 @@ describe('secret protection path matching', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test('matches tilde-prefixed symlink aliases to credential files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'secret-protection-tilde-symlink-'));
+
+    try {
+      const home = join(root, 'home');
+      const codexHome = join(home, 'codex');
+      const cwd = join(home, 'project');
+      const credentialPath = join(codexHome, 'auth.json');
+      mkdirSync(codexHome, { recursive: true });
+      mkdirSync(cwd, { recursive: true });
+      writeFileSync(credentialPath, '{}');
+      symlinkSync(credentialPath, join(cwd, 'session-cache.json'));
+
+      withEnv({ CODEX_HOME: codexHome, HOME: home }, () => {
+        expect(findSensitivePathTarget(['~/project/session-cache.json'], cwd)).not.toBeNull();
+        expect(
+          findSensitiveTargetInCommand('cat ~/project/session-cache.json', cwd),
+        ).not.toBeNull();
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('matches local file URIs for home and coding CLI credentials', () => {
+    const home = join(tmpdir(), 'secret-protection-file-uri-home');
+    const codexHome = join(home, 'state', 'codex');
+    const cwd = join(home, 'project');
+
+    withEnv({ HOME: home, CODEX_HOME: codexHome }, () => {
+      for (const target of [
+        pathToFileURL(join(home, '.kube', 'config')).href,
+        pathToFileURL(join(home, '.docker', 'config.json')).href,
+        pathToFileURL(join(codexHome, 'auth.json')).href,
+      ]) {
+        expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+      }
+    });
   });
 
   test('normalizes Windows-style separators', () => {
@@ -468,6 +529,25 @@ describe('secret protection command target extraction', () => {
     });
   });
 
+  test('blocks display-fed stdin interpreter scripts reading sensitive paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      "printf 'cat .env' | bash",
+      `printf "print(open('.env').read())" | python3`,
+      `echo "require('fs').readFileSync('.env','utf8')" | node`,
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+    }
+  });
+
+  test('allows benign display-fed stdin interpreter scripts', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitiveTargetInCommand("printf 'cat README.md' | bash", cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand("printf 'console.log(1)' | node", cwd)).toBeNull();
+  });
+
   test('does not decode base64-looking text outside decoder substitutions', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -774,6 +854,16 @@ describe('secret protection distinctive basenames anywhere', () => {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
   });
+
+  test('blocks DSA private key backup variants without blocking public keys', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of ['id_dsa.bak', 'id_dsa-old', 'id_dsa_old', '/tmp/id_dsa.backup']) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+
+    expect(findSensitivePathTarget(['id_dsa.pub'], cwd)).toBeNull();
+  });
 });
 
 describe('secret protection home-anchored credential locations', () => {
@@ -792,6 +882,21 @@ describe('secret protection home-anchored credential locations', () => {
       '~/.kube/config',
       '~/.docker/config.json',
       '~/.config/gh/hosts.yml',
+    ]) {
+      expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+    }
+  });
+
+  test('blocks home Kubernetes and Docker config backup files', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of [
+      '~/.kube/config.bak',
+      '~/.kube/config.backup',
+      '~/.kube/config.old',
+      '~/.docker/config.json.bak',
+      '~/.docker/config.json.backup',
+      '~/.docker/config.json.old',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
@@ -835,7 +940,9 @@ describe('secret protection home-anchored credential locations', () => {
       'tests/fixtures/.ssh/config',
       '.aws/README.md',
       'infra/.kube/config',
+      'infra/.kube/config.bak',
       'docs/.docker/config.json',
+      'docs/.docker/config.json.old',
       'deploy/.config/gh/hosts.yml',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).toBeNull();

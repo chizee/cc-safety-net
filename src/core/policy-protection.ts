@@ -61,17 +61,36 @@ const READ_ONLY_COMMANDS = new Set([
 ]);
 const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
 const WRITE_REDIRECTS = new Set(['>', '>>', '<>', '>&', '&>', '&>>']);
+const SHELL_SCRIPT_COMMANDS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
 const SCRIPT_ARGUMENT_OPTIONS = new Map([
   ['bash', new Set(['-c'])],
+  ['dash', new Set(['-c'])],
+  ['ksh', new Set(['-c'])],
   ['sh', new Set(['-c'])],
+  ['zsh', new Set(['-c'])],
   ['python', new Set(['-c'])],
   ['python3', new Set(['-c'])],
   ['node', new Set(['-e', '--eval'])],
   ['perl', new Set(['-e'])],
 ]);
+const CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
+  ['bash', new Set(['c'])],
+  ['dash', new Set(['c'])],
+  ['ksh', new Set(['c'])],
+  ['sh', new Set(['c'])],
+  ['zsh', new Set(['c'])],
+  ['node', new Set(['e'])],
+  ['perl', new Set(['e'])],
+]);
+const POLICY_ENV_PATH_NAMES = new Set(['CC_SAFETY_NET_HOME']);
 
 type PolicyConfigTarget = {
   target: string;
+};
+
+type ShellState = {
+  cwd: string;
+  variables: ReadonlyMap<string, string>;
 };
 
 export function findPolicyConfigMutationTargetInToolInput(
@@ -92,6 +111,7 @@ export function findPolicyConfigMutationTargetInToolInput(
 function findPolicyConfigMutationTargetInCommand(
   command: string,
   cwd: string,
+  variables: ReadonlyMap<string, string> = new Map(),
 ): PolicyConfigTarget | null {
   if (hasUnclosedQuotes(command)) {
     return findPolicyConfigTargetInText(command, cwd);
@@ -103,95 +123,132 @@ function findPolicyConfigMutationTargetInCommand(
   } catch {
     return findPolicyConfigTargetInText(command, cwd);
   }
-  const redirectTarget = findWriteRedirectTarget(tokens, cwd);
-  if (redirectTarget) return redirectTarget;
-
+  let state: ShellState = { cwd, variables };
   let segment: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] as ParseEntry;
     if (isOperator(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, cwd);
+      const target = findUnsafePolicyConfigSegmentTarget(segment, state);
       if (target) return target;
+      state = applyShellState(segment, state);
       segment = [];
       continue;
     }
     if (isRedirectOp(token)) {
-      i++;
+      const targetIndex = getWriteRedirectTargetIndex(tokens, i);
+      const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
+      if (
+        targetIndex !== null &&
+        target &&
+        isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)
+      ) {
+        return { target };
+      }
+      i = targetIndex ?? i + 1;
       continue;
     }
     const tokenText = getCommandTokenText(token);
     if (tokenText !== null) segment.push(tokenText);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, cwd);
-}
-
-function findWriteRedirectTarget(
-  tokens: readonly ParseEntry[],
-  cwd: string,
-): PolicyConfigTarget | null {
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!isRedirectOp(token) || !WRITE_REDIRECTS.has(token.op)) continue;
-    const target = getCommandTokenText(tokens[i + 1]);
-    if (target && isPolicyConfigPath(target, cwd)) return { target };
-  }
-  return null;
+  return findUnsafePolicyConfigSegmentTarget(segment, state);
 }
 
 function findUnsafePolicyConfigSegmentTarget(
   segment: readonly string[],
-  cwd: string,
+  state: ShellState,
 ): PolicyConfigTarget | null {
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, cwd);
+  if (isAssignmentOnlySegment(segment)) return null;
+
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state);
   if (scriptTarget) return scriptTarget;
 
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, cwd);
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state);
   if (sedWriteTarget) return sedWriteTarget;
 
   const target = segment
-    .flatMap((token) => extractPolicyConfigPathCandidates(token))
-    .find((token) => isPolicyConfigPath(token, cwd));
+    .flatMap((token) =>
+      extractPolicyConfigPathCandidates(token).map((candidate) =>
+        expandShellVariables(candidate, state.variables),
+      ),
+    )
+    .find((token) => isPolicyConfigPath(token, state.cwd));
   if (!target) return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
 
 function findScriptArgumentPolicyConfigTarget(
   segment: readonly string[],
-  cwd: string,
+  state: ShellState,
 ): PolicyConfigTarget | null {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3) return null;
 
-  const options = SCRIPT_ARGUMENT_OPTIONS.get(getBasename(stripped[0] ?? '').toLowerCase());
-  if (!options) return null;
+  const command = getBasename(stripped[0] ?? '').toLowerCase();
+  if (!SCRIPT_ARGUMENT_OPTIONS.has(command)) return null;
 
-  const optionIndex = stripped.findIndex((token) => options.has(token));
+  const optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command, token));
   if (optionIndex === -1) return null;
 
   const script = stripped[optionIndex + 1];
   if (!script) return null;
 
-  if (getBasename(stripped[0] ?? '').match(/^(?:ba|z)?sh$/)) {
-    return findPolicyConfigMutationTargetInCommand(script, cwd);
+  if (SHELL_SCRIPT_COMMANDS.has(command)) {
+    return findPolicyConfigMutationTargetInCommand(script, state.cwd, state.variables);
   }
 
-  const target = extractPolicyConfigPathCandidates(script).find((candidate) =>
-    isPolicyConfigPath(candidate, cwd),
-  );
+  const target = extractPolicyConfigPathCandidates(script)
+    .flatMap((candidate) => [
+      candidate,
+      expandShellVariables(candidate, state.variables),
+      ...extractConstructedPolicyPathCandidates(script),
+    ])
+    .find((candidate) => isPolicyConfigPath(candidate, state.cwd));
   return target ? { target } : null;
 }
 
 function findSedScriptWritePolicyConfigTarget(
   segment: readonly string[],
-  cwd: string,
+  state: ShellState,
 ): PolicyConfigTarget | null {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'sed') return null;
 
   const target = extractSedScriptArguments(stripped.slice(1))
     .flatMap((script) => extractSedWritePathCandidates(script))
-    .find((candidate) => isPolicyConfigPath(candidate, cwd));
+    .map((candidate) => expandShellVariables(candidate, state.variables))
+    .find((candidate) => isPolicyConfigPath(candidate, state.cwd));
   return target ? { target } : null;
+}
+
+function applyShellState(segment: readonly string[], state: ShellState): ShellState {
+  const variables = isAssignmentOnlySegment(segment)
+    ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)])
+    : state.variables;
+  return {
+    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }),
+    variables,
+  };
+}
+
+function extractShellAssignments(
+  segment: readonly string[],
+  variables: ReadonlyMap<string, string>,
+): [string, string][] {
+  return segment.flatMap((token) => {
+    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
+    return assignment?.[1] !== undefined && assignment[2] !== undefined
+      ? [[assignment[1], expandShellVariables(assignment[2], variables)]]
+      : [];
+  });
+}
+
+function getSegmentCwd(segment: readonly string[], state: ShellState): string {
+  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  if (getBasename(stripped[0] ?? '').toLowerCase() !== 'cd') return state.cwd;
+
+  const target = stripped[1];
+  if (!target || target === '-') return state.cwd;
+  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd);
 }
 
 function extractSedScriptArguments(tokens: readonly string[]): string[] {
@@ -255,6 +312,18 @@ function stripEnvAssignments(tokens: readonly string[]): string[] {
   return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
 }
 
+function isAssignmentOnlySegment(tokens: readonly string[]): boolean {
+  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+}
+
+function isScriptArgumentOption(command: string, token: string): boolean {
+  if (SCRIPT_ARGUMENT_OPTIONS.get(command)?.has(token)) return true;
+  if (!token.startsWith('-') || token.startsWith('--') || token.length <= 2) return false;
+  return (
+    CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command)?.has(token[token.length - 1] ?? '') ?? false
+  );
+}
+
 function isReadOnlyTool(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(toolName.toLowerCase());
 }
@@ -307,9 +376,32 @@ function findPolicyConfigTargetInText(text: string, cwd: string): PolicyConfigTa
 
 function extractPolicyConfigPathCandidates(text: string): string[] {
   return text
-    .split(/[^A-Za-z0-9_./\\~:-]+/)
+    .split(/[^A-Za-z0-9_./\\~:$-]+/)
     .flatMap((part) => part.split('='))
     .filter((part) => part.length > 0);
+}
+
+function extractConstructedPolicyPathCandidates(text: string): string[] {
+  const envNames = Array.from(
+    text.matchAll(/(?:process\.env\.|os\.environ\[['"])([A-Za-z_][A-Za-z0-9_]*)/g),
+  )
+    .map((match) => match[1])
+    .filter((name): name is string => name !== undefined && POLICY_ENV_PATH_NAMES.has(name));
+  if (envNames.length === 0) return [];
+
+  const suffixes = Array.from(text.matchAll(/['"](\/[^'"]+)['"]/g))
+    .map((match) => match[1])
+    .filter((suffix): suffix is string => suffix !== undefined);
+  return envNames.flatMap((name) => suffixes.map((suffix) => `$${name}${suffix}`));
+}
+
+function expandShellVariables(text: string, variables: ReadonlyMap<string, string>): string {
+  return text
+    .replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+      (match, name: string) => variables.get(name) ?? match,
+    )
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name: string) => variables.get(name) ?? match);
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {
@@ -330,6 +422,12 @@ function isOperator(token: ParseEntry): boolean {
 function isRedirectOp(token: ParseEntry | undefined): token is Extract<ParseEntry, { op: string }> {
   const op = getParseOp(token);
   return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
+}
+
+function getWriteRedirectTargetIndex(tokens: readonly ParseEntry[], index: number): number | null {
+  const op = getParseOp(tokens[index]);
+  if (op === '>' && getParseOp(tokens[index + 1]) === '|') return index + 2;
+  return op !== null && WRITE_REDIRECTS.has(op) ? index + 1 : null;
 }
 
 function getParseOp(token: ParseEntry | undefined): string | null {
