@@ -62,6 +62,13 @@ async function runHookJson(run: () => Promise<void>, input: object | string) {
   return JSON.parse((await runWithInput(run, input)).stdout);
 }
 
+async function expectAntigravityFailClosed(input: object): Promise<void> {
+  const output = await runHookJson(runAntigravityCliHook, input);
+
+  expect(output.decision).toBe('deny');
+  expect(output.reason).toContain('CC Safety Net failed closed');
+}
+
 describe('hook adapter direct integration', () => {
   test('Claude Code hook blocks supported Bash commands', async () => {
     const output = await runHookJson(runClaudeCodeHook, claudeCodeBashInput('git reset --hard'));
@@ -120,17 +127,15 @@ describe('hook adapter direct integration', () => {
     expect(output.reason).toContain('git reset --hard');
   });
 
-  test('Antigravity CLI hook ignores unsupported payloads', async () => {
-    const output = await runWithInput(runAntigravityCliHook, {
+  test('Antigravity CLI hook fails closed for payloads without a tool name', async () => {
+    await expectAntigravityFailClosed({
       conversationId: 'antigravity-test-session',
       workspacePaths: [process.cwd()],
     });
-
-    expect(output.stdout).toBe('');
   });
 
-  test('Antigravity CLI hook allows missing CommandLine', async () => {
-    const output = await runWithInput(runAntigravityCliHook, {
+  test('Antigravity CLI hook fails closed for missing CommandLine', async () => {
+    await expectAntigravityFailClosed({
       toolCall: {
         name: 'run_command',
         args: { Cwd: process.cwd() },
@@ -138,8 +143,6 @@ describe('hook adapter direct integration', () => {
       conversationId: 'antigravity-test-session',
       workspacePaths: [process.cwd()],
     });
-
-    expect(output.stdout).toBe('');
   });
 
   test('Copilot CLI hook fails closed for invalid toolArgs JSON', async () => {

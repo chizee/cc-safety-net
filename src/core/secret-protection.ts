@@ -26,7 +26,12 @@ import {
   getCommandTokenText,
   hasUnclosedQuotes,
 } from '@/core/shell/shared';
-import { extractPathLikeToolValues, getCommandFromToolInput } from '@/core/tool-input';
+import {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
+  type ToolRoute,
+} from '@/core/tool-input';
 import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';
@@ -142,30 +147,12 @@ const PATH_TARGET_KEYS = new Set([
   'path',
   'searchdirectory',
   'search_directory',
+  'searchpath',
   'targetfile',
   'target_file',
 ]);
 const GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, 'glob']);
 const GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, 'glob', 'pattern']);
-const PATCH_TEXT_KEYS = new Set(['command', 'diff', 'input', 'patch']);
-const SHELL_TOOL_NAMES = new Set(['bash', 'powershell', 'runcommand', 'runshellcommand', 'shell']);
-const PATH_TARGET_TOOL_NAMES = new Set([
-  'create',
-  'edit',
-  'multiedit',
-  'notebookedit',
-  'read',
-  'readfile',
-  'replacefilecontent',
-  'strreplaceeditor',
-  'view',
-  'viewfile',
-  'write',
-  'writefile',
-]);
-const PATCH_TOOL_NAMES = new Set(['applypatch', 'patch']);
-const GREP_TOOL_NAMES = new Set(['grep', 'grepsearch', 'rg']);
-const GLOB_TOOL_NAMES = new Set(['findbyname', 'glob']);
 
 const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
 const PIPE_OPERATORS = new Set(['|', '|&']);
@@ -192,9 +179,10 @@ export function findSensitivePathTarget(
   targets: readonly string[],
   cwd = process.cwd(),
   config?: SecretProtectionConfig,
+  configCwd = cwd,
 ): SecretTarget | null {
   for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config)) {
+    if (isDeniedByPolicy(target, cwd, config, configCwd)) {
       return { target, ruleId: 'secret.deny-path' };
     }
     const ruleId = isSensitivePath(target, cwd, config);
@@ -215,166 +203,40 @@ export function findSensitiveTargetInCommand(
 }
 
 export function findSensitiveTargetInToolInput(
-  toolName: string,
   input: unknown,
-  cwd = process.cwd(),
+  route: ToolRoute,
+  executionCwd = process.cwd(),
   config?: SecretProtectionConfig,
+  configCwd = executionCwd,
 ): SecretTarget | null {
-  return findSensitivePathTarget(extractToolPathTargets(toolName, input), cwd, config);
+  return findSensitivePathTarget(
+    extractToolPathTargets(input, route),
+    executionCwd,
+    config,
+    configCwd,
+  );
 }
 
-function extractToolPathTargets(toolName: string, input: unknown): string[] {
-  const normalized = normalizeToolName(toolName);
-  if (SHELL_TOOL_NAMES.has(normalized)) {
+function extractToolPathTargets(input: unknown, route: ToolRoute): string[] {
+  if (route.kind === 'command') {
     const command = getCommandFromToolInput(input);
     return command ? extractCommandPathTargets(command) : [];
   }
-  if (GREP_TOOL_NAMES.has(normalized)) return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
-  if (GLOB_TOOL_NAMES.has(normalized)) return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (PATCH_TOOL_NAMES.has(normalized)) {
-    return [...extractPathLikeToolValues(input, PATH_TARGET_KEYS), ...extractPatchTargets(input)];
-  }
-  if (PATH_TARGET_TOOL_NAMES.has(normalized)) {
+  if (route.kind === 'grep') return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
+  if (route.kind === 'glob') return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
+  if (route.kind === 'patch') {
     return [
       ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
-      ...(normalized === 'edit' ? extractPatchTargets(input) : []),
+      ...extractPatchTargetsFromToolInput(input),
     ];
   }
+  if (route.kind === 'path') return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
+
   const command = getCommandFromToolInput(input);
   return [
     ...(command ? extractCommandPathTargets(command) : []),
     ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
   ];
-}
-
-function extractPatchTargets(input: unknown): string[] {
-  return extractPatchTexts(input).flatMap(extractPatchTargetsFromText);
-}
-
-function extractPatchTexts(input: unknown): string[] {
-  if (typeof input === 'string') return [input];
-  if (!input || typeof input !== 'object') return [];
-  if (Array.isArray(input)) return input.flatMap(extractPatchTexts);
-
-  return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string' && PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
-      return [value];
-    if (value && typeof value === 'object') return extractPatchTexts(value);
-    return [];
-  });
-}
-
-function extractPatchTargetsFromText(text: string): string[] {
-  const targets: string[] = [];
-  const lines = text.split(/\r?\n/);
-  let inHunk = false;
-  let inApplyPatch = false;
-  let oldHunkLinesRemaining: number | null = null;
-  let newHunkLinesRemaining: number | null = null;
-  const resetHunk = () => {
-    inHunk = false;
-    oldHunkLinesRemaining = null;
-    newHunkLinesRemaining = null;
-  };
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index] ?? '';
-    if (line === '*** Begin Patch') {
-      inApplyPatch = true;
-      resetHunk();
-      continue;
-    }
-    if (line === '*** End Patch') {
-      inApplyPatch = false;
-      resetHunk();
-      continue;
-    }
-    if (line.startsWith('@@')) {
-      const hunkLines = parseUnifiedHunkLineCounts(line);
-      inHunk = true;
-      oldHunkLinesRemaining = hunkLines?.oldLines ?? null;
-      newHunkLinesRemaining = hunkLines?.newLines ?? null;
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0) resetHunk();
-      continue;
-    }
-    if (line.startsWith('*** ')) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && line.startsWith('diff --git ')) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && !inHunk && line.startsWith('--- ')) {
-      const nextLine = lines[index + 1] ?? '';
-      if (nextLine.startsWith('+++ ')) {
-        resetHunk();
-        targets.push(...extractPatchTargetsFromLine(line, false));
-        targets.push(...extractPatchTargetsFromLine(nextLine, false));
-        index++;
-        continue;
-      }
-    }
-    targets.push(...extractPatchTargetsFromLine(line, inHunk || inApplyPatch));
-    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
-      const oldLineCount = line.startsWith(' ') || line.startsWith('-') ? 1 : 0;
-      const newLineCount = line.startsWith(' ') || line.startsWith('+') ? 1 : 0;
-      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
-      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0) resetHunk();
-    }
-  }
-  return targets;
-}
-
-function parseUnifiedHunkLineCounts(line: string) {
-  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
-  if (!hunkHeader) return null;
-  return {
-    oldLines: Number(hunkHeader[1] ?? 1),
-    newLines: Number(hunkHeader[2] ?? 1),
-  };
-}
-
-function extractPatchTargetsFromLine(line: string, inHunk: boolean): string[] {
-  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
-  if (applyPatchTarget?.[1]) return cleanPatchTarget(applyPatchTarget[1]);
-
-  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
-  if (moveTarget?.[1]) return cleanPatchTarget(moveTarget[1]);
-
-  const gitDiffTarget = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-  if (gitDiffTarget?.[1] && gitDiffTarget[2]) {
-    return [gitDiffTarget[1], gitDiffTarget[2]].flatMap(cleanPatchTarget);
-  }
-
-  if (inHunk) return [];
-
-  const oldTarget = /^--- (?:a\/)?(.+)$/.exec(line);
-  if (oldTarget?.[1]) return cleanPatchTarget(oldTarget[1]);
-
-  const newTarget = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-  if (newTarget?.[1]) return cleanPatchTarget(newTarget[1]);
-
-  return [];
-}
-
-function cleanPatchTarget(target: string): string[] {
-  const path =
-    target
-      .split('\t', 1)[0]
-      ?.trim()
-      .replace(/^['"]|['"]$/g, '') ?? '';
-  return path === '' || path === '/dev/null' ? [] : [path];
-}
-
-function normalizeToolName(toolName: string): string {
-  return toolName.replace(/[-_\s]/g, '').toLowerCase();
-}
-
-function normalizeToolInputKey(key: string): string {
-  return key.replace(/-/g, '_').toLowerCase();
 }
 
 function extractCommandPathTargets(command: string): string[] {
@@ -1326,14 +1188,22 @@ function isDeniedByPolicy(
   target: string,
   cwd: string,
   config: SecretProtectionConfig | undefined,
+  configCwd: string,
 ): boolean {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
 }
 
-function matchesPolicyPath(target: string, cwd: string, paths: readonly string[]): boolean {
+function matchesPolicyPath(
+  target: string,
+  cwd: string,
+  paths: readonly string[],
+  configCwd: string,
+): boolean {
   if (paths.length === 0) return false;
-  const normalized = comparable(normalizeCandidatePath(target, cwd));
-  return paths.some((path) => comparable(normalizeCandidatePath(path, cwd)) === normalized);
+  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
+  return paths.some(
+    (path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized,
+  );
 }
 
 function isSkippablePathForBroadSignatures(comparablePath: string): boolean {
@@ -1403,6 +1273,19 @@ function normalizeCandidatePath(target: string, cwd: string): string {
 
   const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : '~';
+}
+
+function normalizeAbsoluteCandidatePath(target: string, cwd: string): string {
+  const homeValue = process.env.HOME ?? homedir();
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : '';
+  const normalized = normalizePathText(
+    normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
+  );
+  if (!normalized) return '';
+  const expanded = home ? expandHomePath(normalized, home) : normalized;
+  return normalizePathText(
+    resolveExistingPath(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
+  );
 }
 
 function normalizeFileUriPath(value: string): string {

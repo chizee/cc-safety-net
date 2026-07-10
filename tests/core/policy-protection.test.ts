@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
-import { findPolicyConfigMutationTargetInToolInput } from '@/core/policy-protection';
+import { findPolicyConfigMutationTargetInToolInput as findPolicyConfigMutationTargetWithRoute } from '@/core/policy-protection';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import { readLockfile } from '@/core/rules/policy/lockfile';
 import {
@@ -13,7 +13,30 @@ import {
   getUserRulesConfigPath,
   getUserRulesLockPath,
 } from '@/core/rules/policy/paths';
+import { getNonCommandToolInputKind, normalizeToolName, type ToolRoute } from '@/core/tool-input';
 import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers';
+
+const COMMAND_TOOL_NAMES = new Set([
+  'bash',
+  'powershell',
+  'runcommand',
+  'runshellcommand',
+  'shell',
+]);
+
+function findPolicyConfigMutationTargetInToolInput(
+  toolName: string,
+  input: unknown,
+  cwd = process.cwd(),
+) {
+  const route: ToolRoute = COMMAND_TOOL_NAMES.has(normalizeToolName(toolName))
+    ? { kind: 'command', shell: 'auto' }
+    : { kind: getNonCommandToolInputKind(toolName) };
+  return findPolicyConfigMutationTargetWithRoute(toolName, input, route, {
+    configCwd: cwd,
+    executionCwd: cwd,
+  });
+}
 
 describe('policy config protection', () => {
   let cwd: string;
@@ -36,6 +59,9 @@ describe('policy config protection', () => {
     ).toBeNull();
     expect(
       findPolicyConfigMutationTargetInToolInput('view_file', { AbsolutePath: policyPath }, cwd),
+    ).toBeNull();
+    expect(
+      findPolicyConfigMutationTargetInToolInput('View', { AbsolutePath: policyPath }, cwd),
     ).toBeNull();
     expect(
       findPolicyConfigMutationTargetInToolInput(
@@ -70,6 +96,13 @@ describe('policy config protection', () => {
       findPolicyConfigMutationTargetInToolInput(
         'write_to_file',
         { TargetFile: policyPath, CodeContent: '{}' },
+        cwd,
+      )?.target,
+    ).toBe(policyPath);
+    expect(
+      findPolicyConfigMutationTargetInToolInput(
+        'NotebookEdit',
+        { notebook_path: policyPath, new_source: '{}' },
         cwd,
       )?.target,
     ).toBe(policyPath);
@@ -280,19 +313,7 @@ describe('policy config protection', () => {
   });
 
   test('denies writes targeting active rulebook cache files', () => {
-    writeLockedGitHubRulebookPolicy(
-      cwd,
-      JSON.stringify({
-        rulebook_version: 1,
-        name: 'policy',
-        version: '1.0.0',
-        rules: [],
-        tests: [],
-      }),
-    );
-
-    const entry = readLockfile(getProjectRulesLockPath(cwd)).lock?.rulebooks[0];
-    if (!entry) throw new Error('Expected project lock entry fixture');
+    const entry = writeActiveRulebook(cwd);
 
     const cachePath = getRulebookCachePath(entry, {
       cacheConfigDir: dirname(getProjectRulesConfigPath(cwd)),
@@ -404,4 +425,220 @@ describe('policy config protection', () => {
       findPolicyConfigMutationTargetInToolInput('Write', { pattern: policyPath }, cwd),
     ).toBeNull();
   });
+
+  test('denies protected patch targets identically across every patch text field', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      const entry = writeActiveRulebook(cwd);
+      for (const protectedPath of [
+        getUserPolicyPath(),
+        getProjectRulesConfigPath(cwd),
+        getProjectRulesLockPath(cwd),
+        getRulebookCachePath(entry, {
+          cacheConfigDir: dirname(getProjectRulesConfigPath(cwd)),
+        }),
+      ]) {
+        const patch = [
+          '*** Begin Patch',
+          `*** Update File: ${protectedPath}`,
+          '*** End Patch',
+        ].join('\n');
+
+        for (const field of ['command', 'patch', 'diff', 'input']) {
+          expect(
+            findPolicyConfigMutationTargetWithRoute(
+              'apply_patch',
+              { [field]: patch },
+              { kind: 'patch' },
+              { configCwd: cwd, executionCwd: cwd },
+            )?.target,
+            `${protectedPath}:${field}`,
+          ).toBe(protectedPath);
+        }
+      }
+    });
+  });
+
+  test('denies protected targets in quoted plain unified diff headers', () => {
+    const protectedPath = relative(cwd, getProjectRulesConfigPath(cwd));
+    const patch = [
+      `--- "a/${protectedPath}"`,
+      `+++ "b/${protectedPath}"`,
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+    ].join('\n');
+
+    expect(
+      findPolicyConfigMutationTargetWithRoute(
+        'apply_patch',
+        { patch },
+        { kind: 'patch' },
+        { configCwd: cwd, executionCwd: cwd },
+      )?.target,
+    ).toBe(protectedPath);
+  });
+
+  test('denies protected targets in Git diffs with custom prefixes', () => {
+    const protectedPath = relative(cwd, getProjectRulesConfigPath(cwd));
+    for (const [oldPrefix, newPrefix] of [
+      ['old', 'new'],
+      ['prefix', 'prefix'],
+    ]) {
+      const patch = [
+        `diff --git ${oldPrefix}/${protectedPath} ${newPrefix}/${protectedPath}`,
+        `--- ${oldPrefix}/${protectedPath}`,
+        `+++ ${newPrefix}/${protectedPath}`,
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n');
+
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'apply_patch',
+          { patch },
+          { kind: 'patch' },
+          { configCwd: cwd, executionCwd: cwd },
+        ),
+        `${oldPrefix}:${newPrefix}`,
+      ).not.toBeNull();
+    }
+  });
+
+  test('denies protected add and delete targets in standalone unified diffs', () => {
+    const protectedPath = relative(cwd, getProjectRulesConfigPath(cwd));
+
+    for (const [oldTarget, newTarget] of [
+      ['/dev/null', `new/${protectedPath}`],
+      [`old/${protectedPath}`, '/dev/null'],
+    ]) {
+      const patch = [`--- ${oldTarget}`, `+++ ${newTarget}`, '@@ -0,0 +1 @@', '+new'].join('\n');
+
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'apply_patch',
+          { patch },
+          { kind: 'patch' },
+          { configCwd: cwd, executionCwd: cwd },
+        ),
+        `${oldTarget}:${newTarget}`,
+      ).not.toBeNull();
+    }
+  });
+
+  test('treats patch hunks, edit replacement text, and search patterns as inert', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      const policyPath = getUserPolicyPath();
+      const patch = [
+        '*** Begin Patch',
+        '*** Update File: README.md',
+        '@@ -1 +1 @@',
+        '-safe',
+        `+rm ${policyPath}`,
+        '+Remove-Item -Recurse -Force C:\\',
+        '+cat "unterminated',
+        '+.env ~/.ssh/id_rsa',
+        `+*** Update File: ${policyPath}`,
+        '*** End Patch',
+      ].join('\n');
+
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'apply_patch',
+          { command: patch },
+          { kind: 'patch' },
+          { configCwd: cwd, executionCwd: cwd },
+        ),
+      ).toBeNull();
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'Edit',
+          {
+            file_path: 'README.md',
+            command: `rm ${policyPath}`,
+            new_string: policyPath,
+          },
+          { kind: 'path' },
+          { configCwd: cwd, executionCwd: cwd },
+        ),
+      ).toBeNull();
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'Grep',
+          { path: 'src', pattern: `rm ${policyPath}` },
+          { kind: 'grep' },
+          { configCwd: cwd, executionCwd: cwd },
+        ),
+      ).toBeNull();
+    });
+  });
+
+  test('retains conservative policy protection for unknown command-style tools', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      const policyPath = getUserPolicyPath();
+
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'mcp__shell__run',
+          { command: `rm ${policyPath}` },
+          { kind: 'unknown' },
+          { configCwd: cwd, executionCwd: cwd },
+        )?.target,
+      ).toBe(policyPath);
+      expect(
+        findPolicyConfigMutationTargetWithRoute(
+          'unknown_writer',
+          { path: policyPath },
+          { kind: 'unknown' },
+          { configCwd: cwd, executionCwd: cwd },
+        )?.target,
+      ).toBe(policyPath);
+    });
+  });
+
+  test('loads protected paths from config cwd and resolves targets from execution cwd', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home') }, () => {
+      const entry = writeActiveRulebook(cwd);
+
+      const executionCwd = join(cwd, 'nested');
+      mkdirSync(executionCwd);
+      const protectedPaths = [
+        getUserPolicyPath(),
+        getProjectRulesConfigPath(cwd),
+        getProjectRulesLockPath(cwd),
+        getRulebookCachePath(entry, {
+          cacheConfigDir: dirname(getProjectRulesConfigPath(cwd)),
+        }),
+      ];
+
+      for (const protectedPath of protectedPaths) {
+        const target = relative(executionCwd, protectedPath);
+        expect(
+          findPolicyConfigMutationTargetWithRoute(
+            'Write',
+            { file_path: target },
+            { kind: 'path' },
+            { configCwd: cwd, executionCwd },
+          )?.target,
+          protectedPath,
+        ).toBe(target);
+      }
+    });
+  });
 });
+
+function writeActiveRulebook(cwd: string) {
+  writeLockedGitHubRulebookPolicy(
+    cwd,
+    JSON.stringify({
+      rulebook_version: 1,
+      name: 'policy',
+      version: '1.0.0',
+      rules: [],
+      tests: [],
+    }),
+  );
+  const entry = readLockfile(getProjectRulesLockPath(cwd)).lock?.rulebooks[0];
+  if (!entry) throw new Error('Expected project lock entry fixture');
+  return entry;
+}

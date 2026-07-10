@@ -347,6 +347,7 @@ exit 42
           timeout: 30,
         },
       ]);
+      expect(config['cc-safety-net'].PreToolUse[0]).not.toHaveProperty('matcher');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -464,6 +465,7 @@ exit 42
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`Installed Kimi Code hook in ${configPath}`);
       expect(readFileSync(configPath, 'utf-8').trim()).toBe(KIMI_HOOK_BLOCK);
+      expect(readFileSync(configPath, 'utf-8')).not.toContain('matcher');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

@@ -32,7 +32,7 @@ A PreToolUse hook that intercepts and blocks destructive git and filesystem comm
 
 ## Why this exists
 
-We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it intercepts every Bash tool call and blocks destructive commands before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
+We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it observes relevant tool calls and blocks destructive commands before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
 ## Supported agents
 
@@ -41,6 +41,12 @@ CC Safety Net works across eight coding agent CLIs: **Claude Code, Antigravity C
 ## Supported platforms
 
 CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to apply correct behavior — case-insensitive path comparison on Windows, both `/` and `\` path separators, and `cmd.exe`/PowerShell command resolution via `COMSPEC`/`PATHEXT`.
+
+### v2 PowerShell path limitation
+
+For v2.0.0, incomplete parsing of native PowerShell path syntax is explicitly accepted as a residual risk. Verified PowerShell command executors still pass through policy protection, sensitive-path protection, and the PowerShell destructive-command analyzer, but the policy and sensitive-path command extractors remain primarily POSIX-oriented. Expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction.
+
+All-tool routing is not complete PowerShell path parsing. Complete coverage requires a separate PowerShell-aware path-extraction design and tests. Use operating-system permissions, a sandbox, or equivalent runtime filesystem enforcement when complete protection is required.
 
 ## Prerequisites
 

@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
+import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import { handlePiToolCall } from '@/pi/tool-call';
+import type { AnalyzeOptions } from '@/types';
 import { readLatestAuditLogEntry, withEnv, withLinkedWorktreeFixture } from '../helpers';
 import {
   syncInitialGitRulebook,
@@ -11,9 +13,26 @@ import {
   writeUpdatedGitRulebook,
 } from '../helpers/rulebook';
 
+type AnalyzeCall = { command: string; cwd?: string; shell?: string };
+
 describe('Pi tool_call event', () => {
   test('allows safe bash commands', () => {
     expect(handlePiToolCall(bashToolCall('git status'), piContext(process.cwd()))).toBeUndefined();
+  });
+
+  test('routes built-in bash commands as POSIX from the context cwd', () => {
+    const calls: AnalyzeCall[] = [];
+    const cwd = process.cwd();
+
+    expect(
+      handlePiToolCall(
+        bashToolCall('git status'),
+        piContext(cwd, {
+          safetyNetAnalyzeCommand: captureAnalyzeCalls(calls),
+        }),
+      ),
+    ).toBeUndefined();
+    expect(calls).toEqual([{ command: 'git status', cwd, shell: 'posix' }]);
   });
 
   test('blocks dangerous bash commands', () => {
@@ -130,6 +149,26 @@ describe('Pi tool_call event', () => {
     ).toBeUndefined();
   });
 
+  test('routes verified Grok Shell commands as auto from the contained working_directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-route-'));
+    try {
+      mkdirSync(join(dir, 'app'));
+      const calls: AnalyzeCall[] = [];
+
+      expect(
+        handlePiToolCall(
+          shellToolCall({ command: 'git status', working_directory: 'app' }),
+          piContext(dir, {
+            safetyNetAnalyzeCommand: captureAnalyzeCalls(calls),
+          }),
+        ),
+      ).toBeUndefined();
+      expect(calls).toEqual([{ command: 'git status', cwd: join(dir, 'app'), shell: 'auto' }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('uses Grok Shell working_directory for secret protection', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-secret-'));
     try {
@@ -156,6 +195,43 @@ describe('Pi tool_call event', () => {
     });
   });
 
+  test.each([
+    undefined,
+    null,
+    '',
+    '   ',
+    42,
+    false,
+  ])('fails closed when a recognized adapter command is %p', (command) => {
+    for (const toolName of ['bash', 'Shell']) {
+      const result = handlePiToolCall(toolCall(toolName, { command }), piContext(process.cwd()));
+
+      expect(result).toEqual({
+        block: true,
+        reason: expect.stringContaining('CC Safety Net failed closed'),
+      });
+    }
+  });
+
+  test.each([
+    undefined,
+    null,
+    '',
+    '   ',
+    42,
+    false,
+  ])('fails closed when supplied Grok Shell working_directory is %p', (workingDirectory) => {
+    const result = handlePiToolCall(
+      shellToolCall({ command: 'git status', working_directory: workingDirectory }),
+      piContext(process.cwd()),
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('CC Safety Net failed closed'),
+    });
+  });
+
   test('uses Grok Shell working_directory for analysis', async () => {
     await withLinkedWorktreeFixture((fixture) => {
       withEnv({ CC_SAFETY_NET_WORKTREE: '1' }, () => {
@@ -175,6 +251,44 @@ describe('Pi tool_call event', () => {
         ).toBeUndefined();
       });
     });
+  });
+
+  test('loads project rules from ctx cwd when Grok Shell executes in a nested directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-config-cwd-'));
+    try {
+      mkdirSync(join(dir, 'app'));
+      await syncInitialGitRulebook(dir);
+      writeUpdatedGitRulebook(dir);
+
+      const result = handlePiToolCall(
+        shellToolCall({ command: 'git status', working_directory: 'app' }),
+        piContext(dir),
+      );
+
+      expect(result?.reason).toContain(updatedGitRule.reason);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('protects ctx cwd rule config when Grok Shell executes in a nested directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-policy-cwd-'));
+    try {
+      mkdirSync(join(dir, 'app'));
+      await syncInitialGitRulebook(dir);
+
+      const result = handlePiToolCall(
+        shellToolCall({
+          command: 'rm ../.cc-safety-net/rules/rule.json',
+          working_directory: 'app',
+        }),
+        piContext(dir),
+      );
+
+      expect(result?.reason).toContain('Policy config is protected and you must not modify it.');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('allows Grok Shell working_directory equal to ctx cwd', () => {
@@ -252,6 +366,28 @@ describe('Pi tool_call event', () => {
     }
   });
 
+  test('fails closed when Pi context cwd is missing or not a directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-invalid-context-cwd-'));
+    try {
+      writeFileSync(join(dir, 'file.txt'), 'not a directory', 'utf-8');
+
+      for (const cwd of [join(dir, 'missing'), join(dir, 'file.txt')]) {
+        expect(handlePiToolCall(bashToolCall('git status'), piContext(cwd))).toEqual({
+          block: true,
+          reason: expect.stringContaining('CC Safety Net failed closed'),
+        });
+        expect(
+          handlePiToolCall(toolCall('Read', { file_path: 'README.md' }), piContext(cwd)),
+        ).toEqual({
+          block: true,
+          reason: expect.stringContaining('CC Safety Net failed closed'),
+        });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('ignores unknown custom tools', () => {
     expect(
       handlePiToolCall(
@@ -264,6 +400,91 @@ describe('Pi tool_call event', () => {
         piContext(process.cwd()),
       ),
     ).toBeUndefined();
+  });
+
+  test.each([
+    'Bash',
+    'shell',
+    'SHELL',
+    'bash-tool',
+  ])('does not promote the custom tool name %s to a command executor', (toolName) => {
+    let analyzed = false;
+
+    expect(
+      handlePiToolCall(
+        toolCall(toolName, { command: 'git reset --hard' }),
+        piContext(process.cwd(), {
+          safetyNetAnalyzeCommand: () => {
+            analyzed = true;
+            return null;
+          },
+        }),
+      ),
+    ).toBeUndefined();
+    expect(analyzed).toBeFalse();
+  });
+
+  test('retains policy and secret fallback inspection for unknown command-style tools', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-unknown-fallback-'));
+    try {
+      withEnv({ CC_SAFETY_NET_HOME: join(dir, 'home', '.cc-safety-net') }, () => {
+        const secretResult = handlePiToolCall(
+          toolCall('custom_runner', { command: 'cat .env' }),
+          piContext(dir),
+        );
+        const policyPath = getUserPolicyPath();
+        const policyResult = handlePiToolCall(
+          toolCall('custom_runner', { command: `rm ${policyPath}` }),
+          piContext(dir),
+        );
+
+        expect(secretResult?.reason).toContain('Access to a sensitive path is not allowed.');
+        expect(policyResult?.reason).toContain(
+          'Policy config is protected and you must not modify it.',
+        );
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps safe patch command text inert', () => {
+    let analyzed = false;
+    const result = handlePiToolCall(
+      toolCall('apply_patch', {
+        command: [
+          '*** Begin Patch',
+          '*** Update File: tests/example.test.ts',
+          '@@',
+          '-const example = "rm .cc-safety-net/rules/rule.json";',
+          '+const example = "safe";',
+          '*** End Patch',
+        ].join('\n'),
+      }),
+      piContext(process.cwd(), {
+        safetyNetAnalyzeCommand: () => {
+          analyzed = true;
+          return null;
+        },
+      }),
+    );
+
+    expect(result).toBeUndefined();
+    expect(analyzed).toBeFalse();
+  });
+
+  test('fails closed when a Pi tool_call has a missing or empty tool name', () => {
+    for (const toolName of [undefined, null, '', '   ']) {
+      const result = handlePiToolCall(
+        { type: 'tool_call', toolCallId: 'pi-tool-call', toolName, input: {} },
+        piContext(process.cwd()),
+      );
+
+      expect(result).toEqual({
+        block: true,
+        reason: expect.stringContaining('CC Safety Net failed closed'),
+      });
+    }
   });
 
   test('blocks Pi tool call payloads without a type field', () => {
@@ -462,6 +683,23 @@ describe('Pi tool_call event', () => {
     }
   });
 
+  test('preserves the exact rule-sync repair command under fail-closed config', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-rule-sync-'));
+    try {
+      writeDefaultRulesConfig(join(dir, '.cc-safety-net/rules/rule.json'), ['project-rules']);
+
+      expect(
+        handlePiToolCall(bashToolCall('npx -y cc-safety-net rule sync'), piContext(dir)),
+      ).toBeUndefined();
+      expect(
+        handlePiToolCall(bashToolCall('npx -y cc-safety-net rule sync && rm -rf /'), piContext(dir))
+          ?.reason,
+      ).toContain('missing lockfile');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('ignores user bash commands because CC Safety Net only blocks agent tool execution', () => {
     expect(
       handlePiToolCall(
@@ -471,6 +709,13 @@ describe('Pi tool_call event', () => {
     ).toBeUndefined();
   });
 });
+
+function captureAnalyzeCalls(calls: AnalyzeCall[]) {
+  return (command: string, options: AnalyzeOptions = {}) => {
+    calls.push({ command, cwd: options.cwd, shell: options.shell });
+    return null;
+  };
+}
 
 function bashToolCall(command: string) {
   return {

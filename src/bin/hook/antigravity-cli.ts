@@ -1,7 +1,33 @@
-import { runConfiguredHookAdapter } from '@/bin/hook/common';
+import { isAbsolute, relative } from 'node:path';
+import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
+import { resolveExistingPath } from '@/core/path-canonicalization';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
+import {
+  type CommandToolKind,
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  type ToolCallContext,
+} from '@/core/tool-input';
 import type { AntigravityCliHookInput, AntigravityCliHookOutput, BlockIntent } from '@/types';
+
+const ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([['run_command', 'auto']]);
+const ANTIGRAVITY_PATH_KEYS = new Set([
+  'absolutepath',
+  'directorypath',
+  'file_path',
+  'filepath',
+  'path',
+  'searchdirectory',
+  'searchpath',
+  'target_file',
+  'targetfile',
+]);
+
+/** @internal */
+export function getAntigravityCliToolRoute(toolName: string) {
+  return getToolRoute(toolName, ANTIGRAVITY_CLI_COMMAND_TOOLS);
+}
 
 type AntigravityDenyOutput = (
   reason: string,
@@ -20,9 +46,14 @@ export async function runAntigravityCliHook(): Promise<void> {
       decision: 'deny',
       reason: message,
     }),
-    isSupported: (input) => typeof input.toolCall?.name === 'string',
-    getToolInput: (input) => normalizeAntigravityToolArgs(input.toolCall?.args),
-    getCwd: resolveAntigravityCwd,
+    isSupported: () => true,
+    getToolName: (input) => input.toolCall?.name,
+    getToolInput: (input, toolName) => ({
+      ok: true,
+      input: normalizeAntigravityToolArgs(input.toolCall?.args, toolName),
+      route: getAntigravityCliToolRoute(toolName),
+    }),
+    getContext: resolveAntigravityContext,
     getSessionId: (input) => input.conversationId,
   });
 }
@@ -32,43 +63,146 @@ export function resolveAntigravityCwd(
   input: AntigravityCliHookInput,
   outputDeny: AntigravityDenyOutput,
 ): string | null | undefined {
+  const toolName = input.toolCall?.name;
+  if (typeof toolName !== 'string') return undefined;
+  const context = resolveAntigravityContext(
+    input,
+    normalizeAntigravityToolArgs(input.toolCall?.args, toolName),
+    toolName,
+    outputDeny,
+  );
+  return context?.executionCwd ?? null;
+}
+
+function resolveAntigravityContext(
+  input: AntigravityCliHookInput,
+  toolInput: unknown,
+  toolName: string,
+  outputDeny: AntigravityDenyOutput,
+): ToolCallContext | null {
   const trustedRoots = usableWorkspacePaths(input);
-  const cwd = input.toolCall?.args?.Cwd;
-  if (typeof cwd !== 'string') {
-    return firstTrustedRoot(trustedRoots);
+  const configRoots = trustedRoots.flatMap((root) => {
+    const canonicalRoot = firstTrustedRoot([root]);
+    return canonicalRoot ? [canonicalRoot] : [];
+  });
+  if (!configRoots[0]) {
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    return null;
+  }
+  if (toolName !== 'run_command') {
+    const targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
+    if (!targetRoot) {
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+      return null;
+    }
+    return {
+      configCwd: targetRoot,
+      executionCwd: targetRoot,
+      policyConfigCwds: configRoots,
+    };
   }
 
-  const containedCwd = resolveContainedCwd(cwd, trustedRoots);
-  if (containedCwd) return containedCwd;
+  const args = input.toolCall?.args;
+  if (!args || !Object.hasOwn(args, 'Cwd')) {
+    return {
+      configCwd: configRoots[0],
+      executionCwd: configRoots[0],
+      policyConfigCwds: configRoots,
+    };
+  }
+  const cwd = args.Cwd;
+  if (typeof cwd !== 'string' || cwd.trim() === '') {
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    return null;
+  }
 
-  outputDeny(
-    REASON_SAFETY_NET_FAILED_CLOSED,
-    typeof input.toolCall?.args?.CommandLine === 'string'
-      ? input.toolCall.args.CommandLine
-      : undefined,
-    cwd,
-    undefined,
-    input.toolCall?.name,
-    undefined,
-    'stop_and_explain',
-  );
+  const containedCwd = resolveContainedCwd(cwd, configRoots);
+  if (containedCwd) {
+    const configCwd = mostSpecificContainingRoot(containedCwd, configRoots);
+    if (!configCwd) {
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
+      return null;
+    }
+    return { configCwd, executionCwd: containedCwd, policyConfigCwds: configRoots };
+  }
+
+  outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
   return null;
 }
 
-function usableWorkspacePaths(input: AntigravityCliHookInput): string[] {
-  const workspacePaths = input.workspacePaths?.filter((path) => typeof path === 'string') ?? [];
-  return firstTrustedRoot(workspacePaths) ? workspacePaths : [process.cwd()];
+function resolveAntigravityTargetRoot(
+  toolInput: unknown,
+  toolName: string,
+  configRoots: readonly string[],
+): string | null {
+  const route = getAntigravityCliToolRoute(toolName);
+  const targets = [
+    ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
+    ...(route.kind === 'patch' ? extractPatchTargetsFromToolInput(toolInput) : []),
+  ].filter(isAbsolute);
+  const targetRoots = new Set(
+    targets.flatMap((target) => {
+      const root = mostSpecificContainingRoot(resolveExistingPath(target), configRoots);
+      return root ? [root] : [];
+    }),
+  );
+  if (targetRoots.size > 1) return null;
+  return [...targetRoots][0] ?? configRoots[0] ?? null;
 }
 
-function normalizeAntigravityToolArgs(args: Record<string, unknown> | undefined): unknown {
+function mostSpecificContainingRoot(path: string, roots: readonly string[]): string | null {
+  return (
+    roots
+      .filter((root) => isSameOrInside(path, root))
+      .reduce((best, root) => (root.length > best.length ? root : best), '') || null
+  );
+}
+
+function isSameOrInside(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function outputAntigravityCwdDeny(
+  outputDeny: AntigravityDenyOutput,
+  toolInput: unknown,
+  toolName: string,
+  cwd?: string,
+): void {
+  const command =
+    toolInput && typeof toolInput === 'object'
+      ? (toolInput as Record<string, unknown>).command
+      : undefined;
+  outputDeny(
+    REASON_SAFETY_NET_FAILED_CLOSED,
+    typeof command === 'string' ? command : undefined,
+    cwd,
+    undefined,
+    toolName,
+    undefined,
+    'stop_and_explain',
+  );
+}
+
+function usableWorkspacePaths(input: AntigravityCliHookInput): string[] {
+  if (input.workspacePaths === undefined) return [process.cwd()];
+  const workspacePaths = Array.isArray(input.workspacePaths)
+    ? input.workspacePaths.filter((path) => typeof path === 'string' && path.trim() !== '')
+    : [];
+  return firstTrustedRoot(workspacePaths) ? workspacePaths : [];
+}
+
+function normalizeAntigravityToolArgs(
+  args: Record<string, unknown> | undefined,
+  toolName: string,
+): unknown {
   if (!args) return undefined;
-
-  if (typeof args.CommandLine !== 'string' || args.CommandLine === '') {
-    return args;
-  }
-
+  if (toolName !== 'run_command') return args;
   return {
     ...args,
-    command: args.CommandLine,
+    command:
+      typeof args.CommandLine === 'string' && args.CommandLine !== ''
+        ? args.CommandLine
+        : undefined,
   };
 }

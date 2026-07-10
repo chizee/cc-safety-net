@@ -93,7 +93,7 @@ describe('Copilot CLI hook', () => {
   });
 
   describe('missing command', () => {
-    test('missing command in toolArgs produces no output', async () => {
+    test('missing command in toolArgs fails closed', async () => {
       const input = {
         timestamp: Date.now(),
         cwd: process.cwd(),
@@ -101,10 +101,10 @@ describe('Copilot CLI hook', () => {
         toolArgs: JSON.stringify({}),
       };
 
-      await expectNoHookOutput(runCopilotHook, input);
+      await expectDeny(input, 'CC Safety Net failed closed');
     });
 
-    test('null command in toolArgs produces no output', async () => {
+    test('null command in toolArgs fails closed', async () => {
       const input = {
         timestamp: Date.now(),
         cwd: process.cwd(),
@@ -112,10 +112,10 @@ describe('Copilot CLI hook', () => {
         toolArgs: JSON.stringify({ command: null }),
       };
 
-      await expectNoHookOutput(runCopilotHook, input);
+      await expectDeny(input, 'CC Safety Net failed closed');
     });
 
-    test('empty string command in toolArgs produces no output', async () => {
+    test('empty string command in toolArgs fails closed', async () => {
       const input = {
         timestamp: Date.now(),
         cwd: process.cwd(),
@@ -123,7 +123,7 @@ describe('Copilot CLI hook', () => {
         toolArgs: JSON.stringify({ command: '' }),
       };
 
-      await expectNoHookOutput(runCopilotHook, input);
+      await expectDeny(input, 'CC Safety Net failed closed');
     });
   });
 });

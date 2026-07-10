@@ -255,6 +255,10 @@ var require_parse = __commonJS((exports, module) => {
   };
 });
 
+// src/index.ts
+import { accessSync, constants, statSync as statSync2 } from "node:fs";
+import { resolve as resolve10 } from "node:path";
+
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
@@ -9046,6 +9050,48 @@ function getSupportedPathEnvironmentValue(name) {
 }
 
 // src/core/tool-input.ts
+var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
+var PATH_TOOL_NAMES = new Set([
+  "create",
+  "edit",
+  "listdir",
+  "listpermissions",
+  "ls",
+  "multiedit",
+  "multireplacefilecontent",
+  "notebookedit",
+  "read",
+  "readfile",
+  "readurlcontent",
+  "replacefilecontent",
+  "searchweb",
+  "strreplaceeditor",
+  "view",
+  "viewfile",
+  "write",
+  "writefile",
+  "writetofile"
+]);
+var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
+var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
+var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch", "patchtext"]);
+var UTF8_ENCODER = new TextEncoder;
+var UTF8_DECODER = new TextDecoder;
+function normalizeToolName(toolName) {
+  return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function getNonCommandToolInputKind(toolName) {
+  const normalized = normalizeToolName(toolName);
+  if (PATCH_TOOL_NAMES.has(normalized))
+    return "patch";
+  if (GREP_TOOL_NAMES.has(normalized))
+    return "grep";
+  if (GLOB_TOOL_NAMES.has(normalized))
+    return "glob";
+  if (PATH_TOOL_NAMES.has(normalized))
+    return "path";
+  return "unknown";
+}
 function getCommandFromToolInput(input) {
   if (!input || typeof input !== "object")
     return;
@@ -9069,23 +9115,267 @@ function extractPathLikeToolValues(input, pathLikeKeys) {
 function normalizeToolInputKey(key) {
   return key.replace(/-/g, "_").toLowerCase();
 }
+function extractPatchTargetsFromToolInput(input) {
+  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
+}
+function extractPatchTexts(input, allowString) {
+  if (typeof input === "string")
+    return allowString ? [input] : [];
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPatchTexts(value, allowString));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
+      return extractPatchTexts(value, true);
+    if (value && typeof value === "object")
+      return extractPatchTexts(value, false);
+    return [];
+  });
+}
+function extractPatchTargetsFromText(text) {
+  const targets = [];
+  const lines = text.split(/\r?\n/);
+  let inApplyPatch = false;
+  let inHunk = false;
+  let oldHunkLinesRemaining = null;
+  let newHunkLinesRemaining = null;
+  const resetHunk = () => {
+    inHunk = false;
+    oldHunkLinesRemaining = null;
+    newHunkLinesRemaining = null;
+  };
+  for (let index = 0;index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (line === "*** Begin Patch") {
+      inApplyPatch = true;
+      resetHunk();
+      continue;
+    }
+    if (line === "*** End Patch") {
+      inApplyPatch = false;
+      resetHunk();
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const counts = parseUnifiedHunkLineCounts(line);
+      inHunk = true;
+      oldHunkLinesRemaining = counts?.oldLines ?? null;
+      newHunkLinesRemaining = counts?.newLines ?? null;
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
+      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
+      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
+      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
+      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (line.startsWith("*** ")) {
+      resetHunk();
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (inHunk)
+      continue;
+    if (line.startsWith("diff --git ")) {
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const nextLine = lines[index + 1] ?? "";
+      if (!nextLine.startsWith("+++ "))
+        continue;
+      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), true), decodeGitMetadataTarget(nextLine.slice(4), true)));
+      index++;
+      continue;
+    }
+    if (!inApplyPatch)
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+  }
+  return targets;
+}
+function parseUnifiedHunkLineCounts(line) {
+  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+  if (!hunkHeader)
+    return null;
+  return {
+    oldLines: Number(hunkHeader[1] ?? 1),
+    newLines: Number(hunkHeader[2] ?? 1)
+  };
+}
+function extractPatchTargetsFromMetadataLine(line) {
+  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
+  if (applyPatchTarget?.[1])
+    return cleanPatchTarget(applyPatchTarget[1]);
+  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
+  if (moveTarget?.[1])
+    return cleanPatchTarget(moveTarget[1]);
+  if (line.startsWith("diff --git "))
+    return extractGitDiffTargets(line.slice(11));
+  const oldTarget = /^--- (.+)$/.exec(line);
+  if (oldTarget?.[1])
+    return cleanUnifiedDiffTarget(oldTarget[1]);
+  const newTarget = /^\+\+\+ (.+)$/.exec(line);
+  if (newTarget?.[1])
+    return cleanUnifiedDiffTarget(newTarget[1]);
+  const extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
+  if (extendedTarget?.[1])
+    return cleanExtendedGitTarget(extendedTarget[1]);
+  return [];
+}
+function extractGitDiffTargets(header) {
+  const fields = parseGitDiffFields(header);
+  if (fields.length === 2 && fields[0] && fields[1]) {
+    return cleanGitTargetPair(fields[0], fields[1]);
+  }
+  const matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
+    header.slice(0, separator.index).trim(),
+    header.slice((separator.index ?? 0) + separator[0].length).trim()
+  ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
+  return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
+}
+function parseGitDiffFields(header) {
+  const fields = [];
+  let index = 0;
+  while (index < header.length) {
+    while (/\s/.test(header[index] ?? ""))
+      index++;
+    if (index >= header.length)
+      break;
+    const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
+    if (!quote) {
+      const end = header.slice(index).search(/\s/);
+      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
+      index = end === -1 ? header.length : index + end;
+      continue;
+    }
+    const field = parseQuotedGitDiffField(header, index, quote);
+    if (!field)
+      return [];
+    fields.push(field.value);
+    index = field.end;
+  }
+  return fields;
+}
+function parseQuotedGitDiffField(header, start, quote) {
+  const bytes = [];
+  let index = start + 1;
+  while (index < header.length) {
+    const character = header[index] ?? "";
+    if (character === quote) {
+      return { value: UTF8_DECODER.decode(Uint8Array.from(bytes)), end: index + 1 };
+    }
+    if (character !== "\\" || quote === "'") {
+      bytes.push(...UTF8_ENCODER.encode(character));
+      index++;
+      continue;
+    }
+    const escaped = header.slice(index + 1);
+    const octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
+    if (octal) {
+      bytes.push(Number.parseInt(octal, 8));
+      index += octal.length + 1;
+      continue;
+    }
+    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? "")));
+    index += 2;
+  }
+  return null;
+}
+function decodeGitDiffEscape(character) {
+  return {
+    a: "\x07",
+    b: "\b",
+    f: "\f",
+    n: `
+`,
+    r: "\r",
+    t: "\t",
+    v: "\v"
+  }[character] ?? character;
+}
+function cleanGitDiffTarget(target) {
+  return cleanExactPatchTarget(normalizeGitDiffTarget(target));
+}
+function cleanGitTargetPair(oldTarget, newTarget) {
+  if (oldTarget === "/dev/null")
+    return cleanSingleGitTarget(newTarget);
+  if (newTarget === "/dev/null")
+    return cleanSingleGitTarget(oldTarget);
+  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/")) {
+    return [oldTarget.slice(2), newTarget.slice(2)].flatMap(cleanExactPatchTarget);
+  }
+  const commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
+  return [oldTarget, newTarget, ...commonRemainder ? [commonRemainder] : []].flatMap(cleanExactPatchTarget);
+}
+function cleanSingleGitTarget(target) {
+  const stripped = stripFirstGitPathComponent(target);
+  return [target, ...stripped ? [stripped] : []].flatMap(cleanExactPatchTarget);
+}
+function stripFirstGitPathComponent(target) {
+  const separator = target.indexOf("/");
+  return separator > 0 && separator < target.length - 1 ? target.slice(separator + 1) : null;
+}
+function getCommonGitPrefixRemainder(oldTarget, newTarget) {
+  const oldSeparator = oldTarget.indexOf("/");
+  const newSeparator = newTarget.indexOf("/");
+  if (oldSeparator < 1 || newSeparator < 1)
+    return null;
+  if (oldTarget.slice(0, oldSeparator) === newTarget.slice(0, newSeparator))
+    return null;
+  const oldRemainder = oldTarget.slice(oldSeparator + 1);
+  return oldRemainder === newTarget.slice(newSeparator + 1) ? oldRemainder : null;
+}
+function cleanUnifiedDiffTarget(target) {
+  return cleanGitDiffTarget(decodeGitMetadataTarget(target, true));
+}
+function cleanExtendedGitTarget(target) {
+  return cleanExactPatchTarget(decodeGitMetadataTarget(target, false));
+}
+function decodeGitMetadataTarget(target, allowTrailingMetadata) {
+  const trimmed = target.trim();
+  const quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : undefined;
+  if (quote) {
+    const field = parseQuotedGitDiffField(trimmed, 0, quote);
+    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === "")) {
+      return field.value;
+    }
+  }
+  return allowTrailingMetadata ? trimmed.split("\t", 1)[0]?.trim() ?? "" : trimmed;
+}
+function normalizeGitDiffTarget(target) {
+  return target.startsWith("a/") || target.startsWith("b/") ? target.slice(2) : target;
+}
+function cleanExactPatchTarget(target) {
+  return target === "" || target === "/dev/null" ? [] : [target];
+}
+function cleanPatchTarget(target) {
+  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  return path === "" || path === "/dev/null" ? [] : [path];
+}
 
 // src/core/policy-protection.ts
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
 var READ_ONLY_TOOLS = new Set([
-  "find_by_name",
+  "findbyname",
   "glob",
   "grep",
-  "grep_search",
-  "list_dir",
-  "list_permissions",
+  "grepsearch",
+  "listdir",
+  "listpermissions",
   "ls",
   "read",
-  "read_url_content",
   "readfile",
-  "read_file",
-  "search_web",
-  "view_file"
+  "readurlcontent",
+  "searchweb",
+  "view",
+  "viewfile"
 ]);
 var PATH_LIKE_KEYS = new Set([
   "absolutepath",
@@ -9094,9 +9384,11 @@ var PATH_LIKE_KEYS = new Set([
   "file",
   "file_path",
   "filepath",
+  "notebook_path",
   "path",
   "searchdirectory",
   "search_directory",
+  "searchpath",
   "targetfile",
   "target_file"
 ]);
@@ -9138,44 +9430,60 @@ var CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
   ["perl", new Set(["e"])]
 ]);
 var POLICY_ENV_PATH_NAMES = new Set(["CC_SAFETY_NET_HOME"]);
-var SHELL_COMMAND_TOOLS = new Set([
-  "bash",
-  "powershell",
-  "runcommand",
-  "runshellcommand",
-  "shell"
-]);
 var SHELL_ENV_PROXY = new Proxy({}, {
   get: (_, name) => ["$", "{", String(name), "}"].join("")
 });
-function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
+function findPolicyConfigMutationTargetInToolInput(toolName, input, route, context) {
+  for (const configCwd of new Set([context.configCwd, ...context.policyConfigCwds ?? []])) {
+    const target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
+      configCwd,
+      executionCwd: context.executionCwd
+    });
+    if (target)
+      return target;
+  }
+  return null;
+}
+function findPolicyConfigMutationTargetForContext(toolName, input, route, context) {
+  if (route.kind === "patch") {
+    return findPolicyConfigMutationTargetInPaths([
+      ...extractPathLikeToolValues(input, PATH_LIKE_KEYS),
+      ...extractPatchTargetsFromToolInput(input)
+    ], false, context);
+  }
   const command2 = getCommandFromToolInput(input);
-  const commandTarget = command2 ? findPolicyConfigMutationTargetInCommand(command2, cwd) : null;
-  if (commandTarget)
-    return commandTarget;
-  if (command2 && isShellCommandTool(toolName))
-    return null;
-  const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) => isPolicyConfigPath(value, cwd));
+  if (route.kind === "command") {
+    return command2 ? findPolicyConfigMutationTargetInCommand(command2, context) : null;
+  }
+  if (route.kind === "unknown" && command2) {
+    const commandTarget = findPolicyConfigMutationTargetInCommand(command2, context);
+    if (commandTarget)
+      return commandTarget;
+  }
+  return findPolicyConfigMutationTargetInPaths(extractPathLikeToolValues(input, PATH_LIKE_KEYS), route.kind === "grep" || route.kind === "glob" || isReadOnlyTool(toolName), context);
+}
+function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
+  const target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
   if (!target)
     return null;
-  return isReadOnlyTool(toolName) ? null : { target };
+  return readOnly ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new Map) {
+function findPolicyConfigMutationTargetInCommand(command2, context, variables = new Map) {
   if (hasUnclosedQuotes(command2)) {
-    return findPolicyConfigTargetInText(command2, cwd);
+    return findPolicyConfigTargetInText(command2, context);
   }
   let tokens;
   try {
     tokens = $parse(command2.replace(/\n/g, " ; "), SHELL_ENV_PROXY);
   } catch {
-    return findPolicyConfigTargetInText(command2, cwd);
+    return findPolicyConfigTargetInText(command2, context);
   }
-  let state = { cwd, variables };
+  let state = { cwd: context.executionCwd, variables };
   let segment = [];
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
     if (isOperator2(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, state);
+      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
       if (target)
         return target;
       state = applyShellState(segment, state);
@@ -9185,7 +9493,7 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
     if (isRedirectOp(token)) {
       const targetIndex = getWriteRedirectTargetIndex(tokens, i);
       const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
-      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)) {
+      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd)) {
         return { target: formatShellPolicyTarget(target) };
       }
       i = targetIndex ?? i + 1;
@@ -9195,23 +9503,23 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
     if (tokenText !== null)
       segment.push(tokenText);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
 }
-function findUnsafePolicyConfigSegmentTarget(segment, state) {
+function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state);
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
   if (scriptTarget)
     return scriptTarget;
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state);
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
   if (sedWriteTarget)
     return sedWriteTarget;
-  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, state.cwd));
+  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
   if (!target)
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
-function findScriptArgumentPolicyConfigTarget(segment, state) {
+function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
@@ -9225,20 +9533,20 @@ function findScriptArgumentPolicyConfigTarget(segment, state) {
   if (!script)
     return null;
   if (SHELL_SCRIPT_COMMANDS.has(command2)) {
-    return findPolicyConfigMutationTargetInCommand(script, state.cwd, state.variables);
+    return findPolicyConfigMutationTargetInCommand(script, { configCwd, executionCwd: state.cwd }, state.variables);
   }
   const target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
     ...extractConstructedPolicyPathCandidates(script)
-  ]).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
+  ]).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
   return target ? { target } : null;
 }
-function findSedScriptWritePolicyConfigTarget(segment, state) {
+function findSedScriptWritePolicyConfigTarget(segment, state, configCwd) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
     return null;
-  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
+  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
   return target ? { target } : null;
 }
 function applyShellState(segment, state) {
@@ -9323,17 +9631,11 @@ function isScriptArgumentOption(command2, token) {
   return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? false;
 }
 function isReadOnlyTool(toolName) {
-  return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+  return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
-function isShellCommandTool(toolName) {
-  return SHELL_COMMAND_TOOLS.has(normalizeToolName(toolName));
-}
-function normalizeToolName(toolName) {
-  return toolName.replace(/[-_\s]/g, "").toLowerCase();
-}
-function isPolicyConfigPath(target, cwd) {
-  const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return getPolicyConfigProtectedPaths(cwd).some((path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase());
+function isPolicyConfigPath(target, configCwd, executionCwd) {
+  const normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
+  return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd).toLowerCase());
 }
 function getPolicyConfigProtectedPaths(cwd) {
   const paths = getPolicyPaths({ cwd });
@@ -9361,8 +9663,8 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     })
   ];
 }
-function findPolicyConfigTargetInText(text, cwd) {
-  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
+function findPolicyConfigTargetInText(text, context) {
+  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd));
   return target ? { target } : null;
 }
 function formatShellPolicyTarget(target) {
@@ -9495,30 +9797,12 @@ var PATH_TARGET_KEYS = new Set([
   "path",
   "searchdirectory",
   "search_directory",
+  "searchpath",
   "targetfile",
   "target_file"
 ]);
 var GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob"]);
 var GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob", "pattern"]);
-var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch"]);
-var SHELL_TOOL_NAMES = new Set(["bash", "powershell", "runcommand", "runshellcommand", "shell"]);
-var PATH_TARGET_TOOL_NAMES = new Set([
-  "create",
-  "edit",
-  "multiedit",
-  "notebookedit",
-  "read",
-  "readfile",
-  "replacefilecontent",
-  "strreplaceeditor",
-  "view",
-  "viewfile",
-  "write",
-  "writefile"
-]);
-var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
-var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
-var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
 var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var PIPE_OPERATORS = new Set(["|", "|&"]);
 var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
@@ -9533,9 +9817,9 @@ var VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
   ["python", new Set(["-W", "-X"])],
   ["node", new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
-function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
+function findSensitivePathTarget(targets, cwd = process.cwd(), config, configCwd = cwd) {
   for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config)) {
+    if (isDeniedByPolicy(target, cwd, config, configCwd)) {
       return { target, ruleId: "secret.deny-path" };
     }
     const ruleId = isSensitivePath(target, cwd, config);
@@ -9545,156 +9829,31 @@ function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   }
   return null;
 }
-function findSensitiveTargetInToolInput(toolName, input, cwd = process.cwd(), config) {
-  return findSensitivePathTarget(extractToolPathTargets(toolName, input), cwd, config);
+function findSensitiveTargetInToolInput(input, route, executionCwd = process.cwd(), config, configCwd = executionCwd) {
+  return findSensitivePathTarget(extractToolPathTargets(input, route), executionCwd, config, configCwd);
 }
-function extractToolPathTargets(toolName, input) {
-  const normalized = normalizeToolName2(toolName);
-  if (SHELL_TOOL_NAMES.has(normalized)) {
+function extractToolPathTargets(input, route) {
+  if (route.kind === "command") {
     const command3 = getCommandFromToolInput(input);
     return command3 ? extractCommandPathTargets(command3) : [];
   }
-  if (GREP_TOOL_NAMES.has(normalized))
+  if (route.kind === "grep")
     return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
-  if (GLOB_TOOL_NAMES.has(normalized))
+  if (route.kind === "glob")
     return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (PATCH_TOOL_NAMES.has(normalized)) {
-    return [...extractPathLikeToolValues(input, PATH_TARGET_KEYS), ...extractPatchTargets(input)];
-  }
-  if (PATH_TARGET_TOOL_NAMES.has(normalized)) {
+  if (route.kind === "patch") {
     return [
       ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
-      ...normalized === "edit" ? extractPatchTargets(input) : []
+      ...extractPatchTargetsFromToolInput(input)
     ];
   }
+  if (route.kind === "path")
+    return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
   const command2 = getCommandFromToolInput(input);
   return [
     ...command2 ? extractCommandPathTargets(command2) : [],
     ...extractPathLikeToolValues(input, PATH_TARGET_KEYS)
   ];
-}
-function extractPatchTargets(input) {
-  return extractPatchTexts(input).flatMap(extractPatchTargetsFromText);
-}
-function extractPatchTexts(input) {
-  if (typeof input === "string")
-    return [input];
-  if (!input || typeof input !== "object")
-    return [];
-  if (Array.isArray(input))
-    return input.flatMap(extractPatchTexts);
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATCH_TEXT_KEYS.has(normalizeToolInputKey2(key)))
-      return [value];
-    if (value && typeof value === "object")
-      return extractPatchTexts(value);
-    return [];
-  });
-}
-function extractPatchTargetsFromText(text) {
-  const targets = [];
-  const lines = text.split(/\r?\n/);
-  let inHunk = false;
-  let inApplyPatch = false;
-  let oldHunkLinesRemaining = null;
-  let newHunkLinesRemaining = null;
-  const resetHunk = () => {
-    inHunk = false;
-    oldHunkLinesRemaining = null;
-    newHunkLinesRemaining = null;
-  };
-  for (let index = 0;index < lines.length; index++) {
-    const line = lines[index] ?? "";
-    if (line === "*** Begin Patch") {
-      inApplyPatch = true;
-      resetHunk();
-      continue;
-    }
-    if (line === "*** End Patch") {
-      inApplyPatch = false;
-      resetHunk();
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const hunkLines = parseUnifiedHunkLineCounts(line);
-      inHunk = true;
-      oldHunkLinesRemaining = hunkLines?.oldLines ?? null;
-      newHunkLinesRemaining = hunkLines?.newLines ?? null;
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-      continue;
-    }
-    if (line.startsWith("*** ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && line.startsWith("diff --git ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && !inHunk && line.startsWith("--- ")) {
-      const nextLine = lines[index + 1] ?? "";
-      if (nextLine.startsWith("+++ ")) {
-        resetHunk();
-        targets.push(...extractPatchTargetsFromLine(line, false));
-        targets.push(...extractPatchTargetsFromLine(nextLine, false));
-        index++;
-        continue;
-      }
-    }
-    targets.push(...extractPatchTargetsFromLine(line, inHunk || inApplyPatch));
-    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
-      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
-      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
-      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
-      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-    }
-  }
-  return targets;
-}
-function parseUnifiedHunkLineCounts(line) {
-  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
-  if (!hunkHeader)
-    return null;
-  return {
-    oldLines: Number(hunkHeader[1] ?? 1),
-    newLines: Number(hunkHeader[2] ?? 1)
-  };
-}
-function extractPatchTargetsFromLine(line, inHunk) {
-  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
-  if (applyPatchTarget?.[1])
-    return cleanPatchTarget(applyPatchTarget[1]);
-  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
-  if (moveTarget?.[1])
-    return cleanPatchTarget(moveTarget[1]);
-  const gitDiffTarget = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-  if (gitDiffTarget?.[1] && gitDiffTarget[2]) {
-    return [gitDiffTarget[1], gitDiffTarget[2]].flatMap(cleanPatchTarget);
-  }
-  if (inHunk)
-    return [];
-  const oldTarget = /^--- (?:a\/)?(.+)$/.exec(line);
-  if (oldTarget?.[1])
-    return cleanPatchTarget(oldTarget[1]);
-  const newTarget = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-  if (newTarget?.[1])
-    return cleanPatchTarget(newTarget[1]);
-  return [];
-}
-function cleanPatchTarget(target) {
-  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
-  return path === "" || path === "/dev/null" ? [] : [path];
-}
-function normalizeToolName2(toolName) {
-  return toolName.replace(/[-_\s]/g, "").toLowerCase();
-}
-function normalizeToolInputKey2(key) {
-  return key.replace(/-/g, "_").toLowerCase();
 }
 function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
@@ -10422,14 +10581,14 @@ function isSensitiveDirSegment(comparablePath, dirName) {
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
-function isDeniedByPolicy(target, cwd, config) {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
+function isDeniedByPolicy(target, cwd, config, configCwd) {
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
 }
-function matchesPolicyPath(target, cwd, paths) {
+function matchesPolicyPath(target, cwd, paths, configCwd) {
   if (paths.length === 0)
     return false;
-  const normalized = comparable(normalizeCandidatePath2(target, cwd));
-  return paths.some((path) => comparable(normalizeCandidatePath2(path, cwd)) === normalized);
+  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
+  return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized);
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
   const parts = comparablePath.split("/");
@@ -10482,6 +10641,15 @@ function normalizeCandidatePath2(target, cwd) {
   }
   const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
+}
+function normalizeAbsoluteCandidatePath(target, cwd) {
+  const homeValue = process.env.HOME ?? homedir6();
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
+  const normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  if (!normalized)
+    return "";
+  const expanded = home ? expandHomePath(normalized, home) : normalized;
+  return normalizePathText(resolveExistingPath(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -10579,9 +10747,14 @@ function loadBuiltinCommands(disabledCommands) {
   return commands;
 }
 // src/index.ts
+var POWERSHELL_EXECUTABLES = new Set(["powershell", "pwsh"]);
+var POSIX_EXECUTABLES = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
 var CCSafetyNetPlugin = async ({ directory, homeDir }) => {
+  const configCwd = resolve10(directory);
+  let currentConfig;
   return {
     config: async (opencodeConfig) => {
+      currentConfig = opencodeConfig;
       const builtinCommands = loadBuiltinCommands();
       const existingCommands = opencodeConfig.command ?? {};
       opencodeConfig.command = {
@@ -10590,63 +10763,122 @@ var CCSafetyNetPlugin = async ({ directory, homeDir }) => {
       };
     },
     "tool.execute.before": async (input, output) => {
+      if (typeof input.tool !== "string" || input.tool.trim() === "") {
+        throwFailedClosed();
+      }
       const toolInput = output.args;
-      const policyTarget = findPolicyConfigMutationTargetInToolInput(input.tool, toolInput, directory);
+      const shellRoute = resolveOpenCodeShellRoute(currentConfig?.shell);
+      const route = getOpenCodeToolRoute(input.tool, shellRoute);
+      const executionCwd = resolveOpenCodeExecutionCwd(configCwd, toolInput);
+      if (!isUsableDirectory(configCwd) || !executionCwd) {
+        throwFailedClosed(getCommandFromToolInput(toolInput));
+      }
+      const context = { configCwd, executionCwd };
+      const policyTarget = findPolicyConfigMutationTargetInToolInput(input.tool, toolInput, route, context);
       if (policyTarget) {
         throwBlocked(REASON_POLICY_CONFIG_PROTECTION, getCommandFromToolInput(toolInput) ?? policyTarget.target, policyTarget.target, false);
       }
-      const config = loadConfig(directory, { repairLocalRulebooks: true });
-      const secretTarget = config.secretProtection?.enabled === false ? null : findSensitiveTargetInToolInput(input.tool, toolInput, directory, config.secretProtection);
+      const config = loadConfig(configCwd, { repairLocalRulebooks: true });
+      const secretTarget = config.secretProtection?.enabled === false ? null : findSensitiveTargetInToolInput(toolInput, route, executionCwd, config.secretProtection, configCwd);
       if (secretTarget) {
-        const command2 = getCommandFromToolInput(toolInput) ?? secretTarget.target;
+        const command3 = getCommandFromToolInput(toolInput) ?? secretTarget.target;
         if (input.sessionID) {
-          writeAuditLog(input.sessionID, command2, secretTarget.target, REASON_SECRET_PROTECTION, directory, {
+          writeAuditLog(input.sessionID, command3, secretTarget.target, REASON_SECRET_PROTECTION, executionCwd, {
             homeDir,
             agent: "opencode",
             ruleId: secretTarget.ruleId,
             intent: "hard_stop"
           });
         }
-        throwBlocked(REASON_SECRET_PROTECTION, command2, secretTarget.target, false, secretTarget.ruleId, "hard_stop");
+        throwBlocked(REASON_SECRET_PROTECTION, command3, secretTarget.target, false, secretTarget.ruleId, "hard_stop");
       }
-      if (input.tool === "bash") {
-        const command2 = getCommandFromToolInput(toolInput);
-        if (!command2) {
-          throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED, undefined, undefined, undefined, undefined, "stop_and_explain");
-        }
-        let result;
-        try {
-          const modes = getCCSafetyNetEnvModes(config);
-          result = analyzeCommand(command2, {
-            cwd: directory,
-            config,
-            strict: modes.strict,
-            paranoidRm: modes.paranoidRm,
-            paranoidInterpreters: modes.paranoidInterpreters,
-            worktreeMode: modes.worktreeMode
-          });
-        } catch {
-          throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2, undefined, undefined, "stop_and_explain");
-        }
-        if (result) {
-          if (input.sessionID) {
-            writeAuditLog(input.sessionID, command2, result.segment, result.reason, directory, {
-              homeDir,
-              agent: "opencode",
-              ruleId: result.ruleId,
-              intent: result.intent
-            });
-          }
-          throwBlocked(result.reason, command2, result.segment, result.manualPermissionAdvice, result.ruleId, result.intent);
+      if (route.kind !== "command") {
+        if (config.failClosedReason) {
+          throwBlocked(config.failClosedReason, undefined, undefined, undefined, undefined, "stop_and_explain");
         }
         return;
       }
-      if (config.failClosedReason) {
-        throwBlocked(config.failClosedReason, undefined, undefined, undefined, undefined, "stop_and_explain");
+      const command2 = getCommandFromToolInput(toolInput);
+      if (!command2 || command2.trim() === "") {
+        throwFailedClosed();
       }
+      let result;
+      try {
+        const modes = getCCSafetyNetEnvModes(config);
+        result = analyzeCommand(command2, {
+          cwd: executionCwd,
+          config,
+          shell: route.shell,
+          strict: modes.strict,
+          paranoidRm: modes.paranoidRm,
+          paranoidInterpreters: modes.paranoidInterpreters,
+          worktreeMode: modes.worktreeMode
+        });
+      } catch {
+        throwFailedClosed(command2);
+      }
+      if (!result)
+        return;
+      if (input.sessionID) {
+        writeAuditLog(input.sessionID, command2, result.segment, result.reason, executionCwd, {
+          homeDir,
+          agent: "opencode",
+          ruleId: result.ruleId,
+          intent: result.intent
+        });
+      }
+      throwBlocked(result.reason, command2, result.segment, result.manualPermissionAdvice, result.ruleId, result.intent);
     }
   };
 };
+function resolveOpenCodeShellRoute(configuredShell) {
+  if (typeof configuredShell !== "string")
+    return "auto";
+  const executable = configuredShell.trim().split(/[\\/]/).at(-1)?.toLowerCase().replace(/\.exe$/, "");
+  if (!executable)
+    return "auto";
+  if (POWERSHELL_EXECUTABLES.has(executable))
+    return "powershell";
+  if (POSIX_EXECUTABLES.has(executable))
+    return "posix";
+  return "auto";
+}
+function getOpenCodeToolRoute(toolName, shell) {
+  if (toolName === "bash")
+    return { kind: "command", shell };
+  return { kind: getNonCommandToolInputKind(toolName) };
+}
+function resolveOpenCodeExecutionCwd(configCwd, toolInput) {
+  if (!toolInput || typeof toolInput !== "object" || Array.isArray(toolInput))
+    return configCwd;
+  if (!Object.hasOwn(toolInput, "workdir"))
+    return configCwd;
+  const workdir = toolInput.workdir;
+  if (typeof workdir !== "string" || workdir.trim() === "")
+    return null;
+  const resolvedWorkdir = process.platform === "win32" ? normalizeOpenCodeWindowsWorkdir(workdir) : workdir;
+  if (!resolvedWorkdir)
+    return null;
+  const executionCwd = resolve10(configCwd, resolvedWorkdir);
+  return isUsableDirectory(executionCwd) ? executionCwd : null;
+}
+function normalizeOpenCodeWindowsWorkdir(workdir) {
+  const normalized = workdir.replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`).replace(/^\/([a-zA-Z])(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`).replace(/^\/cygdrive\/([a-zA-Z])(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`).replace(/^\/mnt\/([a-zA-Z])(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`);
+  return normalized.startsWith("/") ? null : normalized;
+}
+function isUsableDirectory(path) {
+  try {
+    if (!statSync2(path).isDirectory())
+      return false;
+    accessSync(path, constants.R_OK | constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function throwFailedClosed(command2) {
+  throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2, undefined, undefined, "stop_and_explain");
+}
 function throwBlocked(reason, command2, segment, manualPermissionAdvice, ruleId, intent) {
   throw new Error(formatBlockedMessage({
     reason,
@@ -10659,5 +10891,7 @@ function throwBlocked(reason, command2, segment, manualPermissionAdvice, ruleId,
   }));
 }
 export {
+  resolveOpenCodeShellRoute,
+  normalizeOpenCodeWindowsWorkdir,
   CCSafetyNetPlugin
 };

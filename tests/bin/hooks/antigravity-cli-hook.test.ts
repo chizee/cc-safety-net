@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
+import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import {
   antigravityShellInput,
   expectNoHookOutput,
@@ -76,6 +77,96 @@ describe('Antigravity CLI hook', () => {
       });
     });
 
+    test('loads configuration from the workspace root containing Cwd', async () => {
+      await withHookTestContext(async (context) => {
+        await withSecondWorkspace(async (secondWorkspace) => {
+          mkdirSync(join(secondWorkspace, 'app'));
+          writeDefaultRulesConfig(join(secondWorkspace, '.cc-safety-net/rules/rule.json'), [
+            'project-rules',
+          ]);
+
+          const result = await context.runAntigravityHook({
+            toolCall: {
+              name: 'run_command',
+              args: { CommandLine: 'git status', Cwd: join(secondWorkspace, 'app') },
+            },
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+
+          expect(getHookDenyReason(result, 'antigravity-cli')).toContain('missing lockfile');
+        });
+      });
+    });
+
+    test('protects policy configuration in every listed workspace root', async () => {
+      await withHookTestContext(async (context) => {
+        const secondWorkspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
+        try {
+          mkdirSync(join(secondWorkspace, 'app'));
+          const secondRulesPath = join(secondWorkspace, '.cc-safety-net/rules/rule.json');
+          writeDefaultRulesConfig(secondRulesPath, ['project-rules']);
+
+          const readResult = await context.runAntigravityHook({
+            toolCall: {
+              name: 'view_file',
+              args: { AbsolutePath: join(secondWorkspace, 'README.md') },
+            },
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+          expect(getHookDenyReason(readResult, 'antigravity-cli')).toContain('missing lockfile');
+
+          const writeResult = await context.runAntigravityHook({
+            toolCall: {
+              name: 'write_to_file',
+              args: { TargetFile: secondRulesPath, CodeContent: '{}' },
+            },
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+          expect(getHookDenyReason(writeResult, 'antigravity-cli')).toContain(
+            'Policy config is protected and you must not modify it.',
+          );
+
+          const firstRulesPath = join(context.cwd, '.cc-safety-net/rules/rule.json');
+          writeDefaultRulesConfig(firstRulesPath, ['project-rules']);
+          const commandResult = await context.runAntigravityHook({
+            toolCall: {
+              name: 'run_command',
+              args: {
+                CommandLine: `echo '{}' > ${firstRulesPath}`,
+                Cwd: join(secondWorkspace, 'app'),
+              },
+            },
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+          expect(getHookDenyReason(commandResult, 'antigravity-cli')).toContain(
+            'Policy config is protected and you must not modify it.',
+          );
+        } finally {
+          rmSync(secondWorkspace, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('loads configuration from the workspace targeted by find_by_name', async () => {
+      await withHookTestContext(async (context) => {
+        await withSecondWorkspace(async (secondWorkspace) => {
+          writeDefaultRulesConfig(join(secondWorkspace, '.cc-safety-net/rules/rule.json'), [
+            'project-rules',
+          ]);
+
+          const result = await context.runAntigravityHook({
+            toolCall: {
+              name: 'find_by_name',
+              args: { SearchDirectory: secondWorkspace, Pattern: '*.ts' },
+            },
+            workspacePaths: [context.cwd, secondWorkspace],
+          });
+
+          expect(getHookDenyReason(result, 'antigravity-cli')).toContain('missing lockfile');
+        });
+      });
+    });
+
     test('resolves omitted Cwd to first usable workspace path', async () => {
       await withHookTestContext((context) => {
         expect(
@@ -89,9 +180,108 @@ describe('Antigravity CLI hook', () => {
         ).toBe(realpathSync(context.cwd));
       });
     });
+
+    test('resolver selects non-command target roots and rejects cross-root patches', async () => {
+      await withHookTestContext((context) => {
+        const secondWorkspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
+        try {
+          expect(
+            resolveAntigravityCwd(
+              {
+                toolCall: {
+                  name: 'write_to_file',
+                  args: { TargetFile: join(secondWorkspace, 'README.md') },
+                },
+                workspacePaths: [context.cwd, secondWorkspace],
+              },
+              () => {},
+            ),
+          ).toBe(realpathSync(secondWorkspace));
+
+          const denyReasons: string[] = [];
+          expect(
+            resolveAntigravityCwd(
+              {
+                toolCall: {
+                  name: 'apply_patch',
+                  args: {
+                    patch: [
+                      `*** Update File: ${join(context.cwd, 'README.md')}`,
+                      `*** Update File: ${join(secondWorkspace, 'README.md')}`,
+                    ].join('\n'),
+                  },
+                },
+                workspacePaths: [context.cwd, secondWorkspace],
+              },
+              (reason) => denyReasons.push(reason),
+            ),
+          ).toBeNull();
+          expect(denyReasons[0]).toContain('CC Safety Net failed closed');
+        } finally {
+          rmSync(secondWorkspace, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('resolver selects the canonical workspace for symlinked non-command targets', async () => {
+      await withHookTestContext((context) => {
+        const secondWorkspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
+        try {
+          symlinkSync(secondWorkspace, join(context.cwd, 'second-workspace'));
+
+          expect(
+            resolveAntigravityCwd(
+              {
+                toolCall: {
+                  name: 'view_file',
+                  args: { AbsolutePath: join(context.cwd, 'second-workspace', 'README.md') },
+                },
+                workspacePaths: [context.cwd, secondWorkspace],
+              },
+              () => {},
+            ),
+          ).toBe(realpathSync(secondWorkspace));
+        } finally {
+          rmSync(secondWorkspace, { recursive: true, force: true });
+        }
+      });
+    });
+
+    test('resolver selects the most specific overlapping workspace root', async () => {
+      await withHookTestContext((context) => {
+        const nestedWorkspace = join(context.cwd, 'nested-workspace');
+        mkdirSync(nestedWorkspace);
+
+        expect(
+          resolveAntigravityCwd(
+            {
+              toolCall: {
+                name: 'view_file',
+                args: { AbsolutePath: join(nestedWorkspace, 'README.md') },
+              },
+              workspacePaths: [context.cwd, nestedWorkspace],
+            },
+            () => {},
+          ),
+        ).toBe(realpathSync(nestedWorkspace));
+      });
+    });
   });
 
   describe('Cwd containment', () => {
+    test('denies empty and non-string supplied Cwd values', async () => {
+      for (const Cwd of ['', '   ', null, 42]) {
+        const result = await runAntigravityHook({
+          toolCall: { name: 'run_command', args: { CommandLine: 'git status', Cwd } },
+          workspacePaths: [process.cwd()],
+        });
+
+        expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+          'CC Safety Net failed closed',
+        );
+      }
+    });
+
     test('denies relative Cwd outside workspace path', async () => {
       await withHookTestContext(async (context) => {
         await expectAntigravityCwdFail(context, '..');
@@ -170,6 +360,18 @@ describe('Antigravity CLI hook', () => {
       expectSecretProtectionDeny(result, 'antigravity-cli');
     });
 
+    test('secret protection blocks grep_search SearchPath targets', async () => {
+      const result = await runAntigravityHook({
+        toolCall: {
+          name: 'grep_search',
+          args: { SearchPath: '.env', Query: 'TOKEN' },
+        },
+        workspacePaths: [process.cwd()],
+      });
+
+      expectSecretProtectionDeny(result, 'antigravity-cli');
+    });
+
     test('policy config protection blocks write_to_file to user policy', async () => {
       await withHookTestContext(async (context) => {
         const result = await context.runAntigravityHook({
@@ -205,12 +407,32 @@ describe('Antigravity CLI hook', () => {
   });
 
   describe('unsupported input', () => {
-    test('ignores payloads without toolCall name', async () => {
-      await expectNoHookOutput(runAntigravityHook, {
+    test('fails closed for payloads without toolCall name', async () => {
+      const result = await runAntigravityHook({
         stepIdx: 0,
         conversationId: 'antigravity-test-session',
         workspacePaths: [process.cwd()],
       });
+
+      expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+    });
+
+    test('fails closed for supplied unusable workspace roots', async () => {
+      for (const workspacePaths of [
+        ['/definitely/missing/cc-safety-net-workspace'],
+        [''],
+        ['   '],
+        [],
+      ]) {
+        const result = await runAntigravityHook({
+          toolCall: { name: 'run_command', args: { CommandLine: 'git status' } },
+          workspacePaths,
+        });
+
+        expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+          'CC Safety Net failed closed',
+        );
+      }
     });
   });
 
@@ -237,8 +459,8 @@ describe('Antigravity CLI hook', () => {
   });
 
   describe('missing command', () => {
-    test('missing CommandLine produces no output', async () => {
-      await expectNoHookOutput(runAntigravityHook, {
+    test('missing CommandLine fails closed', async () => {
+      const result = await runAntigravityHook({
         toolCall: {
           name: 'run_command',
           args: { Cwd: process.cwd() },
@@ -246,6 +468,24 @@ describe('Antigravity CLI hook', () => {
         conversationId: 'antigravity-test-session',
         workspacePaths: [process.cwd()],
       });
+
+      expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+    });
+
+    test('does not accept lowercase command as a run_command schema fallback', async () => {
+      for (const args of [
+        { command: 'git status', Cwd: process.cwd() },
+        { CommandLine: null, command: 'git status', Cwd: process.cwd() },
+      ]) {
+        const result = await runAntigravityHook({
+          toolCall: { name: 'run_command', args },
+          workspacePaths: [process.cwd()],
+        });
+
+        expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+          'CC Safety Net failed closed',
+        );
+      }
     });
   });
 });
@@ -261,4 +501,13 @@ async function expectAntigravityCwdFail(context: HookTestContext, cwd: string): 
   });
 
   expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+}
+
+async function withSecondWorkspace(run: (workspace: string) => Promise<void>): Promise<void> {
+  const workspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
+  try {
+    await run(workspace);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
 }

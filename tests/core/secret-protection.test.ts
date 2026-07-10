@@ -6,14 +6,36 @@ import { pathToFileURL } from 'node:url';
 import {
   findSensitivePathTarget,
   findSensitiveTargetInCommand,
-  findSensitiveTargetInToolInput,
+  findSensitiveTargetInToolInput as findSensitiveTargetWithRoute,
   getCommandFromToolInput,
 } from '@/core/secret-protection';
 import {
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
 } from '@/core/secret-protection-rules';
+import { getNonCommandToolInputKind, normalizeToolName, type ToolRoute } from '@/core/tool-input';
+import type { SecretProtectionConfig } from '@/types';
 import { withEnv } from '../helpers.ts';
+
+const COMMAND_TOOL_NAMES = new Set([
+  'bash',
+  'powershell',
+  'runcommand',
+  'runshellcommand',
+  'shell',
+]);
+
+function findSensitiveTargetInToolInput(
+  toolName: string,
+  input: unknown,
+  cwd = process.cwd(),
+  config?: SecretProtectionConfig,
+) {
+  const route: ToolRoute = COMMAND_TOOL_NAMES.has(normalizeToolName(toolName))
+    ? { kind: 'command', shell: 'auto' }
+    : { kind: getNonCommandToolInputKind(toolName) };
+  return findSensitiveTargetWithRoute(input, route, cwd, config);
+}
 
 describe('secret protection rule metadata', () => {
   test('covers every stable per-pattern rule id', () => {
@@ -643,6 +665,183 @@ describe('secret protection command target extraction', () => {
 });
 
 describe('secret protection generic tool input extraction', () => {
+  test('blocks sensitive patch targets identically across every patch text field', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+    for (const testCase of [
+      { target: envFile },
+      { target: '~/.ssh/id_rsa' },
+      {
+        target: 'configured/private.txt',
+        config: { disabledRules: new Set<string>(), denyPaths: ['configured/private.txt'] },
+      },
+    ]) {
+      const patch = [
+        '*** Begin Patch',
+        `*** Update File: ${testCase.target}`,
+        '*** End Patch',
+      ].join('\n');
+
+      for (const field of ['command', 'patch', 'diff', 'input', 'patchText']) {
+        expect(
+          findSensitiveTargetWithRoute({ [field]: patch }, { kind: 'patch' }, cwd, testCase.config),
+          `${testCase.target}:${field}`,
+        ).not.toBeNull();
+      }
+    }
+  });
+
+  test('blocks sensitive targets in binary git diffs without a/ and b/ prefixes', () => {
+    expect(
+      findSensitiveTargetWithRoute(
+        { diff: 'diff --git .env .env\nGIT binary patch' },
+        { kind: 'patch' },
+        process.cwd(),
+      )?.ruleId,
+    ).toBe('secret.basename.env');
+  });
+
+  test('preserves real a/ paths in binary Git diffs generated with --no-prefix', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetWithRoute(
+        { diff: 'diff --git a/private.dat a/private.dat\nGIT binary patch' },
+        { kind: 'patch' },
+        cwd,
+        { disabledRules: new Set(), denyPaths: ['a/private.dat'] },
+      )?.ruleId,
+    ).toBe('secret.deny-path');
+  });
+
+  test('blocks quoted Git rename targets configured as deny paths', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const patch = [
+      'diff --git a/old.txt b/private secret.txt',
+      'similarity index 100%',
+      'rename from old.txt',
+      'rename to "private secret.txt"',
+    ].join('\n');
+
+    expect(
+      findSensitiveTargetWithRoute({ patch }, { kind: 'patch' }, cwd, {
+        disabledRules: new Set(),
+        denyPaths: ['private secret.txt'],
+      })?.ruleId,
+    ).toBe('secret.deny-path');
+  });
+
+  test('keeps SSH keys and configured deny paths protected through schema routes', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const blockedPath = join(cwd, 'blocked.txt');
+
+    expect(
+      findSensitiveTargetWithRoute(
+        { file_path: '~/.ssh/id_rsa', content: '' },
+        { kind: 'path' },
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetWithRoute({ path: blockedPath }, { kind: 'unknown' }, cwd, {
+        disabledRules: new Set(),
+        denyPaths: [blockedPath],
+      })?.ruleId,
+    ).toBe('secret.deny-path');
+  });
+
+  test('treats patch hunks and known non-command content fields as inert', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: README.md',
+      '@@ -1 +1 @@',
+      '-safe',
+      '+rm -rf ~',
+      '+Remove-Item -Recurse -Force C:\\',
+      '+cat "unterminated',
+      `+*** Update File: ${envFile}`,
+      '+~/.ssh/id_rsa',
+      '*** End Patch',
+    ].join('\n');
+
+    expect(findSensitiveTargetWithRoute({ command: patch }, { kind: 'patch' }, cwd)).toBeNull();
+    expect(
+      findSensitiveTargetWithRoute(
+        { file_path: 'README.md', command: `cat ${envFile}`, new_string: envFile },
+        { kind: 'path' },
+        cwd,
+      ),
+    ).toBeNull();
+    expect(
+      findSensitiveTargetWithRoute({ path: 'src', pattern: envFile }, { kind: 'grep' }, cwd),
+    ).toBeNull();
+  });
+
+  test('retains conservative command and path inspection for unknown routes', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const envFile = ['.', 'env'].join('');
+
+    expect(
+      findSensitiveTargetWithRoute(
+        { command: ['cat', envFile].join(' ') },
+        { kind: 'unknown' },
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetWithRoute({ path: envFile }, { kind: 'unknown' }, cwd),
+    ).not.toBeNull();
+  });
+
+  test('resolves command and tool targets from the execution cwd', () => {
+    const configCwd = mkdtempSync(join(tmpdir(), 'secret-protection-project-'));
+    const executionCwd = join(configCwd, 'nested');
+    mkdirSync(executionCwd);
+    const blockedPath = join(configCwd, 'blocked.txt');
+    writeFileSync(blockedPath, 'blocked');
+    symlinkSync(blockedPath, join(executionCwd, 'blocked-alias'));
+    const config = { disabledRules: new Set<string>(), denyPaths: [blockedPath] };
+
+    expect(
+      findSensitiveTargetWithRoute(
+        { path: 'blocked-alias' },
+        { kind: 'path' },
+        executionCwd,
+        config,
+      )?.ruleId,
+    ).toBe('secret.deny-path');
+    expect(
+      findSensitiveTargetWithRoute(
+        { command: 'cat blocked-alias' },
+        { kind: 'command', shell: 'posix' },
+        executionCwd,
+        config,
+      )?.ruleId,
+    ).toBe('secret.deny-path');
+    rmSync(configCwd, { recursive: true, force: true });
+  });
+
+  test('resolves relative configured deny paths from the config cwd', () => {
+    const configCwd = mkdtempSync(join(tmpdir(), 'secret-protection-config-cwd-'));
+    const executionCwd = join(configCwd, 'nested');
+    mkdirSync(executionCwd);
+    try {
+      expect(
+        findSensitiveTargetWithRoute(
+          { path: join(configCwd, 'private/token.txt') },
+          { kind: 'path' },
+          executionCwd,
+          { disabledRules: new Set(), denyPaths: ['private/token.txt'] },
+          configCwd,
+        )?.ruleId,
+      ).toBe('secret.deny-path');
+    } finally {
+      rmSync(configCwd, { recursive: true, force: true });
+    }
+  });
+
   test('blocks sensitive read and edit targets without scanning edit content', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
     const envFile = ['.', 'env'].join('');

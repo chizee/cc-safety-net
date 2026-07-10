@@ -3,8 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
-import { CCSafetyNetPlugin } from '@/index';
-import { readLatestAuditLogEntry } from '../helpers';
+import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import {
+  CCSafetyNetPlugin,
+  normalizeOpenCodeWindowsWorkdir,
+  resolveOpenCodeShellRoute,
+} from '@/index';
+import { createLinkedWorktreeFixture, readLatestAuditLogEntry, withEnv } from '../helpers';
 import {
   gitCommitRule,
   syncInitialGitRulebook,
@@ -14,6 +19,7 @@ import {
 } from '../helpers/rulebook';
 
 type ToolPlugin = {
+  config: (opencodeConfig: Record<string, unknown>) => Promise<void>;
   'tool.execute.before': (
     input: { tool: string; sessionID?: string },
     output: { args: Record<string, unknown> },
@@ -63,12 +69,126 @@ describe('OpenCode plugin', () => {
     });
   });
 
+  test('maps the configured executable to the shell route used by the real bash tool', () => {
+    for (const shell of ['pwsh', '/opt/powershell.exe', String.raw`C:\Program Files\pwsh.EXE`]) {
+      expect(resolveOpenCodeShellRoute(shell)).toBe('powershell');
+    }
+    for (const shell of ['bash', '/bin/dash', '/usr/local/bin/ksh', '/bin/sh', '/bin/zsh']) {
+      expect(resolveOpenCodeShellRoute(shell)).toBe('posix');
+    }
+    for (const shell of [undefined, 'cmd', 'cmd.exe', 'fish', '/bin/custom-shell', 42]) {
+      expect(resolveOpenCodeShellRoute(shell)).toBe('auto');
+    }
+  });
+
+  test('normalizes documented Windows workdir forms and rejects unsupported roots', () => {
+    expect(normalizeOpenCodeWindowsWorkdir('/c/work')).toBe('C:/work');
+    expect(normalizeOpenCodeWindowsWorkdir('/C:/work')).toBe('C:/work');
+    expect(normalizeOpenCodeWindowsWorkdir('/cygdrive/d/work')).toBe('D:/work');
+    expect(normalizeOpenCodeWindowsWorkdir('/mnt/e/work')).toBe('E:/work');
+    expect(normalizeOpenCodeWindowsWorkdir('nested/work')).toBe('nested/work');
+    expect(normalizeOpenCodeWindowsWorkdir('/usr/local/work')).toBeNull();
+  });
+
+  test('uses the final shell value after later config mutations', async () => {
+    const plugin = (await CCSafetyNetPlugin({
+      directory: process.cwd(),
+    } as Parameters<typeof CCSafetyNetPlugin>[0])) as unknown as ToolPlugin;
+    const opencodeConfig = { shell: '/bin/bash' };
+    await plugin.config(opencodeConfig);
+    opencodeConfig.shell = 'pwsh';
+
+    await expectBashBlock(plugin, 'rm -rf /', 'powershell.remove-item-root-or-home');
+  });
+
+  test('routes real bash traffic through the configured PowerShell analyzer', async () => {
+    for (const shell of ['pwsh', String.raw`C:\Program Files\PowerShell\7\powershell.exe`]) {
+      const plugin = await loadToolPlugin(process.cwd(), undefined, shell);
+
+      await expectBashBlock(
+        plugin,
+        'Remove-Item . -Recurse -Force',
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+      await expectBashBlock(plugin, 'rm -rf /', 'powershell.remove-item-root-or-home');
+    }
+  });
+
+  test('routes real bash traffic through the configured POSIX analyzer', async () => {
+    const plugin = await loadToolPlugin(process.cwd(), undefined, '/bin/bash');
+
+    await expect(
+      plugin['tool.execute.before'](
+        { tool: 'bash' },
+        { args: { command: 'Remove-Item . -Recurse -Force' } },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test('uses auto routing for missing, cmd, and unknown shell configuration', async () => {
+    for (const shell of [undefined, 'cmd.exe', '/bin/custom-shell']) {
+      const plugin = await loadToolPlugin(process.cwd(), undefined, shell);
+
+      await expectBashBlock(
+        plugin,
+        'Remove-Item . -Recurse -Force',
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+      await expectBashBlock(plugin, 'rm -rf /', 'rm.recursive-force-root-or-home');
+    }
+  });
+
+  test('does not promote command-like non-bash tool names to command executors', async () => {
+    const plugin = await loadToolPlugin(process.cwd(), undefined, 'pwsh');
+
+    for (const tool of ['Bash', 'PowerShell', 'shell']) {
+      await expect(
+        plugin['tool.execute.before'](
+          { tool },
+          { args: { command: 'Remove-Item . -Recurse -Force' } },
+        ),
+      ).resolves.toBeUndefined();
+    }
+  });
+
   test('fails closed when OpenCode passes malformed bash output', async () => {
     const plugin = await loadToolPlugin(process.cwd());
 
-    await expect(plugin['tool.execute.before']({ tool: 'bash' }, { args: {} })).rejects.toThrow(
-      'CC Safety Net failed closed',
-    );
+    for (const command of [undefined, null, '', '   ', 42]) {
+      await expect(
+        plugin['tool.execute.before']({ tool: 'bash' }, { args: { command } }),
+      ).rejects.toThrow('CC Safety Net failed closed');
+    }
+  });
+
+  test('fails closed when OpenCode passes an invalid tool name', async () => {
+    const plugin = await loadToolPlugin(process.cwd());
+
+    for (const tool of ['', '   ']) {
+      await expect(plugin['tool.execute.before']({ tool }, { args: {} })).rejects.toThrow(
+        'CC Safety Net failed closed',
+      );
+    }
+  });
+
+  test('fails closed when OpenCode passes an unusable workdir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-workdir-'));
+    const file = join(dir, 'not-a-directory');
+    writeFileSync(file, 'fixture');
+    try {
+      const plugin = await loadToolPlugin(dir);
+
+      for (const workdir of [null, '', '   ', 42, join(dir, 'missing'), file]) {
+        await expect(
+          plugin['tool.execute.before'](
+            { tool: 'bash' },
+            { args: { command: 'echo safe', workdir } },
+          ),
+        ).rejects.toThrow('CC Safety Net failed closed');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('blocks sensitive non-bash tool path inputs', async () => {
@@ -93,6 +213,87 @@ describe('OpenCode plugin', () => {
     await expect(
       plugin['tool.execute.before']({ tool: 'read' }, { args: { path: 'README.md' } }),
     ).resolves.toBeUndefined();
+  });
+
+  test('keeps safe patch, edit, and search content inert', async () => {
+    await withSafetyNetHomeDir('safety-net-opencode-inert-content-', async (dir) => {
+      const plugin = await loadToolPlugin(dir);
+      const policyPath = getUserPolicyPath();
+      const patch = [
+        '*** Begin Patch',
+        '*** Update File: tests/example.test.ts',
+        '@@ -1 +1,3 @@',
+        '-const fixture = "safe";',
+        '+const fixture = "rm -rf ~";',
+        `+const policyExample = "${policyPath}";`,
+        '+const secretExample = ".env";',
+        '*** End Patch',
+      ].join('\n');
+
+      await expect(
+        plugin['tool.execute.before']({ tool: 'apply_patch' }, { args: { patchText: patch } }),
+      ).resolves.toBeUndefined();
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'edit' },
+          {
+            args: {
+              file_path: 'README.md',
+              old_string: 'safe',
+              new_string: `rm -rf ~\n${policyPath}\n.env`,
+            },
+          },
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'grep' },
+          { args: { pattern: `rm -rf ~|${policyPath}|.env`, path: 'README.md' } },
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  test('keeps policy protection on patch targets across every OpenCode patch field', async () => {
+    await withSafetyNetHomeDir('safety-net-opencode-patch-policy-', async (dir) => {
+      const plugin = await loadToolPlugin(dir);
+      const patch = [
+        '*** Begin Patch',
+        `*** Update File: ${getUserPolicyPath()}`,
+        '@@ -1 +1 @@',
+        '-{}',
+        '+{"version":1}',
+        '*** End Patch',
+      ].join('\n');
+
+      for (const field of ['command', 'patch', 'diff', 'input', 'patchText']) {
+        await expect(
+          plugin['tool.execute.before']({ tool: 'apply_patch' }, { args: { [field]: patch } }),
+        ).rejects.toThrow('Policy config is protected and you must not modify it.');
+      }
+    });
+  });
+
+  test('keeps conservative protection on unknown named tools without destructive analysis', async () => {
+    await withSafetyNetHomeDir('safety-net-opencode-unknown-tool-', async (dir) => {
+      const plugin = await loadToolPlugin(dir);
+
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'custom_runner' },
+          { args: { command: 'git reset --hard' } },
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        plugin['tool.execute.before']({ tool: 'custom_runner' }, { args: { command: 'cat .env' } }),
+      ).rejects.toThrow('Rule: secret.basename.env');
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'custom_runner' },
+          { args: { command: `cat package.json > ${getUserPolicyPath()}` } },
+        ),
+      ).rejects.toThrow('Policy config is protected and you must not modify it.');
+    });
   });
 
   test('blocks policy config mutations before loading config', async () => {
@@ -127,6 +328,44 @@ describe('OpenCode plugin', () => {
         plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: `cat ${policyPath}` } }),
       ).resolves.toBeUndefined();
     });
+  });
+
+  test('resolves policy and secret targets from a nested execution workdir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-nested-targets-'));
+    const nested = join(dir, 'nested');
+    const safetyNetHome = join(dir, 'home', '.cc-safety-net');
+    mkdirSync(nested);
+    try {
+      writeUserPolicy(safetyNetHome, {
+        version: 1,
+      });
+      await withEnv({ HOME: join(dir, 'home') }, () =>
+        withSafetyNetHome(safetyNetHome, async () => {
+          const plugin = await loadToolPlugin(dir);
+
+          await expect(
+            plugin['tool.execute.before'](
+              { tool: 'Write' },
+              {
+                args: {
+                  file_path: '../home/.cc-safety-net/policy.json',
+                  content: '{}',
+                  workdir: 'nested',
+                },
+              },
+            ),
+          ).rejects.toThrow('Policy config is protected and you must not modify it.');
+          await expect(
+            plugin['tool.execute.before'](
+              { tool: 'read' },
+              { args: { path: '../home/.aws/config', workdir: 'nested' } },
+            ),
+          ).rejects.toThrow('Rule: secret.home.aws');
+        }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('honors user secret protection policy without weakening destructive blocking', async () => {
@@ -266,6 +505,45 @@ describe('OpenCode plugin', () => {
     }
   });
 
+  test('loads root rule configuration for commands in a nested execution workdir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-nested-config-'));
+    const nested = join(dir, 'nested');
+    mkdirSync(nested);
+    try {
+      await syncInitialGitRulebook(dir);
+      const plugin = await loadToolPlugin(dir);
+
+      writeUpdatedGitRulebook(dir);
+
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'bash' },
+          { args: { command: 'git status', workdir: 'nested' } },
+        ),
+      ).rejects.toThrow(updatedGitRule.reason);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('uses the execution workdir for linked-worktree analysis', async () => {
+    const fixture = createLinkedWorktreeFixture();
+    try {
+      const plugin = await loadToolPlugin(fixture.mainWorktree);
+
+      await withEnv({ CC_SAFETY_NET_WORKTREE: '1' }, async () => {
+        await expect(
+          plugin['tool.execute.before'](
+            { tool: 'bash' },
+            { args: { command: 'git reset --hard', workdir: fixture.linkedWorktree } },
+          ),
+        ).resolves.toBeUndefined();
+      });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   test('blocks configured transparent wrapper child command', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-plugin-'));
     try {
@@ -282,13 +560,48 @@ describe('OpenCode plugin', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('preserves the exact rule-sync repair command under fail-closed config', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-rule-sync-'));
+    try {
+      writeDefaultRulesConfig(join(dir, '.cc-safety-net/rules/rule.json'), ['project-rules']);
+      const plugin = await loadToolPlugin(dir);
+
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'bash' },
+          { args: { command: 'npx -y cc-safety-net rule sync' } },
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        plugin['tool.execute.before'](
+          { tool: 'bash' },
+          { args: { command: 'npx -y cc-safety-net rule sync && rm -rf /' } },
+        ),
+      ).rejects.toThrow('missing lockfile');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
-async function loadToolPlugin(directory: string, homeDir?: string): Promise<ToolPlugin> {
-  return (await CCSafetyNetPlugin({
+async function loadToolPlugin(
+  directory: string,
+  homeDir?: string,
+  shell?: unknown,
+): Promise<ToolPlugin> {
+  const plugin = (await CCSafetyNetPlugin({
     directory,
     homeDir,
   } as Parameters<typeof CCSafetyNetPlugin>[0])) as unknown as ToolPlugin;
+  await plugin.config(shell === undefined ? {} : { shell });
+  return plugin;
+}
+
+async function expectBashBlock(plugin: ToolPlugin, command: string, ruleId: string): Promise<void> {
+  await expect(
+    plugin['tool.execute.before']({ tool: 'bash' }, { args: { command } }),
+  ).rejects.toThrow(`Rule: ${ruleId}`);
 }
 
 function writeUserPolicy(safetyNetHome: string, policy: unknown): void {

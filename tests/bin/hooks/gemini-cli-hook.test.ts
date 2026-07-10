@@ -113,33 +113,39 @@ describe('Gemini CLI hook', () => {
   });
 
   describe('missing command', () => {
-    test('missing command in tool_input produces no output', async () => {
+    test('missing command in tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'BeforeTool',
         tool_name: 'run_shell_command',
         tool_input: {},
       };
 
-      await expectNoHookOutput(runGeminiHook, input);
+      expect(getHookDenyReason(await runGeminiHook(input), 'gemini-cli')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
 
-    test('null tool_input produces no output', async () => {
+    test('null tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'BeforeTool',
         tool_name: 'run_shell_command',
         tool_input: null,
       };
 
-      await expectNoHookOutput(runGeminiHook, input);
+      expect(getHookDenyReason(await runGeminiHook(input), 'gemini-cli')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
 
-    test('missing tool_input produces no output', async () => {
+    test('missing tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'BeforeTool',
         tool_name: 'run_shell_command',
       };
 
-      await expectNoHookOutput(runGeminiHook, input);
+      expect(getHookDenyReason(await runGeminiHook(input), 'gemini-cli')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
   });
 });

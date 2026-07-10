@@ -611,6 +611,9 @@ var guiCommand = {
   examples: ["cc-safety-net gui", "cc-safety-net gui --no-open"]
 };
 
+// src/bin/hook/antigravity-cli.ts
+import { isAbsolute as isAbsolute12, relative as relative4 } from "node:path";
+
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
@@ -9199,6 +9202,34 @@ function analyzeCommand(command2, options2 = {}) {
   });
 }
 
+// src/core/cwd-containment.ts
+import { realpathSync as realpathSync8, statSync as statSync2 } from "node:fs";
+import { isAbsolute as isAbsolute9, relative as relative3, resolve as resolve9 } from "node:path";
+function resolveContainedCwd(requestedCwd, trustedRoots) {
+  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
+  if (!roots[0])
+    return;
+  const requested = canonicalDirectory(isAbsolute9(requestedCwd) ? requestedCwd : resolve9(roots[0], requestedCwd))[0];
+  if (!requested)
+    return;
+  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+}
+function firstTrustedRoot(trustedRoots) {
+  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
+}
+function canonicalDirectory(path) {
+  try {
+    const realPath = realpathSync8(path);
+    return statSync2(realPath).isDirectory() ? [realPath] : [];
+  } catch {
+    return [];
+  }
+}
+function isSameOrInside(path, root) {
+  const rel = relative3(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute9(rel);
+}
+
 // src/core/format.ts
 function formatBlockedMessage(input) {
   const { reason, command: command2, segment, toolName } = input;
@@ -9255,10 +9286,10 @@ function excerpt(text, maxLen) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname11, isAbsolute as isAbsolute9, join as join12, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { dirname as dirname11, isAbsolute as isAbsolute10, join as join12, normalize as normalize4, resolve as resolve10 } from "node:path";
 
 // src/core/path-canonicalization.ts
-import { realpathSync as realpathSync8 } from "node:fs";
+import { realpathSync as realpathSync9 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { basename as basename2, dirname as dirname10, join as join11 } from "node:path";
 var SUPPORTED_PATH_ENV_NAMES = new Set([
@@ -9284,7 +9315,7 @@ function resolveExistingPath(path) {
   if (!path)
     return path;
   try {
-    return realpathSync8(path);
+    return realpathSync9(path);
   } catch {
     const parent = dirname10(path);
     if (parent === path)
@@ -9301,6 +9332,48 @@ function getSupportedPathEnvironmentValue(name) {
 }
 
 // src/core/tool-input.ts
+var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
+var PATH_TOOL_NAMES = new Set([
+  "create",
+  "edit",
+  "listdir",
+  "listpermissions",
+  "ls",
+  "multiedit",
+  "multireplacefilecontent",
+  "notebookedit",
+  "read",
+  "readfile",
+  "readurlcontent",
+  "replacefilecontent",
+  "searchweb",
+  "strreplaceeditor",
+  "view",
+  "viewfile",
+  "write",
+  "writefile",
+  "writetofile"
+]);
+var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
+var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
+var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch", "patchtext"]);
+var UTF8_ENCODER = new TextEncoder;
+var UTF8_DECODER = new TextDecoder;
+function normalizeToolName(toolName) {
+  return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function getNonCommandToolInputKind(toolName) {
+  const normalized = normalizeToolName(toolName);
+  if (PATCH_TOOL_NAMES.has(normalized))
+    return "patch";
+  if (GREP_TOOL_NAMES.has(normalized))
+    return "grep";
+  if (GLOB_TOOL_NAMES.has(normalized))
+    return "glob";
+  if (PATH_TOOL_NAMES.has(normalized))
+    return "path";
+  return "unknown";
+}
 function getCommandFromToolInput(input) {
   if (!input || typeof input !== "object")
     return;
@@ -9324,23 +9397,267 @@ function extractPathLikeToolValues(input, pathLikeKeys) {
 function normalizeToolInputKey(key) {
   return key.replace(/-/g, "_").toLowerCase();
 }
+function extractPatchTargetsFromToolInput(input) {
+  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
+}
+function extractPatchTexts(input, allowString) {
+  if (typeof input === "string")
+    return allowString ? [input] : [];
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPatchTexts(value, allowString));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
+      return extractPatchTexts(value, true);
+    if (value && typeof value === "object")
+      return extractPatchTexts(value, false);
+    return [];
+  });
+}
+function extractPatchTargetsFromText(text) {
+  const targets = [];
+  const lines = text.split(/\r?\n/);
+  let inApplyPatch = false;
+  let inHunk = false;
+  let oldHunkLinesRemaining = null;
+  let newHunkLinesRemaining = null;
+  const resetHunk = () => {
+    inHunk = false;
+    oldHunkLinesRemaining = null;
+    newHunkLinesRemaining = null;
+  };
+  for (let index = 0;index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (line === "*** Begin Patch") {
+      inApplyPatch = true;
+      resetHunk();
+      continue;
+    }
+    if (line === "*** End Patch") {
+      inApplyPatch = false;
+      resetHunk();
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const counts = parseUnifiedHunkLineCounts(line);
+      inHunk = true;
+      oldHunkLinesRemaining = counts?.oldLines ?? null;
+      newHunkLinesRemaining = counts?.newLines ?? null;
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
+      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
+      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
+      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
+      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (line.startsWith("*** ")) {
+      resetHunk();
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (inHunk)
+      continue;
+    if (line.startsWith("diff --git ")) {
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const nextLine = lines[index + 1] ?? "";
+      if (!nextLine.startsWith("+++ "))
+        continue;
+      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), true), decodeGitMetadataTarget(nextLine.slice(4), true)));
+      index++;
+      continue;
+    }
+    if (!inApplyPatch)
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+  }
+  return targets;
+}
+function parseUnifiedHunkLineCounts(line) {
+  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+  if (!hunkHeader)
+    return null;
+  return {
+    oldLines: Number(hunkHeader[1] ?? 1),
+    newLines: Number(hunkHeader[2] ?? 1)
+  };
+}
+function extractPatchTargetsFromMetadataLine(line) {
+  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
+  if (applyPatchTarget?.[1])
+    return cleanPatchTarget(applyPatchTarget[1]);
+  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
+  if (moveTarget?.[1])
+    return cleanPatchTarget(moveTarget[1]);
+  if (line.startsWith("diff --git "))
+    return extractGitDiffTargets(line.slice(11));
+  const oldTarget = /^--- (.+)$/.exec(line);
+  if (oldTarget?.[1])
+    return cleanUnifiedDiffTarget(oldTarget[1]);
+  const newTarget = /^\+\+\+ (.+)$/.exec(line);
+  if (newTarget?.[1])
+    return cleanUnifiedDiffTarget(newTarget[1]);
+  const extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
+  if (extendedTarget?.[1])
+    return cleanExtendedGitTarget(extendedTarget[1]);
+  return [];
+}
+function extractGitDiffTargets(header) {
+  const fields = parseGitDiffFields(header);
+  if (fields.length === 2 && fields[0] && fields[1]) {
+    return cleanGitTargetPair(fields[0], fields[1]);
+  }
+  const matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
+    header.slice(0, separator.index).trim(),
+    header.slice((separator.index ?? 0) + separator[0].length).trim()
+  ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
+  return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
+}
+function parseGitDiffFields(header) {
+  const fields = [];
+  let index = 0;
+  while (index < header.length) {
+    while (/\s/.test(header[index] ?? ""))
+      index++;
+    if (index >= header.length)
+      break;
+    const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
+    if (!quote) {
+      const end = header.slice(index).search(/\s/);
+      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
+      index = end === -1 ? header.length : index + end;
+      continue;
+    }
+    const field = parseQuotedGitDiffField(header, index, quote);
+    if (!field)
+      return [];
+    fields.push(field.value);
+    index = field.end;
+  }
+  return fields;
+}
+function parseQuotedGitDiffField(header, start, quote) {
+  const bytes = [];
+  let index = start + 1;
+  while (index < header.length) {
+    const character = header[index] ?? "";
+    if (character === quote) {
+      return { value: UTF8_DECODER.decode(Uint8Array.from(bytes)), end: index + 1 };
+    }
+    if (character !== "\\" || quote === "'") {
+      bytes.push(...UTF8_ENCODER.encode(character));
+      index++;
+      continue;
+    }
+    const escaped = header.slice(index + 1);
+    const octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
+    if (octal) {
+      bytes.push(Number.parseInt(octal, 8));
+      index += octal.length + 1;
+      continue;
+    }
+    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? "")));
+    index += 2;
+  }
+  return null;
+}
+function decodeGitDiffEscape(character) {
+  return {
+    a: "\x07",
+    b: "\b",
+    f: "\f",
+    n: `
+`,
+    r: "\r",
+    t: "\t",
+    v: "\v"
+  }[character] ?? character;
+}
+function cleanGitDiffTarget(target) {
+  return cleanExactPatchTarget(normalizeGitDiffTarget(target));
+}
+function cleanGitTargetPair(oldTarget, newTarget) {
+  if (oldTarget === "/dev/null")
+    return cleanSingleGitTarget(newTarget);
+  if (newTarget === "/dev/null")
+    return cleanSingleGitTarget(oldTarget);
+  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/")) {
+    return [oldTarget.slice(2), newTarget.slice(2)].flatMap(cleanExactPatchTarget);
+  }
+  const commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
+  return [oldTarget, newTarget, ...commonRemainder ? [commonRemainder] : []].flatMap(cleanExactPatchTarget);
+}
+function cleanSingleGitTarget(target) {
+  const stripped = stripFirstGitPathComponent(target);
+  return [target, ...stripped ? [stripped] : []].flatMap(cleanExactPatchTarget);
+}
+function stripFirstGitPathComponent(target) {
+  const separator = target.indexOf("/");
+  return separator > 0 && separator < target.length - 1 ? target.slice(separator + 1) : null;
+}
+function getCommonGitPrefixRemainder(oldTarget, newTarget) {
+  const oldSeparator = oldTarget.indexOf("/");
+  const newSeparator = newTarget.indexOf("/");
+  if (oldSeparator < 1 || newSeparator < 1)
+    return null;
+  if (oldTarget.slice(0, oldSeparator) === newTarget.slice(0, newSeparator))
+    return null;
+  const oldRemainder = oldTarget.slice(oldSeparator + 1);
+  return oldRemainder === newTarget.slice(newSeparator + 1) ? oldRemainder : null;
+}
+function cleanUnifiedDiffTarget(target) {
+  return cleanGitDiffTarget(decodeGitMetadataTarget(target, true));
+}
+function cleanExtendedGitTarget(target) {
+  return cleanExactPatchTarget(decodeGitMetadataTarget(target, false));
+}
+function decodeGitMetadataTarget(target, allowTrailingMetadata) {
+  const trimmed = target.trim();
+  const quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : undefined;
+  if (quote) {
+    const field = parseQuotedGitDiffField(trimmed, 0, quote);
+    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === "")) {
+      return field.value;
+    }
+  }
+  return allowTrailingMetadata ? trimmed.split("\t", 1)[0]?.trim() ?? "" : trimmed;
+}
+function normalizeGitDiffTarget(target) {
+  return target.startsWith("a/") || target.startsWith("b/") ? target.slice(2) : target;
+}
+function cleanExactPatchTarget(target) {
+  return target === "" || target === "/dev/null" ? [] : [target];
+}
+function cleanPatchTarget(target) {
+  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  return path === "" || path === "/dev/null" ? [] : [path];
+}
 
 // src/core/policy-protection.ts
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
 var READ_ONLY_TOOLS = new Set([
-  "find_by_name",
+  "findbyname",
   "glob",
   "grep",
-  "grep_search",
-  "list_dir",
-  "list_permissions",
+  "grepsearch",
+  "listdir",
+  "listpermissions",
   "ls",
   "read",
-  "read_url_content",
   "readfile",
-  "read_file",
-  "search_web",
-  "view_file"
+  "readurlcontent",
+  "searchweb",
+  "view",
+  "viewfile"
 ]);
 var PATH_LIKE_KEYS = new Set([
   "absolutepath",
@@ -9349,9 +9666,11 @@ var PATH_LIKE_KEYS = new Set([
   "file",
   "file_path",
   "filepath",
+  "notebook_path",
   "path",
   "searchdirectory",
   "search_directory",
+  "searchpath",
   "targetfile",
   "target_file"
 ]);
@@ -9393,44 +9712,60 @@ var CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
   ["perl", new Set(["e"])]
 ]);
 var POLICY_ENV_PATH_NAMES = new Set(["CC_SAFETY_NET_HOME"]);
-var SHELL_COMMAND_TOOLS = new Set([
-  "bash",
-  "powershell",
-  "runcommand",
-  "runshellcommand",
-  "shell"
-]);
 var SHELL_ENV_PROXY = new Proxy({}, {
   get: (_, name) => ["$", "{", String(name), "}"].join("")
 });
-function findPolicyConfigMutationTargetInToolInput(toolName, input, cwd = process.cwd()) {
+function findPolicyConfigMutationTargetInToolInput(toolName, input, route, context) {
+  for (const configCwd of new Set([context.configCwd, ...context.policyConfigCwds ?? []])) {
+    const target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
+      configCwd,
+      executionCwd: context.executionCwd
+    });
+    if (target)
+      return target;
+  }
+  return null;
+}
+function findPolicyConfigMutationTargetForContext(toolName, input, route, context) {
+  if (route.kind === "patch") {
+    return findPolicyConfigMutationTargetInPaths([
+      ...extractPathLikeToolValues(input, PATH_LIKE_KEYS),
+      ...extractPatchTargetsFromToolInput(input)
+    ], false, context);
+  }
   const command2 = getCommandFromToolInput(input);
-  const commandTarget = command2 ? findPolicyConfigMutationTargetInCommand(command2, cwd) : null;
-  if (commandTarget)
-    return commandTarget;
-  if (command2 && isShellCommandTool(toolName))
-    return null;
-  const target = extractPathLikeToolValues(input, PATH_LIKE_KEYS).find((value) => isPolicyConfigPath(value, cwd));
+  if (route.kind === "command") {
+    return command2 ? findPolicyConfigMutationTargetInCommand(command2, context) : null;
+  }
+  if (route.kind === "unknown" && command2) {
+    const commandTarget = findPolicyConfigMutationTargetInCommand(command2, context);
+    if (commandTarget)
+      return commandTarget;
+  }
+  return findPolicyConfigMutationTargetInPaths(extractPathLikeToolValues(input, PATH_LIKE_KEYS), route.kind === "grep" || route.kind === "glob" || isReadOnlyTool(toolName), context);
+}
+function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
+  const target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
   if (!target)
     return null;
-  return isReadOnlyTool(toolName) ? null : { target };
+  return readOnly ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new Map) {
+function findPolicyConfigMutationTargetInCommand(command2, context, variables = new Map) {
   if (hasUnclosedQuotes(command2)) {
-    return findPolicyConfigTargetInText(command2, cwd);
+    return findPolicyConfigTargetInText(command2, context);
   }
   let tokens;
   try {
     tokens = $parse(command2.replace(/\n/g, " ; "), SHELL_ENV_PROXY);
   } catch {
-    return findPolicyConfigTargetInText(command2, cwd);
+    return findPolicyConfigTargetInText(command2, context);
   }
-  let state = { cwd, variables };
+  let state = { cwd: context.executionCwd, variables };
   let segment = [];
   for (let i = 0;i < tokens.length; i++) {
     const token = tokens[i];
     if (isOperator2(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, state);
+      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
       if (target)
         return target;
       state = applyShellState(segment, state);
@@ -9440,7 +9775,7 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
     if (isRedirectOp(token)) {
       const targetIndex = getWriteRedirectTargetIndex(tokens, i);
       const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
-      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), state.cwd)) {
+      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd)) {
         return { target: formatShellPolicyTarget(target) };
       }
       i = targetIndex ?? i + 1;
@@ -9450,23 +9785,23 @@ function findPolicyConfigMutationTargetInCommand(command2, cwd, variables = new 
     if (tokenText !== null)
       segment.push(tokenText);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
 }
-function findUnsafePolicyConfigSegmentTarget(segment, state) {
+function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state);
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
   if (scriptTarget)
     return scriptTarget;
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state);
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
   if (sedWriteTarget)
     return sedWriteTarget;
-  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, state.cwd));
+  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
   if (!target)
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
-function findScriptArgumentPolicyConfigTarget(segment, state) {
+function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
@@ -9480,20 +9815,20 @@ function findScriptArgumentPolicyConfigTarget(segment, state) {
   if (!script)
     return null;
   if (SHELL_SCRIPT_COMMANDS.has(command2)) {
-    return findPolicyConfigMutationTargetInCommand(script, state.cwd, state.variables);
+    return findPolicyConfigMutationTargetInCommand(script, { configCwd, executionCwd: state.cwd }, state.variables);
   }
   const target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
     ...extractConstructedPolicyPathCandidates(script)
-  ]).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
+  ]).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
   return target ? { target } : null;
 }
-function findSedScriptWritePolicyConfigTarget(segment, state) {
+function findSedScriptWritePolicyConfigTarget(segment, state, configCwd) {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
     return null;
-  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, state.cwd));
+  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
   return target ? { target } : null;
 }
 function applyShellState(segment, state) {
@@ -9578,17 +9913,11 @@ function isScriptArgumentOption(command2, token) {
   return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? false;
 }
 function isReadOnlyTool(toolName) {
-  return READ_ONLY_TOOLS.has(toolName.toLowerCase());
+  return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
-function isShellCommandTool(toolName) {
-  return SHELL_COMMAND_TOOLS.has(normalizeToolName(toolName));
-}
-function normalizeToolName(toolName) {
-  return toolName.replace(/[-_\s]/g, "").toLowerCase();
-}
-function isPolicyConfigPath(target, cwd) {
-  const normalized = normalizeCandidatePath(target, cwd).toLowerCase();
-  return getPolicyConfigProtectedPaths(cwd).some((path) => normalized === normalizeCandidatePath(path, cwd).toLowerCase());
+function isPolicyConfigPath(target, configCwd, executionCwd) {
+  const normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
+  return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd).toLowerCase());
 }
 function getPolicyConfigProtectedPaths(cwd) {
   const paths = getPolicyPaths({ cwd });
@@ -9616,8 +9945,8 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     })
   ];
 }
-function findPolicyConfigTargetInText(text, cwd) {
-  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, cwd));
+function findPolicyConfigTargetInText(text, context) {
+  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd));
   return target ? { target } : null;
 }
 function formatShellPolicyTarget(target) {
@@ -9648,8 +9977,8 @@ function normalizeCandidatePath(target, cwd) {
   const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize4(isAbsolute9(expanded) ? expanded : resolve9(cwd, expanded))).replace(/\\/g, "/");
+  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute10(expanded) ? expanded : resolve10(cwd, expanded))).replace(/\\/g, "/");
 }
 function isOperator2(token) {
   const op = getParseOp(token);
@@ -9671,7 +10000,7 @@ function getParseOp(token) {
 
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute10, resolve as resolve10 } from "node:path";
+import { isAbsolute as isAbsolute11, resolve as resolve11 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
@@ -9750,30 +10079,12 @@ var PATH_TARGET_KEYS = new Set([
   "path",
   "searchdirectory",
   "search_directory",
+  "searchpath",
   "targetfile",
   "target_file"
 ]);
 var GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob"]);
 var GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob", "pattern"]);
-var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch"]);
-var SHELL_TOOL_NAMES = new Set(["bash", "powershell", "runcommand", "runshellcommand", "shell"]);
-var PATH_TARGET_TOOL_NAMES = new Set([
-  "create",
-  "edit",
-  "multiedit",
-  "notebookedit",
-  "read",
-  "readfile",
-  "replacefilecontent",
-  "strreplaceeditor",
-  "view",
-  "viewfile",
-  "write",
-  "writefile"
-]);
-var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
-var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
-var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
 var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
 var PIPE_OPERATORS = new Set(["|", "|&"]);
 var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
@@ -9788,9 +10099,9 @@ var VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
   ["python", new Set(["-W", "-X"])],
   ["node", new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
-function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
+function findSensitivePathTarget(targets, cwd = process.cwd(), config, configCwd = cwd) {
   for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config)) {
+    if (isDeniedByPolicy(target, cwd, config, configCwd)) {
       return { target, ruleId: "secret.deny-path" };
     }
     const ruleId = isSensitivePath(target, cwd, config);
@@ -9800,156 +10111,31 @@ function findSensitivePathTarget(targets, cwd = process.cwd(), config) {
   }
   return null;
 }
-function findSensitiveTargetInToolInput(toolName, input, cwd = process.cwd(), config) {
-  return findSensitivePathTarget(extractToolPathTargets(toolName, input), cwd, config);
+function findSensitiveTargetInToolInput(input, route, executionCwd = process.cwd(), config, configCwd = executionCwd) {
+  return findSensitivePathTarget(extractToolPathTargets(input, route), executionCwd, config, configCwd);
 }
-function extractToolPathTargets(toolName, input) {
-  const normalized = normalizeToolName2(toolName);
-  if (SHELL_TOOL_NAMES.has(normalized)) {
+function extractToolPathTargets(input, route) {
+  if (route.kind === "command") {
     const command3 = getCommandFromToolInput(input);
     return command3 ? extractCommandPathTargets(command3) : [];
   }
-  if (GREP_TOOL_NAMES.has(normalized))
+  if (route.kind === "grep")
     return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
-  if (GLOB_TOOL_NAMES.has(normalized))
+  if (route.kind === "glob")
     return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (PATCH_TOOL_NAMES.has(normalized)) {
-    return [...extractPathLikeToolValues(input, PATH_TARGET_KEYS), ...extractPatchTargets(input)];
-  }
-  if (PATH_TARGET_TOOL_NAMES.has(normalized)) {
+  if (route.kind === "patch") {
     return [
       ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
-      ...normalized === "edit" ? extractPatchTargets(input) : []
+      ...extractPatchTargetsFromToolInput(input)
     ];
   }
+  if (route.kind === "path")
+    return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
   const command2 = getCommandFromToolInput(input);
   return [
     ...command2 ? extractCommandPathTargets(command2) : [],
     ...extractPathLikeToolValues(input, PATH_TARGET_KEYS)
   ];
-}
-function extractPatchTargets(input) {
-  return extractPatchTexts(input).flatMap(extractPatchTargetsFromText);
-}
-function extractPatchTexts(input) {
-  if (typeof input === "string")
-    return [input];
-  if (!input || typeof input !== "object")
-    return [];
-  if (Array.isArray(input))
-    return input.flatMap(extractPatchTexts);
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && PATCH_TEXT_KEYS.has(normalizeToolInputKey2(key)))
-      return [value];
-    if (value && typeof value === "object")
-      return extractPatchTexts(value);
-    return [];
-  });
-}
-function extractPatchTargetsFromText(text) {
-  const targets = [];
-  const lines = text.split(/\r?\n/);
-  let inHunk = false;
-  let inApplyPatch = false;
-  let oldHunkLinesRemaining = null;
-  let newHunkLinesRemaining = null;
-  const resetHunk = () => {
-    inHunk = false;
-    oldHunkLinesRemaining = null;
-    newHunkLinesRemaining = null;
-  };
-  for (let index = 0;index < lines.length; index++) {
-    const line = lines[index] ?? "";
-    if (line === "*** Begin Patch") {
-      inApplyPatch = true;
-      resetHunk();
-      continue;
-    }
-    if (line === "*** End Patch") {
-      inApplyPatch = false;
-      resetHunk();
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const hunkLines = parseUnifiedHunkLineCounts(line);
-      inHunk = true;
-      oldHunkLinesRemaining = hunkLines?.oldLines ?? null;
-      newHunkLinesRemaining = hunkLines?.newLines ?? null;
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-      continue;
-    }
-    if (line.startsWith("*** ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && line.startsWith("diff --git ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromLine(line, false));
-      continue;
-    }
-    if (!inApplyPatch && !inHunk && line.startsWith("--- ")) {
-      const nextLine = lines[index + 1] ?? "";
-      if (nextLine.startsWith("+++ ")) {
-        resetHunk();
-        targets.push(...extractPatchTargetsFromLine(line, false));
-        targets.push(...extractPatchTargetsFromLine(nextLine, false));
-        index++;
-        continue;
-      }
-    }
-    targets.push(...extractPatchTargetsFromLine(line, inHunk || inApplyPatch));
-    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
-      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
-      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
-      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
-      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-    }
-  }
-  return targets;
-}
-function parseUnifiedHunkLineCounts(line) {
-  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
-  if (!hunkHeader)
-    return null;
-  return {
-    oldLines: Number(hunkHeader[1] ?? 1),
-    newLines: Number(hunkHeader[2] ?? 1)
-  };
-}
-function extractPatchTargetsFromLine(line, inHunk) {
-  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
-  if (applyPatchTarget?.[1])
-    return cleanPatchTarget(applyPatchTarget[1]);
-  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
-  if (moveTarget?.[1])
-    return cleanPatchTarget(moveTarget[1]);
-  const gitDiffTarget = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-  if (gitDiffTarget?.[1] && gitDiffTarget[2]) {
-    return [gitDiffTarget[1], gitDiffTarget[2]].flatMap(cleanPatchTarget);
-  }
-  if (inHunk)
-    return [];
-  const oldTarget = /^--- (?:a\/)?(.+)$/.exec(line);
-  if (oldTarget?.[1])
-    return cleanPatchTarget(oldTarget[1]);
-  const newTarget = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-  if (newTarget?.[1])
-    return cleanPatchTarget(newTarget[1]);
-  return [];
-}
-function cleanPatchTarget(target) {
-  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
-  return path === "" || path === "/dev/null" ? [] : [path];
-}
-function normalizeToolName2(toolName) {
-  return toolName.replace(/[-_\s]/g, "").toLowerCase();
-}
-function normalizeToolInputKey2(key) {
-  return key.replace(/-/g, "_").toLowerCase();
 }
 function extractCommandPathTargets(command2) {
   if (hasUnclosedQuotes(command2)) {
@@ -10677,14 +10863,14 @@ function isSensitiveDirSegment(comparablePath, dirName) {
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
-function isDeniedByPolicy(target, cwd, config) {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? []);
+function isDeniedByPolicy(target, cwd, config, configCwd) {
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
 }
-function matchesPolicyPath(target, cwd, paths) {
+function matchesPolicyPath(target, cwd, paths, configCwd) {
   if (paths.length === 0)
     return false;
-  const normalized = comparable(normalizeCandidatePath2(target, cwd));
-  return paths.some((path) => comparable(normalizeCandidatePath2(path, cwd)) === normalized);
+  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
+  return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized);
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
   const parts = comparablePath.split("/");
@@ -10728,15 +10914,24 @@ function normalizeCandidatePath2(target, cwd) {
     return normalized;
   }
   const expanded = expandHomePath(normalized, home);
-  const absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve10(cwd, expanded));
+  const absolute = isAbsolute11(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded));
   const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute10(expanded))
+    if (isAbsolute11(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
   const relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
+}
+function normalizeAbsoluteCandidatePath(target, cwd) {
+  const homeValue = process.env.HOME ?? homedir6();
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
+  const normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  if (!normalized)
+    return "";
+  const expanded = home ? expandHomePath(normalized, home) : normalized;
+  return normalizePathText(resolveExistingPath(isAbsolute11(expanded) ? expanded : resolve11(cwd, expanded)));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -10798,7 +10993,7 @@ async function readHookInput(outputDeny) {
   const inputText = Buffer.concat(chunks).toString("utf-8").trim();
   if (!inputText) {
     outputDeny("Missing hook input JSON.");
-    return null;
+    return;
   }
   return parseHookJson(inputText, outputDeny, "Failed to parse hook input JSON.");
 }
@@ -10807,8 +11002,24 @@ function parseHookJson(inputText, outputDeny, strictReason) {
     return JSON.parse(inputText);
   } catch {
     outputDeny(strictReason);
-    return null;
+    return;
   }
+}
+function getToolRoute(toolName, commandTools) {
+  const shell = commandTools.get(toolName);
+  return shell ? { kind: "command", shell } : { kind: getNonCommandToolInputKind(toolName) };
+}
+function resolveStandardHookContext(cwdInput, toolInput, toolName, outputDeny) {
+  const requestedCwd = cwdInput === undefined ? process.cwd() : cwdInput;
+  const cwd = typeof requestedCwd === "string" && requestedCwd.trim() !== "" ? firstTrustedRoot([requestedCwd]) : undefined;
+  if (cwd)
+    return { configCwd: cwd, executionCwd: cwd };
+  outputFailedClosed(outputDeny, toolInput, toolName, stringField(requestedCwd));
+  return null;
+}
+function outputFailedClosed(outputDeny, toolInput, toolName, segment) {
+  const command2 = getCommandFromToolInput(toolInput);
+  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, segment ?? command2, undefined, toolName, undefined, "stop_and_explain");
 }
 function analyzeHookCommand(command2, cwd, config, shell) {
   return analyzeCommand(command2, {
@@ -10817,17 +11028,17 @@ function analyzeHookCommand(command2, cwd, config, shell) {
     config: config ?? loadConfig(cwd, { repairLocalRulebooks: true })
   });
 }
-function handleSecretProtection(toolInput, cwd, config, sessionId, toolName, agent, outputDeny) {
+function handleSecretProtection(toolInput, route, configCwd, executionCwd, config, sessionId, toolName, agent, outputDeny) {
   if (config.secretProtection?.enabled === false) {
     return false;
   }
-  const match = findSensitiveTargetInToolInput(toolName, toolInput, cwd, config.secretProtection);
+  const match = findSensitiveTargetInToolInput(toolInput, route, executionCwd, config.secretProtection, configCwd);
   if (!match) {
     return false;
   }
   const command2 = getCommandFromToolInput(toolInput) ?? match.target;
   if (sessionId) {
-    writeAuditLog(sessionId, command2, match.target, REASON_SECRET_PROTECTION, cwd, {
+    writeAuditLog(sessionId, command2, match.target, REASON_SECRET_PROTECTION, executionCwd, {
       agent,
       ruleId: match.ruleId,
       intent: "hard_stop"
@@ -10864,71 +11075,81 @@ function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config, 
 }
 async function runHookAdapter(adapter) {
   const input = await readHookInput(adapter.outputDeny);
-  if (!input) {
+  if (input === undefined) {
+    return;
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    outputFailedClosed(adapter.outputDeny);
     return;
   }
   if (!adapter.isSupported(input)) {
     return;
   }
-  const cwdInput = adapter.getCwd(input, adapter.outputDeny);
-  if (cwdInput === null) {
+  const toolNameInput = adapter.getToolName(input);
+  if (typeof toolNameInput !== "string" || toolNameInput.trim() === "") {
+    outputFailedClosed(adapter.outputDeny);
     return;
   }
-  const cwd = cwdInput ?? process.cwd();
-  const toolInput = adapter.getToolInput(input, adapter.outputDeny);
-  const toolName = getToolName(input);
-  const policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInput, cwd);
+  const toolName = toolNameInput;
+  const toolInputResult = adapter.getToolInput(input, toolName, adapter.outputDeny);
+  if (!toolInputResult.ok)
+    return;
+  const context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
+  if (!context)
+    return;
+  let policyTarget;
+  try {
+    policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInputResult.input, toolInputResult.route, context);
+  } catch (error) {
+    if (envTruthy(ENV_FLAGS.debug)) {
+      console.error(`CC Safety Net debug: hook policy protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    }
+    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
+    return;
+  }
   if (policyTarget) {
-    const command3 = getCommandFromToolInput(toolInput) ?? policyTarget.target;
+    const command3 = getCommandFromToolInput(toolInputResult.input) ?? policyTarget.target;
     adapter.outputDeny(REASON_POLICY_CONFIG_PROTECTION, command3, policyTarget.target, false, toolName);
     return;
   }
   let config;
   try {
-    config = loadConfig(cwd, { repairLocalRulebooks: true });
+    config = loadConfig(context.configCwd, { repairLocalRulebooks: true });
   } catch (error) {
-    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(`CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3, undefined, undefined, undefined, "stop_and_explain");
+    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
     return;
   }
   let blockedBySecretProtection;
   try {
-    blockedBySecretProtection = handleSecretProtection(toolInput, cwd, config, adapter.getSessionId(input), toolName, adapter.agent, adapter.outputDeny);
+    blockedBySecretProtection = handleSecretProtection(toolInputResult.input, toolInputResult.route, context.configCwd, context.executionCwd, config, adapter.getSessionId(input), toolName, adapter.agent, adapter.outputDeny);
   } catch (error) {
-    const command3 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(`CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     }
-    adapter.outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command3, command3, undefined, undefined, undefined, "stop_and_explain");
+    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
     return;
   }
   if (blockedBySecretProtection) {
     return;
   }
-  const command2 = (adapter.getCommand ?? getCommandFromToolInput)(toolInput);
-  if (!command2) {
+  const command2 = getCommandFromToolInput(toolInputResult.input);
+  if (toolInputResult.route.kind !== "command") {
     if (config.failClosedReason) {
-      adapter.outputDeny(config.failClosedReason, undefined, undefined, undefined, toolName, undefined, "stop_and_explain");
+      adapter.outputDeny(config.failClosedReason, command2, command2, undefined, toolName, undefined, "stop_and_explain");
     }
     return;
   }
-  handleBlockedHookCommand(command2, cwd, adapter.getSessionId(input), adapter.outputDeny, config, adapter.agent, getShellKindForToolName(toolName));
-}
-function getToolName(input) {
-  if (!input || typeof input !== "object") {
-    return "";
+  if (!command2 || command2.trim() === "") {
+    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
+    return;
   }
-  const record = input;
-  return stringField(record.tool_name) ?? stringField(record.toolName) ?? stringField(record.toolCall?.name) ?? "";
+  handleBlockedHookCommand(command2, context.executionCwd, adapter.getSessionId(input), adapter.outputDeny, config, adapter.agent, toolInputResult.route.shell);
 }
 function stringField(value) {
   return typeof value === "string" ? value : undefined;
-}
-function getShellKindForToolName(toolName) {
-  return toolName.toLowerCase() === "powershell" ? "powershell" : undefined;
 }
 async function runConfiguredHookAdapter(adapter) {
   const outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent);
@@ -10936,42 +11157,29 @@ async function runConfiguredHookAdapter(adapter) {
     agent: adapter.agent,
     outputDeny,
     isSupported: adapter.isSupported,
+    getToolName: adapter.getToolName,
     getToolInput: adapter.getToolInput,
-    getCommand: adapter.getCommand,
-    getCwd: adapter.getCwd,
+    getContext: adapter.getContext,
     getSessionId: adapter.getSessionId
   });
 }
 
-// src/core/cwd-containment.ts
-import { realpathSync as realpathSync9, statSync as statSync2 } from "node:fs";
-import { isAbsolute as isAbsolute11, relative as relative3, resolve as resolve11 } from "node:path";
-function resolveContainedCwd(requestedCwd, trustedRoots) {
-  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
-  if (!roots[0])
-    return;
-  const requested = canonicalDirectory(isAbsolute11(requestedCwd) ? requestedCwd : resolve11(roots[0], requestedCwd))[0];
-  if (!requested)
-    return;
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
-}
-function firstTrustedRoot(trustedRoots) {
-  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
-}
-function canonicalDirectory(path) {
-  try {
-    const realPath = realpathSync9(path);
-    return statSync2(realPath).isDirectory() ? [realPath] : [];
-  } catch {
-    return [];
-  }
-}
-function isSameOrInside(path, root) {
-  const rel = relative3(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute11(rel);
-}
-
 // src/bin/hook/antigravity-cli.ts
+var ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map([["run_command", "auto"]]);
+var ANTIGRAVITY_PATH_KEYS = new Set([
+  "absolutepath",
+  "directorypath",
+  "file_path",
+  "filepath",
+  "path",
+  "searchdirectory",
+  "searchpath",
+  "target_file",
+  "targetfile"
+]);
+function getAntigravityCliToolRoute(toolName) {
+  return getToolRoute(toolName, ANTIGRAVITY_CLI_COMMAND_TOOLS);
+}
 async function runAntigravityCliHook() {
   await runConfiguredHookAdapter({
     agent: "antigravity-cli",
@@ -10979,37 +11187,103 @@ async function runAntigravityCliHook() {
       decision: "deny",
       reason: message
     }),
-    isSupported: (input) => typeof input.toolCall?.name === "string",
-    getToolInput: (input) => normalizeAntigravityToolArgs(input.toolCall?.args),
-    getCwd: resolveAntigravityCwd,
+    isSupported: () => true,
+    getToolName: (input) => input.toolCall?.name,
+    getToolInput: (input, toolName) => ({
+      ok: true,
+      input: normalizeAntigravityToolArgs(input.toolCall?.args, toolName),
+      route: getAntigravityCliToolRoute(toolName)
+    }),
+    getContext: resolveAntigravityContext,
     getSessionId: (input) => input.conversationId
   });
 }
-function resolveAntigravityCwd(input, outputDeny) {
+function resolveAntigravityContext(input, toolInput, toolName, outputDeny) {
   const trustedRoots = usableWorkspacePaths(input);
-  const cwd = input.toolCall?.args?.Cwd;
-  if (typeof cwd !== "string") {
-    return firstTrustedRoot(trustedRoots);
+  const configRoots = trustedRoots.flatMap((root) => {
+    const canonicalRoot = firstTrustedRoot([root]);
+    return canonicalRoot ? [canonicalRoot] : [];
+  });
+  if (!configRoots[0]) {
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    return null;
   }
-  const containedCwd = resolveContainedCwd(cwd, trustedRoots);
-  if (containedCwd)
-    return containedCwd;
-  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof input.toolCall?.args?.CommandLine === "string" ? input.toolCall.args.CommandLine : undefined, cwd, undefined, input.toolCall?.name, undefined, "stop_and_explain");
+  if (toolName !== "run_command") {
+    const targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
+    if (!targetRoot) {
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+      return null;
+    }
+    return {
+      configCwd: targetRoot,
+      executionCwd: targetRoot,
+      policyConfigCwds: configRoots
+    };
+  }
+  const args = input.toolCall?.args;
+  if (!args || !Object.hasOwn(args, "Cwd")) {
+    return {
+      configCwd: configRoots[0],
+      executionCwd: configRoots[0],
+      policyConfigCwds: configRoots
+    };
+  }
+  const cwd = args.Cwd;
+  if (typeof cwd !== "string" || cwd.trim() === "") {
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    return null;
+  }
+  const containedCwd = resolveContainedCwd(cwd, configRoots);
+  if (containedCwd) {
+    const configCwd = mostSpecificContainingRoot(containedCwd, configRoots);
+    if (!configCwd) {
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
+      return null;
+    }
+    return { configCwd, executionCwd: containedCwd, policyConfigCwds: configRoots };
+  }
+  outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
   return null;
 }
-function usableWorkspacePaths(input) {
-  const workspacePaths = input.workspacePaths?.filter((path) => typeof path === "string") ?? [];
-  return firstTrustedRoot(workspacePaths) ? workspacePaths : [process.cwd()];
+function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
+  const route = getAntigravityCliToolRoute(toolName);
+  const targets = [
+    ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
+    ...route.kind === "patch" ? extractPatchTargetsFromToolInput(toolInput) : []
+  ].filter(isAbsolute12);
+  const targetRoots = new Set(targets.flatMap((target) => {
+    const root = mostSpecificContainingRoot(resolveExistingPath(target), configRoots);
+    return root ? [root] : [];
+  }));
+  if (targetRoots.size > 1)
+    return null;
+  return [...targetRoots][0] ?? configRoots[0] ?? null;
 }
-function normalizeAntigravityToolArgs(args) {
+function mostSpecificContainingRoot(path, roots) {
+  return roots.filter((root) => isSameOrInside2(path, root)).reduce((best, root) => root.length > best.length ? root : best, "") || null;
+}
+function isSameOrInside2(path, root) {
+  const rel = relative4(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute12(rel);
+}
+function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
+  const command2 = toolInput && typeof toolInput === "object" ? toolInput.command : undefined;
+  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof command2 === "string" ? command2 : undefined, cwd, undefined, toolName, undefined, "stop_and_explain");
+}
+function usableWorkspacePaths(input) {
+  if (input.workspacePaths === undefined)
+    return [process.cwd()];
+  const workspacePaths = Array.isArray(input.workspacePaths) ? input.workspacePaths.filter((path) => typeof path === "string" && path.trim() !== "") : [];
+  return firstTrustedRoot(workspacePaths) ? workspacePaths : [];
+}
+function normalizeAntigravityToolArgs(args, toolName) {
   if (!args)
     return;
-  if (typeof args.CommandLine !== "string" || args.CommandLine === "") {
+  if (toolName !== "run_command")
     return args;
-  }
   return {
     ...args,
-    command: args.CommandLine
+    command: typeof args.CommandLine === "string" && args.CommandLine !== "" ? args.CommandLine : undefined
   };
 }
 
@@ -11019,6 +11293,13 @@ var GEMINI_CLI_HOOK_EVENT = "BeforeTool";
 var KIMI_CODE_HOOK_EVENT = "PreToolUse";
 
 // src/bin/hook/claude-code.ts
+var CLAUDE_CODE_COMMAND_TOOLS = new Map([
+  ["Bash", "posix"],
+  ["PowerShell", "powershell"]
+]);
+function getClaudeCodeToolRoute(toolName) {
+  return getToolRoute(toolName, CLAUDE_CODE_COMMAND_TOOLS);
+}
 async function runClaudeCodeHook() {
   await runConfiguredHookAdapter({
     agent: "claude-code",
@@ -11030,13 +11311,25 @@ async function runClaudeCodeHook() {
       }
     }),
     isSupported: (input) => input.hook_event_name === CLAUDE_CODE_HOOK_EVENT,
-    getToolInput: (input) => input.tool_input,
-    getCwd: (input) => input.cwd,
+    getToolName: (input) => input.tool_name,
+    getToolInput: (input, toolName) => ({
+      ok: true,
+      input: input.tool_input,
+      route: getClaudeCodeToolRoute(toolName)
+    }),
+    getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
     getSessionId: (input) => input.session_id
   });
 }
 
 // src/bin/hook/copilot-cli.ts
+var COPILOT_CLI_COMMAND_TOOLS = new Map([
+  ["bash", "auto"],
+  ["Bash", "auto"]
+]);
+function getCopilotCliToolRoute(toolName) {
+  return getToolRoute(toolName, COPILOT_CLI_COMMAND_TOOLS);
+}
 async function runCopilotCliHook() {
   await runConfiguredHookAdapter({
     agent: "copilot-cli",
@@ -11045,13 +11338,27 @@ async function runCopilotCliHook() {
       permissionDecisionReason: message
     }),
     isSupported: () => true,
-    getToolInput: (input, outputDeny) => parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON."),
-    getCwd: (input) => input.cwd,
+    getToolName: (input) => input.toolName,
+    getToolInput: (input, toolName, outputDeny) => {
+      if (typeof input.toolArgs !== "string") {
+        outputDeny("Failed to parse toolArgs JSON.");
+        return { ok: false };
+      }
+      const toolInput = parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.");
+      if (toolInput === undefined)
+        return { ok: false };
+      return { ok: true, input: toolInput, route: getCopilotCliToolRoute(toolName) };
+    },
+    getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
     getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`
   });
 }
 
 // src/bin/hook/gemini-cli.ts
+var GEMINI_CLI_COMMAND_TOOLS = new Map([["run_shell_command", "auto"]]);
+function getGeminiCliToolRoute(toolName) {
+  return getToolRoute(toolName, GEMINI_CLI_COMMAND_TOOLS);
+}
 async function runGeminiCLIHook() {
   await runConfiguredHookAdapter({
     agent: "gemini-cli",
@@ -11061,13 +11368,22 @@ async function runGeminiCLIHook() {
       systemMessage: message
     }),
     isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT,
-    getToolInput: (input) => input.tool_input,
-    getCwd: (input) => input.cwd,
+    getToolName: (input) => input.tool_name,
+    getToolInput: (input, toolName) => ({
+      ok: true,
+      input: input.tool_input,
+      route: getGeminiCliToolRoute(toolName)
+    }),
+    getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
     getSessionId: (input) => input.session_id
   });
 }
 
 // src/bin/hook/kimi-code.ts
+var KIMI_CODE_COMMAND_TOOLS = new Map([["Bash", "posix"]]);
+function getKimiCodeToolRoute(toolName) {
+  return getToolRoute(toolName, KIMI_CODE_COMMAND_TOOLS);
+}
 async function runKimiCodeHook() {
   await runConfiguredHookAdapter({
     agent: "kimi-code",
@@ -11079,8 +11395,13 @@ async function runKimiCodeHook() {
       }
     }),
     isSupported: (input) => input.hook_event_name === KIMI_CODE_HOOK_EVENT,
-    getToolInput: (input) => input.tool_input,
-    getCwd: (input) => input.cwd,
+    getToolName: (input) => input.tool_name,
+    getToolInput: (input, toolName) => ({
+      ok: true,
+      input: input.tool_input,
+      route: getKimiCodeToolRoute(toolName)
+    }),
+    getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
     getSessionId: (input) => input.session_id
   });
 }

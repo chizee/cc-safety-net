@@ -240,6 +240,22 @@ describe('Claude Code hook', () => {
       });
     });
 
+    test('allows safe apply_patch context containing destructive command text', async () => {
+      await expectNoHookOutput(runClaudeCodeHook, {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'apply_patch',
+        tool_input: {
+          command: [
+            '*** Begin Patch',
+            '*** Update File: tests/example.test.ts',
+            '@@',
+            ' rm -rf ~',
+            '*** End Patch',
+          ].join('\n'),
+        },
+      });
+    });
+
     test('secret protection ignores sensitive-looking edit content and grep patterns', async () => {
       const envFile = ['.', 'env'].join('');
       const keyName = ['id', 'rsa'].join('_');
@@ -447,33 +463,39 @@ describe('Claude Code hook', () => {
   });
 
   describe('missing command', () => {
-    test('missing command in tool_input produces no output', async () => {
+    test('missing command in tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'Bash',
         tool_input: {},
       };
 
-      await expectNoHookOutput(runClaudeCodeHook, input);
+      expect(getHookDenyReason(await runClaudeCodeHook(input), 'claude-code')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
 
-    test('null tool_input produces no output', async () => {
+    test('null tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'Bash',
         tool_input: null,
       };
 
-      await expectNoHookOutput(runClaudeCodeHook, input);
+      expect(getHookDenyReason(await runClaudeCodeHook(input), 'claude-code')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
 
-    test('missing tool_input produces no output', async () => {
+    test('missing tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'Bash',
       };
 
-      await expectNoHookOutput(runClaudeCodeHook, input);
+      expect(getHookDenyReason(await runClaudeCodeHook(input), 'claude-code')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
   });
 });

@@ -86,14 +86,16 @@ describe('Kimi Code hook', () => {
   });
 
   describe('missing command', () => {
-    test('missing command in tool_input produces no output', async () => {
+    test('missing command in tool_input fails closed', async () => {
       const input = {
         hook_event_name: 'PreToolUse',
         tool_name: 'Bash',
         tool_input: {},
       };
 
-      await expectNoHookOutput(runKimiHook, input);
+      expect(getHookDenyReason(await runKimiHook(input), 'kimi-code')).toContain(
+        'CC Safety Net failed closed',
+      );
     });
   });
 });

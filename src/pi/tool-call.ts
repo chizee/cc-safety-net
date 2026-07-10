@@ -9,11 +9,14 @@ import {
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
+import { findSensitiveTargetInToolInput, REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import {
-  findSensitiveTargetInToolInput,
+  type CommandToolKind,
   getCommandFromToolInput,
-  REASON_SECRET_PROTECTION,
-} from '@/core/secret-protection';
+  getNonCommandToolInputKind,
+  type ToolCallContext,
+  type ToolRoute,
+} from '@/core/tool-input';
 import type { BlockIntent } from '@/types';
 
 type PiApi = {
@@ -40,36 +43,33 @@ type PiToolCallEvent = {
   input?: Record<string, unknown>;
 };
 
-type PiShellToolAdapter = {
+type PiCommandToolAdapter = {
   commandField: string;
   cwdField?: string;
+  shell: CommandToolKind;
 };
 
-const PI_SHELL_TOOL_ADAPTERS: Partial<Record<string, PiShellToolAdapter>> = {
-  bash: {
-    commandField: 'command',
-  },
-  Shell: {
-    commandField: 'command',
-    cwdField: 'working_directory',
-  },
-};
+const PI_COMMAND_TOOL_ADAPTERS = new Map<string, PiCommandToolAdapter>([
+  ['bash', { commandField: 'command', shell: 'posix' }],
+  [
+    'Shell',
+    {
+      commandField: 'command',
+      cwdField: 'working_directory',
+      shell: 'auto',
+    },
+  ],
+]);
 
-type PiShellToolCall =
-  | {
-      toolName: string;
-      input: Record<string, unknown>;
-      cwd: string;
-      command: string;
-    }
-  | {
-      malformed: true;
-    };
+type MalformedPiToolCall = {
+  malformed: true;
+};
 
 type PiToolCall = {
   toolName: string;
   input: Record<string, unknown>;
-  cwd: string;
+  context: ToolCallContext;
+  route: ToolRoute;
   command?: string;
 };
 
@@ -93,20 +93,23 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
     );
   }
 
-  const cwd = toolCall.cwd;
-  const policyTarget = findPolicyConfigMutationTargetInToolInput(
-    toolCall.toolName,
-    toolCall.input,
-    cwd,
-  );
-  if (policyTarget) {
-    const command = getCommandFromToolInput(toolCall.input) ?? policyTarget.target;
-    return blockPiToolCall(REASON_POLICY_CONFIG_PROTECTION, command, policyTarget.target, false);
-  }
-
-  let result: ReturnType<typeof analyzeCommand>;
   try {
-    const config = loadConfig(cwd, {
+    const policyTarget = findPolicyConfigMutationTargetInToolInput(
+      toolCall.toolName,
+      toolCall.input,
+      toolCall.route,
+      toolCall.context,
+    );
+    if (policyTarget) {
+      return blockPiToolCall(
+        REASON_POLICY_CONFIG_PROTECTION,
+        toolCall.command ?? getCommandFromToolInput(toolCall.input) ?? policyTarget.target,
+        policyTarget.target,
+        false,
+      );
+    }
+
+    const config = loadConfig(toolCall.context.configCwd, {
       repairLocalRulebooks: true,
       ...ctx.safetyNetConfigOptions,
     });
@@ -114,13 +117,15 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
       config.secretProtection?.enabled === false
         ? null
         : findSensitiveTargetInToolInput(
-            toolCall.toolName,
             toolCall.input,
-            cwd,
+            toolCall.route,
+            toolCall.context.executionCwd,
             config.secretProtection,
+            toolCall.context.configCwd,
           );
     if (secretTarget) {
-      const secretCommand = getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
+      const secretCommand =
+        toolCall.command ?? getCommandFromToolInput(toolCall.input) ?? secretTarget.target;
       const sessionId = ctx.sessionManager.getSessionFile();
       if (sessionId) {
         writeAuditLog(
@@ -128,7 +133,7 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
           secretCommand,
           secretTarget.target,
           REASON_SECRET_PROTECTION,
-          cwd,
+          toolCall.context.executionCwd,
           {
             agent: 'pi',
             ruleId: secretTarget.ruleId,
@@ -146,7 +151,7 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
       );
     }
 
-    if (!toolCall.command) {
+    if (toolCall.route.kind !== 'command' || !toolCall.command) {
       return config.failClosedReason
         ? blockPiToolCall(
             config.failClosedReason,
@@ -160,14 +165,57 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
     }
 
     const modes = getCCSafetyNetEnvModes(config);
-    result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(toolCall.command, {
-      cwd,
+    const result = (ctx.safetyNetAnalyzeCommand ?? analyzeCommand)(toolCall.command, {
+      cwd: toolCall.context.executionCwd,
+      shell: toolCall.route.shell,
       config,
       strict: modes.strict,
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
       worktreeMode: modes.worktreeMode,
     });
+
+    if (!result) {
+      const sessionId = ctx.sessionManager.getSessionFile();
+      if (sessionId && envTruthy(ENV_FLAGS.debug)) {
+        writeAuditLog(
+          sessionId,
+          toolCall.command,
+          toolCall.command,
+          'allowed',
+          toolCall.context.executionCwd,
+          {
+            decision: 'allow',
+            agent: 'pi',
+          },
+        );
+      }
+      return undefined;
+    }
+
+    const sessionId = ctx.sessionManager.getSessionFile();
+    if (sessionId) {
+      writeAuditLog(
+        sessionId,
+        toolCall.command,
+        result.segment,
+        result.reason,
+        toolCall.context.executionCwd,
+        {
+          agent: 'pi',
+          ruleId: result.ruleId,
+          intent: result.intent,
+        },
+      );
+    }
+    return blockPiToolCall(
+      result.reason,
+      toolCall.command,
+      result.segment,
+      result.manualPermissionAdvice,
+      result.ruleId,
+      result.intent,
+    );
   } catch (error) {
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(
@@ -184,64 +232,58 @@ export function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiTool
       'stop_and_explain',
     );
   }
-
-  const command = toolCall.command;
-  if (!command) return undefined;
-
-  if (!result) {
-    const sessionId = ctx.sessionManager.getSessionFile();
-    if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command, command, 'allowed', cwd, {
-        decision: 'allow',
-        agent: 'pi',
-      });
-    }
-    return undefined;
-  }
-
-  const sessionId = ctx.sessionManager.getSessionFile();
-  if (sessionId) {
-    writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
-      agent: 'pi',
-      ruleId: result.ruleId,
-      intent: result.intent,
-    });
-  }
-  return blockPiToolCall(
-    result.reason,
-    command,
-    result.segment,
-    result.manualPermissionAdvice,
-    result.ruleId,
-    result.intent,
-  );
 }
 
 function getPiToolCall(
   event: unknown,
   ctx: PiToolCallContext,
-): PiShellToolCall | PiToolCall | undefined {
+): MalformedPiToolCall | PiToolCall | undefined {
   if (!event || typeof event !== 'object') return undefined;
   const toolCall = event as PiToolCallEvent;
-  if (typeof toolCall.toolName !== 'string') return undefined;
+  if (toolCall.type !== undefined && toolCall.type !== 'tool_call') return undefined;
+  if (typeof toolCall.toolName !== 'string' || toolCall.toolName.trim() === '') {
+    return { malformed: true };
+  }
 
-  const adapter = PI_SHELL_TOOL_ADAPTERS[toolCall.toolName];
+  const validContextCwd =
+    typeof ctx.cwd === 'string' && ctx.cwd.trim() !== ''
+      ? resolveContainedCwd('.', [ctx.cwd])
+      : undefined;
+  if (!validContextCwd) return { malformed: true };
+
+  const adapter = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
   if (!toolCall.input || typeof toolCall.input !== 'object') {
     return adapter ? { malformed: true } : undefined;
   }
 
   if (!adapter) {
-    return { toolName: toolCall.toolName, input: toolCall.input, cwd: ctx.cwd };
+    return {
+      toolName: toolCall.toolName,
+      input: toolCall.input,
+      context: { configCwd: ctx.cwd, executionCwd: ctx.cwd },
+      route: { kind: getNonCommandToolInputKind(toolCall.toolName) },
+    };
   }
 
   const command = toolCall.input[adapter.commandField];
-  if (typeof command !== 'string') return { malformed: true };
+  if (typeof command !== 'string' || command.trim() === '') return { malformed: true };
 
-  const cwdInput = adapter.cwdField ? toolCall.input[adapter.cwdField] : undefined;
-  const cwd = typeof cwdInput === 'string' ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
-  if (!cwd) return { malformed: true };
+  const hasCwdInput = adapter.cwdField && Object.hasOwn(toolCall.input, adapter.cwdField);
+  const cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : undefined;
+  if (hasCwdInput && (typeof cwdInput !== 'string' || cwdInput.trim() === '')) {
+    return { malformed: true };
+  }
+  const executionCwd =
+    typeof cwdInput === 'string' ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
+  if (!executionCwd) return { malformed: true };
 
-  return { toolName: toolCall.toolName, input: toolCall.input, cwd, command };
+  return {
+    toolName: toolCall.toolName,
+    input: toolCall.input,
+    context: { configCwd: ctx.cwd, executionCwd },
+    route: { kind: 'command', shell: adapter.shell },
+    command,
+  };
 }
 
 function blockPiToolCall(
