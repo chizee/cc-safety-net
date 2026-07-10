@@ -6,6 +6,24 @@ Security fixes are provided for the latest published release of `cc-safety-net`.
 
 If you are using an older version, please upgrade to the latest version before reporting an issue unless the vulnerability also affects the latest release.
 
+## Security Model and Invariants
+
+CC Safety Net is a best-effort, static pre-execution policy gate for supported coding-agent tool calls. It is not an operating-system sandbox, a privilege boundary, or protection for commands that bypass an installed integration. An agent and the command text it supplies are untrusted; the user's policy, pinned rulebook state, configured roots, and adapter-established execution context are trusted inputs.
+
+The current implementation preserves these product invariants:
+
+- Adapters grant command-execution capability only to exact, integration-specific tool names. Unknown tools retain conservative policy-file and sensitive-path inspection without treating arbitrary text as a shell command. This is covered by `tests/bin/hooks/hook-routing.test.ts`, `tests/opencode/plugin.test.ts`, and `tests/pi/tool-call.test.ts`.
+- Active policy files, rulebooks, lockfiles, and caches cannot be modified through protected tool calls. Core and integration coverage lives in `tests/core/policy-protection.test.ts`, `tests/opencode/plugin.test.ts`, and `tests/pi/tool-call.test.ts`.
+- Sensitive-path protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection. See `tests/core/secret-protection.test.ts` and the hook, OpenCode, and Pi integration tests above.
+- Destructive-command decisions are semantic and context-sensitive: nested execution, working directory, shell mode, safety options, disabled built-ins, and custom rules affect the result. `tests/core/analyze/behavioral-contract.test.ts` records a small representative contract; the remaining `tests/core/analyze/` suites provide exhaustive edge coverage.
+- User policy is authoritative. Project rulebooks may add restrictions but cannot weaken user-scoped rules. Remote rulebooks are resolved through pinned lock and digest state. These behaviors are covered by `tests/core/config.test.ts` and `tests/core/rules-policy-recovery.test.ts`.
+- Invalid policy or rulebook state denies ordinary analyzed commands while allowing only the exact rule-sync recovery forms. Chained commands and lookalikes remain denied. See `tests/core/analyze/fail-closed-repair.test.ts`, `tests/bin/hooks/hook-routing.test.ts`, `tests/opencode/plugin.test.ts`, and `tests/pi/tool-call.test.ts`.
+- Audit command and segment fields are redacted for recognized credential forms before serialization. Audit paths, serialization, decision metadata, and redaction behavior are covered by `tests/core/audit.test.ts` and the integration audit tests.
+
+The current public command analyzer returns `null` when it allows a command and an `AnalyzeResult` when it blocks one. It does **not** currently expose a third, internal `indeterminate` result. Unsupported or malformed shell syntax is therefore safety-level dependent: standard mode may allow malformed safe-looking text, while strict mode blocks unparseable input; destructive-looking malformed text can still be blocked by conservative heuristics. A future internal `indeterminate` model is a redesign direction, not a description of current behavior.
+
+PowerShell support is partial. The analyzer recognizes a conservative subset centered on `Remove-Item` and its supported aliases, plus existing cross-shell command rules; it is not a general PowerShell parser. Explicit `powershell` mode and limited `auto` detection are covered, while `posix` mode intentionally does not apply PowerShell removal rules.
+
 ## Reporting a Vulnerability
 
 Please do not report security vulnerabilities in public GitHub issues.
