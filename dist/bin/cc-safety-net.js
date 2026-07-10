@@ -17802,20 +17802,6 @@ function startResolveInstallTargets(action, args, options2) {
       finish: async () => [parseInstallTarget(args, action)]
     };
   }
-  if (action === "install") {
-    const choices = buildInstallTargetChoices(() => true, { action });
-    return {
-      finish: async () => {
-        const selected = options2.selectTargets ? await options2.selectTargets(action, choices) : await promptInstallTargets(action, choices, {
-          input: options2.input,
-          output: options2.output
-        });
-        if (!selected || selected.length === 0)
-          return null;
-        return orderInstallTargets(selected);
-      }
-    };
-  }
   const detectConfiguredTargets = options2.detectConfiguredTargets ?? detectConfiguredInstallTargets;
   const configuredTargetsPromise = settle(detectConfiguredTargets());
   const choicesPromise = settle(buildInstallTargetChoicesAsync(options2.probeTargets));

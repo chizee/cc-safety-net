@@ -9,7 +9,6 @@ import { type NativeCommand, runNativeCommands } from '@/bin/hook/install/native
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
 import {
   applyInstallTargetState,
-  buildInstallTargetChoices,
   buildInstallTargetChoicesAsync,
   canPromptInstallTargets,
   type InstallTargetChoice,
@@ -192,23 +191,6 @@ function startResolveInstallTargets(
   if (!options.selectTargets && !canPromptInstallTargets(options.input, options.output)) {
     return {
       finish: async () => [parseInstallTarget(args, action)],
-    };
-  }
-
-  if (action === 'install') {
-    const choices = buildInstallTargetChoices(() => true, { action });
-    return {
-      finish: async () => {
-        const selected = options.selectTargets
-          ? await options.selectTargets(action, choices)
-          : await promptInstallTargets(action, choices, {
-              input: options.input,
-              output: options.output,
-            });
-        if (!selected || selected.length === 0) return null;
-
-        return orderInstallTargets(selected);
-      },
     };
   }
 

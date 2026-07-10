@@ -82,13 +82,22 @@ async function withFakeInstallProbePath<T>(prefix: string, fn: () => T | Promise
 
 async function runInstallDispatchProbe(
   homeDir: string,
-  options: { args?: readonly string[]; selectedTargets?: readonly InstallTarget[] | null },
+  options: {
+    args?: readonly string[];
+    configuredTargets?: readonly InstallTarget[];
+    selectedTargets?: readonly InstallTarget[] | null;
+  },
 ) {
   const selectTargets =
     options.selectedTargets === undefined
       ? ''
       : `,
   selectTargets: async (_action, choices) => {
+    capturedChoices = choices.map((choice) => ({
+      target: choice.target,
+      available: choice.available,
+      unavailableReason: choice.unavailableReason,
+    }));
     events.push("select:" + choices.length);
     return ${JSON.stringify(options.selectedTargets)};
   }`;
@@ -101,9 +110,10 @@ import { Writable } from "node:stream";
 import { runInstallCommand } from "./src/bin/hook/install.ts";
 
 const events = [];
+let capturedChoices = [];
 console.log = () => {};
 const exitCode = await runInstallCommand("install", ${JSON.stringify(options.args ?? [])}, {
-  detectConfiguredTargets: async () => [],
+  detectConfiguredTargets: async () => ${JSON.stringify(options.configuredTargets ?? [])},
   output: new Writable({
     write(_chunk, _encoding, callback) {
       callback();
@@ -115,7 +125,7 @@ const exitCode = await runInstallCommand("install", ${JSON.stringify(options.arg
   }${selectTargets}
 });
 
-process.stdout.write(JSON.stringify({ exitCode, events }));
+process.stdout.write(JSON.stringify({ choices: capturedChoices, exitCode, events }));
 `,
     ],
     {
@@ -132,7 +142,15 @@ process.stdout.write(JSON.stringify({ exitCode, events }));
 
   expect(await proc.exited).toBe(0);
   expect(stderr).toBe('');
-  return JSON.parse(stdout) as { exitCode: number; events: string[] };
+  return JSON.parse(stdout) as {
+    choices: Array<{
+      target: InstallTarget;
+      available: boolean;
+      unavailableReason?: string;
+    }>;
+    exitCode: number;
+    events: string[];
+  };
 }
 
 describe('install target availability', () => {
@@ -353,23 +371,46 @@ describe('install selection state', () => {
 });
 
 describe('interactive install dispatch', () => {
-  test('selects targets before executable probes for no-argument install', async () => {
+  test('disables configured integrations before prompting to install', async () => {
+    await withTempDir('safety-net-install-configured-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, {
+        configuredTargets: ['kimi-code'],
+        selectedTargets: null,
+      });
+
+      expect(result.choices.find((choice) => choice.target === 'kimi-code')).toEqual({
+        target: 'kimi-code',
+        available: false,
+        unavailableReason: 'already installed',
+      });
+    });
+  });
+
+  test('probes target availability before no-argument install selection', async () => {
     await withTempDir('safety-net-install-select-before-probe-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: null });
 
       expect(result.exitCode).toBe(1);
-      expect(result.events).toEqual(['select:8']);
+      expect(result.events).toEqual([
+        'probe:agy',
+        'probe:claude',
+        'probe:codex',
+        'probe:gemini',
+        'probe:copilot',
+        'probe:kimi',
+        'probe:opencode',
+        'probe:pi',
+        'select:8',
+      ]);
     });
   });
 
-  test('probes no unselected targets after interactive selection', async () => {
+  test('runs a selected target after resolving install choices', async () => {
     await withTempDir('safety-net-install-selected-probe-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: ['kimi-code'] });
 
       expect(result.exitCode).toBe(0);
-      expect(
-        result.events.filter((event) => event !== 'probe:kimi' && event !== 'select:8'),
-      ).toEqual([]);
+      expect(result.events.at(-1)).toBe('select:8');
     });
   });
 
