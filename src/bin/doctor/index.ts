@@ -33,10 +33,12 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     () => {
       const reportPromise = collectDoctorReport(options);
       return {
+        ready: reportPromise,
         finish: () => reportPromise,
       };
     },
     () => printInstallBanner(),
+    { loadingMessage: 'Checking system status…' },
   );
 
   if (options.json) {

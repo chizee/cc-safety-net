@@ -12,6 +12,7 @@ export type LolcatRenderOptions = {
 export type LolcatAnimationOptions = LolcatRenderOptions & {
     duration?: number;
     output?: LolcatOutput;
+    signal?: AbortSignal;
     sleep?: LolcatSleep;
     speed?: number;
 };

@@ -13425,19 +13425,45 @@ async function checkForUpdates() {
   }
 }
 
+// src/bin/hook/install/banner.ts
+import * as readline from "node:readline";
+
 // src/bin/utils/lolcat.ts
 var ANSI_RESET2 = "\x1B[0m";
 var ANSI_RESET_FOREGROUND = "\x1B[39m";
 var DEFAULT_DURATION = 12;
 var DEFAULT_FREQUENCY = 0.1;
-var DEFAULT_SPEED = 20;
+var DEFAULT_SPEED = 40;
 var DEFAULT_SPREAD = 3;
+var FRAME_RATE = 30;
+var CURSOR_DOWN = (rows) => `\x1B[${rows}B`;
 var HIDE_CURSOR = "\x1B[?25l";
 var RESTORE_CURSOR = "\x1B8";
 var SAVE_CURSOR = "\x1B7";
 var SHOW_CURSOR = "\x1B[?25h";
 function wait(milliseconds) {
   return new Promise((resolve12) => setTimeout(resolve12, milliseconds));
+}
+function waitForAnimationFrame(milliseconds, sleep, signal) {
+  if (!signal)
+    return sleep(milliseconds);
+  if (signal.aborted)
+    return Promise.resolve();
+  return new Promise((resolve12, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      cleanup();
+      resolve12();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    sleep(milliseconds).then(() => {
+      cleanup();
+      resolve12();
+    }, (error) => {
+      cleanup();
+      reject(error);
+    });
+  });
 }
 function positiveOrDefault(value, fallback) {
   return value && value > 0 ? value : fallback;
@@ -13466,41 +13492,46 @@ function renderLolcat(text, options2 = {}) {
 `).map((line, lineIndex) => Array.from(line).map((character, characterIndex) => colorizeCharacter(character, frequency, seed + lineIndex + characterIndex / spread)).join("")).join(`
 `)}${ANSI_RESET2}`;
 }
-function createLolcatAnimationFrames(text, options2 = {}) {
-  const duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, DEFAULT_DURATION)));
-  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
-  return Array.from({ length: duration }, (_value, index) => renderLolcat(text, {
-    frequency: options2.frequency,
-    seed: (options2.seed ?? 0) + (index + 1) * spread,
-    spread
-  }));
-}
 async function writeAnimatedLolcat(text, options2 = {}) {
   if (!text)
     return;
   const output = options2.output ?? process.stdout;
   const sleep = options2.sleep ?? wait;
   const speed = positiveOrDefault(options2.speed, DEFAULT_SPEED);
-  output.write(HIDE_CURSOR);
+  const duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, DEFAULT_DURATION)));
+  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
+  const lines = text.split(`
+`).map((line) => Array.from(line));
+  const width = Math.max(...lines.map((line) => line.length));
+  const totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed;
+  const frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / FRAME_RATE))) : 0;
+  const frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
+  const renderFrame = (visibleColumns, seedOffset) => lines.map((line, lineIndex) => [
+    RESTORE_CURSOR,
+    lineIndex > 0 ? CURSOR_DOWN(lineIndex) : "",
+    renderLolcat(line.slice(0, visibleColumns).join(""), {
+      frequency: options2.frequency,
+      seed: (options2.seed ?? 0) + lineIndex + seedOffset,
+      spread
+    })
+  ].join("")).join("");
+  output.write(`${HIDE_CURSOR}${SAVE_CURSOR}`);
   try {
-    for (const [lineIndex, line] of text.split(`
-`).entries()) {
-      if (line) {
-        output.write(SAVE_CURSOR);
-        for (const frame of createLolcatAnimationFrames(line, {
-          ...options2,
-          seed: (options2.seed ?? 0) + lineIndex
-        })) {
-          output.write(RESTORE_CURSOR);
-          output.write(frame);
-          await sleep(1000 / speed);
-        }
-      }
-      output.write(`
-`);
+    for (let frameIndex = 1;frameIndex <= frameCount; frameIndex += 1) {
+      if (options2.signal?.aborted)
+        break;
+      const progress = frameIndex / frameCount;
+      const easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
+      output.write(renderFrame(Math.max(1, Math.ceil(width * easedProgress)), (1 - easedProgress) * spread * 2));
+      await waitForAnimationFrame(frameDelay, sleep, options2.signal);
     }
   } finally {
-    output.write(`${ANSI_RESET2}${SHOW_CURSOR}`);
+    output.write(renderFrame(width, 0));
+    output.write(RESTORE_CURSOR);
+    if (lines.length > 1)
+      output.write(CURSOR_DOWN(lines.length - 1));
+    output.write(`
+${ANSI_RESET2}${SHOW_CURSOR}`);
   }
 }
 
@@ -13518,7 +13549,8 @@ async function printInstallBanner(options2 = {}) {
   const output = options2.output ?? process.stdout;
   if (!shouldPrintInstallBanner(output))
     return;
-  await writeAnimatedLolcat(INSTALL_ASCII_ART, {
+  const input = options2.input ?? process.stdin;
+  const animationOptions = {
     duration: options2.duration,
     frequency: options2.frequency,
     output,
@@ -13526,14 +13558,93 @@ async function printInstallBanner(options2 = {}) {
     sleep: options2.sleep,
     speed: options2.speed,
     spread: options2.spread
-  });
+  };
+  if (!input.isTTY || typeof input.setRawMode !== "function") {
+    await writeAnimatedLolcat(INSTALL_ASCII_ART, animationOptions);
+    return;
+  }
+  const controller = new AbortController;
+  const wasFlowing = input.readableFlowing === true;
+  const wasRaw = input.isRaw === true;
+  let interrupted = false;
+  const onKeyPress = (_inputValue, key) => {
+    if (key.ctrl && key.name === "c")
+      interrupted = true;
+    if (interrupted || key.name === "return" || key.name === "enter")
+      controller.abort();
+  };
+  readline.emitKeypressEvents(input);
+  input.on("keypress", onKeyPress);
+  input.setRawMode(true);
+  input.resume();
+  try {
+    await writeAnimatedLolcat(INSTALL_ASCII_ART, {
+      ...animationOptions,
+      signal: controller.signal
+    });
+  } finally {
+    input.off("keypress", onKeyPress);
+    input.setRawMode(wasRaw);
+    if (!wasFlowing)
+      input.pause();
+  }
+  if (!interrupted)
+    return;
+  if (options2.onInterrupt) {
+    options2.onInterrupt();
+    return;
+  }
+  process.kill(process.pid, "SIGINT");
 }
 
 // src/bin/startup/banner.ts
-async function resolveAfterOptionalBanner(showBanner, startWork, printBanner) {
+var CLEAR_LINE = "\r\x1B[2K";
+var HIDE_CURSOR2 = "\x1B[?25l";
+var SHOW_CURSOR2 = "\x1B[?25h";
+var SPINNER_DELAY = 100;
+var SPINNER_INTERVAL = 80;
+var SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function wait2(milliseconds) {
+  return new Promise((resolve12) => setTimeout(resolve12, milliseconds));
+}
+async function waitForReady(ready, options2) {
+  const output = options2.output ?? process.stdout;
+  if (!output.isTTY) {
+    await ready;
+    return;
+  }
+  const sleep = options2.sleep ?? wait2;
+  let settled = false;
+  const trackedReady = ready.then((value) => {
+    settled = true;
+    return value;
+  }, (error) => {
+    settled = true;
+    throw error;
+  });
+  const readyBeforeSpinner = await Promise.race([
+    trackedReady.then(() => true),
+    sleep(SPINNER_DELAY).then(() => false)
+  ]);
+  if (readyBeforeSpinner)
+    return;
+  output.write(HIDE_CURSOR2);
+  try {
+    for (let frameIndex = 0;!settled; frameIndex += 1) {
+      output.write(`${CLEAR_LINE}${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]} ${options2.loadingMessage ?? "Loading…"}`);
+      await Promise.race([trackedReady, sleep(SPINNER_INTERVAL)]);
+    }
+    await trackedReady;
+  } finally {
+    output.write(`${CLEAR_LINE}${SHOW_CURSOR2}`);
+  }
+}
+async function resolveAfterOptionalBanner(showBanner, startWork, printBanner, options2 = {}) {
   const work = startWork();
   if (showBanner)
     await printBanner();
+  if (showBanner && work.ready)
+    await waitForReady(work.ready, options2);
   return work.finish();
 }
 
@@ -13550,9 +13661,10 @@ async function runDoctor(options2 = {}) {
   const report = await resolveAfterOptionalBanner(!options2.json, () => {
     const reportPromise = collectDoctorReport(options2);
     return {
+      ready: reportPromise,
       finish: () => reportPromise
     };
-  }, () => printInstallBanner());
+  }, () => printInstallBanner(), { loadingMessage: "Checking system status…" });
   if (options2.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
@@ -17388,7 +17500,7 @@ function uninstallOpenCode(homeDir) {
 
 // src/bin/hook/install/selection.ts
 import { spawn as spawn3, spawnSync as spawnSync2 } from "node:child_process";
-import * as readline from "node:readline";
+import * as readline2 from "node:readline";
 
 // src/bin/hook/install/targets.ts
 var INSTALL_TARGETS = [
@@ -17609,7 +17721,7 @@ function promptInstallTargets(action, choices, options2 = {}) {
 `);
     return Promise.resolve(null);
   }
-  readline.emitKeypressEvents(input);
+  readline2.emitKeypressEvents(input);
   const wasRaw = input.isRaw === true;
   input.setRawMode(true);
   input.resume();
@@ -17617,9 +17729,9 @@ function promptInstallTargets(action, choices, options2 = {}) {
   const clearFrame = () => {
     if (renderedLines === 0)
       return;
-    readline.moveCursor(output, 0, -renderedLines);
-    readline.cursorTo(output, 0);
-    readline.clearScreenDown(output);
+    readline2.moveCursor(output, 0, -renderedLines);
+    readline2.cursorTo(output, 0);
+    readline2.clearScreenDown(output);
   };
   const draw = () => {
     clearFrame();
@@ -17805,12 +17917,11 @@ function startResolveInstallTargets(action, args, options2) {
   const detectConfiguredTargets = options2.detectConfiguredTargets ?? detectConfiguredInstallTargets;
   const configuredTargetsPromise = settle(detectConfiguredTargets());
   const choicesPromise = settle(buildInstallTargetChoicesAsync(options2.probeTargets));
+  const ready = Promise.all([choicesPromise, configuredTargetsPromise]);
   return {
+    ready,
     finish: async () => {
-      const [choices, configuredTargets] = await Promise.all([
-        choicesPromise,
-        configuredTargetsPromise
-      ]);
+      const [choices, configuredTargets] = await ready;
       const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
         action,
         configuredTargets: unwrapSettled(configuredTargets)
@@ -17866,7 +17977,13 @@ function runSingleInstallTarget(action, target, homeDir) {
 }
 async function runInstallCommand(action, args, options2 = {}) {
   try {
-    const targets = await resolveAfterOptionalBanner(true, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({ output: options2.output ?? process.stdout }));
+    const targets = await resolveAfterOptionalBanner(true, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({
+      input: options2.input ?? process.stdin,
+      output: options2.output ?? process.stdout
+    }), {
+      loadingMessage: action === "install" ? "Checking available integrations…" : "Checking installed integrations…",
+      output: options2.output ?? process.stdout
+    });
     if (!targets)
       return 1;
     const homeDir = getHomeDir();

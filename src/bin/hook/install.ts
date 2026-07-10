@@ -45,6 +45,7 @@ type NativeInstallDefinition = {
   postInstallMessage?: string;
 };
 type InstallTargetResolution = {
+  ready?: Promise<unknown>;
   finish: () => Promise<readonly InstallTarget[] | null>;
 };
 type SettledResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
@@ -197,13 +198,12 @@ function startResolveInstallTargets(
   const detectConfiguredTargets = options.detectConfiguredTargets ?? detectConfiguredInstallTargets;
   const configuredTargetsPromise = settle(detectConfiguredTargets());
   const choicesPromise = settle(buildInstallTargetChoicesAsync(options.probeTargets));
+  const ready = Promise.all([choicesPromise, configuredTargetsPromise]);
 
   return {
+    ready,
     finish: async () => {
-      const [choices, configuredTargets] = await Promise.all([
-        choicesPromise,
-        configuredTargetsPromise,
-      ]);
+      const [choices, configuredTargets] = await ready;
       const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
         action,
         configuredTargets: unwrapSettled(configuredTargets),
@@ -301,7 +301,18 @@ export async function runInstallCommand(
     const targets = await resolveAfterOptionalBanner(
       true,
       () => startResolveInstallTargets(action, args, options),
-      () => printInstallBanner({ output: options.output ?? process.stdout }),
+      () =>
+        printInstallBanner({
+          input: options.input ?? process.stdin,
+          output: options.output ?? process.stdout,
+        }),
+      {
+        loadingMessage:
+          action === 'install'
+            ? 'Checking available integrations…'
+            : 'Checking installed integrations…',
+        output: options.output ?? process.stdout,
+      },
     );
     if (!targets) return 1;
 

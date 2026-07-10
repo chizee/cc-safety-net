@@ -45,6 +45,7 @@ export type LolcatRenderOptions = {
 export type LolcatAnimationOptions = LolcatRenderOptions & {
   duration?: number;
   output?: LolcatOutput;
+  signal?: AbortSignal;
   sleep?: LolcatSleep;
   speed?: number;
 };
@@ -53,8 +54,10 @@ const ANSI_RESET = '\x1b[0m';
 const ANSI_RESET_FOREGROUND = '\x1b[39m';
 const DEFAULT_DURATION = 12;
 const DEFAULT_FREQUENCY = 0.1;
-const DEFAULT_SPEED = 20;
+const DEFAULT_SPEED = 40;
 const DEFAULT_SPREAD = 3;
+const FRAME_RATE = 30;
+const CURSOR_DOWN = (rows: number) => `\x1b[${rows}B`;
 const HIDE_CURSOR = '\x1b[?25l';
 const RESTORE_CURSOR = '\x1b8';
 const SAVE_CURSOR = '\x1b7';
@@ -62,6 +65,35 @@ const SHOW_CURSOR = '\x1b[?25h';
 
 function wait(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function waitForAnimationFrame(
+  milliseconds: number,
+  sleep: LolcatSleep,
+  signal: AbortSignal | undefined,
+) {
+  if (!signal) return sleep(milliseconds);
+  if (signal.aborted) return Promise.resolve();
+
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    sleep(milliseconds).then(
+      () => {
+        cleanup();
+        resolve();
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function positiveOrDefault(value: number | undefined, fallback: number) {
@@ -125,25 +157,47 @@ export async function writeAnimatedLolcat(text: string, options: LolcatAnimation
   const output = options.output ?? process.stdout;
   const sleep = options.sleep ?? wait;
   const speed = positiveOrDefault(options.speed, DEFAULT_SPEED);
+  const duration = Math.max(1, Math.floor(positiveOrDefault(options.duration, DEFAULT_DURATION)));
+  const spread = positiveOrDefault(options.spread, DEFAULT_SPREAD);
+  const lines = text.split('\n').map((line) => Array.from(line));
+  const width = Math.max(...lines.map((line) => line.length));
+  const totalDuration = (1000 * duration * lines.filter((line) => line.length > 0).length) / speed;
+  const frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / FRAME_RATE))) : 0;
+  const frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
+  const renderFrame = (visibleColumns: number, seedOffset: number) =>
+    lines
+      .map((line, lineIndex) =>
+        [
+          RESTORE_CURSOR,
+          lineIndex > 0 ? CURSOR_DOWN(lineIndex) : '',
+          renderLolcat(line.slice(0, visibleColumns).join(''), {
+            frequency: options.frequency,
+            seed: (options.seed ?? 0) + lineIndex + seedOffset,
+            spread,
+          }),
+        ].join(''),
+      )
+      .join('');
 
-  output.write(HIDE_CURSOR);
+  output.write(`${HIDE_CURSOR}${SAVE_CURSOR}`);
 
   try {
-    for (const [lineIndex, line] of text.split('\n').entries()) {
-      if (line) {
-        output.write(SAVE_CURSOR);
-        for (const frame of createLolcatAnimationFrames(line, {
-          ...options,
-          seed: (options.seed ?? 0) + lineIndex,
-        })) {
-          output.write(RESTORE_CURSOR);
-          output.write(frame);
-          await sleep(1000 / speed);
-        }
-      }
-      output.write('\n');
+    for (let frameIndex = 1; frameIndex <= frameCount; frameIndex += 1) {
+      if (options.signal?.aborted) break;
+      const progress = frameIndex / frameCount;
+      const easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
+      output.write(
+        renderFrame(
+          Math.max(1, Math.ceil(width * easedProgress)),
+          (1 - easedProgress) * spread * 2,
+        ),
+      );
+      await waitForAnimationFrame(frameDelay, sleep, options.signal);
     }
   } finally {
-    output.write(`${ANSI_RESET}${SHOW_CURSOR}`);
+    output.write(renderFrame(width, 0));
+    output.write(RESTORE_CURSOR);
+    if (lines.length > 1) output.write(CURSOR_DOWN(lines.length - 1));
+    output.write(`\n${ANSI_RESET}${SHOW_CURSOR}`);
   }
 }
