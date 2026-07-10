@@ -4,7 +4,7 @@ import {
   resolveStandardHookContext,
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
-import type { CommandToolKind } from '@/core/tool-input';
+import type { CommandToolKind } from '@/domain/invocation';
 import type { CopilotCliHookInput, CopilotCliHookOutput } from '@/types';
 
 const COPILOT_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([

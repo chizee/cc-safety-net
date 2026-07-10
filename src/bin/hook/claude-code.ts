@@ -4,7 +4,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { CLAUDE_CODE_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/core/tool-input';
+import type { CommandToolKind } from '@/domain/invocation';
 import type { HookInput, HookOutput } from '@/types';
 
 const CLAUDE_CODE_COMMAND_TOOLS = new Map<string, CommandToolKind>([

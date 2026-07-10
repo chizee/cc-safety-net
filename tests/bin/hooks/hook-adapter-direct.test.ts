@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook } from '@/bin/hook/claude-code';
-import { handleBlockedHookCommand } from '@/bin/hook/common';
+import { runConfiguredHookAdapter } from '@/bin/hook/common';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
@@ -218,6 +218,71 @@ describe('hook adapter direct integration', () => {
     }
   });
 
+  test('shared hooks preserve stage-specific Tool presentation', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-tool-line-'));
+    const home = join(cwd, 'home');
+    const policyPath = join(home, '.cc-safety-net', 'policy.json');
+    const env = { CC_SAFETY_NET_HOME: join(home, '.cc-safety-net') };
+    try {
+      writeDefaultRulesConfig(join(cwd, '.cc-safety-net/rules/rule.json'), ['project-rules']);
+      const inputs = [
+        {
+          label: 'policy',
+          input: {
+            hook_event_name: 'PreToolUse',
+            cwd,
+            tool_name: 'Write',
+            tool_input: { file_path: policyPath, content: '{}' },
+          },
+        },
+        {
+          label: 'secret',
+          input: {
+            hook_event_name: 'PreToolUse',
+            cwd,
+            tool_name: 'Read',
+            tool_input: { file_path: '.env' },
+          },
+        },
+        {
+          label: 'config',
+          input: {
+            hook_event_name: 'PreToolUse',
+            cwd,
+            tool_name: 'Read',
+            tool_input: { file_path: 'README.md' },
+          },
+        },
+        {
+          label: 'validation',
+          input: {
+            hook_event_name: 'PreToolUse',
+            cwd,
+            tool_name: 'Bash',
+            tool_input: {},
+          },
+        },
+      ];
+
+      for (const item of inputs) {
+        const output = await runWithInput(runClaudeCodeHook, item.input, env);
+        const reason = JSON.parse(output.stdout).hookSpecificOutput.permissionDecisionReason;
+        expect(reason, item.label).toContain(`Tool: ${item.input.tool_name}`);
+      }
+
+      const analysisOutput = await runWithInput(
+        runClaudeCodeHook,
+        claudeCodeBashInput('git reset --hard', cwd),
+        env,
+      );
+      expect(
+        JSON.parse(analysisOutput.stdout).hookSpecificOutput.permissionDecisionReason,
+      ).not.toContain('Tool:');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('project policy is ignored for non-command tools', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-invalid-policy-'));
     try {
@@ -278,26 +343,31 @@ describe('hook adapter direct integration', () => {
   });
 
   test('analysis exceptions are logged only in debug mode', async () => {
-    const previousDebug = process.env.CC_SAFETY_NET_DEBUG;
-    const originalError = console.error;
-    const errors: string[] = [];
-    const denials: string[] = [];
-    process.env.CC_SAFETY_NET_DEBUG = '1';
-    console.error = (...args: unknown[]) => errors.push(args.map(String).join(' '));
-    try {
-      handleBlockedHookCommand(null as never, process.cwd(), 'debug-session', (reason) =>
-        denials.push(reason),
-      );
+    const result = await runWithInput(
+      () =>
+        runConfiguredHookAdapter({
+          agent: 'test',
+          createDenyOutput: (message) => ({ reason: message }),
+          isSupported: () => true,
+          getToolName: () => 'Bash',
+          getToolInput: () => ({
+            ok: true,
+            input: { command: 'git status' },
+            route: { kind: 'command', shell: 'posix' },
+          }),
+          getContext: () => ({ configCwd: process.cwd(), executionCwd: process.cwd() }),
+          getSessionId: () => 'debug-session',
+          guardDependencies: {
+            analyzeCommand: () => {
+              throw new Error('unexpected analysis failure');
+            },
+          },
+        }),
+      {},
+      { CC_SAFETY_NET_DEBUG: '1' },
+    );
 
-      expect(denials[0]).toContain('CC Safety Net failed closed');
-      expect(errors.join('\n')).toContain('CC Safety Net debug: hook analysis failed:');
-    } finally {
-      console.error = originalError;
-      if (previousDebug === undefined) {
-        delete process.env.CC_SAFETY_NET_DEBUG;
-      } else {
-        process.env.CC_SAFETY_NET_DEBUG = previousDebug;
-      }
-    }
+    expect(JSON.parse(result.stdout).reason).toContain('CC Safety Net failed closed');
+    expect(result.stderr).toContain('CC Safety Net debug: hook analysis failed:');
   });
 });

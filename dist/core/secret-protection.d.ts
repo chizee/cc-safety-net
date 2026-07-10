@@ -1,4 +1,4 @@
-import { type ToolRoute } from '@/core/tool-input';
+import type { ToolRoute } from '@/domain/invocation';
 import type { SecretProtectionConfig } from '@/types';
 export { getCommandFromToolInput } from '@/core/tool-input';
 export declare const REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";

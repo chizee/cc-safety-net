@@ -3,12 +3,8 @@ import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
 import { resolveExistingPath } from '@/core/path-canonicalization';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
-import {
-  type CommandToolKind,
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  type ToolCallContext,
-} from '@/core/tool-input';
+import { extractPatchTargetsFromToolInput, extractPathLikeToolValues } from '@/core/tool-input';
+import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import type { AntigravityCliHookInput, AntigravityCliHookOutput, BlockIntent } from '@/types';
 
 const ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([['run_command', 'auto']]);

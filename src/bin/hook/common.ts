@@ -1,25 +1,20 @@
-import { analyzeCommand, loadConfig } from '@/core/analyze';
-import { redactSecrets, writeAuditLog } from '@/core/audit';
+import { redactSecrets } from '@/core/audit';
 import { firstTrustedRoot } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { formatBlockedMessage } from '@/core/format';
-import {
-  findPolicyConfigMutationTargetInToolInput,
-  REASON_POLICY_CONFIG_PROTECTION,
-} from '@/core/policy-protection';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
+import { getCommandFromToolInput, getNonCommandToolInputKind } from '@/core/tool-input';
+import type { BlockIntent } from '@/domain/decision';
+import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
+import { createToolInvocation } from '@/domain/invocation';
+import { writeGuardAudit } from '@/engine/audit';
 import {
-  findSensitiveTargetInToolInput,
-  getCommandFromToolInput,
-  REASON_SECRET_PROTECTION,
-} from '@/core/secret-protection';
-import {
-  type CommandToolKind,
-  getNonCommandToolInputKind,
-  type ToolCallContext,
-  type ToolRoute,
-} from '@/core/tool-input';
-import type { BlockIntent, Config, ShellKind } from '@/types';
+  evaluateGuard,
+  type GuardDependencies,
+  type GuardEvaluation,
+  GuardEvaluationError,
+  type GuardStage,
+} from '@/engine/guard';
 
 type HookDenyOutput = (
   reason: string,
@@ -34,6 +29,7 @@ type HookDenyOutput = (
 type HookAdapter<T> = {
   agent: string;
   outputDeny: HookDenyOutput;
+  guardDependencies?: Partial<GuardDependencies>;
   isSupported: (input: T) => boolean;
   getToolName: (input: T) => unknown;
   getToolInput: (input: T, toolName: string, outputDeny: HookDenyOutput) => ToolInputResult;
@@ -153,113 +149,6 @@ function outputFailedClosed(
   );
 }
 
-function analyzeHookCommand(command: string, cwd: string, config?: Config, shell?: ShellKind) {
-  return analyzeCommand(command, {
-    cwd,
-    shell,
-    config: config ?? loadConfig(cwd, { repairLocalRulebooks: true }),
-  });
-}
-
-function handleSecretProtection(
-  toolInput: unknown,
-  route: ToolRoute,
-  configCwd: string,
-  executionCwd: string,
-  config: Config,
-  sessionId: string | undefined,
-  toolName: string,
-  agent: string,
-  outputDeny: HookDenyOutput,
-): boolean {
-  if (config.secretProtection?.enabled === false) {
-    return false;
-  }
-  const match = findSensitiveTargetInToolInput(
-    toolInput,
-    route,
-    executionCwd,
-    config.secretProtection,
-    configCwd,
-  );
-  if (!match) {
-    return false;
-  }
-  const command = getCommandFromToolInput(toolInput) ?? match.target;
-  if (sessionId) {
-    writeAuditLog(sessionId, command, match.target, REASON_SECRET_PROTECTION, executionCwd, {
-      agent,
-      ruleId: match.ruleId,
-      intent: 'hard_stop',
-    });
-  }
-  outputDeny(
-    REASON_SECRET_PROTECTION,
-    command,
-    match.target,
-    false,
-    toolName,
-    match.ruleId,
-    'hard_stop',
-  );
-  return true;
-}
-
-/** @internal - exported for direct test coverage */
-export function handleBlockedHookCommand(
-  command: string,
-  cwd: string,
-  sessionId: string | undefined,
-  outputDeny: HookDenyOutput,
-  config?: Config,
-  agent?: string,
-  shell?: ShellKind,
-): void {
-  let result: ReturnType<typeof analyzeHookCommand>;
-  try {
-    result = analyzeHookCommand(command, cwd, config, shell);
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(
-        `CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-      );
-    }
-    outputDeny(
-      REASON_SAFETY_NET_FAILED_CLOSED,
-      command,
-      command,
-      undefined,
-      undefined,
-      undefined,
-      'stop_and_explain',
-    );
-    return;
-  }
-  if (!result) {
-    if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command, command, 'allowed', cwd, { decision: 'allow', agent });
-    }
-    return;
-  }
-
-  if (sessionId) {
-    writeAuditLog(sessionId, command, result.segment, result.reason, cwd, {
-      ruleId: result.ruleId,
-      intent: result.intent,
-      agent,
-    });
-  }
-  outputDeny(
-    result.reason,
-    command,
-    result.segment,
-    result.manualPermissionAdvice,
-    undefined,
-    result.ruleId,
-    result.intent,
-  );
-}
-
 async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   const input = await readHookInput<T>(adapter.outputDeny);
   if (input === undefined) {
@@ -287,104 +176,62 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   const context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
   if (!context) return;
 
-  let policyTarget: ReturnType<typeof findPolicyConfigMutationTargetInToolInput>;
-  try {
-    policyTarget = findPolicyConfigMutationTargetInToolInput(
-      toolName,
-      toolInputResult.input,
-      toolInputResult.route,
-      context,
-    );
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(
-        `CC Safety Net debug: hook policy protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-      );
-    }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-  if (policyTarget) {
-    const command = getCommandFromToolInput(toolInputResult.input) ?? policyTarget.target;
-    adapter.outputDeny(
-      REASON_POLICY_CONFIG_PROTECTION,
-      command,
-      policyTarget.target,
-      false,
-      toolName,
-    );
-    return;
-  }
-
-  let config: Config;
-  try {
-    config = loadConfig(context.configCwd, { repairLocalRulebooks: true });
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(
-        `CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-      );
-    }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-
-  let blockedBySecretProtection: boolean;
-  try {
-    blockedBySecretProtection = handleSecretProtection(
-      toolInputResult.input,
-      toolInputResult.route,
-      context.configCwd,
-      context.executionCwd,
-      config,
-      adapter.getSessionId(input),
-      toolName,
-      adapter.agent,
-      adapter.outputDeny,
-    );
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(
-        `CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-      );
-    }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-  if (blockedBySecretProtection) {
-    return;
-  }
-
-  const command = getCommandFromToolInput(toolInputResult.input);
-  if (toolInputResult.route.kind !== 'command') {
-    if (config.failClosedReason) {
-      adapter.outputDeny(
-        config.failClosedReason,
-        command,
-        command,
-        undefined,
-        toolName,
-        undefined,
-        'stop_and_explain',
-      );
-    }
-    return;
-  }
-
-  if (!command || command.trim() === '') {
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-
-  handleBlockedHookCommand(
-    command,
-    context.executionCwd,
-    adapter.getSessionId(input),
-    adapter.outputDeny,
-    config,
-    adapter.agent,
-    toolInputResult.route.shell,
+  const invocation = createToolInvocation(
+    toolName,
+    toolInputResult.input,
+    toolInputResult.route,
+    context,
+    getCommandFromToolInput(toolInputResult.input) ?? null,
   );
+  let evaluation: GuardEvaluation;
+  try {
+    evaluation = evaluateGuard(invocation, {
+      auditAllowed: envTruthy(ENV_FLAGS.debug),
+      dependencies: adapter.guardDependencies,
+    });
+  } catch (error) {
+    if (!(error instanceof GuardEvaluationError)) {
+      throw error;
+    }
+    logHookGuardError(error);
+    outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
+    return;
+  }
+
+  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent });
+  outputGuardDenial(adapter.outputDeny, evaluation, toolName);
+}
+
+function outputGuardDenial(
+  outputDeny: HookDenyOutput,
+  evaluation: GuardEvaluation,
+  toolName: string,
+): void {
+  if (evaluation.decision.kind !== 'deny') return;
+  const evidence = evaluation.decision.evidence.find((item) => item.kind === 'command');
+  outputDeny(
+    evaluation.decision.reason,
+    evidence?.command,
+    evidence?.segment,
+    undefined,
+    evaluation.stage === 'command-analysis' ? undefined : toolName,
+    evaluation.decision.ruleId,
+    evaluation.decision.intent,
+  );
+}
+
+function logHookGuardError(error: GuardEvaluationError): void {
+  if (!envTruthy(ENV_FLAGS.debug)) return;
+  console.error(
+    `CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${redactSecrets(error.cause instanceof Error ? error.cause.message : String(error.cause))}`,
+  );
+}
+
+function getHookGuardErrorLabel(stage: GuardStage): string {
+  if (stage === 'policy-protection') return 'hook policy protection failed';
+  if (stage === 'config-load') return 'hook config loading failed';
+  if (stage === 'secret-protection') return 'hook secret protection failed';
+  return 'hook analysis failed';
 }
 
 function stringField(value: unknown): string | undefined {
@@ -417,6 +264,7 @@ export async function runConfiguredHookAdapter<T>(
   await runHookAdapter<T>({
     agent: adapter.agent,
     outputDeny,
+    guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,
     getToolName: adapter.getToolName,
     getToolInput: adapter.getToolInput,

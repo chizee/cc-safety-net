@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
-import { handlePiToolCall } from '@/pi/tool-call';
+import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
 import type { AnalyzeOptions } from '@/types';
 import { readLatestAuditLogEntry, withEnv, withLinkedWorktreeFixture } from '../helpers';
 import {
@@ -43,6 +43,7 @@ describe('Pi tool_call event', () => {
       reason: expect.stringContaining('BLOCKED by CC Safety Net'),
     });
     expect(result?.reason).toContain('Command: rm -rf .');
+    expect(result?.reason).not.toContain('Tool:');
   });
 
   test('blocks sensitive bash command targets before destructive command analysis', () => {
@@ -68,6 +69,7 @@ describe('Pi tool_call event', () => {
 
       expect(envResult?.reason).toContain('Access to a sensitive path is not allowed.');
       expect(envResult?.reason).toContain('Rule: secret.basename.env');
+      expect(envResult?.reason).not.toContain('Tool:');
       const result = handlePiToolCall(
         toolCall('Read', { file_path: '.env.local' }),
         piContext(dir),
@@ -665,6 +667,131 @@ describe('Pi tool_call event', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test.each([
+    'findPolicyMutation',
+    'loadConfig',
+    'findSensitiveTarget',
+    'analyzeCommand',
+  ] as const)('renders %s dependency failures as generic denials', (dependency) => {
+    const result = createPiToolCallHandler({
+      [dependency]: () => {
+        throw new Error(`${dependency} raw failure`);
+      },
+    })(bashToolCall('git status'), piContext(process.cwd()));
+
+    expect(result?.reason).toContain('CC Safety Net failed closed');
+    expect(result?.reason).not.toContain(`${dependency} raw failure`);
+    expect(result?.reason).not.toContain('Tool:');
+  });
+
+  test('resolves sessions only for auditable evaluations', () => {
+    const cwd = process.cwd();
+    const sessionLookups: string[] = [];
+    const ctx = {
+      ...piContext(cwd),
+      sessionManager: {
+        getSessionFile: () => {
+          sessionLookups.push('session');
+          return undefined;
+        },
+      },
+    };
+    const policyHandler = createPiToolCallHandler({
+      findPolicyMutation: () => ({ target: 'policy.json' }),
+    });
+    const invalidConfigHandler = createPiToolCallHandler({
+      loadConfig: () => ({ version: 1, rules: [], failClosedReason: 'invalid config' }),
+    });
+    const evaluatorErrorHandler = createPiToolCallHandler({
+      analyzeCommand: () => {
+        throw new Error('analysis failed');
+      },
+    });
+
+    expect(handlePiToolCall(shellToolCall({}), ctx)?.block).toBeTrue();
+    expect(policyHandler(bashToolCall('git status'), ctx)?.block).toBeTrue();
+    expect(invalidConfigHandler(toolCall('Read', { path: 'README.md' }), ctx)?.block).toBeTrue();
+    expect(evaluatorErrorHandler(bashToolCall('git status'), ctx)?.block).toBeTrue();
+    expect(handlePiToolCall(toolCall('Read', { path: 'README.md' }), ctx)).toBeUndefined();
+    expect(sessionLookups).toEqual([]);
+
+    expect(handlePiToolCall(bashToolCall('cat .env'), ctx)?.block).toBeTrue();
+    expect(handlePiToolCall(bashToolCall('git reset --hard'), ctx)?.block).toBeTrue();
+    expect(sessionLookups).toEqual(['session', 'session']);
+  });
+
+  test.each([
+    'cat .env',
+    'git reset --hard',
+  ])('keeps %s blocked when session lookup throws', (command) => {
+    const result = handlePiToolCall(bashToolCall(command), {
+      ...piContext(process.cwd()),
+      sessionManager: {
+        getSessionFile: () => {
+          throw new Error('session lookup failed');
+        },
+      },
+    });
+
+    expect(result?.block).toBeTrue();
+    expect(result?.reason).toContain('BLOCKED by CC Safety Net');
+  });
+
+  test('resolves a safe-command session only when debug auditing is enabled', () => {
+    const originalDebug = process.env.CC_SAFETY_NET_DEBUG;
+    let sessionLookups = 0;
+    const ctx = {
+      ...piContext(process.cwd()),
+      sessionManager: {
+        getSessionFile: () => {
+          sessionLookups++;
+          return undefined;
+        },
+      },
+    };
+    try {
+      delete process.env.CC_SAFETY_NET_DEBUG;
+      expect(handlePiToolCall(bashToolCall('git status'), ctx)).toBeUndefined();
+      expect(sessionLookups).toBe(0);
+
+      process.env.CC_SAFETY_NET_DEBUG = '1';
+      expect(handlePiToolCall(bashToolCall('git status'), ctx)).toBeUndefined();
+      expect(sessionLookups).toBe(1);
+    } finally {
+      if (originalDebug === undefined) delete process.env.CC_SAFETY_NET_DEBUG;
+      else process.env.CC_SAFETY_NET_DEBUG = originalDebug;
+    }
+  });
+
+  test.each([
+    undefined,
+    null,
+    '',
+    '   ',
+    42,
+    false,
+  ])('rejects malformed recognized command %p before guard evaluation', (command) => {
+    const calls: string[] = [];
+    const handler = createPiToolCallHandler({
+      findPolicyMutation: () => {
+        calls.push('guard');
+        return null;
+      },
+    });
+    const result = handler(toolCall('bash', { command }), {
+      ...piContext(process.cwd()),
+      sessionManager: {
+        getSessionFile: () => {
+          calls.push('session');
+          return undefined;
+        },
+      },
+    });
+
+    expect(result?.reason).toContain('CC Safety Net failed closed');
+    expect(calls).toEqual([]);
   });
 
   test('logs allowed commands when debug mode is enabled', () => {

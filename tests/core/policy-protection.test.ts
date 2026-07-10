@@ -13,7 +13,8 @@ import {
   getUserRulesConfigPath,
   getUserRulesLockPath,
 } from '@/core/rules/policy/paths';
-import { getNonCommandToolInputKind, normalizeToolName, type ToolRoute } from '@/core/tool-input';
+import { getNonCommandToolInputKind, normalizeToolName } from '@/core/tool-input';
+import type { ToolRoute } from '@/domain/invocation';
 import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers';
 
 const COMMAND_TOOL_NAMES = new Set([

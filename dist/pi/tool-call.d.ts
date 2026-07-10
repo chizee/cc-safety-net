@@ -1,5 +1,6 @@
-import { analyzeCommand } from '@/core/analyze';
+import type { analyzeCommand } from '@/core/analyze';
 import type { LoadConfigOptions } from '@/core/config';
+import { type GuardDependencies } from '@/engine/guard';
 type PiApi = {
     on: (event: 'tool_call', handler: (event: unknown, ctx: PiToolCallContext) => PiToolCallResult) => void;
 };
@@ -17,5 +18,7 @@ type PiToolCallResult = {
 } | undefined;
 export declare function registerToolCallEvent(pi: PiApi): void;
 /** @internal - exported for test coverage */
-export declare function handlePiToolCall(event: unknown, ctx: PiToolCallContext): PiToolCallResult;
+export declare const handlePiToolCall: (event: unknown, ctx: PiToolCallContext) => PiToolCallResult;
+/** @internal */
+export declare function createPiToolCallHandler(guardDependencies?: Partial<GuardDependencies>): (event: unknown, ctx: PiToolCallContext) => PiToolCallResult;
 export {};

@@ -1,9 +1,11 @@
-import { type CommandToolKind, type ToolCallContext, type ToolRoute } from '@/core/tool-input';
-import type { BlockIntent, Config, ShellKind } from '@/types';
+import type { BlockIntent } from '@/domain/decision';
+import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
+import { type GuardDependencies } from '@/engine/guard';
 type HookDenyOutput = (reason: string, command?: string, segment?: string, manualPermissionAdvice?: boolean, toolName?: string, ruleId?: string, intent?: BlockIntent) => void;
 type HookAdapter<T> = {
     agent: string;
     outputDeny: HookDenyOutput;
+    guardDependencies?: Partial<GuardDependencies>;
     isSupported: (input: T) => boolean;
     getToolName: (input: T) => unknown;
     getToolInput: (input: T, toolName: string, outputDeny: HookDenyOutput) => ToolInputResult;
@@ -23,7 +25,5 @@ type ToolInputResult = {
 export declare function parseHookJson<T>(inputText: string, outputDeny: (reason: string) => void, strictReason: string): T | undefined;
 export declare function getToolRoute(toolName: string, commandTools: ReadonlyMap<string, CommandToolKind>): ToolRoute;
 export declare function resolveStandardHookContext(cwdInput: unknown, toolInput: unknown, toolName: string, outputDeny: HookDenyOutput): ToolCallContext | null;
-/** @internal - exported for direct test coverage */
-export declare function handleBlockedHookCommand(command: string, cwd: string, sessionId: string | undefined, outputDeny: HookDenyOutput, config?: Config, agent?: string, shell?: ShellKind): void;
 export declare function runConfiguredHookAdapter<T>(adapter: ConfiguredHookAdapter<T>): Promise<void>;
 export {};

@@ -30,8 +30,8 @@ import {
   extractPatchTargetsFromToolInput,
   extractPathLikeToolValues,
   getCommandFromToolInput,
-  type ToolRoute,
 } from '@/core/tool-input';
+import type { ToolRoute } from '@/domain/invocation';
 import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';

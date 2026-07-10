@@ -1,16 +1,4 @@
-export type CommandToolKind = 'posix' | 'powershell' | 'auto';
-
-export type NonCommandToolInputKind = 'patch' | 'path' | 'grep' | 'glob' | 'unknown';
-
-export type ToolRoute =
-  | { kind: 'command'; shell: CommandToolKind }
-  | { kind: NonCommandToolInputKind };
-
-export type ToolCallContext = {
-  configCwd: string;
-  executionCwd: string;
-  policyConfigCwds?: readonly string[];
-};
+import type { NonCommandToolInputKind } from '@/domain/invocation';
 
 const PATCH_TOOL_NAMES = new Set(['applypatch', 'patch']);
 const PATH_TOOL_NAMES = new Set([

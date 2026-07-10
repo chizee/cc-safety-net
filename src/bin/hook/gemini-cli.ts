@@ -4,7 +4,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { GEMINI_CLI_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/core/tool-input';
+import type { CommandToolKind } from '@/domain/invocation';
 import type { GeminiHookInput, GeminiHookOutput } from '@/types';
 
 const GEMINI_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([['run_shell_command', 'auto']]);

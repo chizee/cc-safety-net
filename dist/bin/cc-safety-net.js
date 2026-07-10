@@ -614,6 +614,555 @@ var guiCommand = {
 // src/bin/hook/antigravity-cli.ts
 import { isAbsolute as isAbsolute12, relative as relative4 } from "node:path";
 
+// src/core/cwd-containment.ts
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute as isAbsolute2, relative, resolve as resolve2 } from "node:path";
+function resolveContainedCwd(requestedCwd, trustedRoots) {
+  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
+  if (!roots[0])
+    return;
+  const requested = canonicalDirectory(isAbsolute2(requestedCwd) ? requestedCwd : resolve2(roots[0], requestedCwd))[0];
+  if (!requested)
+    return;
+  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+}
+function firstTrustedRoot(trustedRoots) {
+  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
+}
+function canonicalDirectory(path) {
+  try {
+    const realPath = realpathSync(path);
+    return statSync(realPath).isDirectory() ? [realPath] : [];
+  } catch {
+    return [];
+  }
+}
+function isSameOrInside(path, root) {
+  const rel = relative(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
+}
+
+// src/core/env.ts
+var ENV_FLAGS = {
+  level: { name: "CC_SAFETY_NET_LEVEL" },
+  strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
+  paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
+  paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
+  paranoidInterpreters: {
+    name: "CC_SAFETY_NET_PARANOID_INTERPRETERS",
+    legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
+  },
+  worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
+  debug: { name: "CC_SAFETY_NET_DEBUG" }
+};
+var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
+function expandSafetyLevel(level) {
+  return {
+    failClosed: level === "strict" || level === "paranoid",
+    paranoidRm: level === "paranoid",
+    paranoidInterpreters: level === "paranoid"
+  };
+}
+function maxSafetyLevel(policyLevel, envLevel) {
+  if (!envLevel)
+    return policyLevel;
+  return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
+}
+function parseEnvLevel() {
+  const value = getEnvFlagValue(ENV_FLAGS.level);
+  if (value === undefined)
+    return;
+  if (SAFETY_LEVELS.includes(value))
+    return value;
+  if (envTruthy(ENV_FLAGS.debug)) {
+    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
+  }
+  return;
+}
+function deriveEffectiveLevel(values) {
+  if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
+    return "paranoid";
+  if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "strict";
+  if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
+    return "standard";
+  return "custom";
+}
+function getCCSafetyNetEnvModes(policy = {}) {
+  const policyLevel = policy.safety?.level ?? "standard";
+  const envLevel = parseEnvLevel();
+  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
+  const values = expandSafetyLevel(baseLevel);
+  const sources = {
+    failClosed: [`policy safety.level=${policyLevel}`],
+    paranoidRm: [`policy safety.level=${policyLevel}`],
+    paranoidInterpreters: [`policy safety.level=${policyLevel}`],
+    worktreeMode: []
+  };
+  if (envLevel && envLevel !== policyLevel) {
+    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+  }
+  if (policy.safety?.overrides?.failClosed !== undefined) {
+    values.failClosed = policy.safety.overrides.failClosed;
+    sources.failClosed.push("policy safety.overrides.fail_closed");
+  }
+  if (policy.safety?.overrides?.paranoidRm !== undefined) {
+    values.paranoidRm = policy.safety.overrides.paranoidRm;
+    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
+  }
+  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
+    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
+    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
+  }
+  if (envTruthy(ENV_FLAGS.strict)) {
+    values.failClosed = true;
+    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoid)) {
+    values.paranoidRm = true;
+    values.paranoidInterpreters = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidRm)) {
+    values.paranoidRm = true;
+    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
+  }
+  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
+    values.paranoidInterpreters = true;
+    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
+  }
+  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
+  if (policy.worktreeMode)
+    sources.worktreeMode.push("policy workflow.worktree_mode");
+  if (envTruthy(ENV_FLAGS.worktree))
+    sources.worktreeMode.push(`env ${ENV_FLAGS.worktree.name}`);
+  return {
+    strict: values.failClosed,
+    paranoidRm: values.paranoidRm,
+    paranoidInterpreters: values.paranoidInterpreters,
+    worktreeMode,
+    effectiveLevel: deriveEffectiveLevel(values),
+    sources
+  };
+}
+function envTruthy(flag) {
+  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
+  return value === "1" || value?.toLowerCase() === "true";
+}
+function getEnvFlagValue(flag) {
+  if (process.env[flag.name] !== undefined) {
+    return process.env[flag.name];
+  }
+  if (flag.legacyName) {
+    return process.env[flag.legacyName];
+  }
+  return;
+}
+function envFlagIsSet(flag) {
+  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
+}
+
+// src/core/format.ts
+function formatBlockedMessage(input) {
+  const { reason, command, segment, toolName } = input;
+  const maxLen = input.maxLen ?? 200;
+  const redact = input.redact ?? ((t) => t);
+  let message = `BLOCKED by CC Safety Net
+
+Reason: ${redact(reason)}`;
+  if (input.ruleId) {
+    message += `
+
+Rule: ${input.ruleId}`;
+  }
+  if (toolName) {
+    message += `
+
+Tool: ${toolName}`;
+  }
+  if (command) {
+    const safeCommand = redact(command);
+    message += `
+
+Command: ${excerpt(safeCommand, maxLen)}`;
+  }
+  if (segment && segment !== command) {
+    const safeSegment = redact(segment);
+    message += `
+
+Segment: ${excerpt(safeSegment, maxLen)}`;
+  }
+  message += `
+
+${getFooter(input)}`;
+  return message;
+}
+function getFooter(input) {
+  const intent = input.manualPermissionAdvice === false ? "hard_stop" : input.intent ?? "manual_only";
+  switch (intent) {
+    case "hard_stop":
+      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
+    case "use_alternative":
+      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
+    case "scope_down":
+      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
+    case "manual_only":
+      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
+    case "stop_and_explain":
+      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
+  }
+}
+function excerpt(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+// src/core/reasons.ts
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.";
+var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.";
+var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+
+// src/core/tool-input.ts
+var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
+var PATH_TOOL_NAMES = new Set([
+  "create",
+  "edit",
+  "listdir",
+  "listpermissions",
+  "ls",
+  "multiedit",
+  "multireplacefilecontent",
+  "notebookedit",
+  "read",
+  "readfile",
+  "readurlcontent",
+  "replacefilecontent",
+  "searchweb",
+  "strreplaceeditor",
+  "view",
+  "viewfile",
+  "write",
+  "writefile",
+  "writetofile"
+]);
+var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
+var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
+var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch", "patchtext"]);
+var UTF8_ENCODER = new TextEncoder;
+var UTF8_DECODER = new TextDecoder;
+function normalizeToolName(toolName) {
+  return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function getNonCommandToolInputKind(toolName) {
+  const normalized = normalizeToolName(toolName);
+  if (PATCH_TOOL_NAMES.has(normalized))
+    return "patch";
+  if (GREP_TOOL_NAMES.has(normalized))
+    return "grep";
+  if (GLOB_TOOL_NAMES.has(normalized))
+    return "glob";
+  if (PATH_TOOL_NAMES.has(normalized))
+    return "path";
+  return "unknown";
+}
+function getCommandFromToolInput(input) {
+  if (!input || typeof input !== "object")
+    return;
+  const command = input.command;
+  return typeof command === "string" && command !== "" ? command : undefined;
+}
+function extractPathLikeToolValues(input, pathLikeKeys) {
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)))
+      return [value];
+    if (value && typeof value === "object")
+      return extractPathLikeToolValues(value, pathLikeKeys);
+    return [];
+  });
+}
+function normalizeToolInputKey(key) {
+  return key.replace(/-/g, "_").toLowerCase();
+}
+function extractPatchTargetsFromToolInput(input) {
+  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
+}
+function extractPatchTexts(input, allowString) {
+  if (typeof input === "string")
+    return allowString ? [input] : [];
+  if (!input || typeof input !== "object")
+    return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => extractPatchTexts(value, allowString));
+  }
+  return Object.entries(input).flatMap(([key, value]) => {
+    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
+      return extractPatchTexts(value, true);
+    if (value && typeof value === "object")
+      return extractPatchTexts(value, false);
+    return [];
+  });
+}
+function extractPatchTargetsFromText(text) {
+  const targets = [];
+  const lines = text.split(/\r?\n/);
+  let inApplyPatch = false;
+  let inHunk = false;
+  let oldHunkLinesRemaining = null;
+  let newHunkLinesRemaining = null;
+  const resetHunk = () => {
+    inHunk = false;
+    oldHunkLinesRemaining = null;
+    newHunkLinesRemaining = null;
+  };
+  for (let index = 0;index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (line === "*** Begin Patch") {
+      inApplyPatch = true;
+      resetHunk();
+      continue;
+    }
+    if (line === "*** End Patch") {
+      inApplyPatch = false;
+      resetHunk();
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const counts = parseUnifiedHunkLineCounts(line);
+      inHunk = true;
+      oldHunkLinesRemaining = counts?.oldLines ?? null;
+      newHunkLinesRemaining = counts?.newLines ?? null;
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
+      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
+      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
+      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
+      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
+      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+        resetHunk();
+      continue;
+    }
+    if (line.startsWith("*** ")) {
+      resetHunk();
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (inHunk)
+      continue;
+    if (line.startsWith("diff --git ")) {
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const nextLine = lines[index + 1] ?? "";
+      if (!nextLine.startsWith("+++ "))
+        continue;
+      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), true), decodeGitMetadataTarget(nextLine.slice(4), true)));
+      index++;
+      continue;
+    }
+    if (!inApplyPatch)
+      targets.push(...extractPatchTargetsFromMetadataLine(line));
+  }
+  return targets;
+}
+function parseUnifiedHunkLineCounts(line) {
+  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+  if (!hunkHeader)
+    return null;
+  return {
+    oldLines: Number(hunkHeader[1] ?? 1),
+    newLines: Number(hunkHeader[2] ?? 1)
+  };
+}
+function extractPatchTargetsFromMetadataLine(line) {
+  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
+  if (applyPatchTarget?.[1])
+    return cleanPatchTarget(applyPatchTarget[1]);
+  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
+  if (moveTarget?.[1])
+    return cleanPatchTarget(moveTarget[1]);
+  if (line.startsWith("diff --git "))
+    return extractGitDiffTargets(line.slice(11));
+  const oldTarget = /^--- (.+)$/.exec(line);
+  if (oldTarget?.[1])
+    return cleanUnifiedDiffTarget(oldTarget[1]);
+  const newTarget = /^\+\+\+ (.+)$/.exec(line);
+  if (newTarget?.[1])
+    return cleanUnifiedDiffTarget(newTarget[1]);
+  const extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
+  if (extendedTarget?.[1])
+    return cleanExtendedGitTarget(extendedTarget[1]);
+  return [];
+}
+function extractGitDiffTargets(header) {
+  const fields = parseGitDiffFields(header);
+  if (fields.length === 2 && fields[0] && fields[1]) {
+    return cleanGitTargetPair(fields[0], fields[1]);
+  }
+  const matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
+    header.slice(0, separator.index).trim(),
+    header.slice((separator.index ?? 0) + separator[0].length).trim()
+  ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
+  return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
+}
+function parseGitDiffFields(header) {
+  const fields = [];
+  let index = 0;
+  while (index < header.length) {
+    while (/\s/.test(header[index] ?? ""))
+      index++;
+    if (index >= header.length)
+      break;
+    const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
+    if (!quote) {
+      const end = header.slice(index).search(/\s/);
+      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
+      index = end === -1 ? header.length : index + end;
+      continue;
+    }
+    const field = parseQuotedGitDiffField(header, index, quote);
+    if (!field)
+      return [];
+    fields.push(field.value);
+    index = field.end;
+  }
+  return fields;
+}
+function parseQuotedGitDiffField(header, start, quote) {
+  const bytes = [];
+  let index = start + 1;
+  while (index < header.length) {
+    const character = header[index] ?? "";
+    if (character === quote) {
+      return { value: UTF8_DECODER.decode(Uint8Array.from(bytes)), end: index + 1 };
+    }
+    if (character !== "\\" || quote === "'") {
+      bytes.push(...UTF8_ENCODER.encode(character));
+      index++;
+      continue;
+    }
+    const escaped = header.slice(index + 1);
+    const octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
+    if (octal) {
+      bytes.push(Number.parseInt(octal, 8));
+      index += octal.length + 1;
+      continue;
+    }
+    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? "")));
+    index += 2;
+  }
+  return null;
+}
+function decodeGitDiffEscape(character) {
+  return {
+    a: "\x07",
+    b: "\b",
+    f: "\f",
+    n: `
+`,
+    r: "\r",
+    t: "\t",
+    v: "\v"
+  }[character] ?? character;
+}
+function cleanGitDiffTarget(target) {
+  return cleanExactPatchTarget(normalizeGitDiffTarget(target));
+}
+function cleanGitTargetPair(oldTarget, newTarget) {
+  if (oldTarget === "/dev/null")
+    return cleanSingleGitTarget(newTarget);
+  if (newTarget === "/dev/null")
+    return cleanSingleGitTarget(oldTarget);
+  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/")) {
+    return [oldTarget.slice(2), newTarget.slice(2)].flatMap(cleanExactPatchTarget);
+  }
+  const commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
+  return [oldTarget, newTarget, ...commonRemainder ? [commonRemainder] : []].flatMap(cleanExactPatchTarget);
+}
+function cleanSingleGitTarget(target) {
+  const stripped = stripFirstGitPathComponent(target);
+  return [target, ...stripped ? [stripped] : []].flatMap(cleanExactPatchTarget);
+}
+function stripFirstGitPathComponent(target) {
+  const separator = target.indexOf("/");
+  return separator > 0 && separator < target.length - 1 ? target.slice(separator + 1) : null;
+}
+function getCommonGitPrefixRemainder(oldTarget, newTarget) {
+  const oldSeparator = oldTarget.indexOf("/");
+  const newSeparator = newTarget.indexOf("/");
+  if (oldSeparator < 1 || newSeparator < 1)
+    return null;
+  if (oldTarget.slice(0, oldSeparator) === newTarget.slice(0, newSeparator))
+    return null;
+  const oldRemainder = oldTarget.slice(oldSeparator + 1);
+  return oldRemainder === newTarget.slice(newSeparator + 1) ? oldRemainder : null;
+}
+function cleanUnifiedDiffTarget(target) {
+  return cleanGitDiffTarget(decodeGitMetadataTarget(target, true));
+}
+function cleanExtendedGitTarget(target) {
+  return cleanExactPatchTarget(decodeGitMetadataTarget(target, false));
+}
+function decodeGitMetadataTarget(target, allowTrailingMetadata) {
+  const trimmed = target.trim();
+  const quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : undefined;
+  if (quote) {
+    const field = parseQuotedGitDiffField(trimmed, 0, quote);
+    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === "")) {
+      return field.value;
+    }
+  }
+  return allowTrailingMetadata ? trimmed.split("\t", 1)[0]?.trim() ?? "" : trimmed;
+}
+function normalizeGitDiffTarget(target) {
+  return target.startsWith("a/") || target.startsWith("b/") ? target.slice(2) : target;
+}
+function cleanExactPatchTarget(target) {
+  return target === "" || target === "/dev/null" ? [] : [target];
+}
+function cleanPatchTarget(target) {
+  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  return path === "" || path === "/dev/null" ? [] : [path];
+}
+
+// src/domain/invocation.ts
+function createToolInvocation(toolName, input, route, context, command) {
+  if (route.kind !== "command")
+    return { toolName, input, route, context };
+  return { toolName, input, route, context, command };
+}
+
+// src/engine/audit.ts
+function writeGuardAudit(audit, getSessionId, options) {
+  if (!audit)
+    return;
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (!sessionId)
+    return;
+  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
+    homeDir: options.homeDir,
+    decision: audit.decision,
+    agent: options.agent,
+    ruleId: audit.ruleId,
+    intent: audit.intent
+  });
+}
+
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
@@ -1294,9 +1843,9 @@ function isPathLikeWord(text) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { realpathSync } from "node:fs";
+import { realpathSync as realpathSync2 } from "node:fs";
 import { homedir as homedir2, tmpdir } from "node:os";
-import { normalize, resolve as resolve2, sep } from "node:path";
+import { normalize, resolve as resolve3, sep } from "node:path";
 var IS_WINDOWS = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options = {}) {
   return {
@@ -1417,7 +1966,7 @@ function hasShellGlobMetachar(target) {
 }
 function isCwdHomeForRmPolicy(cwd, homeDir) {
   try {
-    return normalizePathForComparison(realpathSync(cwd)) === normalizePathForComparison(realpathSync(homeDir));
+    return normalizePathForComparison(realpathSync2(cwd)) === normalizePathForComparison(realpathSync2(homeDir));
   } catch {
     try {
       return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
@@ -1431,10 +1980,10 @@ function isCwdSelfTarget(target, cwd) {
     return true;
   }
   try {
-    return normalizePathForComparison(realpathSync(resolve2(cwd, target))) === normalizePathForComparison(realpathSync(cwd));
+    return normalizePathForComparison(realpathSync2(resolve3(cwd, target))) === normalizePathForComparison(realpathSync2(cwd));
   } catch {
     try {
-      return normalizePathForComparison(resolve2(cwd, target)) === normalizePathForComparison(cwd);
+      return normalizePathForComparison(resolve3(cwd, target)) === normalizePathForComparison(cwd);
     } catch {
       return false;
     }
@@ -1457,7 +2006,7 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
   }
   if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
     try {
-      return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
+      return isResolvedPathWithinCwd(resolve3(resolveCwd, target), originalCwd);
     } catch {
       return false;
     }
@@ -1466,14 +2015,14 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
     return false;
   }
   try {
-    return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
+    return isResolvedPathWithinCwd(resolve3(resolveCwd, target), originalCwd);
   } catch {
     return false;
   }
 }
 function isResolvedPathWithinCwd(resolvedTarget, cwd) {
   try {
-    return isNormalizedPathWithin(realpathSync(resolvedTarget), realpathSync(cwd));
+    return isNormalizedPathWithin(realpathSync2(resolvedTarget), realpathSync2(cwd));
   } catch {
     return isNormalizedPathWithin(resolvedTarget, cwd);
   }
@@ -1482,129 +2031,6 @@ function isNormalizedPathWithin(target, cwd) {
   const normalizedTarget = normalizePathForComparison(target);
   const normalizedCwd = normalizePathForComparison(cwd);
   return normalizedTarget.startsWith(`${normalizedCwd}${sep}`) || normalizedTarget === normalizedCwd;
-}
-
-// src/core/env.ts
-var ENV_FLAGS = {
-  level: { name: "CC_SAFETY_NET_LEVEL" },
-  strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
-  paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
-  paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
-  paranoidInterpreters: {
-    name: "CC_SAFETY_NET_PARANOID_INTERPRETERS",
-    legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
-  },
-  worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" }
-};
-var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
-function expandSafetyLevel(level) {
-  return {
-    failClosed: level === "strict" || level === "paranoid",
-    paranoidRm: level === "paranoid",
-    paranoidInterpreters: level === "paranoid"
-  };
-}
-function maxSafetyLevel(policyLevel, envLevel) {
-  if (!envLevel)
-    return policyLevel;
-  return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
-}
-function parseEnvLevel() {
-  const value = getEnvFlagValue(ENV_FLAGS.level);
-  if (value === undefined)
-    return;
-  if (SAFETY_LEVELS.includes(value))
-    return value;
-  if (envTruthy(ENV_FLAGS.debug)) {
-    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
-  }
-  return;
-}
-function deriveEffectiveLevel(values) {
-  if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
-    return "paranoid";
-  if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
-    return "strict";
-  if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
-    return "standard";
-  return "custom";
-}
-function getCCSafetyNetEnvModes(policy = {}) {
-  const policyLevel = policy.safety?.level ?? "standard";
-  const envLevel = parseEnvLevel();
-  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
-  const values = expandSafetyLevel(baseLevel);
-  const sources = {
-    failClosed: [`policy safety.level=${policyLevel}`],
-    paranoidRm: [`policy safety.level=${policyLevel}`],
-    paranoidInterpreters: [`policy safety.level=${policyLevel}`],
-    worktreeMode: []
-  };
-  if (envLevel && envLevel !== policyLevel) {
-    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-  }
-  if (policy.safety?.overrides?.failClosed !== undefined) {
-    values.failClosed = policy.safety.overrides.failClosed;
-    sources.failClosed.push("policy safety.overrides.fail_closed");
-  }
-  if (policy.safety?.overrides?.paranoidRm !== undefined) {
-    values.paranoidRm = policy.safety.overrides.paranoidRm;
-    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
-  }
-  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
-    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
-    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
-  }
-  if (envTruthy(ENV_FLAGS.strict)) {
-    values.failClosed = true;
-    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoid)) {
-    values.paranoidRm = true;
-    values.paranoidInterpreters = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidRm)) {
-    values.paranoidRm = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
-    values.paranoidInterpreters = true;
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
-  }
-  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
-  if (policy.worktreeMode)
-    sources.worktreeMode.push("policy workflow.worktree_mode");
-  if (envTruthy(ENV_FLAGS.worktree))
-    sources.worktreeMode.push(`env ${ENV_FLAGS.worktree.name}`);
-  return {
-    strict: values.failClosed,
-    paranoidRm: values.paranoidRm,
-    paranoidInterpreters: values.paranoidInterpreters,
-    worktreeMode,
-    effectiveLevel: deriveEffectiveLevel(values),
-    sources
-  };
-}
-function envTruthy(flag) {
-  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
-  return value === "1" || value?.toLowerCase() === "true";
-}
-function getEnvFlagValue(flag) {
-  if (process.env[flag.name] !== undefined) {
-    return process.env[flag.name];
-  }
-  if (flag.legacyName) {
-    return process.env[flag.legacyName];
-  }
-  return;
-}
-function envFlagIsSet(flag) {
-  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
 }
 
 // src/core/analyze/powershell/remove-item.ts
@@ -1826,7 +2252,7 @@ function matchForClassification(classification, ctx) {
 }
 
 // src/core/analyze/segment.ts
-import { realpathSync as realpathSync6 } from "node:fs";
+import { realpathSync as realpathSync7 } from "node:fs";
 import { normalize as normalize3 } from "node:path";
 
 // src/core/analyze/awk.ts
@@ -3125,8 +3551,8 @@ function _isShellTokenBoundaryChar(char) {
   return _isWhitespaceChar(char) || ";|&()<>".includes(char);
 }
 // src/core/shell/wrappers.ts
-import { realpathSync as realpathSync3 } from "node:fs";
-import { isAbsolute as isAbsolute3, parse as parsePath2 } from "node:path";
+import { realpathSync as realpathSync4 } from "node:fs";
+import { isAbsolute as isAbsolute4, parse as parsePath2 } from "node:path";
 
 // src/core/git/env.ts
 var GIT_CONTEXT_ENV_OVERRIDES = [
@@ -3186,10 +3612,10 @@ function hasAnyEnvAssignment(envAssignments, names) {
 }
 
 // src/core/path.ts
-import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute2, parse as parsePath, sep as sep2 } from "node:path";
+import { lstatSync, realpathSync as realpathSync3 } from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute3, parse as parsePath, sep as sep2 } from "node:path";
 function resolveChdirTarget(baseCwd, target) {
-  const root = isAbsolute2(target) ? getPathRoot(target) : "";
+  const root = isAbsolute3(target) ? getPathRoot(target) : "";
   let current = root || baseCwd;
   for (const component of getPathComponents(root ? target.slice(root.length) : target)) {
     if (component === "" || component === ".") {
@@ -3200,7 +3626,7 @@ function resolveChdirTarget(baseCwd, target) {
       continue;
     }
     const candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
+    current = lstatSync(candidate).isSymbolicLink() ? realpathSync3(candidate) : candidate;
   }
   return current;
 }
@@ -3457,10 +3883,10 @@ function resolveWrapperCwd(cwd, target) {
     return null;
   }
   try {
-    if (!cwd && !isAbsolute3(target)) {
+    if (!cwd && !isAbsolute4(target)) {
       return null;
     }
-    const baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
+    const baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync4(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -3801,8 +4227,8 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
 }
 
 // src/core/git/worktree.ts
-import { existsSync, lstatSync as lstatSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute4, join as join3, resolve as resolve3 } from "node:path";
+import { existsSync, lstatSync as lstatSync2, readFileSync as readFileSync2, realpathSync as realpathSync5, statSync as statSync2 } from "node:fs";
+import { dirname as dirname3, isAbsolute as isAbsolute5, join as join3, resolve as resolve4 } from "node:path";
 var GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
   "-c",
   "-C",
@@ -3826,7 +4252,7 @@ function getGitExecutionContext(tokens, cwd) {
   }
   let gitCwd;
   try {
-    gitCwd = realpathSync4(resolve3(cwd));
+    gitCwd = realpathSync5(resolve4(cwd));
   } catch {
     return { gitCwd: null, hasExplicitGitContext: false };
   }
@@ -3906,7 +4332,7 @@ function isLinkedWorktree(cwd) {
     if (rawGitDir === "") {
       return false;
     }
-    const gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve3(dirname3(dotGitPath), rawGitDir);
+    const gitDir = isAbsolute5(rawGitDir) ? rawGitDir : resolve4(dirname3(dotGitPath), rawGitDir);
     if (!existsSync(join3(gitDir, "commondir"))) {
       return false;
     }
@@ -3941,7 +4367,7 @@ function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute4(target) ? target : resolve3(gitDir, target);
+  return isAbsolute5(target) ? target : resolve4(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -3952,8 +4378,8 @@ function sameFilesystemPathOrFalse(left, right) {
 }
 function sameFilesystemPath(left, right) {
   try {
-    const leftStat = statSync(left);
-    const rightStat = statSync(right);
+    const leftStat = statSync2(left);
+    const rightStat = statSync2(right);
     if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino) {
       return true;
     }
@@ -3961,7 +4387,7 @@ function sameFilesystemPath(left, right) {
   return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
 }
 function getCanonicalPathForComparison(path) {
-  return normalizePathForComparison2(realpathSync4.native(path));
+  return normalizePathForComparison2(realpathSync5.native(path));
 }
 function normalizePathForComparison2(path) {
   let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
@@ -4047,14 +4473,14 @@ function resolveGitCwd(baseCwd, target) {
 }
 function isDirectory(path) {
   try {
-    return statSync(path).isDirectory();
+    return statSync2(path).isDirectory();
   } catch {
     return false;
   }
 }
 function findDotGit(cwd) {
   try {
-    return findDotGitInAncestors(realpathSync4(cwd));
+    return findDotGitInAncestors(realpathSync5(cwd));
   } catch {
     return null;
   }
@@ -4659,7 +5085,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute5, join as join4, resolve as resolve4 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute6, join as join4, resolve as resolve5 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -4843,7 +5269,7 @@ function resolveGitDirFromDotGit(dotGitPath) {
     if (rawGitDir === "") {
       return null;
     }
-    return isAbsolute5(rawGitDir) ? rawGitDir : resolve4(dirname4(dotGitPath), rawGitDir);
+    return isAbsolute6(rawGitDir) ? rawGitDir : resolve5(dirname4(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
@@ -4858,7 +5284,7 @@ function resolveCommonGitDir(gitDir) {
     if (rawCommonDir === "") {
       return null;
     }
-    return isAbsolute5(rawCommonDir) ? rawCommonDir : resolve4(gitDir, rawCommonDir);
+    return isAbsolute6(rawCommonDir) ? rawCommonDir : resolve5(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -5561,9 +5987,9 @@ function splitParallelEnvNames(value) {
 }
 
 // src/core/analyze/tmpdir.ts
-import { existsSync as existsSync3, lstatSync as lstatSync3, realpathSync as realpathSync5 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync3, realpathSync as realpathSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute6, join as join5, normalize as normalize2, parse as parsePath3, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute7, join as join5, normalize as normalize2, parse as parsePath3, sep as sep3 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir2();
 var TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp", "/var/folders"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
@@ -5600,7 +6026,7 @@ function tryResolveExistingPathComponents(path) {
 }
 function resolveExistingPathComponents(path) {
   const normalized = normalize2(path);
-  if (!isAbsolute6(normalized)) {
+  if (!isAbsolute7(normalized)) {
     return normalized;
   }
   const root = parsePath3(normalized).root;
@@ -5611,7 +6037,7 @@ function resolveExistingPathComponents(path) {
     if (!existsSync3(candidate)) {
       return join5(candidate, ...components.slice(i + 1));
     }
-    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync5(candidate) : candidate;
+    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync6(candidate) : candidate;
   }
   return current;
 }
@@ -6179,7 +6605,7 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize3(realpathSync6(a)) === normalize3(realpathSync6(b));
+    return normalize3(realpathSync7(a)) === normalize3(realpathSync7(b));
   } catch {
     return normalize3(a) === normalize3(b);
   }
@@ -6577,11 +7003,6 @@ function getSetOptionChanges(tokens, commandIndex) {
   return changes;
 }
 
-// src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.";
-var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.";
-var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
-
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2) {
   if (depth >= MAX_RECURSION_DEPTH) {
@@ -6725,7 +7146,7 @@ function isCCSafetyNetPackage(value) {
 
 // src/core/config.ts
 import { existsSync as existsSync10, readFileSync as readFileSync10 } from "node:fs";
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve9 } from "node:path";
 
 // src/core/policy.ts
 import { chmodSync, existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync5 } from "node:fs";
@@ -7071,7 +7492,7 @@ import { dirname as dirname6 } from "node:path";
 
 // src/core/rules/policy/paths.ts
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname5, join as join6, resolve as resolve5 } from "node:path";
+import { dirname as dirname5, join as join6, resolve as resolve6 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json";
 var RULES_LOCK_FILE = "rule.lock";
 var RULEBOOK_FILE = "rulebook.json";
@@ -7085,7 +7506,7 @@ var GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>";
 var RULE_SYNC_COMMAND = "`cc-safety-net rule sync`";
 var RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
-  return resolve5(cwd ?? process.cwd(), RULES_DIR);
+  return resolve6(cwd ?? process.cwd(), RULES_DIR);
 }
 function getProjectRulesConfigPath(cwd) {
   return join6(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
@@ -7095,7 +7516,7 @@ function getUserRulesDir(options2) {
 }
 function getUserSafetyNetHome() {
   const home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve5(home) : join6(homedir3(), SAFETY_NET_DIR);
+  return home ? resolve6(home) : join6(homedir3(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
   return join6(getUserRulesDir(options2), RULES_CONFIG_FILE);
@@ -7110,7 +7531,7 @@ function getLegacyUserRulesConfigPath(options2 = {}) {
   return join6(dirname5(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
 }
 function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve5(options2.cwd ?? process.cwd(), ".safety-net.json");
+  return resolve6(options2.cwd ?? process.cwd(), ".safety-net.json");
 }
 function getPolicyPaths(options2) {
   const userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2);
@@ -8011,8 +8432,8 @@ function isBlockIntent2(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { existsSync as existsSync8, readFileSync as readFileSync8, realpathSync as realpathSync7 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute7, join as join9, relative, resolve as resolve6, sep as sep4 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync8, realpathSync as realpathSync8 } from "node:fs";
+import { dirname as dirname8, isAbsolute as isAbsolute8, join as join9, relative as relative2, resolve as resolve7, sep as sep4 } from "node:path";
 
 // src/core/rules/rulebook.ts
 function validateRulebook(rulebook) {
@@ -8599,9 +9020,9 @@ function loadLockedRulebook(entry, configDir, options2) {
     errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (entry.kind === "local-directory") {
-    const sourcePath = resolve6(configDir, entry.path);
-    const sourceRelative = relative(resolve6(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute7(sourceRelative)) {
+    const sourcePath = resolve7(configDir, entry.path);
+    const sourceRelative = relative2(resolve7(configDir), sourcePath);
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute8(sourceRelative)) {
       errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
       return { rulebook: null, errors };
     }
@@ -8641,14 +9062,14 @@ function mergeTransparentWrappers(userConfig, projectConfig) {
   ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve6(userConfigPath) === resolve6(projectConfigPath)) {
+  if (resolve7(userConfigPath) === resolve7(projectConfigPath)) {
     return true;
   }
   if (!existsSync8(userConfigPath) || !existsSync8(projectConfigPath)) {
     return false;
   }
   try {
-    return realpathSync7(userConfigPath) === realpathSync7(projectConfigPath);
+    return realpathSync8(userConfigPath) === realpathSync8(projectConfigPath);
   } catch {
     return false;
   }
@@ -8773,7 +9194,7 @@ import {
   unlinkSync,
   writeFileSync as writeFileSync2
 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute8, join as join10, relative as relative2, resolve as resolve7, sep as sep5 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, relative as relative3, resolve as resolve8, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   const internalOptions = options2;
   const scope = getScopePaths(options2);
@@ -9033,10 +9454,10 @@ function getLocalSourceDirsForDelete(configDir, specs, lock) {
   return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve7(configDir);
-  const resolvedDir = resolve7(dir);
-  const relativeDir = relative2(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute8(relativeDir)) {
+  const resolvedConfigDir = resolve8(configDir);
+  const resolvedDir = resolve8(dir);
+  const relativeDir = relative3(resolvedConfigDir, resolvedDir);
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute9(relativeDir)) {
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   }
   if (!existsSync9(resolvedDir))
@@ -9165,7 +9586,7 @@ function readConfigFileInput(path) {
   }
 }
 function getLegacyProjectConfigPath(cwd) {
-  return resolve8(cwd ?? process.cwd(), ".safety-net.json");
+  return resolve9(cwd ?? process.cwd(), ".safety-net.json");
 }
 function validateRulesConfigFile(path) {
   const loaded = readConfigFileInput(path);
@@ -9202,88 +9623,6 @@ function analyzeCommand(command2, options2 = {}) {
     paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
     worktreeMode: options2.worktreeMode ?? modes.worktreeMode
   });
-}
-
-// src/core/cwd-containment.ts
-import { realpathSync as realpathSync8, statSync as statSync2 } from "node:fs";
-import { isAbsolute as isAbsolute9, relative as relative3, resolve as resolve9 } from "node:path";
-function resolveContainedCwd(requestedCwd, trustedRoots) {
-  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
-  if (!roots[0])
-    return;
-  const requested = canonicalDirectory(isAbsolute9(requestedCwd) ? requestedCwd : resolve9(roots[0], requestedCwd))[0];
-  if (!requested)
-    return;
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
-}
-function firstTrustedRoot(trustedRoots) {
-  return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
-}
-function canonicalDirectory(path) {
-  try {
-    const realPath = realpathSync8(path);
-    return statSync2(realPath).isDirectory() ? [realPath] : [];
-  } catch {
-    return [];
-  }
-}
-function isSameOrInside(path, root) {
-  const rel = relative3(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute9(rel);
-}
-
-// src/core/format.ts
-function formatBlockedMessage(input) {
-  const { reason, command: command2, segment, toolName } = input;
-  const maxLen = input.maxLen ?? 200;
-  const redact = input.redact ?? ((t) => t);
-  let message = `BLOCKED by CC Safety Net
-
-Reason: ${redact(reason)}`;
-  if (input.ruleId) {
-    message += `
-
-Rule: ${input.ruleId}`;
-  }
-  if (toolName) {
-    message += `
-
-Tool: ${toolName}`;
-  }
-  if (command2) {
-    const safeCommand = redact(command2);
-    message += `
-
-Command: ${excerpt(safeCommand, maxLen)}`;
-  }
-  if (segment && segment !== command2) {
-    const safeSegment = redact(segment);
-    message += `
-
-Segment: ${excerpt(safeSegment, maxLen)}`;
-  }
-  message += `
-
-${getFooter(input)}`;
-  return message;
-}
-function getFooter(input) {
-  const intent = input.manualPermissionAdvice === false ? "hard_stop" : input.intent ?? "manual_only";
-  switch (intent) {
-    case "hard_stop":
-      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
-    case "use_alternative":
-      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
-    case "scope_down":
-      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
-    case "manual_only":
-      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
-    case "stop_and_explain":
-      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
-  }
-}
-function excerpt(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
 }
 
 // src/core/policy-protection.ts
@@ -9331,317 +9670,6 @@ function getSupportedPathEnvironmentValue(name) {
   if (name === "HOME")
     return process.env.HOME ?? homedir4();
   return process.env[name] ?? null;
-}
-
-// src/core/tool-input.ts
-var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
-var PATH_TOOL_NAMES = new Set([
-  "create",
-  "edit",
-  "listdir",
-  "listpermissions",
-  "ls",
-  "multiedit",
-  "multireplacefilecontent",
-  "notebookedit",
-  "read",
-  "readfile",
-  "readurlcontent",
-  "replacefilecontent",
-  "searchweb",
-  "strreplaceeditor",
-  "view",
-  "viewfile",
-  "write",
-  "writefile",
-  "writetofile"
-]);
-var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
-var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
-var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch", "patchtext"]);
-var UTF8_ENCODER = new TextEncoder;
-var UTF8_DECODER = new TextDecoder;
-function normalizeToolName(toolName) {
-  return toolName.replace(/[-_\s]/g, "").toLowerCase();
-}
-function getNonCommandToolInputKind(toolName) {
-  const normalized = normalizeToolName(toolName);
-  if (PATCH_TOOL_NAMES.has(normalized))
-    return "patch";
-  if (GREP_TOOL_NAMES.has(normalized))
-    return "grep";
-  if (GLOB_TOOL_NAMES.has(normalized))
-    return "glob";
-  if (PATH_TOOL_NAMES.has(normalized))
-    return "path";
-  return "unknown";
-}
-function getCommandFromToolInput(input) {
-  if (!input || typeof input !== "object")
-    return;
-  const command2 = input.command;
-  return typeof command2 === "string" && command2 !== "" ? command2 : undefined;
-}
-function extractPathLikeToolValues(input, pathLikeKeys) {
-  if (!input || typeof input !== "object")
-    return [];
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
-  }
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)))
-      return [value];
-    if (value && typeof value === "object")
-      return extractPathLikeToolValues(value, pathLikeKeys);
-    return [];
-  });
-}
-function normalizeToolInputKey(key) {
-  return key.replace(/-/g, "_").toLowerCase();
-}
-function extractPatchTargetsFromToolInput(input) {
-  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
-}
-function extractPatchTexts(input, allowString) {
-  if (typeof input === "string")
-    return allowString ? [input] : [];
-  if (!input || typeof input !== "object")
-    return [];
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPatchTexts(value, allowString));
-  }
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
-      return extractPatchTexts(value, true);
-    if (value && typeof value === "object")
-      return extractPatchTexts(value, false);
-    return [];
-  });
-}
-function extractPatchTargetsFromText(text) {
-  const targets = [];
-  const lines = text.split(/\r?\n/);
-  let inApplyPatch = false;
-  let inHunk = false;
-  let oldHunkLinesRemaining = null;
-  let newHunkLinesRemaining = null;
-  const resetHunk = () => {
-    inHunk = false;
-    oldHunkLinesRemaining = null;
-    newHunkLinesRemaining = null;
-  };
-  for (let index = 0;index < lines.length; index++) {
-    const line = lines[index] ?? "";
-    if (line === "*** Begin Patch") {
-      inApplyPatch = true;
-      resetHunk();
-      continue;
-    }
-    if (line === "*** End Patch") {
-      inApplyPatch = false;
-      resetHunk();
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const counts = parseUnifiedHunkLineCounts(line);
-      inHunk = true;
-      oldHunkLinesRemaining = counts?.oldLines ?? null;
-      newHunkLinesRemaining = counts?.newLines ?? null;
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-      continue;
-    }
-    if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
-      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
-      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
-      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
-      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
-        resetHunk();
-      continue;
-    }
-    if (line.startsWith("*** ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromMetadataLine(line));
-      continue;
-    }
-    if (inHunk)
-      continue;
-    if (line.startsWith("diff --git ")) {
-      targets.push(...extractPatchTargetsFromMetadataLine(line));
-      continue;
-    }
-    if (line.startsWith("--- ")) {
-      const nextLine = lines[index + 1] ?? "";
-      if (!nextLine.startsWith("+++ "))
-        continue;
-      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), true), decodeGitMetadataTarget(nextLine.slice(4), true)));
-      index++;
-      continue;
-    }
-    if (!inApplyPatch)
-      targets.push(...extractPatchTargetsFromMetadataLine(line));
-  }
-  return targets;
-}
-function parseUnifiedHunkLineCounts(line) {
-  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
-  if (!hunkHeader)
-    return null;
-  return {
-    oldLines: Number(hunkHeader[1] ?? 1),
-    newLines: Number(hunkHeader[2] ?? 1)
-  };
-}
-function extractPatchTargetsFromMetadataLine(line) {
-  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
-  if (applyPatchTarget?.[1])
-    return cleanPatchTarget(applyPatchTarget[1]);
-  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
-  if (moveTarget?.[1])
-    return cleanPatchTarget(moveTarget[1]);
-  if (line.startsWith("diff --git "))
-    return extractGitDiffTargets(line.slice(11));
-  const oldTarget = /^--- (.+)$/.exec(line);
-  if (oldTarget?.[1])
-    return cleanUnifiedDiffTarget(oldTarget[1]);
-  const newTarget = /^\+\+\+ (.+)$/.exec(line);
-  if (newTarget?.[1])
-    return cleanUnifiedDiffTarget(newTarget[1]);
-  const extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
-  if (extendedTarget?.[1])
-    return cleanExtendedGitTarget(extendedTarget[1]);
-  return [];
-}
-function extractGitDiffTargets(header) {
-  const fields = parseGitDiffFields(header);
-  if (fields.length === 2 && fields[0] && fields[1]) {
-    return cleanGitTargetPair(fields[0], fields[1]);
-  }
-  const matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
-    header.slice(0, separator.index).trim(),
-    header.slice((separator.index ?? 0) + separator[0].length).trim()
-  ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
-  return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
-}
-function parseGitDiffFields(header) {
-  const fields = [];
-  let index = 0;
-  while (index < header.length) {
-    while (/\s/.test(header[index] ?? ""))
-      index++;
-    if (index >= header.length)
-      break;
-    const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
-    if (!quote) {
-      const end = header.slice(index).search(/\s/);
-      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
-      index = end === -1 ? header.length : index + end;
-      continue;
-    }
-    const field = parseQuotedGitDiffField(header, index, quote);
-    if (!field)
-      return [];
-    fields.push(field.value);
-    index = field.end;
-  }
-  return fields;
-}
-function parseQuotedGitDiffField(header, start, quote) {
-  const bytes = [];
-  let index = start + 1;
-  while (index < header.length) {
-    const character = header[index] ?? "";
-    if (character === quote) {
-      return { value: UTF8_DECODER.decode(Uint8Array.from(bytes)), end: index + 1 };
-    }
-    if (character !== "\\" || quote === "'") {
-      bytes.push(...UTF8_ENCODER.encode(character));
-      index++;
-      continue;
-    }
-    const escaped = header.slice(index + 1);
-    const octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
-    if (octal) {
-      bytes.push(Number.parseInt(octal, 8));
-      index += octal.length + 1;
-      continue;
-    }
-    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? "")));
-    index += 2;
-  }
-  return null;
-}
-function decodeGitDiffEscape(character) {
-  return {
-    a: "\x07",
-    b: "\b",
-    f: "\f",
-    n: `
-`,
-    r: "\r",
-    t: "\t",
-    v: "\v"
-  }[character] ?? character;
-}
-function cleanGitDiffTarget(target) {
-  return cleanExactPatchTarget(normalizeGitDiffTarget(target));
-}
-function cleanGitTargetPair(oldTarget, newTarget) {
-  if (oldTarget === "/dev/null")
-    return cleanSingleGitTarget(newTarget);
-  if (newTarget === "/dev/null")
-    return cleanSingleGitTarget(oldTarget);
-  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/")) {
-    return [oldTarget.slice(2), newTarget.slice(2)].flatMap(cleanExactPatchTarget);
-  }
-  const commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
-  return [oldTarget, newTarget, ...commonRemainder ? [commonRemainder] : []].flatMap(cleanExactPatchTarget);
-}
-function cleanSingleGitTarget(target) {
-  const stripped = stripFirstGitPathComponent(target);
-  return [target, ...stripped ? [stripped] : []].flatMap(cleanExactPatchTarget);
-}
-function stripFirstGitPathComponent(target) {
-  const separator = target.indexOf("/");
-  return separator > 0 && separator < target.length - 1 ? target.slice(separator + 1) : null;
-}
-function getCommonGitPrefixRemainder(oldTarget, newTarget) {
-  const oldSeparator = oldTarget.indexOf("/");
-  const newSeparator = newTarget.indexOf("/");
-  if (oldSeparator < 1 || newSeparator < 1)
-    return null;
-  if (oldTarget.slice(0, oldSeparator) === newTarget.slice(0, newSeparator))
-    return null;
-  const oldRemainder = oldTarget.slice(oldSeparator + 1);
-  return oldRemainder === newTarget.slice(newSeparator + 1) ? oldRemainder : null;
-}
-function cleanUnifiedDiffTarget(target) {
-  return cleanGitDiffTarget(decodeGitMetadataTarget(target, true));
-}
-function cleanExtendedGitTarget(target) {
-  return cleanExactPatchTarget(decodeGitMetadataTarget(target, false));
-}
-function decodeGitMetadataTarget(target, allowTrailingMetadata) {
-  const trimmed = target.trim();
-  const quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : undefined;
-  if (quote) {
-    const field = parseQuotedGitDiffField(trimmed, 0, quote);
-    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === "")) {
-      return field.value;
-    }
-  }
-  return allowTrailingMetadata ? trimmed.split("\t", 1)[0]?.trim() ?? "" : trimmed;
-}
-function normalizeGitDiffTarget(target) {
-  return target.startsWith("a/") || target.startsWith("b/") ? target.slice(2) : target;
-}
-function cleanExactPatchTarget(target) {
-  return target === "" || target === "/dev/null" ? [] : [target];
-}
-function cleanPatchTarget(target) {
-  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
-  return path === "" || path === "/dev/null" ? [] : [path];
 }
 
 // src/core/policy-protection.ts
@@ -10974,6 +11002,171 @@ function isRedirectOp2(token) {
   return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
 }
 
+// src/engine/guard.ts
+class GuardEvaluationError extends Error {
+  stage;
+  evaluation;
+  name = "GuardEvaluationError";
+  constructor(stage, evaluation, cause) {
+    super(`CC Safety Net ${stage} dependency failed`, { cause });
+    this.stage = stage;
+    this.evaluation = evaluation;
+  }
+}
+var DEFAULT_DEPENDENCIES = {
+  findPolicyMutation: findPolicyConfigMutationTargetInToolInput,
+  loadConfig,
+  findSensitiveTarget: findSensitiveTargetInToolInput,
+  analyzeCommand,
+  getModes: getCCSafetyNetEnvModes
+};
+function evaluateGuard(invocation, options2 = {}) {
+  const dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies };
+  const inputCommand = getCommandFromToolInput(invocation.input);
+  const command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand;
+  const policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(invocation.toolName, invocation.input, invocation.route, invocation.context));
+  if (policyTarget) {
+    const displayCommand = command2 ?? policyTarget.target;
+    return {
+      stage: "policy-protection",
+      decision: {
+        kind: "deny",
+        reason: REASON_POLICY_CONFIG_PROTECTION,
+        intent: "hard_stop",
+        evidence: [
+          { kind: "command", command: displayCommand, segment: policyTarget.target },
+          { kind: "path", target: policyTarget.target }
+        ]
+      }
+    };
+  }
+  const config = callDependency("config-load", invocation, () => dependencies.loadConfig(invocation.context.configCwd, {
+    repairLocalRulebooks: true,
+    ...options2.configOptions
+  }));
+  const secretTarget = config.secretProtection?.enabled === false ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, config.secretProtection, invocation.context.configCwd));
+  if (secretTarget) {
+    const displayCommand = command2 ?? secretTarget.target;
+    return {
+      stage: "secret-protection",
+      decision: {
+        kind: "deny",
+        reason: REASON_SECRET_PROTECTION,
+        intent: "hard_stop",
+        ruleId: secretTarget.ruleId,
+        evidence: [
+          { kind: "command", command: displayCommand, segment: secretTarget.target },
+          { kind: "path", target: secretTarget.target }
+        ]
+      },
+      audit: {
+        decision: "deny",
+        command: displayCommand,
+        segment: secretTarget.target,
+        reason: REASON_SECRET_PROTECTION,
+        cwd: invocation.context.executionCwd,
+        ruleId: secretTarget.ruleId,
+        intent: "hard_stop"
+      }
+    };
+  }
+  if (!isCommandInvocation(invocation)) {
+    if (config.failClosedReason) {
+      return {
+        stage: "config-state",
+        decision: {
+          kind: "deny",
+          reason: config.failClosedReason,
+          intent: "stop_and_explain",
+          evidence: inputCommand ? [{ kind: "command", command: inputCommand, segment: inputCommand }] : []
+        }
+      };
+    }
+    return { stage: "non-command", decision: { kind: "allow" } };
+  }
+  if (!invocation.command || invocation.command.trim() === "") {
+    return failedClosedEvaluation("command-validation", invocation);
+  }
+  const result = callDependency("command-analysis", invocation, () => {
+    const modes = dependencies.getModes(config);
+    return dependencies.analyzeCommand(invocation.command, {
+      cwd: invocation.context.executionCwd,
+      shell: invocation.route.shell,
+      config,
+      strict: modes.strict,
+      paranoidRm: modes.paranoidRm,
+      paranoidInterpreters: modes.paranoidInterpreters,
+      worktreeMode: modes.worktreeMode
+    });
+  });
+  if (result)
+    return blockedCommandEvaluation(invocation, result);
+  if (!options2.auditAllowed) {
+    return { stage: "command-analysis", decision: { kind: "allow" } };
+  }
+  return {
+    stage: "command-analysis",
+    decision: { kind: "allow" },
+    audit: {
+      decision: "allow",
+      command: invocation.command,
+      segment: invocation.command,
+      reason: "allowed",
+      cwd: invocation.context.executionCwd
+    }
+  };
+}
+function callDependency(stage, invocation, call) {
+  try {
+    return call();
+  } catch (cause) {
+    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, invocation), cause);
+  }
+}
+function failedClosedEvaluation(stage, invocation) {
+  const command2 = isCommandInvocation(invocation) ? invocation.command : getCommandFromToolInput(invocation.input);
+  return {
+    stage,
+    decision: {
+      kind: "deny",
+      reason: REASON_SAFETY_NET_FAILED_CLOSED,
+      intent: "stop_and_explain",
+      evidence: command2 ? [{ kind: "command", command: command2, segment: command2 }] : []
+    }
+  };
+}
+function blockedCommandEvaluation(invocation, result) {
+  const command2 = invocation.command;
+  const intent = getLegacyIntent(result);
+  return {
+    stage: "command-analysis",
+    decision: {
+      kind: "deny",
+      reason: result.reason,
+      intent,
+      ...result.ruleId ? { ruleId: result.ruleId } : {},
+      evidence: [{ kind: "command", command: command2, segment: result.segment }]
+    },
+    audit: {
+      decision: "deny",
+      command: command2,
+      segment: result.segment,
+      reason: result.reason,
+      cwd: invocation.context.executionCwd,
+      ...result.ruleId ? { ruleId: result.ruleId } : {},
+      ...result.intent ? { intent: result.intent } : {}
+    }
+  };
+}
+function getLegacyIntent(result) {
+  if (result.manualPermissionAdvice === false)
+    return "hard_stop";
+  return result.intent ?? "manual_only";
+}
+function isCommandInvocation(invocation) {
+  return invocation.route.kind === "command";
+}
+
 // src/bin/hook/common.ts
 function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) {
   console.log(JSON.stringify(createDenyOutput(formatBlockedMessage({
@@ -11023,58 +11216,6 @@ function outputFailedClosed(outputDeny, toolInput, toolName, segment) {
   const command2 = getCommandFromToolInput(toolInput);
   outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, segment ?? command2, undefined, toolName, undefined, "stop_and_explain");
 }
-function analyzeHookCommand(command2, cwd, config, shell) {
-  return analyzeCommand(command2, {
-    cwd,
-    shell,
-    config: config ?? loadConfig(cwd, { repairLocalRulebooks: true })
-  });
-}
-function handleSecretProtection(toolInput, route, configCwd, executionCwd, config, sessionId, toolName, agent, outputDeny) {
-  if (config.secretProtection?.enabled === false) {
-    return false;
-  }
-  const match = findSensitiveTargetInToolInput(toolInput, route, executionCwd, config.secretProtection, configCwd);
-  if (!match) {
-    return false;
-  }
-  const command2 = getCommandFromToolInput(toolInput) ?? match.target;
-  if (sessionId) {
-    writeAuditLog(sessionId, command2, match.target, REASON_SECRET_PROTECTION, executionCwd, {
-      agent,
-      ruleId: match.ruleId,
-      intent: "hard_stop"
-    });
-  }
-  outputDeny(REASON_SECRET_PROTECTION, command2, match.target, false, toolName, match.ruleId, "hard_stop");
-  return true;
-}
-function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny, config, agent, shell) {
-  let result;
-  try {
-    result = analyzeHookCommand(command2, cwd, config, shell);
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2, undefined, undefined, undefined, "stop_and_explain");
-    return;
-  }
-  if (!result) {
-    if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command2, command2, "allowed", cwd, { decision: "allow", agent });
-    }
-    return;
-  }
-  if (sessionId) {
-    writeAuditLog(sessionId, command2, result.segment, result.reason, cwd, {
-      ruleId: result.ruleId,
-      intent: result.intent,
-      agent
-    });
-  }
-  outputDeny(result.reason, command2, result.segment, result.manualPermissionAdvice, undefined, result.ruleId, result.intent);
-}
 async function runHookAdapter(adapter) {
   const input = await readHookInput(adapter.outputDeny);
   if (input === undefined) {
@@ -11099,56 +11240,43 @@ async function runHookAdapter(adapter) {
   const context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
   if (!context)
     return;
-  let policyTarget;
+  const invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null);
+  let evaluation;
   try {
-    policyTarget = findPolicyConfigMutationTargetInToolInput(toolName, toolInputResult.input, toolInputResult.route, context);
+    evaluation = evaluateGuard(invocation, {
+      auditAllowed: envTruthy(ENV_FLAGS.debug),
+      dependencies: adapter.guardDependencies
+    });
   } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook policy protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    if (!(error instanceof GuardEvaluationError)) {
+      throw error;
     }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
+    logHookGuardError(error);
+    outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
     return;
   }
-  if (policyTarget) {
-    const command3 = getCommandFromToolInput(toolInputResult.input) ?? policyTarget.target;
-    adapter.outputDeny(REASON_POLICY_CONFIG_PROTECTION, command3, policyTarget.target, false, toolName);
+  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent });
+  outputGuardDenial(adapter.outputDeny, evaluation, toolName);
+}
+function outputGuardDenial(outputDeny, evaluation, toolName) {
+  if (evaluation.decision.kind !== "deny")
     return;
-  }
-  let config;
-  try {
-    config = loadConfig(context.configCwd, { repairLocalRulebooks: true });
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook config loading failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
+  const evidence = evaluation.decision.evidence.find((item) => item.kind === "command");
+  outputDeny(evaluation.decision.reason, evidence?.command, evidence?.segment, undefined, evaluation.stage === "command-analysis" ? undefined : toolName, evaluation.decision.ruleId, evaluation.decision.intent);
+}
+function logHookGuardError(error) {
+  if (!envTruthy(ENV_FLAGS.debug))
     return;
-  }
-  let blockedBySecretProtection;
-  try {
-    blockedBySecretProtection = handleSecretProtection(toolInputResult.input, toolInputResult.route, context.configCwd, context.executionCwd, config, adapter.getSessionId(input), toolName, adapter.agent, adapter.outputDeny);
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook secret protection failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-  if (blockedBySecretProtection) {
-    return;
-  }
-  const command2 = getCommandFromToolInput(toolInputResult.input);
-  if (toolInputResult.route.kind !== "command") {
-    if (config.failClosedReason) {
-      adapter.outputDeny(config.failClosedReason, command2, command2, undefined, toolName, undefined, "stop_and_explain");
-    }
-    return;
-  }
-  if (!command2 || command2.trim() === "") {
-    outputFailedClosed(adapter.outputDeny, toolInputResult.input, toolName);
-    return;
-  }
-  handleBlockedHookCommand(command2, context.executionCwd, adapter.getSessionId(input), adapter.outputDeny, config, adapter.agent, toolInputResult.route.shell);
+  console.error(`CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${redactSecrets(error.cause instanceof Error ? error.cause.message : String(error.cause))}`);
+}
+function getHookGuardErrorLabel(stage) {
+  if (stage === "policy-protection")
+    return "hook policy protection failed";
+  if (stage === "config-load")
+    return "hook config loading failed";
+  if (stage === "secret-protection")
+    return "hook secret protection failed";
+  return "hook analysis failed";
 }
 function stringField(value) {
   return typeof value === "string" ? value : undefined;
@@ -11158,6 +11286,7 @@ async function runConfiguredHookAdapter(adapter) {
   await runHookAdapter({
     agent: adapter.agent,
     outputDeny,
+    guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,
     getToolName: adapter.getToolName,
     getToolInput: adapter.getToolInput,

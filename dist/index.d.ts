@@ -1,9 +1,10 @@
-import type { PluginInput } from '@opencode-ai/plugin';
-import * as toolRouting from '@/core/tool-input';
-type CCSafetyNetPluginInput = PluginInput & {
+/** @internal */
+export declare function resolveOpenCodeShellRoute(configuredShell: unknown): 'posix' | 'powershell' | 'auto';
+/** @internal */
+export declare function normalizeOpenCodeWindowsWorkdir(workdir: string): string | null;
+export declare const CCSafetyNetPlugin: ({ directory, homeDir }: import("@opencode-ai/plugin").PluginInput & {
     homeDir?: string;
-};
-export declare const CCSafetyNetPlugin: ({ directory, homeDir }: CCSafetyNetPluginInput) => Promise<{
+}) => Promise<{
     config: (opencodeConfig: Record<string, unknown>) => Promise<void>;
     'tool.execute.before': (input: {
         tool: string;
@@ -13,8 +14,3 @@ export declare const CCSafetyNetPlugin: ({ directory, homeDir }: CCSafetyNetPlug
         args: any;
     }) => Promise<void>;
 }>;
-/** @internal */
-export declare function resolveOpenCodeShellRoute(configuredShell: unknown): toolRouting.CommandToolKind;
-/** @internal */
-export declare function normalizeOpenCodeWindowsWorkdir(workdir: string): string | null;
-export {};

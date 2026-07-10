@@ -13,7 +13,8 @@ import {
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
 } from '@/core/secret-protection-rules';
-import { getNonCommandToolInputKind, normalizeToolName, type ToolRoute } from '@/core/tool-input';
+import { getNonCommandToolInputKind, normalizeToolName } from '@/core/tool-input';
+import type { ToolRoute } from '@/domain/invocation';
 import type { SecretProtectionConfig } from '@/types';
 import { withEnv } from '../helpers.ts';
 

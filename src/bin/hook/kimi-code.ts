@@ -4,7 +4,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { KIMI_CODE_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/core/tool-input';
+import type { CommandToolKind } from '@/domain/invocation';
 import type { HookOutput, KimiCodeHookInput } from '@/types';
 
 const KIMI_CODE_COMMAND_TOOLS = new Map<string, CommandToolKind>([['Bash', 'posix']]);
