@@ -1965,7 +1965,7 @@ function extractShortOpts(tokens, options) {
 var $quote = require_quote();
 var $parse = require_parse();
 
-// src/types.ts
+// src/domain/decision.ts
 var BLOCK_INTENTS = [
   "hard_stop",
   "use_alternative",
@@ -1973,6 +1973,8 @@ var BLOCK_INTENTS = [
   "manual_only",
   "stop_and_explain"
 ];
+
+// src/types.ts
 var MAX_RECURSION_DEPTH = 10;
 var MAX_STRIP_ITERATIONS = 20;
 var NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;

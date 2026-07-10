@@ -2,6 +2,10 @@
  * Shared types for the safety-net plugin.
  */
 
+import { BLOCK_INTENTS, type BlockIntent } from './domain/decision.js';
+
+export { BLOCK_INTENTS, type BlockIntent };
+
 /** Custom blocking rule definition. */
 export interface CustomRule {
   /** Unique identifier for the rule */
@@ -57,16 +61,6 @@ export interface SecretProtectionConfig {
   disabledRules?: ReadonlySet<string>;
   denyPaths: string[];
 }
-
-export const BLOCK_INTENTS = [
-  'hard_stop',
-  'use_alternative',
-  'scope_down',
-  'manual_only',
-  'stop_and_explain',
-] as const;
-
-export type BlockIntent = (typeof BLOCK_INTENTS)[number];
 
 export interface DestructiveCommandRuleMatch {
   id: string;
