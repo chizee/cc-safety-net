@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
-import type { Config } from '@/types';
+import {
+  analyzeTestCommand as analyzeCommand,
+  type TestPolicyInput as Config,
+} from '../helpers/policy';
 import { withEnv, withSymlinkedHomeCwd } from '../helpers.ts';
 
 const config: Config = { version: 1, rules: [] };

@@ -6,13 +6,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
-import { explainCommand } from '@/bin/explain/index';
+import { explainCommand as explainCommandBase } from '@/bin/explain/index';
 import { explainSegment } from '@/bin/explain/segment';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import type { TraceStep } from '@/types';
 import { MAX_RECURSION_DEPTH } from '@/types';
+import { policySnapshot, type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
 import { getTraceSteps, toShellPath, withEnv, withLinkedWorktreeFixture } from '../../helpers.ts';
+
+function explainCommand(command: string, options?: TestExplainOptions) {
+  return explainCommandBase(command, testExplainOptions(options));
+}
 
 function nestedBashCommand(command: string, levels: number): string {
   return Array.from({ length: levels }).reduce<string>(
@@ -962,7 +967,12 @@ describe('getConfigSource user config paths', () => {
 describe('explainSegment direct depth limit', () => {
   test('explainSegment called at MAX_RECURSION_DEPTH returns recursion limit error', () => {
     const steps: TraceStep[] = [];
-    const result = explainSegment(['rm', '-rf', '/'], MAX_RECURSION_DEPTH, { cwd: '/tmp' }, steps);
+    const result = explainSegment(
+      ['rm', '-rf', '/'],
+      MAX_RECURSION_DEPTH,
+      { cwd: '/tmp', policySnapshot: policySnapshot() },
+      steps,
+    );
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
     expect(steps[0]).toEqual({
       type: 'error',
@@ -975,7 +985,7 @@ describe('explainSegment direct depth limit', () => {
     const result = explainSegment(
       ['git', 'status'],
       MAX_RECURSION_DEPTH + 5,
-      { cwd: '/tmp' },
+      { cwd: '/tmp', policySnapshot: policySnapshot() },
       steps,
     );
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);

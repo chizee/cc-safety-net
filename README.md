@@ -208,6 +208,8 @@ npx cc-safety-net explain "git reset --hard"
 
 Both support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
 
+Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches or lockfiles while evaluating a tool call. If local rulebook source content changes, or a required lock/cache entry is missing or invalid, commands fail closed until you explicitly run `npx -y cc-safety-net rule sync`. The next tool call reloads and verifies the synchronized snapshot from disk.
+
 ## Upgrading from an older version
 
 > [!WARNING]

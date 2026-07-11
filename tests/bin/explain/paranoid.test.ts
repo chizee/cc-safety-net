@@ -3,11 +3,14 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
-import type { ExplainOptions } from '@/types';
+import { type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
 import { withEnv } from '../../helpers.ts';
 
-function explainCommand(command: string, options?: ExplainOptions) {
-  return explainCommandBase(command, { config: { version: 1, rules: [] }, ...options });
+function explainCommand(command: string, options?: TestExplainOptions) {
+  return explainCommandBase(
+    command,
+    testExplainOptions({ config: { version: 1, rules: [] }, ...options }),
+  );
 }
 
 describe('explainCommand paranoid mode', () => {

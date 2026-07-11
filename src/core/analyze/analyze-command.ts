@@ -16,16 +16,19 @@ import {
   SHELL_DYNAMIC_SUBSTITUTION_TOKEN,
   splitShellCommandsWithInfo,
 } from '@/core/shell';
+import type { EffectivePolicy } from '@/domain/policy';
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
   type AnalyzeResult,
-  type Config,
   type DestructiveCommandRuleMatch,
   MAX_RECURSION_DEPTH,
 } from '@/types';
 
-export type InternalOptions = AnalyzeOptions & { config: Config };
+export type InternalOptions = AnalyzeOptions & {
+  policy: EffectivePolicy;
+  invalidReason: string | undefined;
+};
 
 export function analyzeCommandInternal(
   command: string,
@@ -37,7 +40,7 @@ export function analyzeCommandInternal(
   }
 
   const segments = splitShellCommandsWithInfo(command);
-  if (depth === 0 && options.config.failClosedReason && isFailClosedRepairCommand(segments)) {
+  if (depth === 0 && options.invalidReason && isFailClosedRepairCommand(segments)) {
     return null;
   }
 
@@ -53,7 +56,7 @@ export function analyzeCommandInternal(
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
-  if (options.shell === 'powershell' && !options.config.failClosedReason) {
+  if (options.shell === 'powershell' && !options.invalidReason) {
     const result = analyzePowerShellRemoveItemCommand(command, options);
     if (result) return result;
   }
@@ -75,7 +78,7 @@ export function analyzeCommandInternal(
     if (segment.length === 1 && segment[0]?.includes(' ')) {
       const textMatch = filterDestructiveCommandMatch(
         dangerousInTextMatch(segment[0]),
-        options.config,
+        options.policy,
       );
       if (textMatch) {
         return {
@@ -136,7 +139,7 @@ export function analyzeCommandInternal(
 
   if (
     (options.shell === undefined || options.shell === 'auto') &&
-    !options.config.failClosedReason &&
+    !options.invalidReason &&
     shouldAnalyzePowerShellRemoveItem(command)
   ) {
     const result = analyzePowerShellRemoveItemCommand(command, options);
@@ -154,7 +157,7 @@ function analyzePowerShellRemoveItemCommand(
     command,
     filterDestructiveCommandMatch(
       analyzePowerShellRemoveItemMatch(command, getPowerShellRemoveItemOptions(options)),
-      options.config,
+      options.policy,
     ),
   );
 }

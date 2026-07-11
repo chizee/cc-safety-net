@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
-import { analyzeCommand } from '@/core/analyze';
 import { analyzeAwkSystemCalls, REASON_AWK_SYSTEM_DYNAMIC } from '@/core/analyze/awk';
 import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
 import { analyzeFind } from '@/core/analyze/find';
-import type { Config } from '@/types';
+import {
+  analyzeTestCommand as analyzeCommand,
+  type TestPolicyInput as Config,
+} from '../../helpers/policy';
 import {
   createLinkedWorktreeFixture,
   toShellPath,

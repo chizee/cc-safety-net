@@ -1,5 +1,5 @@
+import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import type { analyzeCommand } from '@/core/analyze';
-import type { LoadConfigOptions } from '@/core/config';
 import { type GuardDependencies } from '@/engine/guard';
 type PiApi = {
     on: (event: 'tool_call', handler: (event: unknown, ctx: PiToolCallContext) => PiToolCallResult) => void;
@@ -10,7 +10,7 @@ type PiToolCallContext = {
         getSessionFile: () => string | undefined;
     };
     safetyNetAnalyzeCommand?: typeof analyzeCommand;
-    safetyNetConfigOptions?: LoadConfigOptions;
+    safetyNetPolicyOptions?: PolicySnapshotOptions;
 };
 type PiToolCallResult = {
     block: true;

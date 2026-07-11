@@ -6,10 +6,10 @@ import {
   GuardEvaluationError,
   type GuardStage,
 } from '@/engine/guard';
-import type { Config } from '@/types';
 import { withTempDir } from '../helpers';
+import { policySnapshot } from '../helpers/policy';
 
-const CONFIG: Config = { version: 1, rules: [] };
+const SNAPSHOT = policySnapshot();
 
 function commandInvocation(cwd: string, command: string | null = 'git status') {
   return {
@@ -39,9 +39,9 @@ function dependencies(
       calls.push('policy');
       return null;
     },
-    loadConfig: () => {
+    loadPolicySnapshot: () => {
       calls.push('config');
-      return CONFIG;
+      return SNAPSHOT;
     },
     findSensitiveTarget: () => {
       calls.push('secret');
@@ -95,7 +95,7 @@ describe('guard evaluation', () => {
       const result = evaluateGuard(commandInvocation(cwd, 'rm policy.json'), {
         dependencies: dependencies({
           findPolicyMutation: () => ({ target: 'policy.json' }),
-          loadConfig: () => {
+          loadPolicySnapshot: () => {
             throw new Error('must not load');
           },
         }),
@@ -120,7 +120,7 @@ describe('guard evaluation', () => {
     await withTempDir('cc-safety-net-guard-secret-', (cwd) => {
       const result = evaluateGuard(commandInvocation(cwd, 'cat .env'), {
         dependencies: dependencies({
-          loadConfig: () => ({ ...CONFIG, failClosedReason: 'invalid policy config' }),
+          loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid policy config' }),
           findSensitiveTarget: () => ({ target: '.env', ruleId: 'secret.basename.env' }),
         }),
       });
@@ -177,7 +177,7 @@ describe('guard evaluation', () => {
       expect(
         evaluateGuard(nonCommandInvocation(cwd), {
           dependencies: dependencies({
-            loadConfig: () => ({ ...CONFIG, failClosedReason: 'invalid policy config' }),
+            loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid policy config' }),
           }),
         }),
       ).toEqual({
@@ -216,7 +216,7 @@ describe('guard evaluation', () => {
     await withTempDir('cc-safety-net-guard-recovery-', (cwd) => {
       const options = {
         dependencies: {
-          loadConfig: () => ({ ...CONFIG, failClosedReason: 'missing lockfile' }),
+          loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'missing lockfile' }),
         },
       };
 
@@ -243,7 +243,7 @@ describe('guard evaluation', () => {
 
   test.each([
     ['policy-protection', 'findPolicyMutation'],
-    ['config-load', 'loadConfig'],
+    ['config-load', 'loadPolicySnapshot'],
     ['secret-protection', 'findSensitiveTarget'],
     ['command-analysis', 'analyzeCommand'],
   ] as const)('wraps %s dependency failures with a generic denial', async (stage, dependency) => {
@@ -359,23 +359,23 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('lets explicit config options override automatic local rulebook repair', async () => {
+  test('passes explicit policy paths without runtime repair', async () => {
     await withTempDir('cc-safety-net-guard-config-options-', (cwd) => {
       let received: unknown;
 
       evaluateGuard(commandInvocation(cwd), {
-        configOptions: { userConfigDir: '/user-rules', repairLocalRulebooks: false },
+        policyOptions: { userConfigDir: '/user-rules' },
         dependencies: dependencies({
-          loadConfig: (_cwd, options) => {
+          loadPolicySnapshot: (options) => {
             received = options;
-            return CONFIG;
+            return SNAPSHOT;
           },
         }),
       });
 
       expect(received).toEqual({
-        repairLocalRulebooks: false,
         userConfigDir: '/user-rules',
+        cwd,
       });
     });
   });

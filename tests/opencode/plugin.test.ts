@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
-import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import type { GuardDependencies } from '@/engine/guard';
 import {
   CCSafetyNetPlugin,
@@ -27,6 +27,13 @@ type ToolPlugin = {
     output: { args: Record<string, unknown> },
   ) => Promise<void>;
 };
+
+function executeGitStatus(plugin: ToolPlugin, workdir?: string) {
+  return plugin['tool.execute.before'](
+    { tool: 'bash' },
+    { args: { command: 'git status', ...(workdir ? { workdir } : {}) } },
+  );
+}
 
 const publicInputExposesGuardDependencies: 'safetyNetGuardDependencies' extends keyof Parameters<
   typeof CCSafetyNetPlugin
@@ -227,7 +234,7 @@ describe('OpenCode plugin', () => {
 
   test.each([
     ['findPolicyMutation', 'policy raw failure'],
-    ['loadConfig', 'config raw failure'],
+    ['loadPolicySnapshot', 'config raw failure'],
     ['findSensitiveTarget', 'secret raw failure'],
   ] as const)('propagates %s dependency errors unchanged', async (dependency, message) => {
     const plugin = await loadToolPlugin(process.cwd(), undefined, undefined, {
@@ -560,7 +567,7 @@ describe('OpenCode plugin', () => {
     );
   });
 
-  test('reloads and repairs local rules before each tool execution', async () => {
+  test('fails closed until explicit sync, then reloads local rules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-plugin-'));
     try {
       await syncInitialGitRulebook(dir);
@@ -568,9 +575,9 @@ describe('OpenCode plugin', () => {
 
       writeUpdatedGitRulebook(dir);
 
-      await expect(
-        plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: 'git status' } }),
-      ).rejects.toThrow(updatedGitRule.reason);
+      await expect(executeGitStatus(plugin)).rejects.toThrow('local source digest mismatch');
+      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
+      await expect(executeGitStatus(plugin)).rejects.toThrow(updatedGitRule.reason);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -586,12 +593,11 @@ describe('OpenCode plugin', () => {
 
       writeUpdatedGitRulebook(dir);
 
-      await expect(
-        plugin['tool.execute.before'](
-          { tool: 'bash' },
-          { args: { command: 'git status', workdir: 'nested' } },
-        ),
-      ).rejects.toThrow(updatedGitRule.reason);
+      await expect(executeGitStatus(plugin, 'nested')).rejects.toThrow(
+        'local source digest mismatch',
+      );
+      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
+      await expect(executeGitStatus(plugin, 'nested')).rejects.toThrow(updatedGitRule.reason);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

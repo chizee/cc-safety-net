@@ -7,11 +7,14 @@ import {
   formatTraceHuman,
   formatTraceJson,
 } from '@/bin/explain/index';
-import type { ExplainOptions } from '@/types';
+import { type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
 import { getTraceSteps } from '../../helpers.ts';
 
-function explainCommand(command: string, options?: ExplainOptions) {
-  return explainCommandBase(command, { config: { version: 1, rules: [] }, ...options });
+function explainCommand(command: string, options?: TestExplainOptions) {
+  return explainCommandBase(
+    command,
+    testExplainOptions({ config: { version: 1, rules: [] }, ...options }),
+  );
 }
 
 function expectLeadingTokenRedacted(command: string, secret: string, redacted: string): void {

@@ -1,115 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
-import { BLOCK_INTENTS, COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
-import { getRulebookSourceSyntaxError } from './sources';
+import { getRulesConfigSchema, getRulesConfigValidation } from '@/config/schema';
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
 
 export function validateRulesConfig(config: unknown): { errors: string[]; sources: Set<string> } {
-  const errors: string[] = [];
-  const sources = new Set<string>();
-
-  if (!config || typeof config !== 'object') {
-    return { errors: ['Config must be an object'], sources };
-  }
-
-  const cfg = config as Record<string, unknown>;
-  if (cfg.version !== 1) {
-    errors.push('version must be 1');
-  }
-  if (cfg.rules === undefined) {
-    // Missing rules is equivalent to an empty new-style config.
-  } else if (!Array.isArray(cfg.rules)) {
-    errors.push('rules must be an array of rulebook source strings');
-  } else {
-    for (let i = 0; i < cfg.rules.length; i++) {
-      if (typeof cfg.rules[i] !== 'string') {
-        errors.push(`rules[${i}]: must be a rulebook source string`);
-        continue;
-      }
-      if (cfg.rules[i].trim() === '') {
-        errors.push(`rules[${i}]: must be a non-empty rulebook source string`);
-        continue;
-      }
-      if (sources.has(cfg.rules[i])) {
-        errors.push(`rules[${i}]: duplicate rulebook source "${cfg.rules[i]}"`);
-        continue;
-      }
-      const sourceError = getRulebookSourceSyntaxError(cfg.rules[i]);
-      if (sourceError) {
-        errors.push(`rules[${i}]: ${sourceError}`);
-        continue;
-      }
-      sources.add(cfg.rules[i]);
-    }
-  }
-  if (cfg.overrides !== undefined) {
-    if (!cfg.overrides || typeof cfg.overrides !== 'object' || Array.isArray(cfg.overrides)) {
-      errors.push('overrides must be an object if provided');
-    } else {
-      for (const [key, value] of Object.entries(cfg.overrides)) {
-        if (!/^[^/]+\/[^/]+$/.test(key)) {
-          errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
-        }
-        if (value === 'off') {
-          continue;
-        }
-        if (!value || typeof value !== 'object' || Array.isArray(value)) {
-          errors.push(`overrides.${key}: must be "off" or an object`);
-          continue;
-        }
-        const reason = (value as Record<string, unknown>).reason;
-        if (typeof reason !== 'string' || reason === '') {
-          errors.push(`overrides.${key}.reason: required non-empty string`);
-        } else if (reason.length > MAX_REASON_LENGTH) {
-          errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-        }
-        const intent = (value as Record<string, unknown>).intent;
-        if (intent !== undefined && !isBlockIntent(intent)) {
-          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(', ')}`);
-        }
-      }
-    }
-  }
-  if (cfg.transparent_wrappers !== undefined) {
-    validateTransparentWrappers(cfg.transparent_wrappers, errors);
-  }
-
-  return { errors, sources };
-}
-
-function isBlockIntent(value: unknown): boolean {
-  return typeof value === 'string' && BLOCK_INTENTS.includes(value as never);
-}
-
-function validateTransparentWrappers(value: unknown, errors: string[]): void {
-  if (!Array.isArray(value)) {
-    errors.push('transparent_wrappers must be an array of command strings');
-    return;
-  }
-
-  const seen = new Set<string>();
-  for (let i = 0; i < value.length; i++) {
-    const command = value[i];
-    if (typeof command !== 'string') {
-      errors.push(`transparent_wrappers[${i}]: must be a command string`);
-      continue;
-    }
-    if (!COMMAND_PATTERN.test(command)) {
-      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command)) {
-      errors.push(`transparent_wrappers[${i}]: duplicate command "${command}"`);
-      continue;
-    }
-    if (isReservedTransparentWrapper(command)) {
-      errors.push(`transparent_wrappers[${i}]: reserved command "${command}" cannot be a wrapper`);
-      continue;
-    }
-    seen.add(command);
-  }
+  const parsed = getRulesConfigSchema().safeParse(config);
+  const validation = getRulesConfigValidation(config);
+  return {
+    errors: parsed.success ? [] : validation.errors,
+    sources: validation.sources,
+  };
 }
 
 export function readRulesConfig(path: string): { config: RulesConfig | null; errors: string[] } {
@@ -128,7 +29,7 @@ export function readRulesConfig(path: string): { config: RulesConfig | null; err
     if (validation.errors.length > 0) {
       return { config: null, errors: validation.errors };
     }
-    const cfg = parsed as RulesConfig;
+    const cfg = getRulesConfigSchema().parse(parsed);
     return {
       config: {
         version: 1,

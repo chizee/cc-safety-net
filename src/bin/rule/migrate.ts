@@ -81,7 +81,12 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
     return false;
   }
 
-  const config = loaded.config ?? { version: 1 as const, rules: [], overrides: {} };
+  const config = loaded.config ?? {
+    version: 1 as const,
+    rules: [],
+    overrides: {},
+    transparent_wrappers: [],
+  };
   const rulebookName = getMigratedRulebookName(
     dirname(options.configPath),
     config.rules,

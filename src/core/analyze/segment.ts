@@ -23,7 +23,7 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
-import { checkCustomRuleMatch } from '@/core/rules/custom';
+import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import {
   getBasename,
   normalizeCommandToken,
@@ -32,17 +32,18 @@ import {
   stripWrappers,
   stripWrappersWithInfo,
 } from '@/core/shell';
+import type { EffectivePolicy } from '@/domain/policy';
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
   type AnalyzeResult,
-  type Config,
   type DestructiveCommandRuleMatch,
   SHELL_WRAPPERS,
 } from '@/types';
 
 export type InternalOptions = AnalyzeOptions & {
-  config: Config;
+  policy: EffectivePolicy;
+  invalidReason: string | undefined;
   effectiveCwd: string | null | undefined;
   analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
 };
@@ -122,8 +123,8 @@ export function analyzeSegment(
     return null;
   }
 
-  if (options.config.failClosedReason) {
-    return { reason: options.config.failClosedReason, intent: 'stop_and_explain' };
+  if (options.invalidReason) {
+    return { reason: options.invalidReason, intent: 'stop_and_explain' };
   }
 
   const normalizedHead = normalizeCommandToken(head);
@@ -135,13 +136,13 @@ export function analyzeSegment(
 
   const dynamicExecutableMatch = filterDestructiveCommandMatch(
     analyzeDynamicExecutable(head),
-    options.config,
+    options.policy,
   );
   if (dynamicExecutableMatch) {
     return blockResultFromMatch(dynamicExecutableMatch);
   }
 
-  const transparentWrapper = unwrapTransparentWrapper(stripped, options.config);
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options.policy);
   if (transparentWrapper) {
     return analyzeSegment(transparentWrapper.tokens, depth, {
       ...options,
@@ -170,7 +171,7 @@ export function analyzeSegment(
           }),
         ),
       ),
-      options.config,
+      options.policy,
     );
     if (awkReason) {
       return blockResultFromMatch(awkReason);
@@ -183,7 +184,7 @@ export function analyzeSegment(
       if (options.paranoidInterpreters) {
         const match = filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
-          options.config,
+          options.policy,
         );
         if (match) return blockResultFromMatch(match);
       }
@@ -199,7 +200,7 @@ export function analyzeSegment(
       if (containsDangerousCode(codeArg)) {
         const match = filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
-          options.config,
+          options.policy,
         );
         if (match) return blockResultFromMatch(match);
       }
@@ -230,7 +231,7 @@ export function analyzeSegment(
   const commandAnalyzer = getCommandAnalyzer(commandContext);
   const commandResult = filterDestructiveCommandMatch(
     commandAnalyzer?.(commandContext) ?? null,
-    options.config,
+    options.policy,
   );
   if (commandResult) {
     return blockResultFromMatch(commandResult);
@@ -250,7 +251,7 @@ export function analyzeSegment(
 
         const match = filterDestructiveCommandMatch(
           analyzeEmbeddedCommand(commandContext, i),
-          options.config,
+          options.policy,
         );
         if (match) return blockResultFromMatch(match);
       }
@@ -259,7 +260,7 @@ export function analyzeSegment(
 
   const customRulesTopLevelOnly = matchedKnown;
   if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkCustomRuleMatch(stripped, options.config.rules);
+    const customResult = checkPolicyRuleMatch(stripped, options.policy.rules);
     if (customResult) {
       return blockResultFromMatch(customResult);
     }
@@ -404,7 +405,7 @@ function getNestedCommandAnalyzeContext(
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    config: context.options.config,
+    policy: context.options.policy,
   };
 }
 

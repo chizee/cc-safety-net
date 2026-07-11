@@ -97,7 +97,7 @@ export async function discoverGitHubRepositoryRulebooks(
   }));
 }
 
-export function resolveLocalRulebook(
+function resolveLocalRulebook(
   spec: string,
   configDir: string,
   _options: RulesPolicyOptions,

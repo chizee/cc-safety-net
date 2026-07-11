@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/core/rules/rulebook';
-import type { Config, CustomRule } from '@/types';
+import type { CustomRule } from '@/types';
 import { readRulesConfig } from './config-file';
 import { readLockfile } from './lockfile';
 import {
@@ -285,18 +285,6 @@ function loadLockedRulebook(
   return { rulebook: errors.length === 0 ? rulebook : null, errors };
 }
 
-export function rulesPolicyToConfig(policy: LoadedRulesPolicy): Config {
-  if (policy.errors.length > 0) {
-    return {
-      version: 1,
-      rules: [],
-      transparent_wrappers: [],
-      failClosedReason: withTerminalPeriod(policy.errors.join('; ')),
-    };
-  }
-  return { version: 1, rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
-}
-
 function mergeTransparentWrappers(
   userConfig: RulesConfig | null,
   projectConfig: RulesConfig | null,
@@ -461,8 +449,4 @@ function emptyScopePolicy(): ScopePolicy {
     errors: [],
     canValidateOverrides: true,
   };
-}
-
-function withTerminalPeriod(message: string): string {
-  return /[.!?]$/.test(message) ? message : `${message}.`;
 }

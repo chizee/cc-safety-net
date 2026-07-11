@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BLOCK_INTENTS, type Decision } from '@/domain/decision';
 import { withTempDir } from '../helpers';
+import { expectTypeScriptProjectCompiles } from '../helpers/typescript';
 
 const allow = { kind: 'allow' } satisfies Decision;
 const deny = {
@@ -45,6 +46,10 @@ function expectGeneratedTypesResolve(settings: {
       join(process.cwd(), 'dist/domain/decision.d.ts'),
       join(dir, 'package/domain/decision.d.ts'),
     );
+    copyFileSync(
+      join(process.cwd(), 'dist/domain/policy.d.ts'),
+      join(dir, 'package/domain/policy.d.ts'),
+    );
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
     writeFileSync(
       join(dir, 'consumer.ts'),
@@ -67,14 +72,7 @@ void intent;
       }),
     );
 
-    const result = Bun.spawnSync(
-      [process.execPath, 'x', 'tsc', '--project', join(dir, 'tsconfig.json')],
-      { stderr: 'pipe', stdout: 'pipe' },
-    );
-    expect({
-      exitCode: result.exitCode,
-      output: `${result.stdout.toString()}${result.stderr.toString()}`,
-    }).toEqual({ exitCode: 0, output: '' });
+    expectTypeScriptProjectCompiles(join(dir, 'tsconfig.json'));
   });
 }
 

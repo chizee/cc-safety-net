@@ -57,7 +57,7 @@ function toEffectiveRule(rule: CustomRule, source: 'user' | 'project'): Effectiv
     name: rule.name,
     command: rule.command,
     subcommand: rule.subcommand,
-    blockArgs: rule.block_args,
+    blockArgs: [...rule.block_args],
     reason: rule.reason,
   };
 }

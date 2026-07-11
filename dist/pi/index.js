@@ -959,6 +959,13 @@ function writeGuardAudit(audit, getSessionId, options) {
   });
 }
 
+// src/core/policy.ts
+import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname4, join as join3 } from "node:path";
+
+// src/config/schema.ts
+import { createRequire } from "node:module";
+
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
@@ -1381,675 +1388,13 @@ function destructiveCommandMatch(id, reason, intent) {
     intent: intent ?? DESTRUCTIVE_COMMAND_RULE_INTENTS.get(id) ?? "manual_only"
   };
 }
-function filterDestructiveCommandMatch(match, config) {
+function filterDestructiveCommandMatch(match, policy) {
   if (!match)
     return null;
-  if (config?.destructiveCommandProtectionEnabled === false)
+  if (policy?.destructiveCommandProtectionEnabled === false)
     return null;
-  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match;
+  return policy?.disabledDestructiveCommandRules.includes(match.id) ? null : match;
 }
-
-// src/core/analyze/dangerous-text.ts
-function dangerousInText(text) {
-  return dangerousInTextMatch(text)?.reason ?? null;
-}
-function dangerousInTextMatch(text) {
-  const t = text.toLowerCase();
-  const stripped = t.trimStart();
-  const isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg ");
-  const patterns = [
-    {
-      regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
-      label: "rm -rf"
-    },
-    {
-      regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/,
-      label: "git reset --hard"
-    },
-    {
-      regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/,
-      label: "git reset --merge"
-    },
-    {
-      regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
-      label: "git clean -f"
-    },
-    {
-      regex: /\bgit\s+checkout\s+[^|;]*(--fo(?:r(?:c(?:e)?)?)?\b|-(?![bBU])[^\s]*f[^\s]*\b)/,
-      label: "git checkout --force"
-    },
-    {
-      regex: /\bgit\s+push\s+[^|;]*(-f\b|--fo(?:r(?:c(?:e)?)?)?\b)(?!-with-lease)/,
-      label: "git push --force"
-    },
-    {
-      regex: /\bgit\s+push\b[^\n;|&]*(?:\s\+[^\s;|&]+|[^\s;|&]*:\+[^\s;|&]*)/,
-      label: "git push --force"
-    },
-    {
-      regex: /\bgit\s+push\b[^\n;|&]*(?:--de(?:l(?:e(?:t(?:e)?)?)?)?\b|\s:[^\s;|&]+)/,
-      label: "git push delete"
-    },
-    {
-      regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
-      label: "git branch -D",
-      caseSensitive: true
-    },
-    {
-      regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
-      label: "git tag -d"
-    },
-    {
-      regex: /\bgit\s+stash\s+(drop|clear)\b/,
-      label: "git stash drop/clear"
-    },
-    {
-      regex: /\bgit\s+checkout\s+--\s/,
-      label: "git checkout --"
-    },
-    {
-      regex: /\bgit\s+restore\b(?!.*--(staged|help))/,
-      label: "git restore without --staged"
-    },
-    {
-      regex: /\bfind\b[^\n;|&]*\s-delete\b/,
-      label: "find -delete",
-      skipForEchoRg: true
-    }
-  ];
-  for (const { regex, label, skipForEchoRg, caseSensitive } of patterns) {
-    if (skipForEchoRg && isEchoOrRg)
-      continue;
-    const target = caseSensitive ? text : t;
-    if (regex.test(target)) {
-      return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`);
-    }
-  }
-  return null;
-}
-
-// src/core/analyze/powershell/tokenize.ts
-function tokenizePowerShell(command) {
-  const tokens = [];
-  let text = "";
-  let dynamic = false;
-  const pushWord = () => {
-    if (!text)
-      return;
-    tokens.push({
-      kind: "word",
-      text,
-      dynamic: dynamic || isDynamicText(text)
-    });
-    text = "";
-    dynamic = false;
-  };
-  let i = 0;
-  while (i < command.length) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (/\s/.test(char)) {
-      pushWord();
-      if (char === `
-`) {
-        tokens.push({ kind: "operator", text: ";" });
-      }
-      i++;
-      continue;
-    }
-    if (char === ";") {
-      pushWord();
-      tokens.push({ kind: "operator", text: ";" });
-      i++;
-      continue;
-    }
-    if (char === ",") {
-      pushWord();
-      tokens.push({ kind: "word", text: ",", dynamic: false });
-      i++;
-      continue;
-    }
-    if ((char === "{" || char === "}") && !isPathLikeWord(text)) {
-      pushWord();
-      tokens.push({ kind: "operator", text: ";" });
-      i++;
-      continue;
-    }
-    if (char === "&" && command[i + 1] === "&") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "&&" });
-      i += 2;
-      continue;
-    }
-    if (char === "|" && command[i + 1] === "|") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "||" });
-      i += 2;
-      continue;
-    }
-    if (char === "|") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "|" });
-      i++;
-      continue;
-    }
-    if (char === "'") {
-      const result = readSingleQuoted(command, i + 1);
-      text += result.text;
-      i = result.nextIndex;
-      continue;
-    }
-    if (char === '"') {
-      const result = readDoubleQuoted(command, i + 1);
-      text += result.text;
-      dynamic = dynamic || result.dynamic;
-      i = result.nextIndex;
-      continue;
-    }
-    if (char === "`") {
-      const next = command[i + 1];
-      if (!next) {
-        i++;
-        continue;
-      }
-      text += next;
-      i += 2;
-      continue;
-    }
-    if (char === "$") {
-      if (command[i + 1] === "{") {
-        const result = readBracedVariable(command, i + 2);
-        text += result.text;
-        dynamic = true;
-        i = result.nextIndex;
-        continue;
-      }
-      dynamic = true;
-    }
-    text += char;
-    i++;
-  }
-  pushWord();
-  return tokens;
-}
-function readBracedVariable(command, start) {
-  let text = "${";
-  let i = start;
-  while (i < command.length) {
-    const char = command[i];
-    text += char ?? "";
-    i++;
-    if (char === "}") {
-      return { text, nextIndex: i };
-    }
-  }
-  return { text, nextIndex: i };
-}
-function readSingleQuoted(command, start) {
-  let text = "";
-  let i = start;
-  while (i < command.length) {
-    const char = command[i];
-    if (char === "'" && command[i + 1] === "'") {
-      text += "'";
-      i += 2;
-      continue;
-    }
-    if (char === "'") {
-      return { text, nextIndex: i + 1 };
-    }
-    text += char ?? "";
-    i++;
-  }
-  return { text, nextIndex: i };
-}
-function readDoubleQuoted(command, start) {
-  let text = "";
-  let dynamic = false;
-  let i = start;
-  while (i < command.length) {
-    const char = command[i];
-    if (char === "`") {
-      const next = command[i + 1];
-      if (!next) {
-        i++;
-        continue;
-      }
-      text += next;
-      i += 2;
-      continue;
-    }
-    if (char === '"') {
-      return { text, dynamic, nextIndex: i + 1 };
-    }
-    if (char === "$") {
-      dynamic = true;
-    }
-    text += char ?? "";
-    i++;
-  }
-  return { text, dynamic, nextIndex: i };
-}
-function isDynamicText(text) {
-  return text.startsWith("$") || text.startsWith("@") || text.includes("$(") || text.includes("${") || text.includes("$_");
-}
-function isPathLikeWord(text) {
-  return text.includes("/") || text.includes("\\") || text.startsWith("~");
-}
-
-// src/core/analyze/recursive-delete-targets.ts
-import { realpathSync as realpathSync2 } from "node:fs";
-import { homedir as homedir2, tmpdir } from "node:os";
-import { normalize, resolve as resolve2, sep } from "node:path";
-var IS_WINDOWS = process.platform === "win32";
-function createRecursiveDeleteTargetContext(options = {}) {
-  return {
-    anchoredCwd: options.originalCwd ?? options.cwd ?? null,
-    resolvedCwd: options.cwd ?? null,
-    paranoid: options.paranoid ?? false,
-    trustTmpdirVar: options.allowTmpdirVar ?? true,
-    homeDir: getHomeDirForRmPolicy()
-  };
-}
-function classifyRecursiveDeleteTarget(target, ctx) {
-  if (isDangerousRootOrHomeTarget(target)) {
-    return { kind: "root_or_home_target" };
-  }
-  if (isTempTarget(target, ctx.trustTmpdirVar)) {
-    return { kind: "temp_target" };
-  }
-  if (isDynamicTarget(target)) {
-    return { kind: "dynamic_target" };
-  }
-  const anchoredCwd = ctx.anchoredCwd;
-  if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
-      return { kind: "home_cwd_target" };
-    }
-    if (isCwdSelfTarget(target, anchoredCwd)) {
-      return { kind: "cwd_self_target" };
-    }
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
-      return { kind: "within_anchored_cwd" };
-    }
-  }
-  return { kind: "outside_anchored_cwd" };
-}
-function isDangerousRootOrHomeTarget(path) {
-  const normalized = path.trim();
-  if (normalized === "/" || normalized === "/*") {
-    return true;
-  }
-  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
-    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
-      return true;
-    }
-  }
-  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
-    return true;
-  }
-  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
-    return true;
-  }
-  return false;
-}
-function normalizePathForComparison(p) {
-  let normalized = normalize(p);
-  if (IS_WINDOWS) {
-    normalized = normalized.replace(/\//g, "\\").toLowerCase();
-    if (normalized.length > 3 && normalized.endsWith("\\")) {
-      normalized = normalized.slice(0, -1);
-    }
-    return normalized;
-  }
-  if (normalized.length > 1 && normalized.endsWith("/")) {
-    normalized = normalized.slice(0, -1);
-  }
-  return normalized;
-}
-function isTempTarget(path, allowTmpdirVar) {
-  const normalized = path.trim();
-  if (hasParentDirectoryComponent(normalized)) {
-    return false;
-  }
-  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
-    return true;
-  }
-  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
-    return true;
-  }
-  const normalizedTmpdir = normalizePathForComparison(tmpdir());
-  const pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep}`) || pathToCompare === normalizedTmpdir) {
-    return true;
-  }
-  if (allowTmpdirVar) {
-    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
-      return true;
-    }
-    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
-      return true;
-    }
-  }
-  return false;
-}
-function hasParentDirectoryComponent(path) {
-  return path.split(/[\\/]+/).includes("..");
-}
-function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir2();
-}
-function isDynamicTarget(target) {
-  return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
-}
-function hasShellGlobMetachar(target) {
-  let escaped = false;
-  for (const char of target) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "*" || char === "?" || char === "[") {
-      return true;
-    }
-  }
-  return false;
-}
-function isCwdHomeForRmPolicy(cwd, homeDir) {
-  try {
-    return normalizePathForComparison(realpathSync2(cwd)) === normalizePathForComparison(realpathSync2(homeDir));
-  } catch {
-    try {
-      return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
-    } catch {
-      return false;
-    }
-  }
-}
-function isCwdSelfTarget(target, cwd) {
-  if (target === "." || target === "./" || target === ".\\") {
-    return true;
-  }
-  try {
-    return normalizePathForComparison(realpathSync2(resolve2(cwd, target))) === normalizePathForComparison(realpathSync2(cwd));
-  } catch {
-    try {
-      return normalizePathForComparison(resolve2(cwd, target)) === normalizePathForComparison(cwd);
-    } catch {
-      return false;
-    }
-  }
-}
-function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
-  const resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
-    return false;
-  }
-  if (isDynamicTarget(target)) {
-    return false;
-  }
-  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
-    try {
-      return isResolvedPathWithinCwd(target, originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
-    try {
-      return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("../")) {
-    return false;
-  }
-  try {
-    return isResolvedPathWithinCwd(resolve2(resolveCwd, target), originalCwd);
-  } catch {
-    return false;
-  }
-}
-function isResolvedPathWithinCwd(resolvedTarget, cwd) {
-  try {
-    return isNormalizedPathWithin(realpathSync2(resolvedTarget), realpathSync2(cwd));
-  } catch {
-    return isNormalizedPathWithin(resolvedTarget, cwd);
-  }
-}
-function isNormalizedPathWithin(target, cwd) {
-  const normalizedTarget = normalizePathForComparison(target);
-  const normalizedCwd = normalizePathForComparison(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep}`) || normalizedTarget === normalizedCwd;
-}
-
-// src/core/analyze/powershell/remove-item.ts
-var REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]);
-var AUTO_REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]);
-var REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
-var REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.";
-var REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.";
-var REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.";
-var REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
-function analyzePowerShellRemoveItemMatch(command, options = {}) {
-  const ctx = createRecursiveDeleteTargetContext(options);
-  let segment = [];
-  let hasPipelineInput = false;
-  for (const token of tokenizePowerShell(command)) {
-    if (token.kind === "word") {
-      segment.push(token);
-      continue;
-    }
-    const match = analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-    if (match)
-      return match;
-    segment = [];
-    hasPipelineInput = token.text === "|";
-    if (token.text !== "|") {
-      hasPipelineInput = false;
-    }
-  }
-  return analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-}
-function shouldAnalyzePowerShellRemoveItem(command) {
-  const words = tokenizePowerShell(command).filter((token) => token.kind === "word");
-  for (let i = 0;i < words.length; i++) {
-    const token = words[i];
-    if (!token || token.kind !== "word")
-      continue;
-    const normalized = normalizeCommandName(token.text);
-    if (AUTO_REMOVE_ITEM_ALIASES.has(normalized))
-      return true;
-    if (normalized === "rm" && words.slice(i + 1).some((word) => isPowerShellSpecificRmParameter(word))) {
-      return true;
-    }
-  }
-  return false;
-}
-function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
-  const words = segment.filter((token) => token.kind === "word");
-  const commandIndex = getCommandIndex(words);
-  const command = words[commandIndex];
-  if (!command || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command.text))) {
-    return null;
-  }
-  const parsed = parseRemoveItem(words.slice(commandIndex + 1));
-  if (parsed.whatIfProtected) {
-    return null;
-  }
-  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
-    return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
-  }
-  for (const target of parsed.targets) {
-    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))) {
-      return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
-    }
-  }
-  if (!parsed.recursive || !parsed.force) {
-    return null;
-  }
-  if (parsed.hasDynamicTarget || parsed.targets.length === 0) {
-    return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
-  }
-  for (const target of parsed.targets) {
-    const match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
-    if (match)
-      return match;
-  }
-  return null;
-}
-function parseRemoveItem(args) {
-  const targets = [];
-  let recursive = false;
-  let force = false;
-  let whatIfProtected = false;
-  let hasDynamicTarget = false;
-  let pastEndOfParameters = false;
-  for (let i = 0;i < args.length; i++) {
-    const token = args[i];
-    if (!token || token.kind !== "word")
-      continue;
-    if (isArraySeparator(token))
-      continue;
-    if (pastEndOfParameters) {
-      targets.push(targetFromToken(token));
-      hasDynamicTarget = hasDynamicTarget || token.dynamic;
-      continue;
-    }
-    if (token.text === "--") {
-      pastEndOfParameters = true;
-      continue;
-    }
-    const parameter = parseParameter(token.text);
-    if (!parameter) {
-      targets.push(targetFromToken(token));
-      hasDynamicTarget = hasDynamicTarget || token.dynamic;
-      continue;
-    }
-    if (isPathParameter(parameter.name)) {
-      const value = parameter.value ? parameterValueToken(parameter.value, token) : args[++i];
-      if (value?.kind === "word") {
-        targets.push(targetFromToken(value));
-        hasDynamicTarget = hasDynamicTarget || value.dynamic;
-      } else {
-        hasDynamicTarget = true;
-      }
-      continue;
-    }
-    if (isRecurseParameter(parameter.name)) {
-      recursive = true;
-      continue;
-    }
-    if (isForceParameter(parameter.name)) {
-      force = true;
-      continue;
-    }
-    if (isWhatIfParameter(parameter.name)) {
-      whatIfProtected = isProtectiveSwitchValue(parameter.value);
-    }
-  }
-  return { targets, recursive, force, whatIfProtected, hasDynamicTarget };
-}
-function getCommandIndex(words) {
-  const first = words[0];
-  if (first?.kind === "word" && first.text === "&" || first?.text === ".") {
-    return words.length > 1 ? 1 : 0;
-  }
-  return 0;
-}
-function targetFromToken(token) {
-  return {
-    text: token.kind === "word" ? token.text : "",
-    dynamic: token.kind === "word" && token.dynamic
-  };
-}
-function isArraySeparator(token) {
-  return token.kind === "word" && token.text === ",";
-}
-function powerShellTargetForPolicy(target) {
-  return target.replace(/\\/g, "/");
-}
-function parameterValueToken(value, source) {
-  return {
-    kind: "word",
-    text: value,
-    dynamic: source.kind === "word" && (source.dynamic || value.includes("$"))
-  };
-}
-function parseParameter(text) {
-  if (!text.startsWith("-") || text === "-") {
-    return null;
-  }
-  const raw = text.slice(1);
-  const colonIndex = raw.indexOf(":");
-  if (colonIndex === -1) {
-    return { name: raw.toLowerCase() };
-  }
-  return {
-    name: raw.slice(0, colonIndex).toLowerCase(),
-    value: raw.slice(colonIndex + 1)
-  };
-}
-function isPathParameter(name) {
-  return "path".startsWith(name) || "literalpath".startsWith(name);
-}
-function isRecurseParameter(name) {
-  return "recurse".startsWith(name);
-}
-function isForceParameter(name) {
-  return name.length >= 2 && "force".startsWith(name);
-}
-function isWhatIfParameter(name) {
-  return name === "wi" || "whatif".startsWith(name);
-}
-function isProtectiveSwitchValue(value) {
-  if (value === undefined || value === "") {
-    return true;
-  }
-  const normalized = value.toLowerCase();
-  return normalized === "$true" || normalized === "true";
-}
-function isPowerShellSpecificRmParameter(token) {
-  if (token.kind !== "word")
-    return false;
-  const parameter = parseParameter(token.text);
-  if (!parameter)
-    return false;
-  return isForceParameter(parameter.name) && parameter.name !== "f" || isRecurseParameter(parameter.name) && parameter.name !== "r" || isPathParameter(parameter.name) || isWhatIfParameter(parameter.name) || parameter.name === "confirm" || parameter.name === "cf";
-}
-function normalizeCommandName(name) {
-  return name.toLowerCase();
-}
-function matchForClassification(classification, ctx) {
-  switch (classification.kind) {
-    case "root_or_home_target":
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
-    case "temp_target":
-      return null;
-    case "dynamic_target":
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
-    case "home_cwd_target":
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-home-cwd", REASON_REMOVE_ITEM_HOME_CWD);
-    case "cwd_self_target":
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-cwd-self", REASON_REMOVE_ITEM_RF);
-    case "within_anchored_cwd":
-      if (!ctx.paranoid)
-        return null;
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-paranoid", `${REASON_REMOVE_ITEM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
-    case "outside_anchored_cwd":
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-outside-cwd", REASON_REMOVE_ITEM_RF);
-  }
-}
-
-// src/core/analyze/segment.ts
-import { realpathSync as realpathSync7 } from "node:fs";
-import { normalize as normalize3 } from "node:path";
 
 // src/core/analyze/awk.ts
 var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
@@ -2326,127 +1671,6 @@ function findAwkRegexEnd(code, index) {
   return null;
 }
 
-// src/core/analyze/constants.ts
-var DISPLAY_COMMANDS = new Set([
-  "echo",
-  "printf",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "sed",
-  "awk",
-  "cut",
-  "tr",
-  "sort",
-  "uniq",
-  "wc",
-  "tee",
-  "man",
-  "help",
-  "info",
-  "type",
-  "which",
-  "whereis",
-  "whatis",
-  "apropos",
-  "file",
-  "stat",
-  "ls",
-  "ll",
-  "dir",
-  "tree",
-  "pwd",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "id",
-  "groups",
-  "hostname",
-  "uname",
-  "env",
-  "printenv",
-  "set",
-  "export",
-  "alias",
-  "history",
-  "jobs",
-  "fg",
-  "bg",
-  "test",
-  "true",
-  "false",
-  "read",
-  "return",
-  "exit",
-  "break",
-  "continue",
-  "shift",
-  "wait",
-  "trap",
-  "basename",
-  "dirname",
-  "realpath",
-  "readlink",
-  "md5sum",
-  "sha256sum",
-  "base64",
-  "xxd",
-  "od",
-  "hexdump",
-  "strings",
-  "diff",
-  "cmp",
-  "comm",
-  "join",
-  "paste",
-  "column",
-  "fmt",
-  "fold",
-  "nl",
-  "pr",
-  "expand",
-  "unexpand",
-  "rev",
-  "tac",
-  "shuf",
-  "seq",
-  "yes",
-  "sleep",
-  "logger",
-  "write",
-  "wall",
-  "mesg",
-  "notify-send"
-]);
-
-// src/core/analyze/rm-flags.ts
-function hasRecursiveForceFlags(tokens) {
-  let hasRecursive = false;
-  let hasForce = false;
-  for (const token of tokens) {
-    if (token === "--")
-      break;
-    if (token === "-r" || token === "-R" || token === "--recursive") {
-      hasRecursive = true;
-    } else if (token === "-f" || token === "--force") {
-      hasForce = true;
-    } else if (token.startsWith("-") && !token.startsWith("--")) {
-      if (token.includes("r") || token.includes("R"))
-        hasRecursive = true;
-      if (token.includes("f"))
-        hasForce = true;
-    }
-  }
-  return hasRecursive && hasForce;
-}
-
 // src/core/shell/command.ts
 function normalizeCommandToken(token) {
   return getBasename(token).toLowerCase();
@@ -2454,36 +1678,6 @@ function normalizeCommandToken(token) {
 function getBasename(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
-// src/core/shell/options.ts
-function extractShortOpts(tokens, options) {
-  const opts = new Set;
-  let pastDoubleDash = false;
-  for (const token of tokens) {
-    if (token === "--") {
-      pastDoubleDash = true;
-      continue;
-    }
-    if (pastDoubleDash)
-      continue;
-    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
-      for (let i = 1;i < token.length; i++) {
-        const char = token[i];
-        if (!char || !/[a-zA-Z]/.test(char)) {
-          break;
-        }
-        const shortOpt = `-${char}`;
-        opts.add(shortOpt);
-        if (options?.shortOptsWithValue?.has(shortOpt)) {
-          break;
-        }
-      }
-    }
-  }
-  return opts;
-}
-// node_modules/shell-quote/index.js
-var $quote = require_quote();
-var $parse = require_parse();
 
 // src/domain/decision.ts
 var BLOCK_INTENTS = [
@@ -2517,6 +1711,102 @@ var DANGEROUS_PATTERNS = [
   /\bshred\b\s+/,
   /\bfind\b.*\s-delete\b/
 ];
+
+// src/core/analyze/interpreters.ts
+var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
+var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
+var CODE_FLAGS = new Map([
+  ["python", new Set(["-c"])],
+  ["node", new Set(["-e", "--eval"])],
+  ["ruby", new Set(["-e"])],
+  ["perl", new Set(["-e", "-E"])]
+]);
+var CLUSTERED_CODE_FLAGS = new Map([
+  ["python", new Set(["c"])],
+  ["node", new Set(["e"])],
+  ["ruby", new Set(["e"])],
+  ["perl", new Set(["e", "E"])]
+]);
+function extractInterpreterCodeArg(tokens) {
+  const interpreter = normalizeInterpreter(tokens[0] ?? "");
+  for (let i = 1;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token)
+      continue;
+    if (isInterpreterCodeFlag(interpreter, token)) {
+      return tokens[i + 1] || null;
+    }
+    const inlineEval = /^--eval=(.*)$/s.exec(token);
+    if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
+      return inlineEval[1];
+    }
+    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
+    if (shortCodeArg)
+      return shortCodeArg;
+  }
+  return null;
+}
+function isInterpreterCommand(command) {
+  return CODE_FLAGS.has(normalizeInterpreter(command));
+}
+function normalizeInterpreter(command) {
+  const interpreter = getBasename(command).toLowerCase();
+  return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? "python" : interpreter;
+}
+function isInterpreterCodeFlag(interpreter, token) {
+  return CODE_FLAGS.get(interpreter)?.has(token) ?? false;
+}
+function supportsInlineEval(interpreter) {
+  return CODE_FLAGS.get(interpreter)?.has("--eval") ?? false;
+}
+function extractShortCodeArg(interpreter, token, nextToken) {
+  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2) {
+    return null;
+  }
+  const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
+  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
+  if (codeFlagIndex < 0)
+    return null;
+  return token.slice(codeFlagIndex + 2) || nextToken || null;
+}
+function containsDangerousCode(code) {
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(code)) {
+      return true;
+    }
+  }
+  return false;
+}
+// src/core/shell/options.ts
+function extractShortOpts(tokens, options) {
+  const opts = new Set;
+  let pastDoubleDash = false;
+  for (const token of tokens) {
+    if (token === "--") {
+      pastDoubleDash = true;
+      continue;
+    }
+    if (pastDoubleDash)
+      continue;
+    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
+      for (let i = 1;i < token.length; i++) {
+        const char = token[i];
+        if (!char || !/[a-zA-Z]/.test(char)) {
+          break;
+        }
+        const shortOpt = `-${char}`;
+        opts.add(shortOpt);
+        if (options?.shortOptsWithValue?.has(shortOpt)) {
+          break;
+        }
+      }
+    }
+  }
+  return opts;
+}
+// node_modules/shell-quote/index.js
+var $quote = require_quote();
+var $parse = require_parse();
 
 // src/core/shell/shared.ts
 var ENV_PROXY = new Proxy({}, {
@@ -3347,7 +2637,7 @@ function _isShellTokenBoundaryChar(char) {
   return _isWhitespaceChar(char) || ";|&()<>".includes(char);
 }
 // src/core/shell/wrappers.ts
-import { realpathSync as realpathSync4 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute4, parse as parsePath2 } from "node:path";
 
 // src/core/git/env.ts
@@ -3408,8 +2698,8 @@ function hasAnyEnvAssignment(envAssignments, names) {
 }
 
 // src/core/path.ts
-import { lstatSync, realpathSync as realpathSync3 } from "node:fs";
-import { dirname, isAbsolute as isAbsolute3, parse as parsePath, sep as sep2 } from "node:path";
+import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
+import { dirname, isAbsolute as isAbsolute3, parse as parsePath, sep } from "node:path";
 function resolveChdirTarget(baseCwd, target) {
   const root = isAbsolute3(target) ? getPathRoot(target) : "";
   let current = root || baseCwd;
@@ -3422,12 +2712,12 @@ function resolveChdirTarget(baseCwd, target) {
       continue;
     }
     const candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync3(candidate) : candidate;
+    current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
   }
   return current;
 }
 function appendPathWithoutNormalizing(base, target) {
-  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep2}${target}`;
+  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
 }
 function getPathRoot(target) {
   return parsePath(target).root;
@@ -3682,7 +2972,7 @@ function resolveWrapperCwd(cwd, target) {
     if (!cwd && !isAbsolute4(target)) {
       return null;
     }
-    const baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync4(cwd ?? "/");
+    const baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -3716,6 +3006,3129 @@ function stripCommand(tokens) {
   }
   return tokens.slice(i);
 }
+// src/core/analyze/transparent-wrappers.ts
+var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
+var RESERVED_TRANSPARENT_WRAPPERS = new Set([
+  "git",
+  "busybox",
+  ...BUILTIN_ANALYZED_COMMANDS,
+  ...SHELL_WRAPPERS,
+  ...INTERPRETERS,
+  ...AWK_INTERPRETERS
+]);
+function unwrapTransparentWrapper(tokens, policy) {
+  const head = tokens[0];
+  if (!head || !policy.transparentWrappers.includes(getBasename(head))) {
+    return null;
+  }
+  const wrapper = getBasename(head);
+  const startIndex = tokens[1] === "--" ? 2 : 1;
+  const childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy));
+  if (childIndex < 0)
+    return null;
+  return { wrapper, tokens: [...tokens.slice(childIndex)] };
+}
+function isProtectableCommand(token, policy) {
+  const basename = getBasename(token);
+  const normalized = normalizeCommandToken(token);
+  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || policy.transparentWrappers.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename);
+}
+function isReservedTransparentWrapper(command2) {
+  const normalized = normalizeCommandToken(command2);
+  return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
+}
+
+// src/core/rules/policy/paths.ts
+import { homedir as homedir2 } from "node:os";
+import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
+var RULES_CONFIG_FILE = "rule.json";
+var RULES_LOCK_FILE = "rule.lock";
+var RULEBOOK_FILE = "rulebook.json";
+var LEGACY_RULES_CONFIG_FILE = "config.json";
+var SAFETY_NET_DIR = ".cc-safety-net";
+var RULES_SUBDIR = "rules";
+var CACHE_SUBDIR = "cache";
+var RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`;
+var CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME";
+var GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>";
+var RULE_SYNC_COMMAND = "`cc-safety-net rule sync`";
+var RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
+function getProjectRulesDir(cwd) {
+  return resolve2(cwd ?? process.cwd(), RULES_DIR);
+}
+function getProjectRulesConfigPath(cwd) {
+  return join2(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+}
+function getUserRulesDir(options2) {
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname2(options2.userConfigPath) : join2(getUserSafetyNetHome(), RULES_SUBDIR));
+}
+function getUserSafetyNetHome() {
+  const home = process.env[CC_SAFETY_NET_HOME];
+  return home ? resolve2(home) : join2(homedir2(), SAFETY_NET_DIR);
+}
+function getUserRulesConfigPath(options2) {
+  return join2(getUserRulesDir(options2), RULES_CONFIG_FILE);
+}
+function getUserRulesLockPath(options2) {
+  return join2(getUserRulesDir(options2), RULES_LOCK_FILE);
+}
+function getRulesLockPathForConfigPath(configPath) {
+  return join2(dirname2(configPath), RULES_LOCK_FILE);
+}
+function getLegacyUserRulesConfigPath(options2 = {}) {
+  return join2(dirname2(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+}
+function getLegacyProjectRulesConfigPath(options2 = {}) {
+  return resolve2(options2.cwd ?? process.cwd(), ".safety-net.json");
+}
+function getPolicyPaths(options2) {
+  const userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2);
+  const projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  return {
+    userConfigPath,
+    projectConfigPath,
+    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
+    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
+  };
+}
+function getScopePaths(options2) {
+  const configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  return {
+    configDir: dirname2(configPath),
+    configPath,
+    lockPath: getRulesLockPathForConfigPath(configPath)
+  };
+}
+function getRulebookDisplaySource(entry) {
+  if (entry.kind === "github" && entry.display_ref) {
+    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
+  }
+  return entry.spec;
+}
+function getRulebookCachePath(entry, options2) {
+  const digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
+  return join2(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+}
+function getRulebookCacheSlug(entry) {
+  const source = entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec;
+  return source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
+}
+function getRepositoryRulebookPath(name) {
+  return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
+}
+function getRulesCacheDir(options2) {
+  return join2(dirname2(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
+}
+
+// src/core/rules/policy/sources.ts
+var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
+var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
+var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
+var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
+var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
+function getRulebookSourceSyntaxError(source) {
+  if (isGitHubRulebookSource(source)) {
+    try {
+      parseGitHubSource(source);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
+}
+function parseGitHubSource(spec) {
+  if (spec.startsWith("github:")) {
+    throw new Error(`Invalid rulebook source: ${spec}`);
+  }
+  const match = spec.match(GITHUB_SOURCE_RE);
+  if (!match?.[1] || !match[2] || !match[3]) {
+    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
+  }
+  const [ref, name, ...extraParts] = match[3].split("/");
+  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
+    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
+  }
+  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
+    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
+  }
+  return {
+    owner: match[1],
+    repo: match[2],
+    ref,
+    path: getRepositoryRulebookPath(name),
+    name
+  };
+}
+function isGitHubRepositorySource(source) {
+  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
+}
+function isGitHubRulebookSource(source) {
+  return GITHUB_SOURCE_RE.test(source);
+}
+function assertBareRulebookName(source) {
+  if (!NAME_PATTERN.test(source)) {
+    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
+  }
+}
+function getRulebookLockEntrySourceIdentityError(entry) {
+  if (isGitHubRulebookSource(entry.spec)) {
+    return getGitHubLockEntrySourceIdentityError(entry);
+  }
+  return getLocalLockEntrySourceIdentityError(entry);
+}
+function getLocalLockEntrySourceIdentityError(entry) {
+  if (!NAME_PATTERN.test(entry.spec)) {
+    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
+  }
+  if (entry.kind !== "local-directory") {
+    return `lock entry for ${entry.spec} must use local-directory kind`;
+  }
+  if (entry.path === entry.spec && entry.name === entry.spec) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match local source identity`;
+}
+function getGitHubLockEntrySourceIdentityError(entry) {
+  const syntaxError = getRulebookSourceSyntaxError(entry.spec);
+  if (syntaxError)
+    return syntaxError;
+  const parsed = parseGitHubSource(entry.spec);
+  if (entry.kind !== "github") {
+    return `lock entry for ${entry.spec} must use github kind`;
+  }
+  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name) {
+    return null;
+  }
+  return `lock entry for ${entry.spec} does not match GitHub source identity`;
+}
+function getSelectedUpdateSpecs(config, lock, match) {
+  const exactMatches = getExactSpecMatches(config.rules, match);
+  if (exactMatches.length > 0) {
+    return { ok: true, specs: exactMatches };
+  }
+  if (!lock) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        errors: [
+          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
+        ],
+        warnings: [],
+        entries: []
+      }
+    };
+  }
+  const configuredSpecs = new Set(config.rules);
+  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
+  if (nameMatches.length === 1) {
+    return { ok: true, specs: nameMatches };
+  }
+  return noRulebookMatch(match, nameMatches);
+}
+function getRemoveMatches(rules, lock, match) {
+  const exactMatches = getExactSpecMatches(rules, match);
+  if (exactMatches.length > 0)
+    return { ok: true, specs: exactMatches };
+  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
+  if (githubRefMatches.length > 0)
+    return { ok: true, specs: githubRefMatches };
+  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
+  if (!githubRepositoryMatches.ok)
+    return githubRepositoryMatches;
+  if (githubRepositoryMatches.specs.length > 0) {
+    return { ok: true, specs: githubRepositoryMatches.specs };
+  }
+  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
+  if (nameMatches.length === 1)
+    return { ok: true, specs: nameMatches };
+  return noRulebookMatch(match, nameMatches);
+}
+function noRulebookMatch(match, nameMatches) {
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getExactSpecMatches(rules, match) {
+  return rules.filter((spec) => spec === match);
+}
+function getGitHubRepositoryRefMatches(rules, match) {
+  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
+  const owner = parsed?.[1];
+  const repo = parsed?.[2];
+  const ref = parsed?.[3];
+  if (!owner || !repo || !ref)
+    return [];
+  return getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo && source.ref === ref;
+  });
+}
+function getGitHubRepositoryMatches(rules, match) {
+  if (!isGitHubRepositorySource(match))
+    return { ok: true, specs: [] };
+  const [owner, repo] = match.split("/");
+  const specs = getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo;
+  });
+  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
+  if (refs.size < 2)
+    return { ok: true, specs };
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      errors: [
+        `Multiple refs are configured for ${match}. Use an explicit ref:`,
+        `  cc-safety-net rule remove ${match}#<ref>`
+      ],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getConfiguredGitHubSource(spec) {
+  try {
+    return parseGitHubSource(spec);
+  } catch {
+    return null;
+  }
+}
+function getConfiguredGitHubSourceMatches(rules, matches) {
+  return rules.filter((spec) => {
+    const source = getConfiguredGitHubSource(spec);
+    return source ? matches(source) : false;
+  });
+}
+
+// src/core/secret-protection-rules.ts
+var SECRET_BASENAME_RULES = [
+  {
+    id: "secret.basename.env",
+    category: "Basename",
+    label: ".env",
+    description: "Blocks exact .env files.",
+    basename: ".env"
+  },
+  {
+    id: "secret.basename.npmrc",
+    category: "Basename",
+    label: ".npmrc",
+    description: "Blocks npm credential config files.",
+    basename: ".npmrc"
+  },
+  {
+    id: "secret.basename.pypirc",
+    category: "Basename",
+    label: ".pypirc",
+    description: "Blocks Python package index credential files.",
+    basename: ".pypirc"
+  },
+  {
+    id: "secret.basename.netrc",
+    category: "Basename",
+    label: ".netrc",
+    description: "Blocks machine login credential files.",
+    basename: ".netrc"
+  },
+  {
+    id: "secret.basename.git-credentials",
+    category: "Basename",
+    label: ".git-credentials",
+    description: "Blocks Git credential storage files.",
+    basename: ".git-credentials"
+  },
+  {
+    id: "secret.basename.id-rsa",
+    category: "Basename",
+    label: "id_rsa",
+    description: "Blocks RSA private key basenames.",
+    basename: "id_rsa"
+  },
+  {
+    id: "secret.basename.id-ed25519",
+    category: "Basename",
+    label: "id_ed25519",
+    description: "Blocks Ed25519 private key basenames.",
+    basename: "id_ed25519"
+  },
+  {
+    id: "secret.basename.id-ecdsa",
+    category: "Basename",
+    label: "id_ecdsa",
+    description: "Blocks ECDSA private key basenames.",
+    basename: "id_ecdsa"
+  },
+  {
+    id: "secret.basename.credentials",
+    category: "Basename",
+    label: "credentials",
+    description: "Blocks generic credentials file basenames.",
+    basename: "credentials"
+  }
+];
+var SECRET_ENV_VARIANT_RULE = {
+  id: "secret.pattern.env-variant",
+  category: "Pattern",
+  label: ".env.*",
+  description: "Blocks environment-specific .env variants."
+};
+var SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
+  ".bak",
+  ".backup",
+  ".copy",
+  ".disabled",
+  ".old",
+  ".orig",
+  ".save",
+  ".tmp"
+];
+var SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
+  {
+    idSlug: "kube-config",
+    label: "~/.kube/config",
+    directoryParts: [".kube"],
+    basename: "config"
+  },
+  {
+    idSlug: "docker-config",
+    label: "~/.docker/config.json",
+    directoryParts: [".docker"],
+    basename: "config.json"
+  }
+];
+var SECRET_HOME_PATH_RULES = [
+  {
+    id: "secret.home.ssh",
+    category: "Home path",
+    label: "~/.ssh",
+    description: "Blocks home SSH configuration and key paths.",
+    suffixParts: [".ssh"]
+  },
+  {
+    id: "secret.home.aws",
+    category: "Home path",
+    label: "~/.aws",
+    description: "Blocks home AWS credential and config paths.",
+    suffixParts: [".aws"]
+  },
+  {
+    id: "secret.home.gcp",
+    category: "Home path",
+    label: "~/.gcp",
+    description: "Blocks home GCP credential paths.",
+    suffixParts: [".gcp"]
+  },
+  {
+    id: "secret.home.gcloud-config",
+    category: "Home path",
+    label: "~/.config/gcloud",
+    description: "Blocks home Google Cloud SDK credential paths.",
+    suffixParts: [".config", "gcloud"]
+  },
+  {
+    id: "secret.home.kube-config",
+    category: "Home path",
+    label: "~/.kube/config",
+    description: "Blocks home Kubernetes config files.",
+    suffixParts: [".kube", "config"]
+  },
+  {
+    id: "secret.home.docker-config",
+    category: "Home path",
+    label: "~/.docker/config.json",
+    description: "Blocks home Docker credential config files.",
+    suffixParts: [".docker", "config.json"]
+  },
+  ...SECRET_HOME_PATH_CONFIG_VARIANT_BASES.flatMap((rule) => SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES.map((suffix) => ({
+    id: ["secret.home", rule.idSlug, suffix.slice(1)].join("."),
+    category: "Home path",
+    label: [rule.label, suffix].join(""),
+    description: ["Blocks home ", rule.label, suffix, " credential backup files."].join(""),
+    suffixParts: [...rule.directoryParts, [rule.basename, suffix].join("")]
+  }))),
+  {
+    id: "secret.home.gh-hosts",
+    category: "Home path",
+    label: "~/.config/gh/hosts.yml",
+    description: "Blocks GitHub CLI host credential files.",
+    suffixParts: [".config", "gh", "hosts.yml"]
+  }
+];
+var SECRET_CODING_CLI_RULES = [
+  {
+    id: "secret.cli.claude-code",
+    category: "Coding CLI",
+    label: "Claude Code credentials",
+    description: "Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations."
+  },
+  {
+    id: "secret.cli.antigravity",
+    category: "Coding CLI",
+    label: "Antigravity CLI credentials",
+    description: "Blocks Antigravity CLI hook config under the shared Gemini config directory."
+  },
+  {
+    id: "secret.cli.codex",
+    category: "Coding CLI",
+    label: "Codex credentials",
+    description: "Blocks Codex auth and config files, including CODEX_HOME relocations."
+  },
+  {
+    id: "secret.cli.gemini",
+    category: "Coding CLI",
+    label: "Gemini CLI credentials",
+    description: "Blocks Gemini CLI OAuth, account, settings, and keychain fallback files."
+  },
+  {
+    id: "secret.cli.copilot-cli",
+    category: "Coding CLI",
+    label: "GitHub Copilot CLI credentials",
+    description: "Blocks Copilot CLI auth config and MCP OAuth credential storage."
+  },
+  {
+    id: "secret.cli.kimi-code",
+    category: "Coding CLI",
+    label: "Kimi Code credentials",
+    description: "Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files."
+  },
+  {
+    id: "secret.cli.opencode",
+    category: "Coding CLI",
+    label: "OpenCode credentials",
+    description: "Blocks OpenCode auth stores and credential-bearing global or managed config files."
+  },
+  {
+    id: "secret.cli.pi",
+    category: "Coding CLI",
+    label: "Pi credentials",
+    description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
+  }
+];
+var SECRET_DIRECTORY_RULES = [
+  {
+    id: "secret.dir.secrets",
+    category: "Directory",
+    label: "secrets/",
+    description: "Blocks paths inside directories named secrets.",
+    basename: "secrets"
+  }
+];
+var SECRET_VARIANT_PREFIXES = [
+  { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
+  { prefix: "id_dsa", slug: "id-dsa", label: "id_dsa" },
+  { prefix: "id_ed25519", slug: "id-ed25519", label: "id_ed25519" },
+  { prefix: "id_ecdsa", slug: "id-ecdsa", label: "id_ecdsa" },
+  { prefix: "credentials", slug: "credentials", label: "credentials" }
+];
+var SECRET_DOT_VARIANT_SUFFIXES = [
+  ".bak",
+  ".backup",
+  ".copy",
+  ".disabled",
+  ".key",
+  ".old",
+  ".orig",
+  ".pem",
+  ".save",
+  ".tmp"
+];
+var SECRET_VARIANT_SEPARATOR_RULES = SECRET_VARIANT_PREFIXES.map((rule) => ({
+  id: `secret.variant.${rule.slug}.separator`,
+  category: "Variant",
+  label: `${rule.label}-* / ${rule.label}_*`,
+  description: `Blocks ${rule.label} variants with dash or underscore suffixes.`,
+  prefix: rule.prefix
+}));
+var SECRET_VARIANT_DOT_SUFFIX_RULES = SECRET_VARIANT_PREFIXES.flatMap((rule) => SECRET_DOT_VARIANT_SUFFIXES.map((suffix) => ({
+  id: `secret.variant.${rule.slug}.${suffix.slice(1)}`,
+  category: "Variant",
+  label: `${rule.label}${suffix}`,
+  description: `Blocks ${rule.label}${suffix} private credential variants.`,
+  prefix: rule.prefix,
+  suffix
+})));
+var SECRET_BROAD_SSH_KEY_BASENAME_RULE = {
+  id: "secret.pattern.ssh-key-basename",
+  category: "Pattern",
+  label: "*_(rsa|dsa|ed25519|ecdsa)",
+  description: "Blocks extensionless SSH private key-like basenames.",
+  pattern: /^.*_(rsa|dsa|ed25519|ecdsa)$/
+};
+var SECRET_EXTENSION_RULES = [
+  "agilekeychain",
+  "asc",
+  "bek",
+  "cscfg",
+  "fve",
+  "gnucash",
+  "jks",
+  "keychain",
+  "kwallet",
+  "mdf",
+  "ovpn",
+  "p12",
+  "pcap",
+  "pem",
+  "pfx",
+  "pkcs12",
+  "psafe3",
+  "rdp",
+  "sdf",
+  "sqlite",
+  "tblk",
+  "tpm"
+].map((extension) => ({
+  id: `secret.ext.${extension}`,
+  category: "Extension",
+  label: `.${extension}`,
+  description: `Blocks files with the .${extension} extension.`,
+  extension
+}));
+var SECRET_EXTENSION_PATTERN_RULES = [
+  {
+    id: "secret.ext-pattern.key",
+    category: "Extension pattern",
+    label: ".key / .keypair",
+    description: "Blocks key and keypair extension patterns.",
+    pattern: /^key(pair)?$/
+  },
+  {
+    id: "secret.ext-pattern.keystore",
+    category: "Extension pattern",
+    label: ".keystore / .keyring",
+    description: "Blocks keystore and keyring extension patterns.",
+    pattern: /^key(store|ring)$/
+  },
+  {
+    id: "secret.ext-pattern.kdbx",
+    category: "Extension pattern",
+    label: ".kdb / .kdbx",
+    description: "Blocks KeePass database extension patterns.",
+    pattern: /^kdbx?$/
+  },
+  {
+    id: "secret.ext-pattern.sql",
+    category: "Extension pattern",
+    label: ".sql / .sqldump",
+    description: "Blocks SQL dump extension patterns.",
+    pattern: /^sql(dump)?$/
+  }
+];
+var SECRET_PROTECTION_RULE_METADATA = [
+  ...SECRET_BASENAME_RULES,
+  SECRET_ENV_VARIANT_RULE,
+  ...SECRET_HOME_PATH_RULES,
+  ...SECRET_CODING_CLI_RULES,
+  ...SECRET_DIRECTORY_RULES,
+  ...SECRET_VARIANT_SEPARATOR_RULES,
+  ...SECRET_VARIANT_DOT_SUFFIX_RULES,
+  SECRET_BROAD_SSH_KEY_BASENAME_RULE,
+  ...SECRET_EXTENSION_RULES,
+  ...SECRET_EXTENSION_PATTERN_RULES
+].map((rule) => ({
+  id: rule.id,
+  category: rule.category,
+  label: rule.label,
+  description: rule.description
+}));
+var SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);
+var SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
+
+// src/config/schema.ts
+var require2 = createRequire(import.meta.url);
+var schemas;
+function createSchemas() {
+  const z = require2("zod");
+  const BlockIntentSchema = z.enum(BLOCK_INTENTS);
+  const RuleOverrideSchema = z.union([
+    z.literal("off"),
+    z.looseObject({
+      reason: z.string().min(1).max(MAX_REASON_LENGTH).describe("Replacement block reason"),
+      intent: BlockIntentSchema.optional()
+    })
+  ]).describe("Disable a rule or replace its block reason and intent.");
+  const RuleSourceSchema = z.string().min(1);
+  const RuleOverrideKeySchema = z.string().regex(/^[^/]+\/[^/]+$/);
+  const TransparentWrapperSchema = z.string().regex(COMMAND_PATTERN).describe("Command name such as 'git', 'docker', or 'rtk'.");
+  const RulesConfigSchema = z.looseObject({
+    $schema: z.unknown().optional().describe("JSON Schema reference for IDE support"),
+    version: z.literal(1).describe("Schema version (must be 1)"),
+    rules: z.array(RuleSourceSchema).default([]).describe("Rulebook source strings such as project-rules or owner/repo#main/team-rules"),
+    overrides: z.record(RuleOverrideKeySchema, RuleOverrideSchema).default({}).describe("Rule overrides by id"),
+    transparent_wrappers: z.array(TransparentWrapperSchema).default([]).describe("Commands that transparently execute a visible protected child command")
+  }).superRefine((config, context) => {
+    const sources = new Set;
+    for (let index = 0;index < config.rules.length; index++) {
+      const source = config.rules[index];
+      const sourceError = getRulebookSourceSyntaxError(source);
+      if (sourceError) {
+        context.addIssue({ code: "custom", message: sourceError, path: ["rules", index] });
+        continue;
+      }
+      if (sources.has(source)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate rulebook source "${source}"`,
+          path: ["rules", index]
+        });
+        continue;
+      }
+      sources.add(source);
+    }
+    const wrappers2 = new Set;
+    for (let index = 0;index < config.transparent_wrappers.length; index++) {
+      const wrapper = config.transparent_wrappers[index];
+      if (wrappers2.has(wrapper)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate command "${wrapper}"`,
+          path: ["transparent_wrappers", index]
+        });
+        continue;
+      }
+      if (isReservedTransparentWrapper(wrapper)) {
+        context.addIssue({
+          code: "custom",
+          message: `reserved command "${wrapper}" cannot be a wrapper`,
+          path: ["transparent_wrappers", index]
+        });
+        continue;
+      }
+      wrappers2.add(wrapper);
+    }
+  });
+  const SafetyOverridesSchema = z.strictObject({
+    fail_closed: z.boolean().optional(),
+    paranoid_rm: z.boolean().optional(),
+    paranoid_interpreters: z.boolean().optional()
+  });
+  const OffOverridesSchema = z.record(z.string(), z.literal("off"));
+  const UserPolicySchema = z.strictObject({
+    version: z.literal(1),
+    safety: z.strictObject({
+      level: z.enum(["standard", "strict", "paranoid"]).optional(),
+      overrides: SafetyOverridesSchema.optional()
+    }).optional(),
+    workflow: z.strictObject({ worktree_mode: z.boolean().optional() }).optional(),
+    destructive_command_protection: z.strictObject({ enabled: z.boolean().optional(), overrides: OffOverridesSchema.optional() }).optional(),
+    secret_protection: z.strictObject({
+      enabled: z.boolean().optional(),
+      overrides: OffOverridesSchema.optional(),
+      deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional()
+    }).optional()
+  }).superRefine((policy, context) => {
+    for (const id of Object.keys(policy.destructive_command_protection?.overrides ?? {})) {
+      if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
+        context.addIssue({
+          code: "custom",
+          message: `unknown destructive command rule id "${id}"`,
+          path: ["destructive_command_protection", "overrides", id]
+        });
+      }
+    }
+    for (const id of Object.keys(policy.secret_protection?.overrides ?? {})) {
+      if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
+        context.addIssue({
+          code: "custom",
+          message: `unknown secret protection rule id "${id}"`,
+          path: ["secret_protection", "overrides", id]
+        });
+      }
+    }
+  });
+  return { RulesConfigSchema, RuleOverrideSchema, UserPolicySchema };
+}
+function getSchemas() {
+  schemas ??= createSchemas();
+  return schemas;
+}
+function getRulesConfigSchema() {
+  return getSchemas().RulesConfigSchema;
+}
+function getUserPolicySchema() {
+  return getSchemas().UserPolicySchema;
+}
+function getRulesConfigValidation(config) {
+  const errors = [];
+  const sources = new Set;
+  if (!isRecord(config))
+    return { errors: ["Config must be an object"], sources };
+  if (config.version !== 1)
+    errors.push("version must be 1");
+  if (config.rules !== undefined) {
+    if (!Array.isArray(config.rules)) {
+      errors.push("rules must be an array of rulebook source strings");
+    } else {
+      for (let index = 0;index < config.rules.length; index++) {
+        const source = config.rules[index];
+        if (typeof source !== "string") {
+          errors.push(`rules[${index}]: must be a rulebook source string`);
+          continue;
+        }
+        if (source.trim() === "") {
+          errors.push(`rules[${index}]: must be a non-empty rulebook source string`);
+          continue;
+        }
+        if (sources.has(source)) {
+          errors.push(`rules[${index}]: duplicate rulebook source "${source}"`);
+          continue;
+        }
+        const sourceError = getRulebookSourceSyntaxError(source);
+        if (sourceError) {
+          errors.push(`rules[${index}]: ${sourceError}`);
+          continue;
+        }
+        sources.add(source);
+      }
+    }
+  }
+  validateRuleOverrides(config.overrides, errors);
+  validateTransparentWrappers(config.transparent_wrappers, errors);
+  return { errors, sources };
+}
+function getUserPolicyDiagnostics(config) {
+  const parsed = getUserPolicySchema().safeParse(config);
+  if (parsed.success)
+    return [];
+  const errors = [];
+  if (!isRecord(config))
+    return ["Config must be an object"];
+  addUnknownFieldErrors(config, new Set([
+    "version",
+    "safety",
+    "workflow",
+    "destructive_command_protection",
+    "secret_protection"
+  ]), errors);
+  if (config.version !== 1)
+    errors.push("version must be 1");
+  validateUserSafety(config.safety, errors);
+  validateUserWorkflow(config.workflow, errors);
+  validateUserDestructivePolicy(config.destructive_command_protection, errors);
+  validateUserSecretPolicy(config.secret_protection, errors);
+  return errors;
+}
+function validateRuleOverrides(value, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push("overrides must be an object if provided");
+    return;
+  }
+  for (const [key, override] of Object.entries(value)) {
+    if (!/^[^/]+\/[^/]+$/.test(key)) {
+      errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
+    }
+    if (override === "off")
+      continue;
+    if (!isRecord(override)) {
+      errors.push(`overrides.${key}: must be "off" or an object`);
+      continue;
+    }
+    if (typeof override.reason !== "string" || override.reason === "") {
+      errors.push(`overrides.${key}.reason: required non-empty string`);
+    } else if (override.reason.length > MAX_REASON_LENGTH) {
+      errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
+    }
+    if (override.intent !== undefined && (typeof override.intent !== "string" || !BLOCK_INTENTS.includes(override.intent))) {
+      errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
+    }
+  }
+}
+function validateTransparentWrappers(value, errors) {
+  if (value === undefined)
+    return;
+  if (!Array.isArray(value)) {
+    errors.push("transparent_wrappers must be an array of command strings");
+    return;
+  }
+  const seen = new Set;
+  for (let index = 0;index < value.length; index++) {
+    const command2 = value[index];
+    if (typeof command2 !== "string") {
+      errors.push(`transparent_wrappers[${index}]: must be a command string`);
+      continue;
+    }
+    if (!COMMAND_PATTERN.test(command2)) {
+      errors.push(`transparent_wrappers[${index}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      errors.push(`transparent_wrappers[${index}]: duplicate command "${command2}"`);
+      continue;
+    }
+    if (isReservedTransparentWrapper(command2)) {
+      errors.push(`transparent_wrappers[${index}]: reserved command "${command2}" cannot be a wrapper`);
+      continue;
+    }
+    seen.add(command2);
+  }
+}
+function validateUserSafety(value, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push("safety must be an object if provided");
+    return;
+  }
+  addUnknownFieldErrors(value, new Set(["level", "overrides"]), errors, "safety");
+  if (value.level !== undefined && !["standard", "strict", "paranoid"].includes(String(value.level))) {
+    errors.push('safety.level must be "standard", "strict", or "paranoid"');
+  }
+  if (value.overrides === undefined)
+    return;
+  if (!isRecord(value.overrides)) {
+    errors.push("safety.overrides must be an object if provided");
+    return;
+  }
+  addUnknownFieldErrors(value.overrides, new Set(["fail_closed", "paranoid_rm", "paranoid_interpreters"]), errors, "safety.overrides");
+  for (const [key, override] of Object.entries(value.overrides)) {
+    if (typeof override !== "boolean")
+      errors.push(`safety.overrides.${key} must be a boolean`);
+  }
+}
+function validateUserWorkflow(value, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push("workflow must be an object if provided");
+    return;
+  }
+  addUnknownFieldErrors(value, new Set(["worktree_mode"]), errors, "workflow");
+  if (value.worktree_mode !== undefined && typeof value.worktree_mode !== "boolean") {
+    errors.push("workflow.worktree_mode must be a boolean");
+  }
+}
+function validateUserDestructivePolicy(value, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push("destructive_command_protection must be an object if provided");
+    return;
+  }
+  addUnknownFieldErrors(value, new Set(["enabled", "overrides"]), errors, "destructive_command_protection");
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    errors.push("destructive_command_protection.enabled must be a boolean");
+  }
+  validateOffOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors);
+}
+function validateUserSecretPolicy(value, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push("secret_protection must be an object if provided");
+    return;
+  }
+  addUnknownFieldErrors(value, new Set(["enabled", "overrides", "deny_paths"]), errors, "secret_protection");
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    errors.push("secret_protection.enabled must be a boolean");
+  }
+  validateOffOverrides(value.overrides, "secret_protection", SECRET_PROTECTION_RULE_ID_SET, "secret protection", errors);
+  if (value.deny_paths === undefined)
+    return;
+  if (!Array.isArray(value.deny_paths)) {
+    errors.push("secret_protection.deny_paths must be an array of paths");
+    return;
+  }
+  for (let index = 0;index < value.deny_paths.length; index++) {
+    const path = value.deny_paths[index];
+    if (typeof path !== "string" || path.trim() === "") {
+      errors.push(`secret_protection.deny_paths[${index}] must be a non-empty path string`);
+    }
+  }
+}
+function validateOffOverrides(value, field, knownIds, label, errors) {
+  if (value === undefined)
+    return;
+  if (!isRecord(value)) {
+    errors.push(`${field}.overrides must be an object if provided`);
+    return;
+  }
+  for (const [id, override] of Object.entries(value)) {
+    if (!knownIds.has(id))
+      errors.push(`unknown ${label} rule id "${id}"`);
+    if (override !== "off")
+      errors.push(`${field}.overrides.${id} must be "off"`);
+  }
+}
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function addUnknownFieldErrors(record, allowed, errors, prefix) {
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key))
+      errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
+  }
+}
+// src/core/rules/policy/config-file.ts
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync as mkdirSync2, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname as dirname3 } from "node:path";
+
+// src/core/rules/policy/types.ts
+var DEFAULT_CONFIG = {
+  version: 1,
+  rules: [],
+  overrides: {},
+  transparent_wrappers: []
+};
+
+// src/core/rules/policy/config-file.ts
+function validateRulesConfig(config) {
+  const parsed = getRulesConfigSchema().safeParse(config);
+  const validation = getRulesConfigValidation(config);
+  return {
+    errors: parsed.success ? [] : validation.errors,
+    sources: validation.sources
+  };
+}
+function readRulesConfig(path) {
+  if (!existsSync(path)) {
+    return { config: null, errors: [] };
+  }
+  try {
+    const content = readFileSync(path, "utf-8");
+    if (!content.trim()) {
+      return { config: null, errors: ["Config file is empty"] };
+    }
+    const parsed = JSON.parse(content);
+    const validation = validateRulesConfig(parsed);
+    if (validation.errors.length > 0) {
+      return { config: null, errors: validation.errors };
+    }
+    const cfg = getRulesConfigSchema().parse(parsed);
+    return {
+      config: {
+        version: 1,
+        rules: cfg.rules ?? [],
+        overrides: cfg.overrides ?? {},
+        transparent_wrappers: cfg.transparent_wrappers ?? []
+      },
+      errors: []
+    };
+  } catch (error) {
+    return {
+      config: null,
+      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+function readScopeRulesConfig(path) {
+  const loaded = readRulesConfig(path);
+  if (loaded.errors.length > 0) {
+    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
+  }
+  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
+}
+function writeDefaultRulesConfig(path, rules = []) {
+  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
+}
+function writeStarterRulebook(path, name = "project-rules") {
+  writeJsonAtomic(path, {
+    rulebook_version: 1,
+    name,
+    version: "1.0.0",
+    description: name === "project-rules" ? "Project-specific CC Safety Net rules." : "User-specific CC Safety Net rules.",
+    author: name === "project-rules" ? "project" : "user",
+    allowed_commands: ["docker"],
+    rules: [
+      {
+        name: "block-docker-system-prune",
+        command: "docker",
+        subcommand: "system",
+        block_args: ["prune"],
+        reason: "Use targeted cleanup instead."
+      }
+    ],
+    tests: [
+      {
+        command: "docker system prune",
+        expect: "blocked",
+        rule: "block-docker-system-prune"
+      }
+    ]
+  });
+}
+function createAtomicTempPath(path) {
+  return `${path}.${randomBytes(8).toString("hex")}.tmp`;
+}
+function writeJsonAtomic(path, value, mode) {
+  mkdirSync2(dirname3(path), { recursive: true });
+  const tempPath = createAtomicTempPath(path);
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
+`, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode
+    });
+    renameSync(tempPath, path);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
+}
+
+// src/core/policy.ts
+var POLICY_FILE = "policy.json";
+var SAFETY_LEVELS2 = new Set(["standard", "strict", "paranoid"]);
+var DEFAULT_GUI_POLICY = {
+  version: 1,
+  safety: {
+    level: "standard",
+    overrides: {}
+  },
+  workflow: {
+    worktree_mode: false
+  },
+  destructive_command_protection: {
+    enabled: true,
+    overrides: {}
+  },
+  secret_protection: {
+    enabled: true,
+    overrides: {},
+    deny_paths: []
+  }
+};
+function getUserPolicyPath(options2) {
+  return join3(dirname4(getUserRulesDir(options2)), POLICY_FILE);
+}
+function readUserPolicyForGui(options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  if (!existsSync2(path)) {
+    return {
+      path,
+      exists: false,
+      raw: "",
+      policy: createDefaultGuiPolicy(),
+      errors: []
+    };
+  }
+  const raw = readFileSync2(path, "utf-8");
+  if (!raw.trim()) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: ["Config file is empty"]
+    };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    const errors = getUserPolicyDiagnostics(parsed);
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
+      errors
+    };
+  } catch (error) {
+    return {
+      path,
+      exists: true,
+      raw,
+      policy: createDefaultGuiPolicy(),
+      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+function writeUserPolicyFromGui(policy, options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  const errors = getUserPolicyDiagnostics(policy);
+  const normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
+  if (errors.length > 0) {
+    return { path, policy: normalizedPolicy, errors };
+  }
+  mkdirSync3(dirname4(path), { recursive: true, mode: 448 });
+  writeJsonAtomic(path, normalizedPolicy, 384);
+  chmodSync(path, 384);
+  return { path, policy: normalizedPolicy, errors: [] };
+}
+function repairUserPolicyForGui(options2 = {}) {
+  const path = getUserPolicyPath(options2);
+  if (!existsSync2(path))
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  const raw = readFileSync2(path, "utf-8");
+  if (!raw.trim())
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  try {
+    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw)), options2);
+  } catch {
+    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
+  }
+}
+function loadPolicyConfig(options2 = {}) {
+  const user = readPolicyConfig(getUserPolicyPath(options2));
+  return {
+    safety: user.policy.safety,
+    worktreeMode: user.policy.worktreeMode,
+    destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
+    disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
+    secretProtection: user.policy.secretProtection,
+    errors: user.errors
+  };
+}
+function repairPolicyConfig(value) {
+  if (!isRecord2(value))
+    return createDefaultGuiPolicy();
+  const safety = isRecord2(value.safety) ? value.safety : {};
+  const safetyOverrides = isRecord2(safety.overrides) ? safety.overrides : {};
+  const workflow = isRecord2(value.workflow) ? value.workflow : {};
+  const destructiveCommand = isRecord2(value.destructive_command_protection) ? value.destructive_command_protection : {};
+  const secret = isRecord2(value.secret_protection) ? value.secret_protection : {};
+  return {
+    version: 1,
+    safety: {
+      level: SAFETY_LEVELS2.has(safety.level) ? safety.level : "standard",
+      overrides: {
+        ...typeof safetyOverrides.fail_closed === "boolean" ? { fail_closed: safetyOverrides.fail_closed } : {},
+        ...typeof safetyOverrides.paranoid_rm === "boolean" ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
+        ...typeof safetyOverrides.paranoid_interpreters === "boolean" ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
+      }
+    },
+    workflow: {
+      worktree_mode: typeof workflow.worktree_mode === "boolean" ? workflow.worktree_mode : false
+    },
+    destructive_command_protection: {
+      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
+      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
+    },
+    secret_protection: {
+      enabled: typeof secret.enabled === "boolean" ? secret.enabled : true,
+      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
+      deny_paths: repairDenyPaths(secret.deny_paths)
+    }
+  };
+}
+function repairOffOverrides(value, knownRuleIds) {
+  if (!isRecord2(value))
+    return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id, override]) => knownRuleIds.has(id) && override === "off" ? [[id, "off"]] : []));
+}
+function repairDenyPaths(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter((path) => typeof path === "string" && path.trim() !== "");
+}
+function isRecord2(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function createDefaultGuiPolicy() {
+  return {
+    version: 1,
+    safety: {
+      level: DEFAULT_GUI_POLICY.safety.level,
+      overrides: {}
+    },
+    workflow: { ...DEFAULT_GUI_POLICY.workflow },
+    destructive_command_protection: {
+      enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
+      overrides: {}
+    },
+    secret_protection: {
+      enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
+      overrides: {},
+      deny_paths: []
+    }
+  };
+}
+function normalizeGuiPolicy(policy) {
+  const config = policy;
+  const safety = config.safety ?? {};
+  const safetyOverrides = safety.overrides ?? {};
+  const workflow = config.workflow ?? {};
+  const destructiveCommandPolicy = config.destructive_command_protection ?? {};
+  const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
+  const secret = config.secret_protection ?? {};
+  const secretOverrides = secret.overrides ?? {};
+  return {
+    version: 1,
+    safety: {
+      level: safety.level ?? "standard",
+      overrides: {
+        ...safetyOverrides.fail_closed !== undefined ? { fail_closed: safetyOverrides.fail_closed } : {},
+        ...safetyOverrides.paranoid_rm !== undefined ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
+        ...safetyOverrides.paranoid_interpreters !== undefined ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
+      }
+    },
+    workflow: {
+      worktree_mode: workflow.worktree_mode ?? false
+    },
+    destructive_command_protection: {
+      enabled: destructiveCommandPolicy.enabled ?? true,
+      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
+    },
+    secret_protection: {
+      enabled: secret.enabled ?? true,
+      overrides: Object.fromEntries(Object.entries(secretOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : [])),
+      deny_paths: [...secret.deny_paths ?? []]
+    }
+  };
+}
+function readPolicyConfig(path) {
+  const empty = createEmptyPolicy();
+  if (!existsSync2(path))
+    return { policy: empty, errors: [] };
+  try {
+    const content = readFileSync2(path, "utf-8");
+    if (!content.trim()) {
+      return { policy: empty, errors: [`${path}: Config file is empty`] };
+    }
+    const parsed = JSON.parse(content);
+    const errors = getUserPolicyDiagnostics(parsed);
+    if (errors.length > 0)
+      return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
+    return { policy: normalizePolicyConfig(getUserPolicySchema().parse(parsed)), errors: [] };
+  } catch {
+    return {
+      policy: empty,
+      errors: [`${path}: Invalid JSON`]
+    };
+  }
+}
+function createEmptyPolicy() {
+  return {
+    safety: {},
+    worktreeMode: false,
+    destructiveCommandProtectionEnabled: true,
+    disabledDestructiveCommandRules: [],
+    secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
+  };
+}
+function normalizePolicyConfig(config) {
+  const safety = normalizeSafety(config.safety);
+  const workflow = config.workflow;
+  const destructiveCommand = config.destructive_command_protection;
+  const secret = config.secret_protection;
+  return {
+    safety,
+    worktreeMode: workflow?.worktree_mode ?? false,
+    destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? true,
+    disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
+    secretProtection: {
+      enabled: secret?.enabled ?? true,
+      disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
+      denyPaths: [...secret?.deny_paths ?? []]
+    }
+  };
+}
+function normalizeSafety(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return {};
+  const safety = value;
+  const overrides = safety.overrides ?? {};
+  return {
+    level: safety.level,
+    overrides: {
+      failClosed: overrides.fail_closed,
+      paranoidRm: overrides.paranoid_rm,
+      paranoidInterpreters: overrides.paranoid_interpreters
+    }
+  };
+}
+
+// src/core/rules/policy/scope-policy.ts
+import { existsSync as existsSync5, readFileSync as readFileSync5, realpathSync as realpathSync4 } from "node:fs";
+import { dirname as dirname5, isAbsolute as isAbsolute5, join as join5, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+
+// src/core/rules/custom.ts
+function checkCustomRules(tokens, rules) {
+  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
+}
+function checkCustomRuleMatch(tokens, rules) {
+  return checkRuleMatch(tokens, rules);
+}
+function checkPolicyRuleMatch(tokens, rules) {
+  return checkRuleMatch(tokens, rules);
+}
+function checkRuleMatch(tokens, rules) {
+  if (tokens.length === 0 || rules.length === 0) {
+    return null;
+  }
+  const command2 = normalizeCommandToken(tokens[0] ?? "");
+  const shortOpts = extractShortOpts(tokens);
+  for (const rule of rules) {
+    if (!matchesCommand(command2, rule.command)) {
+      continue;
+    }
+    if (!matchesSubcommand(command2, tokens, rule.subcommand)) {
+      continue;
+    }
+    if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
+      return {
+        id: `custom.${rule.name}`,
+        reason: `[${rule.name}] ${rule.reason}`,
+        intent: rule.intent ?? "manual_only"
+      };
+    }
+  }
+  return null;
+}
+function matchesCommand(command2, ruleCommand) {
+  return command2 === normalizeCommandToken(ruleCommand);
+}
+function matchesSubcommand(command2, tokens, ruleSubcommand) {
+  if (!ruleSubcommand) {
+    return true;
+  }
+  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command2));
+}
+var GIT_OPTIONS_WITH_VALUES = new Set([
+  "-c",
+  "-C",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--config-env"
+]);
+var DOCKER_OPTIONS_WITH_VALUES = new Set([
+  "-c",
+  "-H",
+  "-l",
+  "--config",
+  "--context",
+  "--host",
+  "--log-level",
+  "--tlscacert",
+  "--tlscert",
+  "--tlskey"
+]);
+var EMPTY_OPTIONS_WITH_VALUES = new Set;
+function getOptionsWithValues(command2) {
+  if (command2 === "git")
+    return GIT_OPTIONS_WITH_VALUES;
+  if (command2 === "docker")
+    return DOCKER_OPTIONS_WITH_VALUES;
+  return EMPTY_OPTIONS_WITH_VALUES;
+}
+function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues) {
+  let skipNext = false;
+  for (let i = startIndex;i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token)
+      continue;
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (token === "--") {
+      const nextToken = tokens[i + 1];
+      if (nextToken && !nextToken.startsWith("-")) {
+        return nextToken === expectedSubcommand;
+      }
+      return false;
+    }
+    if (optionsWithValues.has(token)) {
+      skipNext = true;
+      continue;
+    }
+    if (token.startsWith("-")) {
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)) {
+        return true;
+      }
+      continue;
+    }
+    return token === expectedSubcommand;
+  }
+  return false;
+}
+function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues) {
+  const value = tokens[optionIndex + 1];
+  if (!value || value.startsWith("-")) {
+    return false;
+  }
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
+}
+function matchesBlockArgs(tokens, blockArgs, shortOpts) {
+  const blockArgsSet = new Set(blockArgs);
+  for (const token of tokens) {
+    if (blockArgsSet.has(token)) {
+      return true;
+    }
+  }
+  for (const opt of shortOpts) {
+    if (blockArgsSet.has(opt)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// src/core/rules/custom-rule-validation.ts
+function validateCustomRule(rule, index, ruleNames, options2 = {}) {
+  const errors = [];
+  const prefix = `rules[${index}]`;
+  if (!rule || typeof rule !== "object") {
+    errors.push(`${prefix}: must be an object`);
+    return errors;
+  }
+  const r = rule;
+  const messageStyle = options2.messageStyle ?? "legacy";
+  if (typeof r.name !== "string") {
+    errors.push(`${prefix}.name: required string`);
+  } else {
+    if (!NAME_PATTERN.test(r.name)) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
+    }
+    const lowerName = r.name.toLowerCase();
+    if (ruleNames.has(lowerName)) {
+      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
+    } else {
+      ruleNames.add(lowerName);
+    }
+  }
+  if (typeof r.command !== "string") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
+  } else if (!COMMAND_PATTERN.test(r.command)) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
+  }
+  if (r.subcommand !== undefined) {
+    if (typeof r.subcommand !== "string") {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
+    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
+    }
+  }
+  if (!Array.isArray(r.block_args)) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
+  } else {
+    if (r.block_args.length === 0) {
+      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
+    }
+    for (let i = 0;i < r.block_args.length; i++) {
+      const arg = r.block_args[i];
+      if (typeof arg !== "string") {
+        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
+      } else if (arg === "") {
+        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
+      }
+    }
+  }
+  if (typeof r.reason !== "string") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
+  } else if (r.reason === "") {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
+  } else if (r.reason.length > MAX_REASON_LENGTH) {
+    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
+  }
+  if (r.intent !== undefined && !isBlockIntent(r.intent)) {
+    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
+  }
+  return errors;
+}
+function isBlockIntent(value) {
+  return typeof value === "string" && BLOCK_INTENTS.includes(value);
+}
+
+// src/core/rules/rulebook.ts
+function validateRulebook(rulebook) {
+  const errors = [];
+  const ruleNames = new Set;
+  if (!rulebook || typeof rulebook !== "object") {
+    return { errors: ["Rulebook must be an object"], ruleNames };
+  }
+  const rb = rulebook;
+  if (rb.rulebook_version !== 1) {
+    errors.push("rulebook_version must be 1");
+  }
+  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name)) {
+    errors.push("name: required string matching rule name pattern");
+  }
+  if (typeof rb.version !== "string" || rb.version === "") {
+    errors.push("version: required non-empty string");
+  }
+  if (!Array.isArray(rb.allowed_commands)) {
+    errors.push("allowed_commands: required array");
+  } else {
+    validateAllowedCommands(rb.allowed_commands, errors);
+  }
+  if (!Array.isArray(rb.rules)) {
+    errors.push("rules: required array");
+  } else {
+    for (let i = 0;i < rb.rules.length; i++) {
+      errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: "rulebook" }));
+    }
+  }
+  if (!Array.isArray(rb.tests)) {
+    errors.push("tests: required array");
+  } else {
+    validateFixtures(rb.tests, rb.rules, errors);
+  }
+  if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
+    const allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
+    for (let i = 0;i < rb.rules.length; i++) {
+      const rule = rb.rules[i];
+      if (typeof rule.command === "string" && !allowed.has(rule.command)) {
+        errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
+      }
+    }
+  }
+  return { errors, ruleNames };
+}
+function validateAllowedCommands(commands2, errors) {
+  const seen = new Set;
+  for (let i = 0;i < commands2.length; i++) {
+    const command2 = commands2[i];
+    if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
+      errors.push(`allowed_commands[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      errors.push(`allowed_commands[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    seen.add(command2);
+  }
+}
+function validateFixtures(tests, rules, errors) {
+  const blockedFixtures = new Set;
+  const ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
+  for (let i = 0;i < tests.length; i++) {
+    const fixture = tests[i];
+    if (!fixture || typeof fixture !== "object") {
+      errors.push(`tests[${i}]: must be an object`);
+      continue;
+    }
+    const f = fixture;
+    if (typeof f.command !== "string" || f.command.trim() === "") {
+      errors.push(`tests[${i}].command: required non-empty string`);
+    }
+    if (f.expect !== "blocked" && f.expect !== "allowed") {
+      errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
+    }
+    if (f.rule !== undefined && typeof f.rule !== "string") {
+      errors.push(`tests[${i}].rule: must be a string if provided`);
+    }
+    if (f.expect === "blocked" && typeof f.rule !== "string") {
+      errors.push(`tests[${i}].rule: required string for blocked fixtures`);
+    }
+    if (f.expect === "blocked" && typeof f.rule === "string") {
+      blockedFixtures.add(f.rule);
+    }
+  }
+  for (let i = 0;i < (Array.isArray(rules) ? rules.length : 0); i++) {
+    const rule = rules[i];
+    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name)) {
+      errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
+    }
+  }
+  for (const rule of blockedFixtures) {
+    if (!ruleNames.has(rule)) {
+      errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
+    }
+  }
+}
+function runRulebookFixtures(rulebook) {
+  const failures = rulebook.tests.flatMap((fixture) => {
+    const segments2 = splitShellCommands(fixture.command).map((tokens) => {
+      const result = checkCustomRuleMatch(tokens, rulebook.rules);
+      return { tokens, result, matchedRule: result?.id.replace(/^custom\./, "") ?? null };
+    });
+    const firstSegment = segments2[0] ?? { tokens: [], result: null, matchedRule: null };
+    if (fixture.expect === "allowed") {
+      const blockedSegment = segments2.find((segment) => segment.result);
+      return blockedSegment ? [
+        {
+          command: fixture.command,
+          message: `expected allowed but matched ${blockedSegment.matchedRule ?? "a rule"}`,
+          trace: traceRulebookFixture(blockedSegment.tokens, rulebook.rules)
+        }
+      ] : [];
+    }
+    const firstBlockedSegment = segments2.find((segment) => segment.result);
+    if (!firstBlockedSegment) {
+      return [
+        {
+          command: fixture.command,
+          message: `expected blocked by ${fixture.rule ?? "a rule"} but command was allowed`,
+          trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules)
+        }
+      ];
+    }
+    if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule)
+      return [];
+    return [
+      {
+        command: fixture.command,
+        message: `expected blocked by ${fixture.rule} but matched ${firstBlockedSegment.matchedRule}`,
+        trace: traceRulebookFixture(firstBlockedSegment.tokens, rulebook.rules)
+      }
+    ];
+  });
+  return { ok: failures.length === 0, failures };
+}
+function traceRulebookFixture(tokens, rules) {
+  return rules.map((rule) => {
+    const result = checkCustomRules([...tokens], [rule]);
+    return `${result ? "matched" : "skipped"} ${rule.name}`;
+  });
+}
+function assertValidRulebook(rulebook) {
+  const result = validateRulebook(rulebook);
+  if (result.errors.length > 0) {
+    throw new Error(result.errors.join("; "));
+  }
+  const parsed = rulebook;
+  const fixtures = runRulebookFixtures(parsed);
+  if (!fixtures.ok) {
+    throw new Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
+  }
+  return parsed;
+}
+
+// src/core/rules/policy/lockfile.ts
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
+var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+var RULEBOOK_SOURCE_KINDS = new Set(["local-directory", "github"]);
+function readLockfile(path) {
+  if (!existsSync3(path)) {
+    return { lock: null, errors: [] };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync3(path, "utf-8"));
+    if (!parsed || typeof parsed !== "object") {
+      return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
+    }
+    const lock = parsed;
+    if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
+      return { lock: null, errors: [`malformed lockfile ${path}`] };
+    }
+    const parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`));
+    const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
+    if (entryErrors.length > 0) {
+      return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
+    }
+    return {
+      lock: {
+        version: 1,
+        rulebooks: parsedEntries.flatMap((entry) => entry.entry ? [entry.entry] : [])
+      },
+      errors: []
+    };
+  } catch (error) {
+    return {
+      lock: null,
+      errors: [
+        `malformed lockfile ${path}: ${error instanceof Error ? error.message : String(error)}`
+      ]
+    };
+  }
+}
+function parseLockEntry(entry, prefix) {
+  if (!entry || typeof entry !== "object") {
+    return { entry: null, errors: [`${prefix}: must be an object`] };
+  }
+  const candidate = entry;
+  const errors = [
+    ...validateRequiredString(candidate, prefix, "spec"),
+    ...validateRequiredString(candidate, prefix, "name"),
+    ...validateRequiredString(candidate, prefix, "version"),
+    ...validateDigest(candidate, prefix),
+    ...validateKind(candidate, prefix),
+    ...validateKindFields(candidate, prefix)
+  ];
+  if (errors.length > 0)
+    return { entry: null, errors };
+  if (candidate.kind === "local-directory") {
+    const localEntry = {
+      spec: requiredString(candidate, "spec"),
+      kind: "local-directory",
+      path: requiredString(candidate, "path"),
+      name: requiredString(candidate, "name"),
+      version: requiredString(candidate, "version"),
+      digest: requiredString(candidate, "digest")
+    };
+    const identityError2 = getLockEntrySourceIdentityError(localEntry, prefix);
+    if (identityError2)
+      return { entry: null, errors: [identityError2] };
+    return {
+      entry: localEntry,
+      errors: []
+    };
+  }
+  const githubEntry = {
+    spec: requiredString(candidate, "spec"),
+    kind: "github",
+    owner: requiredString(candidate, "owner"),
+    repo: requiredString(candidate, "repo"),
+    ref: requiredString(candidate, "ref"),
+    commit: requiredString(candidate, "commit"),
+    path: requiredString(candidate, "path"),
+    name: requiredString(candidate, "name"),
+    version: requiredString(candidate, "version"),
+    digest: requiredString(candidate, "digest")
+  };
+  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
+  if (identityError)
+    return { entry: null, errors: [identityError] };
+  return {
+    entry: typeof candidate.display_ref === "string" && candidate.display_ref !== "" ? { ...githubEntry, display_ref: candidate.display_ref } : githubEntry,
+    errors: []
+  };
+}
+function validateRequiredString(candidate, prefix, field) {
+  return typeof candidate[field] === "string" && candidate[field].trim() !== "" ? [] : [`${prefix}.${field}: required string`];
+}
+function validateDigest(candidate, prefix) {
+  return typeof candidate.digest === "string" && SHA256_DIGEST_PATTERN.test(candidate.digest) ? [] : [`${prefix}.digest: required sha256 digest`];
+}
+function validateKind(candidate, prefix) {
+  if (typeof candidate.kind !== "string") {
+    return [`${prefix}.kind: required string`];
+  }
+  return RULEBOOK_SOURCE_KINDS.has(candidate.kind) ? [] : [`${prefix}.kind: unknown kind "${candidate.kind}"`];
+}
+function validateKindFields(candidate, prefix) {
+  if (candidate.kind === "local-directory") {
+    return validateRequiredString(candidate, prefix, "path");
+  }
+  if (candidate.kind === "github") {
+    return ["owner", "repo", "ref", "commit", "path"].flatMap((field) => validateRequiredString(candidate, prefix, field));
+  }
+  return [];
+}
+function getLockEntrySourceIdentityError(entry, prefix) {
+  const error = getRulebookLockEntrySourceIdentityError(entry);
+  return error ? `${prefix}: ${error}` : null;
+}
+function requiredString(candidate, field) {
+  const value = candidate[field];
+  if (typeof value !== "string") {
+    throw new Error(`Expected ${field} to be validated before reading`);
+  }
+  return value;
+}
+
+// src/core/rules/policy/resolver.ts
+import { createHash } from "node:crypto";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { join as join4 } from "node:path";
+async function resolveRulebookSource(spec, configDir, options2) {
+  if (isGitHubRulebookSource(spec)) {
+    return resolveGitHubRulebook(spec);
+  }
+  return resolveLocalRulebook(spec, configDir, options2);
+}
+async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock) {
+  if (!isGitHubRulebookSource(spec) || options2.refresh) {
+    return resolveRulebookSource(spec, configDir, options2);
+  }
+  const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
+  if (!locked || locked.kind !== "github") {
+    return resolveRulebookSource(spec, configDir, options2);
+  }
+  return readLockedGitHubRulebook(locked, configDir, options2);
+}
+async function discoverGitHubRepositoryRulebooks(source) {
+  const [owner, repo] = source.split("/");
+  if (!owner || !repo) {
+    throw new Error(`Invalid GitHub repository source: ${source}`);
+  }
+  const metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+  if (!metadataResponse.ok) {
+    throw new Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
+  }
+  const metadata = await metadataResponse.json();
+  if (!metadata.default_branch) {
+    throw new Error(`Failed to inspect ${source}: missing default branch`);
+  }
+  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source);
+  const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
+  if (!treeResponse.ok) {
+    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  }
+  const treeJson = await treeResponse.json();
+  const names = (treeJson.tree ?? []).flatMap((entry) => {
+    if (entry.type !== "blob" || typeof entry.path !== "string")
+      return [];
+    const match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
+    return match?.[1] ? [match[1]] : [];
+  }).sort();
+  if (names.length === 0) {
+    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
+  }
+  return names.map((name) => ({
+    spec: `${owner}/${repo}#${commit}/${name}`,
+    display_ref: metadata.default_branch
+  }));
+}
+function resolveLocalRulebook(spec, configDir, _options) {
+  assertBareRulebookName(spec);
+  const path = getLocalRulebookPath(configDir, spec);
+  if (!existsSync4(path)) {
+    throw new Error(`Rulebook source not found: ${spec}`);
+  }
+  const content = readFileSync4(path, "utf-8");
+  const rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== spec) {
+    throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
+  }
+  return {
+    rulebook,
+    content,
+    entry: {
+      spec,
+      kind: "local-directory",
+      path: spec,
+      name: rulebook.name,
+      version: rulebook.version,
+      digest: sha256Digest(content)
+    }
+  };
+}
+async function resolveGitHubRulebook(spec) {
+  const parsed = parseGitHubSource(spec);
+  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec);
+  const rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
+  if (!rawResponse.ok) {
+    throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
+  }
+  const content = await rawResponse.text();
+  const rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== parsed.name) {
+    throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
+  }
+  return {
+    rulebook,
+    content,
+    entry: {
+      spec,
+      kind: "github",
+      owner: parsed.owner,
+      repo: parsed.repo,
+      ref: parsed.ref,
+      commit,
+      path: parsed.path,
+      name: rulebook.name,
+      version: rulebook.version,
+      digest: sha256Digest(content)
+    }
+  };
+}
+async function readLockedGitHubRulebook(entry, configDir, options2) {
+  const identityError = getRulebookLockEntrySourceIdentityError(entry);
+  if (identityError) {
+    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
+  }
+  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  if (existsSync4(cachePath)) {
+    const content = readFileSync4(cachePath, "utf-8");
+    if (sha256Digest(content) === entry.digest) {
+      return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
+    }
+  }
+  return fetchLockedGitHubRulebook(entry);
+}
+async function fetchLockedGitHubRulebook(entry) {
+  const rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
+  if (!rawResponse.ok) {
+    throw new Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
+  }
+  const content = await rawResponse.text();
+  if (sha256Digest(content) !== entry.digest) {
+    throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
+  }
+  return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
+}
+function assertRulebookMatchesLockEntry(content, entry) {
+  const rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== entry.name) {
+    throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
+  }
+  return rulebook;
+}
+async function resolveGitHubCommit(owner, repo, ref, source) {
+  const commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
+  if (!commitResponse.ok) {
+    throw new Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
+  }
+  const commitJson = await commitResponse.json();
+  if (!commitJson.sha) {
+    throw new Error(`Failed to resolve commit for ${source}`);
+  }
+  return commitJson.sha;
+}
+function getLocalRulebookPath(configDir, name) {
+  return join4(configDir, name, RULEBOOK_FILE);
+}
+function sha256Digest(content) {
+  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+}
+
+// src/core/rules/policy/scope-policy.ts
+function loadRulesPolicy(options2 = {}) {
+  const paths = getPolicyPaths(options2);
+  const sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath);
+  const user = readRulesConfig(paths.userConfigPath);
+  const project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath);
+  const errors = [
+    ...getLegacyRulesConfigErrors(paths, options2),
+    ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
+    ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
+  ];
+  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname5(paths.userConfigPath), options2, "user") : emptyScopePolicy();
+  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname5(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
+  const duplicateNames = getDuplicateRulebookNames([
+    ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
+    ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
+  ]);
+  const userOverrides = user.config?.overrides ?? {};
+  const projectOverrides = project.config?.overrides ?? {};
+  return {
+    rules: [
+      ...applyOverrides(userPolicy.rules, userOverrides),
+      ...applyOverrides(projectPolicy.rules, projectOverrides)
+    ],
+    transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
+    rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
+    errors: [
+      ...errors,
+      ...userPolicy.errors,
+      ...projectPolicy.errors,
+      ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
+      ...userPolicy.canValidateOverrides ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds) : [],
+      ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
+      ...projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds) : []
+    ],
+    userConfig: user.config ?? undefined,
+    projectConfig: project.config ?? undefined,
+    ...paths
+  };
+}
+function getRulesConfigSourceDisplayMap(configPath) {
+  const config = readRulesConfig(configPath).config;
+  const lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
+  if (!config || !lock)
+    return new Map;
+  const configuredSources = new Set(config.rules);
+  return new Map(lock.rulebooks.filter((entry) => configuredSources.has(entry.spec)).map((entry) => [entry.spec, getRulebookDisplaySource(entry)]));
+}
+function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2) {
+  const loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
+  if (!loaded)
+    return [];
+  return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
+}
+function loadScopePolicyForConfig(configPath, lockPath, options2) {
+  const config = readRulesConfig(configPath).config;
+  if (!config) {
+    return null;
+  }
+  return {
+    config,
+    scope: loadScopePolicy(config, lockPath, dirname5(configPath), options2, "project")
+  };
+}
+function getUnknownOverrideErrorsForScope(config, scope) {
+  return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
+}
+function loadScopePolicy(config, lockPath, configDir, options2, source) {
+  const lockResult = readLockfile(lockPath);
+  if (lockResult.errors.length > 0) {
+    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
+  }
+  const lock = lockResult.lock;
+  if (!lock && config.rules.length > 0) {
+    return {
+      ...emptyScopePolicy(),
+      errors: [`missing lockfile ${lockPath}; run ${RULE_SYNC_COMMAND}`],
+      canValidateOverrides: false
+    };
+  }
+  const entries = lock?.rulebooks ?? [];
+  const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
+  const errors = [];
+  const loaded = config.rules.flatMap((spec) => {
+    const entry = entriesBySpec.get(spec);
+    if (!entry) {
+      errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
+      return [];
+    }
+    const loadedRulebook = loadLockedRulebook(entry, configDir, options2);
+    if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
+      errors.push(...loadedRulebook.errors);
+      return [];
+    }
+    const rulebook = loadedRulebook.rulebook;
+    return [
+      {
+        rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
+        rulebook: {
+          source,
+          spec: entry.spec,
+          name: rulebook.name,
+          version: rulebook.version,
+          rules: rulebook.rules.map((rule) => `${rulebook.name}/${rule.name}`)
+        }
+      }
+    ];
+  });
+  const rules = loaded.flatMap((item) => item.rules);
+  return {
+    rules,
+    rulebooks: loaded.map((item) => item.rulebook),
+    entries,
+    knownRuleIds: new Set(rules.map((rule) => rule.name)),
+    errors,
+    canValidateOverrides: errors.length === 0
+  };
+}
+function loadLockedRulebook(entry, configDir, options2) {
+  const errors = [];
+  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  if (!existsSync5(cachePath)) {
+    return {
+      rulebook: null,
+      errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
+    };
+  }
+  let cacheContent;
+  try {
+    cacheContent = readFileSync5(cachePath, "utf-8");
+  } catch (error) {
+    return {
+      rulebook: null,
+      errors: [
+        `failed to read cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`
+      ]
+    };
+  }
+  if (sha256Digest(cacheContent) !== entry.digest) {
+    errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
+  }
+  let rulebook = null;
+  try {
+    const parsed = JSON.parse(cacheContent);
+    assertValidRulebook(parsed);
+    rulebook = parsed;
+  } catch (error) {
+    errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (entry.kind === "local-directory") {
+    const sourcePath = resolve3(configDir, entry.path);
+    const sourceRelative = relative2(resolve3(configDir), sourcePath);
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute5(sourceRelative)) {
+      errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
+      return { rulebook: null, errors };
+    }
+    const localPath = join5(sourcePath, RULEBOOK_FILE);
+    if (!existsSync5(localPath)) {
+      errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
+    } else {
+      try {
+        const localContent = readFileSync5(localPath, "utf-8");
+        if (sha256Digest(localContent) !== entry.digest) {
+          errors.push(getLocalSourceDriftError(entry.spec, localContent));
+        }
+      } catch (error) {
+        errors.push(`failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+  return { rulebook: errors.length === 0 ? rulebook : null, errors };
+}
+function mergeTransparentWrappers(userConfig, projectConfig) {
+  return [
+    ...new Set([
+      ...userConfig?.transparent_wrappers ?? [],
+      ...projectConfig?.transparent_wrappers ?? []
+    ])
+  ];
+}
+function isSameConfigPath(userConfigPath, projectConfigPath) {
+  if (resolve3(userConfigPath) === resolve3(projectConfigPath)) {
+    return true;
+  }
+  if (!existsSync5(userConfigPath) || !existsSync5(projectConfigPath)) {
+    return false;
+  }
+  try {
+    return realpathSync4(userConfigPath) === realpathSync4(projectConfigPath);
+  } catch {
+    return false;
+  }
+}
+function getLegacyRulesConfigErrors(paths, options2) {
+  return Array.from(new Set([
+    ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json"),
+    ...getLegacyRulesConfigError(getLegacyProjectRulesConfigPath(options2), paths.projectConfigPath, ".safety-net.json")
+  ]));
+}
+function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
+  if (!existsSync5(legacyPath))
+    return [];
+  if (hasMigrationEvidence(configPath, migratedFrom))
+    return [];
+  if (!legacyRulesConfigNeedsMigration(legacyPath))
+    return [];
+  return [
+    `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`
+  ];
+}
+function legacyRulesConfigNeedsMigration(legacyPath) {
+  try {
+    const parsed = JSON.parse(readFileSync5(legacyPath, "utf-8"));
+    if (!parsed || typeof parsed !== "object")
+      return true;
+    const config = parsed;
+    if (config.version !== 1)
+      return true;
+    if (config.rules === undefined)
+      return false;
+    if (!Array.isArray(config.rules))
+      return true;
+    return config.rules.length > 0;
+  } catch {
+    return true;
+  }
+}
+function hasMigrationEvidence(configPath, migratedFrom) {
+  const config = readRulesConfig(configPath).config;
+  if (!config)
+    return false;
+  return config.rules.some((source) => getRulebookMigratedFrom(dirname5(configPath), source) === migratedFrom);
+}
+function getRulebookMigratedFrom(configDir, source) {
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
+    return null;
+  const path = join5(configDir, source, RULEBOOK_FILE);
+  if (!existsSync5(path))
+    return null;
+  try {
+    const rulebook = JSON.parse(readFileSync5(path, "utf-8"));
+    return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
+  } catch {
+    return null;
+  }
+}
+function getLocalSourceDriftError(spec, content) {
+  try {
+    assertValidRulebook(JSON.parse(content));
+  } catch (error) {
+    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
+  }
+  return `local source digest mismatch for ${spec}; run ${RULE_SYNC_COMMAND}`;
+}
+function applyOverrides(rules, overrides) {
+  return rules.flatMap((rule) => {
+    const override = overrides[rule.name];
+    if (override === "off") {
+      return [];
+    }
+    if (override && typeof override === "object") {
+      return [{ ...rule, intent: override.intent ?? rule.intent, reason: override.reason }];
+    }
+    return [rule];
+  });
+}
+function getUnknownOverrideErrors(overrides, knownRuleIds) {
+  return Object.keys(overrides).filter((key) => !knownRuleIds.has(key)).map((key) => `unknown override key "${key}"`);
+}
+function getProjectOverrideUserRuleErrors(projectOverrides, userRuleIds) {
+  return Object.keys(projectOverrides).filter((key) => userRuleIds.has(key)).map((key) => `project override cannot target user-scoped rule "${key}"`);
+}
+function getDuplicateRulebookNames(entries) {
+  const seen = new Set;
+  const duplicates = new Set;
+  for (const entry of entries) {
+    if (seen.has(entry.name)) {
+      duplicates.add(entry.name);
+      continue;
+    }
+    seen.add(entry.name);
+  }
+  return [...duplicates];
+}
+function getConfiguredLockEntries(config, path) {
+  return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) => config.rules.includes(entry.spec));
+}
+function emptyScopePolicy() {
+  return {
+    rules: [],
+    rulebooks: [],
+    entries: [],
+    knownRuleIds: new Set,
+    errors: [],
+    canValidateOverrides: true
+  };
+}
+
+// src/config/policy-snapshot.ts
+function loadPolicySnapshot(options2 = {}) {
+  const rules = loadRulesPolicy(options2);
+  const userPolicy = loadPolicyConfig(options2);
+  const diagnostics = [...rules.errors, ...userPolicy.errors];
+  const policy = {
+    rules: rules.errors.length === 0 ? rules.rules : [],
+    transparentWrappers: rules.errors.length === 0 ? rules.transparent_wrappers : [],
+    safety: normalizeSafety2(userPolicy.safety),
+    worktreeMode: userPolicy.worktreeMode,
+    destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
+    disabledDestructiveCommandRules: [...userPolicy.disabledDestructiveCommandRules],
+    secretProtection: {
+      enabled: userPolicy.secretProtection.enabled ?? true,
+      disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
+      denyPaths: [...userPolicy.secretProtection.denyPaths]
+    }
+  };
+  if (diagnostics.length === 0) {
+    return createPolicySnapshot(policy);
+  }
+  return createPolicySnapshot(policy, {
+    diagnostics,
+    reason: combineInvalidReasons(rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join("; ")) : undefined, userPolicy.errors.length > 0 ? `invalid policy config: ${userPolicy.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
+  });
+}
+function createPolicySnapshot(policy, invalid) {
+  const frozenPolicy = freezePolicy(policy);
+  if (!invalid) {
+    return Object.freeze({
+      state: "ready",
+      policy: frozenPolicy,
+      diagnostics: Object.freeze([])
+    });
+  }
+  return Object.freeze({
+    state: "invalid",
+    policy: frozenPolicy,
+    diagnostics: Object.freeze([...invalid.diagnostics]),
+    reason: invalid.reason
+  });
+}
+function normalizeSafety2(safety) {
+  const overrides = safety.overrides;
+  const normalizedOverrides = {
+    ...overrides?.failClosed !== undefined ? { failClosed: overrides.failClosed } : {},
+    ...overrides?.paranoidRm !== undefined ? { paranoidRm: overrides.paranoidRm } : {},
+    ...overrides?.paranoidInterpreters !== undefined ? { paranoidInterpreters: overrides.paranoidInterpreters } : {}
+  };
+  return {
+    ...safety.level !== undefined ? { level: safety.level } : {},
+    ...Object.keys(normalizedOverrides).length > 0 ? { overrides: normalizedOverrides } : {}
+  };
+}
+function freezePolicy(policy) {
+  return Object.freeze({
+    ...policy,
+    rules: Object.freeze(policy.rules.map((rule) => Object.freeze({
+      ...rule,
+      block_args: Object.freeze([...rule.block_args])
+    }))),
+    transparentWrappers: Object.freeze([...policy.transparentWrappers]),
+    safety: Object.freeze({
+      ...policy.safety,
+      ...policy.safety.overrides ? { overrides: Object.freeze({ ...policy.safety.overrides }) } : {}
+    }),
+    disabledDestructiveCommandRules: Object.freeze([...policy.disabledDestructiveCommandRules]),
+    secretProtection: Object.freeze({
+      ...policy.secretProtection,
+      disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),
+      denyPaths: Object.freeze([...policy.secretProtection.denyPaths])
+    })
+  });
+}
+function combineInvalidReasons(...reasons) {
+  return withTerminalPeriod(reasons.filter((reason) => !!reason).join("; "));
+}
+function withTerminalPeriod(value) {
+  return /[.!?]$/.test(value) ? value : `${value}.`;
+}
+
+// src/core/analyze/dangerous-text.ts
+function dangerousInText(text) {
+  return dangerousInTextMatch(text)?.reason ?? null;
+}
+function dangerousInTextMatch(text) {
+  const t = text.toLowerCase();
+  const stripped = t.trimStart();
+  const isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg ");
+  const patterns = [
+    {
+      regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
+      label: "rm -rf"
+    },
+    {
+      regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/,
+      label: "git reset --hard"
+    },
+    {
+      regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/,
+      label: "git reset --merge"
+    },
+    {
+      regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
+      label: "git clean -f"
+    },
+    {
+      regex: /\bgit\s+checkout\s+[^|;]*(--fo(?:r(?:c(?:e)?)?)?\b|-(?![bBU])[^\s]*f[^\s]*\b)/,
+      label: "git checkout --force"
+    },
+    {
+      regex: /\bgit\s+push\s+[^|;]*(-f\b|--fo(?:r(?:c(?:e)?)?)?\b)(?!-with-lease)/,
+      label: "git push --force"
+    },
+    {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:\s\+[^\s;|&]+|[^\s;|&]*:\+[^\s;|&]*)/,
+      label: "git push --force"
+    },
+    {
+      regex: /\bgit\s+push\b[^\n;|&]*(?:--de(?:l(?:e(?:t(?:e)?)?)?)?\b|\s:[^\s;|&]+)/,
+      label: "git push delete"
+    },
+    {
+      regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
+      label: "git branch -D",
+      caseSensitive: true
+    },
+    {
+      regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
+      label: "git tag -d"
+    },
+    {
+      regex: /\bgit\s+stash\s+(drop|clear)\b/,
+      label: "git stash drop/clear"
+    },
+    {
+      regex: /\bgit\s+checkout\s+--\s/,
+      label: "git checkout --"
+    },
+    {
+      regex: /\bgit\s+restore\b(?!.*--(staged|help))/,
+      label: "git restore without --staged"
+    },
+    {
+      regex: /\bfind\b[^\n;|&]*\s-delete\b/,
+      label: "find -delete",
+      skipForEchoRg: true
+    }
+  ];
+  for (const { regex, label, skipForEchoRg, caseSensitive } of patterns) {
+    if (skipForEchoRg && isEchoOrRg)
+      continue;
+    const target = caseSensitive ? text : t;
+    if (regex.test(target)) {
+      return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`);
+    }
+  }
+  return null;
+}
+
+// src/core/analyze/powershell/tokenize.ts
+function tokenizePowerShell(command2) {
+  const tokens = [];
+  let text = "";
+  let dynamic = false;
+  const pushWord = () => {
+    if (!text)
+      return;
+    tokens.push({
+      kind: "word",
+      text,
+      dynamic: dynamic || isDynamicText(text)
+    });
+    text = "";
+    dynamic = false;
+  };
+  let i = 0;
+  while (i < command2.length) {
+    const char = command2[i];
+    if (!char)
+      break;
+    if (/\s/.test(char)) {
+      pushWord();
+      if (char === `
+`) {
+        tokens.push({ kind: "operator", text: ";" });
+      }
+      i++;
+      continue;
+    }
+    if (char === ";") {
+      pushWord();
+      tokens.push({ kind: "operator", text: ";" });
+      i++;
+      continue;
+    }
+    if (char === ",") {
+      pushWord();
+      tokens.push({ kind: "word", text: ",", dynamic: false });
+      i++;
+      continue;
+    }
+    if ((char === "{" || char === "}") && !isPathLikeWord(text)) {
+      pushWord();
+      tokens.push({ kind: "operator", text: ";" });
+      i++;
+      continue;
+    }
+    if (char === "&" && command2[i + 1] === "&") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "&&" });
+      i += 2;
+      continue;
+    }
+    if (char === "|" && command2[i + 1] === "|") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "||" });
+      i += 2;
+      continue;
+    }
+    if (char === "|") {
+      pushWord();
+      tokens.push({ kind: "operator", text: "|" });
+      i++;
+      continue;
+    }
+    if (char === "'") {
+      const result = readSingleQuoted(command2, i + 1);
+      text += result.text;
+      i = result.nextIndex;
+      continue;
+    }
+    if (char === '"') {
+      const result = readDoubleQuoted(command2, i + 1);
+      text += result.text;
+      dynamic = dynamic || result.dynamic;
+      i = result.nextIndex;
+      continue;
+    }
+    if (char === "`") {
+      const next = command2[i + 1];
+      if (!next) {
+        i++;
+        continue;
+      }
+      text += next;
+      i += 2;
+      continue;
+    }
+    if (char === "$") {
+      if (command2[i + 1] === "{") {
+        const result = readBracedVariable(command2, i + 2);
+        text += result.text;
+        dynamic = true;
+        i = result.nextIndex;
+        continue;
+      }
+      dynamic = true;
+    }
+    text += char;
+    i++;
+  }
+  pushWord();
+  return tokens;
+}
+function readBracedVariable(command2, start) {
+  let text = "${";
+  let i = start;
+  while (i < command2.length) {
+    const char = command2[i];
+    text += char ?? "";
+    i++;
+    if (char === "}") {
+      return { text, nextIndex: i };
+    }
+  }
+  return { text, nextIndex: i };
+}
+function readSingleQuoted(command2, start) {
+  let text = "";
+  let i = start;
+  while (i < command2.length) {
+    const char = command2[i];
+    if (char === "'" && command2[i + 1] === "'") {
+      text += "'";
+      i += 2;
+      continue;
+    }
+    if (char === "'") {
+      return { text, nextIndex: i + 1 };
+    }
+    text += char ?? "";
+    i++;
+  }
+  return { text, nextIndex: i };
+}
+function readDoubleQuoted(command2, start) {
+  let text = "";
+  let dynamic = false;
+  let i = start;
+  while (i < command2.length) {
+    const char = command2[i];
+    if (char === "`") {
+      const next = command2[i + 1];
+      if (!next) {
+        i++;
+        continue;
+      }
+      text += next;
+      i += 2;
+      continue;
+    }
+    if (char === '"') {
+      return { text, dynamic, nextIndex: i + 1 };
+    }
+    if (char === "$") {
+      dynamic = true;
+    }
+    text += char ?? "";
+    i++;
+  }
+  return { text, dynamic, nextIndex: i };
+}
+function isDynamicText(text) {
+  return text.startsWith("$") || text.startsWith("@") || text.includes("$(") || text.includes("${") || text.includes("$_");
+}
+function isPathLikeWord(text) {
+  return text.includes("/") || text.includes("\\") || text.startsWith("~");
+}
+
+// src/core/analyze/recursive-delete-targets.ts
+import { realpathSync as realpathSync5 } from "node:fs";
+import { homedir as homedir3, tmpdir } from "node:os";
+import { normalize, resolve as resolve4, sep as sep3 } from "node:path";
+var IS_WINDOWS = process.platform === "win32";
+function createRecursiveDeleteTargetContext(options2 = {}) {
+  return {
+    anchoredCwd: options2.originalCwd ?? options2.cwd ?? null,
+    resolvedCwd: options2.cwd ?? null,
+    paranoid: options2.paranoid ?? false,
+    trustTmpdirVar: options2.allowTmpdirVar ?? true,
+    homeDir: getHomeDirForRmPolicy()
+  };
+}
+function classifyRecursiveDeleteTarget(target, ctx) {
+  if (isDangerousRootOrHomeTarget(target)) {
+    return { kind: "root_or_home_target" };
+  }
+  if (isTempTarget(target, ctx.trustTmpdirVar)) {
+    return { kind: "temp_target" };
+  }
+  if (isDynamicTarget(target)) {
+    return { kind: "dynamic_target" };
+  }
+  const anchoredCwd = ctx.anchoredCwd;
+  if (anchoredCwd) {
+    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
+      return { kind: "home_cwd_target" };
+    }
+    if (isCwdSelfTarget(target, anchoredCwd)) {
+      return { kind: "cwd_self_target" };
+    }
+    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
+      return { kind: "within_anchored_cwd" };
+    }
+  }
+  return { kind: "outside_anchored_cwd" };
+}
+function isDangerousRootOrHomeTarget(path) {
+  const normalized = path.trim();
+  if (normalized === "/" || normalized === "/*") {
+    return true;
+  }
+  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
+    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
+      return true;
+    }
+  }
+  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
+    return true;
+  }
+  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
+    return true;
+  }
+  return false;
+}
+function normalizePathForComparison(p) {
+  let normalized = normalize(p);
+  if (IS_WINDOWS) {
+    normalized = normalized.replace(/\//g, "\\").toLowerCase();
+    if (normalized.length > 3 && normalized.endsWith("\\")) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  }
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+function isTempTarget(path, allowTmpdirVar) {
+  const normalized = path.trim();
+  if (hasParentDirectoryComponent(normalized)) {
+    return false;
+  }
+  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
+    return true;
+  }
+  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
+    return true;
+  }
+  const normalizedTmpdir = normalizePathForComparison(tmpdir());
+  const pathToCompare = normalizePathForComparison(normalized);
+  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep3}`) || pathToCompare === normalizedTmpdir) {
+    return true;
+  }
+  if (allowTmpdirVar) {
+    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
+      return true;
+    }
+    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
+      return true;
+    }
+  }
+  return false;
+}
+function hasParentDirectoryComponent(path) {
+  return path.split(/[\\/]+/).includes("..");
+}
+function getHomeDirForRmPolicy() {
+  return process.env.HOME ?? homedir3();
+}
+function isDynamicTarget(target) {
+  return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
+}
+function hasShellGlobMetachar(target) {
+  let escaped = false;
+  for (const char of target) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "*" || char === "?" || char === "[") {
+      return true;
+    }
+  }
+  return false;
+}
+function isCwdHomeForRmPolicy(cwd, homeDir) {
+  try {
+    return normalizePathForComparison(realpathSync5(cwd)) === normalizePathForComparison(realpathSync5(homeDir));
+  } catch {
+    try {
+      return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+    } catch {
+      return false;
+    }
+  }
+}
+function isCwdSelfTarget(target, cwd) {
+  if (target === "." || target === "./" || target === ".\\") {
+    return true;
+  }
+  try {
+    return normalizePathForComparison(realpathSync5(resolve4(cwd, target))) === normalizePathForComparison(realpathSync5(cwd));
+  } catch {
+    try {
+      return normalizePathForComparison(resolve4(cwd, target)) === normalizePathForComparison(cwd);
+    } catch {
+      return false;
+    }
+  }
+}
+function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
+  const resolveCwd = effectiveCwd ?? originalCwd;
+  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
+    return false;
+  }
+  if (isDynamicTarget(target)) {
+    return false;
+  }
+  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
+    try {
+      return isResolvedPathWithinCwd(target, originalCwd);
+    } catch {
+      return false;
+    }
+  }
+  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
+    try {
+      return isResolvedPathWithinCwd(resolve4(resolveCwd, target), originalCwd);
+    } catch {
+      return false;
+    }
+  }
+  if (target.startsWith("../")) {
+    return false;
+  }
+  try {
+    return isResolvedPathWithinCwd(resolve4(resolveCwd, target), originalCwd);
+  } catch {
+    return false;
+  }
+}
+function isResolvedPathWithinCwd(resolvedTarget, cwd) {
+  try {
+    return isNormalizedPathWithin(realpathSync5(resolvedTarget), realpathSync5(cwd));
+  } catch {
+    return isNormalizedPathWithin(resolvedTarget, cwd);
+  }
+}
+function isNormalizedPathWithin(target, cwd) {
+  const normalizedTarget = normalizePathForComparison(target);
+  const normalizedCwd = normalizePathForComparison(cwd);
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep3}`) || normalizedTarget === normalizedCwd;
+}
+
+// src/core/analyze/powershell/remove-item.ts
+var REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]);
+var AUTO_REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]);
+var REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
+var REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.";
+var REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.";
+var REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.";
+var REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
+function analyzePowerShellRemoveItemMatch(command2, options2 = {}) {
+  const ctx = createRecursiveDeleteTargetContext(options2);
+  let segment = [];
+  let hasPipelineInput = false;
+  for (const token of tokenizePowerShell(command2)) {
+    if (token.kind === "word") {
+      segment.push(token);
+      continue;
+    }
+    const match = analyzePowerShellSegment(segment, hasPipelineInput, ctx);
+    if (match)
+      return match;
+    segment = [];
+    hasPipelineInput = token.text === "|";
+    if (token.text !== "|") {
+      hasPipelineInput = false;
+    }
+  }
+  return analyzePowerShellSegment(segment, hasPipelineInput, ctx);
+}
+function shouldAnalyzePowerShellRemoveItem(command2) {
+  const words = tokenizePowerShell(command2).filter((token) => token.kind === "word");
+  for (let i = 0;i < words.length; i++) {
+    const token = words[i];
+    if (!token || token.kind !== "word")
+      continue;
+    const normalized = normalizeCommandName(token.text);
+    if (AUTO_REMOVE_ITEM_ALIASES.has(normalized))
+      return true;
+    if (normalized === "rm" && words.slice(i + 1).some((word) => isPowerShellSpecificRmParameter(word))) {
+      return true;
+    }
+  }
+  return false;
+}
+function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
+  const words = segment.filter((token) => token.kind === "word");
+  const commandIndex = getCommandIndex(words);
+  const command2 = words[commandIndex];
+  if (!command2 || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command2.text))) {
+    return null;
+  }
+  const parsed = parseRemoveItem(words.slice(commandIndex + 1));
+  if (parsed.whatIfProtected) {
+    return null;
+  }
+  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
+    return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
+  }
+  for (const target of parsed.targets) {
+    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))) {
+      return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    }
+  }
+  if (!parsed.recursive || !parsed.force) {
+    return null;
+  }
+  if (parsed.hasDynamicTarget || parsed.targets.length === 0) {
+    return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
+  }
+  for (const target of parsed.targets) {
+    const match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
+    if (match)
+      return match;
+  }
+  return null;
+}
+function parseRemoveItem(args) {
+  const targets = [];
+  let recursive = false;
+  let force = false;
+  let whatIfProtected = false;
+  let hasDynamicTarget = false;
+  let pastEndOfParameters = false;
+  for (let i = 0;i < args.length; i++) {
+    const token = args[i];
+    if (!token || token.kind !== "word")
+      continue;
+    if (isArraySeparator(token))
+      continue;
+    if (pastEndOfParameters) {
+      targets.push(targetFromToken(token));
+      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      continue;
+    }
+    if (token.text === "--") {
+      pastEndOfParameters = true;
+      continue;
+    }
+    const parameter = parseParameter(token.text);
+    if (!parameter) {
+      targets.push(targetFromToken(token));
+      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      continue;
+    }
+    if (isPathParameter(parameter.name)) {
+      const value = parameter.value ? parameterValueToken(parameter.value, token) : args[++i];
+      if (value?.kind === "word") {
+        targets.push(targetFromToken(value));
+        hasDynamicTarget = hasDynamicTarget || value.dynamic;
+      } else {
+        hasDynamicTarget = true;
+      }
+      continue;
+    }
+    if (isRecurseParameter(parameter.name)) {
+      recursive = true;
+      continue;
+    }
+    if (isForceParameter(parameter.name)) {
+      force = true;
+      continue;
+    }
+    if (isWhatIfParameter(parameter.name)) {
+      whatIfProtected = isProtectiveSwitchValue(parameter.value);
+    }
+  }
+  return { targets, recursive, force, whatIfProtected, hasDynamicTarget };
+}
+function getCommandIndex(words) {
+  const first = words[0];
+  if (first?.kind === "word" && first.text === "&" || first?.text === ".") {
+    return words.length > 1 ? 1 : 0;
+  }
+  return 0;
+}
+function targetFromToken(token) {
+  return {
+    text: token.kind === "word" ? token.text : "",
+    dynamic: token.kind === "word" && token.dynamic
+  };
+}
+function isArraySeparator(token) {
+  return token.kind === "word" && token.text === ",";
+}
+function powerShellTargetForPolicy(target) {
+  return target.replace(/\\/g, "/");
+}
+function parameterValueToken(value, source) {
+  return {
+    kind: "word",
+    text: value,
+    dynamic: source.kind === "word" && (source.dynamic || value.includes("$"))
+  };
+}
+function parseParameter(text) {
+  if (!text.startsWith("-") || text === "-") {
+    return null;
+  }
+  const raw = text.slice(1);
+  const colonIndex = raw.indexOf(":");
+  if (colonIndex === -1) {
+    return { name: raw.toLowerCase() };
+  }
+  return {
+    name: raw.slice(0, colonIndex).toLowerCase(),
+    value: raw.slice(colonIndex + 1)
+  };
+}
+function isPathParameter(name) {
+  return "path".startsWith(name) || "literalpath".startsWith(name);
+}
+function isRecurseParameter(name) {
+  return "recurse".startsWith(name);
+}
+function isForceParameter(name) {
+  return name.length >= 2 && "force".startsWith(name);
+}
+function isWhatIfParameter(name) {
+  return name === "wi" || "whatif".startsWith(name);
+}
+function isProtectiveSwitchValue(value) {
+  if (value === undefined || value === "") {
+    return true;
+  }
+  const normalized = value.toLowerCase();
+  return normalized === "$true" || normalized === "true";
+}
+function isPowerShellSpecificRmParameter(token) {
+  if (token.kind !== "word")
+    return false;
+  const parameter = parseParameter(token.text);
+  if (!parameter)
+    return false;
+  return isForceParameter(parameter.name) && parameter.name !== "f" || isRecurseParameter(parameter.name) && parameter.name !== "r" || isPathParameter(parameter.name) || isWhatIfParameter(parameter.name) || parameter.name === "confirm" || parameter.name === "cf";
+}
+function normalizeCommandName(name) {
+  return name.toLowerCase();
+}
+function matchForClassification(classification, ctx) {
+  switch (classification.kind) {
+    case "root_or_home_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    case "temp_target":
+      return null;
+    case "dynamic_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
+    case "home_cwd_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-home-cwd", REASON_REMOVE_ITEM_HOME_CWD);
+    case "cwd_self_target":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-cwd-self", REASON_REMOVE_ITEM_RF);
+    case "within_anchored_cwd":
+      if (!ctx.paranoid)
+        return null;
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-paranoid", `${REASON_REMOVE_ITEM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
+    case "outside_anchored_cwd":
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-outside-cwd", REASON_REMOVE_ITEM_RF);
+  }
+}
+
+// src/core/analyze/segment.ts
+import { realpathSync as realpathSync8 } from "node:fs";
+import { normalize as normalize3 } from "node:path";
+
+// src/core/analyze/constants.ts
+var DISPLAY_COMMANDS = new Set([
+  "echo",
+  "printf",
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "grep",
+  "rg",
+  "ag",
+  "ack",
+  "sed",
+  "awk",
+  "cut",
+  "tr",
+  "sort",
+  "uniq",
+  "wc",
+  "tee",
+  "man",
+  "help",
+  "info",
+  "type",
+  "which",
+  "whereis",
+  "whatis",
+  "apropos",
+  "file",
+  "stat",
+  "ls",
+  "ll",
+  "dir",
+  "tree",
+  "pwd",
+  "date",
+  "cal",
+  "uptime",
+  "whoami",
+  "id",
+  "groups",
+  "hostname",
+  "uname",
+  "env",
+  "printenv",
+  "set",
+  "export",
+  "alias",
+  "history",
+  "jobs",
+  "fg",
+  "bg",
+  "test",
+  "true",
+  "false",
+  "read",
+  "return",
+  "exit",
+  "break",
+  "continue",
+  "shift",
+  "wait",
+  "trap",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "md5sum",
+  "sha256sum",
+  "base64",
+  "xxd",
+  "od",
+  "hexdump",
+  "strings",
+  "diff",
+  "cmp",
+  "comm",
+  "join",
+  "paste",
+  "column",
+  "fmt",
+  "fold",
+  "nl",
+  "pr",
+  "expand",
+  "unexpand",
+  "rev",
+  "tac",
+  "shuf",
+  "seq",
+  "yes",
+  "sleep",
+  "logger",
+  "write",
+  "wall",
+  "mesg",
+  "notify-send"
+]);
+
+// src/core/analyze/rm-flags.ts
+function hasRecursiveForceFlags(tokens) {
+  let hasRecursive = false;
+  let hasForce = false;
+  for (const token of tokens) {
+    if (token === "--")
+      break;
+    if (token === "-r" || token === "-R" || token === "--recursive") {
+      hasRecursive = true;
+    } else if (token === "-f" || token === "--force") {
+      hasForce = true;
+    } else if (token.startsWith("-") && !token.startsWith("--")) {
+      if (token.includes("r") || token.includes("R"))
+        hasRecursive = true;
+      if (token.includes("f"))
+        hasForce = true;
+    }
+  }
+  return hasRecursive && hasForce;
+}
+
 // src/core/analyze/find.ts
 var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.";
 var REASON_FIND_EXEC_RM_RF = "find -exec rm -rf is dangerous. Use explicit file list instead.";
@@ -3864,72 +6277,6 @@ function findPrimaryTakesValue(token) {
   return FIND_PRIMARIES_WITH_VALUE.has(token) || /^-newer[A-Za-z]{2}$/.test(token);
 }
 
-// src/core/analyze/interpreters.ts
-var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
-var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
-var CODE_FLAGS = new Map([
-  ["python", new Set(["-c"])],
-  ["node", new Set(["-e", "--eval"])],
-  ["ruby", new Set(["-e"])],
-  ["perl", new Set(["-e", "-E"])]
-]);
-var CLUSTERED_CODE_FLAGS = new Map([
-  ["python", new Set(["c"])],
-  ["node", new Set(["e"])],
-  ["ruby", new Set(["e"])],
-  ["perl", new Set(["e", "E"])]
-]);
-function extractInterpreterCodeArg(tokens) {
-  const interpreter = normalizeInterpreter(tokens[0] ?? "");
-  for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if (isInterpreterCodeFlag(interpreter, token)) {
-      return tokens[i + 1] || null;
-    }
-    const inlineEval = /^--eval=(.*)$/s.exec(token);
-    if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
-      return inlineEval[1];
-    }
-    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
-    if (shortCodeArg)
-      return shortCodeArg;
-  }
-  return null;
-}
-function isInterpreterCommand(command2) {
-  return CODE_FLAGS.has(normalizeInterpreter(command2));
-}
-function normalizeInterpreter(command2) {
-  const interpreter = getBasename(command2).toLowerCase();
-  return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? "python" : interpreter;
-}
-function isInterpreterCodeFlag(interpreter, token) {
-  return CODE_FLAGS.get(interpreter)?.has(token) ?? false;
-}
-function supportsInlineEval(interpreter) {
-  return CODE_FLAGS.get(interpreter)?.has("--eval") ?? false;
-}
-function extractShortCodeArg(interpreter, token, nextToken) {
-  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2) {
-    return null;
-  }
-  const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
-  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
-  if (codeFlagIndex < 0)
-    return null;
-  return token.slice(codeFlagIndex + 2) || nextToken || null;
-}
-function containsDangerousCode(code) {
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.test(code)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
 var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
@@ -4023,8 +6370,8 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
 }
 
 // src/core/git/worktree.ts
-import { existsSync, lstatSync as lstatSync2, readFileSync, realpathSync as realpathSync5, statSync as statSync2 } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute5, join as join2, resolve as resolve3 } from "node:path";
+import { existsSync as existsSync6, lstatSync as lstatSync2, readFileSync as readFileSync6, realpathSync as realpathSync6, statSync as statSync2 } from "node:fs";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join6, resolve as resolve5 } from "node:path";
 var GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
   "-c",
   "-C",
@@ -4048,7 +6395,7 @@ function getGitExecutionContext(tokens, cwd) {
   }
   let gitCwd;
   try {
-    gitCwd = realpathSync5(resolve3(cwd));
+    gitCwd = realpathSync6(resolve5(cwd));
   } catch {
     return { gitCwd: null, hasExplicitGitContext: false };
   }
@@ -4119,7 +6466,7 @@ function isLinkedWorktree(cwd) {
     if (stat.isSymbolicLink() || !stat.isFile()) {
       return false;
     }
-    const content = readFileSync(dotGitPath, "utf-8");
+    const content = readFileSync6(dotGitPath, "utf-8");
     const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (!firstLine.startsWith("gitdir:")) {
       return false;
@@ -4128,14 +6475,14 @@ function isLinkedWorktree(cwd) {
     if (rawGitDir === "") {
       return false;
     }
-    const gitDir = isAbsolute5(rawGitDir) ? rawGitDir : resolve3(dirname2(dotGitPath), rawGitDir);
-    if (!existsSync(join2(gitDir, "commondir"))) {
+    const gitDir = isAbsolute6(rawGitDir) ? rawGitDir : resolve5(dirname6(dotGitPath), rawGitDir);
+    if (!existsSync6(join6(gitDir, "commondir"))) {
       return false;
     }
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath)) {
       return false;
     }
-    return worktreeConfigMatchesRoot(gitDir, dirname2(dotGitPath));
+    return worktreeConfigMatchesRoot(gitDir, dirname6(dotGitPath));
   } catch {
     return false;
   }
@@ -4149,21 +6496,21 @@ function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
   return configuredWorktree === null ? true : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
 function readWorktreeGitdirBacklink(gitDir) {
-  const backlinkPath = join2(gitDir, "gitdir");
-  if (!existsSync(backlinkPath))
+  const backlinkPath = join6(gitDir, "gitdir");
+  if (!existsSync6(backlinkPath))
     return null;
-  const rawBacklink = readFileSync(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  const rawBacklink = readFileSync6(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
   return rawBacklink === "" ? null : rawBacklink;
 }
 function readWorktreeConfigWorktree(gitDir) {
-  const configWorktreePath = join2(gitDir, "config.worktree");
-  return existsSync(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
+  const configWorktreePath = join6(gitDir, "config.worktree");
+  return existsSync6(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
 function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute5(target) ? target : resolve3(gitDir, target);
+  return isAbsolute6(target) ? target : resolve5(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -4183,7 +6530,7 @@ function sameFilesystemPath(left, right) {
   return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
 }
 function getCanonicalPathForComparison(path) {
-  return normalizePathForComparison2(realpathSync5.native(path));
+  return normalizePathForComparison2(realpathSync6.native(path));
 }
 function normalizePathForComparison2(path) {
   let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
@@ -4194,7 +6541,7 @@ function normalizePathForComparison2(path) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function readCoreWorktree(configPath) {
-  const content = readFileSync(configPath, "utf-8");
+  const content = readFileSync6(configPath, "utf-8");
   let inCore = false;
   let configuredWorktree = null;
   for (const line of content.split(/\r?\n/)) {
@@ -4276,7 +6623,7 @@ function isDirectory(path) {
 }
 function findDotGit(cwd) {
   try {
-    return findDotGitInAncestors(realpathSync5(cwd));
+    return findDotGitInAncestors(realpathSync6(cwd));
   } catch {
     return null;
   }
@@ -4284,11 +6631,11 @@ function findDotGit(cwd) {
 function findDotGitInAncestors(cwd) {
   let current = cwd;
   while (true) {
-    const dotGitPath = join2(current, ".git");
-    if (existsSync(dotGitPath)) {
+    const dotGitPath = join6(current, ".git");
+    if (existsSync6(dotGitPath)) {
       return dotGitPath;
     }
-    const parent = dirname2(current);
+    const parent = dirname6(current);
     if (parent === current) {
       return null;
     }
@@ -4880,8 +7227,8 @@ function analyzeGitWorktree(tokens) {
 
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute6, join as join3, resolve as resolve4 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync7 } from "node:fs";
+import { dirname as dirname7, isAbsolute as isAbsolute7, join as join7, resolve as resolve6 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -5009,7 +7356,7 @@ function localGitConfigEnablesRecursiveSubmodules(cwd) {
     return null;
   }
   for (const configPath of configPaths) {
-    if (!existsSync2(configPath)) {
+    if (!existsSync7(configPath)) {
       continue;
     }
     const result = gitConfigFileEnablesRecursiveSubmodules(configPath);
@@ -5021,7 +7368,7 @@ function localGitConfigEnablesRecursiveSubmodules(cwd) {
 }
 function getTrustedGitBinary() {
   for (const gitBinary of TRUSTED_GIT_BINARIES) {
-    if (existsSync2(gitBinary)) {
+    if (existsSync7(gitBinary)) {
       return gitBinary;
     }
   }
@@ -5052,11 +7399,11 @@ function getLocalGitConfigPaths(cwd) {
   if (commonDir === null) {
     return null;
   }
-  return [join3(commonDir, "config"), join3(gitDir, "config.worktree")];
+  return [join7(commonDir, "config"), join7(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
-    const content = readFileSync2(dotGitPath, "utf-8");
+    const content = readFileSync7(dotGitPath, "utf-8");
     const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (!firstLine.startsWith("gitdir:")) {
       return dotGitPath;
@@ -5065,22 +7412,22 @@ function resolveGitDirFromDotGit(dotGitPath) {
     if (rawGitDir === "") {
       return null;
     }
-    return isAbsolute6(rawGitDir) ? rawGitDir : resolve4(dirname3(dotGitPath), rawGitDir);
+    return isAbsolute7(rawGitDir) ? rawGitDir : resolve6(dirname7(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  const commonDirPath = join3(gitDir, "commondir");
-  if (!existsSync2(commonDirPath)) {
+  const commonDirPath = join7(gitDir, "commondir");
+  if (!existsSync7(commonDirPath)) {
     return gitDir;
   }
   try {
-    const rawCommonDir = readFileSync2(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    const rawCommonDir = readFileSync7(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "") {
       return null;
     }
-    return isAbsolute6(rawCommonDir) ? rawCommonDir : resolve4(gitDir, rawCommonDir);
+    return isAbsolute7(rawCommonDir) ? rawCommonDir : resolve6(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -5088,7 +7435,7 @@ function resolveCommonGitDir(gitDir) {
 function gitConfigFileEnablesRecursiveSubmodules(configPath) {
   let content;
   try {
-    content = readFileSync2(configPath, "utf-8");
+    content = readFileSync7(configPath, "utf-8");
   } catch {
     return true;
   }
@@ -5313,7 +7660,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
   if (SHELL_WRAPPERS.has(normalizedHead)) {
     const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : undefined);
     if (options2.dynamicInput && shellDynamicMatch) {
-      return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
+      return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
     }
     const dashCArg = extractDashCArg(tokens);
     if (dashCArg && context.analyzeNested) {
@@ -5328,7 +7675,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     return filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(tokens, (command2) => context.analyzeNested ? context.analyzeNested(command2, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
-    }) : null), context.config);
+    }) : null), context.policy);
   }
   if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(tokens);
@@ -5336,7 +7683,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       return null;
     }
     if (context.paranoidInterpreters) {
-      return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.config);
+      return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
     }
     const nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,
@@ -5345,7 +7692,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     if (nestedResult) {
       return nestedResult;
     }
-    return containsDangerousCode(codeArg) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.config) : null;
+    return containsDangerousCode(codeArg) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) : null;
   }
   if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens)) {
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
@@ -5353,58 +7700,26 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
-    }), context.config) ?? getDynamicRmReason(options2, context);
+    }), context.policy) ?? getDynamicRmReason(options2, context);
   }
   if (normalizedHead === "find") {
     return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
       analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
-    }), context.config);
+    }), context.policy);
   }
   if (normalizedHead === "git") {
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
       worktreeMode: options2.dynamicInput ? false : context.worktreeMode
-    }), context.config);
+    }), context.policy);
   }
   return null;
 }
 function getDynamicRmReason(options2, context) {
   const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason, intent: "manual_only" } : undefined);
-  return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.config) : null;
-}
-
-// src/core/analyze/transparent-wrappers.ts
-var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
-var RESERVED_TRANSPARENT_WRAPPERS = new Set([
-  "git",
-  "busybox",
-  ...BUILTIN_ANALYZED_COMMANDS,
-  ...SHELL_WRAPPERS,
-  ...INTERPRETERS,
-  ...AWK_INTERPRETERS
-]);
-function unwrapTransparentWrapper(tokens, config) {
-  const head = tokens[0];
-  if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
-    return null;
-  }
-  const wrapper = getBasename(head);
-  const startIndex = tokens[1] === "--" ? 2 : 1;
-  const childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, config));
-  if (childIndex < 0)
-    return null;
-  return { wrapper, tokens: [...tokens.slice(childIndex)] };
-}
-function isProtectableCommand(token, config) {
-  const basename = getBasename(token);
-  const normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || config.transparent_wrappers?.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || config.rules.some((rule) => rule.command === basename);
-}
-function isReservedTransparentWrapper(command2) {
-  const normalized = normalizeCommandToken(command2);
-  return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
+  return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.policy) : null;
 }
 
 // src/core/analyze/child-command.ts
@@ -5414,7 +7729,7 @@ function normalizeChildCommand(tokens, context) {
   for (const [k, v] of wrapperInfo.envAssignments) {
     envAssignments.set(k, v);
   }
-  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.config ?? { rules: [] });
+  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.policy ?? { rules: [], transparentWrappers: [] });
   return {
     tokens: childTokens,
     cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
@@ -5426,13 +7741,13 @@ function normalizeChildCommand(tokens, context) {
 function stripBusybox(tokens) {
   return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
 }
-function unwrapTransparentWrappers(tokens, config) {
+function unwrapTransparentWrappers(tokens, policy) {
   const strippedTokens = stripBusybox(tokens);
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
   if (!transparentWrapper) {
     return strippedTokens;
   }
-  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
+  return unwrapTransparentWrappers(transparentWrapper.tokens, policy);
 }
 function collectCommandTemplate(tokens, start) {
   const templateTokens = [];
@@ -5553,7 +7868,7 @@ function analyzeParallel(tokens, context) {
       envAssignments: childCommand.envAssignments,
       worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
       analyzeNested: context.analyzeNested,
-      config: context.config
+      policy: context.policy
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
       shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
@@ -5566,13 +7881,13 @@ function analyzeParallel(tokens, context) {
   return null;
 }
 function parallelShellDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.config);
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.policy);
 }
 function parallelCommandStreamDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.config);
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.policy);
 }
 function parallelRmDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.config);
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
 }
 function analyzeParallelRmExpansions(tokenSets, cwd, context) {
   for (const tokens of tokenSets) {
@@ -5581,7 +7896,7 @@ function analyzeParallelRmExpansions(tokenSets, cwd, context) {
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
-    }), context.config);
+    }), context.policy);
     if (rmResult) {
       return rmResult;
     }
@@ -5783,11 +8098,11 @@ function splitParallelEnvNames(value) {
 }
 
 // src/core/analyze/tmpdir.ts
-import { existsSync as existsSync3, lstatSync as lstatSync3, realpathSync as realpathSync6 } from "node:fs";
+import { existsSync as existsSync8, lstatSync as lstatSync3, realpathSync as realpathSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute7, join as join4, normalize as normalize2, parse as parsePath3, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute8, join as join8, normalize as normalize2, parse as parsePath3, sep as sep4 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir2();
-var TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp", "/var/folders"];
+var TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (!envAssignments.has("TMPDIR")) {
     return false;
@@ -5808,10 +8123,17 @@ function isTmpdirOverriddenToNonTemp(envAssignments) {
 function getTrustedTempRoots() {
   const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root));
   const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
-  if (initialTmpdir && roots.some((root) => isPathOrSubpath(initialTmpdir, root))) {
+  if (!initialTmpdir)
+    return roots;
+  if (process.platform === "win32")
+    return [...roots, initialTmpdir];
+  if (process.platform === "darwin" && isMacOSPerUserTempRoot(initialTmpdir)) {
     return [...roots, initialTmpdir];
   }
   return roots;
+}
+function isMacOSPerUserTempRoot(path) {
+  return /^\/(?:private\/)?var\/folders\/[^/]{2}\/[^/]+\/T$/.test(path);
 }
 function tryResolveExistingPathComponents(path) {
   try {
@@ -5822,18 +8144,18 @@ function tryResolveExistingPathComponents(path) {
 }
 function resolveExistingPathComponents(path) {
   const normalized = normalize2(path);
-  if (!isAbsolute7(normalized)) {
+  if (!isAbsolute8(normalized)) {
     return normalized;
   }
   const root = parsePath3(normalized).root;
   const components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean);
   let current = root;
   for (let i = 0;i < components.length; i++) {
-    const candidate = join4(current, components[i] ?? "");
-    if (!existsSync3(candidate)) {
-      return join4(candidate, ...components.slice(i + 1));
+    const candidate = join8(current, components[i] ?? "");
+    if (!existsSync8(candidate)) {
+      return join8(candidate, ...components.slice(i + 1));
     }
-    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync6(candidate) : candidate;
+    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync7(candidate) : candidate;
   }
   return current;
 }
@@ -5841,7 +8163,7 @@ function isPathOrSubpath(path, basePath) {
   if (path === basePath) {
     return true;
   }
-  const baseWithSlash = basePath.endsWith(sep3) ? basePath : `${basePath}${sep3}`;
+  const baseWithSlash = basePath.endsWith(sep4) ? basePath : `${basePath}${sep4}`;
   return path.startsWith(baseWithSlash);
 }
 
@@ -5862,7 +8184,7 @@ function analyzeXargs(tokens, context) {
     envAssignments: childCommand.envAssignments,
     worktreeMode: context.worktreeMode,
     analyzeNested: context.analyzeNested,
-    config: context.config
+    policy: context.policy
   }, {
     dynamicInput: childCommand.head !== "git",
     shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
@@ -5885,7 +8207,7 @@ function analyzeXargs(tokens, context) {
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
     analyzeNested: context.analyzeNested,
-    config: context.config
+    policy: context.policy
   });
 }
 function extractXargsChildCommandWithInfo(tokens) {
@@ -5961,123 +8283,6 @@ function extractXargsChildCommandWithInfo(tokens) {
   return { childTokens: [], replacementToken };
 }
 
-// src/core/rules/custom.ts
-function checkCustomRules(tokens, rules) {
-  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
-}
-function checkCustomRuleMatch(tokens, rules) {
-  if (tokens.length === 0 || rules.length === 0) {
-    return null;
-  }
-  const command2 = normalizeCommandToken(tokens[0] ?? "");
-  const shortOpts = extractShortOpts(tokens);
-  for (const rule of rules) {
-    if (!matchesCommand(command2, rule.command)) {
-      continue;
-    }
-    if (!matchesSubcommand(command2, tokens, rule.subcommand)) {
-      continue;
-    }
-    if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
-      return {
-        id: `custom.${rule.name}`,
-        reason: `[${rule.name}] ${rule.reason}`,
-        intent: rule.intent ?? "manual_only"
-      };
-    }
-  }
-  return null;
-}
-function matchesCommand(command2, ruleCommand) {
-  return command2 === normalizeCommandToken(ruleCommand);
-}
-function matchesSubcommand(command2, tokens, ruleSubcommand) {
-  if (!ruleSubcommand) {
-    return true;
-  }
-  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command2));
-}
-var GIT_OPTIONS_WITH_VALUES = new Set([
-  "-c",
-  "-C",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--config-env"
-]);
-var DOCKER_OPTIONS_WITH_VALUES = new Set([
-  "-c",
-  "-H",
-  "-l",
-  "--config",
-  "--context",
-  "--host",
-  "--log-level",
-  "--tlscacert",
-  "--tlscert",
-  "--tlskey"
-]);
-var EMPTY_OPTIONS_WITH_VALUES = new Set;
-function getOptionsWithValues(command2) {
-  if (command2 === "git")
-    return GIT_OPTIONS_WITH_VALUES;
-  if (command2 === "docker")
-    return DOCKER_OPTIONS_WITH_VALUES;
-  return EMPTY_OPTIONS_WITH_VALUES;
-}
-function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues) {
-  let skipNext = false;
-  for (let i = startIndex;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if (skipNext) {
-      skipNext = false;
-      continue;
-    }
-    if (token === "--") {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken === expectedSubcommand;
-      }
-      return false;
-    }
-    if (optionsWithValues.has(token)) {
-      skipNext = true;
-      continue;
-    }
-    if (token.startsWith("-")) {
-      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)) {
-        return true;
-      }
-      continue;
-    }
-    return token === expectedSubcommand;
-  }
-  return false;
-}
-function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues) {
-  const value = tokens[optionIndex + 1];
-  if (!value || value.startsWith("-")) {
-    return false;
-  }
-  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
-}
-function matchesBlockArgs(tokens, blockArgs, shortOpts) {
-  const blockArgsSet = new Set(blockArgs);
-  for (const token of tokens) {
-    if (blockArgsSet.has(token)) {
-      return true;
-    }
-  }
-  for (const opt of shortOpts) {
-    if (blockArgsSet.has(opt)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // src/core/analyze/segment.ts
 var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.";
 var COMMAND_ANALYZERS = new Map([
@@ -6118,8 +8323,8 @@ function analyzeSegment(tokens, depth, options2) {
   if (!head) {
     return null;
   }
-  if (options2.config.failClosedReason) {
-    return { reason: options2.config.failClosedReason, intent: "stop_and_explain" };
+  if (options2.invalidReason) {
+    return { reason: options2.invalidReason, intent: "stop_and_explain" };
   }
   const normalizedHead = normalizeCommandToken(head);
   const basename = getBasename(head);
@@ -6127,11 +8332,11 @@ function analyzeSegment(tokens, depth, options2) {
   const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
-  const dynamicExecutableMatch = filterDestructiveCommandMatch(analyzeDynamicExecutable(head), options2.config);
+  const dynamicExecutableMatch = filterDestructiveCommandMatch(analyzeDynamicExecutable(head), options2.policy);
   if (dynamicExecutableMatch) {
     return blockResultFromMatch(dynamicExecutableMatch);
   }
-  const transparentWrapper = unwrapTransparentWrapper(stripped, options2.config);
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
   if (transparentWrapper) {
     return analyzeSegment(transparentWrapper.tokens, depth, {
       ...options2,
@@ -6152,7 +8357,7 @@ function analyzeSegment(tokens, depth, options2) {
     const awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
-    }))), options2.config);
+    }))), options2.policy);
     if (awkReason) {
       return blockResultFromMatch(awkReason);
     }
@@ -6161,7 +8366,7 @@ function analyzeSegment(tokens, depth, options2) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
-        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.config);
+        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
@@ -6173,7 +8378,7 @@ function analyzeSegment(tokens, depth, options2) {
         return innerReason;
       }
       if (containsDangerousCode(codeArg)) {
-        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.config);
+        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
@@ -6200,7 +8405,7 @@ function analyzeSegment(tokens, depth, options2) {
     options: options2
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.config);
+  const commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.policy);
   if (commandResult) {
     return blockResultFromMatch(commandResult);
   }
@@ -6211,7 +8416,7 @@ function analyzeSegment(tokens, depth, options2) {
         const token = stripped[i];
         if (!token)
           continue;
-        const match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.config);
+        const match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
@@ -6219,7 +8424,7 @@ function analyzeSegment(tokens, depth, options2) {
   }
   const customRulesTopLevelOnly = matchedKnown;
   if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkCustomRuleMatch(stripped, options2.config.rules);
+    const customResult = checkPolicyRuleMatch(stripped, options2.policy.rules);
     if (customResult) {
       return blockResultFromMatch(customResult);
     }
@@ -6324,7 +8529,7 @@ function getNestedCommandAnalyzeContext(context) {
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    config: context.options.config
+    policy: context.options.policy
   };
 }
 var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
@@ -6401,7 +8606,7 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize3(realpathSync7(a)) === normalize3(realpathSync7(b));
+    return normalize3(realpathSync8(a)) === normalize3(realpathSync8(b));
   } catch {
     return normalize3(a) === normalize3(b);
   }
@@ -6805,13 +9010,13 @@ function analyzeCommandInternal(command2, depth, options2) {
     return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   }
   const segments2 = splitShellCommandsWithInfo(command2);
-  if (depth === 0 && options2.config.failClosedReason && isFailClosedRepairCommand(segments2)) {
+  if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(segments2)) {
     return null;
   }
   if (options2.strict && segments2.length === 1 && segments2[0]?.tokens.length === 1 && segments2[0].tokens[0] === command2 && command2.includes(" ")) {
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   }
-  if (options2.shell === "powershell" && !options2.config.failClosedReason) {
+  if (options2.shell === "powershell" && !options2.invalidReason) {
     const result = analyzePowerShellRemoveItemCommand(command2, options2);
     if (result)
       return result;
@@ -6824,7 +9029,7 @@ function analyzeCommandInternal(command2, depth, options2) {
     const segmentStr = segment.join(" ");
     const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
     if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.config);
+      const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.policy);
       if (textMatch) {
         return {
           reason: textMatch.reason,
@@ -6869,7 +9074,7 @@ function analyzeCommandInternal(command2, depth, options2) {
     }
     applyShellGitContextEnvSegment(segment, shellGitContextState);
   }
-  if ((options2.shell === undefined || options2.shell === "auto") && !options2.config.failClosedReason && shouldAnalyzePowerShellRemoveItem(command2)) {
+  if ((options2.shell === undefined || options2.shell === "auto") && !options2.invalidReason && shouldAnalyzePowerShellRemoveItem(command2)) {
     const result = analyzePowerShellRemoveItemCommand(command2, options2);
     if (result)
       return result;
@@ -6877,7 +9082,7 @@ function analyzeCommandInternal(command2, depth, options2) {
   return null;
 }
 function analyzePowerShellRemoveItemCommand(command2, options2) {
-  return resultFromCommandMatch(command2, filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, getPowerShellRemoveItemOptions(options2)), options2.config));
+  return resultFromCommandMatch(command2, filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, getPowerShellRemoveItemOptions(options2)), options2.policy));
 }
 function resultFromCommandMatch(command2, match) {
   if (!match)
@@ -6940,2480 +9145,13 @@ function isCCSafetyNetPackage(value) {
   return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? "");
 }
 
-// src/core/config.ts
-import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:fs";
-import { resolve as resolve8 } from "node:path";
-
-// src/core/policy.ts
-import { chmodSync, existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync4 } from "node:fs";
-import { dirname as dirname6, join as join6 } from "node:path";
-
-// src/core/secret-protection-rules.ts
-var SECRET_BASENAME_RULES = [
-  {
-    id: "secret.basename.env",
-    category: "Basename",
-    label: ".env",
-    description: "Blocks exact .env files.",
-    basename: ".env"
-  },
-  {
-    id: "secret.basename.npmrc",
-    category: "Basename",
-    label: ".npmrc",
-    description: "Blocks npm credential config files.",
-    basename: ".npmrc"
-  },
-  {
-    id: "secret.basename.pypirc",
-    category: "Basename",
-    label: ".pypirc",
-    description: "Blocks Python package index credential files.",
-    basename: ".pypirc"
-  },
-  {
-    id: "secret.basename.netrc",
-    category: "Basename",
-    label: ".netrc",
-    description: "Blocks machine login credential files.",
-    basename: ".netrc"
-  },
-  {
-    id: "secret.basename.git-credentials",
-    category: "Basename",
-    label: ".git-credentials",
-    description: "Blocks Git credential storage files.",
-    basename: ".git-credentials"
-  },
-  {
-    id: "secret.basename.id-rsa",
-    category: "Basename",
-    label: "id_rsa",
-    description: "Blocks RSA private key basenames.",
-    basename: "id_rsa"
-  },
-  {
-    id: "secret.basename.id-ed25519",
-    category: "Basename",
-    label: "id_ed25519",
-    description: "Blocks Ed25519 private key basenames.",
-    basename: "id_ed25519"
-  },
-  {
-    id: "secret.basename.id-ecdsa",
-    category: "Basename",
-    label: "id_ecdsa",
-    description: "Blocks ECDSA private key basenames.",
-    basename: "id_ecdsa"
-  },
-  {
-    id: "secret.basename.credentials",
-    category: "Basename",
-    label: "credentials",
-    description: "Blocks generic credentials file basenames.",
-    basename: "credentials"
-  }
-];
-var SECRET_ENV_VARIANT_RULE = {
-  id: "secret.pattern.env-variant",
-  category: "Pattern",
-  label: ".env.*",
-  description: "Blocks environment-specific .env variants."
-};
-var SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
-  ".bak",
-  ".backup",
-  ".copy",
-  ".disabled",
-  ".old",
-  ".orig",
-  ".save",
-  ".tmp"
-];
-var SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
-  {
-    idSlug: "kube-config",
-    label: "~/.kube/config",
-    directoryParts: [".kube"],
-    basename: "config"
-  },
-  {
-    idSlug: "docker-config",
-    label: "~/.docker/config.json",
-    directoryParts: [".docker"],
-    basename: "config.json"
-  }
-];
-var SECRET_HOME_PATH_RULES = [
-  {
-    id: "secret.home.ssh",
-    category: "Home path",
-    label: "~/.ssh",
-    description: "Blocks home SSH configuration and key paths.",
-    suffixParts: [".ssh"]
-  },
-  {
-    id: "secret.home.aws",
-    category: "Home path",
-    label: "~/.aws",
-    description: "Blocks home AWS credential and config paths.",
-    suffixParts: [".aws"]
-  },
-  {
-    id: "secret.home.gcp",
-    category: "Home path",
-    label: "~/.gcp",
-    description: "Blocks home GCP credential paths.",
-    suffixParts: [".gcp"]
-  },
-  {
-    id: "secret.home.gcloud-config",
-    category: "Home path",
-    label: "~/.config/gcloud",
-    description: "Blocks home Google Cloud SDK credential paths.",
-    suffixParts: [".config", "gcloud"]
-  },
-  {
-    id: "secret.home.kube-config",
-    category: "Home path",
-    label: "~/.kube/config",
-    description: "Blocks home Kubernetes config files.",
-    suffixParts: [".kube", "config"]
-  },
-  {
-    id: "secret.home.docker-config",
-    category: "Home path",
-    label: "~/.docker/config.json",
-    description: "Blocks home Docker credential config files.",
-    suffixParts: [".docker", "config.json"]
-  },
-  ...SECRET_HOME_PATH_CONFIG_VARIANT_BASES.flatMap((rule) => SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES.map((suffix) => ({
-    id: ["secret.home", rule.idSlug, suffix.slice(1)].join("."),
-    category: "Home path",
-    label: [rule.label, suffix].join(""),
-    description: ["Blocks home ", rule.label, suffix, " credential backup files."].join(""),
-    suffixParts: [...rule.directoryParts, [rule.basename, suffix].join("")]
-  }))),
-  {
-    id: "secret.home.gh-hosts",
-    category: "Home path",
-    label: "~/.config/gh/hosts.yml",
-    description: "Blocks GitHub CLI host credential files.",
-    suffixParts: [".config", "gh", "hosts.yml"]
-  }
-];
-var SECRET_CODING_CLI_RULES = [
-  {
-    id: "secret.cli.claude-code",
-    category: "Coding CLI",
-    label: "Claude Code credentials",
-    description: "Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations."
-  },
-  {
-    id: "secret.cli.antigravity",
-    category: "Coding CLI",
-    label: "Antigravity CLI credentials",
-    description: "Blocks Antigravity CLI hook config under the shared Gemini config directory."
-  },
-  {
-    id: "secret.cli.codex",
-    category: "Coding CLI",
-    label: "Codex credentials",
-    description: "Blocks Codex auth and config files, including CODEX_HOME relocations."
-  },
-  {
-    id: "secret.cli.gemini",
-    category: "Coding CLI",
-    label: "Gemini CLI credentials",
-    description: "Blocks Gemini CLI OAuth, account, settings, and keychain fallback files."
-  },
-  {
-    id: "secret.cli.copilot-cli",
-    category: "Coding CLI",
-    label: "GitHub Copilot CLI credentials",
-    description: "Blocks Copilot CLI auth config and MCP OAuth credential storage."
-  },
-  {
-    id: "secret.cli.kimi-code",
-    category: "Coding CLI",
-    label: "Kimi Code credentials",
-    description: "Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files."
-  },
-  {
-    id: "secret.cli.opencode",
-    category: "Coding CLI",
-    label: "OpenCode credentials",
-    description: "Blocks OpenCode auth stores and credential-bearing global or managed config files."
-  },
-  {
-    id: "secret.cli.pi",
-    category: "Coding CLI",
-    label: "Pi credentials",
-    description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
-  }
-];
-var SECRET_DIRECTORY_RULES = [
-  {
-    id: "secret.dir.secrets",
-    category: "Directory",
-    label: "secrets/",
-    description: "Blocks paths inside directories named secrets.",
-    basename: "secrets"
-  }
-];
-var SECRET_VARIANT_PREFIXES = [
-  { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
-  { prefix: "id_dsa", slug: "id-dsa", label: "id_dsa" },
-  { prefix: "id_ed25519", slug: "id-ed25519", label: "id_ed25519" },
-  { prefix: "id_ecdsa", slug: "id-ecdsa", label: "id_ecdsa" },
-  { prefix: "credentials", slug: "credentials", label: "credentials" }
-];
-var SECRET_DOT_VARIANT_SUFFIXES = [
-  ".bak",
-  ".backup",
-  ".copy",
-  ".disabled",
-  ".key",
-  ".old",
-  ".orig",
-  ".pem",
-  ".save",
-  ".tmp"
-];
-var SECRET_VARIANT_SEPARATOR_RULES = SECRET_VARIANT_PREFIXES.map((rule) => ({
-  id: `secret.variant.${rule.slug}.separator`,
-  category: "Variant",
-  label: `${rule.label}-* / ${rule.label}_*`,
-  description: `Blocks ${rule.label} variants with dash or underscore suffixes.`,
-  prefix: rule.prefix
-}));
-var SECRET_VARIANT_DOT_SUFFIX_RULES = SECRET_VARIANT_PREFIXES.flatMap((rule) => SECRET_DOT_VARIANT_SUFFIXES.map((suffix) => ({
-  id: `secret.variant.${rule.slug}.${suffix.slice(1)}`,
-  category: "Variant",
-  label: `${rule.label}${suffix}`,
-  description: `Blocks ${rule.label}${suffix} private credential variants.`,
-  prefix: rule.prefix,
-  suffix
-})));
-var SECRET_BROAD_SSH_KEY_BASENAME_RULE = {
-  id: "secret.pattern.ssh-key-basename",
-  category: "Pattern",
-  label: "*_(rsa|dsa|ed25519|ecdsa)",
-  description: "Blocks extensionless SSH private key-like basenames.",
-  pattern: /^.*_(rsa|dsa|ed25519|ecdsa)$/
-};
-var SECRET_EXTENSION_RULES = [
-  "agilekeychain",
-  "asc",
-  "bek",
-  "cscfg",
-  "fve",
-  "gnucash",
-  "jks",
-  "keychain",
-  "kwallet",
-  "mdf",
-  "ovpn",
-  "p12",
-  "pcap",
-  "pem",
-  "pfx",
-  "pkcs12",
-  "psafe3",
-  "rdp",
-  "sdf",
-  "sqlite",
-  "tblk",
-  "tpm"
-].map((extension) => ({
-  id: `secret.ext.${extension}`,
-  category: "Extension",
-  label: `.${extension}`,
-  description: `Blocks files with the .${extension} extension.`,
-  extension
-}));
-var SECRET_EXTENSION_PATTERN_RULES = [
-  {
-    id: "secret.ext-pattern.key",
-    category: "Extension pattern",
-    label: ".key / .keypair",
-    description: "Blocks key and keypair extension patterns.",
-    pattern: /^key(pair)?$/
-  },
-  {
-    id: "secret.ext-pattern.keystore",
-    category: "Extension pattern",
-    label: ".keystore / .keyring",
-    description: "Blocks keystore and keyring extension patterns.",
-    pattern: /^key(store|ring)$/
-  },
-  {
-    id: "secret.ext-pattern.kdbx",
-    category: "Extension pattern",
-    label: ".kdb / .kdbx",
-    description: "Blocks KeePass database extension patterns.",
-    pattern: /^kdbx?$/
-  },
-  {
-    id: "secret.ext-pattern.sql",
-    category: "Extension pattern",
-    label: ".sql / .sqldump",
-    description: "Blocks SQL dump extension patterns.",
-    pattern: /^sql(dump)?$/
-  }
-];
-var SECRET_PROTECTION_RULE_METADATA = [
-  ...SECRET_BASENAME_RULES,
-  SECRET_ENV_VARIANT_RULE,
-  ...SECRET_HOME_PATH_RULES,
-  ...SECRET_CODING_CLI_RULES,
-  ...SECRET_DIRECTORY_RULES,
-  ...SECRET_VARIANT_SEPARATOR_RULES,
-  ...SECRET_VARIANT_DOT_SUFFIX_RULES,
-  SECRET_BROAD_SSH_KEY_BASENAME_RULE,
-  ...SECRET_EXTENSION_RULES,
-  ...SECRET_EXTENSION_PATTERN_RULES
-].map((rule) => ({
-  id: rule.id,
-  category: rule.category,
-  label: rule.label,
-  description: rule.description
-}));
-var SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);
-var SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
-// src/core/rules/policy/config-file.ts
-import { randomBytes } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync3, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname5 } from "node:path";
-
-// src/core/rules/policy/paths.ts
-import { homedir as homedir3 } from "node:os";
-import { dirname as dirname4, join as join5, resolve as resolve5 } from "node:path";
-var RULES_CONFIG_FILE = "rule.json";
-var RULES_LOCK_FILE = "rule.lock";
-var RULEBOOK_FILE = "rulebook.json";
-var LEGACY_RULES_CONFIG_FILE = "config.json";
-var SAFETY_NET_DIR = ".cc-safety-net";
-var RULES_SUBDIR = "rules";
-var CACHE_SUBDIR = "cache";
-var RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`;
-var CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME";
-var GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>";
-var RULE_SYNC_COMMAND = "`cc-safety-net rule sync`";
-var RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
-function getProjectRulesDir(cwd) {
-  return resolve5(cwd ?? process.cwd(), RULES_DIR);
-}
-function getProjectRulesConfigPath(cwd) {
-  return join5(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
-}
-function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname4(options2.userConfigPath) : join5(getUserSafetyNetHome(), RULES_SUBDIR));
-}
-function getUserSafetyNetHome() {
-  const home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve5(home) : join5(homedir3(), SAFETY_NET_DIR);
-}
-function getUserRulesConfigPath(options2) {
-  return join5(getUserRulesDir(options2), RULES_CONFIG_FILE);
-}
-function getUserRulesLockPath(options2) {
-  return join5(getUserRulesDir(options2), RULES_LOCK_FILE);
-}
-function getRulesLockPathForConfigPath(configPath) {
-  return join5(dirname4(configPath), RULES_LOCK_FILE);
-}
-function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join5(dirname4(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
-}
-function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve5(options2.cwd ?? process.cwd(), ".safety-net.json");
-}
-function getPolicyPaths(options2) {
-  const userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2);
-  const projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    userConfigPath,
-    projectConfigPath,
-    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
-    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
-  };
-}
-function getScopePaths(options2) {
-  const configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    configDir: dirname4(configPath),
-    configPath,
-    lockPath: getRulesLockPathForConfigPath(configPath)
-  };
-}
-function getRulebookDisplaySource(entry) {
-  if (entry.kind === "github" && entry.display_ref) {
-    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
-  }
-  return entry.spec;
-}
-function getRulebookCachePath(entry, options2) {
-  const digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join5(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
-}
-function getRulebookCacheSlug(entry) {
-  const source = entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec;
-  return source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
-}
-function getRepositoryRulebookPath(name) {
-  return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
-}
-function getRulesCacheDir(options2) {
-  return join5(dirname4(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
-}
-
-// src/core/rules/policy/sources.ts
-var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
-var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
-var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
-var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
-var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
-function getRulebookSourceSyntaxError(source) {
-  if (isGitHubRulebookSource(source)) {
-    try {
-      parseGitHubSource(source);
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  }
-  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
-}
-function parseGitHubSource(spec) {
-  if (spec.startsWith("github:")) {
-    throw new Error(`Invalid rulebook source: ${spec}`);
-  }
-  const match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
-  }
-  const [ref, name, ...extraParts] = match[3].split("/");
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
-    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  }
-  return {
-    owner: match[1],
-    repo: match[2],
-    ref,
-    path: getRepositoryRulebookPath(name),
-    name
-  };
-}
-function isGitHubRepositorySource(source) {
-  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
-}
-function isGitHubRulebookSource(source) {
-  return GITHUB_SOURCE_RE.test(source);
-}
-function assertBareRulebookName(source) {
-  if (!NAME_PATTERN.test(source)) {
-    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
-  }
-}
-function getRulebookLockEntrySourceIdentityError(entry) {
-  if (isGitHubRulebookSource(entry.spec)) {
-    return getGitHubLockEntrySourceIdentityError(entry);
-  }
-  return getLocalLockEntrySourceIdentityError(entry);
-}
-function getLocalLockEntrySourceIdentityError(entry) {
-  if (!NAME_PATTERN.test(entry.spec)) {
-    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
-  }
-  if (entry.kind !== "local-directory") {
-    return `lock entry for ${entry.spec} must use local-directory kind`;
-  }
-  if (entry.path === entry.spec && entry.name === entry.spec) {
-    return null;
-  }
-  return `lock entry for ${entry.spec} does not match local source identity`;
-}
-function getGitHubLockEntrySourceIdentityError(entry) {
-  const syntaxError = getRulebookSourceSyntaxError(entry.spec);
-  if (syntaxError)
-    return syntaxError;
-  const parsed = parseGitHubSource(entry.spec);
-  if (entry.kind !== "github") {
-    return `lock entry for ${entry.spec} must use github kind`;
-  }
-  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name) {
-    return null;
-  }
-  return `lock entry for ${entry.spec} does not match GitHub source identity`;
-}
-function getSelectedUpdateSpecs(config, lock, match) {
-  const exactMatches = getExactSpecMatches(config.rules, match);
-  if (exactMatches.length > 0) {
-    return { ok: true, specs: exactMatches };
-  }
-  if (!lock) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        errors: [
-          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
-        ],
-        warnings: [],
-        entries: []
-      }
-    };
-  }
-  const configuredSpecs = new Set(config.rules);
-  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
-  if (nameMatches.length === 1) {
-    return { ok: true, specs: nameMatches };
-  }
-  return noRulebookMatch(match, nameMatches);
-}
-function getRemoveMatches(rules, lock, match) {
-  const exactMatches = getExactSpecMatches(rules, match);
-  if (exactMatches.length > 0)
-    return { ok: true, specs: exactMatches };
-  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
-  if (githubRefMatches.length > 0)
-    return { ok: true, specs: githubRefMatches };
-  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
-  if (!githubRepositoryMatches.ok)
-    return githubRepositoryMatches;
-  if (githubRepositoryMatches.specs.length > 0) {
-    return { ok: true, specs: githubRepositoryMatches.specs };
-  }
-  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
-  if (nameMatches.length === 1)
-    return { ok: true, specs: nameMatches };
-  return noRulebookMatch(match, nameMatches);
-}
-function noRulebookMatch(match, nameMatches) {
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getExactSpecMatches(rules, match) {
-  return rules.filter((spec) => spec === match);
-}
-function getGitHubRepositoryRefMatches(rules, match) {
-  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  const owner = parsed?.[1];
-  const repo = parsed?.[2];
-  const ref = parsed?.[3];
-  if (!owner || !repo || !ref)
-    return [];
-  return getConfiguredGitHubSourceMatches(rules, (source) => {
-    return source.owner === owner && source.repo === repo && source.ref === ref;
-  });
-}
-function getGitHubRepositoryMatches(rules, match) {
-  if (!isGitHubRepositorySource(match))
-    return { ok: true, specs: [] };
-  const [owner, repo] = match.split("/");
-  const specs = getConfiguredGitHubSourceMatches(rules, (source) => {
-    return source.owner === owner && source.repo === repo;
-  });
-  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
-  if (refs.size < 2)
-    return { ok: true, specs };
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: [
-        `Multiple refs are configured for ${match}. Use an explicit ref:`,
-        `  cc-safety-net rule remove ${match}#<ref>`
-      ],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getConfiguredGitHubSource(spec) {
-  try {
-    return parseGitHubSource(spec);
-  } catch {
-    return null;
-  }
-}
-function getConfiguredGitHubSourceMatches(rules, matches) {
-  return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    return source ? matches(source) : false;
-  });
-}
-
-// src/core/rules/policy/types.ts
-var DEFAULT_CONFIG = {
-  version: 1,
-  rules: [],
-  overrides: {},
-  transparent_wrappers: []
-};
-
-// src/core/rules/policy/config-file.ts
-function validateRulesConfig(config) {
-  const errors = [];
-  const sources = new Set;
-  if (!config || typeof config !== "object") {
-    return { errors: ["Config must be an object"], sources };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
-    errors.push("version must be 1");
-  }
-  if (cfg.rules === undefined) {} else if (!Array.isArray(cfg.rules)) {
-    errors.push("rules must be an array of rulebook source strings");
-  } else {
-    for (let i = 0;i < cfg.rules.length; i++) {
-      if (typeof cfg.rules[i] !== "string") {
-        errors.push(`rules[${i}]: must be a rulebook source string`);
-        continue;
-      }
-      if (cfg.rules[i].trim() === "") {
-        errors.push(`rules[${i}]: must be a non-empty rulebook source string`);
-        continue;
-      }
-      if (sources.has(cfg.rules[i])) {
-        errors.push(`rules[${i}]: duplicate rulebook source "${cfg.rules[i]}"`);
-        continue;
-      }
-      const sourceError = getRulebookSourceSyntaxError(cfg.rules[i]);
-      if (sourceError) {
-        errors.push(`rules[${i}]: ${sourceError}`);
-        continue;
-      }
-      sources.add(cfg.rules[i]);
-    }
-  }
-  if (cfg.overrides !== undefined) {
-    if (!cfg.overrides || typeof cfg.overrides !== "object" || Array.isArray(cfg.overrides)) {
-      errors.push("overrides must be an object if provided");
-    } else {
-      for (const [key, value] of Object.entries(cfg.overrides)) {
-        if (!/^[^/]+\/[^/]+$/.test(key)) {
-          errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
-        }
-        if (value === "off") {
-          continue;
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          errors.push(`overrides.${key}: must be "off" or an object`);
-          continue;
-        }
-        const reason = value.reason;
-        if (typeof reason !== "string" || reason === "") {
-          errors.push(`overrides.${key}.reason: required non-empty string`);
-        } else if (reason.length > MAX_REASON_LENGTH) {
-          errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-        }
-        const intent = value.intent;
-        if (intent !== undefined && !isBlockIntent(intent)) {
-          errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-        }
-      }
-    }
-  }
-  if (cfg.transparent_wrappers !== undefined) {
-    validateTransparentWrappers(cfg.transparent_wrappers, errors);
-  }
-  return { errors, sources };
-}
-function isBlockIntent(value) {
-  return typeof value === "string" && BLOCK_INTENTS.includes(value);
-}
-function validateTransparentWrappers(value, errors) {
-  if (!Array.isArray(value)) {
-    errors.push("transparent_wrappers must be an array of command strings");
-    return;
-  }
-  const seen = new Set;
-  for (let i = 0;i < value.length; i++) {
-    const command2 = value[i];
-    if (typeof command2 !== "string") {
-      errors.push(`transparent_wrappers[${i}]: must be a command string`);
-      continue;
-    }
-    if (!COMMAND_PATTERN.test(command2)) {
-      errors.push(`transparent_wrappers[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command2)) {
-      errors.push(`transparent_wrappers[${i}]: duplicate command "${command2}"`);
-      continue;
-    }
-    if (isReservedTransparentWrapper(command2)) {
-      errors.push(`transparent_wrappers[${i}]: reserved command "${command2}" cannot be a wrapper`);
-      continue;
-    }
-    seen.add(command2);
-  }
-}
-function readRulesConfig(path) {
-  if (!existsSync4(path)) {
-    return { config: null, errors: [] };
-  }
-  try {
-    const content = readFileSync3(path, "utf-8");
-    if (!content.trim()) {
-      return { config: null, errors: ["Config file is empty"] };
-    }
-    const parsed = JSON.parse(content);
-    const validation = validateRulesConfig(parsed);
-    if (validation.errors.length > 0) {
-      return { config: null, errors: validation.errors };
-    }
-    const cfg = parsed;
-    return {
-      config: {
-        version: 1,
-        rules: cfg.rules ?? [],
-        overrides: cfg.overrides ?? {},
-        transparent_wrappers: cfg.transparent_wrappers ?? []
-      },
-      errors: []
-    };
-  } catch (error) {
-    return {
-      config: null,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
-    };
-  }
-}
-function readScopeRulesConfig(path) {
-  const loaded = readRulesConfig(path);
-  if (loaded.errors.length > 0) {
-    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
-  }
-  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
-}
-function writeDefaultRulesConfig(path, rules = []) {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
-}
-function writeStarterRulebook(path, name = "project-rules") {
-  writeJsonAtomic(path, {
-    rulebook_version: 1,
-    name,
-    version: "1.0.0",
-    description: name === "project-rules" ? "Project-specific CC Safety Net rules." : "User-specific CC Safety Net rules.",
-    author: name === "project-rules" ? "project" : "user",
-    allowed_commands: ["docker"],
-    rules: [
-      {
-        name: "block-docker-system-prune",
-        command: "docker",
-        subcommand: "system",
-        block_args: ["prune"],
-        reason: "Use targeted cleanup instead."
-      }
-    ],
-    tests: [
-      {
-        command: "docker system prune",
-        expect: "blocked",
-        rule: "block-docker-system-prune"
-      }
-    ]
-  });
-}
-function createAtomicTempPath(path) {
-  return `${path}.${randomBytes(8).toString("hex")}.tmp`;
-}
-function writeJsonAtomic(path, value, mode) {
-  mkdirSync2(dirname5(path), { recursive: true });
-  const tempPath = createAtomicTempPath(path);
-  try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
-`, {
-      encoding: "utf-8",
-      flag: "wx",
-      mode
-    });
-    renameSync(tempPath, path);
-  } catch (error) {
-    rmSync(tempPath, { force: true });
-    throw error;
-  }
-}
-
-// src/core/policy.ts
-var POLICY_FILE = "policy.json";
-var TOP_LEVEL_FIELDS = new Set([
-  "version",
-  "safety",
-  "workflow",
-  "destructive_command_protection",
-  "secret_protection"
-]);
-var SAFETY_LEVELS2 = new Set(["standard", "strict", "paranoid"]);
-var SAFETY_FIELDS = new Set(["level", "overrides"]);
-var SAFETY_OVERRIDE_FIELDS = new Set(["fail_closed", "paranoid_rm", "paranoid_interpreters"]);
-var WORKFLOW_FIELDS = new Set(["worktree_mode"]);
-var DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(["enabled", "overrides"]);
-var SECRET_PROTECTION_FIELDS = new Set(["enabled", "overrides", "deny_paths"]);
-var DEFAULT_GUI_POLICY = {
-  version: 1,
-  safety: {
-    level: "standard",
-    overrides: {}
-  },
-  workflow: {
-    worktree_mode: false
-  },
-  destructive_command_protection: {
-    enabled: true,
-    overrides: {}
-  },
-  secret_protection: {
-    enabled: true,
-    overrides: {},
-    deny_paths: []
-  }
-};
-function getUserPolicyPath(options2) {
-  return join6(dirname6(getUserRulesDir(options2)), POLICY_FILE);
-}
-function readUserPolicyForGui(options2 = {}) {
-  const path = getUserPolicyPath(options2);
-  if (!existsSync5(path)) {
-    return {
-      path,
-      exists: false,
-      raw: "",
-      policy: createDefaultGuiPolicy(),
-      errors: []
-    };
-  }
-  const raw = readFileSync4(path, "utf-8");
-  if (!raw.trim()) {
-    return {
-      path,
-      exists: true,
-      raw,
-      policy: createDefaultGuiPolicy(),
-      errors: ["Config file is empty"]
-    };
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    const errors = validatePolicyConfig(parsed);
-    return {
-      path,
-      exists: true,
-      raw,
-      policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
-      errors
-    };
-  } catch (error) {
-    return {
-      path,
-      exists: true,
-      raw,
-      policy: createDefaultGuiPolicy(),
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
-    };
-  }
-}
-function writeUserPolicyFromGui(policy, options2 = {}) {
-  const path = getUserPolicyPath(options2);
-  const errors = validatePolicyConfig(policy);
-  const normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
-  if (errors.length > 0) {
-    return { path, policy: normalizedPolicy, errors };
-  }
-  mkdirSync3(dirname6(path), { recursive: true, mode: 448 });
-  writeJsonAtomic(path, normalizedPolicy, 384);
-  chmodSync(path, 384);
-  return { path, policy: normalizedPolicy, errors: [] };
-}
-function repairUserPolicyForGui(options2 = {}) {
-  const path = getUserPolicyPath(options2);
-  if (!existsSync5(path))
-    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  const raw = readFileSync4(path, "utf-8");
-  if (!raw.trim())
-    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  try {
-    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw)), options2);
-  } catch {
-    return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  }
-}
-function loadPolicyConfig(options2 = {}) {
-  const user = readPolicyConfig(getUserPolicyPath(options2));
-  return {
-    safety: user.policy.safety,
-    worktreeMode: user.policy.worktreeMode,
-    destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
-    secretProtection: user.policy.secretProtection,
-    errors: user.errors
-  };
-}
-function repairPolicyConfig(value) {
-  if (!isRecord(value))
-    return createDefaultGuiPolicy();
-  const safety = isRecord(value.safety) ? value.safety : {};
-  const safetyOverrides = isRecord(safety.overrides) ? safety.overrides : {};
-  const workflow = isRecord(value.workflow) ? value.workflow : {};
-  const destructiveCommand = isRecord(value.destructive_command_protection) ? value.destructive_command_protection : {};
-  const secret = isRecord(value.secret_protection) ? value.secret_protection : {};
-  return {
-    version: 1,
-    safety: {
-      level: SAFETY_LEVELS2.has(safety.level) ? safety.level : "standard",
-      overrides: {
-        ...typeof safetyOverrides.fail_closed === "boolean" ? { fail_closed: safetyOverrides.fail_closed } : {},
-        ...typeof safetyOverrides.paranoid_rm === "boolean" ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
-        ...typeof safetyOverrides.paranoid_interpreters === "boolean" ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
-      }
-    },
-    workflow: {
-      worktree_mode: typeof workflow.worktree_mode === "boolean" ? workflow.worktree_mode : false
-    },
-    destructive_command_protection: {
-      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
-      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
-    },
-    secret_protection: {
-      enabled: typeof secret.enabled === "boolean" ? secret.enabled : true,
-      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
-      deny_paths: repairDenyPaths(secret.deny_paths)
-    }
-  };
-}
-function repairOffOverrides(value, knownRuleIds) {
-  if (!isRecord(value))
-    return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([id, override]) => knownRuleIds.has(id) && override === "off" ? [[id, "off"]] : []));
-}
-function repairDenyPaths(value) {
-  if (!Array.isArray(value))
-    return [];
-  return value.filter((path) => typeof path === "string" && path.trim() !== "");
-}
-function isRecord(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-function createDefaultGuiPolicy() {
-  return {
-    version: 1,
-    safety: {
-      level: DEFAULT_GUI_POLICY.safety.level,
-      overrides: {}
-    },
-    workflow: { ...DEFAULT_GUI_POLICY.workflow },
-    destructive_command_protection: {
-      enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
-      overrides: {}
-    },
-    secret_protection: {
-      enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
-      overrides: {},
-      deny_paths: []
-    }
-  };
-}
-function normalizeGuiPolicy(policy) {
-  const config = policy;
-  const safety = config.safety ?? {};
-  const safetyOverrides = safety.overrides ?? {};
-  const workflow = config.workflow ?? {};
-  const destructiveCommandPolicy = config.destructive_command_protection ?? {};
-  const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
-  const secret = config.secret_protection ?? {};
-  const secretOverrides = secret.overrides ?? {};
-  return {
-    version: 1,
-    safety: {
-      level: safety.level ?? "standard",
-      overrides: {
-        ...safetyOverrides.fail_closed !== undefined ? { fail_closed: safetyOverrides.fail_closed } : {},
-        ...safetyOverrides.paranoid_rm !== undefined ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
-        ...safetyOverrides.paranoid_interpreters !== undefined ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
-      }
-    },
-    workflow: {
-      worktree_mode: workflow.worktree_mode ?? false
-    },
-    destructive_command_protection: {
-      enabled: destructiveCommandPolicy.enabled ?? true,
-      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
-    },
-    secret_protection: {
-      enabled: secret.enabled ?? true,
-      overrides: Object.fromEntries(Object.entries(secretOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : [])),
-      deny_paths: [...secret.deny_paths ?? []]
-    }
-  };
-}
-function readPolicyConfig(path) {
-  const empty = createEmptyPolicy();
-  if (!existsSync5(path))
-    return { policy: empty, errors: [] };
-  try {
-    const content = readFileSync4(path, "utf-8");
-    if (!content.trim()) {
-      return { policy: empty, errors: [`${path}: Config file is empty`] };
-    }
-    const parsed = JSON.parse(content);
-    const errors = validatePolicyConfig(parsed);
-    if (errors.length > 0)
-      return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
-    return { policy: normalizePolicyConfig(parsed), errors: [] };
-  } catch {
-    return {
-      policy: empty,
-      errors: [`${path}: Invalid JSON`]
-    };
-  }
-}
-function createEmptyPolicy() {
-  return {
-    safety: {},
-    worktreeMode: false,
-    destructiveCommandProtectionEnabled: true,
-    disabledDestructiveCommandRules: [],
-    secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
-  };
-}
-function validatePolicyConfig(config) {
-  const errors = [];
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return ["Config must be an object"];
-  }
-  const cfg = config;
-  addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
-  if (cfg.version !== 1)
-    errors.push("version must be 1");
-  validateSafety(cfg.safety, errors);
-  validateWorkflow(cfg.workflow, errors);
-  validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
-  validateSecretProtection(cfg.secret_protection, errors);
-  return errors;
-}
-function validateSafety(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("safety must be an object if provided");
-    return;
-  }
-  const safety = value;
-  addUnknownFieldErrors(safety, SAFETY_FIELDS, errors, "safety");
-  if (safety.level !== undefined && !SAFETY_LEVELS2.has(safety.level)) {
-    errors.push('safety.level must be "standard", "strict", or "paranoid"');
-  }
-  validateSafetyOverrides(safety.overrides, errors);
-}
-function validateSafetyOverrides(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("safety.overrides must be an object if provided");
-    return;
-  }
-  const overrides = value;
-  addUnknownFieldErrors(overrides, SAFETY_OVERRIDE_FIELDS, errors, "safety.overrides");
-  for (const [key, override] of Object.entries(overrides)) {
-    if (typeof override !== "boolean")
-      errors.push(`safety.overrides.${key} must be a boolean`);
-  }
-}
-function validateWorkflow(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("workflow must be an object if provided");
-    return;
-  }
-  const workflow = value;
-  addUnknownFieldErrors(workflow, WORKFLOW_FIELDS, errors, "workflow");
-  if (workflow.worktree_mode !== undefined && typeof workflow.worktree_mode !== "boolean") {
-    errors.push("workflow.worktree_mode must be a boolean");
-  }
-}
-function validateDestructiveCommandPolicy(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("destructive_command_protection must be an object if provided");
-    return;
-  }
-  const destructiveCommandPolicy = value;
-  addUnknownFieldErrors(destructiveCommandPolicy, DESTRUCTIVE_COMMAND_POLICY_FIELDS, errors, "destructive_command_protection");
-  if (destructiveCommandPolicy.enabled !== undefined && typeof destructiveCommandPolicy.enabled !== "boolean") {
-    errors.push("destructive_command_protection.enabled must be a boolean");
-  }
-  validateDestructiveCommandOverrides(destructiveCommandPolicy.overrides, errors);
-}
-function validateDestructiveCommandOverrides(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("destructive_command_protection.overrides must be an object if provided");
-    return;
-  }
-  for (const [id, override] of Object.entries(value)) {
-    if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
-      errors.push(`unknown destructive command rule id "${id}"`);
-    }
-    if (override !== "off") {
-      errors.push(`destructive_command_protection.overrides.${id} must be "off"`);
-    }
-  }
-}
-function validateSecretProtection(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("secret_protection must be an object if provided");
-    return;
-  }
-  const secret = value;
-  addUnknownFieldErrors(secret, SECRET_PROTECTION_FIELDS, errors, "secret_protection");
-  if (secret.enabled !== undefined && typeof secret.enabled !== "boolean") {
-    errors.push("secret_protection.enabled must be a boolean");
-  }
-  validateSecretOverrides(secret.overrides, errors);
-  validatePathArray(secret.deny_paths, "secret_protection.deny_paths", errors);
-}
-function validateSecretOverrides(value, errors) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push("secret_protection.overrides must be an object if provided");
-    return;
-  }
-  for (const [id, override] of Object.entries(value)) {
-    if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
-      errors.push(`unknown secret protection rule id "${id}"`);
-    }
-    if (override !== "off") {
-      errors.push(`secret_protection.overrides.${id} must be "off"`);
-    }
-  }
-}
-function validatePathArray(value, field, errors) {
-  if (value === undefined)
-    return;
-  if (!Array.isArray(value)) {
-    errors.push(`${field} must be an array of paths`);
-    return;
-  }
-  for (let i = 0;i < value.length; i++) {
-    const path = value[i];
-    if (typeof path !== "string" || path.trim() === "") {
-      errors.push(`${field}[${i}] must be a non-empty path string`);
-    }
-  }
-}
-function normalizePolicyConfig(config) {
-  const safety = normalizeSafety(config.safety);
-  const workflow = config.workflow;
-  const destructiveCommand = config.destructive_command_protection;
-  const secret = config.secret_protection;
-  return {
-    safety,
-    worktreeMode: workflow?.worktree_mode ?? false,
-    destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? true,
-    disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
-    secretProtection: {
-      enabled: secret?.enabled ?? true,
-      disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
-      denyPaths: [...secret?.deny_paths ?? []]
-    }
-  };
-}
-function normalizeSafety(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return {};
-  const safety = value;
-  const overrides = safety.overrides ?? {};
-  return {
-    level: safety.level,
-    overrides: {
-      failClosed: overrides.fail_closed,
-      paranoidRm: overrides.paranoid_rm,
-      paranoidInterpreters: overrides.paranoid_interpreters
-    }
-  };
-}
-function addUnknownFieldErrors(record, allowed, errors, prefix) {
-  for (const key of Object.keys(record)) {
-    if (!allowed.has(key)) {
-      errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
-    }
-  }
-}
-
-// src/core/rules/custom-rule-validation.ts
-function validateCustomRule(rule, index, ruleNames, options2 = {}) {
-  const errors = [];
-  const prefix = `rules[${index}]`;
-  if (!rule || typeof rule !== "object") {
-    errors.push(`${prefix}: must be an object`);
-    return errors;
-  }
-  const r = rule;
-  const messageStyle = options2.messageStyle ?? "legacy";
-  if (typeof r.name !== "string") {
-    errors.push(`${prefix}.name: required string`);
-  } else {
-    if (!NAME_PATTERN.test(r.name)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
-    }
-    const lowerName = r.name.toLowerCase();
-    if (ruleNames.has(lowerName)) {
-      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
-    } else {
-      ruleNames.add(lowerName);
-    }
-  }
-  if (typeof r.command !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
-  } else if (!COMMAND_PATTERN.test(r.command)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
-  }
-  if (r.subcommand !== undefined) {
-    if (typeof r.subcommand !== "string") {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
-    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
-    }
-  }
-  if (!Array.isArray(r.block_args)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
-  } else {
-    if (r.block_args.length === 0) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
-    }
-    for (let i = 0;i < r.block_args.length; i++) {
-      const arg = r.block_args[i];
-      if (typeof arg !== "string") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
-      } else if (arg === "") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
-      }
-    }
-  }
-  if (typeof r.reason !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
-  } else if (r.reason === "") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
-  } else if (r.reason.length > MAX_REASON_LENGTH) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-  }
-  if (r.intent !== undefined && !isBlockIntent2(r.intent)) {
-    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-  }
-  return errors;
-}
-function isBlockIntent2(value) {
-  return typeof value === "string" && BLOCK_INTENTS.includes(value);
-}
-
-// src/core/rules/policy/scope-policy.ts
-import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync as realpathSync8 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute8, join as join8, relative as relative2, resolve as resolve6, sep as sep4 } from "node:path";
-
-// src/core/rules/rulebook.ts
-function validateRulebook(rulebook) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!rulebook || typeof rulebook !== "object") {
-    return { errors: ["Rulebook must be an object"], ruleNames };
-  }
-  const rb = rulebook;
-  if (rb.rulebook_version !== 1) {
-    errors.push("rulebook_version must be 1");
-  }
-  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name)) {
-    errors.push("name: required string matching rule name pattern");
-  }
-  if (typeof rb.version !== "string" || rb.version === "") {
-    errors.push("version: required non-empty string");
-  }
-  if (!Array.isArray(rb.allowed_commands)) {
-    errors.push("allowed_commands: required array");
-  } else {
-    validateAllowedCommands(rb.allowed_commands, errors);
-  }
-  if (!Array.isArray(rb.rules)) {
-    errors.push("rules: required array");
-  } else {
-    for (let i = 0;i < rb.rules.length; i++) {
-      errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: "rulebook" }));
-    }
-  }
-  if (!Array.isArray(rb.tests)) {
-    errors.push("tests: required array");
-  } else {
-    validateFixtures(rb.tests, rb.rules, errors);
-  }
-  if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
-    const allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
-    for (let i = 0;i < rb.rules.length; i++) {
-      const rule = rb.rules[i];
-      if (typeof rule.command === "string" && !allowed.has(rule.command)) {
-        errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
-      }
-    }
-  }
-  return { errors, ruleNames };
-}
-function validateAllowedCommands(commands2, errors) {
-  const seen = new Set;
-  for (let i = 0;i < commands2.length; i++) {
-    const command2 = commands2[i];
-    if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
-      errors.push(`allowed_commands[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command2)) {
-      errors.push(`allowed_commands[${i}]: duplicate command "${command2}"`);
-      continue;
-    }
-    seen.add(command2);
-  }
-}
-function validateFixtures(tests, rules, errors) {
-  const blockedFixtures = new Set;
-  const ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
-  for (let i = 0;i < tests.length; i++) {
-    const fixture = tests[i];
-    if (!fixture || typeof fixture !== "object") {
-      errors.push(`tests[${i}]: must be an object`);
-      continue;
-    }
-    const f = fixture;
-    if (typeof f.command !== "string" || f.command.trim() === "") {
-      errors.push(`tests[${i}].command: required non-empty string`);
-    }
-    if (f.expect !== "blocked" && f.expect !== "allowed") {
-      errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
-    }
-    if (f.rule !== undefined && typeof f.rule !== "string") {
-      errors.push(`tests[${i}].rule: must be a string if provided`);
-    }
-    if (f.expect === "blocked" && typeof f.rule !== "string") {
-      errors.push(`tests[${i}].rule: required string for blocked fixtures`);
-    }
-    if (f.expect === "blocked" && typeof f.rule === "string") {
-      blockedFixtures.add(f.rule);
-    }
-  }
-  for (let i = 0;i < (Array.isArray(rules) ? rules.length : 0); i++) {
-    const rule = rules[i];
-    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name)) {
-      errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
-    }
-  }
-  for (const rule of blockedFixtures) {
-    if (!ruleNames.has(rule)) {
-      errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
-    }
-  }
-}
-function runRulebookFixtures(rulebook) {
-  const failures = rulebook.tests.flatMap((fixture) => {
-    const segments2 = splitShellCommands(fixture.command).map((tokens) => {
-      const result = checkCustomRuleMatch(tokens, rulebook.rules);
-      return { tokens, result, matchedRule: result?.id.replace(/^custom\./, "") ?? null };
-    });
-    const firstSegment = segments2[0] ?? { tokens: [], result: null, matchedRule: null };
-    if (fixture.expect === "allowed") {
-      const blockedSegment = segments2.find((segment) => segment.result);
-      return blockedSegment ? [
-        {
-          command: fixture.command,
-          message: `expected allowed but matched ${blockedSegment.matchedRule ?? "a rule"}`,
-          trace: traceRulebookFixture(blockedSegment.tokens, rulebook.rules)
-        }
-      ] : [];
-    }
-    const firstBlockedSegment = segments2.find((segment) => segment.result);
-    if (!firstBlockedSegment) {
-      return [
-        {
-          command: fixture.command,
-          message: `expected blocked by ${fixture.rule ?? "a rule"} but command was allowed`,
-          trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules)
-        }
-      ];
-    }
-    if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule)
-      return [];
-    return [
-      {
-        command: fixture.command,
-        message: `expected blocked by ${fixture.rule} but matched ${firstBlockedSegment.matchedRule}`,
-        trace: traceRulebookFixture(firstBlockedSegment.tokens, rulebook.rules)
-      }
-    ];
-  });
-  return { ok: failures.length === 0, failures };
-}
-function traceRulebookFixture(tokens, rules) {
-  return rules.map((rule) => {
-    const result = checkCustomRules([...tokens], [rule]);
-    return `${result ? "matched" : "skipped"} ${rule.name}`;
-  });
-}
-function assertValidRulebook(rulebook) {
-  const result = validateRulebook(rulebook);
-  if (result.errors.length > 0) {
-    throw new Error(result.errors.join("; "));
-  }
-  const parsed = rulebook;
-  const fixtures = runRulebookFixtures(parsed);
-  if (!fixtures.ok) {
-    throw new Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
-  }
-  return parsed;
-}
-
-// src/core/rules/policy/lockfile.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
-var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
-var RULEBOOK_SOURCE_KINDS = new Set(["local-directory", "github"]);
-function readLockfile(path) {
-  if (!existsSync6(path)) {
-    return { lock: null, errors: [] };
-  }
-  try {
-    const parsed = JSON.parse(readFileSync5(path, "utf-8"));
-    if (!parsed || typeof parsed !== "object") {
-      return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
-    }
-    const lock = parsed;
-    if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
-      return { lock: null, errors: [`malformed lockfile ${path}`] };
-    }
-    const parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`));
-    const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
-    if (entryErrors.length > 0) {
-      return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
-    }
-    return {
-      lock: {
-        version: 1,
-        rulebooks: parsedEntries.flatMap((entry) => entry.entry ? [entry.entry] : [])
-      },
-      errors: []
-    };
-  } catch (error) {
-    return {
-      lock: null,
-      errors: [
-        `malformed lockfile ${path}: ${error instanceof Error ? error.message : String(error)}`
-      ]
-    };
-  }
-}
-function parseLockEntry(entry, prefix) {
-  if (!entry || typeof entry !== "object") {
-    return { entry: null, errors: [`${prefix}: must be an object`] };
-  }
-  const candidate = entry;
-  const errors = [
-    ...validateRequiredString(candidate, prefix, "spec"),
-    ...validateRequiredString(candidate, prefix, "name"),
-    ...validateRequiredString(candidate, prefix, "version"),
-    ...validateDigest(candidate, prefix),
-    ...validateKind(candidate, prefix),
-    ...validateKindFields(candidate, prefix)
-  ];
-  if (errors.length > 0)
-    return { entry: null, errors };
-  if (candidate.kind === "local-directory") {
-    const localEntry = {
-      spec: requiredString(candidate, "spec"),
-      kind: "local-directory",
-      path: requiredString(candidate, "path"),
-      name: requiredString(candidate, "name"),
-      version: requiredString(candidate, "version"),
-      digest: requiredString(candidate, "digest")
-    };
-    const identityError2 = getLockEntrySourceIdentityError(localEntry, prefix);
-    if (identityError2)
-      return { entry: null, errors: [identityError2] };
-    return {
-      entry: localEntry,
-      errors: []
-    };
-  }
-  const githubEntry = {
-    spec: requiredString(candidate, "spec"),
-    kind: "github",
-    owner: requiredString(candidate, "owner"),
-    repo: requiredString(candidate, "repo"),
-    ref: requiredString(candidate, "ref"),
-    commit: requiredString(candidate, "commit"),
-    path: requiredString(candidate, "path"),
-    name: requiredString(candidate, "name"),
-    version: requiredString(candidate, "version"),
-    digest: requiredString(candidate, "digest")
-  };
-  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
-  if (identityError)
-    return { entry: null, errors: [identityError] };
-  return {
-    entry: typeof candidate.display_ref === "string" && candidate.display_ref !== "" ? { ...githubEntry, display_ref: candidate.display_ref } : githubEntry,
-    errors: []
-  };
-}
-function validateRequiredString(candidate, prefix, field) {
-  return typeof candidate[field] === "string" && candidate[field].trim() !== "" ? [] : [`${prefix}.${field}: required string`];
-}
-function validateDigest(candidate, prefix) {
-  return typeof candidate.digest === "string" && SHA256_DIGEST_PATTERN.test(candidate.digest) ? [] : [`${prefix}.digest: required sha256 digest`];
-}
-function validateKind(candidate, prefix) {
-  if (typeof candidate.kind !== "string") {
-    return [`${prefix}.kind: required string`];
-  }
-  return RULEBOOK_SOURCE_KINDS.has(candidate.kind) ? [] : [`${prefix}.kind: unknown kind "${candidate.kind}"`];
-}
-function validateKindFields(candidate, prefix) {
-  if (candidate.kind === "local-directory") {
-    return validateRequiredString(candidate, prefix, "path");
-  }
-  if (candidate.kind === "github") {
-    return ["owner", "repo", "ref", "commit", "path"].flatMap((field) => validateRequiredString(candidate, prefix, field));
-  }
-  return [];
-}
-function getLockEntrySourceIdentityError(entry, prefix) {
-  const error = getRulebookLockEntrySourceIdentityError(entry);
-  return error ? `${prefix}: ${error}` : null;
-}
-function requiredString(candidate, field) {
-  const value = candidate[field];
-  if (typeof value !== "string") {
-    throw new Error(`Expected ${field} to be validated before reading`);
-  }
-  return value;
-}
-
-// src/core/rules/policy/resolver.ts
-import { createHash } from "node:crypto";
-import { existsSync as existsSync7, readFileSync as readFileSync6 } from "node:fs";
-import { join as join7 } from "node:path";
-async function resolveRulebookSource(spec, configDir, options2) {
-  if (isGitHubRulebookSource(spec)) {
-    return resolveGitHubRulebook(spec);
-  }
-  return resolveLocalRulebook(spec, configDir, options2);
-}
-async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock) {
-  if (!isGitHubRulebookSource(spec) || options2.refresh) {
-    return resolveRulebookSource(spec, configDir, options2);
-  }
-  const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
-  if (!locked || locked.kind !== "github") {
-    return resolveRulebookSource(spec, configDir, options2);
-  }
-  return readLockedGitHubRulebook(locked, configDir, options2);
-}
-async function discoverGitHubRepositoryRulebooks(source) {
-  const [owner, repo] = source.split("/");
-  if (!owner || !repo) {
-    throw new Error(`Invalid GitHub repository source: ${source}`);
-  }
-  const metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-  if (!metadataResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  }
-  const metadata = await metadataResponse.json();
-  if (!metadata.default_branch) {
-    throw new Error(`Failed to inspect ${source}: missing default branch`);
-  }
-  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source);
-  const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
-  if (!treeResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
-  }
-  const treeJson = await treeResponse.json();
-  const names = (treeJson.tree ?? []).flatMap((entry) => {
-    if (entry.type !== "blob" || typeof entry.path !== "string")
-      return [];
-    const match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
-    return match?.[1] ? [match[1]] : [];
-  }).sort();
-  if (names.length === 0) {
-    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
-  }
-  return names.map((name) => ({
-    spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: metadata.default_branch
-  }));
-}
-function resolveLocalRulebook(spec, configDir, _options) {
-  assertBareRulebookName(spec);
-  const path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync7(path)) {
-    throw new Error(`Rulebook source not found: ${spec}`);
-  }
-  const content = readFileSync6(path, "utf-8");
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== spec) {
-    throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
-  }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: "local-directory",
-      path: spec,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content)
-    }
-  };
-}
-async function resolveGitHubRulebook(spec) {
-  const parsed = parseGitHubSource(spec);
-  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec);
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== parsed.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
-  }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: "github",
-      owner: parsed.owner,
-      repo: parsed.repo,
-      ref: parsed.ref,
-      commit,
-      path: parsed.path,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content)
-    }
-  };
-}
-async function readLockedGitHubRulebook(entry, configDir, options2) {
-  const identityError = getRulebookLockEntrySourceIdentityError(entry);
-  if (identityError) {
-    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
-  }
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (existsSync7(cachePath)) {
-    const content = readFileSync6(cachePath, "utf-8");
-    if (sha256Digest(content) === entry.digest) {
-      return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-    }
-  }
-  return fetchLockedGitHubRulebook(entry);
-}
-async function fetchLockedGitHubRulebook(entry) {
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  if (sha256Digest(content) !== entry.digest) {
-    throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
-  return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-}
-function assertRulebookMatchesLockEntry(content, entry) {
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== entry.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
-  }
-  return rulebook;
-}
-async function resolveGitHubCommit(owner, repo, ref, source) {
-  const commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
-  if (!commitResponse.ok) {
-    throw new Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
-  }
-  const commitJson = await commitResponse.json();
-  if (!commitJson.sha) {
-    throw new Error(`Failed to resolve commit for ${source}`);
-  }
-  return commitJson.sha;
-}
-function getLocalRulebookPath(configDir, name) {
-  return join7(configDir, name, RULEBOOK_FILE);
-}
-function sha256Digest(content) {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
-
-// src/core/rules/policy/scope-policy.ts
-function loadRulesPolicy(options2 = {}) {
-  const paths = getPolicyPaths(options2);
-  const sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath);
-  const user = readRulesConfig(paths.userConfigPath);
-  const project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath);
-  const errors = [
-    ...getLegacyRulesConfigErrors(paths, options2),
-    ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
-    ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
-  ];
-  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname7(paths.userConfigPath), options2, "user") : emptyScopePolicy();
-  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname7(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
-  const duplicateNames = getDuplicateRulebookNames([
-    ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
-    ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
-  ]);
-  const userOverrides = user.config?.overrides ?? {};
-  const projectOverrides = project.config?.overrides ?? {};
-  return {
-    rules: [
-      ...applyOverrides(userPolicy.rules, userOverrides),
-      ...applyOverrides(projectPolicy.rules, projectOverrides)
-    ],
-    transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
-    rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
-    errors: [
-      ...errors,
-      ...userPolicy.errors,
-      ...projectPolicy.errors,
-      ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
-      ...userPolicy.canValidateOverrides ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds) : [],
-      ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
-      ...projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds) : []
-    ],
-    userConfig: user.config ?? undefined,
-    projectConfig: project.config ?? undefined,
-    ...paths
-  };
-}
-function getRulesConfigSourceDisplayMap(configPath) {
-  const config = readRulesConfig(configPath).config;
-  const lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
-  if (!config || !lock)
-    return new Map;
-  const configuredSources = new Set(config.rules);
-  return new Map(lock.rulebooks.filter((entry) => configuredSources.has(entry.spec)).map((entry) => [entry.spec, getRulebookDisplaySource(entry)]));
-}
-function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2) {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
-  if (!loaded)
-    return [];
-  return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
-}
-function loadScopePolicyForConfig(configPath, lockPath, options2) {
-  const config = readRulesConfig(configPath).config;
-  if (!config) {
-    return null;
-  }
-  return {
-    config,
-    scope: loadScopePolicy(config, lockPath, dirname7(configPath), options2, "project")
-  };
-}
-function getUnknownOverrideErrorsForScope(config, scope) {
-  return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
-}
-function loadScopePolicy(config, lockPath, configDir, options2, source) {
-  const lockResult = readLockfile(lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
-  }
-  const lock = lockResult.lock;
-  if (!lock && config.rules.length > 0) {
-    return {
-      ...emptyScopePolicy(),
-      errors: [`missing lockfile ${lockPath}; run ${RULE_SYNC_COMMAND}`],
-      canValidateOverrides: false
-    };
-  }
-  const entries = lock?.rulebooks ?? [];
-  const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
-  const errors = [];
-  const loaded = config.rules.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
-      return [];
-    }
-    const loadedRulebook = loadLockedRulebook(entry, configDir, options2);
-    if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
-      errors.push(...loadedRulebook.errors);
-      return [];
-    }
-    const rulebook = loadedRulebook.rulebook;
-    return [
-      {
-        rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
-        rulebook: {
-          source,
-          spec: entry.spec,
-          name: rulebook.name,
-          version: rulebook.version,
-          rules: rulebook.rules.map((rule) => `${rulebook.name}/${rule.name}`)
-        }
-      }
-    ];
-  });
-  const rules = loaded.flatMap((item) => item.rules);
-  return {
-    rules,
-    rulebooks: loaded.map((item) => item.rulebook),
-    entries,
-    knownRuleIds: new Set(rules.map((rule) => rule.name)),
-    errors,
-    canValidateOverrides: errors.length === 0
-  };
-}
-function loadLockedRulebook(entry, configDir, options2) {
-  const errors = [];
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (!existsSync8(cachePath)) {
-    return {
-      rulebook: null,
-      errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
-    };
-  }
-  let cacheContent;
-  try {
-    cacheContent = readFileSync7(cachePath, "utf-8");
-  } catch (error) {
-    return {
-      rulebook: null,
-      errors: [
-        `failed to read cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`
-      ]
-    };
-  }
-  if (sha256Digest(cacheContent) !== entry.digest) {
-    errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
-  let rulebook = null;
-  try {
-    const parsed = JSON.parse(cacheContent);
-    assertValidRulebook(parsed);
-    rulebook = parsed;
-  } catch (error) {
-    errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (entry.kind === "local-directory") {
-    const sourcePath = resolve6(configDir, entry.path);
-    const sourceRelative = relative2(resolve6(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute8(sourceRelative)) {
-      errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
-      return { rulebook: null, errors };
-    }
-    const localPath = join8(sourcePath, RULEBOOK_FILE);
-    if (!existsSync8(localPath)) {
-      errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    } else {
-      try {
-        const localContent = readFileSync7(localPath, "utf-8");
-        if (sha256Digest(localContent) !== entry.digest) {
-          errors.push(getLocalSourceDriftError(entry.spec, localContent));
-        }
-      } catch (error) {
-        errors.push(`failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-  return { rulebook: errors.length === 0 ? rulebook : null, errors };
-}
-function rulesPolicyToConfig(policy) {
-  if (policy.errors.length > 0) {
-    return {
-      version: 1,
-      rules: [],
-      transparent_wrappers: [],
-      failClosedReason: withTerminalPeriod(policy.errors.join("; "))
-    };
-  }
-  return { version: 1, rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
-}
-function mergeTransparentWrappers(userConfig, projectConfig) {
-  return [
-    ...new Set([
-      ...userConfig?.transparent_wrappers ?? [],
-      ...projectConfig?.transparent_wrappers ?? []
-    ])
-  ];
-}
-function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve6(userConfigPath) === resolve6(projectConfigPath)) {
-    return true;
-  }
-  if (!existsSync8(userConfigPath) || !existsSync8(projectConfigPath)) {
-    return false;
-  }
-  try {
-    return realpathSync8(userConfigPath) === realpathSync8(projectConfigPath);
-  } catch {
-    return false;
-  }
-}
-function getLegacyRulesConfigErrors(paths, options2) {
-  return Array.from(new Set([
-    ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json"),
-    ...getLegacyRulesConfigError(getLegacyProjectRulesConfigPath(options2), paths.projectConfigPath, ".safety-net.json")
-  ]));
-}
-function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
-  if (!existsSync8(legacyPath))
-    return [];
-  if (hasMigrationEvidence(configPath, migratedFrom))
-    return [];
-  if (!legacyRulesConfigNeedsMigration(legacyPath))
-    return [];
-  return [
-    `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`
-  ];
-}
-function legacyRulesConfigNeedsMigration(legacyPath) {
-  try {
-    const parsed = JSON.parse(readFileSync7(legacyPath, "utf-8"));
-    if (!parsed || typeof parsed !== "object")
-      return true;
-    const config = parsed;
-    if (config.version !== 1)
-      return true;
-    if (config.rules === undefined)
-      return false;
-    if (!Array.isArray(config.rules))
-      return true;
-    return config.rules.length > 0;
-  } catch {
-    return true;
-  }
-}
-function hasMigrationEvidence(configPath, migratedFrom) {
-  const config = readRulesConfig(configPath).config;
-  if (!config)
-    return false;
-  return config.rules.some((source) => getRulebookMigratedFrom(dirname7(configPath), source) === migratedFrom);
-}
-function getRulebookMigratedFrom(configDir, source) {
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
-    return null;
-  const path = join8(configDir, source, RULEBOOK_FILE);
-  if (!existsSync8(path))
-    return null;
-  try {
-    const rulebook = JSON.parse(readFileSync7(path, "utf-8"));
-    return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
-  } catch {
-    return null;
-  }
-}
-function getLocalSourceDriftError(spec, content) {
-  try {
-    assertValidRulebook(JSON.parse(content));
-  } catch (error) {
-    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
-  }
-  return `local source digest mismatch for ${spec}; run ${RULE_SYNC_COMMAND}`;
-}
-function applyOverrides(rules, overrides) {
-  return rules.flatMap((rule) => {
-    const override = overrides[rule.name];
-    if (override === "off") {
-      return [];
-    }
-    if (override && typeof override === "object") {
-      return [{ ...rule, intent: override.intent ?? rule.intent, reason: override.reason }];
-    }
-    return [rule];
-  });
-}
-function getUnknownOverrideErrors(overrides, knownRuleIds) {
-  return Object.keys(overrides).filter((key) => !knownRuleIds.has(key)).map((key) => `unknown override key "${key}"`);
-}
-function getProjectOverrideUserRuleErrors(projectOverrides, userRuleIds) {
-  return Object.keys(projectOverrides).filter((key) => userRuleIds.has(key)).map((key) => `project override cannot target user-scoped rule "${key}"`);
-}
-function getDuplicateRulebookNames(entries) {
-  const seen = new Set;
-  const duplicates = new Set;
-  for (const entry of entries) {
-    if (seen.has(entry.name)) {
-      duplicates.add(entry.name);
-      continue;
-    }
-    seen.add(entry.name);
-  }
-  return [...duplicates];
-}
-function getConfiguredLockEntries(config, path) {
-  return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) => config.rules.includes(entry.spec));
-}
-function emptyScopePolicy() {
-  return {
-    rules: [],
-    rulebooks: [],
-    entries: [],
-    knownRuleIds: new Set,
-    errors: [],
-    canValidateOverrides: true
-  };
-}
-function withTerminalPeriod(message) {
-  return /[.!?]$/.test(message) ? message : `${message}.`;
-}
-
-// src/core/rules/policy/sync.ts
-import {
-  existsSync as existsSync9,
-  lstatSync as lstatSync4,
-  mkdirSync as mkdirSync4,
-  readdirSync,
-  readFileSync as readFileSync8,
-  rmdirSync,
-  rmSync as rmSync2,
-  unlinkSync,
-  writeFileSync as writeFileSync2
-} from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute9, join as join9, relative as relative3, resolve as resolve7, sep as sep5 } from "node:path";
-async function syncRulesConfig(options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok)
-    return scopeConfig.result;
-  const config = scopeConfig.config;
-  if (options2.check) {
-    return checkRulesConfig(config, scope.configDir, scope.lockPath, options2);
-  }
-  try {
-    const existingLockResult = readLockfile(scope.lockPath);
-    if (options2.only && existingLockResult.errors.length > 0) {
-      return { ok: false, errors: existingLockResult.errors, warnings: [], entries: [] };
-    }
-    const previousLock = existingLockResult.errors.length > 0 ? null : existingLockResult.lock;
-    const selectedSpecs = options2.only ? getSelectedUpdateSpecs(config, previousLock, options2.only) : { ok: true, specs: config.rules };
-    if (!selectedSpecs.ok) {
-      return selectedSpecs.result;
-    }
-    if (options2.only && !previousLock && selectedSpecs.specs.length < config.rules.length) {
-      return {
-        ok: false,
-        errors: [`No lockfile available for partial update; run ${RULE_SYNC_COMMAND}`],
-        warnings: [],
-        entries: []
-      };
-    }
-    const resolved = (await Promise.all(selectedSpecs.specs.map((spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock)))).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
-    for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options2);
-    }
-    const entries = options2.only ? mergeSelectedLockEntries(config, previousLock, resolved) : resolved.map((item) => item.entry);
-    writeJsonAtomic(scope.lockPath, { version: 1, rulebooks: entries });
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2);
-    return {
-      ok: true,
-      errors: [],
-      warnings,
-      entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec))
-    };
-  } catch (error) {
-    return failWithError(error);
-  }
-}
-async function testRulebookSources(sources, options2 = {}) {
-  const scope = getScopePaths(options2);
-  try {
-    const resolved = await Promise.all(sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options2)));
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length]));
-    const fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
-      `${item.entry.spec}: ${failure.command}: ${failure.message}`,
-      ...failure.trace.map((line) => `  ${line}`)
-    ].join(`
-`)));
-    return {
-      ok: fixtureErrors.length === 0,
-      errors: fixtureErrors,
-      warnings: [],
-      entries: resolved.map((item) => ({
-        ...addRuleCount(item.entry, ruleCountsBySpec),
-        testCount: testCountsBySpec.get(item.entry.spec)
-      }))
-    };
-  } catch (error) {
-    return failWithError(error);
-  }
-}
-async function addRulebookSource(source, options2 = {}) {
-  const scope = getScopePaths(options2);
-  mkdirSync4(scope.configDir, { recursive: true });
-  const before = existsSync9(scope.configPath) ? readFileSync8(scope.configPath, "utf-8") : null;
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok)
-    return scopeConfig.result;
-  const config = scopeConfig.config;
-  let discoveredSources;
-  try {
-    discoveredSources = isGitHubRepositorySource(source) ? await discoverGitHubRepositoryRulebooks(source) : [{ spec: source }];
-  } catch (error) {
-    return {
-      ok: false,
-      errors: [error instanceof Error ? error.message : String(error)],
-      warnings: [],
-      entries: []
-    };
-  }
-  const sources = discoveredSources.map((item) => item.spec);
-  const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
-  if (nextRules.length !== config.rules.length) {
-    writeJsonAtomic(scope.configPath, {
-      version: 1,
-      rules: nextRules,
-      overrides: config.overrides ?? {},
-      transparent_wrappers: config.transparent_wrappers ?? []
-    });
-  }
-  const result = await syncRulesConfig({
-    ...options2,
-    discoveredDisplayRefs: new Map(discoveredSources.filter((item) => !!item.display_ref).map((item) => [item.spec, item.display_ref]))
-  });
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-  }
-  return result;
-}
-async function removeRulebookSource(match, options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const loaded = readRulesConfig(scope.configPath);
-  if (loaded.errors.length > 0) {
-    return { ok: false, errors: loaded.errors, warnings: [], entries: [] };
-  }
-  if (!loaded.config) {
-    return {
-      ok: false,
-      errors: [`No config found at ${scope.configPath}`],
-      warnings: [],
-      entries: []
-    };
-  }
-  const lockResult = readLockfile(scope.lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ok: false, errors: lockResult.errors, warnings: [], entries: [] };
-  }
-  const matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
-  if (!matches.ok)
-    return matches.result;
-  const sourceDirs = options2.deleteSource ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock) : { ok: true, dirs: [] };
-  if (!sourceDirs.ok)
-    return sourceDirs.result;
-  const before = readFileSync8(scope.configPath, "utf-8");
-  writeJsonAtomic(scope.configPath, {
-    version: 1,
-    rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
-    overrides: loaded.config.overrides ?? {},
-    transparent_wrappers: loaded.config.transparent_wrappers ?? []
-  });
-  const result = await syncRulesConfig(options2);
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-    return result;
-  }
-  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions);
-  if (!deleteResult.ok) {
-    restoreConfig(scope.configPath, before);
-    const rollback = await syncRulesConfig(options2);
-    if (!rollback.ok) {
-      return {
-        ok: false,
-        errors: [...deleteResult.result.errors, ...rollback.errors],
-        warnings: rollback.warnings,
-        entries: rollback.entries
-      };
-    }
-    return deleteResult.result;
-  }
-  return result;
-}
-function repairLocalRulesPolicy(options2 = {}) {
-  repairLocalRulesScope({ ...options2, global: true });
-  repairLocalRulesScope({ ...options2, global: false });
-}
-async function checkRulesConfig(config, configDir, lockPath, options2) {
-  const result = loadScopePolicy(config, lockPath, configDir, options2, "project");
-  return {
-    ok: result.errors.length === 0,
-    errors: result.errors,
-    warnings: [],
-    entries: result.entries
-  };
-}
-function repairLocalRulesScope(options2) {
-  const scope = getScopePaths(options2);
-  const loaded = readRulesConfig(scope.configPath);
-  if (!loaded.config || loaded.errors.length > 0 || loaded.config.rules.length === 0) {
-    return;
-  }
-  if (!loaded.config.rules.every((spec) => /^[a-zA-Z0-9_-]{1,64}$/.test(spec))) {
-    return;
-  }
-  try {
-    const resolved = loaded.config.rules.map((spec) => resolveLocalRulebook(spec, scope.configDir, options2));
-    for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options2);
-    }
-    writeJsonAtomic(scope.lockPath, {
-      version: 1,
-      rulebooks: resolved.map((item) => item.entry)
-    });
-  } catch {}
-}
-function preserveDisplayRef(item, previousLock, discoveredDisplayRefs) {
-  const previousEntry = previousLock?.rulebooks.find((entry) => entry.spec === item.entry.spec && entry.kind === "github");
-  const displayRef = discoveredDisplayRefs?.get(item.entry.spec) ?? (previousEntry?.kind === "github" ? previousEntry.display_ref : undefined);
-  if (!displayRef || item.entry.kind !== "github")
-    return item;
-  return { ...item, entry: { ...item.entry, display_ref: displayRef } };
-}
-function mergeSelectedLockEntries(config, previousLock, resolved) {
-  const configuredSpecs = new Set(config.rules);
-  const previousSpecs = new Set(previousLock?.rulebooks.map((entry) => entry.spec) ?? []);
-  const resolvedBySpec = new Map(resolved.map((item) => [item.entry.spec, item.entry]));
-  return [
-    ...(previousLock?.rulebooks.filter((entry) => configuredSpecs.has(entry.spec)) ?? []).map((entry) => resolvedBySpec.get(entry.spec) ?? entry),
-    ...resolved.filter((item) => !previousSpecs.has(item.entry.spec)).map((item) => item.entry)
-  ];
-}
-function addRuleCount(entry, ruleCountsBySpec) {
-  return {
-    ...entry,
-    ruleCount: ruleCountsBySpec.get(entry.spec)
-  };
-}
-function writeCache(content, entry, configDir, options2) {
-  const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  mkdirSync4(dirname8(path), { recursive: true });
-  writeFileSync2(path, content, "utf-8");
-}
-function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
-  const internalOptions = options2;
-  const cacheRoot = join9(dirname8(configDir), "cache", "rulebooks");
-  if (!existsSync9(cacheRoot))
-    return [];
-  const keep = new Set(entries.map((entry) => dirname8(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
-  return readdirSync(cacheRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
-    const path = join9(cacheRoot, entry.name);
-    if (keep.has(path))
-      return [];
-    try {
-      pruneRulebookCacheDir(path, internalOptions);
-      return [];
-    } catch (error) {
-      return [
-        `Failed to prune rulebook cache entry ${path}: ${error instanceof Error ? error.message : String(error)}`
-      ];
-    }
-  });
-}
-function getLocalSourceDirsForDelete(configDir, specs, lock) {
-  const entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
-  const errors = specs.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      return NAME_PATTERN.test(spec) ? [] : ["--delete-source can only delete local rulebook sources"];
-    }
-    return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
-  });
-  const dirs = specs.map((spec) => {
-    const entry = entriesBySpec.get(spec);
-    return join9(configDir, entry?.kind === "local-directory" ? entry.path : spec);
-  });
-  const dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir));
-  const allErrors = [...errors, ...dirErrors];
-  return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
-}
-function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve7(configDir);
-  const resolvedDir = resolve7(dir);
-  const relativeDir = relative3(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute9(relativeDir)) {
-    return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
-  }
-  if (!existsSync9(resolvedDir))
-    return [`Local rulebook source directory not found: ${dir}`];
-  if (!lstatSync4(resolvedDir).isDirectory()) {
-    return [`Local rulebook source is not a directory: ${dir}`];
-  }
-  const entries = readdirSync(resolvedDir);
-  if (!entries.includes("rulebook.json")) {
-    return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
-  }
-  if (!lstatSync4(join9(resolvedDir, "rulebook.json")).isFile()) {
-    return [`Local rulebook source rulebook.json is not a file: ${dir}`];
-  }
-  if (entries.length > 1) {
-    return [
-      `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
-    ];
-  }
-  return [];
-}
-function deleteLocalSourceDirs(dirs, options2) {
-  const errors = dirs.flatMap((dir) => {
-    try {
-      deleteLocalSourceDir(dir, options2);
-      return [];
-    } catch (error) {
-      return [
-        `Failed to delete local rulebook source ${dir}: ${error instanceof Error ? error.message : String(error)}`
-      ];
-    }
-  });
-  return errors.length > 0 ? { ok: false, result: { ok: false, errors, warnings: [], entries: [] } } : { ok: true };
-}
-function pruneRulebookCacheDir(path, options2) {
-  if (options2._testPruneRulebookCacheDir) {
-    options2._testPruneRulebookCacheDir(path);
-    return;
-  }
-  rmSync2(path, { recursive: true, force: true });
-}
-function deleteLocalSourceDir(dir, options2) {
-  if (options2._testDeleteLocalSourceDir) {
-    options2._testDeleteLocalSourceDir(dir);
-    return;
-  }
-  unlinkSync(join9(dir, "rulebook.json"));
-  rmdirSync(dir);
-}
-function restoreConfig(path, content) {
-  if (content === null) {
-    rmSync2(path, { force: true });
-    return;
-  }
-  writeFileSync2(path, content, "utf-8");
-}
-function failWithError(error) {
-  return {
-    ok: false,
-    errors: [error instanceof Error ? error.message : String(error)],
-    warnings: [],
-    entries: []
-  };
-}
-
-// src/core/config.ts
-function loadConfig(cwd, options2) {
-  const safeCwd = typeof cwd === "string" ? cwd : process.cwd();
-  if (options2?.repairLocalRulebooks) {
-    repairLocalRulesPolicy({ cwd: safeCwd, userConfigDir: options2.userConfigDir });
-  }
-  const rulesConfig = rulesPolicyToConfig(loadRulesPolicy({ cwd: safeCwd, userConfigDir: options2?.userConfigDir }));
-  const policyConfig = loadPolicyConfig({ cwd: safeCwd, userConfigDir: options2?.userConfigDir });
-  return {
-    ...rulesConfig,
-    safety: policyConfig.safety,
-    worktreeMode: policyConfig.worktreeMode,
-    destructiveCommandProtectionEnabled: policyConfig.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: policyConfig.disabledDestructiveCommandRules,
-    secretProtection: policyConfig.secretProtection,
-    failClosedReason: combineFailClosedReasons(rulesConfig.failClosedReason, policyConfig.errors.length > 0 ? `invalid policy config: ${policyConfig.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
-  };
-}
-function validateConfig(config) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!config || typeof config !== "object") {
-    errors.push("Config must be an object");
-    return { errors, ruleNames };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
-    errors.push("version must be 1");
-  }
-  if (cfg.rules !== undefined) {
-    if (!Array.isArray(cfg.rules)) {
-      errors.push("rules must be an array");
-    } else {
-      for (let i = 0;i < cfg.rules.length; i++) {
-        errors.push(...validateCustomRule(cfg.rules[i], i, ruleNames));
-      }
-    }
-  }
-  return { errors, ruleNames };
-}
-function validateConfigFile(path) {
-  return validateParsedConfigFile(path, validateConfig);
-}
-function readConfigFileInput(path) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!existsSync10(path)) {
-    errors.push(`File not found: ${path}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
-  try {
-    const content = readFileSync9(path, "utf-8");
-    if (!content.trim()) {
-      errors.push("Config file is empty");
-      return { ok: false, result: { errors, ruleNames } };
-    }
-    return { ok: true, parsed: JSON.parse(content) };
-  } catch (e) {
-    errors.push(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
-}
-function getLegacyProjectConfigPath(cwd) {
-  return resolve8(cwd ?? process.cwd(), ".safety-net.json");
-}
-function validateRulesConfigFile(path) {
-  const loaded = readConfigFileInput(path);
-  if (!loaded.ok)
-    return loaded.result;
-  const result = validateRulesConfig(loaded.parsed);
-  return { errors: result.errors, ruleNames: result.sources };
-}
-function validateParsedConfigFile(path, validate) {
-  const loaded = readConfigFileInput(path);
-  if (!loaded.ok)
-    return loaded.result;
-  return validate(loaded.parsed);
-}
-function combineFailClosedReasons(...reasons) {
-  const present = reasons.filter((reason) => !!reason);
-  if (present.length === 0)
-    return;
-  return withTerminalPeriod2(present.join("; "));
-}
-function withTerminalPeriod2(value) {
-  return /[.!?]$/.test(value) ? value : `${value}.`;
-}
-
 // src/core/analyze/index.ts
-function analyzeCommand(command2, options2 = {}) {
-  const config = options2.config ?? loadConfig(options2.cwd);
-  const modes = getCCSafetyNetEnvModes(config);
+function analyzeCommand(command2, options2) {
+  const modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
-    config,
+    policy: options2.policySnapshot.policy,
+    invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : undefined,
     strict: options2.strict ?? modes.strict,
     paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
     paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
@@ -9423,12 +9161,12 @@ function analyzeCommand(command2, options2 = {}) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute10, join as join11, normalize as normalize4, resolve as resolve9 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, normalize as normalize4, resolve as resolve7 } from "node:path";
 
 // src/core/path-canonicalization.ts
 import { realpathSync as realpathSync9 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname9, join as join10 } from "node:path";
+import { basename, dirname as dirname8, join as join9 } from "node:path";
 var SUPPORTED_PATH_ENV_NAMES = new Set([
   "CC_SAFETY_NET_HOME",
   "CLAUDE_CONFIG_DIR",
@@ -9454,10 +9192,10 @@ function resolveExistingPath(path) {
   try {
     return realpathSync9(path);
   } catch {
-    const parent = dirname9(path);
+    const parent = dirname8(path);
     if (parent === path)
       return path;
-    return join10(resolveExistingPath(parent), basename(path));
+    return join9(resolveExistingPath(parent), basename(path));
   }
 }
 function getSupportedPathEnvironmentValue(name) {
@@ -9754,20 +9492,20 @@ function getPolicyConfigProtectedPaths(cwd) {
   ];
 }
 function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
-  const configDir = dirname10(configPath);
+  const configDir = dirname9(configPath);
   const loaded = readRulesConfig(configPath);
   if (!loaded.config)
-    return [dirname10(configDir), configDir, configPath, lockPath];
+    return [dirname9(configDir), configDir, configPath, lockPath];
   const configuredSources = new Set(loaded.config.rules);
   return [
-    dirname10(configDir),
+    dirname9(configDir),
     configDir,
     configPath,
     lockPath,
-    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join11(configDir, source), join11(configDir, source, RULEBOOK_FILE)]),
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join10(configDir, source), join10(configDir, source, RULEBOOK_FILE)]),
     ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
       const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
-      return [dirname10(cachePath), cachePath];
+      return [dirname9(cachePath), cachePath];
     })
   ];
 }
@@ -9803,8 +9541,8 @@ function normalizeCandidatePath(target, cwd) {
   const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize4(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded))).replace(/\\/g, "/");
+  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve7(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded))).replace(/\\/g, "/");
 }
 function isOperator2(token) {
   const op = getParseOp(token);
@@ -9826,7 +9564,7 @@ function getParseOp(token) {
 
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute11, resolve as resolve10 } from "node:path";
+import { isAbsolute as isAbsolute10, resolve as resolve8 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
 var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
@@ -9925,7 +9663,7 @@ var VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
   ["python", new Set(["-W", "-X"])],
   ["node", new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
-function findSensitivePathTarget(targets, cwd = process.cwd(), config, configCwd = cwd) {
+function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config, configCwd)) {
       return { target, ruleId: "secret.deny-path" };
@@ -9937,8 +9675,8 @@ function findSensitivePathTarget(targets, cwd = process.cwd(), config, configCwd
   }
   return null;
 }
-function findSensitiveTargetInToolInput(input, route, executionCwd = process.cwd(), config, configCwd = executionCwd) {
-  return findSensitivePathTarget(extractToolPathTargets(input, route), executionCwd, config, configCwd);
+function findSensitiveTargetInPolicyToolInput(input, route, executionCwd, config, configCwd) {
+  return findSensitivePolicyPathTarget(extractToolPathTargets(input, route), executionCwd, config, configCwd);
 }
 function extractToolPathTargets(input, route) {
   if (route.kind === "command") {
@@ -10684,7 +10422,7 @@ function appendPath(root, ...parts) {
   return normalizePathText([root, ...parts].filter(Boolean).join("/"));
 }
 function isSensitiveDirSegment(comparablePath, dirName) {
-  return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.includes(`/${dirName}/`);
+  return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.endsWith(`/${dirName}`) || comparablePath.includes(`/${dirName}/`);
 }
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
@@ -10727,7 +10465,11 @@ function comparable(value) {
   return value.toLowerCase();
 }
 function isSecretRuleEnabled(id, config) {
-  return !config?.disabledRules?.has(id);
+  if (!config?.disabledRules)
+    return true;
+  if (Array.isArray(config.disabledRules))
+    return !config.disabledRules.includes(id);
+  return !config.disabledRules.has(id);
 }
 function normalizeCandidatePath2(target, cwd) {
   const homeValue = process.env.HOME ?? homedir6();
@@ -10740,10 +10482,10 @@ function normalizeCandidatePath2(target, cwd) {
     return normalized;
   }
   const expanded = expandHomePath(normalized, home);
-  const absolute = isAbsolute11(expanded) ? expanded : normalizePathText(resolve10(cwd, expanded));
+  const absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve8(cwd, expanded));
   const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute11(expanded))
+    if (isAbsolute10(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -10757,7 +10499,7 @@ function normalizeAbsoluteCandidatePath(target, cwd) {
   if (!normalized)
     return "";
   const expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute11(expanded) ? expanded : resolve10(cwd, expanded)));
+  return normalizePathText(resolveExistingPath(isAbsolute10(expanded) ? expanded : resolve8(cwd, expanded)));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -10811,8 +10553,8 @@ class GuardEvaluationError extends Error {
 }
 var DEFAULT_DEPENDENCIES = {
   findPolicyMutation: findPolicyConfigMutationTargetInToolInput,
-  loadConfig,
-  findSensitiveTarget: findSensitiveTargetInToolInput,
+  loadPolicySnapshot,
+  findSensitiveTarget: findSensitiveTargetInPolicyToolInput,
   analyzeCommand,
   getModes: getCCSafetyNetEnvModes
 };
@@ -10836,11 +10578,12 @@ function evaluateGuard(invocation, options2 = {}) {
       }
     };
   }
-  const config = callDependency("config-load", invocation, () => dependencies.loadConfig(invocation.context.configCwd, {
-    repairLocalRulebooks: true,
-    ...options2.configOptions
+  const snapshot = callDependency("config-load", invocation, () => dependencies.loadPolicySnapshot({
+    ...options2.policyOptions,
+    cwd: invocation.context.configCwd
   }));
-  const secretTarget = config.secretProtection?.enabled === false ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, config.secretProtection, invocation.context.configCwd));
+  const policy = snapshot.policy;
+  const secretTarget = policy.secretProtection.enabled === false ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, policy.secretProtection, invocation.context.configCwd));
   if (secretTarget) {
     const displayCommand = command2 ?? secretTarget.target;
     return {
@@ -10867,12 +10610,12 @@ function evaluateGuard(invocation, options2 = {}) {
     };
   }
   if (!isCommandInvocation(invocation)) {
-    if (config.failClosedReason) {
+    if (snapshot.state === "invalid") {
       return {
         stage: "config-state",
         decision: {
           kind: "deny",
-          reason: config.failClosedReason,
+          reason: snapshot.reason,
           intent: "stop_and_explain",
           evidence: inputCommand ? [{ kind: "command", command: inputCommand, segment: inputCommand }] : []
         }
@@ -10884,11 +10627,11 @@ function evaluateGuard(invocation, options2 = {}) {
     return failedClosedEvaluation("command-validation", invocation);
   }
   const result = callDependency("command-analysis", invocation, () => {
-    const modes = dependencies.getModes(config);
+    const modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(invocation.command, {
       cwd: invocation.context.executionCwd,
       shell: invocation.route.shell,
-      config,
+      policySnapshot: snapshot,
       strict: modes.strict,
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
@@ -10993,7 +10736,7 @@ function handlePiToolCallWithDependencies(event, ctx, guardDependencies) {
   try {
     evaluation = evaluateGuard(toolCall, {
       auditAllowed: envTruthy(ENV_FLAGS.debug),
-      configOptions: ctx.safetyNetConfigOptions,
+      policyOptions: ctx.safetyNetPolicyOptions,
       dependencies: {
         ...guardDependencies,
         ...ctx.safetyNetAnalyzeCommand ? { analyzeCommand: ctx.safetyNetAnalyzeCommand } : {}

@@ -12,6 +12,7 @@ const result = await Bun.build({
   entrypoints: ['src/index.ts', 'src/bin/cc-safety-net.ts', 'src/pi/index.ts'],
   outdir: 'dist',
   target: 'node',
+  external: ['zod'],
   define: {
     __PKG_VERSION__: JSON.stringify(pkg.version),
   },

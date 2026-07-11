@@ -32,6 +32,7 @@ import {
   getCommandFromToolInput,
 } from '@/core/tool-input';
 import type { ToolRoute } from '@/domain/invocation';
+import type { EffectivePolicy } from '@/domain/policy';
 import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';
@@ -174,12 +175,27 @@ type SecretTarget = {
   ruleId: string;
 };
 
+type SecretProtectionPolicy = {
+  readonly enabled?: boolean;
+  readonly disabledRules?: ReadonlySet<string> | readonly string[];
+  readonly denyPaths: readonly string[];
+};
+
 /** @internal */
 export function findSensitivePathTarget(
   targets: readonly string[],
   cwd = process.cwd(),
   config?: SecretProtectionConfig,
   configCwd = cwd,
+): SecretTarget | null {
+  return findSensitivePolicyPathTarget(targets, cwd, config, configCwd);
+}
+
+function findSensitivePolicyPathTarget(
+  targets: readonly string[],
+  cwd: string,
+  config: SecretProtectionPolicy | undefined,
+  configCwd: string,
 ): SecretTarget | null {
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config, configCwd)) {
@@ -199,9 +215,10 @@ export function findSensitiveTargetInCommand(
   cwd = process.cwd(),
   config?: SecretProtectionConfig,
 ): SecretTarget | null {
-  return findSensitivePathTarget(extractCommandPathTargets(command), cwd, config);
+  return findSensitivePolicyPathTarget(extractCommandPathTargets(command), cwd, config, cwd);
 }
 
+/** @internal */
 export function findSensitiveTargetInToolInput(
   input: unknown,
   route: ToolRoute,
@@ -209,7 +226,23 @@ export function findSensitiveTargetInToolInput(
   config?: SecretProtectionConfig,
   configCwd = executionCwd,
 ): SecretTarget | null {
-  return findSensitivePathTarget(
+  return findSensitivePolicyPathTarget(
+    extractToolPathTargets(input, route),
+    executionCwd,
+    config,
+    configCwd,
+  );
+}
+
+/** @internal */
+export function findSensitiveTargetInPolicyToolInput(
+  input: unknown,
+  route: ToolRoute,
+  executionCwd: string,
+  config: EffectivePolicy['secretProtection'],
+  configCwd: string,
+): SecretTarget | null {
+  return findSensitivePolicyPathTarget(
     extractToolPathTargets(input, route),
     executionCwd,
     config,
@@ -941,7 +974,7 @@ const SKIPPABLE_PATH_SEGMENT_PAIRS = [
 function isSensitivePath(
   target: string,
   cwd: string,
-  config: SecretProtectionConfig | undefined,
+  config: SecretProtectionPolicy | undefined,
 ): string | null {
   const normalized = normalizeCandidatePath(target, cwd);
   if (!normalized) {
@@ -1028,7 +1061,7 @@ function matchesHomePathSuffix(comparablePath: string, suffix: string): boolean 
 function matchesCodingCliPath(
   normalized: string,
   cwd: string,
-  config: SecretProtectionConfig | undefined,
+  config: SecretProtectionPolicy | undefined,
 ): string | null {
   return (
     SECRET_CODING_CLI_RULES.find((rule) => {
@@ -1173,6 +1206,7 @@ function isSensitiveDirSegment(comparablePath: string, dirName: string): boolean
   return (
     comparablePath === dirName ||
     comparablePath.startsWith(`${dirName}/`) ||
+    comparablePath.endsWith(`/${dirName}`) ||
     comparablePath.includes(`/${dirName}/`)
   );
 }
@@ -1187,7 +1221,7 @@ function isAllowedSensitiveTemplate(comparableName: string): boolean {
 function isDeniedByPolicy(
   target: string,
   cwd: string,
-  config: SecretProtectionConfig | undefined,
+  config: SecretProtectionPolicy | undefined,
   configCwd: string,
 ): boolean {
   return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
@@ -1224,7 +1258,7 @@ function hasBroadSshKeyBasename(comparableName: string): boolean {
 
 function hasSensitiveExtension(
   comparableName: string,
-  config: SecretProtectionConfig | undefined,
+  config: SecretProtectionPolicy | undefined,
 ): string | null {
   const extension = getExtension(comparableName);
   if (extension === '') return null;
@@ -1246,8 +1280,10 @@ function comparable(value: string): string {
   return value.toLowerCase();
 }
 
-function isSecretRuleEnabled(id: string, config: SecretProtectionConfig | undefined): boolean {
-  return !config?.disabledRules?.has(id);
+function isSecretRuleEnabled(id: string, config: SecretProtectionPolicy | undefined): boolean {
+  if (!config?.disabledRules) return true;
+  if (Array.isArray(config.disabledRules)) return !config.disabledRules.includes(id);
+  return !(config.disabledRules as ReadonlySet<string>).has(id);
 }
 
 function normalizeCandidatePath(target: string, cwd: string): string {

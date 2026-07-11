@@ -6,8 +6,7 @@
   "type": "object",
   "properties": {
     "$schema": {
-      "description": "JSON Schema reference for IDE support",
-      "type": "string"
+      "description": "JSON Schema reference for IDE support"
     },
     "version": {
       "type": "number",
@@ -28,7 +27,8 @@
       "description": "Rule overrides by id",
       "type": "object",
       "propertyNames": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^[^/]+\\/[^/]+$"
       },
       "additionalProperties": {
         "anyOf": [
@@ -44,13 +44,23 @@
                 "minLength": 1,
                 "maxLength": 256,
                 "description": "Replacement block reason"
+              },
+              "intent": {
+                "type": "string",
+                "enum": [
+                  "hard_stop",
+                  "use_alternative",
+                  "scope_down",
+                  "manual_only",
+                  "stop_and_explain"
+                ]
               }
             },
             "required": ["reason"],
-            "additionalProperties": false
+            "additionalProperties": {}
           }
         ],
-        "description": "Disable a rule or replace its block reason."
+        "description": "Disable a rule or replace its block reason and intent."
       }
     },
     "transparent_wrappers": {
@@ -66,5 +76,5 @@
     }
   },
   "required": ["version"],
-  "additionalProperties": false
+  "additionalProperties": {}
 }

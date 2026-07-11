@@ -1,14 +1,14 @@
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
-import type { Config } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
 
 export interface ChildCommandContext {
   cwd: string | undefined;
   envAssignments?: ReadonlyMap<string, string>;
-  config?: Pick<
-    Config,
+  policy?: Pick<
+    EffectivePolicy,
     | 'rules'
-    | 'transparent_wrappers'
+    | 'transparentWrappers'
     | 'destructiveCommandProtectionEnabled'
     | 'disabledDestructiveCommandRules'
   >;
@@ -31,7 +31,7 @@ export function normalizeChildCommand(tokens: readonly string[], context: ChildC
 
   const childTokens = unwrapTransparentWrappers(
     wrapperInfo.tokens,
-    context.config ?? { rules: [] },
+    context.policy ?? { rules: [], transparentWrappers: [] },
   );
 
   return {
@@ -51,14 +51,14 @@ function stripBusybox(tokens: readonly string[]): string[] {
 
 function unwrapTransparentWrappers(
   tokens: readonly string[],
-  config: Pick<Config, 'rules' | 'transparent_wrappers'>,
+  policy: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'>,
 ): string[] {
   const strippedTokens = stripBusybox(tokens);
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
   if (!transparentWrapper) {
     return strippedTokens;
   }
-  return unwrapTransparentWrappers(transparentWrapper.tokens, config);
+  return unwrapTransparentWrappers(transparentWrapper.tokens, policy);
 }
 
 export function collectCommandTemplate(tokens: readonly string[], start: number) {

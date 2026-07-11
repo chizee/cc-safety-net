@@ -11,7 +11,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
 import {
   addRulebookSource,
   getProjectRulesConfigPath,
@@ -40,10 +39,7 @@ import {
   resolveRulebookSourceForSync,
   sha256Digest,
 } from '@/core/rules/policy/resolver';
-import {
-  getUnknownOverrideErrorsForConfig,
-  rulesPolicyToConfig,
-} from '@/core/rules/policy/scope-policy';
+import { getUnknownOverrideErrorsForConfig } from '@/core/rules/policy/scope-policy';
 import {
   assertBareRulebookName,
   getRemoveMatches,
@@ -53,8 +49,13 @@ import {
   isGitHubRulebookSource,
   parseGitHubSource,
 } from '@/core/rules/policy/sources';
-import { repairLocalRulesPolicy } from '@/core/rules/policy/sync';
-import type { RulebookLockEntry, RulesLockfile } from '@/core/rules/policy/types';
+import type {
+  LoadedRulesPolicy,
+  RulebookLockEntry,
+  RulesLockfile,
+} from '@/core/rules/policy/types';
+import type { TestPolicyInput } from '../helpers/policy';
+import { analyzeTestCommand as analyzeCommand } from '../helpers/policy';
 
 type RemoveRulebookSourceTestOptions = NonNullable<Parameters<typeof removeRulebookSource>[1]> & {
   _testDeleteLocalSourceDir: (dir: string) => void;
@@ -62,6 +63,18 @@ type RemoveRulebookSourceTestOptions = NonNullable<Parameters<typeof removeRuleb
 type SyncRulesConfigTestOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
   _testPruneRulebookCacheDir: (dir: string) => void;
 };
+
+function loadedRulesTestPolicy(policy: LoadedRulesPolicy): TestPolicyInput {
+  if (policy.errors.length === 0) {
+    return { rules: policy.rules, transparent_wrappers: policy.transparent_wrappers };
+  }
+  const reason = policy.errors.join('; ');
+  return {
+    rules: [],
+    transparent_wrappers: [],
+    failClosedReason: /[.!?]$/.test(reason) ? reason : `${reason}.`,
+  };
+}
 
 function makeTempDir(name: string) {
   return mkdtempSync(join(tmpdir(), `${name}-`));
@@ -334,13 +347,21 @@ describe('rules policy recovery coverage', () => {
         ],
       };
       expect(
-        getSelectedUpdateSpecs({ version: 1, rules: ['one'], overrides: {} }, null, 'one'),
+        getSelectedUpdateSpecs(
+          { version: 1, rules: ['one'], overrides: {}, transparent_wrappers: [] },
+          null,
+          'one',
+        ),
       ).toEqual({
         ok: true,
         specs: ['one'],
       });
       expect(
-        getSelectedUpdateSpecs({ version: 1, rules: ['one'], overrides: {} }, null, 'missing'),
+        getSelectedUpdateSpecs(
+          { version: 1, rules: ['one'], overrides: {}, transparent_wrappers: [] },
+          null,
+          'missing',
+        ),
       ).toEqual(expect.objectContaining({ ok: false }));
       expect(getRemoveMatches(['one', 'two'], lock, 'shared')).toEqual(
         expect.objectContaining({ ok: false }),
@@ -377,7 +398,7 @@ describe('rules policy recovery coverage', () => {
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
       expect(policy.errors).toEqual([]);
       expect(policy.rules[0]?.name).toBe('project-rules/block-docker-prune');
-      expect(rulesPolicyToConfig(policy).rules).toHaveLength(1);
+      expect(loadedRulesTestPolicy(policy).rules).toHaveLength(1);
       expect(getRulesConfigSourceDisplayMap(getProjectRulesConfigPath(tempDir))).toEqual(
         new Map([['project-rules', 'project-rules']]),
       );
@@ -417,7 +438,7 @@ describe('rules policy recovery coverage', () => {
         )[0],
       ).toContain('missing cache entry');
 
-      repairLocalRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
       expect(
         (await removeRulebookSource('project-rules', { cwd: tempDir, userConfigDir })).ok,
       ).toBe(true);
@@ -506,7 +527,7 @@ describe('rules policy recovery coverage', () => {
       expect(
         analyzeCommand('docker system prune', {
           cwd: tempDir,
-          config: rulesPolicyToConfig(policy),
+          config: loadedRulesTestPolicy(policy),
         }),
       ).toBeNull();
     } finally {
@@ -630,7 +651,7 @@ describe('rules policy recovery coverage', () => {
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
 
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
-      const config = rulesPolicyToConfig(policy);
+      const config = loadedRulesTestPolicy(policy);
 
       expect(policy.rules.map((rule) => rule.name)).toEqual(['project-rules/block-docker-prune']);
       expect(policy.errors).toContain('unknown override key "project-rules/block-docker-prune"');
@@ -657,7 +678,9 @@ describe('rules policy recovery coverage', () => {
       writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
 
-      const userOnlyConfig = rulesPolicyToConfig(loadRulesPolicy({ cwd: tempDir, userConfigDir }));
+      const userOnlyConfig = loadedRulesTestPolicy(
+        loadRulesPolicy({ cwd: tempDir, userConfigDir }),
+      );
       expect(
         analyzeCommand('docker system prune', {
           cwd: tempDir,
@@ -678,7 +701,7 @@ describe('rules policy recovery coverage', () => {
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
 
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
-      const config = rulesPolicyToConfig(policy);
+      const config = loadedRulesTestPolicy(policy);
 
       expect(policy.rules.map((rule) => rule.name)).toEqual([
         'user-rules/block-docker-prune',
@@ -1336,7 +1359,7 @@ describe('rules policy recovery coverage', () => {
       expect((await syncRulesConfig({ cwd: homeDir, userConfigDir, global: true })).ok).toBe(true);
 
       const policy = loadRulesPolicy({ cwd: homeDir, userConfigDir });
-      const config = rulesPolicyToConfig(policy);
+      const config = loadedRulesTestPolicy(policy);
 
       expect(policy.errors).toEqual([]);
       expect(policy.rulebooks.map((rulebook) => rulebook.source)).toEqual(['user']);

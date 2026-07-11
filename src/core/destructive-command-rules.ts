@@ -1,4 +1,5 @@
-import type { BlockIntent, Config, DestructiveCommandRuleMatch } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
+import type { BlockIntent, DestructiveCommandRuleMatch } from '@/types';
 
 export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.ssh-env',
@@ -446,11 +447,14 @@ export function destructiveCommandMatch(
 
 export function filterDestructiveCommandMatch(
   match: DestructiveCommandRuleMatch | null,
-  config:
-    | Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>
+  policy:
+    | Pick<
+        EffectivePolicy,
+        'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+      >
     | undefined,
 ): DestructiveCommandRuleMatch | null {
   if (!match) return null;
-  if (config?.destructiveCommandProtectionEnabled === false) return null;
-  return config?.disabledDestructiveCommandRules?.has(match.id) ? null : match;
+  if (policy?.destructiveCommandProtectionEnabled === false) return null;
+  return policy?.disabledDestructiveCommandRules.includes(match.id) ? null : match;
 }

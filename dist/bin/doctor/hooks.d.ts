@@ -2,8 +2,8 @@
  * Hook detection with integrated self-test for the doctor command.
  */
 import type { HookStatus, PiProbeInfo } from '@/bin/doctor/types';
-import type { LoadConfigOptions } from '@/core/config';
-interface HookDetectOptions extends LoadConfigOptions {
+import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
+interface HookDetectOptions extends PolicySnapshotOptions {
     homeDir?: string;
     claudePluginListOutput?: string | null;
     codexPluginListOutput?: string | null;

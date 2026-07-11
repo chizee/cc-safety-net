@@ -26,7 +26,7 @@ import type { ExplainOptions, ExplainResult, ExplainTrace, TraceStep } from '@/t
 export function explainCommand(command: string, options?: ExplainOptions): ExplainResult {
   const trace: ExplainTrace = { steps: [], segments: [] };
   const analyzeOpts = buildAnalyzeOptions(options);
-  const effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.config).effectiveLevel;
+  const effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.policySnapshot.policy).effectiveLevel;
   const { configSource, configValid } = getConfigSource({
     cwd: options?.cwd,
     userConfigDir: options?.userConfigDir,
@@ -164,7 +164,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
 
   if (
     !blocked &&
-    !analyzeOpts.config?.failClosedReason &&
+    analyzeOpts.policySnapshot.state === 'ready' &&
     shouldAnalyzePowerShellRemoveItem(command)
   ) {
     const match = filterDestructiveCommandMatch(
@@ -174,7 +174,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
         paranoid: analyzeOpts.paranoidRm,
         allowTmpdirVar: analyzeOpts.allowTmpdirVar,
       }),
-      analyzeOpts.config,
+      analyzeOpts.policySnapshot.policy,
     );
     const step: TraceStep = {
       type: 'rule-check',
@@ -224,8 +224,10 @@ function getCustomRuleMetadata(
   const id = reason?.match(/^\[([^\]]+)]/)?.[1];
   if (!id) return undefined;
 
-  if (options?.config) {
-    return options.config.rules.some((rule) => rule.name === id) ? { id } : undefined;
+  if (options?.policySnapshot) {
+    return options.policySnapshot.policy.rules.some((rule) => rule.name === id)
+      ? { id }
+      : undefined;
   }
 
   const policy = loadRulesPolicy({ cwd, userConfigDir: options?.userConfigDir });

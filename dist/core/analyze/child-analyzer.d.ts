@@ -1,4 +1,5 @@
-import { type AnalyzeNestedOverrides, type Config, type DestructiveCommandRuleMatch } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
+import { type AnalyzeNestedOverrides, type DestructiveCommandRuleMatch } from '@/types';
 export interface ChildCommandAnalysisContext {
     cwd: string | undefined;
     originalCwd: string | undefined;
@@ -7,7 +8,7 @@ export interface ChildCommandAnalysisContext {
     allowTmpdirVar: boolean;
     envAssignments: ReadonlyMap<string, string>;
     worktreeMode?: boolean;
-    config?: Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
+    policy?: Pick<EffectivePolicy, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
     analyzeNested?: (command: string, overrides?: AnalyzeNestedOverrides) => DestructiveCommandRuleMatch | null;
 }
 export interface ChildCommandAnalysisOptions {

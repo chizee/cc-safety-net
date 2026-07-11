@@ -5,23 +5,28 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { VersionFetcher } from '@/bin/doctor/system-info';
+import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
-import { loadConfig } from '@/core/config';
 import { envTruthy } from '@/core/env';
-import type { AnalyzeOptions, AuditLogEntry, Config, ExplainResult, TraceStep } from '@/types';
+import type { AnalyzeOptions, AuditLogEntry, ExplainResult, TraceStep } from '@/types';
+import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 
 // Default empty config for tests that don't specify a cwd.
 // This prevents loading the project's rulebook-backed config.
-const DEFAULT_TEST_CONFIG: Config = { version: 1, rules: [] };
+const DEFAULT_TEST_POLICY = policySnapshot();
 const CLI_ENTRYPOINT = join(process.cwd(), 'src/bin/cc-safety-net.ts');
 
-function getOptionsFromEnv(cwd?: string, config?: Config): AnalyzeOptions {
+function getOptionsFromEnv(cwd?: string, policy?: TestPolicyInput): AnalyzeOptions {
   // If no cwd specified, use empty config to avoid loading project's config
-  const effectiveConfig = config ?? (cwd ? loadConfig(cwd) : DEFAULT_TEST_CONFIG);
+  const snapshot = policy
+    ? policySnapshot(policy)
+    : cwd
+      ? loadPolicySnapshot({ cwd })
+      : DEFAULT_TEST_POLICY;
   return {
     cwd,
-    config: effectiveConfig,
+    policySnapshot: snapshot,
     strict: envTruthy('SAFETY_NET_STRICT'),
     paranoidRm: envTruthy('SAFETY_NET_PARANOID') || envTruthy('SAFETY_NET_PARANOID_RM'),
     paranoidInterpreters:
@@ -43,8 +48,8 @@ export function assertAllowed(command: string, cwd?: string): void {
   expect(result).toBeNull();
 }
 
-export function runGuard(command: string, cwd?: string, config?: Config): string | null {
-  const options = getOptionsFromEnv(cwd, config);
+export function runGuard(command: string, cwd?: string, policy?: TestPolicyInput): string | null {
+  const options = getOptionsFromEnv(cwd, policy);
   return analyzeCommand(command, options)?.reason ?? null;
 }
 

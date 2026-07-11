@@ -22,7 +22,7 @@ import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '
 import { checkForUpdates } from '@/bin/doctor/updates';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
-import { loadConfig } from '@/core/config';
+import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
@@ -69,7 +69,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
   });
   const configInfo = getConfigInfo(cwd);
   const environment = getEnvironmentInfo();
-  const modes = getCCSafetyNetEnvModes(loadConfig(cwd));
+  const modes = getCCSafetyNetEnvModes(loadPolicySnapshot({ cwd }).policy);
   const activity = getActivitySummary(7);
   const update = options.skipUpdateCheck
     ? {

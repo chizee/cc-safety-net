@@ -2,16 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
 import {
   getLegacyProjectConfigPath,
-  loadConfig,
   validateConfig,
   validateConfigFile,
   validateRulesConfigFile,
 } from '@/core/config';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { validateRulesConfig } from '@/core/rules/policy/config-file';
+import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
 import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers.ts';
 
 const legacyRule = {
@@ -104,7 +103,7 @@ describe('runtime config loading', () => {
   });
 
   test('no config returns built-in only config', () => {
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.secretProtection?.enabled).toBe(true);
@@ -114,7 +113,7 @@ describe('runtime config loading', () => {
     writeRulesConfigWithTransparentWrappers(userRulesDir, ['rtk']);
     writeRulesConfigWithTransparentWrappers(join(tempDir, '.cc-safety-net', 'rules'), ['wrap']);
 
-    expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
+    expect(loadTestPolicy(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
       'rtk',
       'wrap',
     ]);
@@ -124,7 +123,7 @@ describe('runtime config loading', () => {
     writeRulesConfigWithTransparentWrappers(userRulesDir, ['rtk']);
     writeRulesConfigWithTransparentWrappers(join(tempDir, '.cc-safety-net', 'rules'), ['rtk']);
 
-    expect(loadConfig(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
+    expect(loadTestPolicy(tempDir, { userConfigDir: userRulesDir }).transparent_wrappers).toEqual([
       'rtk',
     ]);
   });
@@ -168,7 +167,7 @@ describe('runtime config loading', () => {
 
     const result = analyzeCommand('rm -rf build', {
       cwd: tempDir,
-      config: loadConfig(tempDir, { userConfigDir: userRulesDir }),
+      config: loadTestPolicy(tempDir, { userConfigDir: userRulesDir }),
     });
 
     expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
@@ -183,7 +182,7 @@ describe('runtime config loading', () => {
     withEnv({ CC_SAFETY_NET_PARANOID_RM: '1' }, () => {
       const result = analyzeCommand('rm -rf build', {
         cwd: tempDir,
-        config: loadConfig(tempDir, { userConfigDir: userRulesDir }),
+        config: loadTestPolicy(tempDir, { userConfigDir: userRulesDir }),
       });
 
       expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
@@ -196,7 +195,7 @@ describe('runtime config loading', () => {
       destructive_command_protection: { overrides: { 'git.reset-hard': 'off' } },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand('git reset --hard', { cwd: tempDir, config })).toBeNull();
     expect(analyzeCommand('git clean -f', { cwd: tempDir, config })?.reason).toContain(
@@ -210,7 +209,7 @@ describe('runtime config loading', () => {
       destructive_command_protection: { overrides: { 'git.checkout-force': 'off' } },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand('git checkout --force main', { cwd: tempDir, config })).toBeNull();
     expect(analyzeCommand('git checkout -- src/index.ts', { cwd: tempDir, config })?.reason).toBe(
@@ -224,7 +223,7 @@ describe('runtime config loading', () => {
       destructive_command_protection: { overrides: { 'rm.recursive-force-outside-cwd': 'off' } },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand('rm -rf ../outside', { cwd: tempDir, config })).toBeNull();
     expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })?.reason).toContain(
@@ -240,7 +239,7 @@ describe('runtime config loading', () => {
       },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(
       analyzeCommand('Remove-Item . -Recurse -Force', {
@@ -270,7 +269,7 @@ describe('runtime config loading', () => {
       },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand("node -e 'shred file.txt'", { cwd: tempDir, config })).toBeNull();
     expect(analyzeCommand('echo ok | xargs bash -c', { cwd: tempDir, config })).toBeNull();
@@ -300,7 +299,7 @@ describe('runtime config loading', () => {
       }),
     );
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand('git reset --hard', { cwd: tempDir, config })).toBeNull();
     expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })).toBeNull();
@@ -317,7 +316,7 @@ describe('runtime config loading', () => {
       workflow: { worktree_mode: true },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.failClosedReason).toBeUndefined();
     expect(config.disabledDestructiveCommandRules).toEqual(new Set());
@@ -337,7 +336,7 @@ describe('runtime config loading', () => {
       extra: true,
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.failClosedReason).toContain('invalid policy config');
     expect(config.failClosedReason).toContain('unknown field "extra"');
@@ -358,7 +357,7 @@ describe('runtime config loading', () => {
     const token = 'sk-proj_1234567890abcdefghijklmnopqrstuv';
     writeUserPolicyRaw(`{"version":1,"token":"${token}"`);
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
     const result = analyzeCommand('echo ok', { cwd: tempDir, config });
 
     expect(config.failClosedReason).toContain('invalid policy config');
@@ -383,7 +382,7 @@ describe('runtime config loading', () => {
       secret_protection: { enabled: true, deny_paths: ['project.key'] },
     });
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.secretProtection?.enabled).toBe(false);
     expect([...(config.secretProtection?.disabledRules ?? [])]).toEqual(['secret.ext.pem']);
@@ -444,7 +443,7 @@ describe('runtime config loading', () => {
   }
 
   function expectLegacyFailClosed(): void {
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBe(
@@ -453,7 +452,7 @@ describe('runtime config loading', () => {
   }
 
   function expectPolicyFailClosed(reason: string): void {
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
     const result = analyzeCommand('echo ok', { cwd: tempDir, config });
 
     expect(config.rules).toEqual([]);
@@ -464,7 +463,7 @@ describe('runtime config loading', () => {
   test('empty legacy project config is ignored when project rule config is missing', () => {
     writeLegacyProjectConfig();
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBeUndefined();
@@ -490,7 +489,7 @@ describe('runtime config loading', () => {
       JSON.stringify({ version: 1, rules: [] }),
     );
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBeUndefined();
@@ -503,7 +502,7 @@ describe('runtime config loading', () => {
       JSON.stringify({ version: 1 }),
     );
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBeUndefined();
@@ -560,7 +559,7 @@ describe('runtime config loading', () => {
     writeLegacyProjectConfig();
     writeEmptyProjectRulesConfig();
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBeUndefined();
@@ -587,7 +586,7 @@ describe('runtime config loading', () => {
     );
     expect((await syncRulesConfig({ cwd: tempDir, userConfigDir: userRulesDir })).ok).toBe(true);
 
-    const config = loadConfig(tempDir, { userConfigDir: userRulesDir });
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
     expect(config.failClosedReason).toBeUndefined();

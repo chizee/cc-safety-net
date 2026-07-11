@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
-import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
 import type { AnalyzeOptions } from '@/types';
 import { readLatestAuditLogEntry, withEnv, withLinkedWorktreeFixture } from '../helpers';
+import { policySnapshot } from '../helpers/policy';
 import {
   syncInitialGitRulebook,
   updatedGitRule,
@@ -165,7 +166,9 @@ describe('Pi tool_call event', () => {
           }),
         ),
       ).toBeUndefined();
-      expect(calls).toEqual([{ command: 'git status', cwd: join(dir, 'app'), shell: 'auto' }]);
+      expect(calls).toEqual([
+        { command: 'git status', cwd: realpathSync(join(dir, 'app')), shell: 'auto' },
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -262,6 +265,13 @@ describe('Pi tool_call event', () => {
       await syncInitialGitRulebook(dir);
       writeUpdatedGitRulebook(dir);
 
+      const invalid = handlePiToolCall(
+        shellToolCall({ command: 'git status', working_directory: 'app' }),
+        piContext(dir),
+      );
+      expect(invalid?.reason).toContain('local source digest mismatch');
+
+      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       const result = handlePiToolCall(
         shellToolCall({ command: 'git status', working_directory: 'app' }),
         piContext(dir),
@@ -526,7 +536,7 @@ describe('Pi tool_call event', () => {
       expect(
         handlePiToolCall(
           toolCall('read', { path: '.env' }),
-          piContext(dir, { safetyNetConfigOptions: { userConfigDir } }),
+          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
         ),
       ).toBeUndefined();
     } finally {
@@ -538,7 +548,7 @@ describe('Pi tool_call event', () => {
     withInvalidSecretPolicy('safety-net-pi-read-invalid-policy-', (dir, userConfigDir) => {
       const result = handlePiToolCall(
         toolCall('read', { path: 'README.md' }),
-        piContext(dir, { safetyNetConfigOptions: { userConfigDir } }),
+        piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
       );
 
       expectInvalidPolicyBlock(result);
@@ -557,13 +567,13 @@ describe('Pi tool_call event', () => {
       expect(
         handlePiToolCall(
           bashToolCall('cat .env'),
-          piContext(dir, { safetyNetConfigOptions: { userConfigDir } }),
+          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
         ),
       ).toBeUndefined();
       expect(
         handlePiToolCall(
           bashToolCall('rm -rf /'),
-          piContext(dir, { safetyNetConfigOptions: { userConfigDir } }),
+          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
         )?.reason,
       ).toContain('root or home directory');
     } finally {
@@ -582,7 +592,7 @@ describe('Pi tool_call event', () => {
           deny_paths: ['private-note.txt'],
         },
       });
-      const ctx = piContext(dir, { safetyNetConfigOptions: { userConfigDir } });
+      const ctx = piContext(dir, { safetyNetPolicyOptions: { userConfigDir } });
 
       expect(handlePiToolCall(bashToolCall('cat server.pem'), ctx)).toBeUndefined();
       expect(handlePiToolCall(bashToolCall('cat id_rsa.pem'), ctx)?.reason).toContain(
@@ -601,7 +611,7 @@ describe('Pi tool_call event', () => {
     withInvalidSecretPolicy('safety-net-pi-invalid-policy-', (dir, userConfigDir) => {
       const result = handlePiToolCall(
         bashToolCall('git status'),
-        piContext(dir, { safetyNetConfigOptions: { userConfigDir } }),
+        piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
       );
 
       expectInvalidPolicyBlock(result);
@@ -635,12 +645,16 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('reloads and repairs local rules before each tool execution', async () => {
+  test('fails closed until explicit sync, then reloads local rules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-tool-call-'));
     try {
       await syncInitialGitRulebook(dir);
       writeUpdatedGitRulebook(dir);
 
+      expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))?.reason).toContain(
+        'local source digest mismatch',
+      );
+      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))?.reason).toContain(
         updatedGitRule.reason,
       );
@@ -671,7 +685,7 @@ describe('Pi tool_call event', () => {
 
   test.each([
     'findPolicyMutation',
-    'loadConfig',
+    'loadPolicySnapshot',
     'findSensitiveTarget',
     'analyzeCommand',
   ] as const)('renders %s dependency failures as generic denials', (dependency) => {
@@ -702,7 +716,7 @@ describe('Pi tool_call event', () => {
       findPolicyMutation: () => ({ target: 'policy.json' }),
     });
     const invalidConfigHandler = createPiToolCallHandler({
-      loadConfig: () => ({ version: 1, rules: [], failClosedReason: 'invalid config' }),
+      loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid config' }),
     });
     const evaluatorErrorHandler = createPiToolCallHandler({
       analyzeCommand: () => {
@@ -838,7 +852,7 @@ describe('Pi tool_call event', () => {
 });
 
 function captureAnalyzeCalls(calls: AnalyzeCall[]) {
-  return (command: string, options: AnalyzeOptions = {}) => {
+  return (command: string, options: AnalyzeOptions) => {
     calls.push({ command, cwd: options.cwd, shell: options.shell });
     return null;
   };

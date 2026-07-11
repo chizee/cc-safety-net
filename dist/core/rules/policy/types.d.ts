@@ -1,14 +1,6 @@
-import type { BlockIntent, CustomRule } from '@/types';
-export type RuleOverride = 'off' | {
-    intent?: BlockIntent;
-    reason: string;
-};
-export interface RulesConfig {
-    version: 1;
-    rules: string[];
-    overrides?: Record<string, RuleOverride>;
-    transparent_wrappers?: string[];
-}
+import type { RuleOverride, RulesConfig } from '@/config/schema';
+import type { CustomRule } from '@/types';
+export type { RuleOverride, RulesConfig };
 interface RulebookLockEntryBase {
     spec: string;
     name: string;
@@ -76,4 +68,3 @@ export interface LoadedRulesPolicy {
     projectLockPath: string;
 }
 export declare const DEFAULT_CONFIG: RulesConfig;
-export {};

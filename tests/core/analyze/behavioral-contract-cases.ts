@@ -1,9 +1,10 @@
-import type { AnalyzeOptions, BlockIntent, Config, ShellKind } from '@/types';
+import type { AnalyzeOptions, BlockIntent, ShellKind } from '@/types';
+import { policySnapshot, type TestPolicyInput } from '../../helpers/policy';
 
 export interface BehavioralContractCase {
   name: string;
   command: string;
-  options: AnalyzeOptions & { config: Config };
+  options: AnalyzeOptions;
   expected:
     | { kind: 'allow' }
     | {
@@ -17,7 +18,7 @@ export interface BehavioralContractCase {
 
 interface OptionValues {
   cwd: string;
-  config?: Omit<Config, 'rules' | 'version'> & Pick<Partial<Config>, 'rules'>;
+  policy?: Omit<TestPolicyInput, 'rules' | 'version'> & Pick<Partial<TestPolicyInput>, 'rules'>;
   shell?: ShellKind;
   strict?: boolean;
   paranoidRm?: boolean;
@@ -29,18 +30,18 @@ interface OptionValues {
 
 function options(values: OptionValues): BehavioralContractCase['options'] {
   return {
-    config: {
-      ...values.config,
+    policySnapshot: policySnapshot({
+      ...values.policy,
       version: 1,
       rules:
-        values.config?.rules?.map((rule) => ({
+        values.policy?.rules?.map((rule) => ({
           ...rule,
           block_args: [...rule.block_args],
         })) ?? [],
-      disabledDestructiveCommandRules: values.config?.disabledDestructiveCommandRules
-        ? new Set(values.config.disabledDestructiveCommandRules)
+      disabledDestructiveCommandRules: values.policy?.disabledDestructiveCommandRules
+        ? new Set(values.policy.disabledDestructiveCommandRules)
         : undefined,
-    },
+    }),
     cwd: values.cwd,
     shell: values.shell ?? 'posix',
     strict: values.strict ?? false,
@@ -210,7 +211,7 @@ export function behavioralContractCases(paths: {
       command: 'docker system prune',
       options: options({
         cwd: paths.cwd,
-        config: {
+        policy: {
           rules: [
             {
               name: 'block-docker-prune',
@@ -236,7 +237,7 @@ export function behavioralContractCases(paths: {
       command: 'git reset --hard && git clean -f',
       options: options({
         cwd: paths.cwd,
-        config: { disabledDestructiveCommandRules: new Set(['git.reset-hard']) },
+        policy: { disabledDestructiveCommandRules: new Set(['git.reset-hard']) },
       }),
       expected: {
         kind: 'block',
@@ -292,7 +293,7 @@ export function behavioralContractCases(paths: {
       command: 'printf safe',
       options: options({
         cwd: paths.cwd,
-        config: { failClosedReason: 'invalid policy config: unknown field "extra".' },
+        policy: { failClosedReason: 'invalid policy config: unknown field "extra".' },
       }),
       expected: {
         kind: 'block',
@@ -305,13 +306,13 @@ export function behavioralContractCases(paths: {
     {
       name: 'allows the exact rule sync recovery while failed closed',
       command: 'cc-safety-net rule sync',
-      options: options({ cwd: paths.cwd, config: invalidConfig }),
+      options: options({ cwd: paths.cwd, policy: invalidConfig }),
       expected: { kind: 'allow' },
     },
     {
       name: 'denies a chained recovery command while failed closed',
       command: 'cc-safety-net rule sync && git status',
-      options: options({ cwd: paths.cwd, config: invalidConfig }),
+      options: options({ cwd: paths.cwd, policy: invalidConfig }),
       expected: {
         kind: 'block',
         ruleId: undefined,
@@ -323,7 +324,7 @@ export function behavioralContractCases(paths: {
     {
       name: 'denies a recovery lookalike while failed closed',
       command: 'cc-safety-net rule sync --check',
-      options: options({ cwd: paths.cwd, config: invalidConfig }),
+      options: options({ cwd: paths.cwd, policy: invalidConfig }),
       expected: {
         kind: 'block',
         ruleId: undefined,

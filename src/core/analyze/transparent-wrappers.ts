@@ -1,7 +1,7 @@
 import { AWK_INTERPRETERS } from '@/core/analyze/awk';
 import { isInterpreterCommand } from '@/core/analyze/interpreters';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
-import type { Config } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
 import { INTERPRETERS, SHELL_WRAPPERS } from '@/types';
 
 const BUILTIN_ANALYZED_COMMANDS = new Set(['rm', 'find', 'xargs', 'parallel']);
@@ -21,10 +21,10 @@ interface TransparentWrapperUnwrap {
 
 export function unwrapTransparentWrapper(
   tokens: readonly string[],
-  config: Pick<Config, 'rules' | 'transparent_wrappers'>,
+  policy: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'>,
 ): TransparentWrapperUnwrap | null {
   const head = tokens[0];
-  if (!head || !config.transparent_wrappers?.includes(getBasename(head))) {
+  if (!head || !policy.transparentWrappers.includes(getBasename(head))) {
     return null;
   }
 
@@ -32,7 +32,7 @@ export function unwrapTransparentWrapper(
   const startIndex = tokens[1] === '--' ? 2 : 1;
   const childIndex = tokens.findIndex(
     (child, index) =>
-      index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, config),
+      index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy),
   );
   if (childIndex < 0) return null;
   return { wrapper, tokens: [...tokens.slice(childIndex)] };
@@ -40,7 +40,7 @@ export function unwrapTransparentWrapper(
 
 function isProtectableCommand(
   token: string,
-  config: Pick<Config, 'rules' | 'transparent_wrappers'>,
+  policy: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'>,
 ): boolean {
   const basename = getBasename(token);
   const normalized = normalizeCommandToken(token);
@@ -48,12 +48,12 @@ function isProtectableCommand(
     normalized === 'git' ||
     basename === 'busybox' ||
     BUILTIN_ANALYZED_COMMANDS.has(basename) ||
-    config.transparent_wrappers?.includes(basename) ||
+    policy.transparentWrappers.includes(basename) ||
     SHELL_WRAPPERS.has(normalized) ||
     token === '$SHELL' ||
     isInterpreterCommand(normalized) ||
     AWK_INTERPRETERS.has(normalized) ||
-    config.rules.some((rule) => rule.command === basename)
+    policy.rules.some((rule) => rule.command === basename)
   );
 }
 

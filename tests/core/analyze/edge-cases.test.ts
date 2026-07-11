@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
+import { analyzeTestCommand as analyzeCommand } from '../../helpers/policy';
 import {
   assertAllowed,
   assertBlocked,

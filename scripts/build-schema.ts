@@ -1,40 +1,13 @@
 #!/usr/bin/env bun
 import * as z from 'zod';
+import { getRulesConfigSchema } from '../src/config/schema';
 
 const SCHEMA_OUTPUT_PATH = 'assets/cc-safety-net.schema.json';
-
-const CommandNameSchema = z
-  .string()
-  .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/)
-  .describe("Command name such as 'git', 'docker', or 'rtk'.");
-
-const RuleOverrideSchema = z
-  .union([
-    z.literal('off'),
-    z.strictObject({
-      reason: z.string().min(1).max(256).describe('Replacement block reason'),
-    }),
-  ])
-  .describe('Disable a rule or replace its block reason.');
-
-const ConfigSchema = z.strictObject({
-  $schema: z.string().optional().describe('JSON Schema reference for IDE support'),
-  version: z.literal(1).describe('Schema version (must be 1)'),
-  rules: z
-    .array(z.string().min(1))
-    .default([])
-    .describe('Rulebook source strings such as project-rules or owner/repo#main/team-rules'),
-  overrides: z.record(z.string(), RuleOverrideSchema).default({}).describe('Rule overrides by id'),
-  transparent_wrappers: z
-    .array(CommandNameSchema)
-    .default([])
-    .describe('Commands that transparently execute a visible protected child command'),
-});
 
 async function main(): Promise<void> {
   console.log('Generating JSON Schema...');
 
-  const jsonSchema = z.toJSONSchema(ConfigSchema, {
+  const jsonSchema = z.toJSONSchema(getRulesConfigSchema(), {
     io: 'input',
     target: 'draft-7',
   }) as Record<string, unknown>;

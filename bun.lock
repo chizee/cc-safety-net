@@ -6,6 +6,7 @@
       "name": "cc-safety-net",
       "dependencies": {
         "shell-quote": "^1.8.4",
+        "zod": "^4.3.5",
       },
       "devDependencies": {
         "@ast-grep/cli": "^0.40.4",
@@ -17,7 +18,6 @@
         "jscpd": "^4.0.9",
         "knip": "^5.79.0",
         "lint-staged": "^16.2.7",
-        "zod": "^4.3.5",
       },
       "peerDependencies": {
         "typescript": "^5",

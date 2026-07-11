@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { analyzeCommand } from '@/core/analyze';
-import type { Config } from '@/types';
+import {
+  analyzeTestCommand as analyzeCommand,
+  type TestPolicyInput as Config,
+} from '../../helpers/policy';
 
 const failClosedConfig: Config = {
   version: 1,

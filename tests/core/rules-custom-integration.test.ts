@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
-import { loadConfig } from '@/core/config';
 import { syncRulesConfig } from '@/core/rules/policy';
+import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
 
 async function writeConfig(
   dir: string,
@@ -38,7 +37,7 @@ async function writeConfig(
 }
 
 function runGuard(command: string, cwd?: string): string | null {
-  const config = loadConfig(cwd);
+  const config = loadTestPolicy(cwd);
   return analyzeCommand(command, { cwd, config })?.reason ?? null;
 }
 

@@ -52,8 +52,7 @@
     "husky": "^9.1.7",
     "jscpd": "^4.0.9",
     "knip": "^5.79.0",
-    "lint-staged": "^16.2.7",
-    "zod": "^4.3.5"
+    "lint-staged": "^16.2.7"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -64,7 +63,8 @@
     ]
   },
   "dependencies": {
-    "shell-quote": "^1.8.4"
+    "shell-quote": "^1.8.4",
+    "zod": "^4.3.5"
   },
   "trustedDependencies": [
     "@ast-grep/cli"

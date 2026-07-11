@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { getUserPolicyDiagnostics, getUserPolicySchema, type UserPolicy } from '@/config/schema';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 
@@ -12,19 +13,7 @@ import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 
 const POLICY_FILE = 'policy.json';
-const TOP_LEVEL_FIELDS = new Set([
-  'version',
-  'safety',
-  'workflow',
-  'destructive_command_protection',
-  'secret_protection',
-]);
 const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
-const SAFETY_FIELDS = new Set(['level', 'overrides']);
-const SAFETY_OVERRIDE_FIELDS = new Set(['fail_closed', 'paranoid_rm', 'paranoid_interpreters']);
-const WORKFLOW_FIELDS = new Set(['worktree_mode']);
-const DESTRUCTIVE_COMMAND_POLICY_FIELDS = new Set(['enabled', 'overrides']);
-const SECRET_PROTECTION_FIELDS = new Set(['enabled', 'overrides', 'deny_paths']);
 
 type PolicyConfig = {
   safety: PolicySafety;
@@ -131,7 +120,7 @@ export function readUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPolic
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    const errors = validatePolicyConfig(parsed);
+    const errors = getUserPolicyDiagnostics(parsed);
     return {
       path,
       exists: true,
@@ -155,7 +144,7 @@ export function writeUserPolicyFromGui(
   options: RulesPolicyOptions = {},
 ): GuiPolicyWriteResult {
   const path = getUserPolicyPath(options);
-  const errors = validatePolicyConfig(policy);
+  const errors = getUserPolicyDiagnostics(policy);
   const normalizedPolicy =
     errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0) {
@@ -339,10 +328,10 @@ function readPolicyConfig(path: string): { policy: PartialPolicy; errors: string
       return { policy: empty, errors: [`${path}: Config file is empty`] };
     }
     const parsed = JSON.parse(content) as unknown;
-    const errors = validatePolicyConfig(parsed);
+    const errors = getUserPolicyDiagnostics(parsed);
     if (errors.length > 0)
       return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
-    return { policy: normalizePolicyConfig(parsed as Record<string, unknown>), errors: [] };
+    return { policy: normalizePolicyConfig(getUserPolicySchema().parse(parsed)), errors: [] };
   } catch {
     return {
       policy: empty,
@@ -361,146 +350,7 @@ function createEmptyPolicy(): PartialPolicy {
   };
 }
 
-function validatePolicyConfig(config: unknown): string[] {
-  const errors: string[] = [];
-  if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    return ['Config must be an object'];
-  }
-
-  const cfg = config as Record<string, unknown>;
-  addUnknownFieldErrors(cfg, TOP_LEVEL_FIELDS, errors);
-  if (cfg.version !== 1) errors.push('version must be 1');
-  validateSafety(cfg.safety, errors);
-  validateWorkflow(cfg.workflow, errors);
-  validateDestructiveCommandPolicy(cfg.destructive_command_protection, errors);
-  validateSecretProtection(cfg.secret_protection, errors);
-  return errors;
-}
-
-function validateSafety(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('safety must be an object if provided');
-    return;
-  }
-  const safety = value as Record<string, unknown>;
-  addUnknownFieldErrors(safety, SAFETY_FIELDS, errors, 'safety');
-  if (safety.level !== undefined && !SAFETY_LEVELS.has(safety.level as string)) {
-    errors.push('safety.level must be "standard", "strict", or "paranoid"');
-  }
-  validateSafetyOverrides(safety.overrides, errors);
-}
-
-function validateSafetyOverrides(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('safety.overrides must be an object if provided');
-    return;
-  }
-  const overrides = value as Record<string, unknown>;
-  addUnknownFieldErrors(overrides, SAFETY_OVERRIDE_FIELDS, errors, 'safety.overrides');
-  for (const [key, override] of Object.entries(overrides)) {
-    if (typeof override !== 'boolean') errors.push(`safety.overrides.${key} must be a boolean`);
-  }
-}
-
-function validateWorkflow(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('workflow must be an object if provided');
-    return;
-  }
-  const workflow = value as Record<string, unknown>;
-  addUnknownFieldErrors(workflow, WORKFLOW_FIELDS, errors, 'workflow');
-  if (workflow.worktree_mode !== undefined && typeof workflow.worktree_mode !== 'boolean') {
-    errors.push('workflow.worktree_mode must be a boolean');
-  }
-}
-
-function validateDestructiveCommandPolicy(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('destructive_command_protection must be an object if provided');
-    return;
-  }
-  const destructiveCommandPolicy = value as Record<string, unknown>;
-  addUnknownFieldErrors(
-    destructiveCommandPolicy,
-    DESTRUCTIVE_COMMAND_POLICY_FIELDS,
-    errors,
-    'destructive_command_protection',
-  );
-  if (
-    destructiveCommandPolicy.enabled !== undefined &&
-    typeof destructiveCommandPolicy.enabled !== 'boolean'
-  ) {
-    errors.push('destructive_command_protection.enabled must be a boolean');
-  }
-  validateDestructiveCommandOverrides(destructiveCommandPolicy.overrides, errors);
-}
-
-function validateDestructiveCommandOverrides(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('destructive_command_protection.overrides must be an object if provided');
-    return;
-  }
-  for (const [id, override] of Object.entries(value as Record<string, unknown>)) {
-    if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
-      errors.push(`unknown destructive command rule id "${id}"`);
-    }
-    if (override !== 'off') {
-      errors.push(`destructive_command_protection.overrides.${id} must be "off"`);
-    }
-  }
-}
-
-function validateSecretProtection(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('secret_protection must be an object if provided');
-    return;
-  }
-  const secret = value as Record<string, unknown>;
-  addUnknownFieldErrors(secret, SECRET_PROTECTION_FIELDS, errors, 'secret_protection');
-  if (secret.enabled !== undefined && typeof secret.enabled !== 'boolean') {
-    errors.push('secret_protection.enabled must be a boolean');
-  }
-  validateSecretOverrides(secret.overrides, errors);
-  validatePathArray(secret.deny_paths, 'secret_protection.deny_paths', errors);
-}
-
-function validateSecretOverrides(value: unknown, errors: string[]): void {
-  if (value === undefined) return;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    errors.push('secret_protection.overrides must be an object if provided');
-    return;
-  }
-  for (const [id, override] of Object.entries(value as Record<string, unknown>)) {
-    if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
-      errors.push(`unknown secret protection rule id "${id}"`);
-    }
-    if (override !== 'off') {
-      errors.push(`secret_protection.overrides.${id} must be "off"`);
-    }
-  }
-}
-
-function validatePathArray(value: unknown, field: string, errors: string[]): void {
-  if (value === undefined) return;
-  if (!Array.isArray(value)) {
-    errors.push(`${field} must be an array of paths`);
-    return;
-  }
-  for (let i = 0; i < value.length; i++) {
-    const path = value[i];
-    if (typeof path !== 'string' || path.trim() === '') {
-      errors.push(`${field}[${i}] must be a non-empty path string`);
-    }
-  }
-}
-
-function normalizePolicyConfig(config: Record<string, unknown>): PartialPolicy {
+function normalizePolicyConfig(config: UserPolicy): PartialPolicy {
   const safety = normalizeSafety(config.safety);
   const workflow = config.workflow as Record<string, boolean | undefined> | undefined;
   const destructiveCommand = config.destructive_command_protection as
@@ -539,17 +389,4 @@ function normalizeSafety(value: unknown): PolicySafety {
       paranoidInterpreters: overrides.paranoid_interpreters,
     },
   };
-}
-
-function addUnknownFieldErrors(
-  record: Record<string, unknown>,
-  allowed: ReadonlySet<string>,
-  errors: string[],
-  prefix?: string,
-): void {
-  for (const key of Object.keys(record)) {
-    if (!allowed.has(key)) {
-      errors.push(`${prefix ? `${prefix}.` : ''}unknown field "${key}"`);
-    }
-  }
 }

@@ -40,7 +40,7 @@ export function analyzeXargs(
       envAssignments: childCommand.envAssignments,
       worktreeMode: context.worktreeMode,
       analyzeNested: context.analyzeNested,
-      config: context.config,
+      policy: context.policy,
     },
     {
       dynamicInput: childCommand.head !== 'git',
@@ -73,7 +73,7 @@ export function analyzeXargs(
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
     analyzeNested: context.analyzeNested,
-    config: context.config,
+    policy: context.policy,
   });
 }
 

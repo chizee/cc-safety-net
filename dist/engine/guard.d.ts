@@ -1,8 +1,8 @@
-import { analyzeCommand, loadConfig } from '@/core/analyze';
-import type { LoadConfigOptions } from '@/core/config';
+import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
+import { analyzeCommand } from '@/core/analyze';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { findPolicyConfigMutationTargetInToolInput } from '@/core/policy-protection';
-import { findSensitiveTargetInToolInput } from '@/core/secret-protection';
+import { findSensitiveTargetInPolicyToolInput } from '@/core/secret-protection';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { BlockIntent } from '@/types';
@@ -30,15 +30,15 @@ export type GuardEvaluation = {
 /** @internal */
 export type GuardDependencies = {
     findPolicyMutation: typeof findPolicyConfigMutationTargetInToolInput;
-    loadConfig: typeof loadConfig;
-    findSensitiveTarget: typeof findSensitiveTargetInToolInput;
+    loadPolicySnapshot: typeof loadPolicySnapshot;
+    findSensitiveTarget: typeof findSensitiveTargetInPolicyToolInput;
     analyzeCommand: typeof analyzeCommand;
     getModes: typeof getCCSafetyNetEnvModes;
 };
 /** @internal */
 export type GuardOptions = {
     auditAllowed?: boolean;
-    configOptions?: LoadConfigOptions;
+    policyOptions?: PolicySnapshotOptions;
     dependencies?: Partial<GuardDependencies>;
 };
 /** @internal */

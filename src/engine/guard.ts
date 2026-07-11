@@ -1,5 +1,5 @@
-import { analyzeCommand, loadConfig } from '@/core/analyze';
-import type { LoadConfigOptions } from '@/core/config';
+import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
+import { analyzeCommand } from '@/core/analyze';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
   findPolicyConfigMutationTargetInToolInput,
@@ -7,7 +7,7 @@ import {
 } from '@/core/policy-protection';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import {
-  findSensitiveTargetInToolInput,
+  findSensitiveTargetInPolicyToolInput,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
@@ -48,8 +48,8 @@ export type GuardEvaluation = {
 /** @internal */
 export type GuardDependencies = {
   findPolicyMutation: typeof findPolicyConfigMutationTargetInToolInput;
-  loadConfig: typeof loadConfig;
-  findSensitiveTarget: typeof findSensitiveTargetInToolInput;
+  loadPolicySnapshot: typeof loadPolicySnapshot;
+  findSensitiveTarget: typeof findSensitiveTargetInPolicyToolInput;
   analyzeCommand: typeof analyzeCommand;
   getModes: typeof getCCSafetyNetEnvModes;
 };
@@ -57,7 +57,7 @@ export type GuardDependencies = {
 /** @internal */
 export type GuardOptions = {
   auditAllowed?: boolean;
-  configOptions?: LoadConfigOptions;
+  policyOptions?: PolicySnapshotOptions;
   dependencies?: Partial<GuardDependencies>;
 };
 
@@ -76,8 +76,8 @@ export class GuardEvaluationError extends Error {
 
 const DEFAULT_DEPENDENCIES: GuardDependencies = {
   findPolicyMutation: findPolicyConfigMutationTargetInToolInput,
-  loadConfig,
-  findSensitiveTarget: findSensitiveTargetInToolInput,
+  loadPolicySnapshot,
+  findSensitiveTarget: findSensitiveTargetInPolicyToolInput,
   analyzeCommand,
   getModes: getCCSafetyNetEnvModes,
 };
@@ -115,21 +115,22 @@ export function evaluateGuard(
     };
   }
 
-  const config = callDependency('config-load', invocation, () =>
-    dependencies.loadConfig(invocation.context.configCwd, {
-      repairLocalRulebooks: true,
-      ...options.configOptions,
+  const snapshot = callDependency('config-load', invocation, () =>
+    dependencies.loadPolicySnapshot({
+      ...options.policyOptions,
+      cwd: invocation.context.configCwd,
     }),
   );
+  const policy = snapshot.policy;
   const secretTarget =
-    config.secretProtection?.enabled === false
+    policy.secretProtection.enabled === false
       ? null
       : callDependency('secret-protection', invocation, () =>
           dependencies.findSensitiveTarget(
             invocation.input,
             invocation.route,
             invocation.context.executionCwd,
-            config.secretProtection,
+            policy.secretProtection,
             invocation.context.configCwd,
           ),
         );
@@ -160,12 +161,12 @@ export function evaluateGuard(
   }
 
   if (!isCommandInvocation(invocation)) {
-    if (config.failClosedReason) {
+    if (snapshot.state === 'invalid') {
       return {
         stage: 'config-state',
         decision: {
           kind: 'deny',
-          reason: config.failClosedReason,
+          reason: snapshot.reason,
           intent: 'stop_and_explain',
           evidence: inputCommand
             ? [{ kind: 'command', command: inputCommand, segment: inputCommand }]
@@ -181,11 +182,11 @@ export function evaluateGuard(
   }
 
   const result = callDependency('command-analysis', invocation, () => {
-    const modes = dependencies.getModes(config);
+    const modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(invocation.command as string, {
       cwd: invocation.context.executionCwd,
       shell: invocation.route.shell,
-      config,
+      policySnapshot: snapshot,
       strict: modes.strict,
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,

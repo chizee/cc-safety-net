@@ -1,8 +1,8 @@
-import type { Config } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
 export interface ChildCommandContext {
     cwd: string | undefined;
     envAssignments?: ReadonlyMap<string, string>;
-    config?: Pick<Config, 'rules' | 'transparent_wrappers' | 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
+    policy?: Pick<EffectivePolicy, 'rules' | 'transparentWrappers' | 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
 }
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
     originalCwd: string | undefined;

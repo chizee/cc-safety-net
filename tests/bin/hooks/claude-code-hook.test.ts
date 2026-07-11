@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeDefaultRulesConfig, writeStarterRulebook } from '@/core/rules/policy';
+import {
+  syncRulesConfig,
+  writeDefaultRulesConfig,
+  writeStarterRulebook,
+} from '@/core/rules/policy';
 import { readLatestAuditLogEntry } from '../../helpers';
 import {
   claudeCodeBashInput,
@@ -180,7 +184,7 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('repairs missing local rule lock before analysis', async () => {
+    test('fails closed until explicit sync creates the local rule lock', async () => {
       await withHookTestContext(async (context) => {
         writeProjectRulesConfigWithoutLock(context.cwd);
         writeStarterRulebook(join(context.cwd, '.cc-safety-net/rules/project-rules/rulebook.json'));
@@ -189,10 +193,18 @@ describe('Claude Code hook', () => {
           context.claudeCodeBashInput('docker system prune'),
         );
 
-        const parsed = JSON.parse(result.stdout);
+        const invalid = JSON.parse(result.stdout);
+        expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(false);
+        expect(invalid.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
+
+        expect((await syncRulesConfig({ cwd: context.cwd })).ok).toBeTrue();
+        const synced = JSON.parse(
+          (await context.runClaudeCodeHook(context.claudeCodeBashInput('docker system prune')))
+            .stdout,
+        );
         expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(true);
-        expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
+        expect(synced.hookSpecificOutput.permissionDecision).toBe('deny');
+        expect(synced.hookSpecificOutput.permissionDecisionReason).toContain(
           '[project-rules/block-docker-system-prune] Use targeted cleanup instead.',
         );
       });

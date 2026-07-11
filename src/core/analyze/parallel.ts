@@ -178,7 +178,7 @@ export function analyzeParallel(
         envAssignments: childCommand.envAssignments,
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
         analyzeNested: context.analyzeNested,
-        config: context.config,
+        policy: context.policy,
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
@@ -202,7 +202,7 @@ function parallelShellDynamicReason(
 ): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     destructiveCommandMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
-    context.config,
+    context.policy,
   );
 }
 
@@ -211,7 +211,7 @@ function parallelCommandStreamDynamicReason(
 ): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     destructiveCommandMatch('parallel.command-stream-dynamic', REASON_PARALLEL_COMMAND_STREAM),
-    context.config,
+    context.policy,
   );
 }
 
@@ -220,7 +220,7 @@ function parallelRmDynamicReason(
 ): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     destructiveCommandMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
-    context.config,
+    context.policy,
   );
 }
 
@@ -237,7 +237,7 @@ function analyzeParallelRmExpansions(
         paranoid: context.paranoidRm,
         allowTmpdirVar: context.allowTmpdirVar,
       }),
-      context.config,
+      context.policy,
     );
     if (rmResult) {
       return rmResult;

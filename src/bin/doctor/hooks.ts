@@ -14,11 +14,11 @@ import type {
 } from '@/bin/doctor/types';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import { doctorIntegrationOrder } from '@/bin/integration-metadata';
+import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
-import type { LoadConfigOptions } from '@/core/config';
-import type { Config } from '@/types';
+import type { PolicySnapshot } from '@/domain/policy';
 
-interface HookDetectOptions extends LoadConfigOptions {
+interface HookDetectOptions extends PolicySnapshotOptions {
   homeDir?: string;
   claudePluginListOutput?: string | null;
   codexPluginListOutput?: string | null;
@@ -76,7 +76,23 @@ const SELF_TEST_CASES: SelfTestCase[] = [
 ];
 
 /** Empty config for self-test - tests built-in rules only, not user config */
-const SELF_TEST_CONFIG: Config = { version: 1, rules: [] };
+const SELF_TEST_SNAPSHOT: PolicySnapshot = Object.freeze({
+  state: 'ready',
+  diagnostics: Object.freeze([]),
+  policy: Object.freeze({
+    rules: Object.freeze([]),
+    transparentWrappers: Object.freeze([]),
+    safety: Object.freeze({}),
+    worktreeMode: false,
+    destructiveCommandProtectionEnabled: true,
+    disabledDestructiveCommandRules: Object.freeze([]),
+    secretProtection: Object.freeze({
+      enabled: true,
+      disabledRules: Object.freeze([]),
+      denyPaths: Object.freeze([]),
+    }),
+  }),
+});
 
 /**
  * Run self-test by invoking the analyzer directly.
@@ -89,7 +105,7 @@ function runSelfTest(): SelfTestSummary {
   const results: SelfTestResult[] = SELF_TEST_CASES.map((tc) => {
     const result = analyzeCommand(tc.command, {
       cwd: selfTestCwd,
-      config: SELF_TEST_CONFIG,
+      policySnapshot: SELF_TEST_SNAPSHOT,
       strict: false,
       paranoidRm: false,
       paranoidInterpreters: false,

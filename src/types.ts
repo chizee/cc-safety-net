@@ -3,6 +3,7 @@
  */
 
 import { BLOCK_INTENTS, type BlockIntent } from './domain/decision.js';
+import type { PolicySnapshot } from './domain/policy.js';
 
 export { BLOCK_INTENTS, type BlockIntent };
 
@@ -20,28 +21,6 @@ export interface CustomRule {
   reason: string;
   /** Optional agent behavior intent for the block message footer */
   intent?: BlockIntent;
-}
-
-/** Runtime configuration used by command analysis. */
-export interface Config {
-  /** Schema version (must be 1) */
-  version: number;
-  /** Custom blocking rules */
-  rules: CustomRule[];
-  /** Commands that transparently execute a visible child command for analysis */
-  transparent_wrappers?: string[];
-  /** Runtime safety policy loaded from trusted user policy config */
-  safety?: PolicySafety;
-  /** Allow local Git discard commands in linked worktrees */
-  worktreeMode?: boolean;
-  /** Whether built-in destructive command protection is enabled by trusted user policy */
-  destructiveCommandProtectionEnabled?: boolean;
-  /** Destructive command rule IDs disabled by trusted user policy */
-  disabledDestructiveCommandRules?: ReadonlySet<string>;
-  /** Secret protection policy loaded from trusted user policy config */
-  secretProtection?: SecretProtectionConfig;
-  /** Fail-closed reason when rule-backed config cannot be loaded safely. */
-  failClosedReason?: string;
 }
 
 export type PolicySafetyLevel = 'standard' | 'strict' | 'paranoid';
@@ -189,6 +168,8 @@ export type ShellKind = 'posix' | 'powershell' | 'auto';
 
 /** Options for command analysis */
 export interface AnalyzeOptions {
+  /** Immutable policy snapshot to evaluate. */
+  policySnapshot: PolicySnapshot;
   /** Current working directory */
   cwd?: string;
   /** Shell syntax to use for command-specific analysis */
@@ -197,8 +178,6 @@ export interface AnalyzeOptions {
   effectiveCwd?: string | null;
   /** Environment assignments inherited by nested command analysis */
   envAssignments?: ReadonlyMap<string, string>;
-  /** Loaded configuration */
-  config?: Config;
   /** Fail-closed on unparseable commands */
   strict?: boolean;
   /** Block non-temp rm -rf even within cwd */
@@ -315,7 +294,7 @@ export interface ExplainOptions {
   userConfigDir?: string;
   asciiOnly?: boolean;
   strict?: boolean;
-  config?: Config;
+  policySnapshot?: PolicySnapshot;
 }
 
 /** Result of explain command */

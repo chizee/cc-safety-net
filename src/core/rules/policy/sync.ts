@@ -19,7 +19,6 @@ import {
   type DiscoveredRulebookSource,
   discoverGitHubRepositoryRulebooks,
   type ResolvedRulebook,
-  resolveLocalRulebook,
   resolveRulebookSource,
   resolveRulebookSourceForSync,
 } from './resolver';
@@ -248,11 +247,6 @@ export async function removeRulebookSource(
   return result;
 }
 
-export function repairLocalRulesPolicy(options: RulesPolicyOptions = {}): void {
-  repairLocalRulesScope({ ...options, global: true });
-  repairLocalRulesScope({ ...options, global: false });
-}
-
 async function checkRulesConfig(
   config: RulesConfig,
   configDir: string,
@@ -266,31 +260,6 @@ async function checkRulesConfig(
     warnings: [],
     entries: result.entries,
   };
-}
-
-function repairLocalRulesScope(options: SyncRulesConfigOptions): void {
-  const scope = getScopePaths(options);
-  const loaded = readRulesConfig(scope.configPath);
-  if (!loaded.config || loaded.errors.length > 0 || loaded.config.rules.length === 0) {
-    return;
-  }
-  if (!loaded.config.rules.every((spec) => /^[a-zA-Z0-9_-]{1,64}$/.test(spec))) {
-    return;
-  }
-  try {
-    const resolved = loaded.config.rules.map((spec) =>
-      resolveLocalRulebook(spec, scope.configDir, options),
-    );
-    for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options);
-    }
-    writeJsonAtomic(scope.lockPath, {
-      version: 1,
-      rulebooks: resolved.map((item) => item.entry),
-    });
-  } catch {
-    // Normal policy loading will report the unrepaired validation error.
-  }
 }
 
 function preserveDisplayRef(

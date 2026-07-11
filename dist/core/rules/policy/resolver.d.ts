@@ -12,5 +12,4 @@ export interface DiscoveredRulebookSource {
 export declare function resolveRulebookSource(spec: string, configDir: string, options: RulesPolicyOptions): Promise<ResolvedRulebook>;
 export declare function resolveRulebookSourceForSync(spec: string, configDir: string, options: SyncRulesConfigOptions, previousLock: RulesLockfile | null): Promise<ResolvedRulebook>;
 export declare function discoverGitHubRepositoryRulebooks(source: string): Promise<DiscoveredRulebookSource[]>;
-export declare function resolveLocalRulebook(spec: string, configDir: string, _options: RulesPolicyOptions): ResolvedRulebook;
 export declare function sha256Digest(content: string): string;

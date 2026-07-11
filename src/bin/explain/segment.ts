@@ -37,7 +37,7 @@ import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/core/git';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { checkCustomRuleMatch } from '@/core/rules/custom';
+import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import {
   normalizeCommandToken,
   splitShellCommands,
@@ -216,11 +216,11 @@ export function explainSegment(
     return null;
   }
 
-  const config = options.config ?? { version: 1, rules: [] };
+  const policy = options.policySnapshot.policy;
   let head = strippedTokens[0];
   if (!head) return null;
 
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, config);
+  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
   if (transparentWrapper) {
     steps.push({
       type: 'transparent-wrapper',
@@ -358,7 +358,7 @@ export function explainSegment(
     allowTmpdirVar,
     envAssignments,
     worktreeMode: options.worktreeMode,
-    config,
+    policy,
     analyzeNested,
   };
 
@@ -533,9 +533,9 @@ export function explainSegment(
   if (fallbackReason) return { reason: fallbackReason };
 
   const shouldCheckCustomRules = depth === 0 || !matchedKnown;
-  const hasRules = options.config?.rules && options.config.rules.length > 0;
-  if (shouldCheckCustomRules && hasRules && options.config) {
-    const customResult = checkCustomRuleMatch(strippedTokens, options.config.rules);
+  const hasRules = policy.rules.length > 0;
+  if (shouldCheckCustomRules && hasRules) {
+    const customResult = checkPolicyRuleMatch(strippedTokens, policy.rules);
     steps.push({
       type: 'custom-rules-check',
       rulesChecked: true,

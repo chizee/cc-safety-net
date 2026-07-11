@@ -1,6 +1,6 @@
+import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import type { analyzeCommand } from '@/core/analyze';
 import { redactSecrets } from '@/core/audit';
-import type { LoadConfigOptions } from '@/core/config';
 import { resolveContainedCwd } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { formatBlockedMessage } from '@/core/format';
@@ -29,7 +29,7 @@ type PiToolCallContext = {
     getSessionFile: () => string | undefined;
   };
   safetyNetAnalyzeCommand?: typeof analyzeCommand;
-  safetyNetConfigOptions?: LoadConfigOptions;
+  safetyNetPolicyOptions?: PolicySnapshotOptions;
 };
 
 type PiToolCallResult = { block: true; reason: string } | undefined;
@@ -99,7 +99,7 @@ function handlePiToolCallWithDependencies(
   try {
     evaluation = evaluateGuard(toolCall, {
       auditAllowed: envTruthy(ENV_FLAGS.debug),
-      configOptions: ctx.safetyNetConfigOptions,
+      policyOptions: ctx.safetyNetPolicyOptions,
       dependencies: {
         ...guardDependencies,
         ...(ctx.safetyNetAnalyzeCommand ? { analyzeCommand: ctx.safetyNetAnalyzeCommand } : {}),

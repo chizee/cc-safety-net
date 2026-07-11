@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
 
 const INITIAL_SYSTEM_TMPDIR = tmpdir();
-const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp', '/var/folders'];
+const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp'];
 
 export function isTmpdirOverriddenToNonTemp(envAssignments: Map<string, string>): boolean {
   if (!envAssignments.has('TMPDIR')) {
@@ -30,10 +30,16 @@ export function isTmpdirOverriddenToNonTemp(envAssignments: Map<string, string>)
 function getTrustedTempRoots(): string[] {
   const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize(root));
   const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
-  if (initialTmpdir && roots.some((root) => isPathOrSubpath(initialTmpdir, root))) {
+  if (!initialTmpdir) return roots;
+  if (process.platform === 'win32') return [...roots, initialTmpdir];
+  if (process.platform === 'darwin' && isMacOSPerUserTempRoot(initialTmpdir)) {
     return [...roots, initialTmpdir];
   }
   return roots;
+}
+
+function isMacOSPerUserTempRoot(path: string): boolean {
+  return /^\/(?:private\/)?var\/folders\/[^/]{2}\/[^/]+\/T$/.test(path);
 }
 
 function tryResolveExistingPathComponents(path: string): string | null {

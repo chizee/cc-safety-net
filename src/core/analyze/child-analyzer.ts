@@ -16,9 +16,9 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import { normalizeCommandToken } from '@/core/shell';
+import type { EffectivePolicy } from '@/domain/policy';
 import {
   type AnalyzeNestedOverrides,
-  type Config,
   type DestructiveCommandRuleMatch,
   SHELL_WRAPPERS,
 } from '@/types';
@@ -31,7 +31,10 @@ export interface ChildCommandAnalysisContext {
   allowTmpdirVar: boolean;
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
-  config?: Pick<Config, 'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'>;
+  policy?: Pick<
+    EffectivePolicy,
+    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+  >;
   analyzeNested?: (
     command: string,
     overrides?: AnalyzeNestedOverrides,
@@ -78,7 +81,7 @@ export function analyzeChildCommandMatch(
         ? { id: '', reason: options.shellDynamicReason, intent: 'manual_only' as const }
         : undefined);
     if (options.dynamicInput && shellDynamicMatch) {
-      return filterDestructiveCommandMatch(shellDynamicMatch, context.config);
+      return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
     }
 
     const dashCArg = extractDashCArg(tokens);
@@ -101,7 +104,7 @@ export function analyzeChildCommandMatch(
             })
           : null,
       ),
-      context.config,
+      context.policy,
     );
   }
 
@@ -114,7 +117,7 @@ export function analyzeChildCommandMatch(
     if (context.paranoidInterpreters) {
       return filterDestructiveCommandMatch(
         destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
-        context.config,
+        context.policy,
       );
     }
 
@@ -129,7 +132,7 @@ export function analyzeChildCommandMatch(
     return containsDangerousCode(codeArg)
       ? filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
-          context.config,
+          context.policy,
         )
       : null;
   }
@@ -143,7 +146,7 @@ export function analyzeChildCommandMatch(
           paranoid: context.paranoidRm,
           allowTmpdirVar: context.allowTmpdirVar,
         }),
-        context.config,
+        context.policy,
       ) ?? getDynamicRmReason(options, context)
     );
   }
@@ -155,7 +158,7 @@ export function analyzeChildCommandMatch(
         analyzeTokens: (nestedTokens, cwd) =>
           analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
       }),
-      context.config,
+      context.policy,
     );
   }
 
@@ -166,7 +169,7 @@ export function analyzeChildCommandMatch(
         envAssignments: context.envAssignments,
         worktreeMode: options.dynamicInput ? false : context.worktreeMode,
       }),
-      context.config,
+      context.policy,
     );
   }
 
@@ -183,6 +186,6 @@ function getDynamicRmReason(
       ? { id: '', reason: options.rmDynamicReason, intent: 'manual_only' as const }
       : undefined);
   return options.dynamicInput && rmDynamicMatch
-    ? filterDestructiveCommandMatch(rmDynamicMatch, context.config)
+    ? filterDestructiveCommandMatch(rmDynamicMatch, context.policy)
     : null;
 }

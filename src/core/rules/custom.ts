@@ -1,4 +1,5 @@
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
+import type { PolicyRule } from '@/domain/policy';
 import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
 
 export function checkCustomRules(tokens: string[], rules: CustomRule[]): string | null {
@@ -8,6 +9,21 @@ export function checkCustomRules(tokens: string[], rules: CustomRule[]): string 
 export function checkCustomRuleMatch(
   tokens: string[],
   rules: CustomRule[],
+): DestructiveCommandRuleMatch | null {
+  return checkRuleMatch(tokens, rules);
+}
+
+/** @internal */
+export function checkPolicyRuleMatch(
+  tokens: string[],
+  rules: readonly PolicyRule[],
+): DestructiveCommandRuleMatch | null {
+  return checkRuleMatch(tokens, rules);
+}
+
+function checkRuleMatch(
+  tokens: string[],
+  rules: readonly PolicyRule[],
 ): DestructiveCommandRuleMatch | null {
   if (tokens.length === 0 || rules.length === 0) {
     return null;
@@ -142,7 +158,11 @@ function shouldSkipPossibleOptionValue(
   return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
 }
 
-function matchesBlockArgs(tokens: string[], blockArgs: string[], shortOpts: Set<string>): boolean {
+function matchesBlockArgs(
+  tokens: string[],
+  blockArgs: readonly string[],
+  shortOpts: Set<string>,
+): boolean {
   const blockArgsSet = new Set(blockArgs);
 
   for (const token of tokens) {

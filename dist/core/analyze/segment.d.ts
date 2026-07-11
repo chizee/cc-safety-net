@@ -1,6 +1,8 @@
-import { type AnalyzeNestedOverrides, type AnalyzeOptions, type AnalyzeResult, type Config } from '@/types';
+import type { EffectivePolicy } from '@/domain/policy';
+import { type AnalyzeNestedOverrides, type AnalyzeOptions, type AnalyzeResult } from '@/types';
 export type InternalOptions = AnalyzeOptions & {
-    config: Config;
+    policy: EffectivePolicy;
+    invalidReason: string | undefined;
     effectiveCwd: string | null | undefined;
     analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
 };
