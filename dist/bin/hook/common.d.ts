@@ -1,7 +1,7 @@
-import type { BlockIntent } from '@/domain/decision';
 import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
 import { type GuardDependencies } from '@/engine/guard';
-type HookDenyOutput = (reason: string, command?: string, segment?: string, manualPermissionAdvice?: boolean, toolName?: string, ruleId?: string, intent?: BlockIntent) => void;
+import { type IntegrationDenial } from '@/integrations/denial';
+type HookDenyOutput = (denial: IntegrationDenial) => void;
 type HookAdapter<T> = {
     agent: string;
     outputDeny: HookDenyOutput;
@@ -22,7 +22,7 @@ type ToolInputResult = {
 } | {
     ok: false;
 };
-export declare function parseHookJson<T>(inputText: string, outputDeny: (reason: string) => void, strictReason: string): T | undefined;
+export declare function parseHookJson<T>(inputText: string, outputDeny: HookDenyOutput, strictReason: string): T | undefined;
 export declare function getToolRoute(toolName: string, commandTools: ReadonlyMap<string, CommandToolKind>): ToolRoute;
 export declare function resolveStandardHookContext(cwdInput: unknown, toolInput: unknown, toolName: string, outputDeny: HookDenyOutput): ToolCallContext | null;
 export declare function runConfiguredHookAdapter<T>(adapter: ConfiguredHookAdapter<T>): Promise<void>;

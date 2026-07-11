@@ -1,19 +1,18 @@
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
-import { redactSecrets } from '@/core/audit';
 import { resolveContainedCwd } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
-import { formatBlockedMessage } from '@/core/format';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import { getNonCommandToolInputKind } from '@/core/tool-input';
-import type { BlockIntent } from '@/domain/decision';
 import type { CommandToolKind, ToolInvocation } from '@/domain/invocation';
-import { writeGuardAudit } from '@/engine/audit';
+import { createToolInvocation } from '@/domain/invocation';
+import { type GuardDependencies, GuardEvaluationError } from '@/engine/guard';
 import {
-  evaluateGuard,
-  type GuardDependencies,
-  type GuardEvaluation,
-  GuardEvaluationError,
-} from '@/engine/guard';
+  createFailedClosedDenial,
+  formatDenial,
+  formatIntegrationError,
+  type IntegrationDenial,
+  projectGuardDenial,
+} from '@/integrations/denial';
+import { evaluateRuntimeGuard } from '@/integrations/runtime';
 
 type PiApi = {
   on: (
@@ -88,35 +87,31 @@ function handlePiToolCallWithDependencies(
   if (!toolCall) return undefined;
 
   if ('malformed' in toolCall) {
-    return blockPiToolCall(
-      REASON_SAFETY_NET_FAILED_CLOSED,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'stop_and_explain',
-    );
+    return blockPiToolCall(createFailedClosedDenial());
   }
 
-  let evaluation: GuardEvaluation;
   try {
-    evaluation = evaluateGuard(toolCall, {
-      auditAllowed: envTruthy(ENV_FLAGS.debug),
-      policyOptions: options.policyOptions,
-      dependencies: options.guardDependencies,
+    const evaluation = evaluateRuntimeGuard(toolCall, {
+      guard: {
+        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        policyOptions: options.policyOptions,
+        dependencies: options.guardDependencies,
+      },
+      audit: {
+        agent: 'pi',
+        getSessionId: () => ctx.sessionManager.getSessionFile(),
+      },
     });
+    return blockPiEvaluation(evaluation, evaluation.stage !== 'config-state');
   } catch (error) {
     if (!(error instanceof GuardEvaluationError)) throw error;
     if (envTruthy(ENV_FLAGS.debug)) {
       console.error(
-        `CC Safety Net debug: pi tool_call analysis failed: ${redactSecrets(error.cause instanceof Error ? error.cause.message : String(error.cause))}`,
+        `CC Safety Net debug: pi tool_call analysis failed: ${formatIntegrationError(error.cause)}`,
       );
     }
     return blockPiEvaluation(error.evaluation, toolCall.route.kind === 'command');
   }
-
-  writeGuardAudit(evaluation.audit, () => ctx.sessionManager.getSessionFile(), { agent: 'pi' });
-  return blockPiEvaluation(evaluation, evaluation.stage !== 'config-state');
 }
 
 function getPiToolCall(
@@ -142,12 +137,13 @@ function getPiToolCall(
   }
 
   if (!adapter) {
-    return {
-      toolName: toolCall.toolName,
-      input: toolCall.input,
-      context: { configCwd: ctx.cwd, executionCwd: ctx.cwd },
-      route: { kind: getNonCommandToolInputKind(toolCall.toolName) },
-    };
+    return createToolInvocation(
+      toolCall.toolName,
+      toolCall.input,
+      { kind: getNonCommandToolInputKind(toolCall.toolName) },
+      { configCwd: ctx.cwd, executionCwd: ctx.cwd },
+      null,
+    );
   }
 
   const command = toolCall.input[adapter.commandField];
@@ -162,51 +158,23 @@ function getPiToolCall(
     typeof cwdInput === 'string' ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
   if (!executionCwd) return { malformed: true };
 
-  return {
-    toolName: toolCall.toolName,
-    input: toolCall.input,
-    context: { configCwd: ctx.cwd, executionCwd },
-    route: { kind: 'command', shell: adapter.shell },
+  return createToolInvocation(
+    toolCall.toolName,
+    toolCall.input,
+    { kind: 'command', shell: adapter.shell },
+    { configCwd: ctx.cwd, executionCwd },
     command,
-  };
-}
-
-function blockPiEvaluation(
-  evaluation: GuardEvaluation,
-  includeEvidence: boolean,
-): PiToolCallResult {
-  if (evaluation.decision.kind !== 'deny') return undefined;
-  const evidence = includeEvidence
-    ? evaluation.decision.evidence.find((item) => item.kind === 'command')
-    : undefined;
-  return blockPiToolCall(
-    evaluation.decision.reason,
-    evidence?.command,
-    evidence?.segment,
-    undefined,
-    evaluation.decision.ruleId,
-    evaluation.decision.intent,
   );
 }
 
-function blockPiToolCall(
-  reason: string,
-  command?: string,
-  segment?: string,
-  manualPermissionAdvice?: boolean,
-  ruleId?: string,
-  intent?: BlockIntent,
+function blockPiEvaluation(
+  evaluation: Parameters<typeof projectGuardDenial>[0],
+  includeEvidence: boolean,
 ): PiToolCallResult {
-  return {
-    block: true,
-    reason: formatBlockedMessage({
-      reason,
-      ruleId,
-      intent,
-      command,
-      segment,
-      redact: redactSecrets,
-      manualPermissionAdvice,
-    }),
-  };
+  const denial = projectGuardDenial(evaluation, { includeEvidence });
+  return denial ? blockPiToolCall(denial) : undefined;
+}
+
+function blockPiToolCall(denial: IntegrationDenial): PiToolCallResult {
+  return { block: true, reason: formatDenial(denial) };
 }

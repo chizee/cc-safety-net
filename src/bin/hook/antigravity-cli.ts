@@ -2,10 +2,10 @@ import { isAbsolute, relative } from 'node:path';
 import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
 import { resolveExistingPath } from '@/core/path-canonicalization';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import { extractPatchTargetsFromToolInput, extractPathLikeToolValues } from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
-import type { AntigravityCliHookInput, AntigravityCliHookOutput, BlockIntent } from '@/types';
+import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
+import type { AntigravityCliHookInput, AntigravityCliHookOutput } from '@/types';
 
 const ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([['run_command', 'auto']]);
 const ANTIGRAVITY_PATH_KEYS = new Set([
@@ -25,15 +25,7 @@ export function getAntigravityCliToolRoute(toolName: string) {
   return getToolRoute(toolName, ANTIGRAVITY_CLI_COMMAND_TOOLS);
 }
 
-type AntigravityDenyOutput = (
-  reason: string,
-  command?: string,
-  segment?: string,
-  manualPermissionAdvice?: boolean,
-  toolName?: string,
-  ruleId?: string,
-  intent?: BlockIntent,
-) => void;
+type AntigravityDenyOutput = (denial: IntegrationDenial) => void;
 
 export async function runAntigravityCliHook(): Promise<void> {
   await runConfiguredHookAdapter<AntigravityCliHookInput>({
@@ -170,13 +162,11 @@ function outputAntigravityCwdDeny(
       ? (toolInput as Record<string, unknown>).command
       : undefined;
   outputDeny(
-    REASON_SAFETY_NET_FAILED_CLOSED,
-    typeof command === 'string' ? command : undefined,
-    cwd,
-    undefined,
-    toolName,
-    undefined,
-    'stop_and_explain',
+    createFailedClosedDenial({
+      command: typeof command === 'string' ? command : undefined,
+      segment: cwd,
+      toolName,
+    }),
   );
 }
 

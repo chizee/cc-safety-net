@@ -28,7 +28,7 @@ export async function runCopilotCliHook(): Promise<void> {
     getToolName: (input) => input.toolName,
     getToolInput: (input, toolName, outputDeny) => {
       if (typeof input.toolArgs !== 'string') {
-        outputDeny('Failed to parse toolArgs JSON.');
+        outputDeny({ reason: 'Failed to parse toolArgs JSON.' });
         return { ok: false };
       }
       const toolInput = parseHookJson<unknown>(

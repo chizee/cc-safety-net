@@ -11,7 +11,13 @@ export function analyzeCommandWithProgram(
   program?: CommandProgram,
   factStore?: SemanticFactStore,
 ): AnalyzeResult | null {
-  const modes = getCCSafetyNetEnvModes(options.policySnapshot.policy);
+  const modes =
+    options.strict !== undefined &&
+    options.paranoidRm !== undefined &&
+    options.paranoidInterpreters !== undefined &&
+    options.worktreeMode !== undefined
+      ? options
+      : getCCSafetyNetEnvModes(options.policySnapshot.policy);
   return analyzeCommandInternal(
     command,
     0,

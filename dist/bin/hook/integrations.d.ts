@@ -1,4 +1,4 @@
-import { type RuntimeHookIntegrationId } from '@/bin/integration-metadata';
+import { type RuntimeHookIntegrationId } from '@/integrations/catalog';
 export type HookIntegration = {
     id: RuntimeHookIntegrationId;
     displayName: string;

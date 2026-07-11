@@ -1,14 +1,16 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
-import { redactSecrets } from '@/core/audit';
-import { formatBlockedMessage } from '@/core/format';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import * as toolRouting from '@/core/tool-input';
-import type { BlockIntent } from '@/domain/decision';
 import * as invocationDomain from '@/domain/invocation';
-import { writeGuardAudit } from '@/engine/audit';
 import * as guardEngine from '@/engine/guard';
+import {
+  createFailedClosedDenial,
+  formatDenial,
+  type IntegrationDenial,
+  projectGuardDenial,
+} from '@/integrations/denial';
+import { evaluateRuntimeGuard } from '@/integrations/runtime';
 import { loadBuiltinCommands } from '@/opencode/builtin-commands/index';
 
 type CCSafetyNetPluginInput = PluginInput & {
@@ -58,11 +60,16 @@ export function createCCSafetyNetPlugin(
           context,
           toolRouting.getCommandFromToolInput(toolInput) ?? null,
         );
-        let evaluation: guardEngine.GuardEvaluation;
         try {
-          evaluation = guardEngine.evaluateGuard(invocation, {
-            dependencies: guardDependencies,
+          const evaluation = evaluateRuntimeGuard(invocation, {
+            guard: { dependencies: guardDependencies },
+            audit: {
+              agent: 'opencode',
+              homeDir,
+              getSessionId: () => input.sessionID,
+            },
           });
+          throwGuardDenial(evaluation, evaluation.stage !== 'config-state');
         } catch (error) {
           if (!(error instanceof guardEngine.GuardEvaluationError)) throw error;
           if (
@@ -75,9 +82,6 @@ export function createCCSafetyNetPlugin(
           throwGuardDenial(error.evaluation, true);
           return;
         }
-
-        writeGuardAudit(evaluation.audit, () => input.sessionID, { agent: 'opencode', homeDir });
-        throwGuardDenial(evaluation, evaluation.stage !== 'config-state');
       },
     };
   }) satisfies Plugin;
@@ -143,48 +147,14 @@ function isUsableDirectory(path: string): boolean {
 }
 
 function throwFailedClosed(command?: string): never {
-  throwBlocked(
-    REASON_SAFETY_NET_FAILED_CLOSED,
-    command,
-    command,
-    undefined,
-    undefined,
-    'stop_and_explain',
-  );
+  throwBlocked(createFailedClosedDenial({ command }));
 }
 
 function throwGuardDenial(evaluation: guardEngine.GuardEvaluation, includeEvidence: boolean): void {
-  if (evaluation.decision.kind !== 'deny') return;
-  const evidence = includeEvidence
-    ? evaluation.decision.evidence.find((item) => item.kind === 'command')
-    : undefined;
-  throwBlocked(
-    evaluation.decision.reason,
-    evidence?.command,
-    evidence?.segment,
-    undefined,
-    evaluation.decision.ruleId,
-    evaluation.decision.intent,
-  );
+  const denial = projectGuardDenial(evaluation, { includeEvidence });
+  if (denial) throwBlocked(denial);
 }
 
-function throwBlocked(
-  reason: string,
-  command?: string,
-  segment?: string,
-  manualPermissionAdvice?: boolean,
-  ruleId?: string,
-  intent?: BlockIntent,
-): never {
-  throw new Error(
-    formatBlockedMessage({
-      reason,
-      ruleId,
-      intent,
-      command,
-      segment,
-      redact: redactSecrets,
-      manualPermissionAdvice,
-    }),
-  );
+function throwBlocked(denial: IntegrationDenial): never {
+  throw new Error(formatDenial(denial));
 }

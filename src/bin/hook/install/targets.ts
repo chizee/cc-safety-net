@@ -1,61 +1,20 @@
 import type { NativeCommand } from '@/bin/hook/install/native';
+import { type IntegrationId, installIntegrationMetadata } from '@/integrations/catalog';
 
 export type InstallAction = 'install' | 'uninstall';
-export type InstallTarget =
-  | 'antigravity-cli'
-  | 'claude-code'
-  | 'codex'
-  | 'copilot-cli'
-  | 'gemini-cli'
-  | 'kimi-code'
-  | 'opencode'
-  | 'pi';
+export type InstallTarget = IntegrationId;
 
 export const INSTALL_TARGETS: readonly {
   target: InstallTarget;
   flag: string;
   label: string;
   probeCommand: NativeCommand;
-}[] = [
-  {
-    target: 'antigravity-cli',
-    flag: '--agy-cli',
-    label: 'Antigravity CLI',
-    probeCommand: ['agy', '--version'],
-  },
-  {
-    target: 'claude-code',
-    flag: '--claude-code',
-    label: 'Claude Code',
-    probeCommand: ['claude', '--version'],
-  },
-  { target: 'codex', flag: '--codex', label: 'Codex', probeCommand: ['codex', '--version'] },
-  {
-    target: 'gemini-cli',
-    flag: '--gemini-cli',
-    label: 'Gemini CLI',
-    probeCommand: ['gemini', '--version'],
-  },
-  {
-    target: 'copilot-cli',
-    flag: '--copilot-cli',
-    label: 'GitHub Copilot CLI',
-    probeCommand: ['copilot', '--binary-version'],
-  },
-  {
-    target: 'kimi-code',
-    flag: '--kimi-code',
-    label: 'Kimi Code',
-    probeCommand: ['kimi', '--version'],
-  },
-  {
-    target: 'opencode',
-    flag: '--opencode',
-    label: 'OpenCode',
-    probeCommand: ['opencode', '--version'],
-  },
-  { target: 'pi', flag: '--pi', label: 'Pi', probeCommand: ['pi', '--version'] },
-] as const;
+}[] = installIntegrationMetadata.map((integration) => ({
+  target: integration.id,
+  flag: integration.flag,
+  label: integration.installLabel,
+  probeCommand: integration.probeCommand,
+}));
 
 export const TARGET_FLAGS = new Map<string, InstallTarget>(
   INSTALL_TARGETS.map((target) => [target.flag, target.target]),

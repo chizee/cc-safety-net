@@ -1,30 +1,19 @@
-import { redactSecrets } from '@/core/audit';
 import { firstTrustedRoot } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
-import { formatBlockedMessage } from '@/core/format';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import { getCommandFromToolInput, getNonCommandToolInputKind } from '@/core/tool-input';
-import type { BlockIntent } from '@/domain/decision';
 import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
-import { writeGuardAudit } from '@/engine/audit';
+import { type GuardDependencies, GuardEvaluationError, type GuardStage } from '@/engine/guard';
 import {
-  evaluateGuard,
-  type GuardDependencies,
-  type GuardEvaluation,
-  GuardEvaluationError,
-  type GuardStage,
-} from '@/engine/guard';
+  createFailedClosedDenial,
+  formatDenial,
+  formatIntegrationError,
+  type IntegrationDenial,
+  projectGuardDenial,
+} from '@/integrations/denial';
+import { evaluateRuntimeGuard } from '@/integrations/runtime';
 
-type HookDenyOutput = (
-  reason: string,
-  command?: string,
-  segment?: string,
-  manualPermissionAdvice?: boolean,
-  toolName?: string,
-  ruleId?: string,
-  intent?: BlockIntent,
-) => void;
+type HookDenyOutput = (denial: IntegrationDenial) => void;
 
 type HookAdapter<T> = {
   agent: string;
@@ -50,33 +39,12 @@ type ToolInputResult = { ok: true; input: unknown; route: ToolRoute } | { ok: fa
 
 function outputHookDeny(
   createDenyOutput: (message: string) => object,
-  reason: string,
-  command?: string,
-  segment?: string,
-  manualPermissionAdvice?: boolean,
-  toolName?: string,
-  ruleId?: string,
-  intent?: BlockIntent,
+  denial: IntegrationDenial,
 ): void {
-  console.log(
-    JSON.stringify(
-      createDenyOutput(
-        formatBlockedMessage({
-          reason,
-          ruleId,
-          intent,
-          command,
-          segment,
-          toolName,
-          redact: redactSecrets,
-          manualPermissionAdvice,
-        }),
-      ),
-    ),
-  );
+  console.log(JSON.stringify(createDenyOutput(formatDenial(denial))));
 }
 
-async function readHookInput<T>(outputDeny: (reason: string) => void): Promise<T | undefined> {
+async function readHookInput<T>(outputDeny: HookDenyOutput): Promise<T | undefined> {
   const chunks: Buffer[] = [];
 
   for await (const chunk of process.stdin) {
@@ -86,7 +54,7 @@ async function readHookInput<T>(outputDeny: (reason: string) => void): Promise<T
   const inputText = Buffer.concat(chunks).toString('utf-8').trim();
 
   if (!inputText) {
-    outputDeny('Missing hook input JSON.');
+    outputDeny({ reason: 'Missing hook input JSON.' });
     return undefined;
   }
 
@@ -95,13 +63,13 @@ async function readHookInput<T>(outputDeny: (reason: string) => void): Promise<T
 
 export function parseHookJson<T>(
   inputText: string,
-  outputDeny: (reason: string) => void,
+  outputDeny: HookDenyOutput,
   strictReason: string,
 ): T | undefined {
   try {
     return JSON.parse(inputText) as T;
   } catch {
-    outputDeny(strictReason);
+    outputDeny({ reason: strictReason });
     return undefined;
   }
 }
@@ -139,13 +107,11 @@ function outputFailedClosed(
 ): void {
   const command = getCommandFromToolInput(toolInput);
   outputDeny(
-    REASON_SAFETY_NET_FAILED_CLOSED,
-    command,
-    segment ?? command,
-    undefined,
-    toolName,
-    undefined,
-    'stop_and_explain',
+    createFailedClosedDenial({
+      command,
+      segment,
+      toolName,
+    }),
   );
 }
 
@@ -183,47 +149,37 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     context,
     getCommandFromToolInput(toolInputResult.input) ?? null,
   );
-  let evaluation: GuardEvaluation;
   try {
-    evaluation = evaluateGuard(invocation, {
-      auditAllowed: envTruthy(ENV_FLAGS.debug),
-      dependencies: adapter.guardDependencies,
+    const evaluation = evaluateRuntimeGuard(invocation, {
+      guard: {
+        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        dependencies: adapter.guardDependencies,
+      },
+      audit: { agent: adapter.agent, getSessionId: () => adapter.getSessionId(input) },
     });
+    const denial = projectGuardDenial(evaluation, {
+      includeEvidence: true,
+      toolName: evaluation.stage === 'command-analysis' ? undefined : toolName,
+    });
+    if (denial) adapter.outputDeny(denial);
   } catch (error) {
     if (!(error instanceof GuardEvaluationError)) {
       throw error;
     }
     logHookGuardError(error);
-    outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
+    const denial = projectGuardDenial(error.evaluation, {
+      includeEvidence: true,
+      toolName: error.evaluation.stage === 'command-analysis' ? undefined : toolName,
+    });
+    if (denial) adapter.outputDeny(denial);
     return;
   }
-
-  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent });
-  outputGuardDenial(adapter.outputDeny, evaluation, toolName);
-}
-
-function outputGuardDenial(
-  outputDeny: HookDenyOutput,
-  evaluation: GuardEvaluation,
-  toolName: string,
-): void {
-  if (evaluation.decision.kind !== 'deny') return;
-  const evidence = evaluation.decision.evidence.find((item) => item.kind === 'command');
-  outputDeny(
-    evaluation.decision.reason,
-    evidence?.command,
-    evidence?.segment,
-    undefined,
-    evaluation.stage === 'command-analysis' ? undefined : toolName,
-    evaluation.decision.ruleId,
-    evaluation.decision.intent,
-  );
 }
 
 function logHookGuardError(error: GuardEvaluationError): void {
   if (!envTruthy(ENV_FLAGS.debug)) return;
   console.error(
-    `CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${redactSecrets(error.cause instanceof Error ? error.cause.message : String(error.cause))}`,
+    `CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${formatIntegrationError(error.cause)}`,
   );
 }
 
@@ -241,25 +197,7 @@ function stringField(value: unknown): string | undefined {
 export async function runConfiguredHookAdapter<T>(
   adapter: ConfiguredHookAdapter<T>,
 ): Promise<void> {
-  const outputDeny: HookDenyOutput = (
-    reason,
-    command,
-    segment,
-    manualPermissionAdvice,
-    toolName,
-    ruleId,
-    intent,
-  ) =>
-    outputHookDeny(
-      adapter.createDenyOutput,
-      reason,
-      command,
-      segment,
-      manualPermissionAdvice,
-      toolName,
-      ruleId,
-      intent,
-    );
+  const outputDeny: HookDenyOutput = (denial) => outputHookDeny(adapter.createDenyOutput, denial);
 
   await runHookAdapter<T>({
     agent: adapter.agent,

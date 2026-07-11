@@ -1,13 +1,14 @@
 import type { NativeCommand } from '@/bin/hook/install/native';
+import { type IntegrationId } from '@/integrations/catalog';
 export type InstallAction = 'install' | 'uninstall';
-export type InstallTarget = 'antigravity-cli' | 'claude-code' | 'codex' | 'copilot-cli' | 'gemini-cli' | 'kimi-code' | 'opencode' | 'pi';
+export type InstallTarget = IntegrationId;
 export declare const INSTALL_TARGETS: readonly {
     target: InstallTarget;
     flag: string;
     label: string;
     probeCommand: NativeCommand;
 }[];
-export declare const TARGET_FLAGS: Map<string, InstallTarget>;
+export declare const TARGET_FLAGS: Map<string, "opencode" | "antigravity-cli" | "claude-code" | "copilot-cli" | "gemini-cli" | "kimi-code" | "codex" | "pi">;
 /** @internal */
 export declare function orderInstallTargets(targets: readonly InstallTarget[]): InstallTarget[];
 /** @internal */

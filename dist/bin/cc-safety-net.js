@@ -698,56 +698,6 @@ function envFlagIsSet(flag) {
   return process.env[flag.name] !== void 0 || !!flag.legacyName && process.env[flag.legacyName] !== void 0;
 }
 
-// src/core/format.ts
-function formatBlockedMessage(input) {
-  let { reason, command, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
-
-Reason: ${redact(reason)}`;
-  if (input.ruleId)
-    message += `
-
-Rule: ${input.ruleId}`;
-  if (toolName)
-    message += `
-
-Tool: ${toolName}`;
-  if (command) {
-    let safeCommand = redact(command);
-    message += `
-
-Command: ${excerpt(safeCommand, maxLen)}`;
-  }
-  if (segment && segment !== command) {
-    let safeSegment = redact(segment);
-    message += `
-
-Segment: ${excerpt(safeSegment, maxLen)}`;
-  }
-  return message += `
-
-${getFooter(input)}`, message;
-}
-function getFooter(input) {
-  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
-    case "hard_stop":
-      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
-    case "use_alternative":
-      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
-    case "scope_down":
-      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
-    case "manual_only":
-      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
-    case "stop_and_explain":
-      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
-  }
-}
-function excerpt(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-}
-
-// src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
-
 // src/core/tool-input.ts
 var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TOOL_NAMES = /* @__PURE__ */ new Set([
   "create",
@@ -1024,27 +974,6 @@ function createToolInvocation(toolName, input, route, context, command) {
   if (route.kind !== "command")
     return { toolName, input, route, context };
   return { toolName, input, route, context, command };
-}
-
-// src/engine/audit.ts
-function writeGuardAudit(audit, getSessionId, options) {
-  if (!audit)
-    return;
-  let sessionId;
-  try {
-    sessionId = getSessionId();
-  } catch {
-    return;
-  }
-  if (!sessionId)
-    return;
-  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
-    homeDir: options.homeDir,
-    decision: audit.decision,
-    agent: options.agent,
-    ruleId: audit.ruleId,
-    intent: audit.intent
-  });
 }
 
 // src/config/policy-metadata.ts
@@ -7831,6 +7760,9 @@ function extractXargsChildCommandWithInfo(tokens) {
   return { childTokens: [], replacementToken };
 }
 
+// src/core/reasons.ts
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+
 // src/core/analyze/segment.ts
 var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "branch",
@@ -8920,7 +8852,7 @@ function isCCSafetyNetPackage(value) {
 
 // src/core/analyze/with-program.ts
 function analyzeCommandWithProgram(command2, options2, program, factStore) {
-  let modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
+  let modes = options2.strict !== void 0 && options2.paranoidRm !== void 0 && options2.paranoidInterpreters !== void 0 && options2.worktreeMode !== void 0 ? options2 : getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     policy: options2.policySnapshot.policy,
@@ -10466,18 +10398,116 @@ function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
 }
 
+// src/core/format.ts
+function formatBlockedMessage(input) {
+  let { reason, command: command2, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
+
+Reason: ${redact(reason)}`;
+  if (input.ruleId)
+    message += `
+
+Rule: ${input.ruleId}`;
+  if (toolName)
+    message += `
+
+Tool: ${toolName}`;
+  if (command2) {
+    let safeCommand = redact(command2);
+    message += `
+
+Command: ${excerpt(safeCommand, maxLen)}`;
+  }
+  if (segment && segment !== command2) {
+    let safeSegment = redact(segment);
+    message += `
+
+Segment: ${excerpt(safeSegment, maxLen)}`;
+  }
+  return message += `
+
+${getFooter(input)}`, message;
+}
+function getFooter(input) {
+  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
+    case "hard_stop":
+      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
+    case "use_alternative":
+      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
+    case "scope_down":
+      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
+    case "manual_only":
+      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
+    case "stop_and_explain":
+      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
+  }
+}
+function excerpt(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+// src/integrations/denial.ts
+function projectGuardDenial(evaluation, options2) {
+  if (evaluation.decision.kind !== "deny")
+    return;
+  let evidence = options2.includeEvidence ? evaluation.decision.evidence.find((item) => item.kind === "command") : void 0;
+  return {
+    reason: evaluation.decision.reason,
+    ruleId: evaluation.decision.ruleId,
+    intent: evaluation.decision.intent,
+    command: evidence?.command,
+    segment: evidence?.segment,
+    toolName: options2.toolName
+  };
+}
+function createFailedClosedDenial(options2 = {}) {
+  return {
+    reason: REASON_SAFETY_NET_FAILED_CLOSED,
+    intent: "stop_and_explain",
+    command: options2.command,
+    segment: options2.segment ?? options2.command,
+    toolName: options2.toolName
+  };
+}
+function formatDenial(denial) {
+  return formatBlockedMessage({ ...denial, redact: redactSecrets });
+}
+function formatIntegrationError(cause) {
+  return redactSecrets(cause instanceof Error ? cause.message : String(cause));
+}
+
+// src/engine/audit.ts
+function writeGuardAudit(audit, getSessionId, options2) {
+  if (!audit)
+    return;
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (!sessionId)
+    return;
+  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
+    homeDir: options2.homeDir,
+    decision: audit.decision,
+    agent: options2.agent,
+    ruleId: audit.ruleId,
+    intent: audit.intent
+  });
+}
+
+// src/integrations/runtime.ts
+function evaluateRuntimeGuard(invocation, options2) {
+  let evaluation = evaluateGuard(invocation, options2.guard);
+  return writeGuardAudit(evaluation.audit, options2.audit.getSessionId, {
+    agent: options2.audit.agent,
+    homeDir: options2.audit.homeDir
+  }), evaluation;
+}
+
 // src/bin/hook/common.ts
-function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) {
-  console.log(JSON.stringify(createDenyOutput(formatBlockedMessage({
-    reason,
-    ruleId,
-    intent,
-    command: command2,
-    segment,
-    toolName,
-    redact: redactSecrets,
-    manualPermissionAdvice
-  }))));
+function outputHookDeny(createDenyOutput, denial) {
+  console.log(JSON.stringify(createDenyOutput(formatDenial(denial))));
 }
 async function readHookInput(outputDeny) {
   let chunks = [];
@@ -10485,7 +10515,7 @@ async function readHookInput(outputDeny) {
     chunks.push(chunk);
   let inputText = Buffer.concat(chunks).toString("utf-8").trim();
   if (!inputText) {
-    outputDeny("Missing hook input JSON.");
+    outputDeny({ reason: "Missing hook input JSON." });
     return;
   }
   return parseHookJson(inputText, outputDeny, "Failed to parse hook input JSON.");
@@ -10494,7 +10524,7 @@ function parseHookJson(inputText, outputDeny, strictReason) {
   try {
     return JSON.parse(inputText);
   } catch {
-    outputDeny(strictReason);
+    outputDeny({ reason: strictReason });
     return;
   }
 }
@@ -10510,7 +10540,11 @@ function resolveStandardHookContext(cwdInput, toolInput, toolName, outputDeny) {
 }
 function outputFailedClosed(outputDeny, toolInput, toolName, segment) {
   let command2 = getCommandFromToolInput(toolInput);
-  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, segment ?? command2, void 0, toolName, void 0, "stop_and_explain");
+  outputDeny(createFailedClosedDenial({
+    command: command2,
+    segment,
+    toolName
+  }));
 }
 async function runHookAdapter(adapter) {
   let input = await readHookInput(adapter.outputDeny);
@@ -10533,30 +10567,37 @@ async function runHookAdapter(adapter) {
   let context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
   if (!context)
     return;
-  let invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null), evaluation;
+  let invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null);
   try {
-    evaluation = evaluateGuard(invocation, {
-      auditAllowed: envTruthy(ENV_FLAGS.debug),
-      dependencies: adapter.guardDependencies
+    let evaluation = evaluateRuntimeGuard(invocation, {
+      guard: {
+        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        dependencies: adapter.guardDependencies
+      },
+      audit: { agent: adapter.agent, getSessionId: () => adapter.getSessionId(input) }
+    }), denial = projectGuardDenial(evaluation, {
+      includeEvidence: !0,
+      toolName: evaluation.stage === "command-analysis" ? void 0 : toolName
     });
+    if (denial)
+      adapter.outputDeny(denial);
   } catch (error) {
     if (!(error instanceof GuardEvaluationError))
       throw error;
-    logHookGuardError(error), outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
+    logHookGuardError(error);
+    let denial = projectGuardDenial(error.evaluation, {
+      includeEvidence: !0,
+      toolName: error.evaluation.stage === "command-analysis" ? void 0 : toolName
+    });
+    if (denial)
+      adapter.outputDeny(denial);
     return;
   }
-  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent }), outputGuardDenial(adapter.outputDeny, evaluation, toolName);
-}
-function outputGuardDenial(outputDeny, evaluation, toolName) {
-  if (evaluation.decision.kind !== "deny")
-    return;
-  let evidence = evaluation.decision.evidence.find((item) => item.kind === "command");
-  outputDeny(evaluation.decision.reason, evidence?.command, evidence?.segment, void 0, evaluation.stage === "command-analysis" ? void 0 : toolName, evaluation.decision.ruleId, evaluation.decision.intent);
 }
 function logHookGuardError(error) {
   if (!envTruthy(ENV_FLAGS.debug))
     return;
-  console.error(`CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${redactSecrets(error.cause instanceof Error ? error.cause.message : String(error.cause))}`);
+  console.error(`CC Safety Net debug: ${getHookGuardErrorLabel(error.stage)}: ${formatIntegrationError(error.cause)}`);
 }
 function getHookGuardErrorLabel(stage) {
   if (stage === "policy-protection")
@@ -10571,7 +10612,7 @@ function stringField(value) {
   return typeof value === "string" ? value : void 0;
 }
 async function runConfiguredHookAdapter(adapter) {
-  let outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent);
+  let outputDeny = (denial) => outputHookDeny(adapter.createDenyOutput, denial);
   await runHookAdapter({
     agent: adapter.agent,
     outputDeny,
@@ -10674,7 +10715,11 @@ function isSameOrInside2(path, root) {
 }
 function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
   let command2 = toolInput && typeof toolInput === "object" ? toolInput.command : void 0;
-  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof command2 === "string" ? command2 : void 0, cwd, void 0, toolName, void 0, "stop_and_explain");
+  outputDeny(createFailedClosedDenial({
+    command: typeof command2 === "string" ? command2 : void 0,
+    segment: cwd,
+    toolName
+  }));
 }
 function usableWorkspacePaths(input) {
   if (input.workspacePaths === void 0)
@@ -10745,7 +10790,7 @@ async function runCopilotCliHook() {
     getToolName: (input) => input.toolName,
     getToolInput: (input, toolName, outputDeny) => {
       if (typeof input.toolArgs !== "string")
-        return outputDeny("Failed to parse toolArgs JSON."), { ok: !1 };
+        return outputDeny({ reason: "Failed to parse toolArgs JSON." }), { ok: !1 };
       let toolInput = parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.");
       if (toolInput === void 0)
         return { ok: !1 };
@@ -10808,87 +10853,138 @@ async function runKimiCodeHook() {
   });
 }
 
-// src/bin/integration-metadata.ts
-var integrationMetadata = [
-  {
-    id: "claude-code",
-    displayName: "Claude Code",
-    doctorVisible: !0,
-    runtimeHook: {
-      flags: ["-cc", "--claude-code"],
-      description: "Run as Claude Code PreToolUse hook",
-      legacyTopLevel: !0,
-      order: 2
-    }
-  },
+// src/integrations/catalog.ts
+var catalog = [
   {
     id: "antigravity-cli",
     displayName: "Antigravity CLI",
-    doctorVisible: !0,
-    runtimeHook: {
+    doctorOrder: 2,
+    runtime: {
+      order: 1,
       flags: ["-ac", "--agy-cli"],
       description: "Run as Antigravity CLI PreToolUse hook",
-      legacyTopLevel: !1,
-      order: 1
+      legacyTopLevel: !1
+    },
+    install: {
+      order: 1,
+      flag: "--agy-cli",
+      installLabel: "Antigravity CLI",
+      probeCommand: ["agy", "--version"]
+    }
+  },
+  {
+    id: "claude-code",
+    displayName: "Claude Code",
+    doctorOrder: 1,
+    runtime: {
+      order: 2,
+      flags: ["-cc", "--claude-code"],
+      description: "Run as Claude Code PreToolUse hook",
+      legacyTopLevel: !0
+    },
+    install: {
+      order: 2,
+      flag: "--claude-code",
+      installLabel: "Claude Code",
+      probeCommand: ["claude", "--version"]
     }
   },
   {
     id: "codex",
     displayName: "Codex",
-    doctorVisible: !0
+    doctorOrder: 3,
+    install: {
+      order: 3,
+      flag: "--codex",
+      installLabel: "Codex",
+      probeCommand: ["codex", "--version"]
+    }
   },
   {
     id: "copilot-cli",
     displayName: "Copilot CLI",
-    doctorVisible: !0,
-    runtimeHook: {
+    doctorOrder: 4,
+    runtime: {
+      order: 3,
       flags: ["-cp", "--copilot-cli"],
       description: "Run as Copilot CLI PreToolUse hook",
-      legacyTopLevel: !0,
-      order: 3
+      legacyTopLevel: !0
+    },
+    install: {
+      order: 5,
+      flag: "--copilot-cli",
+      installLabel: "GitHub Copilot CLI",
+      probeCommand: ["copilot", "--binary-version"]
     }
   },
   {
     id: "gemini-cli",
     displayName: "Gemini CLI",
-    doctorVisible: !0,
-    runtimeHook: {
+    doctorOrder: 5,
+    runtime: {
+      order: 4,
       flags: ["-gc", "--gemini-cli"],
       description: "Run as Gemini CLI BeforeTool hook",
-      legacyTopLevel: !0,
-      order: 4
+      legacyTopLevel: !0
+    },
+    install: {
+      order: 4,
+      flag: "--gemini-cli",
+      installLabel: "Gemini CLI",
+      probeCommand: ["gemini", "--version"]
     }
   },
   {
     id: "kimi-code",
     displayName: "Kimi Code",
-    doctorVisible: !0,
-    runtimeHook: {
+    doctorOrder: 6,
+    runtime: {
+      order: 5,
       flags: ["-kc", "--kimi-code"],
       description: "Run as Kimi Code PreToolUse hook",
-      legacyTopLevel: !1,
-      order: 5
+      legacyTopLevel: !1
+    },
+    install: {
+      order: 6,
+      flag: "--kimi-code",
+      installLabel: "Kimi Code",
+      probeCommand: ["kimi", "--version"]
     }
   },
   {
     id: "opencode",
     displayName: "OpenCode",
-    doctorVisible: !0
+    doctorOrder: 7,
+    install: {
+      order: 7,
+      flag: "--opencode",
+      installLabel: "OpenCode",
+      probeCommand: ["opencode", "--version"]
+    }
   },
   {
     id: "pi",
     displayName: "Pi",
-    doctorVisible: !0
+    doctorOrder: 8,
+    install: {
+      order: 8,
+      flag: "--pi",
+      installLabel: "Pi",
+      probeCommand: ["pi", "--version"]
+    }
   }
-], doctorIntegrationOrder = integrationMetadata.filter((integration) => integration.doctorVisible).map((integration) => integration.id), runtimeHookIntegrationMetadata = integrationMetadata.filter((integration) => ("runtimeHook" in integration)).toSorted((a, b) => a.runtimeHook.order - b.runtimeHook.order).map((integration) => ({
+], doctorIntegrationOrder = catalog.toSorted((a, b) => a.doctorOrder - b.doctorOrder).map((integration) => integration.id), runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" in integration)).toSorted((a, b) => a.runtime.order - b.runtime.order).map((integration) => ({
   id: integration.id,
   displayName: integration.displayName,
-  flags: integration.runtimeHook.flags,
-  description: integration.runtimeHook.description,
-  legacyTopLevel: integration.runtimeHook.legacyTopLevel
-}));
+  flags: integration.runtime.flags,
+  description: integration.runtime.description,
+  legacyTopLevel: integration.runtime.legacyTopLevel
+})), installIntegrationMetadata = catalog.toSorted((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
 function getIntegrationDisplayName(id) {
-  return integrationMetadata.find((integration) => integration.id === id)?.displayName ?? id;
+  return catalog.find((integration) => integration.id === id)?.displayName ?? id;
+}
+function getIntegrationInstallLabel(id) {
+  return catalog.find((integration) => integration.id === id)?.install.installLabel ?? id;
 }
 
 // src/bin/hook/integrations.ts
@@ -11931,62 +12027,10 @@ All checks passed.`);
 
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync12, readdirSync as readdirSync3, readFileSync as readFileSync12 } from "node:fs";
-import { homedir as homedir7, tmpdir as tmpdir3 } from "node:os";
-import { join as join14 } from "node:path";
+import { homedir as homedir7 } from "node:os";
+import { join as join15 } from "node:path";
 
-// src/bin/hook/antigravity.ts
-import { join as join13 } from "node:path";
-function getAntigravityHooksPath(homeDir) {
-  return join13(homeDir, ".gemini", "config", "hooks.json");
-}
-
-// src/core/analyze/index.ts
-function analyzeCommand(command2, options2) {
-  return analyzeCommandWithProgram(command2, options2);
-}
-
-// src/bin/doctor/hooks.ts
-var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/, SELF_TEST_CASES = [
-  { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
-  { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
-  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: !1 }
-], SELF_TEST_SNAPSHOT = Object.freeze({
-  state: "ready",
-  diagnostics: Object.freeze([]),
-  policy: Object.freeze({
-    rules: Object.freeze([]),
-    transparentWrappers: Object.freeze([]),
-    safety: Object.freeze({}),
-    worktreeMode: !1,
-    destructiveCommandProtectionEnabled: !0,
-    disabledDestructiveCommandRules: Object.freeze([]),
-    secretProtection: Object.freeze({
-      enabled: !0,
-      disabledRules: Object.freeze([]),
-      denyPaths: Object.freeze([])
-    })
-  })
-});
-function runSelfTest() {
-  let selfTestCwd = join14(tmpdir3(), "cc-safety-net-self-test"), results = SELF_TEST_CASES.map((tc) => {
-    let result = analyzeCommand(tc.command, {
-      cwd: selfTestCwd,
-      policySnapshot: SELF_TEST_SNAPSHOT,
-      strict: !1,
-      paranoidRm: !1,
-      paranoidInterpreters: !1
-    }), wasBlocked = result !== null, expected = tc.expectBlocked ? "blocked" : "allowed", actual = wasBlocked ? "blocked" : "allowed";
-    return {
-      command: tc.command,
-      description: tc.description,
-      expected,
-      actual,
-      passed: expected === actual,
-      reason: result?.reason
-    };
-  }), passed = results.filter((r) => r.passed).length, failed = results.filter((r) => !r.passed).length;
-  return { passed, failed, total: results.length, results };
-}
+// src/bin/config/jsonc.ts
 function stripJsonComments(content) {
   let result = "", i = 0, inString = !1, isEscaped = !1, lastCommaIndex = -1;
   while (i < content.length) {
@@ -12047,6 +12091,89 @@ function stripJsonComments(content) {
   }
   return result;
 }
+
+// src/bin/hook/antigravity.ts
+import { join as join13 } from "node:path";
+function getAntigravityHooksPath(homeDir) {
+  return join13(homeDir, ".gemini", "config", "hooks.json");
+}
+
+// src/integrations/self-test.ts
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join14 } from "node:path";
+
+// src/core/analyze/index.ts
+function analyzeCommand(command2, options2) {
+  return analyzeCommandWithProgram(command2, options2);
+}
+
+// src/integrations/self-test.ts
+var CASES = Object.freeze([
+  { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
+  { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
+  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: !1 }
+]), SNAPSHOT = Object.freeze({
+  state: "ready",
+  diagnostics: Object.freeze([]),
+  policy: Object.freeze({
+    rules: Object.freeze([]),
+    transparentWrappers: Object.freeze([]),
+    safety: Object.freeze({}),
+    worktreeMode: !1,
+    destructiveCommandProtectionEnabled: !0,
+    disabledDestructiveCommandRules: Object.freeze([]),
+    secretProtection: Object.freeze({
+      enabled: !0,
+      disabledRules: Object.freeze([]),
+      denyPaths: Object.freeze([])
+    })
+  })
+}), STANDARD_MODES = {
+  strict: !1,
+  paranoidRm: !1,
+  paranoidInterpreters: !1,
+  worktreeMode: !1,
+  effectiveLevel: "standard",
+  sources: {
+    failClosed: [],
+    paranoidRm: [],
+    paranoidInterpreters: [],
+    worktreeMode: []
+  }
+};
+function runIntegrationSelfTest() {
+  let cwd = join14(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+    let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
+      guard: {
+        dependencies: {
+          loadPolicySnapshot: () => SNAPSHOT,
+          getModes: () => STANDARD_MODES,
+          analyzeCommand
+        }
+      },
+      audit: { agent: "self-test", getSessionId: () => {
+        return;
+      } }
+    }), expected = testCase.expectBlocked ? "blocked" : "allowed", actual = evaluation.decision.kind === "deny" ? "blocked" : "allowed";
+    return {
+      command: testCase.command,
+      description: testCase.description,
+      expected,
+      actual,
+      passed: expected === actual,
+      reason: evaluation.decision.kind === "deny" ? evaluation.decision.reason : void 0
+    };
+  });
+  return {
+    passed: results.filter((result) => result.passed).length,
+    failed: results.filter((result) => !result.passed).length,
+    total: results.length,
+    results
+  };
+}
+
+// src/bin/doctor/hooks.ts
+var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 function detectClaudeCode(pluginListOutput) {
   if (!pluginListOutput)
     return { platform: "claude-code", status: "n/a" };
@@ -12066,7 +12193,7 @@ function detectClaudeCode(pluginListOutput) {
       status: "configured",
       method: "plugin list",
       configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-      selfTest: runSelfTest()
+      selfTest: runIntegrationSelfTest()
     };
   return {
     platform: "claude-code",
@@ -12089,9 +12216,9 @@ function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  let errors = [], configDir = join14(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  let errors = [], configDir = join15(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
-    let configPath = join14(configDir, filename);
+    let configPath = join15(configDir, filename);
     if (existsSync12(configPath))
       try {
         let content = readFileSync12(configPath, "utf-8"), json = stripJsonComments(content);
@@ -12101,7 +12228,7 @@ function detectOpenCode(homeDir) {
             status: "configured",
             method: "plugin array",
             configPath,
-            selfTest: runSelfTest(),
+            selfTest: runIntegrationSelfTest(),
             errors: errors.length > 0 ? errors : void 0
           };
       } catch (e) {
@@ -12136,11 +12263,11 @@ function detectGeminiCLI(extensionsListOutput) {
     status: "configured",
     method: "extension list",
     configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-    selfTest: runSelfTest()
+    selfTest: runIntegrationSelfTest()
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join14(process.env.KIMI_CODE_HOME || join14(homeDir, ".kimi-code"), "config.toml");
+  return join15(process.env.KIMI_CODE_HOME || join15(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -12191,7 +12318,7 @@ function detectAntigravityCli(homeDir) {
       status: "configured",
       method: "hook config",
       configPath,
-      selfTest: runSelfTest()
+      selfTest: runIntegrationSelfTest()
     };
   if (matches.length > 0)
     return {
@@ -12222,7 +12349,7 @@ function detectKimiCode(homeDir) {
     status: "configured",
     method: "hook config",
     configPath,
-    selfTest: runSelfTest()
+    selfTest: runIntegrationSelfTest()
   };
 }
 function detectPi(probe) {
@@ -12244,7 +12371,7 @@ function detectPi(probe) {
     method: "pi probe",
     configPath: configPaths[0],
     configPaths: configPaths.length > 0 ? configPaths : void 0,
-    selfTest: runSelfTest()
+    selfTest: runIntegrationSelfTest()
   };
 }
 function _parseGeminiExtensionsList(output) {
@@ -12287,7 +12414,7 @@ function detectCodex(pluginListOutput) {
     status: "configured",
     method: CODEX_PLUGIN_LIST_CONFIG_PATH,
     configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
-    selfTest: runSelfTest()
+    selfTest: runIntegrationSelfTest()
   };
 }
 function _isSafetyNetCopilotCommand(command2) {
@@ -12329,7 +12456,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join14(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join15(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   return (config.hooks?.preToolUse ?? []).some((hook) => {
@@ -12358,7 +12485,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
-    let configPath = join14(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    let configPath = join15(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
   }
@@ -12394,10 +12521,10 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join14(cwd, ".github", "hooks"), userHookDir = join14(configHome, "hooks"), repoConfigDir = join14(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join14(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join14(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join14(repoConfigDir, "settings.local.json"), inlineErrors)
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join15(cwd, ".github", "hooks"), userHookDir = join15(configHome, "hooks"), repoConfigDir = join15(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
+    userConfig: _collectCopilotInlineConfig(join15(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== !1) {
     let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -12409,7 +12536,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   }
   let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync12(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
-    let configPath = join14(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    let configPath = join15(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
   }
@@ -12462,7 +12589,7 @@ function detectAllHooks(cwd, options2) {
         method: viaPlugin ? "plugin list" : "hook config",
         configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : void 0),
         configPaths: hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : void 0,
-        selfTest: runSelfTest(),
+        selfTest: runIntegrationSelfTest(),
         errors: errors.length > 0 ? errors : void 0
       };
     }
@@ -12500,7 +12627,7 @@ import { spawn } from "node:child_process";
 import { existsSync as existsSync13 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
-import { delimiter, extname, join as join15 } from "node:path";
+import { delimiter, extname, join as join16 } from "node:path";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
   installedAndEnabled: !1,
@@ -12527,7 +12654,7 @@ function resolveWindowsCommand(command2, env) {
   ];
   if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync13(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join15(dir, candidate))).find((candidate) => existsSync13(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join16(dir, candidate))).find((candidate) => existsSync13(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -12662,7 +12789,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join15(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join15(tempDir, "pi-extension-probe.ts"), resultPath = join15(tempDir, "result.json"), stdoutPath = join15(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join16(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join16(tempDir, "pi-extension-probe.ts"), resultPath = join16(tempDir, "result.json"), stdoutPath = join16(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -15895,7 +16022,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync16, mkdirSync as mkdirSync6, readFileSync as readFileSync14, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname14, join as join16 } from "node:path";
+import { dirname as dirname14, join as join17 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -15974,7 +16101,7 @@ var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code", KIMI_HOOK_BLOCK
 event = "PreToolUse"
 command = "${KIMI_HOOK_COMMAND}"`, KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join16(process.env.KIMI_CODE_HOME ?? join16(homeDir, ".kimi-code"), "config.toml");
+  return join17(process.env.KIMI_CODE_HOME ?? join17(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   return content.split(`
@@ -16100,16 +16227,16 @@ ${output}`.trim()));
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync17, readFileSync as readFileSync15, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
-  return join17(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+  return join18(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
 function getOpenCodeConfigPaths(homeDir) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join17(homeDir, ".config", "opencode", filename));
+  return OPENCODE_CONFIG_FILES.map((filename) => join18(homeDir, ".config", "opencode", filename));
 }
 function getOpenCodeCachePath(homeDir) {
-  return join17(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+  return join18(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
   rmSync3(getOpenCodeCachePath(homeDir), { recursive: !0, force: !0 });
@@ -16265,46 +16392,12 @@ import { spawn as spawn3, spawnSync as spawnSync2 } from "node:child_process";
 import * as readline2 from "node:readline";
 
 // src/bin/hook/install/targets.ts
-var INSTALL_TARGETS = [
-  {
-    target: "antigravity-cli",
-    flag: "--agy-cli",
-    label: "Antigravity CLI",
-    probeCommand: ["agy", "--version"]
-  },
-  {
-    target: "claude-code",
-    flag: "--claude-code",
-    label: "Claude Code",
-    probeCommand: ["claude", "--version"]
-  },
-  { target: "codex", flag: "--codex", label: "Codex", probeCommand: ["codex", "--version"] },
-  {
-    target: "gemini-cli",
-    flag: "--gemini-cli",
-    label: "Gemini CLI",
-    probeCommand: ["gemini", "--version"]
-  },
-  {
-    target: "copilot-cli",
-    flag: "--copilot-cli",
-    label: "GitHub Copilot CLI",
-    probeCommand: ["copilot", "--binary-version"]
-  },
-  {
-    target: "kimi-code",
-    flag: "--kimi-code",
-    label: "Kimi Code",
-    probeCommand: ["kimi", "--version"]
-  },
-  {
-    target: "opencode",
-    flag: "--opencode",
-    label: "OpenCode",
-    probeCommand: ["opencode", "--version"]
-  },
-  { target: "pi", flag: "--pi", label: "Pi", probeCommand: ["pi", "--version"] }
-], TARGET_FLAGS = new Map(INSTALL_TARGETS.map((target) => [target.flag, target.target]));
+var INSTALL_TARGETS = installIntegrationMetadata.map((integration) => ({
+  target: integration.id,
+  flag: integration.flag,
+  label: integration.installLabel,
+  probeCommand: integration.probeCommand
+})), TARGET_FLAGS = new Map(INSTALL_TARGETS.map((target) => [target.flag, target.target]));
 function orderInstallTargets(targets) {
   let selectedTargets = new Set(targets);
   return INSTALL_TARGETS.map((target) => target.target).filter((target) => selectedTargets.has(target));
@@ -16503,7 +16596,6 @@ function promptInstallTargets(action, choices, options2 = {}) {
 // src/bin/hook/install.ts
 var NATIVE_INSTALLS = {
   "claude-code": {
-    name: "Claude Code",
     installCommands: [
       ["claude", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["claude", "plugin", "install", "safety-net@cc-marketplace"]
@@ -16514,7 +16606,6 @@ var NATIVE_INSTALLS = {
     ]
   },
   codex: {
-    name: "Codex",
     installCommands: [
       ["codex", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["codex", "plugin", "add", "safety-net@cc-marketplace"]
@@ -16526,7 +16617,6 @@ var NATIVE_INSTALLS = {
     postInstallMessage: "Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it."
   },
   "copilot-cli": {
-    name: "GitHub Copilot CLI",
     installCommands: [
       ["copilot", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
       ["copilot", "plugin", "install", "safety-net@cc-marketplace"]
@@ -16537,19 +16627,16 @@ var NATIVE_INSTALLS = {
     ]
   },
   "gemini-cli": {
-    name: "Gemini CLI",
     installCommands: [
       ["gemini", "extensions", "install", "https://github.com/kenryu42/gemini-safety-net"]
     ],
     uninstallCommands: [["gemini", "extensions", "uninstall", "gemini-safety-net"]]
   },
   opencode: {
-    name: "OpenCode",
     beforeInstall: clearOpenCodeCache,
     installCommands: [["opencode", "plugin", "-g", "-f", "cc-safety-net@latest"]]
   },
   pi: {
-    name: "Pi",
     installCommands: [["pi", "install", "npm:cc-safety-net"]],
     uninstallCommands: [["pi", "uninstall", "npm:cc-safety-net"]]
   }
@@ -16644,39 +16731,61 @@ function startResolveInstallTargets(action, args, options2) {
     }
   };
 }
-function isNativeInstallTarget(target) {
-  return target in NATIVE_INSTALLS;
-}
 function installNativeTarget(target, homeDir) {
   let definition = NATIVE_INSTALLS[target];
-  definition.beforeInstall?.(homeDir), runNativeCommands(definition.installCommands), console.log([`Installed ${definition.name} integration`, definition.postInstallMessage].filter(Boolean).join(`
+  definition.beforeInstall?.(homeDir), runNativeCommands(definition.installCommands), console.log([`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage].filter(Boolean).join(`
 `));
 }
 function uninstallNativeTarget(target) {
   let definition = NATIVE_INSTALLS[target];
   if (!definition.uninstallCommands)
-    throw Error(`${definition.name} uninstall is not supported`);
-  runNativeCommands(definition.uninstallCommands), console.log(`Uninstalled ${definition.name} integration`);
+    throw Error(`${getIntegrationInstallLabel(target)} uninstall is not supported`);
+  runNativeCommands(definition.uninstallCommands), console.log(`Uninstalled ${getIntegrationInstallLabel(target)} integration`);
 }
 function uninstallOpenCodeTarget(homeDir) {
   let result = uninstallOpenCode(homeDir);
   console.log(result.alreadyInstalled ? `Uninstalled OpenCode plugin from ${result.path}` : `OpenCode plugin not installed in ${result.path}`);
 }
-function runSingleInstallTarget(action, target, homeDir) {
-  if (action === "install" && isNativeInstallTarget(target)) {
-    installNativeTarget(target, homeDir);
-    return;
-  }
-  if (action === "uninstall" && target === "opencode") {
-    uninstallOpenCodeTarget(homeDir);
-    return;
-  }
-  if (action === "uninstall" && isNativeInstallTarget(target) && target !== "opencode") {
-    uninstallNativeTarget(target);
-    return;
-  }
-  let result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir), name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI", pastTense = action === "install" ? "Installed" : "Uninstalled";
+function runConfigInstallTarget(action, target, homeDir) {
+  let result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir), name = getIntegrationInstallLabel(target), pastTense = action === "install" ? "Installed" : "Uninstalled";
   console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
+}
+var INSTALL_OPERATIONS = {
+  "antigravity-cli": {
+    install: (homeDir) => runConfigInstallTarget("install", "antigravity-cli", homeDir),
+    uninstall: (homeDir) => runConfigInstallTarget("uninstall", "antigravity-cli", homeDir)
+  },
+  "claude-code": {
+    install: (homeDir) => installNativeTarget("claude-code", homeDir),
+    uninstall: () => uninstallNativeTarget("claude-code")
+  },
+  codex: {
+    install: (homeDir) => installNativeTarget("codex", homeDir),
+    uninstall: () => uninstallNativeTarget("codex")
+  },
+  "copilot-cli": {
+    install: (homeDir) => installNativeTarget("copilot-cli", homeDir),
+    uninstall: () => uninstallNativeTarget("copilot-cli")
+  },
+  "gemini-cli": {
+    install: (homeDir) => installNativeTarget("gemini-cli", homeDir),
+    uninstall: () => uninstallNativeTarget("gemini-cli")
+  },
+  "kimi-code": {
+    install: (homeDir) => runConfigInstallTarget("install", "kimi-code", homeDir),
+    uninstall: (homeDir) => runConfigInstallTarget("uninstall", "kimi-code", homeDir)
+  },
+  opencode: {
+    install: (homeDir) => installNativeTarget("opencode", homeDir),
+    uninstall: (homeDir) => uninstallOpenCodeTarget(homeDir)
+  },
+  pi: {
+    install: (homeDir) => installNativeTarget("pi", homeDir),
+    uninstall: () => uninstallNativeTarget("pi")
+  }
+};
+function runSingleInstallTarget(action, target, homeDir) {
+  INSTALL_OPERATIONS[target][action](homeDir);
 }
 async function runInstallCommand(action, args, options2 = {}) {
   try {
@@ -16711,7 +16820,7 @@ Check that every parent path component is a directory.`;
 
 // src/bin/rule/index.ts
 import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
-import { dirname as dirname17, join as join20 } from "node:path";
+import { dirname as dirname17, join as join21 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = "# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | Lower |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Higher |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- Override values are either `\"off\"` to disable a rule or `{ \"reason\": \"...\" }` to replace the rule reason.\n- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- Rulebook source names must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | String |\n| `author` | No | String |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | Yes | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook; same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nEvery rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.\n\n## Matching Behavior\n\n- **Command**: Normalized to basename (`/usr/bin/git` → `git`).\n- **Subcommand**: First non-option argument after command.\n- **Arguments**: Matched literally. Command blocked if **any** `block_args` item is present.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source.\n5. Run `cc-safety-net rule sync` after adding or changing rulebook sources.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.\n7. Run `cc-safety-net rule test` to execute rulebook fixtures.\n8. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nInvalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `cc-safety-net rule sync`.\n";
@@ -16809,7 +16918,7 @@ function printResultWarnings(result) {
 
 // src/bin/rule/migrate.ts
 import { existsSync as existsSync18, readFileSync as readFileSync16, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname15, join as join18 } from "node:path";
+import { dirname as dirname15, join as join19 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
   return [
@@ -16851,7 +16960,7 @@ async function migrateRulesScope(options2) {
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom), rulebookPath = join18(dirname15(options2.configPath), rulebookName, "rulebook.json"), snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom), rulebookPath = join19(dirname15(options2.configPath), rulebookName, "rulebook.json"), snapshots = [
     snapshotFile(options2.configPath),
     snapshotFile(rulebookPath),
     snapshotFile(getRulesLockPathForConfigPath(options2.configPath))
@@ -16903,11 +17012,11 @@ function getMigratedRulebookName(configDir, sources, defaultRulebookName, migrat
   let existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
-  if (!existsSync18(join18(configDir, defaultRulebookName, "rulebook.json")))
+  if (!existsSync18(join19(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
     let name = `${defaultRulebookName}-${i}`;
-    if (!existsSync18(join18(configDir, name, "rulebook.json")))
+    if (!existsSync18(join19(configDir, name, "rulebook.json")))
       return name;
   }
 }
@@ -16953,7 +17062,7 @@ function restoreFiles(snapshots) {
 
 // src/bin/rule/verify.ts
 import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync17, statSync as statSync3, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname16, join as join19, resolve as resolve13 } from "node:path";
+import { dirname as dirname16, join as join20, resolve as resolve13 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve13(cwd, RULES_DIR), userConfigDir = dirname16(userConfig), hasErrors = !1, hasWarnings = !1, configsChecked = [], warnings = [], githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
@@ -17083,7 +17192,7 @@ function validateGitHubSourceRules(path) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    let rulebookPath = join19(path, entry.name, "rulebook.json");
+    let rulebookPath = join20(path, entry.name, "rulebook.json");
     if (!existsSync19(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -17194,8 +17303,8 @@ async function runRuleCommand(args) {
   let value = flags.positionals[1], options2 = { global: flags.global, check: flags.check };
   if (subcommand === "init") {
     let dir = flags.global ? getUserRulesDir() : getProjectRulesDir(), configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    ensureRulesConfig(configPath), mkdirSync7(join20(dirname17(dir), "cache", "rulebooks"), { recursive: !0 });
-    let rulebookPath = join20(dir, "example-rules", "rulebook.json");
+    ensureRulesConfig(configPath), mkdirSync7(join21(dirname17(dir), "cache", "rulebooks"), { recursive: !0 });
+    let rulebookPath = join21(dir, "example-rules", "rulebook.json");
     if (flags.example && !existsSync20(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
     let result = await syncRulesConfig(options2);
@@ -17390,7 +17499,7 @@ function printTransparentWrappers(wrappers2) {
 // src/bin/statusline.ts
 import { existsSync as existsSync21, readFileSync as readFileSync18 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join21 } from "node:path";
+import { join as join22 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
     return null;
@@ -17409,7 +17518,7 @@ async function readStdinAsync() {
 function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  return join21(homedir9(), ".claude", "settings.json");
+  return join22(homedir9(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();

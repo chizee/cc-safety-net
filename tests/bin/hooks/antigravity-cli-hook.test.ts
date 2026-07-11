@@ -213,7 +213,7 @@ describe('Antigravity CLI hook', () => {
                 },
                 workspacePaths: [context.cwd, secondWorkspace],
               },
-              (reason) => denyReasons.push(reason),
+              (denial) => denyReasons.push(denial.reason),
             ),
           ).toBeNull();
           expect(denyReasons[0]).toContain('CC Safety Net failed closed');
@@ -321,8 +321,8 @@ describe('Antigravity CLI hook', () => {
               toolCall: { name: 'run_command', args: { CommandLine: 'git status', Cwd: '..' } },
               workspacePaths: [context.cwd],
             },
-            (reason) => {
-              denyReasons.push(reason);
+            (denial) => {
+              denyReasons.push(denial.reason);
             },
           ),
         ).toBeNull();

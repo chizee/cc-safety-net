@@ -6,7 +6,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectAllHooks, stripJsonComments } from '@/bin/doctor/hooks';
+import { stripJsonComments } from '@/bin/config/jsonc';
+import { detectAllHooks } from '@/bin/doctor/hooks';
 import { withEnv } from '../../helpers.ts';
 
 function _writeCopilotHook(

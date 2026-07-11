@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripJsonComments } from '@/bin/doctor/hooks';
+import { stripJsonComments } from '@/bin/config/jsonc';
 import { findMatchingBracket, removeArrayRangeItem, type TextRange } from '@/bin/hook/config-edit';
 import type { InstallResult } from '@/bin/hook/install/types';
 

@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   doctorIntegrationOrder,
   getIntegrationDisplayName,
+  installIntegrationMetadata,
   runtimeHookIntegrationMetadata,
-} from '@/bin/integration-metadata';
+} from '@/integrations/catalog';
 
 describe('integration metadata', () => {
   test('includes display names for every doctor platform', () => {
@@ -58,5 +59,27 @@ describe('integration metadata', () => {
         getIntegrationDisplayName(integration.id),
       ),
     ).toEqual(runtimeHookIntegrationMetadata.map((integration) => integration.displayName));
+  });
+
+  test('keeps install order and labels separate from runtime and doctor presentation', () => {
+    expect(installIntegrationMetadata.map((integration) => integration.id)).toEqual([
+      'antigravity-cli',
+      'claude-code',
+      'codex',
+      'gemini-cli',
+      'copilot-cli',
+      'kimi-code',
+      'opencode',
+      'pi',
+    ]);
+    expect(
+      installIntegrationMetadata.find((integration) => integration.id === 'copilot-cli'),
+    ).toEqual({
+      id: 'copilot-cli',
+      flag: '--copilot-cli',
+      installLabel: 'GitHub Copilot CLI',
+      probeCommand: ['copilot', '--binary-version'],
+    });
+    expect(getIntegrationDisplayName('copilot-cli')).toBe('Copilot CLI');
   });
 });

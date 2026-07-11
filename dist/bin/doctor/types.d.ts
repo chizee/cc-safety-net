@@ -1,32 +1,11 @@
 /**
  * Type definitions for the doctor command.
  */
-import type { IntegrationId } from '@/bin/integration-metadata';
+import type { IntegrationId } from '@/integrations/catalog';
+import type { SelfTestSummary } from '@/integrations/self-test';
 import type { EffectiveSafetyLevel } from '@/types';
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;
-/** Self-test case definition */
-export interface SelfTestCase {
-    command: string;
-    description: string;
-    expectBlocked: boolean;
-}
-/** Self-test result for a single command */
-export interface SelfTestResult {
-    command: string;
-    description: string;
-    expected: 'blocked' | 'allowed';
-    actual: 'blocked' | 'allowed';
-    passed: boolean;
-    reason?: string;
-}
-/** Self-test summary for a hook */
-export interface SelfTestSummary {
-    passed: number;
-    failed: number;
-    total: number;
-    results: SelfTestResult[];
-}
 /** Hook configuration status */
 export type HookConfigStatus = 'configured' | 'n/a' | 'disabled';
 /** Hook detection result with integrated self-test */

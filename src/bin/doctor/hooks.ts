@@ -3,20 +3,14 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  HookStatus,
-  PiProbeInfo,
-  SelfTestCase,
-  SelfTestResult,
-  SelfTestSummary,
-} from '@/bin/doctor/types';
+import { stripJsonComments } from '@/bin/config/jsonc';
+import type { HookStatus, PiProbeInfo } from '@/bin/doctor/types';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
-import { doctorIntegrationOrder } from '@/bin/integration-metadata';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
-import { analyzeCommand } from '@/core/analyze';
-import type { PolicySnapshot } from '@/domain/policy';
+import { doctorIntegrationOrder } from '@/integrations/catalog';
+import { runIntegrationSelfTest } from '@/integrations/self-test';
 
 interface HookDetectOptions extends PolicySnapshotOptions {
   homeDir?: string;
@@ -63,187 +57,6 @@ const ANTIGRAVITY_HOOK_COMMAND_PATTERN =
   /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
 const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 
-/** Self-test cases for validating the analyzer */
-const SELF_TEST_CASES: SelfTestCase[] = [
-  // Git destructive commands
-  { command: 'git reset --hard', description: 'git reset --hard', expectBlocked: true },
-
-  // Filesystem destructive commands
-  { command: 'rm -rf /', description: 'rm -rf /', expectBlocked: true },
-
-  // Commands that SHOULD be allowed (negative tests)
-  { command: 'rm -rf ./node_modules', description: 'rm in cwd (safe)', expectBlocked: false },
-];
-
-/** Empty config for self-test - tests built-in rules only, not user config */
-const SELF_TEST_SNAPSHOT: PolicySnapshot = Object.freeze({
-  state: 'ready',
-  diagnostics: Object.freeze([]),
-  policy: Object.freeze({
-    rules: Object.freeze([]),
-    transparentWrappers: Object.freeze([]),
-    safety: Object.freeze({}),
-    worktreeMode: false,
-    destructiveCommandProtectionEnabled: true,
-    disabledDestructiveCommandRules: Object.freeze([]),
-    secretProtection: Object.freeze({
-      enabled: true,
-      disabledRules: Object.freeze([]),
-      denyPaths: Object.freeze([]),
-    }),
-  }),
-});
-
-/**
- * Run self-test by invoking the analyzer directly.
- * Uses an empty config to test only built-in rules, avoiding false failures
- * from user-defined custom rules that may block test commands.
- */
-function runSelfTest(): SelfTestSummary {
-  // Use OS-appropriate temp path for cross-platform compatibility (Windows, macOS, Linux)
-  const selfTestCwd = join(tmpdir(), 'cc-safety-net-self-test');
-  const results: SelfTestResult[] = SELF_TEST_CASES.map((tc) => {
-    const result = analyzeCommand(tc.command, {
-      cwd: selfTestCwd,
-      policySnapshot: SELF_TEST_SNAPSHOT,
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false,
-    });
-
-    const wasBlocked = result !== null;
-    const expected = tc.expectBlocked ? 'blocked' : 'allowed';
-    const actual = wasBlocked ? 'blocked' : 'allowed';
-
-    return {
-      command: tc.command,
-      description: tc.description,
-      expected,
-      actual,
-      passed: expected === actual,
-      reason: result?.reason,
-    };
-  });
-
-  const passed = results.filter((r) => r.passed).length;
-  const failed = results.filter((r) => !r.passed).length;
-
-  return { passed, failed, total: results.length, results };
-}
-
-/**
- * Strip JSONC-style comments and trailing commas from a string.
- * Handles // comments, /* comments, and trailing commas before ] or }.
- * Trailing comma removal is string-aware to avoid corrupting values like ",]".
- * @internal Exported for testing
- */
-export function stripJsonComments(content: string): string {
-  let result = '';
-  let i = 0;
-  let inString = false;
-  let isEscaped = false;
-  let lastCommaIndex = -1; // Track position of last comma outside strings
-
-  while (i < content.length) {
-    const char = content[i] as string; // Safe: i < content.length
-    const next = content[i + 1];
-
-    // Handle escape sequences in strings
-    if (isEscaped) {
-      result += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-
-    // Track string boundaries (only double quotes in JSON)
-    if (char === '"' && !inString) {
-      inString = true;
-      lastCommaIndex = -1; // Reset: entering string invalidates trailing comma
-      result += char;
-      i++;
-      continue;
-    }
-
-    if (char === '"' && inString) {
-      inString = false;
-      result += char;
-      i++;
-      continue;
-    }
-
-    if (char === '\\' && inString) {
-      isEscaped = true;
-      result += char;
-      i++;
-      continue;
-    }
-
-    // Inside string - copy everything
-    if (inString) {
-      result += char;
-      i++;
-      continue;
-    }
-
-    // Outside string - handle comments
-    if (char === '/' && next === '/') {
-      // Single-line comment - skip to end of line
-      while (i < content.length && content[i] !== '\n') {
-        i++;
-      }
-      continue;
-    }
-
-    if (char === '/' && next === '*') {
-      // Multi-line comment - skip to */
-      i += 2;
-      while (i < content.length - 1) {
-        if (content[i] === '*' && content[i + 1] === '/') {
-          i += 2;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-
-    // Track commas outside strings for trailing comma removal
-    if (char === ',') {
-      lastCommaIndex = result.length;
-      result += char;
-      i++;
-      continue;
-    }
-
-    // Handle closing brackets - remove trailing comma if present
-    if (char === '}' || char === ']') {
-      if (lastCommaIndex !== -1) {
-        // Check if only whitespace between last comma and here
-        const between = result.slice(lastCommaIndex + 1);
-        if (/^\s*$/.test(between)) {
-          // Remove the trailing comma, keep whitespace for formatting
-          result = result.slice(0, lastCommaIndex) + between;
-        }
-      }
-      lastCommaIndex = -1;
-      result += char;
-      i++;
-      continue;
-    }
-
-    // Any other non-whitespace character invalidates the trailing comma
-    if (!/\s/.test(char)) {
-      lastCommaIndex = -1;
-    }
-
-    result += char;
-    i++;
-  }
-
-  return result;
-}
-
 /**
  * Detect Claude Code hook configuration.
  */
@@ -272,7 +85,7 @@ function detectClaudeCode(pluginListOutput: string | null | undefined): HookStat
       status: 'configured',
       method: 'plugin list',
       configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-      selfTest: runSelfTest(),
+      selfTest: runIntegrationSelfTest(),
     };
   }
 
@@ -331,7 +144,7 @@ function detectOpenCode(homeDir: string): HookStatus {
             status: 'configured',
             method: 'plugin array',
             configPath,
-            selfTest: runSelfTest(),
+            selfTest: runIntegrationSelfTest(),
             errors: errors.length > 0 ? errors : undefined,
           };
         }
@@ -398,7 +211,7 @@ function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookS
     status: 'configured',
     method: 'extension list',
     configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-    selfTest: runSelfTest(),
+    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -462,7 +275,7 @@ function detectAntigravityCli(homeDir: string): HookStatus {
       status: 'configured',
       method: 'hook config',
       configPath,
-      selfTest: runSelfTest(),
+      selfTest: runIntegrationSelfTest(),
     };
   }
 
@@ -503,7 +316,7 @@ function detectKimiCode(homeDir: string): HookStatus {
     status: 'configured',
     method: 'hook config',
     configPath,
-    selfTest: runSelfTest(),
+    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -535,7 +348,7 @@ function detectPi(probe: PiProbeInfo | undefined): HookStatus {
     method: 'pi probe',
     configPath: configPaths[0],
     configPaths: configPaths.length > 0 ? configPaths : undefined,
-    selfTest: runSelfTest(),
+    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -597,7 +410,7 @@ function detectCodex(pluginListOutput: string | null | undefined): HookStatus {
     status: 'configured',
     method: CODEX_PLUGIN_LIST_CONFIG_PATH,
     configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
-    selfTest: runSelfTest(),
+    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -872,7 +685,7 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
         configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : undefined),
         configPaths:
           hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : undefined,
-        selfTest: runSelfTest(),
+        selfTest: runIntegrationSelfTest(),
         errors: errors.length > 0 ? errors : undefined,
       };
     }

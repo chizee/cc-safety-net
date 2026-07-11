@@ -191,208 +191,6 @@ var require_parse = __commonJS((exports, module) => {
 import { accessSync, constants, statSync as statSync2 } from "node:fs";
 import { resolve as resolve8 } from "node:path";
 
-// src/core/audit.ts
-import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir, userInfo } from "node:os";
-import { isAbsolute, join } from "node:path";
-
-// src/core/sanitize.ts
-var PROVIDER_TOKENS = [
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
-  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
-  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
-  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
-  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
-  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
-  /\bsk_[A-Za-z0-9]{20,}\b/g,
-  /\bgsk_[A-Za-z0-9]{52,}\b/g,
-  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
-  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
-  /\bbastn_[A-Za-z0-9]{16,}\b/g,
-  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
-  /\bflp_[A-Za-z0-9]{10,}\b/g,
-  /\bwfr_[A-Za-z0-9]{20,}\b/g,
-  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
-  /\btp-[A-Za-z0-9_-]{20,}\b/g,
-  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
-  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
-];
-function redactSecrets(text) {
-  let result = text.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>").replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>").replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
-  return redactNonAssignmentSecrets(result);
-}
-function redactNonAssignmentSecrets(text) {
-  let result = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>").replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@").replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
-  for (let pattern of PROVIDER_TOKENS)
-    result = result.replace(pattern, "<redacted>");
-  return result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>").replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
-}
-function redactEnvAssignmentValues(text) {
-  return findEnvAssignments(text).reduceRight((value, assignment) => `${value.slice(0, assignment.valueStart)}<redacted>${value.slice(assignment.valueEnd)}`, text);
-}
-function sanitizeDiagnosticText(text) {
-  return redactNonAssignmentSecrets(redactEnvAssignmentValues(text));
-}
-function getEnvAssignmentValues(text) {
-  return findEnvAssignments(text).map((assignment) => text.slice(assignment.valueStart, assignment.valueEnd));
-}
-function findEnvAssignments(text) {
-  let assignments = [], pattern = /[A-Za-z_][A-Za-z0-9_]*=/g;
-  for (let match of text.matchAll(pattern)) {
-    let start = match.index, previous = text[start - 1];
-    if (start > 0 && previous && !/[\s"'([{]/.test(previous))
-      continue;
-    let valueStart = start + match[0].length;
-    if (valueStart >= text.length)
-      continue;
-    assignments.push({ valueStart, valueEnd: findAssignmentValueEnd(text, valueStart) });
-  }
-  return assignments;
-}
-function findAssignmentValueEnd(text, start) {
-  if (text.startsWith("$(", start))
-    return findBalancedCommandSubstitutionEnd(text, start);
-  let quote = text[start];
-  if (quote === '"' || quote === "'") {
-    for (let index = start + 1;index < text.length; index++)
-      if (quote === '"' && text[index] === "\\")
-        index++;
-      else if (text[index] === quote)
-        return index + 1;
-  }
-  let end = start;
-  while (end < text.length && !/\s/.test(text[end] ?? ""))
-    end++;
-  return end;
-}
-function findBalancedCommandSubstitutionEnd(text, start) {
-  let depth = 0, quote;
-  for (let index = start;index < text.length; index++) {
-    let char = text[index];
-    if (quote) {
-      if (quote === '"' && char === "\\")
-        index++;
-      else if (char === quote)
-        quote = void 0;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === "$" && text[index + 1] === "(") {
-      depth++, index++;
-      continue;
-    }
-    if (char !== ")")
-      continue;
-    if (depth--, depth === 0)
-      return index + 1;
-  }
-  return text.length;
-}
-// src/core/audit.ts
-function sanitizeSessionIdForFilename(sessionId) {
-  let raw = sessionId.trim();
-  if (!raw)
-    return null;
-  let safe = raw.replace(/[^A-Za-z0-9_.-]+/g, "_");
-  if (safe = safe.replace(/^[._-]+|[._-]+$/g, "").slice(0, 128), !safe || safe === "." || safe === "..")
-    return null;
-  return safe;
-}
-function encodeCwdForLogDirname(cwd) {
-  return (cwd ?? "").replace(/[^A-Za-z0-9]/g, "-").slice(0, 180) || "no-cwd";
-}
-function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
-  let safeSessionId = sanitizeSessionIdForFilename(sessionId);
-  if (!safeSessionId)
-    return;
-  let home = options.homeDir ?? getAuditLogHomeDir();
-  if (!home)
-    return;
-  let logsDir = getAuditLogsDir(home);
-  if (!logsDir)
-    return;
-  try {
-    let ts = (/* @__PURE__ */ new Date()).toISOString(), sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
-    mkdirSync(sessionDir, { recursive: !0, mode: 448 });
-    let logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`), entry = {
-      ts,
-      sessionId: safeSessionId,
-      decision: options.decision ?? "deny",
-      agent: options.agent,
-      command: redactSecrets(command).slice(0, 300),
-      segment: redactSecrets(segment).slice(0, 300),
-      reason,
-      ruleId: options.ruleId,
-      intent: options.intent,
-      cwd
-    };
-    appendFileSync(logFile, `${JSON.stringify(entry)}
-`, { encoding: "utf-8", mode: 384 });
-  } catch {}
-}
-function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
-  let home = homeFromEnv || homedir() || userInfo().homedir;
-  return home && isAbsolute(home) ? home : null;
-}
-function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
-  return homeDir ? join(homeDir, ".cc-safety-net", "logs") : null;
-}
-
-// src/core/format.ts
-function formatBlockedMessage(input) {
-  let { reason, command, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
-
-Reason: ${redact(reason)}`;
-  if (input.ruleId)
-    message += `
-
-Rule: ${input.ruleId}`;
-  if (toolName)
-    message += `
-
-Tool: ${toolName}`;
-  if (command) {
-    let safeCommand = redact(command);
-    message += `
-
-Command: ${excerpt(safeCommand, maxLen)}`;
-  }
-  if (segment && segment !== command) {
-    let safeSegment = redact(segment);
-    message += `
-
-Segment: ${excerpt(safeSegment, maxLen)}`;
-  }
-  return message += `
-
-${getFooter(input)}`, message;
-}
-function getFooter(input) {
-  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
-    case "hard_stop":
-      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
-    case "use_alternative":
-      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
-    case "scope_down":
-      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
-    case "manual_only":
-      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
-    case "stop_and_explain":
-      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
-  }
-}
-function excerpt(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-}
-
-// src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
-
 // src/core/tool-input.ts
 var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TOOL_NAMES = /* @__PURE__ */ new Set([
   "create",
@@ -671,27 +469,6 @@ function createToolInvocation(toolName, input, route, context, command) {
   return { toolName, input, route, context, command };
 }
 
-// src/engine/audit.ts
-function writeGuardAudit(audit, getSessionId, options) {
-  if (!audit)
-    return;
-  let sessionId;
-  try {
-    sessionId = getSessionId();
-  } catch {
-    return;
-  }
-  if (!sessionId)
-    return;
-  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
-    homeDir: options.homeDir,
-    decision: audit.decision,
-    agent: options.agent,
-    ruleId: audit.ruleId,
-    intent: audit.intent
-  });
-}
-
 // src/config/policy-metadata.ts
 var metadata = /* @__PURE__ */ new WeakMap;
 function registerPolicyRuleMetadata(snapshot, rules) {
@@ -702,8 +479,8 @@ function getPolicyRuleMetadata(snapshot, id) {
 }
 
 // src/core/policy.ts
-import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname4, join as join3 } from "node:path";
+import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname4, join as join2 } from "node:path";
 
 // src/config/schema.ts
 import { createRequire } from "node:module";
@@ -1493,7 +1270,7 @@ function extractShortOpts(tokens, options) {
 }
 // src/core/shell/wrappers.ts
 import { realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute3, parse as parsePath2 } from "node:path";
+import { isAbsolute as isAbsolute2, parse as parsePath2 } from "node:path";
 
 // src/core/git/env.ts
 var GIT_CONTEXT_ENV_OVERRIDES = [
@@ -1545,9 +1322,9 @@ function hasAnyEnvAssignment(envAssignments, names) {
 
 // src/core/path.ts
 import { lstatSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
+import { dirname, isAbsolute, parse as parsePath, sep } from "node:path";
 function resolveChdirTarget(baseCwd, target) {
-  let root = isAbsolute2(target) ? getPathRoot(target) : "", current = root || baseCwd;
+  let root = isAbsolute(target) ? getPathRoot(target) : "", current = root || baseCwd;
   for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
     if (component === "" || component === ".")
       continue;
@@ -3046,9 +2823,9 @@ function resolveWrapperCwd(cwd, target) {
   if (target === "")
     return null;
   try {
-    if (!cwd && !isAbsolute3(target))
+    if (!cwd && !isAbsolute2(target))
       return null;
-    let baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync2(cwd ?? "/");
+    let baseCwd = isAbsolute2(target) ? getPathRoot2(target) : realpathSync2(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -3108,33 +2885,33 @@ function isReservedTransparentWrapper(command2) {
 }
 
 // src/core/rules/policy/paths.ts
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname as dirname2, join, resolve } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", RULEBOOK_FILE = "rulebook.json", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`, CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
   return resolve(cwd ?? process.cwd(), RULES_DIR);
 }
 function getProjectRulesConfigPath(cwd) {
-  return join2(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+  return join(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
 }
 function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname2(options2.userConfigPath) : join2(getUserSafetyNetHome(), RULES_SUBDIR));
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname2(options2.userConfigPath) : join(getUserSafetyNetHome(), RULES_SUBDIR));
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve(home) : join2(homedir2(), SAFETY_NET_DIR);
+  return home ? resolve(home) : join(homedir(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
-  return join2(getUserRulesDir(options2), RULES_CONFIG_FILE);
+  return join(getUserRulesDir(options2), RULES_CONFIG_FILE);
 }
 function getUserRulesLockPath(options2) {
-  return join2(getUserRulesDir(options2), RULES_LOCK_FILE);
+  return join(getUserRulesDir(options2), RULES_LOCK_FILE);
 }
 function getRulesLockPathForConfigPath(configPath) {
-  return join2(dirname2(configPath), RULES_LOCK_FILE);
+  return join(dirname2(configPath), RULES_LOCK_FILE);
 }
 function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join2(dirname2(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+  return join(dirname2(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
 }
 function getLegacyProjectRulesConfigPath(options2 = {}) {
   return resolve(options2.cwd ?? process.cwd(), ".safety-net.json");
@@ -3163,7 +2940,7 @@ function getRulebookDisplaySource(entry) {
 }
 function getRulebookCachePath(entry, options2) {
   let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join2(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+  return join(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
 }
 function getRulebookCacheSlug(entry) {
   return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
@@ -3172,7 +2949,7 @@ function getRepositoryRulebookPath(name) {
   return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
 }
 function getRulesCacheDir(options2) {
-  return join2(dirname2(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
+  return join(dirname2(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
 }
 
 // src/core/rules/policy/sources.ts
@@ -3939,7 +3716,7 @@ function addUnknownFieldErrors(record, allowed, errors, prefix) {
 }
 // src/core/rules/policy/config-file.ts
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync as mkdirSync2, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 
 // src/core/rules/policy/types.ts
@@ -4024,7 +3801,7 @@ function createAtomicTempPath(path) {
   return `${path}.${randomBytes(8).toString("hex")}.tmp`;
 }
 function writeJsonAtomic(path, value, mode) {
-  mkdirSync2(dirname3(path), { recursive: !0 });
+  mkdirSync(dirname3(path), { recursive: !0 });
   let tempPath = createAtomicTempPath(path);
   try {
     writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
@@ -4059,7 +3836,7 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS = /* @__PURE__ */ new Set(["stand
   }
 };
 function getUserPolicyPath(options2) {
-  return join3(dirname4(getUserRulesDir(options2)), POLICY_FILE);
+  return join2(dirname4(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
@@ -4103,7 +3880,7 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   let path = getUserPolicyPath(options2), errors = getUserPolicyDiagnostics(policy), normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0)
     return { path, policy: normalizedPolicy, errors };
-  return mkdirSync3(dirname4(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
+  return mkdirSync2(dirname4(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
@@ -4273,7 +4050,7 @@ function normalizeSafety(value) {
 
 // src/core/rules/policy/scope-policy.ts
 import { existsSync as existsSync5, readFileSync as readFileSync5, realpathSync as realpathSync3 } from "node:fs";
-import { dirname as dirname5, isAbsolute as isAbsolute4, join as join5, relative, resolve as resolve2, sep as sep2 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute3, join as join4, relative, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/core/rules/custom.ts
 function checkCustomRules(tokens, rules) {
@@ -4684,7 +4461,7 @@ function requiredString(candidate, field) {
 // src/core/rules/policy/resolver.ts
 import { createHash } from "node:crypto";
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
-import { join as join4 } from "node:path";
+import { join as join3 } from "node:path";
 async function resolveRulebookSource(spec, configDir, options2) {
   if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec);
@@ -4806,7 +4583,7 @@ async function resolveGitHubCommit(owner, repo, ref, source) {
   return commitJson.sha;
 }
 function getLocalRulebookPath(configDir, name) {
-  return join4(configDir, name, RULEBOOK_FILE);
+  return join3(configDir, name, RULEBOOK_FILE);
 }
 function sha256Digest(content) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -4938,9 +4715,9 @@ function loadLockedRulebook(entry, configDir, options2) {
   }
   if (entry.kind === "local-directory") {
     let sourcePath = resolve2(configDir, entry.path), sourceRelative = relative(resolve2(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute4(sourceRelative))
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute3(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
-    let localPath = join5(sourcePath, RULEBOOK_FILE);
+    let localPath = join4(sourcePath, RULEBOOK_FILE);
     if (!existsSync5(localPath))
       errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
     else
@@ -5016,7 +4793,7 @@ function hasMigrationEvidence(configPath, migratedFrom) {
 function getRulebookMigratedFrom(configDir, source) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  let path = join5(configDir, source, RULEBOOK_FILE);
+  let path = join4(configDir, source, RULEBOOK_FILE);
   if (!existsSync5(path))
     return null;
   try {
@@ -5241,7 +5018,7 @@ function dangerousInTextMatch(text) {
 
 // src/core/analyze/recursive-delete-targets.ts
 import { realpathSync as realpathSync4 } from "node:fs";
-import { homedir as homedir3, tmpdir } from "node:os";
+import { homedir as homedir2, tmpdir } from "node:os";
 import { normalize, resolve as resolve3, sep as sep3 } from "node:path";
 var IS_WINDOWS = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
@@ -5319,7 +5096,7 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir3();
+  return process.env.HOME ?? homedir2();
 }
 function isDynamicTarget(target) {
   return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
@@ -5985,7 +5762,7 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
 
 // src/core/git/worktree.ts
 import { existsSync as existsSync6, lstatSync as lstatSync2, readFileSync as readFileSync6, realpathSync as realpathSync5, statSync } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute5, join as join6, resolve as resolve4 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute4, join as join5, resolve as resolve4 } from "node:path";
 var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-c",
   "-C",
@@ -6069,8 +5846,8 @@ function isLinkedWorktree(cwd) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return !1;
-    let gitDir = isAbsolute5(rawGitDir) ? rawGitDir : resolve4(dirname6(dotGitPath), rawGitDir);
-    if (!existsSync6(join6(gitDir, "commondir")))
+    let gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve4(dirname6(dotGitPath), rawGitDir);
+    if (!existsSync6(join5(gitDir, "commondir")))
       return !1;
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
       return !1;
@@ -6088,21 +5865,21 @@ function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
   return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
 function readWorktreeGitdirBacklink(gitDir) {
-  let backlinkPath = join6(gitDir, "gitdir");
+  let backlinkPath = join5(gitDir, "gitdir");
   if (!existsSync6(backlinkPath))
     return null;
   let rawBacklink = readFileSync6(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
   return rawBacklink === "" ? null : rawBacklink;
 }
 function readWorktreeConfigWorktree(gitDir) {
-  let configWorktreePath = join6(gitDir, "config.worktree");
+  let configWorktreePath = join5(gitDir, "config.worktree");
   return existsSync6(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
 function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute5(target) ? target : resolve4(gitDir, target);
+  return isAbsolute4(target) ? target : resolve4(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -6213,7 +5990,7 @@ function findDotGit(cwd) {
 function findDotGitInAncestors(cwd) {
   let current = cwd;
   while (!0) {
-    let dotGitPath = join6(current, ".git");
+    let dotGitPath = join5(current, ".git");
     if (existsSync6(dotGitPath))
       return dotGitPath;
     let parent = dirname6(current);
@@ -6689,7 +6466,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync7, readFileSync as readFileSync7 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute6, join as join7, resolve as resolve5 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute5, join as join6, resolve as resolve5 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -6831,7 +6608,7 @@ function getLocalGitConfigPaths(cwd) {
   let commonDir = resolveCommonGitDir(gitDir);
   if (commonDir === null)
     return null;
-  return [join7(commonDir, "config"), join7(gitDir, "config.worktree")];
+  return [join6(commonDir, "config"), join6(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
@@ -6841,20 +6618,20 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute6(rawGitDir) ? rawGitDir : resolve5(dirname7(dotGitPath), rawGitDir);
+    return isAbsolute5(rawGitDir) ? rawGitDir : resolve5(dirname7(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join7(gitDir, "commondir");
+  let commonDirPath = join6(gitDir, "commondir");
   if (!existsSync7(commonDirPath))
     return gitDir;
   try {
     let rawCommonDir = readFileSync7(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute6(rawCommonDir) ? rawCommonDir : resolve5(gitDir, rawCommonDir);
+    return isAbsolute5(rawCommonDir) ? rawCommonDir : resolve5(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -7418,7 +7195,7 @@ function extractParallelChildCommand(tokens) {
 // src/core/analyze/tmpdir.ts
 import { existsSync as existsSync8, lstatSync as lstatSync3, realpathSync as realpathSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute7, join as join8, normalize as normalize2, parse as parsePath3, sep as sep4 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join7, normalize as normalize2, parse as parsePath3, sep as sep4 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir2(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (!envAssignments.has("TMPDIR"))
@@ -7455,13 +7232,13 @@ function tryResolveExistingPathComponents(path) {
 }
 function resolveExistingPathComponents(path) {
   let normalized = normalize2(path);
-  if (!isAbsolute7(normalized))
+  if (!isAbsolute6(normalized))
     return normalized;
   let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
-    let candidate = join8(current, components[i] ?? "");
+    let candidate = join7(current, components[i] ?? "");
     if (!existsSync8(candidate))
-      return join8(candidate, ...components.slice(i + 1));
+      return join7(candidate, ...components.slice(i + 1));
     current = lstatSync3(candidate).isSymbolicLink() ? realpathSync6(candidate) : candidate;
   }
   return current;
@@ -7571,6 +7348,9 @@ function extractXargsChildCommandWithInfo(tokens) {
   }
   return { childTokens: [], replacementToken };
 }
+
+// src/core/reasons.ts
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
 
 // src/core/analyze/segment.ts
 var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
@@ -8661,7 +8441,7 @@ function isCCSafetyNetPackage(value) {
 
 // src/core/analyze/with-program.ts
 function analyzeCommandWithProgram(command2, options2, program, factStore) {
-  let modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
+  let modes = options2.strict !== void 0 && options2.paranoidRm !== void 0 && options2.paranoidInterpreters !== void 0 && options2.worktreeMode !== void 0 ? options2 : getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     policy: options2.policySnapshot.policy,
@@ -8675,13 +8455,13 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname9, isAbsolute as isAbsolute8, join as join10, normalize as normalize4, resolve as resolve6 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname9, isAbsolute as isAbsolute7, join as join9, normalize as normalize4, resolve as resolve6 } from "node:path";
 
 // src/core/path-canonicalization.ts
 import { realpathSync as realpathSync8 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname8, join as join9 } from "node:path";
+import { homedir as homedir3 } from "node:os";
+import { basename, dirname as dirname8, join as join8 } from "node:path";
 var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
   "CC_SAFETY_NET_HOME",
   "CLAUDE_CONFIG_DIR",
@@ -8710,14 +8490,14 @@ function resolveExistingPath(path) {
     let parent = dirname8(path);
     if (parent === path)
       return path;
-    return join9(resolveExistingPath(parent), basename(path));
+    return join8(resolveExistingPath(parent), basename(path));
   }
 }
 function getSupportedPathEnvironmentValue(name) {
   if (!SUPPORTED_PATH_ENV_NAMES.has(name))
     return null;
   if (name === "HOME")
-    return process.env.HOME ?? homedir4();
+    return process.env.HOME ?? homedir3();
   return process.env[name] ?? null;
 }
 
@@ -9202,7 +8982,7 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     configDir,
     configPath,
     lockPath,
-    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join10(configDir, source), join10(configDir, source, RULEBOOK_FILE)]),
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join9(configDir, source), join9(configDir, source, RULEBOOK_FILE)]),
     ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
       let cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
       return [dirname9(cachePath), cachePath];
@@ -9241,13 +9021,13 @@ function normalizeCandidatePath(target, cwd) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve6(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize4(isAbsolute8(expanded) ? expanded : resolve6(cwd, expanded))).replace(/\\/g, "/");
+  let expanded = unix === "~" ? homedir4() : unix.startsWith("~/") ? resolve6(homedir4(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute7(expanded) ? expanded : resolve6(cwd, expanded))).replace(/\\/g, "/");
 }
 
 // src/core/secret-protection.ts
-import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute9, resolve as resolve7 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute8, resolve as resolve7 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_MATCH_PATH_PRIMARIES = /* @__PURE__ */ new Set([
   "-name",
@@ -9995,14 +9775,14 @@ function isSecretRuleEnabled(id, config) {
   return !config.disabledRules.has(id);
 }
 function normalizeCandidatePath2(target, cwd) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir5(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute9(expanded) ? expanded : normalizePathText(resolve7(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute8(expanded) ? expanded : normalizePathText(resolve7(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute9(expanded))
+    if (isAbsolute8(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -10010,11 +9790,11 @@ function normalizeCandidatePath2(target, cwd) {
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
 function normalizeAbsoluteCandidatePath(target, cwd) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir5(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded)));
+  return normalizePathText(resolveExistingPath(isAbsolute8(expanded) ? expanded : resolve7(cwd, expanded)));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -10207,6 +9987,265 @@ function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
 }
 
+// src/core/audit.ts
+import { appendFileSync, mkdirSync as mkdirSync3 } from "node:fs";
+import { homedir as homedir6, userInfo } from "node:os";
+import { isAbsolute as isAbsolute9, join as join10 } from "node:path";
+
+// src/core/sanitize.ts
+var PROVIDER_TOKENS = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
+  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
+  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
+  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+  /\bsk_[A-Za-z0-9]{20,}\b/g,
+  /\bgsk_[A-Za-z0-9]{52,}\b/g,
+  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
+  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
+  /\bbastn_[A-Za-z0-9]{16,}\b/g,
+  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
+  /\bflp_[A-Za-z0-9]{10,}\b/g,
+  /\bwfr_[A-Za-z0-9]{20,}\b/g,
+  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
+  /\btp-[A-Za-z0-9_-]{20,}\b/g,
+  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
+  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
+];
+function redactSecrets(text) {
+  let result = text.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>").replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>").replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
+  return redactNonAssignmentSecrets(result);
+}
+function redactNonAssignmentSecrets(text) {
+  let result = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>").replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@").replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
+  for (let pattern of PROVIDER_TOKENS)
+    result = result.replace(pattern, "<redacted>");
+  return result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>").replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
+}
+function redactEnvAssignmentValues(text) {
+  return findEnvAssignments(text).reduceRight((value, assignment) => `${value.slice(0, assignment.valueStart)}<redacted>${value.slice(assignment.valueEnd)}`, text);
+}
+function sanitizeDiagnosticText(text) {
+  return redactNonAssignmentSecrets(redactEnvAssignmentValues(text));
+}
+function getEnvAssignmentValues(text) {
+  return findEnvAssignments(text).map((assignment) => text.slice(assignment.valueStart, assignment.valueEnd));
+}
+function findEnvAssignments(text) {
+  let assignments = [], pattern = /[A-Za-z_][A-Za-z0-9_]*=/g;
+  for (let match of text.matchAll(pattern)) {
+    let start = match.index, previous = text[start - 1];
+    if (start > 0 && previous && !/[\s"'([{]/.test(previous))
+      continue;
+    let valueStart = start + match[0].length;
+    if (valueStart >= text.length)
+      continue;
+    assignments.push({ valueStart, valueEnd: findAssignmentValueEnd(text, valueStart) });
+  }
+  return assignments;
+}
+function findAssignmentValueEnd(text, start) {
+  if (text.startsWith("$(", start))
+    return findBalancedCommandSubstitutionEnd(text, start);
+  let quote = text[start];
+  if (quote === '"' || quote === "'") {
+    for (let index = start + 1;index < text.length; index++)
+      if (quote === '"' && text[index] === "\\")
+        index++;
+      else if (text[index] === quote)
+        return index + 1;
+  }
+  let end = start;
+  while (end < text.length && !/\s/.test(text[end] ?? ""))
+    end++;
+  return end;
+}
+function findBalancedCommandSubstitutionEnd(text, start) {
+  let depth = 0, quote;
+  for (let index = start;index < text.length; index++) {
+    let char = text[index];
+    if (quote) {
+      if (quote === '"' && char === "\\")
+        index++;
+      else if (char === quote)
+        quote = void 0;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "$" && text[index + 1] === "(") {
+      depth++, index++;
+      continue;
+    }
+    if (char !== ")")
+      continue;
+    if (depth--, depth === 0)
+      return index + 1;
+  }
+  return text.length;
+}
+// src/core/audit.ts
+function sanitizeSessionIdForFilename(sessionId) {
+  let raw = sessionId.trim();
+  if (!raw)
+    return null;
+  let safe = raw.replace(/[^A-Za-z0-9_.-]+/g, "_");
+  if (safe = safe.replace(/^[._-]+|[._-]+$/g, "").slice(0, 128), !safe || safe === "." || safe === "..")
+    return null;
+  return safe;
+}
+function encodeCwdForLogDirname(cwd) {
+  return (cwd ?? "").replace(/[^A-Za-z0-9]/g, "-").slice(0, 180) || "no-cwd";
+}
+function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {}) {
+  let safeSessionId = sanitizeSessionIdForFilename(sessionId);
+  if (!safeSessionId)
+    return;
+  let home = options2.homeDir ?? getAuditLogHomeDir();
+  if (!home)
+    return;
+  let logsDir = getAuditLogsDir(home);
+  if (!logsDir)
+    return;
+  try {
+    let ts = (/* @__PURE__ */ new Date()).toISOString(), sessionDir = join10(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    mkdirSync3(sessionDir, { recursive: !0, mode: 448 });
+    let logFile = join10(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`), entry = {
+      ts,
+      sessionId: safeSessionId,
+      decision: options2.decision ?? "deny",
+      agent: options2.agent,
+      command: redactSecrets(command2).slice(0, 300),
+      segment: redactSecrets(segment).slice(0, 300),
+      reason,
+      ruleId: options2.ruleId,
+      intent: options2.intent,
+      cwd
+    };
+    appendFileSync(logFile, `${JSON.stringify(entry)}
+`, { encoding: "utf-8", mode: 384 });
+  } catch {}
+}
+function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
+  let home = homeFromEnv || homedir6() || userInfo().homedir;
+  return home && isAbsolute9(home) ? home : null;
+}
+function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
+  return homeDir ? join10(homeDir, ".cc-safety-net", "logs") : null;
+}
+
+// src/core/format.ts
+function formatBlockedMessage(input) {
+  let { reason, command: command2, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
+
+Reason: ${redact(reason)}`;
+  if (input.ruleId)
+    message += `
+
+Rule: ${input.ruleId}`;
+  if (toolName)
+    message += `
+
+Tool: ${toolName}`;
+  if (command2) {
+    let safeCommand = redact(command2);
+    message += `
+
+Command: ${excerpt(safeCommand, maxLen)}`;
+  }
+  if (segment && segment !== command2) {
+    let safeSegment = redact(segment);
+    message += `
+
+Segment: ${excerpt(safeSegment, maxLen)}`;
+  }
+  return message += `
+
+${getFooter(input)}`, message;
+}
+function getFooter(input) {
+  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
+    case "hard_stop":
+      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
+    case "use_alternative":
+      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
+    case "scope_down":
+      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
+    case "manual_only":
+      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
+    case "stop_and_explain":
+      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
+  }
+}
+function excerpt(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+// src/integrations/denial.ts
+function projectGuardDenial(evaluation, options2) {
+  if (evaluation.decision.kind !== "deny")
+    return;
+  let evidence = options2.includeEvidence ? evaluation.decision.evidence.find((item) => item.kind === "command") : void 0;
+  return {
+    reason: evaluation.decision.reason,
+    ruleId: evaluation.decision.ruleId,
+    intent: evaluation.decision.intent,
+    command: evidence?.command,
+    segment: evidence?.segment,
+    toolName: options2.toolName
+  };
+}
+function createFailedClosedDenial(options2 = {}) {
+  return {
+    reason: REASON_SAFETY_NET_FAILED_CLOSED,
+    intent: "stop_and_explain",
+    command: options2.command,
+    segment: options2.segment ?? options2.command,
+    toolName: options2.toolName
+  };
+}
+function formatDenial(denial) {
+  return formatBlockedMessage({ ...denial, redact: redactSecrets });
+}
+function formatIntegrationError(cause) {
+  return redactSecrets(cause instanceof Error ? cause.message : String(cause));
+}
+
+// src/engine/audit.ts
+function writeGuardAudit(audit, getSessionId, options2) {
+  if (!audit)
+    return;
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (!sessionId)
+    return;
+  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
+    homeDir: options2.homeDir,
+    decision: audit.decision,
+    agent: options2.agent,
+    ruleId: audit.ruleId,
+    intent: audit.intent
+  });
+}
+
+// src/integrations/runtime.ts
+function evaluateRuntimeGuard(invocation, options2) {
+  let evaluation = evaluateGuard(invocation, options2.guard);
+  return writeGuardAudit(evaluation.audit, options2.audit.getSessionId, {
+    agent: options2.audit.agent,
+    homeDir: options2.audit.homeDir
+  }), evaluation;
+}
+
 // src/builtin-commands/templates/cc-safety-net.ts
 var CC_SAFETY_NET_TEMPLATE = `
 ## Workflow
@@ -10280,11 +10319,17 @@ function createCCSafetyNetPlugin(guardDependencies = {}) {
         let toolInput = output.args, shellRoute = resolveOpenCodeShellRoute(currentConfig?.shell), route = getOpenCodeToolRoute(input.tool, shellRoute), executionCwd = resolveOpenCodeExecutionCwd(configCwd, toolInput);
         if (!isUsableDirectory(configCwd) || !executionCwd)
           throwFailedClosed(getCommandFromToolInput(toolInput));
-        let context = { configCwd, executionCwd }, invocation = createToolInvocation(input.tool, toolInput, route, context, getCommandFromToolInput(toolInput) ?? null), evaluation;
+        let context = { configCwd, executionCwd }, invocation = createToolInvocation(input.tool, toolInput, route, context, getCommandFromToolInput(toolInput) ?? null);
         try {
-          evaluation = evaluateGuard(invocation, {
-            dependencies: guardDependencies
+          let evaluation = evaluateRuntimeGuard(invocation, {
+            guard: { dependencies: guardDependencies },
+            audit: {
+              agent: "opencode",
+              homeDir,
+              getSessionId: () => input.sessionID
+            }
           });
+          throwGuardDenial(evaluation, evaluation.stage !== "config-state");
         } catch (error) {
           if (!(error instanceof GuardEvaluationError))
             throw error;
@@ -10293,7 +10338,6 @@ function createCCSafetyNetPlugin(guardDependencies = {}) {
           throwGuardDenial(error.evaluation, !0);
           return;
         }
-        writeGuardAudit(evaluation.audit, () => input.sessionID, { agent: "opencode", homeDir }), throwGuardDenial(evaluation, evaluation.stage !== "config-state");
       }
     };
   };
@@ -10343,24 +10387,15 @@ function isUsableDirectory(path) {
   }
 }
 function throwFailedClosed(command2) {
-  throwBlocked(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2, void 0, void 0, "stop_and_explain");
+  throwBlocked(createFailedClosedDenial({ command: command2 }));
 }
 function throwGuardDenial(evaluation, includeEvidence) {
-  if (evaluation.decision.kind !== "deny")
-    return;
-  let evidence = includeEvidence ? evaluation.decision.evidence.find((item) => item.kind === "command") : void 0;
-  throwBlocked(evaluation.decision.reason, evidence?.command, evidence?.segment, void 0, evaluation.decision.ruleId, evaluation.decision.intent);
+  let denial = projectGuardDenial(evaluation, { includeEvidence });
+  if (denial)
+    throwBlocked(denial);
 }
-function throwBlocked(reason, command2, segment, manualPermissionAdvice, ruleId, intent) {
-  throw Error(formatBlockedMessage({
-    reason,
-    ruleId,
-    intent,
-    command: command2,
-    segment,
-    redact: redactSecrets,
-    manualPermissionAdvice
-  }));
+function throwBlocked(denial) {
+  throw Error(formatDenial(denial));
 }
 
 // src/index.ts

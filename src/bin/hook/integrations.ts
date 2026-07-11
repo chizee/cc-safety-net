@@ -6,7 +6,7 @@ import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 import {
   type RuntimeHookIntegrationId,
   runtimeHookIntegrationMetadata,
-} from '@/bin/integration-metadata';
+} from '@/integrations/catalog';
 
 export type HookIntegration = {
   id: RuntimeHookIntegrationId;

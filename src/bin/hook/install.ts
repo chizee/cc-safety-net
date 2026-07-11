@@ -23,6 +23,7 @@ import {
   TARGET_FLAGS,
 } from '@/bin/hook/install/targets';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
+import { getIntegrationInstallLabel } from '@/integrations/catalog';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget>;
@@ -38,7 +39,6 @@ export type RunInstallCommandOptions = {
 };
 
 type NativeInstallDefinition = {
-  name: string;
   installCommands: readonly NativeCommand[];
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
@@ -52,7 +52,6 @@ type SettledResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
-    name: 'Claude Code',
     installCommands: [
       ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
       ['claude', 'plugin', 'install', 'safety-net@cc-marketplace'],
@@ -63,7 +62,6 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   codex: {
-    name: 'Codex',
     installCommands: [
       ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
       ['codex', 'plugin', 'add', 'safety-net@cc-marketplace'],
@@ -76,7 +74,6 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       'Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it.',
   },
   'copilot-cli': {
-    name: 'GitHub Copilot CLI',
     installCommands: [
       ['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
       ['copilot', 'plugin', 'install', 'safety-net@cc-marketplace'],
@@ -87,19 +84,16 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   'gemini-cli': {
-    name: 'Gemini CLI',
     installCommands: [
       ['gemini', 'extensions', 'install', 'https://github.com/kenryu42/gemini-safety-net'],
     ],
     uninstallCommands: [['gemini', 'extensions', 'uninstall', 'gemini-safety-net']],
   },
   opencode: {
-    name: 'OpenCode',
     beforeInstall: clearOpenCodeCache,
     installCommands: [['opencode', 'plugin', '-g', '-f', 'cc-safety-net@latest']],
   },
   pi: {
-    name: 'Pi',
     installCommands: [['pi', 'install', 'npm:cc-safety-net']],
     uninstallCommands: [['pi', 'uninstall', 'npm:cc-safety-net']],
   },
@@ -221,16 +215,12 @@ function startResolveInstallTargets(
   };
 }
 
-function isNativeInstallTarget(target: InstallTarget): target is NativeInstallTarget {
-  return target in NATIVE_INSTALLS;
-}
-
 function installNativeTarget(target: NativeInstallTarget, homeDir: string): void {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
   runNativeCommands(definition.installCommands);
   console.log(
-    [`Installed ${definition.name} integration`, definition.postInstallMessage]
+    [`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage]
       .filter(Boolean)
       .join('\n'),
   );
@@ -239,10 +229,10 @@ function installNativeTarget(target: NativeInstallTarget, homeDir: string): void
 function uninstallNativeTarget(target: Exclude<NativeInstallTarget, 'opencode'>): void {
   const definition = NATIVE_INSTALLS[target];
   if (!definition.uninstallCommands)
-    throw new Error(`${definition.name} uninstall is not supported`);
+    throw new Error(`${getIntegrationInstallLabel(target)} uninstall is not supported`);
 
   runNativeCommands(definition.uninstallCommands);
-  console.log(`Uninstalled ${definition.name} integration`);
+  console.log(`Uninstalled ${getIntegrationInstallLabel(target)} integration`);
 }
 
 function uninstallOpenCodeTarget(homeDir: string): void {
@@ -254,24 +244,11 @@ function uninstallOpenCodeTarget(homeDir: string): void {
   );
 }
 
-function runSingleInstallTarget(
+function runConfigInstallTarget(
   action: InstallAction,
-  target: InstallTarget,
+  target: ConfigInstallTarget,
   homeDir: string,
 ): void {
-  if (action === 'install' && isNativeInstallTarget(target)) {
-    installNativeTarget(target, homeDir);
-    return;
-  }
-  if (action === 'uninstall' && target === 'opencode') {
-    uninstallOpenCodeTarget(homeDir);
-    return;
-  }
-  if (action === 'uninstall' && isNativeInstallTarget(target) && target !== 'opencode') {
-    uninstallNativeTarget(target);
-    return;
-  }
-
   const result =
     target === 'kimi-code'
       ? action === 'install'
@@ -280,7 +257,7 @@ function runSingleInstallTarget(
       : action === 'install'
         ? installAntigravityCli(homeDir)
         : uninstallAntigravityCli(homeDir);
-  const name = target === 'kimi-code' ? 'Kimi Code' : 'Antigravity CLI';
+  const name = getIntegrationInstallLabel(target);
   const pastTense = action === 'install' ? 'Installed' : 'Uninstalled';
 
   console.log(
@@ -290,6 +267,49 @@ function runSingleInstallTarget(
         ? `${name} hook not installed in ${result.path}`
         : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`,
   );
+}
+
+const INSTALL_OPERATIONS = {
+  'antigravity-cli': {
+    install: (homeDir: string) => runConfigInstallTarget('install', 'antigravity-cli', homeDir),
+    uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'antigravity-cli', homeDir),
+  },
+  'claude-code': {
+    install: (homeDir: string) => installNativeTarget('claude-code', homeDir),
+    uninstall: () => uninstallNativeTarget('claude-code'),
+  },
+  codex: {
+    install: (homeDir: string) => installNativeTarget('codex', homeDir),
+    uninstall: () => uninstallNativeTarget('codex'),
+  },
+  'copilot-cli': {
+    install: (homeDir: string) => installNativeTarget('copilot-cli', homeDir),
+    uninstall: () => uninstallNativeTarget('copilot-cli'),
+  },
+  'gemini-cli': {
+    install: (homeDir: string) => installNativeTarget('gemini-cli', homeDir),
+    uninstall: () => uninstallNativeTarget('gemini-cli'),
+  },
+  'kimi-code': {
+    install: (homeDir: string) => runConfigInstallTarget('install', 'kimi-code', homeDir),
+    uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'kimi-code', homeDir),
+  },
+  opencode: {
+    install: (homeDir: string) => installNativeTarget('opencode', homeDir),
+    uninstall: (homeDir: string) => uninstallOpenCodeTarget(homeDir),
+  },
+  pi: {
+    install: (homeDir: string) => installNativeTarget('pi', homeDir),
+    uninstall: () => uninstallNativeTarget('pi'),
+  },
+} satisfies Record<InstallTarget, Record<InstallAction, (homeDir: string) => void>>;
+
+function runSingleInstallTarget(
+  action: InstallAction,
+  target: InstallTarget,
+  homeDir: string,
+): void {
+  INSTALL_OPERATIONS[target][action](homeDir);
 }
 
 export async function runInstallCommand(

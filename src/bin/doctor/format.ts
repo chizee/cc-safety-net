@@ -12,8 +12,8 @@ import type {
   SystemInfo,
   UpdateInfo,
 } from '@/bin/doctor/types';
-import { getIntegrationDisplayName } from '@/bin/integration-metadata';
 import { colors } from '@/bin/utils/colors';
+import { getIntegrationDisplayName } from '@/integrations/catalog';
 
 interface TableOptions {
   headers?: string[];
