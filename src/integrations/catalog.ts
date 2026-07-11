@@ -146,12 +146,14 @@ type RuntimeEntry = Extract<(typeof catalog)[number], { runtime: RuntimeMetadata
 export type RuntimeHookIntegrationId = RuntimeEntry['id'];
 
 export const doctorIntegrationOrder = catalog
-  .toSorted((a, b) => a.doctorOrder - b.doctorOrder)
+  .slice()
+  .sort((a, b) => a.doctorOrder - b.doctorOrder)
   .map((integration) => integration.id);
 
 export const runtimeHookIntegrationMetadata = catalog
   .filter((integration): integration is RuntimeEntry => 'runtime' in integration)
-  .toSorted((a, b) => a.runtime.order - b.runtime.order)
+  .slice()
+  .sort((a, b) => a.runtime.order - b.runtime.order)
   .map((integration) => ({
     id: integration.id,
     displayName: integration.displayName,
@@ -161,7 +163,8 @@ export const runtimeHookIntegrationMetadata = catalog
   }));
 
 export const installIntegrationMetadata = catalog
-  .toSorted((a, b) => a.install.order - b.install.order)
+  .slice()
+  .sort((a, b) => a.install.order - b.install.order)
   .map((integration) => ({ id: integration.id, ...integration.install }))
   .map(({ order: _, ...integration }) => integration);
 

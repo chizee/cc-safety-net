@@ -5,6 +5,13 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "cc-safety-net": "dist/bin/cc-safety-net.js"
   },
@@ -15,6 +22,9 @@
     "build": "bun run clean && bun run scripts/build.ts",
     "build:types": "tsc --project tsconfig.build.json --emitDeclarationOnly --declaration",
     "build:schema": "bun run scripts/build-schema.ts",
+    "verify:build": "bun run scripts/verify-deterministic-build.ts",
+    "verify:package": "bun run scripts/verify-package.ts",
+    "verify:repository-plugin": "bun run scripts/verify-repository-plugin.ts",
     "clean": "rm -rf dist",
     "check": "bun run lint && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && AGENT=1 bun test tests --coverage",
     "check:ci": "bun run lint:ci && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && AGENT=1 bun test tests --coverage --coverage-reporter=lcov",
@@ -25,7 +35,6 @@
     "check-duplicates": "bunx jscpd src tests --exitCode 1 --reporters ai",
     "sg:scan": "ast-grep scan",
     "test": "bun test",
-    "publish:dry-run": "bun run scripts/publish.ts --dry-run",
     "cc-safety-net": "bun run src/bin/cc-safety-net.ts",
     "prepare": "husky && bun run setup-hooks",
     "setup-hooks": "chmod +x .husky/pre-commit .husky/pre-push"
@@ -52,10 +61,16 @@
     "husky": "^9.1.7",
     "jscpd": "^4.0.9",
     "knip": "^5.79.0",
-    "lint-staged": "^16.2.7"
+    "lint-staged": "^16.2.7",
+    "shell-quote": "^1.8.4"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "@opencode-ai/plugin": "^1.0.224"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
   },
   "pi": {
     "extensions": [
@@ -63,8 +78,7 @@
     ]
   },
   "dependencies": {
-    "shell-quote": "^1.8.4",
-    "zod": "^4.3.5"
+    "zod": "4.3.5"
   },
   "trustedDependencies": [
     "@ast-grep/cli"
@@ -72,6 +86,7 @@
   "engines": {
     "node": ">=18"
   },
+  "packageManager": "bun@1.3.14",
   "keywords": [
     "claude-code",
     "opencode",

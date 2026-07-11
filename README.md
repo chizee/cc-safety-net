@@ -54,6 +54,27 @@ The command analyzer uses separate bounded parsers for POSIX-like shell commands
 
 - **Node.js** 18 or higher.
 
+Published JavaScript targets Node.js 18 and later. Repository builds and tests use the pinned
+`bun@1.3.14` toolchain; Bun is not required to run the installed CLI or plugins.
+
+### Package entrypoints
+
+The npm package is ESM-only. Its public JavaScript API is the package root, which exports only
+`CCSafetyNetPlugin`; `cc-safety-net/package.json` is also exported for package metadata. CommonJS
+`require()` and imports below the package root are unsupported. The deep-import restriction is an
+intentional major-version break: internal parser, policy, and integration modules can change
+without creating accidental public APIs.
+
+TypeScript package consumers should use bundler-style module resolution. NodeNext declaration
+compatibility is not promised because the official optional `@opencode-ai/plugin` peer currently
+publishes extensionless declaration imports; CC Safety Net keeps the official `Plugin` type instead
+of copying or weakening it.
+
+The npm tarball contains the CLI, root OpenCode plugin, Pi extension, root type declaration,
+README, license, and package metadata. Claude Code repository-plugin assets (`.claude-plugin/`,
+`hooks/`, and the generated configuration schema) remain GitHub release/repository surfaces and
+are deliberately not duplicated in the npm tarball.
+
 ## Quick start
 
 Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
@@ -232,6 +253,11 @@ All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetyne
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+
+Generated distribution ownership is intentionally narrow. Only `dist/index.js`,
+`dist/index.d.ts`, `dist/bin/cc-safety-net.js`, and `dist/pi/index.js` are tracked. Run
+`bun run verify:build`, `bun run verify:package`, and `bun run verify:repository-plugin` when
+changing packaging, integrations, or release automation.
 
 ## License
 

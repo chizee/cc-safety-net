@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { BLOCK_INTENTS, type Decision } from '@/domain/decision';
-import { withTempDir } from '../helpers';
-import { expectTypeScriptProjectCompiles } from '../helpers/typescript';
 
 const allow = { kind: 'allow' } satisfies Decision;
 const deny = {
@@ -34,48 +31,6 @@ function decisionKind(decision: Decision): Decision['kind'] {
   }
 }
 
-function expectGeneratedTypesResolve(settings: {
-  importPath: string;
-  module: 'NodeNext' | 'Preserve';
-  moduleResolution: 'NodeNext' | 'bundler';
-}) {
-  return withTempDir('cc-safety-net-decision-consumer-', (dir) => {
-    mkdirSync(join(dir, 'package/domain'), { recursive: true });
-    copyFileSync(join(process.cwd(), 'dist/types.d.ts'), join(dir, 'package/types.d.ts'));
-    copyFileSync(
-      join(process.cwd(), 'dist/domain/decision.d.ts'),
-      join(dir, 'package/domain/decision.d.ts'),
-    );
-    copyFileSync(
-      join(process.cwd(), 'dist/domain/policy.d.ts'),
-      join(dir, 'package/domain/policy.d.ts'),
-    );
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
-    writeFileSync(
-      join(dir, 'consumer.ts'),
-      `import { BLOCK_INTENTS, type BlockIntent } from '${settings.importPath}';
-const intent: BlockIntent = BLOCK_INTENTS[0];
-void intent;
-`,
-    );
-    writeFileSync(
-      join(dir, 'tsconfig.json'),
-      JSON.stringify({
-        compilerOptions: {
-          module: settings.module,
-          moduleResolution: settings.moduleResolution,
-          noEmit: true,
-          strict: true,
-          target: 'ESNext',
-        },
-        files: ['consumer.ts'],
-      }),
-    );
-
-    expectTypeScriptProjectCompiles(join(dir, 'tsconfig.json'));
-  });
-}
-
 describe('decision domain', () => {
   test('preserves the existing block intents', () => {
     expect(BLOCK_INTENTS).toEqual([
@@ -95,19 +50,11 @@ describe('decision domain', () => {
     ]);
   });
 
-  test('generated type compatibility exports resolve for bundler consumers', async () => {
-    await expectGeneratedTypesResolve({
-      importPath: './package/types',
-      module: 'Preserve',
-      moduleResolution: 'bundler',
-    });
+  test('does not publish internal decision declarations as deep imports', async () => {
+    expect(await Bun.file('dist/domain/decision.d.ts').exists()).toBeFalse();
   });
 
-  test('generated type compatibility exports resolve for NodeNext ESM consumers', async () => {
-    await expectGeneratedTypesResolve({
-      importPath: './package/types.js',
-      module: 'NodeNext',
-      moduleResolution: 'NodeNext',
-    });
+  test('keeps internal decision types out of the root declaration', () => {
+    expect(readFileSync('dist/index.d.ts', 'utf8')).not.toContain('BlockIntent');
   });
 });

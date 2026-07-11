@@ -1,89 +1,87 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const REQUIRED_CI_INPUT_PATHS = [
-  '.github/workflows/**',
-  'src/**',
-  'scripts/**',
-  'tests/**',
-  'bun.lock',
-  'tsconfig.json',
-  'tsconfig.build.json',
-  'biome.json',
-  'knip.ts',
-  'sgconfig.yml',
-  'ast-grep/**',
-] as const;
+const workflows = [
+  '.github/workflows/ci.yml',
+  '.github/workflows/test-windows.yml',
+  '.github/workflows/lint-github-actions-workflows.yml',
+  '.github/workflows/prepare-release.yml',
+  '.github/workflows/publish.yml',
+].map((path) => [path, readFileSync(path, 'utf8')] as const);
 
-function readWorkflow(): string {
-  return readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-}
-
-function extractPaths(workflow: string, eventName: 'push' | 'pull_request'): string[] {
-  const lines = workflow.split('\n');
-  const eventIndex = lines.findIndex((line) => line.trim() === `${eventName}:`);
-  if (eventIndex === -1) {
-    throw new Error(`Missing ${eventName} event in ci workflow`);
-  }
-
-  const eventIndent = lines[eventIndex]?.match(/^\s*/)?.[0].length ?? 0;
-  const eventLines: string[] = [];
-
-  for (const line of lines.slice(eventIndex + 1)) {
-    const trimmed = line.trim();
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
-    if (trimmed && indent <= eventIndent) {
-      break;
-    }
-    eventLines.push(line);
-  }
-
-  const pathsIndex = eventLines.findIndex((line) => line.trim() === 'paths:');
-  if (pathsIndex === -1) {
-    throw new Error(`Missing paths filter for ${eventName} in ci workflow`);
-  }
-
-  const pathsIndent = eventLines[pathsIndex]?.match(/^\s*/)?.[0].length ?? 0;
-  const paths: string[] = [];
-
-  for (const line of eventLines.slice(pathsIndex + 1)) {
-    const trimmed = line.trim();
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
-    if (trimmed && indent <= pathsIndent) {
-      break;
-    }
-    if (trimmed.startsWith('- ')) {
-      paths.push(trimmed.slice(2).replaceAll('"', ''));
-    }
-  }
-
-  return paths;
-}
-
-describe('CI workflow trigger filters', () => {
-  test('push still validates all build and static-analysis inputs', () => {
-    const pushPaths = extractPaths(readWorkflow(), 'push');
-
-    for (const requiredPath of REQUIRED_CI_INPUT_PATHS) {
-      expect(pushPaths).toContain(requiredPath);
+describe('CI and release workflows', () => {
+  test('pins third-party actions and the Bun toolchain', () => {
+    for (const [path, workflow] of workflows) {
+      for (const line of workflow.split('\n').filter((line) => line.includes('uses:'))) {
+        expect(line, `${path}: ${line}`).toMatch(/uses: [^\s]+@[0-9a-f]{40}$/);
+      }
+      if (workflow.includes('setup-bun')) {
+        expect(workflow).toContain('bun-version: 1.3.14');
+      }
     }
   });
 
-  test('push includes schema assets so auto-commits retrigger CI', () => {
-    const pushPaths = extractPaths(readWorkflow(), 'push');
-
-    expect(pushPaths).toContain('assets/**');
-    expect(pushPaths).toContain('package.json');
+  test('runs CI without path filters and never mutates generated files', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(workflow).not.toContain('paths:');
+    expect(workflow).not.toContain('contents: write');
+    expect(workflow).not.toContain('Auto-commit');
+    expect(workflow).toContain('git diff --exit-code -- dist assets/cc-safety-net.schema.json');
   });
 
-  test('pull requests still validate workflow and package changes', () => {
-    const pullRequestPaths = extractPaths(readWorkflow(), 'pull_request');
+  test('contains no history-rewriting release commands', () => {
+    const source = workflows.map((entry) => entry[1]).join('\n');
+    expect(source).not.toMatch(/git (?:push[^\n]*--force|reset|rebase|tag -f)/);
+    expect(source).toContain('npm publish');
+    expect(source).toContain('--provenance');
+    expect(source).toContain('id-token: write');
+  });
 
-    for (const requiredPath of REQUIRED_CI_INPUT_PATHS) {
-      expect(pullRequestPaths).toContain(requiredPath);
-    }
+  test('publishes the exact tarball exercised by the package verifier', () => {
+    const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
+    expect(workflow).toContain('verify-package.ts --output package-output');
+    expect(workflow).not.toContain('npm pack --ignore-scripts --pack-destination');
+    expect(workflow).toContain('npm publish "$TARBALL"');
+    expect(workflow).not.toContain('--clobber');
+    expect(workflow).toContain('cmp "existing/');
+  });
 
-    expect(pullRequestPaths).toContain('assets/**');
-    expect(pullRequestPaths).toContain('package.json');
+  test('binds publishing to a protected tag environment and least-privilege jobs', () => {
+    const prepare = readFileSync('.github/workflows/prepare-release.yml', 'utf8');
+    const publish = readFileSync('.github/workflows/publish.yml', 'utf8');
+    expect(publish).toContain('test "$GITHUB_REF" = "refs/tags/$TAG"');
+    expect(publish).toContain('test "$GITHUB_REF_TYPE" = "tag"');
+    expect(publish).toContain('environment: npm');
+    expect(publish).toContain('gitHead');
+    expect(prepare).toContain('persist-credentials: false');
+    expect(prepare).toContain('bun run scripts/release-transaction.ts');
+    expect(prepare).not.toContain('git commit -m');
+    expect(prepare).not.toContain('git tag "v${VERSION}"');
+    expect(publish.match(/id-token: write/g)).toHaveLength(1);
+    expect(publish.slice(publish.indexOf('publish-github-release:'))).not.toContain('bun install');
+    expect(publish.slice(publish.indexOf('publish-github-release:'))).not.toContain(
+      'bun run build',
+    );
+    expect(prepare.slice(prepare.indexOf('mutate:'))).not.toContain('bun install');
+    expect(prepare.slice(prepare.indexOf('mutate:'))).not.toContain('bun run build');
+    const mutate = prepare.slice(prepare.indexOf('\n  mutate:'), prepare.indexOf('\n  dispatch:'));
+    const dispatch = prepare.slice(prepare.indexOf('\n  dispatch:'));
+    expect(mutate).toContain('contents: write');
+    expect(mutate).not.toContain('actions: write');
+    expect(dispatch).toContain('actions: write');
+    expect(dispatch).not.toContain('actions/checkout');
+    expect(dispatch).not.toContain('setup-bun');
+    expect(dispatch).not.toContain('bun install');
+    expect(dispatch).toContain(
+      'gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag="$TAG"',
+    );
+  });
+
+  test('keeps Windows repository-mode checks portable while verifying packed mode', () => {
+    const windows = readFileSync('.github/workflows/test-windows.yml', 'utf8');
+    const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(windows).toContain('bun run build');
+    expect(ci).toContain('os: windows-latest');
+    expect(ci).toContain('bun run verify:package');
   });
 });

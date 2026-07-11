@@ -4,61 +4,30 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/test-windows.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/test-windows.yml"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
   test-windows:
-    name: Windows Tests
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: latest
-
+          bun-version: 1.3.14
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
         env:
           BUN_INSTALL_ALLOW_SCRIPTS: "@ast-grep/cli"
-
-      - name: Build
-        run: bun run build
-
-      - name: Run tests
-        run: bun test
-        env:
-          AGENT: "1"
-
-      - name: Test rm -rf within cwd
-        run: |
-          # Create test directory structure
-          mkdir test-dir
-
-          # Test: rm -rf dist should be ALLOWED within cwd
-          $result = bun run cc-safety-net explain --cwd test-dir "rm -rf dist" 2>&1
-          Write-Host "Result: $result"
-
-          if ($result -match "ALLOWED") {
-            Write-Host "✅ PASS: rm -rf dist within cwd is correctly ALLOWED"
-          } else {
-            Write-Host "❌ FAIL: rm -rf dist within cwd should be ALLOWED but was blocked"
-            exit 1
-          }
+      - run: bun run check:ci
+      - run: bun run build
+      - run: git diff --exit-code -- dist assets/cc-safety-net.schema.json
+      - name: Verify Windows command behavior
         shell: pwsh
+        run: |
+          New-Item -ItemType Directory test-dir
+          $result = bun run cc-safety-net explain --cwd test-dir "rm -rf dist" 2>&1
+          if ($result -notmatch "ALLOWED") { exit 1 }

@@ -7,6 +7,7 @@
 import pkg from '../package.json';
 import { getBundledOutputs } from './build-output';
 import { formatSubprocessFailure } from './subprocess-output';
+import { verifyBuildArtifacts } from './verify-build';
 
 const result = await Bun.build({
   entrypoints: ['src/index.ts', 'src/bin/cc-safety-net.ts', 'src/pi/index.ts'],
@@ -34,26 +35,18 @@ if (typesResult.exitCode !== 0) {
   process.exit(1);
 }
 
+for await (const path of new Bun.Glob('dist/**/*.d.ts').scan('.')) {
+  if (path !== 'dist/index.d.ts') await Bun.file(path).delete();
+}
+
 const schemaResult = Bun.spawnSync(['bun', 'run', 'build:schema']);
 if (schemaResult.exitCode !== 0) {
   console.error(formatSubprocessFailure('build:schema', schemaResult));
   process.exit(1);
 }
 
-// Verify expected output files exist
-const expectedFiles = [
-  'dist/index.js',
-  'dist/index.d.ts',
-  'dist/bin/cc-safety-net.js',
-  'dist/pi/index.js',
-  'dist/pi/index.d.ts',
-];
-for (const file of expectedFiles) {
-  if (!(await Bun.file(file).exists())) {
-    console.error(`Build verification failed: ${file} not found`);
-    process.exit(1);
-  }
-}
+await Bun.$`chmod 755 dist/bin/cc-safety-net.js`;
+await verifyBuildArtifacts();
 const { indexOutput, binOutput, piOutput } = getBundledOutputs(result.outputs);
 if (!indexOutput || !binOutput || !piOutput) {
   console.error('Build verification failed: expected bundled outputs not found');

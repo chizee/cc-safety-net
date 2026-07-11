@@ -1,0 +1,86 @@
+import { describe, expect, test } from 'bun:test';
+import { assertReleaseVersion, classifyReleaseState } from '../../scripts/release-state';
+
+describe('release state', () => {
+  test('accepts stable semantic versions only', () => {
+    expect(assertReleaseVersion('2.0.0')).toBe('2.0.0');
+    expect(() => assertReleaseVersion('v2.0.0')).toThrow('stable semantic version');
+    expect(() => assertReleaseVersion('2.0.0-beta.1')).toThrow('stable semantic version');
+    expect(() => assertReleaseVersion('2.0')).toThrow('stable semantic version');
+  });
+
+  test('starts a release only when the version and tag are new', () => {
+    expect(
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '1.0.6',
+        pluginVersion: '1.0.6',
+        headCommit: 'base',
+        tagCommit: null,
+        npmCommit: null,
+      }),
+    ).toEqual({ kind: 'prepare' });
+  });
+
+  test('resumes only the same immutable tag and commit', () => {
+    expect(
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '2.0.0',
+        pluginVersion: '2.0.0',
+        headCommit: 'release',
+        tagCommit: 'release',
+        npmCommit: null,
+      }),
+    ).toEqual({ kind: 'resume', commit: 'release' });
+  });
+
+  test('rejects mismatched versions and mutable tag targets', () => {
+    expect(() =>
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '2.0.0',
+        pluginVersion: '1.9.0',
+        headCommit: 'release',
+        tagCommit: 'release',
+        npmCommit: null,
+      }),
+    ).toThrow('version files disagree');
+    expect(() =>
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '2.0.0',
+        pluginVersion: '2.0.0',
+        headCommit: 'other',
+        tagCommit: 'release',
+        npmCommit: null,
+      }),
+    ).toThrow('immutable tag');
+  });
+
+  test('rejects an npm collision before a new tag can be created', () => {
+    expect(() =>
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '1.0.6',
+        pluginVersion: '1.0.6',
+        headCommit: 'base',
+        tagCommit: null,
+        npmCommit: 'published-elsewhere',
+      }),
+    ).toThrow('npm version already exists');
+  });
+
+  test('accepts published resume only when npm, tag, and HEAD identify one commit', () => {
+    expect(
+      classifyReleaseState({
+        requestedVersion: '2.0.0',
+        packageVersion: '2.0.0',
+        pluginVersion: '2.0.0',
+        headCommit: 'release',
+        tagCommit: 'release',
+        npmCommit: 'release',
+      }),
+    ).toEqual({ kind: 'published', commit: 'release' });
+  });
+});

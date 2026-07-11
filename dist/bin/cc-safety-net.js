@@ -10973,13 +10973,13 @@ var catalog = [
       probeCommand: ["pi", "--version"]
     }
   }
-], doctorIntegrationOrder = catalog.toSorted((a, b) => a.doctorOrder - b.doctorOrder).map((integration) => integration.id), runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" in integration)).toSorted((a, b) => a.runtime.order - b.runtime.order).map((integration) => ({
+], doctorIntegrationOrder = catalog.slice().sort((a, b) => a.doctorOrder - b.doctorOrder).map((integration) => integration.id), runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" in integration)).slice().sort((a, b) => a.runtime.order - b.runtime.order).map((integration) => ({
   id: integration.id,
   displayName: integration.displayName,
   flags: integration.runtime.flags,
   description: integration.runtime.description,
   legacyTopLevel: integration.runtime.legacyTopLevel
-})), installIntegrationMetadata = catalog.toSorted((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
+})), installIntegrationMetadata = catalog.slice().sort((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
 function getIntegrationDisplayName(id) {
   return catalog.find((integration) => integration.id === id)?.displayName ?? id;
 }

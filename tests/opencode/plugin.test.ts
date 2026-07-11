@@ -5,12 +5,12 @@ import { join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import type { GuardDependencies } from '@/engine/guard';
+import { CCSafetyNetPlugin } from '@/index';
 import {
-  CCSafetyNetPlugin,
+  createCCSafetyNetPlugin,
   normalizeOpenCodeWindowsWorkdir,
   resolveOpenCodeShellRoute,
-} from '@/index';
-import { createCCSafetyNetPlugin } from '@/opencode/plugin';
+} from '@/opencode/plugin';
 import { createLinkedWorktreeFixture, readLatestAuditLogEntry, withEnv } from '../helpers';
 import {
   gitCommitRule,
@@ -42,20 +42,20 @@ const publicInputExposesGuardDependencies: 'safetyNetGuardDependencies' extends 
   : false = false;
 const publicInputAcceptsHomeDir: 'homeDir' extends keyof Parameters<typeof CCSafetyNetPlugin>[0]
   ? true
-  : false = true;
+  : false = false;
 type PublicPluginHooks = Awaited<ReturnType<typeof CCSafetyNetPlugin>>;
 const publicConfigHookIsRequired: object extends Pick<PublicPluginHooks, 'config'> ? false : true =
-  true;
+  false;
 const publicToolHookIsRequired: object extends Pick<PublicPluginHooks, 'tool.execute.before'>
   ? false
-  : true = true;
+  : true = false;
 
 describe('OpenCode plugin', () => {
   test('keeps guard dependencies out of the public plugin input', () => {
     expect(publicInputExposesGuardDependencies).toBeFalse();
-    expect(publicInputAcceptsHomeDir).toBeTrue();
-    expect(publicConfigHookIsRequired).toBeTrue();
-    expect(publicToolHookIsRequired).toBeTrue();
+    expect(publicInputAcceptsHomeDir).toBeFalse();
+    expect(publicConfigHookIsRequired).toBeFalse();
+    expect(publicToolHookIsRequired).toBeFalse();
   });
 
   test('ignores attempted guard dependency injection on the production plugin', async () => {
@@ -674,7 +674,7 @@ async function loadToolPlugin(
   const plugin = (await pluginFactory({
     directory,
     homeDir,
-  } as Parameters<typeof CCSafetyNetPlugin>[0])) as unknown as ToolPlugin;
+  } as unknown as Parameters<typeof CCSafetyNetPlugin>[0])) as unknown as ToolPlugin;
   await plugin.config(shell === undefined ? {} : { shell });
   return plugin;
 }

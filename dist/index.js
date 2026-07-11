@@ -10399,15 +10399,7 @@ function throwBlocked(denial) {
 }
 
 // src/index.ts
-function resolveOpenCodeShellRoute2(configuredShell) {
-  return resolveOpenCodeShellRoute(configuredShell);
-}
-function normalizeOpenCodeWindowsWorkdir2(workdir) {
-  return normalizeOpenCodeWindowsWorkdir(workdir);
-}
 var CCSafetyNetPlugin = createCCSafetyNetPlugin();
 export {
-  resolveOpenCodeShellRoute2 as resolveOpenCodeShellRoute,
-  normalizeOpenCodeWindowsWorkdir2 as normalizeOpenCodeWindowsWorkdir,
   CCSafetyNetPlugin
 };

@@ -4,64 +4,56 @@ import { join } from 'node:path';
 import { withTempDir } from '../helpers';
 import { expectTypeScriptProjectCompiles } from '../helpers/typescript';
 
-describe('configuration public API break', () => {
-  test('generated declarations require PolicySnapshot and reject legacy config APIs', async () => {
-    await withTempDir('cc-safety-net-policy-api-', (dir) => {
-      for (const subdir of ['package/domain', 'package/core/analyze']) {
-        mkdirSync(join(dir, subdir), { recursive: true });
-      }
-      for (const file of [
-        'types.d.ts',
-        'domain/decision.d.ts',
-        'domain/policy.d.ts',
-        'core/analyze/index.d.ts',
-      ]) {
-        copyFileSync(join(process.cwd(), 'dist', file), join(dir, 'package', file));
-      }
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+describe('package public API', () => {
+  test('types expose only the root OpenCode plugin and reject deep imports', async () => {
+    await withTempDir('cc-safety-net-public-api-', (dir) => {
+      const packageDir = join(dir, 'node_modules', 'cc-safety-net');
+      const peerDir = join(dir, 'node_modules', '@opencode-ai', 'plugin');
+      mkdirSync(join(packageDir, 'dist'), { recursive: true });
+      mkdirSync(peerDir, { recursive: true });
+      copyFileSync('dist/index.d.ts', join(packageDir, 'dist', 'index.d.ts'));
+      writeFileSync(
+        join(packageDir, 'package.json'),
+        JSON.stringify({
+          name: 'cc-safety-net',
+          type: 'module',
+          exports: {
+            '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+            './package.json': './package.json',
+          },
+        }),
+      );
+      writeFileSync(
+        join(peerDir, 'package.json'),
+        JSON.stringify({ name: '@opencode-ai/plugin', types: './index.d.ts' }),
+      );
+      writeFileSync(
+        join(peerDir, 'index.d.ts'),
+        `export interface PluginInput { directory: string; homeDir?: string }
+export type Plugin = (input: PluginInput) => Promise<Record<string, unknown>>;
+`,
+      );
       writeFileSync(
         join(dir, 'consumer.ts'),
-        `import type { AnalyzeOptions, CustomRule, SecretProtectionConfig } from './package/types.js';
-import type { PolicySnapshot } from './package/domain/policy.js';
-import { analyzeCommand } from './package/core/analyze/index.js';
-// @ts-expect-error Config was intentionally removed in the Phase 4 API break.
-import type { Config } from './package/types.js';
-// @ts-expect-error loadConfig was intentionally removed in the Phase 4 API break.
-import { loadConfig } from './package/core/analyze/index.js';
-declare const policySnapshot: PolicySnapshot;
-const options: AnalyzeOptions = { policySnapshot };
-analyzeCommand('git status', options);
-const blockArgs: string[] = ['--force'];
-const customRule: CustomRule = {
-  name: 'block-force',
-  command: 'tool',
-  block_args: blockArgs,
-  reason: 'Use a scoped command.',
-};
-const disabledRules: ReadonlySet<string> = new Set(['secret.ext.pem']);
-const denyPaths: string[] = ['private/token.txt'];
-const secretProtection: SecretProtectionConfig = { disabledRules, denyPaths };
-secretProtection.disabledRules?.has('secret.ext.pem');
-secretProtection.denyPaths.push('private/second-token.txt');
-void customRule;
-// @ts-expect-error AnalyzeOptions.config was intentionally removed.
-const legacyOptions: AnalyzeOptions = { config: { version: 1, rules: [] } };
-void legacyOptions;
-void (null as unknown as Config);
-void loadConfig;
+        `import { CCSafetyNetPlugin } from 'cc-safety-net';
+void CCSafetyNetPlugin;
+// @ts-expect-error Root helper exports were intentionally removed.
+import { resolveOpenCodeShellRoute } from 'cc-safety-net';
+// @ts-expect-error Deep imports are intentionally rejected by package exports.
+import { analyzeCommand } from 'cc-safety-net/dist/core/analyze/index.js';
+void resolveOpenCodeShellRoute;
+void analyzeCommand;
 `,
       );
       writeFileSync(
         join(dir, 'tsconfig.json'),
         JSON.stringify({
           compilerOptions: {
-            module: 'NodeNext',
-            moduleResolution: 'NodeNext',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
             noEmit: true,
             strict: true,
-            target: 'ESNext',
-            baseUrl: '.',
-            paths: { '@/*': ['package/*'] },
+            target: 'ES2022',
           },
           files: ['consumer.ts'],
         }),
