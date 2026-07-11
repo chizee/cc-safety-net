@@ -25,6 +25,7 @@ const GIT_NETWORK_SUBCOMMANDS = new Set([
   'submodule',
 ]);
 
+/** @internal */
 export function analyzeGit(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
@@ -35,6 +36,14 @@ export function analyzeGit(
 export function analyzeGitMatch(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
+): DestructiveCommandRuleMatch | null {
+  return evaluateGit(tokens, options);
+}
+
+function evaluateGit(
+  tokens: readonly string[],
+  options: GitAnalyzeOptions,
+  onRelaxation?: (relaxation: GitWorktreeRelaxation) => void,
 ): DestructiveCommandRuleMatch | null {
   const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
   if (aliasResolution.blockedReason) {
@@ -60,11 +69,25 @@ export function analyzeGitMatch(
     return match;
   }
 
-  if (getGitWorktreeRelaxationForMatch(tokens, match, options)) {
-    return null;
-  }
+  const relaxation = getGitWorktreeRelaxationForMatch(tokens, match, options);
+  if (!relaxation) return match;
+  onRelaxation?.(relaxation);
+  return null;
+}
 
-  return match;
+/** @internal One-pass Git decision detail used by intrinsic command traces. */
+export function analyzeGitDetailed(
+  tokens: readonly string[],
+  options: GitAnalyzeOptions = {},
+): Readonly<{
+  match: DestructiveCommandRuleMatch | null;
+  relaxation: GitWorktreeRelaxation | null;
+}> {
+  let relaxation: GitWorktreeRelaxation | null = null;
+  const match = evaluateGit(tokens, options, (value) => {
+    relaxation = value;
+  });
+  return { match, relaxation };
 }
 
 function isGitNetworkOperation(tokens: readonly string[]): boolean {
@@ -94,6 +117,7 @@ function isGitRemotePrefixOption(token: string): boolean {
   );
 }
 
+/** @internal */
 export function getGitWorktreeRelaxation(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},

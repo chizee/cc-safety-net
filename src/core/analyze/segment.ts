@@ -31,9 +31,10 @@ import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
-import { analyzeGitMatch } from '@/core/git';
+import { analyzeGitDetailed, analyzeGitMatch } from '@/core/git';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
 import { resolveChdirTarget } from '@/core/path';
+import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import {
   getBasename,
@@ -43,6 +44,7 @@ import {
   stripWrappersWithInfo,
 } from '@/core/shell';
 import type { CommandView } from '@/domain/command';
+import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 import { sliceCommandView } from '@/parser/projection';
 import {
@@ -50,6 +52,7 @@ import {
   type AnalyzeOptions,
   type AnalyzeResult,
   type DestructiveCommandRuleMatch,
+  MAX_RECURSION_DEPTH,
   SHELL_WRAPPERS,
 } from '@/types';
 
@@ -59,6 +62,8 @@ export type InternalOptions = AnalyzeOptions & {
   effectiveCwd: string | null | undefined;
   analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
   commandView?: CommandView;
+  trace?: CommandTraceContext;
+  compatibility?: 'explain-legacy';
 };
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
@@ -122,6 +127,11 @@ export function analyzeSegment(
   depth: number,
   options: InternalOptions,
 ): AnalyzeBlockResult | null {
+  let trace = options.trace;
+  if (options.compatibility === 'explain-legacy' && depth >= MAX_RECURSION_DEPTH) {
+    trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
+    return { reason: REASON_RECURSION_LIMIT, intent: 'stop_and_explain' };
+  }
   if (tokens.length === 0) {
     return null;
   }
@@ -129,6 +139,16 @@ export function analyzeSegment(
   const { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options);
   const { tokens: strippedEnv, envAssignments: leadingEnvAssignments } =
     stripEnvAssignmentsWithInfo(tokens);
+  if (leadingEnvAssignments.size > 0) {
+    trace?.recordSegment({
+      type: 'env-strip',
+      input: tokens,
+      envVars: Object.fromEntries(
+        [...leadingEnvAssignments.keys()].map((key) => [key, '<redacted>' as const]),
+      ),
+      output: strippedEnv,
+    });
+  }
   const {
     tokens: stripped,
     envAssignments: wrapperEnvAssignments,
@@ -140,6 +160,15 @@ export function analyzeSegment(
     strippedEnv.length - stripped.length,
   );
   const normalizedOptions = { ...options, commandView: normalizedCommandView };
+  if (trace && strippedEnv.length > stripped.length) {
+    const removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
+    trace?.recordSegment({
+      type: 'leading-tokens-stripped',
+      input: strippedEnv,
+      removed,
+      output: stripped,
+    });
+  }
 
   const envAssignments = new Map(options.envAssignments ?? []);
   for (const [k, v] of leadingEnvAssignments) {
@@ -173,10 +202,24 @@ export function analyzeSegment(
     analyzeDynamicCommandStructure(normalizedCommandView),
     options.policy,
   );
-  if (dynamicCommandMatch) return blockResultFromMatch(dynamicCommandMatch);
+  if (dynamicCommandMatch) {
+    trace?.recordSegment({
+      type: 'rule-check',
+      ruleModule: 'analyze/segment.ts',
+      ruleFunction: 'analyzeDynamicCommandStructure',
+      matched: true,
+      reason: dynamicCommandMatch.reason,
+    });
+    return blockResultFromMatch(dynamicCommandMatch);
+  }
 
   const transparentWrapper = unwrapTransparentWrapper(stripped, options.policy);
   if (transparentWrapper) {
+    trace?.recordSegment({
+      type: 'transparent-wrapper',
+      wrapper: transparentWrapper.wrapper,
+      output: transparentWrapper.tokens,
+    });
     return analyzeSegment(transparentWrapper.tokens, depth, {
       ...normalizedOptions,
       commandView: normalizedCommandView
@@ -190,6 +233,18 @@ export function analyzeSegment(
   if (isShellWrapperCommand(head, normalizedHead)) {
     const dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
+      const traceInnerCommand = unwrapTraceQuotes(dashCArg);
+      trace?.recordSegment({
+        type: 'shell-wrapper',
+        wrapper: normalizedHead,
+        innerCommand: traceInnerCommand,
+      });
+      trace?.recordSegment({
+        type: 'recurse',
+        reason: 'shell-wrapper',
+        innerCommand: traceInnerCommand,
+        depth: depth + 1,
+      });
       return options.analyzeNested(dashCArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments,
@@ -198,18 +253,26 @@ export function analyzeSegment(
   }
 
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = filterDestructiveCommandMatch(
-      analyzeAwkSystemCallMatch(stripped, (command) =>
-        matchFromBlockResult(
-          options.analyzeNested(command, {
-            effectiveCwd: nestedEffectiveCwd,
-            envAssignments,
-          }),
-        ),
+    const awkMatch = analyzeAwkSystemCallMatch(stripped, (command) =>
+      matchFromBlockResult(
+        options.analyzeNested(command, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        }),
       ),
-      options.policy,
     );
+    const awkReason =
+      options.compatibility === 'explain-legacy'
+        ? awkMatch
+        : filterDestructiveCommandMatch(awkMatch, options.policy);
     if (awkReason) {
+      trace?.recordSegment({
+        type: 'rule-check',
+        ruleModule: 'awk',
+        ruleFunction: 'analyzeAwkSystemCalls',
+        matched: true,
+        reason: awkReason.reason,
+      });
       return blockResultFromMatch(awkReason);
     }
   }
@@ -217,14 +280,30 @@ export function analyzeSegment(
   if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
+      trace?.recordSegment({
+        type: 'interpreter',
+        interpreter: normalizedHead,
+        codeArg,
+        paranoidBlocked: !!options.paranoidInterpreters,
+      });
       if (options.paranoidInterpreters) {
-        const match = filterDestructiveCommandMatch(
-          destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
-          options.policy,
+        const interpreterMatch = destructiveCommandMatch(
+          'interpreter.one-liner-paranoid',
+          REASON_INTERPRETER_BLOCKED,
         );
+        const match =
+          options.compatibility === 'explain-legacy'
+            ? interpreterMatch
+            : filterDestructiveCommandMatch(interpreterMatch, options.policy);
         if (match) return blockResultFromMatch(match);
       }
 
+      trace?.recordSegment({
+        type: 'recurse',
+        reason: 'interpreter',
+        innerCommand: codeArg,
+        depth: depth + 1,
+      });
       const innerReason = options.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments,
@@ -234,22 +313,46 @@ export function analyzeSegment(
       }
 
       if (containsDangerousCode(codeArg)) {
-        const match = filterDestructiveCommandMatch(
-          destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
-          options.policy,
+        const interpreterMatch = destructiveCommandMatch(
+          'interpreter.dangerous-command',
+          REASON_INTERPRETER_DANGEROUS,
         );
-        if (match) return blockResultFromMatch(match);
+        const match =
+          options.compatibility === 'explain-legacy'
+            ? interpreterMatch
+            : filterDestructiveCommandMatch(interpreterMatch, options.policy);
+        if (match) {
+          trace?.recordSegment({
+            type: 'dangerous-text',
+            token: codeArg,
+            matched: true,
+            reason: REASON_INTERPRETER_DANGEROUS,
+          });
+          return blockResultFromMatch(match);
+        }
       }
+      trace = undefined;
     }
   }
 
   if (normalizedHead === 'busybox' && stripped.length > 1) {
-    return analyzeSegment(stripped.slice(1), depth, {
-      ...normalizedOptions,
-      commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : undefined,
-      effectiveCwd: nestedEffectiveCwd,
-      envAssignments,
+    trace?.recordSegment({ type: 'busybox', subcommand: stripped[1] ?? 'unknown' });
+    trace?.recordSegment({
+      type: 'recurse',
+      reason: 'busybox',
+      innerCommand: stripped.slice(1).join(' '),
+      depth: depth + 1,
     });
+    return analyzeSegment(
+      stripped.slice(1),
+      depth + (options.compatibility === 'explain-legacy' ? 1 : 0),
+      {
+        ...normalizedOptions,
+        commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : undefined,
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments,
+      },
+    );
   }
 
   const commandContext: CommandAnalysisContext = {
@@ -263,13 +366,33 @@ export function analyzeSegment(
     allowTmpdirVar,
     depth,
     effectiveCwd: nestedEffectiveCwd,
-    options: normalizedOptions,
+    options:
+      trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace },
   };
   const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = filterDestructiveCommandMatch(
-    commandAnalyzer?.(commandContext) ?? null,
-    options.policy,
-  );
+  if (normalizedHead === 'rm' || normalizedHead === 'xargs' || normalizedHead === 'parallel') {
+    trace?.recordSegment({
+      type: 'tmpdir-check',
+      tmpdirValue:
+        envAssignments.has('TMPDIR') || process.env.TMPDIR !== undefined ? '<redacted>' : null,
+      isOverriddenToNonTemp: !allowTmpdirVar,
+      allowTmpdirVar,
+    });
+  }
+  const gitDetail =
+    trace && normalizedHead === 'git' ? analyzeGitCommandDetailed(commandContext) : undefined;
+  const unfilteredCommandResult =
+    normalizedHead === 'git'
+      ? trace
+        ? (gitDetail?.match ?? null)
+        : analyzeGitCommand(commandContext)
+      : (commandAnalyzer?.(commandContext) ?? null);
+  const commandResult =
+    options.compatibility === 'explain-legacy'
+      ? unfilteredCommandResult
+      : filterDestructiveCommandMatch(unfilteredCommandResult, options.policy);
+  if (trace)
+    recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult) {
     return blockResultFromMatch(commandResult);
   }
@@ -282,28 +405,91 @@ export function analyzeSegment(
     // token is not a known command but contains dangerous commands later
     // Skip for display-only commands that don't execute their arguments
     if (!DISPLAY_COMMANDS.has(normalizedHead)) {
+      const tokensScanned: string[] | undefined = trace ? [] : undefined;
       for (let i = 1; i < stripped.length; i++) {
         const token = stripped[i];
         if (!token) continue;
+        tokensScanned?.push(token);
 
-        const match = filterDestructiveCommandMatch(
-          analyzeEmbeddedCommand(commandContext, i),
-          options.policy,
-        );
-        if (match) return blockResultFromMatch(match);
+        const embeddedMatch = analyzeEmbeddedCommand(commandContext, i);
+        const match =
+          options.compatibility === 'explain-legacy'
+            ? embeddedMatch
+            : filterDestructiveCommandMatch(embeddedMatch, options.policy);
+        if (match) {
+          trace?.recordSegment({
+            type: 'fallback-scan',
+            tokensScanned: tokensScanned ?? [],
+            embeddedCommandFound: normalizeCommandToken(token),
+          });
+          return blockResultFromMatch(match);
+        }
       }
+      trace?.recordSegment({ type: 'fallback-scan', tokensScanned: tokensScanned ?? [] });
+    } else {
+      trace?.recordSegment({ type: 'fallback-scan', tokensScanned: [] });
     }
+  } else {
+    trace?.recordSegment({ type: 'fallback-scan', tokensScanned: [] });
   }
 
   const customRulesTopLevelOnly = matchedKnown;
   if (depth === 0 || !customRulesTopLevelOnly) {
     const customResult = checkPolicyRuleMatch(stripped, options.policy.rules);
+    trace?.recordSegment({
+      type: 'custom-rules-check',
+      rulesChecked: options.policy.rules.length > 0,
+      matched: !!customResult,
+      reason: customResult?.reason,
+    });
     if (customResult) {
       return blockResultFromMatch(customResult);
     }
+  } else {
+    trace?.recordSegment({
+      type: 'custom-rules-check',
+      rulesChecked: false,
+      matched: false,
+    });
   }
 
   return null;
+}
+
+function unwrapTraceQuotes(command: string): string {
+  const first = command[0];
+  return command.length >= 2 && (first === '"' || first === "'") && command.at(-1) === first
+    ? command.slice(1, -1)
+    : command;
+}
+
+function recordCommandAnalyzerTrace(
+  context: CommandAnalysisContext,
+  match: DestructiveCommandRuleMatch | null,
+  relaxation: ReturnType<typeof analyzeGitDetailed>['relaxation'],
+): void {
+  const details = {
+    git: ['git', 'analyzeGit'],
+    rm: ['analyze/rm.ts', 'analyzeRm'],
+    find: ['analyze/find.ts', 'analyzeFind'],
+    xargs: ['analyze/xargs.ts', 'analyzeXargs'],
+    parallel: ['analyze/parallel.ts', 'analyzeParallel'],
+  }[context.normalizedHead];
+  if (!details) return;
+  context.options.trace?.recordSegment({
+    type: 'rule-check',
+    ruleModule: details[0] ?? '',
+    ruleFunction: details[1] ?? '',
+    matched: !!match || !!relaxation,
+    reason: match?.reason ?? relaxation?.originalReason,
+  });
+  if (relaxation) {
+    context.options.trace?.recordSegment({
+      type: 'worktree-relaxation',
+      originalReason: relaxation.originalReason,
+      gitCwd: relaxation.gitCwd,
+    });
+  }
 }
 
 function normalizeWrappedCommandView(
@@ -559,14 +745,22 @@ function analyzeEmbeddedCommand(
 }
 
 function analyzeGitCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  return analyzeGitMatch(context.tokens, {
+  return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
+}
+
+function analyzeGitCommandDetailed(context: CommandAnalysisContext) {
+  return analyzeGitDetailed(context.tokens, getGitAnalyzeOptions(context));
+}
+
+function getGitAnalyzeOptions(context: CommandAnalysisContext) {
+  return {
     cwd: context.cwdForRm,
     dynamicArguments: context.options.commandView?.words.some(
       (word) => word.provenance === 'command-substitution',
     ),
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-  });
+  };
 }
 
 function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
@@ -643,7 +837,7 @@ function getNestedCommandAnalyzeContext(
 const CWD_CHANGE_REGEX =
   /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
 
-export function segmentChangesCwd(segment: readonly string[]): boolean {
+function segmentChangesCwd(segment: readonly string[]): boolean {
   const unwrapped = getCwdChangeTokens(segment);
 
   if (unwrapped.length === 0) {

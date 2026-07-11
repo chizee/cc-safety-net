@@ -3,9 +3,11 @@ import type { DestructiveCommandRuleMatch } from '@/types';
 
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 
+/** @internal */
 export const REASON_AWK_SYSTEM_DYNAMIC =
   'Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.';
 
+/** @internal */
 export function analyzeAwkSystemCalls(
   tokens: readonly string[],
   analyzeNested: (command: string) => string | null,

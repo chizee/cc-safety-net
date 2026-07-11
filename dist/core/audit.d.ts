@@ -1,3 +1,4 @@
+export { redactSecrets } from '@/core/sanitize';
 import type { BlockIntent } from '@/types';
 type AuditLogDecision = 'allow' | 'deny';
 /**
@@ -22,8 +23,3 @@ export declare function writeAuditLog(sessionId: string, command: string, segmen
 /** @internal */
 export declare function getAuditLogHomeDir(homeFromEnv?: string | undefined): string | null;
 export declare function getAuditLogsDir(homeDir?: string | null): string | null;
-/**
- * Redact secrets from text to avoid leaking sensitive information in logs.
- */
-export declare function redactSecrets(text: string): string;
-export {};

@@ -13,6 +13,8 @@ export type LegacyCommandEntry = {
 };
 /** @internal */
 export declare function projectLegacyCommandEntries(source: string, dialect?: ShellKind): readonly LegacyCommandEntry[];
+/** @internal Projects the compatibility token view without reparsing an authoritative program. */
+export declare function projectLegacyCommandEntriesFromProgram(source: string, program: CommandProgram): readonly LegacyCommandEntry[];
 /** @internal */
 export declare function projectLegacyViewTokens(view: CommandView): readonly string[];
 /** @internal */

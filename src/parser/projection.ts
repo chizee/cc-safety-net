@@ -51,6 +51,14 @@ export function projectLegacyCommandEntries(
   dialect: ShellKind = 'posix',
 ): readonly LegacyCommandEntry[] {
   const program = parseCommand(source, dialect);
+  return projectLegacyCommandEntriesFromProgram(source, program);
+}
+
+/** @internal Projects the compatibility token view without reparsing an authoritative program. */
+export function projectLegacyCommandEntriesFromProgram(
+  source: string,
+  program: CommandProgram,
+): readonly LegacyCommandEntry[] {
   if (program.issues.some((issue) => issue.code.includes('quote'))) {
     return Object.freeze([{ tokens: Object.freeze([source]) }]);
   }

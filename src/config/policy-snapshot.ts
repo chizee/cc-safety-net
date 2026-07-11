@@ -1,3 +1,4 @@
+import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
 import { loadPolicyConfig } from '@/core/policy';
 import { loadRulesPolicy } from '@/core/rules/policy/scope-policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
@@ -31,19 +32,52 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
     },
   };
 
-  if (diagnostics.length === 0) {
-    return createPolicySnapshot(policy);
-  }
-
-  return createPolicySnapshot(policy, {
-    diagnostics,
-    reason: combineInvalidReasons(
-      rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join('; ')) : undefined,
-      userPolicy.errors.length > 0
-        ? `invalid policy config: ${userPolicy.errors.join('; ')}. Fix or remove the policy file manually`
-        : undefined,
+  const snapshot =
+    diagnostics.length === 0
+      ? createPolicySnapshot(policy)
+      : createPolicySnapshot(policy, {
+          diagnostics,
+          reason: combineInvalidReasons(
+            rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join('; ')) : undefined,
+            userPolicy.errors.length > 0
+              ? `invalid policy config: ${userPolicy.errors.join('; ')}. Fix or remove the policy file manually`
+              : undefined,
+          ),
+        });
+  const overrides = {
+    ...(rules.userConfig?.overrides ?? {}),
+    ...(rules.projectConfig?.overrides ?? {}),
+  };
+  return registerPolicyRuleMetadata(
+    snapshot,
+    new Map(
+      snapshot.policy.rules.map((rule) => {
+        const rulebook = rules.rulebooks.find((item) => item.rules.includes(rule.name));
+        const override = overrides[rule.name];
+        return [
+          rule.name,
+          Object.freeze({
+            id: rule.name,
+            ...(rulebook
+              ? {
+                  rulebook: Object.freeze({ name: rulebook.name, version: rulebook.version }),
+                  ...(isPublicRuleSource(rulebook.spec) ? { source: rulebook.spec } : {}),
+                }
+              : {}),
+            ...(override && typeof override === 'object'
+              ? { override: Object.freeze({ type: 'reason' as const, reason: override.reason }) }
+              : {}),
+          }),
+        ];
+      }),
     ),
-  });
+  );
+}
+
+function isPublicRuleSource(source: string): boolean {
+  return /^(?:[A-Za-z0-9_.-]+$|https:\/\/github\.com\/|github:|gh:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#|$))/.test(
+    source,
+  );
 }
 
 /** @internal */

@@ -66,6 +66,7 @@ export interface AnalyzeFindContext {
   ) => DestructiveCommandRuleMatch | null;
 }
 
+/** @internal */
 export function analyzeFind(
   tokens: readonly string[],
   context: AnalyzeFindContext = {},

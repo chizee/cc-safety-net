@@ -2,21 +2,10 @@
  * Tests for the explain command formatting functions.
  */
 import { describe, expect, test } from 'bun:test';
-import {
-  explainCommand as explainCommandBase,
-  formatTraceHuman,
-  formatTraceJson,
-} from '@/bin/explain/index';
+import { formatTraceHuman, formatTraceJson } from '@/bin/explain/index';
 import type { ExplainResult, TraceStep } from '@/types';
-import { type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
-
-function explainCommand(command: string, options?: TestExplainOptions) {
-  return explainCommandBase(
-    command,
-    testExplainOptions({ config: { version: 1, rules: [] }, ...options }),
-  );
-}
+import { explainTestCommand as explainCommand } from './test-helpers';
 
 function mockExplainResult(
   input: string,

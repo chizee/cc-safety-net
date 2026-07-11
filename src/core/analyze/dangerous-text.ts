@@ -1,6 +1,7 @@
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
+/** @internal */
 export function dangerousInText(text: string): string | null {
   return dangerousInTextMatch(text)?.reason ?? null;
 }

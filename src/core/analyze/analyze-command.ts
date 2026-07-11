@@ -11,6 +11,7 @@ import {
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import type { CommandProgram, CommandView } from '@/domain/command';
+import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
@@ -26,6 +27,9 @@ export type InternalOptions = AnalyzeOptions & {
   policy: EffectivePolicy;
   invalidReason: string | undefined;
   factStore?: SemanticFactStore;
+  trace?: CommandTraceContext;
+  analyzePartialProgram?: boolean;
+  compatibility?: 'explain-legacy';
 };
 
 export function analyzeCommandInternal(
@@ -35,6 +39,7 @@ export function analyzeCommandInternal(
   parsedProgram?: CommandProgram,
 ): AnalyzeResult | null {
   if (depth >= MAX_RECURSION_DEPTH) {
+    options.trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
     return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
   }
 
@@ -47,19 +52,22 @@ export function analyzeCommandInternal(
   }
 
   if (program.status === 'limited') {
+    options.trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
     return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
   }
 
   if (program.status === 'invalid') {
+    recordStrictUnparseable(command, options);
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
   const hasUnclosedQuote = program.issues.some((issue) => issue.code.includes('quote'));
   if (options.strict && hasUnclosedQuote && command.includes(' ')) {
+    recordStrictUnparseable(command, options);
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
-  if (hasUnclosedQuote) {
+  if (hasUnclosedQuote && !options.analyzePartialProgram) {
     return analyzeUnparseableCommand(command, options);
   }
 
@@ -115,11 +123,39 @@ function analyzeProgram(
       nestedState,
     );
     if (nestedResult) return nestedResult;
-    const result = analyzeCommandView(node, depth, options, originalCwd, state, hasPipelineInput);
+    const segmentIndex = options.trace?.flattenNested
+      ? options.trace.currentSegmentIndex
+      : options.trace?.allocateSegment();
+    const result = analyzeCommandView(
+      node,
+      depth,
+      options.trace
+        ? { ...options, trace: withTraceSegment(options.trace, segmentIndex) }
+        : options,
+      originalCwd,
+      state,
+      hasPipelineInput,
+    );
     if (result) return result;
     hasPipelineInput = false;
   }
   return null;
+}
+
+function withTraceSegment(
+  trace: CommandTraceContext,
+  currentSegmentIndex: number | undefined,
+  flattenNested = trace.flattenNested,
+): CommandTraceContext {
+  return {
+    currentSegmentIndex,
+    flattenNested,
+    allocateSegment: trace.allocateSegment,
+    getNextSegmentIndex: trace.getNextSegmentIndex,
+    recordGlobal: trace.recordGlobal,
+    recordSegment: (step, segmentIndex = currentSegmentIndex) =>
+      trace.recordSegment(step, segmentIndex),
+  };
 }
 
 function analyzeNestedPrograms(
@@ -151,7 +187,11 @@ function analyzeCommandView(
     state.shellGitContextState,
   );
 
-  if (commandView.dialect === 'powershell' && !options.invalidReason) {
+  if (
+    commandView.dialect === 'powershell' &&
+    !options.invalidReason &&
+    (options.compatibility !== 'explain-legacy' || options.policySnapshot.state === 'ready')
+  ) {
     const match = filterDestructiveCommandMatch(
       analyzePowerShellCommandViewMatch(
         commandView,
@@ -160,23 +200,38 @@ function analyzeCommandView(
       ),
       options.policy,
     );
+    options.trace?.recordSegment({
+      type: 'rule-check',
+      ruleModule: 'analyze/powershell/remove-item.ts',
+      ruleFunction: 'analyzePowerShellCommandViewMatch',
+      matched: !!match,
+      reason: match?.reason,
+    });
     if (match) return resultFromCommandMatch(segmentStr, match);
   }
 
   if (segment.length === 1 && segment[0]?.includes(' ') && !commandView.dynamicExecutable) {
-    const textMatch = filterDestructiveCommandMatch(
-      dangerousInTextMatch(segment[0]),
-      options.policy,
-    );
+    const dangerousTextMatch = dangerousInTextMatch(segment[0]);
+    const textMatch =
+      options.compatibility === 'explain-legacy'
+        ? dangerousTextMatch
+        : filterDestructiveCommandMatch(dangerousTextMatch, options.policy);
     if (textMatch) {
+      options.trace?.recordSegment({
+        type: 'dangerous-text',
+        token: segment[0],
+        matched: true,
+        reason: textMatch.reason,
+      });
       return {
         reason: textMatch.reason,
-        segment: segmentStr,
+        segment: options.compatibility === 'explain-legacy' ? segment.join(' ') : segmentStr,
         ruleId: textMatch.id,
         intent: textMatch.intent,
       };
     }
-    updateCwdAfterSegment(segment, state);
+    options.trace?.recordSegment({ type: 'dangerous-text', token: segment[0], matched: false });
+    updateCwdAfterSegment(segment, state, options.trace);
     return null;
   }
 
@@ -199,6 +254,9 @@ function analyzeCommandView(
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
         worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
+        trace: options.trace
+          ? withTraceSegment(options.trace, options.trace.currentSegmentIndex, true)
+          : undefined,
       });
       return nestedResult
         ? {
@@ -212,13 +270,24 @@ function analyzeCommandView(
   });
   if (result) return { ...result, segment: segmentStr };
 
-  updateCwdAfterSegment(segment, state);
+  updateCwdAfterSegment(segment, state, options.trace);
   applyShellGitContextEnvSegment(segment, state.shellGitContextState);
   return null;
 }
 
-function updateCwdAfterSegment(segment: readonly string[], state: AnalysisState): void {
+function updateCwdAfterSegment(
+  segment: readonly string[],
+  state: AnalysisState,
+  trace?: CommandTraceContext,
+): void {
   const nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd === null) {
+    trace?.recordSegment({
+      type: 'cwd-change',
+      segment: segment.join(' '),
+      effectiveCwdNowUnknown: true,
+    });
+  }
   if (nextCwd !== undefined) state.effectiveCwd = nextCwd;
 }
 
@@ -259,7 +328,25 @@ function analyzeUnparseableCommand(
   command: string,
   options: InternalOptions,
 ): AnalyzeResult | null {
-  const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(command), options.policy);
+  const dangerousTextMatch = dangerousInTextMatch(command);
+  const textMatch =
+    options.compatibility === 'explain-legacy'
+      ? dangerousTextMatch
+      : filterDestructiveCommandMatch(dangerousTextMatch, options.policy);
+  const segmentIndex = options.trace?.currentSegmentIndex ?? options.trace?.allocateSegment();
+  const step = {
+    type: 'dangerous-text' as const,
+    token: command,
+    matched: !!textMatch,
+    reason: textMatch?.reason,
+  };
+  options.trace?.recordSegment(step, segmentIndex);
+  if (!textMatch && /^(?:cd|pushd)\s/.test(command)) {
+    options.trace?.recordSegment(
+      { type: 'cwd-change', segment: command, effectiveCwdNowUnknown: true },
+      segmentIndex,
+    );
+  }
   return textMatch
     ? {
         reason: textMatch.reason,
@@ -268,6 +355,16 @@ function analyzeUnparseableCommand(
         intent: textMatch.intent,
       }
     : null;
+}
+
+function recordStrictUnparseable(command: string, options: InternalOptions): void {
+  const step = {
+    type: 'strict-unparseable' as const,
+    rawCommand: command,
+    reason: REASON_STRICT_UNPARSEABLE,
+  };
+  if (options.trace?.currentSegmentIndex === undefined) options.trace?.recordGlobal(step);
+  else options.trace.recordSegment(step);
 }
 
 function isFailClosedRepairCommand(program: ReturnType<typeof parseCommand>): boolean {

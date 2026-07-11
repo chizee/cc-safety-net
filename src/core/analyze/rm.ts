@@ -25,6 +25,7 @@ export interface AnalyzeRmOptions {
   allowTmpdirVar?: boolean;
 }
 
+/** @internal */
 export function analyzeRm(tokens: string[], options: AnalyzeRmOptions = {}): string | null {
   return analyzeRmMatch(tokens, options)?.reason ?? null;
 }

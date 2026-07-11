@@ -195,6 +195,105 @@ import { resolve as resolve8 } from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
+
+// src/core/sanitize.ts
+var PROVIDER_TOKENS = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
+  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
+  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
+  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+  /\bsk_[A-Za-z0-9]{20,}\b/g,
+  /\bgsk_[A-Za-z0-9]{52,}\b/g,
+  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
+  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
+  /\bbastn_[A-Za-z0-9]{16,}\b/g,
+  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
+  /\bflp_[A-Za-z0-9]{10,}\b/g,
+  /\bwfr_[A-Za-z0-9]{20,}\b/g,
+  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
+  /\btp-[A-Za-z0-9_-]{20,}\b/g,
+  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
+  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
+];
+function redactSecrets(text) {
+  let result = text.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>").replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>").replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
+  return redactNonAssignmentSecrets(result);
+}
+function redactNonAssignmentSecrets(text) {
+  let result = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>").replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@").replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
+  for (let pattern of PROVIDER_TOKENS)
+    result = result.replace(pattern, "<redacted>");
+  return result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>").replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
+}
+function redactEnvAssignmentValues(text) {
+  return findEnvAssignments(text).reduceRight((value, assignment) => `${value.slice(0, assignment.valueStart)}<redacted>${value.slice(assignment.valueEnd)}`, text);
+}
+function sanitizeDiagnosticText(text) {
+  return redactNonAssignmentSecrets(redactEnvAssignmentValues(text));
+}
+function getEnvAssignmentValues(text) {
+  return findEnvAssignments(text).map((assignment) => text.slice(assignment.valueStart, assignment.valueEnd));
+}
+function findEnvAssignments(text) {
+  let assignments = [], pattern = /[A-Za-z_][A-Za-z0-9_]*=/g;
+  for (let match of text.matchAll(pattern)) {
+    let start = match.index, previous = text[start - 1];
+    if (start > 0 && previous && !/[\s"'([{]/.test(previous))
+      continue;
+    let valueStart = start + match[0].length;
+    if (valueStart >= text.length)
+      continue;
+    assignments.push({ valueStart, valueEnd: findAssignmentValueEnd(text, valueStart) });
+  }
+  return assignments;
+}
+function findAssignmentValueEnd(text, start) {
+  if (text.startsWith("$(", start))
+    return findBalancedCommandSubstitutionEnd(text, start);
+  let quote = text[start];
+  if (quote === '"' || quote === "'") {
+    for (let index = start + 1;index < text.length; index++)
+      if (quote === '"' && text[index] === "\\")
+        index++;
+      else if (text[index] === quote)
+        return index + 1;
+  }
+  let end = start;
+  while (end < text.length && !/\s/.test(text[end] ?? ""))
+    end++;
+  return end;
+}
+function findBalancedCommandSubstitutionEnd(text, start) {
+  let depth = 0, quote;
+  for (let index = start;index < text.length; index++) {
+    let char = text[index];
+    if (quote) {
+      if (quote === '"' && char === "\\")
+        index++;
+      else if (char === quote)
+        quote = void 0;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "$" && text[index + 1] === "(") {
+      depth++, index++;
+      continue;
+    }
+    if (char !== ")")
+      continue;
+    if (depth--, depth === 0)
+      return index + 1;
+  }
+  return text.length;
+}
+// src/core/audit.ts
 function sanitizeSessionIdForFilename(sessionId) {
   let raw = sessionId.trim();
   if (!raw)
@@ -242,35 +341,6 @@ function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME |
 }
 function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
   return homeDir ? join(homeDir, ".cc-safety-net", "logs") : null;
-}
-var PROVIDER_TOKENS = [
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
-  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
-  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
-  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
-  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
-  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
-  /\bsk_[A-Za-z0-9]{20,}\b/g,
-  /\bgsk_[A-Za-z0-9]{52,}\b/g,
-  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
-  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
-  /\bbastn_[A-Za-z0-9]{16,}\b/g,
-  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
-  /\bflp_[A-Za-z0-9]{10,}\b/g,
-  /\bwfr_[A-Za-z0-9]{20,}\b/g,
-  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
-  /\btp-[A-Za-z0-9_-]{20,}\b/g,
-  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
-  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
-];
-function redactSecrets(text) {
-  let result = text;
-  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@"), result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
-  for (let re of PROVIDER_TOKENS)
-    result = result.replace(re, "<redacted>");
-  return result = result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>"), result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>"), result;
 }
 
 // src/core/format.ts
@@ -620,6 +690,15 @@ function writeGuardAudit(audit, getSessionId, options) {
     ruleId: audit.ruleId,
     intent: audit.intent
   });
+}
+
+// src/config/policy-metadata.ts
+var metadata = /* @__PURE__ */ new WeakMap;
+function registerPolicyRuleMetadata(snapshot, rules) {
+  return metadata.set(snapshot, new Map(rules)), snapshot;
+}
+function getPolicyRuleMetadata(snapshot, id) {
+  return id ? metadata.get(snapshot)?.get(id) : void 0;
 }
 
 // src/core/policy.ts
@@ -1066,12 +1145,6 @@ function filterDestructiveCommandMatch(match, policy) {
 
 // src/core/analyze/awk.ts
 var AWK_INTERPRETERS = /* @__PURE__ */ new Set(["awk", "gawk", "nawk", "mawk"]), REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
-function analyzeAwkSystemCalls(tokens, analyzeNested) {
-  return analyzeAwkSystemCallMatch(tokens, (command) => {
-    let reason = analyzeNested(command);
-    return reason ? { id: "", reason, intent: "manual_only" } : null;
-  })?.reason ?? null;
-}
 function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   for (let token of tokens.slice(1)) {
     let commands = extractAwkExternalCommands(token);
@@ -2726,6 +2799,9 @@ function projectLegacySegments(source, dialect = "posix") {
 }
 function projectLegacyCommandEntries(source, dialect = "posix") {
   let program = parseCommand(source, dialect);
+  return projectLegacyCommandEntriesFromProgram(source, program);
+}
+function projectLegacyCommandEntriesFromProgram(source, program) {
   if (program.issues.some((issue) => issue.code.includes("quote")))
     return Object.freeze([{ tokens: Object.freeze([source]) }]);
   return Object.freeze(projectCommandViews(program).flatMap((view) => {
@@ -4629,10 +4705,10 @@ async function discoverGitHubRepositoryRulebooks(source) {
   let metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
   if (!metadataResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  let metadata = await metadataResponse.json();
-  if (!metadata.default_branch)
+  let metadata2 = await metadataResponse.json();
+  if (!metadata2.default_branch)
     throw Error(`Failed to inspect ${source}: missing default branch`);
-  let commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
+  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
   if (!treeResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
   let names = ((await treeResponse.json()).tree ?? []).flatMap((entry) => {
@@ -4645,7 +4721,7 @@ async function discoverGitHubRepositoryRulebooks(source) {
     throw Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
   return names.map((name) => ({
     spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: metadata.default_branch
+    display_ref: metadata2.default_branch
   }));
 }
 function resolveLocalRulebook(spec, configDir, _options) {
@@ -5013,13 +5089,30 @@ function loadPolicySnapshot(options2 = {}) {
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
       denyPaths: [...userPolicy.secretProtection.denyPaths]
     }
-  };
-  if (diagnostics.length === 0)
-    return createPolicySnapshot(policy);
-  return createPolicySnapshot(policy, {
+  }, snapshot = diagnostics.length === 0 ? createPolicySnapshot(policy) : createPolicySnapshot(policy, {
     diagnostics,
     reason: combineInvalidReasons(rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join("; ")) : void 0, userPolicy.errors.length > 0 ? `invalid policy config: ${userPolicy.errors.join("; ")}. Fix or remove the policy file manually` : void 0)
-  });
+  }), overrides = {
+    ...rules.userConfig?.overrides ?? {},
+    ...rules.projectConfig?.overrides ?? {}
+  };
+  return registerPolicyRuleMetadata(snapshot, new Map(snapshot.policy.rules.map((rule) => {
+    let rulebook = rules.rulebooks.find((item) => item.rules.includes(rule.name)), override = overrides[rule.name];
+    return [
+      rule.name,
+      Object.freeze({
+        id: rule.name,
+        ...rulebook ? {
+          rulebook: Object.freeze({ name: rulebook.name, version: rulebook.version }),
+          ...isPublicRuleSource(rulebook.spec) ? { source: rulebook.spec } : {}
+        } : {},
+        ...override && typeof override === "object" ? { override: Object.freeze({ type: "reason", reason: override.reason }) } : {}
+      })
+    ];
+  })));
+}
+function isPublicRuleSource(source) {
+  return /^(?:[A-Za-z0-9_.-]+$|https:\/\/github\.com\/|github:|gh:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#|$))/.test(source);
 }
 function createPolicySnapshot(policy, invalid) {
   let frozenPolicy = freezePolicy(policy);
@@ -5075,9 +5168,6 @@ function withTerminalPeriod(value) {
 }
 
 // src/core/analyze/dangerous-text.ts
-function dangerousInText(text) {
-  return dangerousInTextMatch(text)?.reason ?? null;
-}
 function dangerousInTextMatch(text) {
   let t = text.toLowerCase(), stripped = t.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
     {
@@ -5731,9 +5821,6 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ].map((primary) => [primary, 1]),
   ["-fprintf", 2]
 ]);
-function analyzeFind(tokens, context = {}) {
-  return analyzeFindMatch(tokens, context)?.reason ?? null;
-}
 function analyzeFindMatch(tokens, context = {}) {
   if (findHasDelete(tokens.slice(1)))
     return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
@@ -5822,9 +5909,6 @@ function isFindExecPrimary(token) {
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
-function analyzeRm(tokens, options2 = {}) {
-  return analyzeRmMatch(tokens, options2)?.reason ?? null;
-}
 function analyzeRmMatch(tokens, options2 = {}) {
   let ctx = createRecursiveDeleteTargetContext(options2);
   if (!hasRecursiveForceFlags(tokens))
@@ -6906,10 +6990,10 @@ var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary co
   "ls-remote",
   "submodule"
 ]);
-function analyzeGit(tokens, options2 = {}) {
-  return analyzeGitMatch(tokens, options2)?.reason ?? null;
-}
 function analyzeGitMatch(tokens, options2 = {}) {
+  return evaluateGit(tokens, options2);
+}
+function evaluateGit(tokens, options2, onRelaxation) {
   let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
   if (aliasResolution.blockedReason)
     return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
@@ -6921,9 +7005,16 @@ function analyzeGitMatch(tokens, options2 = {}) {
     return null;
   if (aliasResolution.expanded)
     return match;
-  if (getGitWorktreeRelaxationForMatch(tokens, match, options2))
-    return null;
-  return match;
+  let relaxation = getGitWorktreeRelaxationForMatch(tokens, match, options2);
+  if (!relaxation)
+    return match;
+  return onRelaxation?.(relaxation), null;
+}
+function analyzeGitDetailed(tokens, options2 = {}) {
+  let relaxation = null;
+  return { match: evaluateGit(tokens, options2, (value) => {
+    relaxation = value;
+  }), relaxation };
 }
 function isGitNetworkOperation(tokens) {
   let { subcommand, rest } = extractGitSubcommandAndRest(tokens), subcommandName = subcommand?.toLowerCase();
@@ -6940,15 +7031,6 @@ function isGitRemoteUpdateOperation(tokens) {
 }
 function isGitRemotePrefixOption(token) {
   return token === "-v" || matchesGitLongOption(token, "--verbose") || matchesGitLongOption(token, "--no-verbose");
-}
-function getGitWorktreeRelaxation(tokens, options2 = {}) {
-  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
-  if (aliasResolution.blockedReason || aliasResolution.expanded)
-    return null;
-  let match = analyzeGitRule(aliasResolution.tokens);
-  if (!match)
-    return null;
-  return getGitWorktreeRelaxationForMatch(tokens, match, options2);
 }
 
 // src/core/analyze/child-analyzer.ts
@@ -7517,13 +7599,34 @@ function deriveCwdContext(options2) {
   return { cwdUnknown, cwdForRm, originalCwd };
 }
 function analyzeSegment(tokens, depth, options2) {
+  let trace = options2.trace;
+  if (options2.compatibility === "explain-legacy" && depth >= MAX_RECURSION_DEPTH)
+    return trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, intent: "stop_and_explain" };
   if (tokens.length === 0)
     return null;
-  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens), {
+  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
+  if (leadingEnvAssignments.size > 0)
+    trace?.recordSegment({
+      type: "env-strip",
+      input: tokens,
+      envVars: Object.fromEntries([...leadingEnvAssignments.keys()].map((key) => [key, "<redacted>"])),
+      output: strippedEnv
+    });
+  let {
     tokens: stripped,
     envAssignments: wrapperEnvAssignments,
     cwd: wrapperCwd
-  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView }, envAssignments = new Map(options2.envAssignments ?? []);
+  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView };
+  if (trace && strippedEnv.length > stripped.length) {
+    let removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
+    trace?.recordSegment({
+      type: "leading-tokens-stripped",
+      input: strippedEnv,
+      removed,
+      output: stripped
+    });
+  }
+  let envAssignments = new Map(options2.envAssignments ?? []);
   for (let [k, v] of leadingEnvAssignments)
     envAssignments.set(k, v);
   for (let [k, v] of wrapperEnvAssignments)
@@ -7537,10 +7640,20 @@ function analyzeSegment(tokens, depth, options2) {
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
   let normalizedHead = normalizeCommandToken(head), basename = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
   if (dynamicCommandMatch)
-    return blockResultFromMatch(dynamicCommandMatch);
+    return trace?.recordSegment({
+      type: "rule-check",
+      ruleModule: "analyze/segment.ts",
+      ruleFunction: "analyzeDynamicCommandStructure",
+      matched: !0,
+      reason: dynamicCommandMatch.reason
+    }), blockResultFromMatch(dynamicCommandMatch);
   let transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
   if (transparentWrapper)
-    return analyzeSegment(transparentWrapper.tokens, depth, {
+    return trace?.recordSegment({
+      type: "transparent-wrapper",
+      wrapper: transparentWrapper.wrapper,
+      output: transparentWrapper.tokens
+    }), analyzeSegment(transparentWrapper.tokens, depth, {
       ...normalizedOptions,
       commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0,
       effectiveCwd: nestedEffectiveCwd,
@@ -7548,28 +7661,56 @@ function analyzeSegment(tokens, depth, options2) {
     });
   if (isShellWrapperCommand(head, normalizedHead)) {
     let dashCArg = extractDashCArg(stripped);
-    if (dashCArg)
-      return options2.analyzeNested(dashCArg, {
+    if (dashCArg) {
+      let traceInnerCommand = unwrapTraceQuotes(dashCArg);
+      return trace?.recordSegment({
+        type: "shell-wrapper",
+        wrapper: normalizedHead,
+        innerCommand: traceInnerCommand
+      }), trace?.recordSegment({
+        type: "recurse",
+        reason: "shell-wrapper",
+        innerCommand: traceInnerCommand,
+        depth: depth + 1
+      }), options2.analyzeNested(dashCArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
+    }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    let awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
+    let awkMatch = analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
-    }))), options2.policy);
+    }))), awkReason = options2.compatibility === "explain-legacy" ? awkMatch : filterDestructiveCommandMatch(awkMatch, options2.policy);
     if (awkReason)
-      return blockResultFromMatch(awkReason);
+      return trace?.recordSegment({
+        type: "rule-check",
+        ruleModule: "awk",
+        ruleFunction: "analyzeAwkSystemCalls",
+        matched: !0,
+        reason: awkReason.reason
+      }), blockResultFromMatch(awkReason);
   }
   if (isInterpreterCommand(normalizedHead)) {
     let codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
-      if (options2.paranoidInterpreters) {
-        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.policy);
+      if (trace?.recordSegment({
+        type: "interpreter",
+        interpreter: normalizedHead,
+        codeArg,
+        paranoidBlocked: !!options2.paranoidInterpreters
+      }), options2.paranoidInterpreters) {
+        let interpreterMatch = destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
+      trace?.recordSegment({
+        type: "recurse",
+        reason: "interpreter",
+        innerCommand: codeArg,
+        depth: depth + 1
+      });
       let innerReason = options2.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
@@ -7577,14 +7718,25 @@ function analyzeSegment(tokens, depth, options2) {
       if (innerReason)
         return innerReason;
       if (containsDangerousCode(codeArg)) {
-        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.policy);
+        let interpreterMatch = destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
-          return blockResultFromMatch(match);
+          return trace?.recordSegment({
+            type: "dangerous-text",
+            token: codeArg,
+            matched: !0,
+            reason: REASON_INTERPRETER_DANGEROUS
+          }), blockResultFromMatch(match);
       }
+      trace = void 0;
     }
   }
   if (normalizedHead === "busybox" && stripped.length > 1)
-    return analyzeSegment(stripped.slice(1), depth, {
+    return trace?.recordSegment({ type: "busybox", subcommand: stripped[1] ?? "unknown" }), trace?.recordSegment({
+      type: "recurse",
+      reason: "busybox",
+      innerCommand: stripped.slice(1).join(" "),
+      depth: depth + 1
+    }), analyzeSegment(stripped.slice(1), depth + (options2.compatibility === "explain-legacy" ? 1 : 0), {
       ...normalizedOptions,
       commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : void 0,
       effectiveCwd: nestedEffectiveCwd,
@@ -7601,27 +7753,85 @@ function analyzeSegment(tokens, depth, options2) {
     allowTmpdirVar,
     depth,
     effectiveCwd: nestedEffectiveCwd,
-    options: normalizedOptions
-  }, commandAnalyzer = getCommandAnalyzer(commandContext), commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.policy);
+    options: trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace }
+  }, commandAnalyzer = getCommandAnalyzer(commandContext);
+  if (normalizedHead === "rm" || normalizedHead === "xargs" || normalizedHead === "parallel")
+    trace?.recordSegment({
+      type: "tmpdir-check",
+      tmpdirValue: envAssignments.has("TMPDIR") || process.env.TMPDIR !== void 0 ? "<redacted>" : null,
+      isOverriddenToNonTemp: !allowTmpdirVar,
+      allowTmpdirVar
+    });
+  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" ? unfilteredCommandResult : filterDestructiveCommandMatch(unfilteredCommandResult, options2.policy);
+  if (trace)
+    recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult)
     return blockResultFromMatch(commandResult);
   let matchedKnown = commandAnalyzer !== void 0;
-  if (!matchedKnown) {
-    if (!DISPLAY_COMMANDS.has(normalizedHead))
+  if (!matchedKnown)
+    if (!DISPLAY_COMMANDS.has(normalizedHead)) {
+      let tokensScanned = trace ? [] : void 0;
       for (let i = 1;i < stripped.length; i++) {
-        if (!stripped[i])
+        let token = stripped[i];
+        if (!token)
           continue;
-        let match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.policy);
+        tokensScanned?.push(token);
+        let embeddedMatch = analyzeEmbeddedCommand(commandContext, i), match = options2.compatibility === "explain-legacy" ? embeddedMatch : filterDestructiveCommandMatch(embeddedMatch, options2.policy);
         if (match)
-          return blockResultFromMatch(match);
+          return trace?.recordSegment({
+            type: "fallback-scan",
+            tokensScanned: tokensScanned ?? [],
+            embeddedCommandFound: normalizeCommandToken(token)
+          }), blockResultFromMatch(match);
       }
-  }
+      trace?.recordSegment({ type: "fallback-scan", tokensScanned: tokensScanned ?? [] });
+    } else
+      trace?.recordSegment({ type: "fallback-scan", tokensScanned: [] });
+  else
+    trace?.recordSegment({ type: "fallback-scan", tokensScanned: [] });
   if (depth === 0 || !matchedKnown) {
     let customResult = checkPolicyRuleMatch(stripped, options2.policy.rules);
-    if (customResult)
+    if (trace?.recordSegment({
+      type: "custom-rules-check",
+      rulesChecked: options2.policy.rules.length > 0,
+      matched: !!customResult,
+      reason: customResult?.reason
+    }), customResult)
       return blockResultFromMatch(customResult);
-  }
+  } else
+    trace?.recordSegment({
+      type: "custom-rules-check",
+      rulesChecked: !1,
+      matched: !1
+    });
   return null;
+}
+function unwrapTraceQuotes(command2) {
+  let first = command2[0];
+  return command2.length >= 2 && (first === '"' || first === "'") && command2.at(-1) === first ? command2.slice(1, -1) : command2;
+}
+function recordCommandAnalyzerTrace(context, match, relaxation) {
+  let details = {
+    git: ["git", "analyzeGit"],
+    rm: ["analyze/rm.ts", "analyzeRm"],
+    find: ["analyze/find.ts", "analyzeFind"],
+    xargs: ["analyze/xargs.ts", "analyzeXargs"],
+    parallel: ["analyze/parallel.ts", "analyzeParallel"]
+  }[context.normalizedHead];
+  if (!details)
+    return;
+  if (context.options.trace?.recordSegment({
+    type: "rule-check",
+    ruleModule: details[0] ?? "",
+    ruleFunction: details[1] ?? "",
+    matched: !!match || !!relaxation,
+    reason: match?.reason ?? relaxation?.originalReason
+  }), relaxation)
+    context.options.trace?.recordSegment({
+      type: "worktree-relaxation",
+      originalReason: relaxation.originalReason,
+      gitCwd: relaxation.gitCwd
+    });
 }
 function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
   if (!view)
@@ -7775,12 +7985,18 @@ function analyzeEmbeddedCommand(context, index) {
   return analyzer(embeddedContext);
 }
 function analyzeGitCommand(context) {
-  return analyzeGitMatch(context.tokens, {
+  return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
+}
+function analyzeGitCommandDetailed(context) {
+  return analyzeGitDetailed(context.tokens, getGitAnalyzeOptions(context));
+}
+function getGitAnalyzeOptions(context) {
+  return {
     cwd: context.cwdForRm,
     dynamicArguments: context.options.commandView?.words.some((word) => word.provenance === "command-substitution"),
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode
-  });
+  };
 }
 function analyzeRmCommand(context) {
   return analyzeRmMatch(context.tokens, {
@@ -8229,18 +8445,18 @@ function getSetOptionChanges(tokens, commandIndex) {
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
   if (depth >= MAX_RECURSION_DEPTH)
-    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
+    return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   let program = parsedProgram ?? options2.factStore?.getCommandProgram(command2, options2.shell ?? "auto") ?? parseCommand(command2, options2.shell);
   if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(program))
     return null;
   if (program.status === "limited")
-    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
+    return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   if (program.status === "invalid")
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+    return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   let hasUnclosedQuote = program.issues.some((issue) => issue.code.includes("quote"));
   if (options2.strict && hasUnclosedQuote && command2.includes(" "))
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
-  if (hasUnclosedQuote)
+    return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+  if (hasUnclosedQuote && !options2.analyzePartialProgram)
     return analyzeUnparseableCommand(command2, options2);
   let originalCwd = options2.cwd, effectiveCwd = options2.effectiveCwd !== void 0 ? options2.effectiveCwd : options2.cwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
   return analyzeProgram(program, depth, options2, originalCwd, {
@@ -8267,12 +8483,22 @@ function analyzeProgram(program, depth, options2, originalCwd, state) {
     let nestedState = cloneAnalysisState(state), nestedResult = analyzeNestedPrograms(node.nested, depth, options2, originalCwd, nestedState);
     if (nestedResult)
       return nestedResult;
-    let result = analyzeCommandView(node, depth, options2, originalCwd, state, hasPipelineInput);
+    let segmentIndex = options2.trace?.flattenNested ? options2.trace.currentSegmentIndex : options2.trace?.allocateSegment(), result = analyzeCommandView(node, depth, options2.trace ? { ...options2, trace: withTraceSegment(options2.trace, segmentIndex) } : options2, originalCwd, state, hasPipelineInput);
     if (result)
       return result;
     hasPipelineInput = !1;
   }
   return null;
+}
+function withTraceSegment(trace, currentSegmentIndex, flattenNested = trace.flattenNested) {
+  return {
+    currentSegmentIndex,
+    flattenNested,
+    allocateSegment: trace.allocateSegment,
+    getNextSegmentIndex: trace.getNextSegmentIndex,
+    recordGlobal: trace.recordGlobal,
+    recordSegment: (step, segmentIndex = currentSegmentIndex) => trace.recordSegment(step, segmentIndex)
+  };
 }
 function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
   for (let program of programs) {
@@ -8284,21 +8510,32 @@ function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
 }
 function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput) {
   let segment = [...commandView.analysisTokens], segmentStr = commandView.legacyNormalized, segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, state.shellGitContextState);
-  if (commandView.dialect === "powershell" && !options2.invalidReason) {
+  if (commandView.dialect === "powershell" && !options2.invalidReason && (options2.compatibility !== "explain-legacy" || options2.policySnapshot.state === "ready")) {
     let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(commandView, hasPipelineInput, getPowerShellRemoveItemOptions(options2, state.effectiveCwd)), options2.policy);
-    if (match)
+    if (options2.trace?.recordSegment({
+      type: "rule-check",
+      ruleModule: "analyze/powershell/remove-item.ts",
+      ruleFunction: "analyzePowerShellCommandViewMatch",
+      matched: !!match,
+      reason: match?.reason
+    }), match)
       return resultFromCommandMatch(segmentStr, match);
   }
   if (segment.length === 1 && segment[0]?.includes(" ") && !commandView.dynamicExecutable) {
-    let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.policy);
+    let dangerousTextMatch = dangerousInTextMatch(segment[0]), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy);
     if (textMatch)
-      return {
+      return options2.trace?.recordSegment({
+        type: "dangerous-text",
+        token: segment[0],
+        matched: !0,
+        reason: textMatch.reason
+      }), {
         reason: textMatch.reason,
-        segment: segmentStr,
+        segment: options2.compatibility === "explain-legacy" ? segment.join(" ") : segmentStr,
         ruleId: textMatch.id,
         intent: textMatch.intent
       };
-    return updateCwdAfterSegment(segment, state), null;
+    return options2.trace?.recordSegment({ type: "dangerous-text", token: segment[0], matched: !1 }), updateCwdAfterSegment(segment, state, options2.trace), null;
   }
   let result = analyzeSegment(segment, depth, {
     ...options2,
@@ -8311,7 +8548,8 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
         ...options2,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-        worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
+        worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode,
+        trace: options2.trace ? withTraceSegment(options2.trace, options2.trace.currentSegmentIndex, !0) : void 0
       });
       return nestedResult ? {
         reason: nestedResult.reason,
@@ -8323,10 +8561,16 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
   });
   if (result)
     return { ...result, segment: segmentStr };
-  return updateCwdAfterSegment(segment, state), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+  return updateCwdAfterSegment(segment, state, options2.trace), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
 }
-function updateCwdAfterSegment(segment, state) {
+function updateCwdAfterSegment(segment, state, trace) {
   let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd === null)
+    trace?.recordSegment({
+      type: "cwd-change",
+      segment: segment.join(" "),
+      effectiveCwdNowUnknown: !0
+    });
   if (nextCwd !== void 0)
     state.effectiveCwd = nextCwd;
 }
@@ -8356,13 +8600,31 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
   };
 }
 function analyzeUnparseableCommand(command2, options2) {
-  let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(command2), options2.policy);
+  let dangerousTextMatch = dangerousInTextMatch(command2), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy), segmentIndex = options2.trace?.currentSegmentIndex ?? options2.trace?.allocateSegment(), step = {
+    type: "dangerous-text",
+    token: command2,
+    matched: !!textMatch,
+    reason: textMatch?.reason
+  };
+  if (options2.trace?.recordSegment(step, segmentIndex), !textMatch && /^(?:cd|pushd)\s/.test(command2))
+    options2.trace?.recordSegment({ type: "cwd-change", segment: command2, effectiveCwdNowUnknown: !0 }, segmentIndex);
   return textMatch ? {
     reason: textMatch.reason,
     segment: command2,
     ruleId: textMatch.id,
     intent: textMatch.intent
   } : null;
+}
+function recordStrictUnparseable(command2, options2) {
+  let step = {
+    type: "strict-unparseable",
+    rawCommand: command2,
+    reason: REASON_STRICT_UNPARSEABLE
+  };
+  if (options2.trace?.currentSegmentIndex === void 0)
+    options2.trace?.recordGlobal(step);
+  else
+    options2.trace.recordSegment(step);
 }
 function isFailClosedRepairCommand(program) {
   if (program.status !== "complete" || program.nodes.length !== 1)
@@ -8531,7 +8793,7 @@ var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
 };
 function createSemanticFacts(invocation, parserDependencies = {}) {
-  let store = createFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
+  let store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
   if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
     candidates.push({ usage: "input-candidate", source: inputCommand });
   if (invocation.route.kind === "command" && "command" in invocation && invocation.command)
@@ -8577,8 +8839,8 @@ function getCommandSyntaxFact(facts, usage) {
 function projectSensitiveShellText(source) {
   return expandSupportedPathEnvironmentVariables(source);
 }
-function createFactStore(parsers) {
-  let shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
+function createSemanticFactStore(parserDependencies = {}) {
+  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
   return Object.freeze({
     getShellSyntax: (source) => {
       let existing = shellFacts.get(source);

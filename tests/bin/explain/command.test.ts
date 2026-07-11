@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
-import { explainSegment } from '@/bin/explain/segment';
+import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
-import type { TraceStep } from '@/types';
+import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
 import { MAX_RECURSION_DEPTH } from '@/types';
 import {
   analyzeTestCommand,
@@ -1050,30 +1050,38 @@ describe('getConfigSource user config paths', () => {
 });
 
 describe('explainSegment direct depth limit', () => {
-  test('explainSegment called at MAX_RECURSION_DEPTH returns recursion limit error', () => {
-    const steps: TraceStep[] = [];
-    const result = explainSegment(
-      ['rm', '-rf', '/'],
-      MAX_RECURSION_DEPTH,
-      { cwd: '/tmp', policySnapshot: policySnapshot() },
-      steps,
-    );
+  test('intrinsic evaluator trace records the recursion limit at MAX_RECURSION_DEPTH', () => {
+    const snapshot = policySnapshot();
+    const recorder = createCommandTraceRecorder();
+    const trace = createCommandTraceContext(recorder);
+    trace.currentSegmentIndex = 0;
+    const result = analyzeCommandInternal('rm -rf /', MAX_RECURSION_DEPTH, {
+      cwd: '/tmp',
+      policySnapshot: snapshot,
+      policy: snapshot.policy,
+      invalidReason: undefined,
+      trace,
+    });
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
-    expect(steps[0]).toEqual({
+    expect(recorder.finish({ result: 'allowed' }).events[0]?.step).toEqual({
       type: 'error',
       message: REASON_RECURSION_LIMIT,
     });
   });
 
-  test('explainSegment called above MAX_RECURSION_DEPTH returns recursion limit error', () => {
-    const steps: TraceStep[] = [];
-    const result = explainSegment(
-      ['git', 'status'],
-      MAX_RECURSION_DEPTH + 5,
-      { cwd: '/tmp', policySnapshot: policySnapshot() },
-      steps,
-    );
+  test('intrinsic evaluator trace remains bounded above MAX_RECURSION_DEPTH', () => {
+    const snapshot = policySnapshot();
+    const recorder = createCommandTraceRecorder();
+    const trace = createCommandTraceContext(recorder);
+    trace.currentSegmentIndex = 0;
+    const result = analyzeCommandInternal('git status', MAX_RECURSION_DEPTH + 5, {
+      cwd: '/tmp',
+      policySnapshot: snapshot,
+      policy: snapshot.policy,
+      invalidReason: undefined,
+      trace,
+    });
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
-    expect(steps).toHaveLength(1);
+    expect(recorder.finish({ result: 'allowed' }).events).toHaveLength(1);
   });
 });

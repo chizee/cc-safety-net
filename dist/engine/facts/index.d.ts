@@ -1,6 +1,6 @@
 import { type ParseEntry } from 'shell-quote';
 import type { ToolInvocation } from '@/domain/invocation';
-import type { CommandFactUsage, CommandSyntaxFacts, SemanticFacts } from '@/domain/semantic-facts';
+import type { CommandFactUsage, CommandSyntaxFacts, SemanticFactStore, SemanticFacts } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
 /** @internal */
 export type FactParserDependencies = {
@@ -13,3 +13,5 @@ export declare function createSemanticFacts(invocation: ToolInvocation, parserDe
 export declare function getCommandSyntaxFact(facts: SemanticFacts, usage: CommandFactUsage): CommandSyntaxFacts | undefined;
 /** @internal */
 export declare function projectSensitiveShellText(source: string): string;
+/** @internal Shared cache that parses each unique command/dialect pair at most once. */
+export declare function createSemanticFactStore(parserDependencies?: Partial<FactParserDependencies>): SemanticFactStore;

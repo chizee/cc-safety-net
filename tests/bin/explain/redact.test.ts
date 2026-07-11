@@ -7,15 +7,11 @@ import {
   formatTraceHuman,
   formatTraceJson,
 } from '@/bin/explain/index';
-import { type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
-import { getTraceSteps } from '../../helpers.ts';
-
-function explainCommand(command: string, options?: TestExplainOptions) {
-  return explainCommandBase(
-    command,
-    testExplainOptions({ config: { version: 1, rules: [] }, ...options }),
-  );
-}
+import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
+import type { ExplainResult } from '@/types';
+import { policySnapshot } from '../../helpers/policy';
+import { getTraceSteps, withEnv } from '../../helpers.ts';
+import { explainTestCommand as explainCommand } from './test-helpers';
 
 function expectLeadingTokenRedacted(command: string, secret: string, redacted: string): void {
   const result = explainCommand(command);
@@ -69,6 +65,140 @@ describe('explainCommand env wrapper redaction', () => {
 });
 
 describe('secret redaction in shell wrappers and interpreters', () => {
+  test('whole serialized explain output redacts every canonical secret family', () => {
+    for (const secret of [
+      'sk-abcdefghijklmnopqrstuvwxyz123456',
+      'https://user:pass@example.com',
+      'Authorization: Bearer trace-secret',
+      'eyJabcdefghijk.abcdefgh.abcdefgh',
+      '-----BEGIN PRIVATE KEY----- trace-secret -----END PRIVATE KEY-----',
+    ]) {
+      expect(JSON.stringify(explainCommand(`echo ${JSON.stringify(secret)}`))).not.toContain(
+        secret,
+      );
+    }
+  });
+
+  test('redaction retains explainable sensitive path names', () => {
+    expect(JSON.stringify(explainCommand('cat .env'))).toContain('.env');
+  });
+
+  test('top-level blocked reason and segment never bypass canonical redaction', () => {
+    for (const secret of [
+      'TOKEN=top-level-secret',
+      'sk-abcdefghijklmnopqrstuvwxyz123456',
+      'https://user:pass@example.com',
+      'Authorization: Bearer top-level-secret',
+      'eyJabcdefghijk.abcdefgh.abcdefgh',
+      '-----BEGIN PRIVATE KEY----- top-level-secret -----END PRIVATE KEY-----',
+    ]) {
+      const serialized = JSON.stringify(explainCommand(`rm -rf / ${JSON.stringify(secret)}`));
+      expect(serialized).not.toContain(secret);
+    }
+
+    const customSecret = 'sk-customreasonabcdefghijklmnopqrstuvwxyz';
+    expect(
+      JSON.stringify(
+        explainCommand('echo danger', {
+          config: {
+            rules: [
+              {
+                name: 'block-echo',
+                command: 'echo',
+                block_args: ['danger'],
+                reason: customSecret,
+              },
+            ],
+          },
+        }),
+      ),
+    ).not.toContain(customSecret);
+  });
+
+  test('custom-rule metadata uses a closed fully sanitized projection', () => {
+    const secrets = {
+      id: 'ghp_abcdefghijklmnopqrstuvwxyz',
+      name: 'npm_abcdefghijklmnopqrstuvwxyz',
+      version: 'sk-abcdefghijklmnopqrstuvwxyz123456',
+      source: 'glpat-abcdefghijklmnopqrstuvwxyz',
+      reason: 'xoxb-abcdefghijklmnopqrstuvwxyz',
+      future: 'pypi-abcdefghijklmnopqrstuvwxyz',
+    };
+    const snapshot = policySnapshot({
+      rules: [
+        {
+          name: secrets.id,
+          command: 'echo',
+          block_args: ['danger'],
+          reason: 'custom block',
+        },
+      ],
+    });
+    registerPolicyRuleMetadata(
+      snapshot,
+      new Map([
+        [
+          secrets.id,
+          {
+            id: secrets.id,
+            rulebook: { name: secrets.name, version: secrets.version },
+            source: secrets.source,
+            override: { type: 'reason' as const, reason: secrets.reason },
+            future: secrets.future,
+          } as ExplainResult['customRule'],
+        ],
+      ]),
+    );
+
+    const result = explainCommandBase('echo danger', { policySnapshot: snapshot });
+    expect(result.customRule).toEqual({
+      id: '<redacted>',
+      rulebook: { name: '<redacted>', version: '<redacted>' },
+      source: '<redacted>',
+      override: { type: 'reason', reason: '<redacted>' },
+    });
+    for (const output of [
+      JSON.stringify(result),
+      formatTraceJson(result),
+      formatTraceHuman(result),
+    ]) {
+      for (const secret of Object.values(secrets)) expect(output).not.toContain(secret);
+    }
+  });
+
+  test('provider-token-shaped environment keys never appear in explain output', () => {
+    const secretKey = 'ghp_abcdefghijklmnopqrstuvwxyz';
+    const result = explainCommand(`${secretKey}=hunter2 echo ok`);
+
+    for (const output of [
+      JSON.stringify(result),
+      formatTraceJson(result),
+      formatTraceHuman(result),
+    ]) {
+      expect(output).not.toContain(secretKey);
+      expect(output).not.toContain('hunter2');
+    }
+  });
+
+  for (const [command, secrets] of [
+    ['bash -c "TOKEN=$(foo supersecret) git status"', ['supersecret']],
+    ['bash -c "TOKEN=$(foo $(bar deepestsecret)) git status"', ['deepestsecret']],
+  ] as const) {
+    test(`whole serialized trace redacts nested assignment values: ${command}`, () => {
+      const serialized = JSON.stringify(explainCommand(command));
+      for (const secret of secrets) expect(serialized).not.toContain(secret);
+      expect(serialized).toContain('TOKEN=<redacted>');
+    });
+  }
+
+  test('tmpdir trace retains classification without the raw environment value', () => {
+    withEnv({ TMPDIR: '/tmp/trace-tmpdir-unique-secret' }, () => {
+      const serialized = JSON.stringify(explainCommand('rm -rf /tmp/cache'));
+      expect(serialized).not.toContain('trace-tmpdir-unique-secret');
+      expect(serialized).toContain('tmpdir-check');
+    });
+  });
+
   test('shell-wrapper step redacts env assignments in innerCommand', () => {
     const result = explainCommand('bash -c "TOKEN=secret git status"');
     const allSteps = getTraceSteps(result);

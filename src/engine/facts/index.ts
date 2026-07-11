@@ -63,7 +63,7 @@ export function createSemanticFacts(
   invocation: ToolInvocation,
   parserDependencies: Partial<FactParserDependencies> = {},
 ): SemanticFacts {
-  const store = createFactStore({ ...DEFAULT_PARSERS, ...parserDependencies });
+  const store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies });
   const inputCommand = getCommandFromToolInput(invocation.input);
   const candidates: { usage: CommandFactUsage; source: string }[] = [];
   if (
@@ -132,7 +132,11 @@ export function projectSensitiveShellText(source: string): string {
   return expandSupportedPathEnvironmentVariables(source);
 }
 
-function createFactStore(parsers: FactParserDependencies): SemanticFactStore {
+/** @internal Shared cache that parses each unique command/dialect pair at most once. */
+export function createSemanticFactStore(
+  parserDependencies: Partial<FactParserDependencies> = {},
+): SemanticFactStore {
+  const parsers = { ...DEFAULT_PARSERS, ...parserDependencies };
   const shellFacts = new Map<string, ShellSyntaxFacts>();
   const commandPrograms = new Map<string, CommandProgram>();
   return Object.freeze({

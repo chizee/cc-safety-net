@@ -195,6 +195,105 @@ import { basename, dirname, resolve } from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
+
+// src/core/sanitize.ts
+var PROVIDER_TOKENS = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
+  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
+  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
+  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+  /\bsk_[A-Za-z0-9]{20,}\b/g,
+  /\bgsk_[A-Za-z0-9]{52,}\b/g,
+  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
+  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
+  /\bbastn_[A-Za-z0-9]{16,}\b/g,
+  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
+  /\bflp_[A-Za-z0-9]{10,}\b/g,
+  /\bwfr_[A-Za-z0-9]{20,}\b/g,
+  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
+  /\btp-[A-Za-z0-9_-]{20,}\b/g,
+  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
+  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
+];
+function redactSecrets(text) {
+  let result = text.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>").replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>").replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
+  return redactNonAssignmentSecrets(result);
+}
+function redactNonAssignmentSecrets(text) {
+  let result = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>").replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@").replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@").replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
+  for (let pattern of PROVIDER_TOKENS)
+    result = result.replace(pattern, "<redacted>");
+  return result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>").replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
+}
+function redactEnvAssignmentValues(text) {
+  return findEnvAssignments(text).reduceRight((value, assignment) => `${value.slice(0, assignment.valueStart)}<redacted>${value.slice(assignment.valueEnd)}`, text);
+}
+function sanitizeDiagnosticText(text) {
+  return redactNonAssignmentSecrets(redactEnvAssignmentValues(text));
+}
+function getEnvAssignmentValues(text) {
+  return findEnvAssignments(text).map((assignment) => text.slice(assignment.valueStart, assignment.valueEnd));
+}
+function findEnvAssignments(text) {
+  let assignments = [], pattern = /[A-Za-z_][A-Za-z0-9_]*=/g;
+  for (let match of text.matchAll(pattern)) {
+    let start = match.index, previous = text[start - 1];
+    if (start > 0 && previous && !/[\s"'([{]/.test(previous))
+      continue;
+    let valueStart = start + match[0].length;
+    if (valueStart >= text.length)
+      continue;
+    assignments.push({ valueStart, valueEnd: findAssignmentValueEnd(text, valueStart) });
+  }
+  return assignments;
+}
+function findAssignmentValueEnd(text, start) {
+  if (text.startsWith("$(", start))
+    return findBalancedCommandSubstitutionEnd(text, start);
+  let quote = text[start];
+  if (quote === '"' || quote === "'") {
+    for (let index = start + 1;index < text.length; index++)
+      if (quote === '"' && text[index] === "\\")
+        index++;
+      else if (text[index] === quote)
+        return index + 1;
+  }
+  let end = start;
+  while (end < text.length && !/\s/.test(text[end] ?? ""))
+    end++;
+  return end;
+}
+function findBalancedCommandSubstitutionEnd(text, start) {
+  let depth = 0, quote;
+  for (let index = start;index < text.length; index++) {
+    let char = text[index];
+    if (quote) {
+      if (quote === '"' && char === "\\")
+        index++;
+      else if (char === quote)
+        quote = void 0;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "$" && text[index + 1] === "(") {
+      depth++, index++;
+      continue;
+    }
+    if (char !== ")")
+      continue;
+    if (depth--, depth === 0)
+      return index + 1;
+  }
+  return text.length;
+}
+// src/core/audit.ts
 function sanitizeSessionIdForFilename(sessionId) {
   let raw = sessionId.trim();
   if (!raw)
@@ -242,35 +341,6 @@ function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME |
 }
 function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
   return homeDir ? join(homeDir, ".cc-safety-net", "logs") : null;
-}
-var PROVIDER_TOKENS = [
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
-  /\bxox[abeprs]-[A-Za-z0-9-]{20,}\b/g,
-  /\bnpm_[A-Za-z0-9_]{20,}\b/g,
-  /\bpypi-[A-Za-z0-9_-]{20,}\b/g,
-  /\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g,
-  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
-  /\bsk_[A-Za-z0-9]{20,}\b/g,
-  /\bgsk_[A-Za-z0-9]{52,}\b/g,
-  /\bxai-[A-Za-z0-9_-]{80,}\b/g,
-  /\bpplx-[A-Za-z0-9_-]{20,}\b/g,
-  /\bbastn_[A-Za-z0-9]{16,}\b/g,
-  /\btgp_v1_[A-Za-z0-9_-]{43,}\b/g,
-  /\bflp_[A-Za-z0-9]{10,}\b/g,
-  /\bwfr_[A-Za-z0-9]{20,}\b/g,
-  /\bfwp?_[A-Za-z0-9_-]{20,}\b/g,
-  /\btp-[A-Za-z0-9_-]{20,}\b/g,
-  /\bpsk-[A-Za-z0-9_-]{8,}-[A-Za-z0-9_-]{8,}\b/g,
-  /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/g
-];
-function redactSecrets(text) {
-  let result = text;
-  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@"), result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
-  for (let re of PROVIDER_TOKENS)
-    result = result.replace(re, "<redacted>");
-  return result = result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>"), result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>"), result;
 }
 
 // src/core/audit-scan.ts
@@ -977,6 +1047,15 @@ function writeGuardAudit(audit, getSessionId, options) {
   });
 }
 
+// src/config/policy-metadata.ts
+var metadata = /* @__PURE__ */ new WeakMap;
+function registerPolicyRuleMetadata(snapshot, rules) {
+  return metadata.set(snapshot, new Map(rules)), snapshot;
+}
+function getPolicyRuleMetadata(snapshot, id) {
+  return id ? metadata.get(snapshot)?.get(id) : void 0;
+}
+
 // src/core/policy.ts
 import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync3 } from "node:fs";
 import { dirname as dirname5, join as join4 } from "node:path";
@@ -1421,12 +1500,6 @@ function filterDestructiveCommandMatch(match, policy) {
 
 // src/core/analyze/awk.ts
 var AWK_INTERPRETERS = /* @__PURE__ */ new Set(["awk", "gawk", "nawk", "mawk"]), REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
-function analyzeAwkSystemCalls(tokens, analyzeNested) {
-  return analyzeAwkSystemCallMatch(tokens, (command) => {
-    let reason = analyzeNested(command);
-    return reason ? { id: "", reason, intent: "manual_only" } : null;
-  })?.reason ?? null;
-}
 function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   for (let token of tokens.slice(1)) {
     let commands = extractAwkExternalCommands(token);
@@ -3081,6 +3154,9 @@ function projectLegacySegments(source, dialect = "posix") {
 }
 function projectLegacyCommandEntries(source, dialect = "posix") {
   let program = parseCommand(source, dialect);
+  return projectLegacyCommandEntriesFromProgram(source, program);
+}
+function projectLegacyCommandEntriesFromProgram(source, program) {
   if (program.issues.some((issue) => issue.code.includes("quote")))
     return Object.freeze([{ tokens: Object.freeze([source]) }]);
   return Object.freeze(projectCommandViews(program).flatMap((view) => {
@@ -4984,10 +5060,10 @@ async function discoverGitHubRepositoryRulebooks(source) {
   let metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
   if (!metadataResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  let metadata = await metadataResponse.json();
-  if (!metadata.default_branch)
+  let metadata2 = await metadataResponse.json();
+  if (!metadata2.default_branch)
     throw Error(`Failed to inspect ${source}: missing default branch`);
-  let commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
+  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
   if (!treeResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
   let names = ((await treeResponse.json()).tree ?? []).flatMap((entry) => {
@@ -5000,7 +5076,7 @@ async function discoverGitHubRepositoryRulebooks(source) {
     throw Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
   return names.map((name) => ({
     spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: metadata.default_branch
+    display_ref: metadata2.default_branch
   }));
 }
 function resolveLocalRulebook(spec, configDir, _options) {
@@ -5368,13 +5444,30 @@ function loadPolicySnapshot(options2 = {}) {
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
       denyPaths: [...userPolicy.secretProtection.denyPaths]
     }
-  };
-  if (diagnostics.length === 0)
-    return createPolicySnapshot(policy);
-  return createPolicySnapshot(policy, {
+  }, snapshot = diagnostics.length === 0 ? createPolicySnapshot(policy) : createPolicySnapshot(policy, {
     diagnostics,
     reason: combineInvalidReasons(rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join("; ")) : void 0, userPolicy.errors.length > 0 ? `invalid policy config: ${userPolicy.errors.join("; ")}. Fix or remove the policy file manually` : void 0)
-  });
+  }), overrides = {
+    ...rules.userConfig?.overrides ?? {},
+    ...rules.projectConfig?.overrides ?? {}
+  };
+  return registerPolicyRuleMetadata(snapshot, new Map(snapshot.policy.rules.map((rule) => {
+    let rulebook = rules.rulebooks.find((item) => item.rules.includes(rule.name)), override = overrides[rule.name];
+    return [
+      rule.name,
+      Object.freeze({
+        id: rule.name,
+        ...rulebook ? {
+          rulebook: Object.freeze({ name: rulebook.name, version: rulebook.version }),
+          ...isPublicRuleSource(rulebook.spec) ? { source: rulebook.spec } : {}
+        } : {},
+        ...override && typeof override === "object" ? { override: Object.freeze({ type: "reason", reason: override.reason }) } : {}
+      })
+    ];
+  })));
+}
+function isPublicRuleSource(source) {
+  return /^(?:[A-Za-z0-9_.-]+$|https:\/\/github\.com\/|github:|gh:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#|$))/.test(source);
 }
 function createPolicySnapshot(policy, invalid) {
   let frozenPolicy = freezePolicy(policy);
@@ -5430,9 +5523,6 @@ function withTerminalPeriod(value) {
 }
 
 // src/core/analyze/dangerous-text.ts
-function dangerousInText(text) {
-  return dangerousInTextMatch(text)?.reason ?? null;
-}
 function dangerousInTextMatch(text) {
   let t = text.toLowerCase(), stripped = t.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
     {
@@ -5990,9 +6080,6 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ].map((primary) => [primary, 1]),
   ["-fprintf", 2]
 ]);
-function analyzeFind(tokens, context = {}) {
-  return analyzeFindMatch(tokens, context)?.reason ?? null;
-}
 function analyzeFindMatch(tokens, context = {}) {
   if (findHasDelete(tokens.slice(1)))
     return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
@@ -6081,9 +6168,6 @@ function isFindExecPrimary(token) {
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
-function analyzeRm(tokens, options2 = {}) {
-  return analyzeRmMatch(tokens, options2)?.reason ?? null;
-}
 function analyzeRmMatch(tokens, options2 = {}) {
   let ctx = createRecursiveDeleteTargetContext(options2);
   if (!hasRecursiveForceFlags(tokens))
@@ -7165,10 +7249,10 @@ var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary co
   "ls-remote",
   "submodule"
 ]);
-function analyzeGit(tokens, options2 = {}) {
-  return analyzeGitMatch(tokens, options2)?.reason ?? null;
-}
 function analyzeGitMatch(tokens, options2 = {}) {
+  return evaluateGit(tokens, options2);
+}
+function evaluateGit(tokens, options2, onRelaxation) {
   let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
   if (aliasResolution.blockedReason)
     return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
@@ -7180,9 +7264,16 @@ function analyzeGitMatch(tokens, options2 = {}) {
     return null;
   if (aliasResolution.expanded)
     return match;
-  if (getGitWorktreeRelaxationForMatch(tokens, match, options2))
-    return null;
-  return match;
+  let relaxation = getGitWorktreeRelaxationForMatch(tokens, match, options2);
+  if (!relaxation)
+    return match;
+  return onRelaxation?.(relaxation), null;
+}
+function analyzeGitDetailed(tokens, options2 = {}) {
+  let relaxation = null;
+  return { match: evaluateGit(tokens, options2, (value) => {
+    relaxation = value;
+  }), relaxation };
 }
 function isGitNetworkOperation(tokens) {
   let { subcommand, rest } = extractGitSubcommandAndRest(tokens), subcommandName = subcommand?.toLowerCase();
@@ -7199,15 +7290,6 @@ function isGitRemoteUpdateOperation(tokens) {
 }
 function isGitRemotePrefixOption(token) {
   return token === "-v" || matchesGitLongOption(token, "--verbose") || matchesGitLongOption(token, "--no-verbose");
-}
-function getGitWorktreeRelaxation(tokens, options2 = {}) {
-  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
-  if (aliasResolution.blockedReason || aliasResolution.expanded)
-    return null;
-  let match = analyzeGitRule(aliasResolution.tokens);
-  if (!match)
-    return null;
-  return getGitWorktreeRelaxationForMatch(tokens, match, options2);
 }
 
 // src/core/analyze/child-analyzer.ts
@@ -7776,13 +7858,34 @@ function deriveCwdContext(options2) {
   return { cwdUnknown, cwdForRm, originalCwd };
 }
 function analyzeSegment(tokens, depth, options2) {
+  let trace = options2.trace;
+  if (options2.compatibility === "explain-legacy" && depth >= MAX_RECURSION_DEPTH)
+    return trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, intent: "stop_and_explain" };
   if (tokens.length === 0)
     return null;
-  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens), {
+  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
+  if (leadingEnvAssignments.size > 0)
+    trace?.recordSegment({
+      type: "env-strip",
+      input: tokens,
+      envVars: Object.fromEntries([...leadingEnvAssignments.keys()].map((key) => [key, "<redacted>"])),
+      output: strippedEnv
+    });
+  let {
     tokens: stripped,
     envAssignments: wrapperEnvAssignments,
     cwd: wrapperCwd
-  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView }, envAssignments = new Map(options2.envAssignments ?? []);
+  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView };
+  if (trace && strippedEnv.length > stripped.length) {
+    let removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
+    trace?.recordSegment({
+      type: "leading-tokens-stripped",
+      input: strippedEnv,
+      removed,
+      output: stripped
+    });
+  }
+  let envAssignments = new Map(options2.envAssignments ?? []);
   for (let [k, v] of leadingEnvAssignments)
     envAssignments.set(k, v);
   for (let [k, v] of wrapperEnvAssignments)
@@ -7796,10 +7899,20 @@ function analyzeSegment(tokens, depth, options2) {
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
   let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
   if (dynamicCommandMatch)
-    return blockResultFromMatch(dynamicCommandMatch);
+    return trace?.recordSegment({
+      type: "rule-check",
+      ruleModule: "analyze/segment.ts",
+      ruleFunction: "analyzeDynamicCommandStructure",
+      matched: !0,
+      reason: dynamicCommandMatch.reason
+    }), blockResultFromMatch(dynamicCommandMatch);
   let transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
   if (transparentWrapper)
-    return analyzeSegment(transparentWrapper.tokens, depth, {
+    return trace?.recordSegment({
+      type: "transparent-wrapper",
+      wrapper: transparentWrapper.wrapper,
+      output: transparentWrapper.tokens
+    }), analyzeSegment(transparentWrapper.tokens, depth, {
       ...normalizedOptions,
       commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0,
       effectiveCwd: nestedEffectiveCwd,
@@ -7807,28 +7920,56 @@ function analyzeSegment(tokens, depth, options2) {
     });
   if (isShellWrapperCommand(head, normalizedHead)) {
     let dashCArg = extractDashCArg(stripped);
-    if (dashCArg)
-      return options2.analyzeNested(dashCArg, {
+    if (dashCArg) {
+      let traceInnerCommand = unwrapTraceQuotes(dashCArg);
+      return trace?.recordSegment({
+        type: "shell-wrapper",
+        wrapper: normalizedHead,
+        innerCommand: traceInnerCommand
+      }), trace?.recordSegment({
+        type: "recurse",
+        reason: "shell-wrapper",
+        innerCommand: traceInnerCommand,
+        depth: depth + 1
+      }), options2.analyzeNested(dashCArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
+    }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    let awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
+    let awkMatch = analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
-    }))), options2.policy);
+    }))), awkReason = options2.compatibility === "explain-legacy" ? awkMatch : filterDestructiveCommandMatch(awkMatch, options2.policy);
     if (awkReason)
-      return blockResultFromMatch(awkReason);
+      return trace?.recordSegment({
+        type: "rule-check",
+        ruleModule: "awk",
+        ruleFunction: "analyzeAwkSystemCalls",
+        matched: !0,
+        reason: awkReason.reason
+      }), blockResultFromMatch(awkReason);
   }
   if (isInterpreterCommand(normalizedHead)) {
     let codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
-      if (options2.paranoidInterpreters) {
-        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.policy);
+      if (trace?.recordSegment({
+        type: "interpreter",
+        interpreter: normalizedHead,
+        codeArg,
+        paranoidBlocked: !!options2.paranoidInterpreters
+      }), options2.paranoidInterpreters) {
+        let interpreterMatch = destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
+      trace?.recordSegment({
+        type: "recurse",
+        reason: "interpreter",
+        innerCommand: codeArg,
+        depth: depth + 1
+      });
       let innerReason = options2.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
@@ -7836,14 +7977,25 @@ function analyzeSegment(tokens, depth, options2) {
       if (innerReason)
         return innerReason;
       if (containsDangerousCode(codeArg)) {
-        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.policy);
+        let interpreterMatch = destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
-          return blockResultFromMatch(match);
+          return trace?.recordSegment({
+            type: "dangerous-text",
+            token: codeArg,
+            matched: !0,
+            reason: REASON_INTERPRETER_DANGEROUS
+          }), blockResultFromMatch(match);
       }
+      trace = void 0;
     }
   }
   if (normalizedHead === "busybox" && stripped.length > 1)
-    return analyzeSegment(stripped.slice(1), depth, {
+    return trace?.recordSegment({ type: "busybox", subcommand: stripped[1] ?? "unknown" }), trace?.recordSegment({
+      type: "recurse",
+      reason: "busybox",
+      innerCommand: stripped.slice(1).join(" "),
+      depth: depth + 1
+    }), analyzeSegment(stripped.slice(1), depth + (options2.compatibility === "explain-legacy" ? 1 : 0), {
       ...normalizedOptions,
       commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : void 0,
       effectiveCwd: nestedEffectiveCwd,
@@ -7860,27 +8012,85 @@ function analyzeSegment(tokens, depth, options2) {
     allowTmpdirVar,
     depth,
     effectiveCwd: nestedEffectiveCwd,
-    options: normalizedOptions
-  }, commandAnalyzer = getCommandAnalyzer(commandContext), commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.policy);
+    options: trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace }
+  }, commandAnalyzer = getCommandAnalyzer(commandContext);
+  if (normalizedHead === "rm" || normalizedHead === "xargs" || normalizedHead === "parallel")
+    trace?.recordSegment({
+      type: "tmpdir-check",
+      tmpdirValue: envAssignments.has("TMPDIR") || process.env.TMPDIR !== void 0 ? "<redacted>" : null,
+      isOverriddenToNonTemp: !allowTmpdirVar,
+      allowTmpdirVar
+    });
+  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" ? unfilteredCommandResult : filterDestructiveCommandMatch(unfilteredCommandResult, options2.policy);
+  if (trace)
+    recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult)
     return blockResultFromMatch(commandResult);
   let matchedKnown = commandAnalyzer !== void 0;
-  if (!matchedKnown) {
-    if (!DISPLAY_COMMANDS.has(normalizedHead))
+  if (!matchedKnown)
+    if (!DISPLAY_COMMANDS.has(normalizedHead)) {
+      let tokensScanned = trace ? [] : void 0;
       for (let i = 1;i < stripped.length; i++) {
-        if (!stripped[i])
+        let token = stripped[i];
+        if (!token)
           continue;
-        let match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.policy);
+        tokensScanned?.push(token);
+        let embeddedMatch = analyzeEmbeddedCommand(commandContext, i), match = options2.compatibility === "explain-legacy" ? embeddedMatch : filterDestructiveCommandMatch(embeddedMatch, options2.policy);
         if (match)
-          return blockResultFromMatch(match);
+          return trace?.recordSegment({
+            type: "fallback-scan",
+            tokensScanned: tokensScanned ?? [],
+            embeddedCommandFound: normalizeCommandToken(token)
+          }), blockResultFromMatch(match);
       }
-  }
+      trace?.recordSegment({ type: "fallback-scan", tokensScanned: tokensScanned ?? [] });
+    } else
+      trace?.recordSegment({ type: "fallback-scan", tokensScanned: [] });
+  else
+    trace?.recordSegment({ type: "fallback-scan", tokensScanned: [] });
   if (depth === 0 || !matchedKnown) {
     let customResult = checkPolicyRuleMatch(stripped, options2.policy.rules);
-    if (customResult)
+    if (trace?.recordSegment({
+      type: "custom-rules-check",
+      rulesChecked: options2.policy.rules.length > 0,
+      matched: !!customResult,
+      reason: customResult?.reason
+    }), customResult)
       return blockResultFromMatch(customResult);
-  }
+  } else
+    trace?.recordSegment({
+      type: "custom-rules-check",
+      rulesChecked: !1,
+      matched: !1
+    });
   return null;
+}
+function unwrapTraceQuotes(command2) {
+  let first = command2[0];
+  return command2.length >= 2 && (first === '"' || first === "'") && command2.at(-1) === first ? command2.slice(1, -1) : command2;
+}
+function recordCommandAnalyzerTrace(context, match, relaxation) {
+  let details = {
+    git: ["git", "analyzeGit"],
+    rm: ["analyze/rm.ts", "analyzeRm"],
+    find: ["analyze/find.ts", "analyzeFind"],
+    xargs: ["analyze/xargs.ts", "analyzeXargs"],
+    parallel: ["analyze/parallel.ts", "analyzeParallel"]
+  }[context.normalizedHead];
+  if (!details)
+    return;
+  if (context.options.trace?.recordSegment({
+    type: "rule-check",
+    ruleModule: details[0] ?? "",
+    ruleFunction: details[1] ?? "",
+    matched: !!match || !!relaxation,
+    reason: match?.reason ?? relaxation?.originalReason
+  }), relaxation)
+    context.options.trace?.recordSegment({
+      type: "worktree-relaxation",
+      originalReason: relaxation.originalReason,
+      gitCwd: relaxation.gitCwd
+    });
 }
 function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
   if (!view)
@@ -8034,12 +8244,18 @@ function analyzeEmbeddedCommand(context, index) {
   return analyzer(embeddedContext);
 }
 function analyzeGitCommand(context) {
-  return analyzeGitMatch(context.tokens, {
+  return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
+}
+function analyzeGitCommandDetailed(context) {
+  return analyzeGitDetailed(context.tokens, getGitAnalyzeOptions(context));
+}
+function getGitAnalyzeOptions(context) {
+  return {
     cwd: context.cwdForRm,
     dynamicArguments: context.options.commandView?.words.some((word) => word.provenance === "command-substitution"),
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode
-  });
+  };
 }
 function analyzeRmCommand(context) {
   return analyzeRmMatch(context.tokens, {
@@ -8488,18 +8704,18 @@ function getSetOptionChanges(tokens, commandIndex) {
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
   if (depth >= MAX_RECURSION_DEPTH)
-    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
+    return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   let program = parsedProgram ?? options2.factStore?.getCommandProgram(command2, options2.shell ?? "auto") ?? parseCommand(command2, options2.shell);
   if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(program))
     return null;
   if (program.status === "limited")
-    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
+    return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   if (program.status === "invalid")
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+    return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   let hasUnclosedQuote = program.issues.some((issue) => issue.code.includes("quote"));
   if (options2.strict && hasUnclosedQuote && command2.includes(" "))
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
-  if (hasUnclosedQuote)
+    return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+  if (hasUnclosedQuote && !options2.analyzePartialProgram)
     return analyzeUnparseableCommand(command2, options2);
   let originalCwd = options2.cwd, effectiveCwd = options2.effectiveCwd !== void 0 ? options2.effectiveCwd : options2.cwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
   return analyzeProgram(program, depth, options2, originalCwd, {
@@ -8526,12 +8742,22 @@ function analyzeProgram(program, depth, options2, originalCwd, state) {
     let nestedState = cloneAnalysisState(state), nestedResult = analyzeNestedPrograms(node.nested, depth, options2, originalCwd, nestedState);
     if (nestedResult)
       return nestedResult;
-    let result = analyzeCommandView(node, depth, options2, originalCwd, state, hasPipelineInput);
+    let segmentIndex = options2.trace?.flattenNested ? options2.trace.currentSegmentIndex : options2.trace?.allocateSegment(), result = analyzeCommandView(node, depth, options2.trace ? { ...options2, trace: withTraceSegment(options2.trace, segmentIndex) } : options2, originalCwd, state, hasPipelineInput);
     if (result)
       return result;
     hasPipelineInput = !1;
   }
   return null;
+}
+function withTraceSegment(trace, currentSegmentIndex, flattenNested = trace.flattenNested) {
+  return {
+    currentSegmentIndex,
+    flattenNested,
+    allocateSegment: trace.allocateSegment,
+    getNextSegmentIndex: trace.getNextSegmentIndex,
+    recordGlobal: trace.recordGlobal,
+    recordSegment: (step, segmentIndex = currentSegmentIndex) => trace.recordSegment(step, segmentIndex)
+  };
 }
 function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
   for (let program of programs) {
@@ -8543,21 +8769,32 @@ function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
 }
 function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput) {
   let segment = [...commandView.analysisTokens], segmentStr = commandView.legacyNormalized, segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, state.shellGitContextState);
-  if (commandView.dialect === "powershell" && !options2.invalidReason) {
+  if (commandView.dialect === "powershell" && !options2.invalidReason && (options2.compatibility !== "explain-legacy" || options2.policySnapshot.state === "ready")) {
     let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(commandView, hasPipelineInput, getPowerShellRemoveItemOptions(options2, state.effectiveCwd)), options2.policy);
-    if (match)
+    if (options2.trace?.recordSegment({
+      type: "rule-check",
+      ruleModule: "analyze/powershell/remove-item.ts",
+      ruleFunction: "analyzePowerShellCommandViewMatch",
+      matched: !!match,
+      reason: match?.reason
+    }), match)
       return resultFromCommandMatch(segmentStr, match);
   }
   if (segment.length === 1 && segment[0]?.includes(" ") && !commandView.dynamicExecutable) {
-    let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.policy);
+    let dangerousTextMatch = dangerousInTextMatch(segment[0]), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy);
     if (textMatch)
-      return {
+      return options2.trace?.recordSegment({
+        type: "dangerous-text",
+        token: segment[0],
+        matched: !0,
+        reason: textMatch.reason
+      }), {
         reason: textMatch.reason,
-        segment: segmentStr,
+        segment: options2.compatibility === "explain-legacy" ? segment.join(" ") : segmentStr,
         ruleId: textMatch.id,
         intent: textMatch.intent
       };
-    return updateCwdAfterSegment(segment, state), null;
+    return options2.trace?.recordSegment({ type: "dangerous-text", token: segment[0], matched: !1 }), updateCwdAfterSegment(segment, state, options2.trace), null;
   }
   let result = analyzeSegment(segment, depth, {
     ...options2,
@@ -8570,7 +8807,8 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
         ...options2,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-        worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
+        worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode,
+        trace: options2.trace ? withTraceSegment(options2.trace, options2.trace.currentSegmentIndex, !0) : void 0
       });
       return nestedResult ? {
         reason: nestedResult.reason,
@@ -8582,10 +8820,16 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
   });
   if (result)
     return { ...result, segment: segmentStr };
-  return updateCwdAfterSegment(segment, state), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+  return updateCwdAfterSegment(segment, state, options2.trace), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
 }
-function updateCwdAfterSegment(segment, state) {
+function updateCwdAfterSegment(segment, state, trace) {
   let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd === null)
+    trace?.recordSegment({
+      type: "cwd-change",
+      segment: segment.join(" "),
+      effectiveCwdNowUnknown: !0
+    });
   if (nextCwd !== void 0)
     state.effectiveCwd = nextCwd;
 }
@@ -8615,13 +8859,31 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
   };
 }
 function analyzeUnparseableCommand(command2, options2) {
-  let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(command2), options2.policy);
+  let dangerousTextMatch = dangerousInTextMatch(command2), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy), segmentIndex = options2.trace?.currentSegmentIndex ?? options2.trace?.allocateSegment(), step = {
+    type: "dangerous-text",
+    token: command2,
+    matched: !!textMatch,
+    reason: textMatch?.reason
+  };
+  if (options2.trace?.recordSegment(step, segmentIndex), !textMatch && /^(?:cd|pushd)\s/.test(command2))
+    options2.trace?.recordSegment({ type: "cwd-change", segment: command2, effectiveCwdNowUnknown: !0 }, segmentIndex);
   return textMatch ? {
     reason: textMatch.reason,
     segment: command2,
     ruleId: textMatch.id,
     intent: textMatch.intent
   } : null;
+}
+function recordStrictUnparseable(command2, options2) {
+  let step = {
+    type: "strict-unparseable",
+    rawCommand: command2,
+    reason: REASON_STRICT_UNPARSEABLE
+  };
+  if (options2.trace?.currentSegmentIndex === void 0)
+    options2.trace?.recordGlobal(step);
+  else
+    options2.trace.recordSegment(step);
 }
 function isFailClosedRepairCommand(program) {
   if (program.status !== "complete" || program.nodes.length !== 1)
@@ -8790,7 +9052,7 @@ var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
 };
 function createSemanticFacts(invocation, parserDependencies = {}) {
-  let store = createFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
+  let store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
   if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
     candidates.push({ usage: "input-candidate", source: inputCommand });
   if (invocation.route.kind === "command" && "command" in invocation && invocation.command)
@@ -8836,8 +9098,8 @@ function getCommandSyntaxFact(facts, usage) {
 function projectSensitiveShellText(source) {
   return expandSupportedPathEnvironmentVariables(source);
 }
-function createFactStore(parsers) {
-  let shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
+function createSemanticFactStore(parserDependencies = {}) {
+  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
   return Object.freeze({
     getShellSyntax: (source) => {
       let existing = shellFacts.get(source);
@@ -12879,569 +13141,320 @@ function buildAnalyzeOptions(explainOptions) {
   };
 }
 
-// src/bin/explain/redact.ts
-var ENV_ASSIGNMENT_RE2 = /^[A-Za-z_][A-Za-z0-9_]*=/;
-function redactEnvVars(envMap) {
-  let result = {};
-  for (let key of envMap.keys())
-    result[key] = "<redacted>";
-  return result;
-}
-function redactEnvAssignmentsInString(str) {
-  return str.replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\$\([^)]*\)/g, "$1=<redacted>").replace(/\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|\S+)/g, "$1=<redacted>");
-}
-function redactEnvAssignmentTokens(tokens) {
-  return tokens.map((token) => {
-    if (ENV_ASSIGNMENT_RE2.test(token)) {
-      let eqIdx = token.indexOf("=");
-      return `${token.slice(0, eqIdx)}=<redacted>`;
+// src/engine/command-trace.ts
+var PROVIDER_HINTS = [
+  "AKIA",
+  "ASIA",
+  "ghp_",
+  "gho_",
+  "ghu_",
+  "ghs_",
+  "ghr_",
+  "github_pat_",
+  "glpat-",
+  "xox",
+  "npm_",
+  "pypi-",
+  "rk_",
+  "sk-",
+  "sk_",
+  "gsk_",
+  "xai-",
+  "pplx-",
+  "bastn_",
+  "tgp_v1_",
+  "flp_",
+  "wfr_",
+  "fw_",
+  "fwp_",
+  "tp-",
+  "psk-"
+];
+function createCommandTraceContext(recorder) {
+  let nextSegmentIndex = 0, context = {
+    allocateSegment() {
+      return nextSegmentIndex++;
+    },
+    getNextSegmentIndex() {
+      return nextSegmentIndex;
+    },
+    recordGlobal(step) {
+      recorder.record({ kind: "step", scope: "global", step });
+    },
+    recordSegment(step, segmentIndex = context.currentSegmentIndex) {
+      if (segmentIndex === void 0)
+        return;
+      recorder.record({ kind: "step", scope: "segment", segmentIndex, step });
     }
-    return token;
-  });
-}
-
-// src/bin/explain/segment.ts
-function isUnparseableCommand(command2, segments) {
-  return segments.length === 1 && segments[0]?.length === 1 && segments[0][0] === command2 && command2.includes(" ");
-}
-function explainInnerSegments(innerCmd, depth, options2, steps) {
-  if (depth + 1 >= MAX_RECURSION_DEPTH)
-    return steps.push({
-      type: "error",
-      message: REASON_RECURSION_LIMIT
-    }), { reason: REASON_RECURSION_LIMIT };
-  let innerEntries = projectLegacyCommandEntries(innerCmd, options2.shell), innerSegments = innerEntries.map((entry) => entry.tokens);
-  if (options2.strict && isUnparseableCommand(innerCmd, innerSegments))
-    return steps.push({
-      type: "strict-unparseable",
-      rawCommand: redactEnvAssignmentsInString(innerCmd),
-      reason: REASON_STRICT_UNPARSEABLE
-    }), { reason: REASON_STRICT_UNPARSEABLE };
-  let effectiveCwd = options2.effectiveCwd === void 0 ? options2.cwd : options2.effectiveCwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  for (let entryIndex = 0;entryIndex < innerEntries.length; entryIndex++) {
-    let segment = innerEntries[entryIndex]?.tokens;
-    if (!segment)
-      continue;
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      let textReason = dangerousInText(segment[0]);
-      if (textReason)
-        return steps.push({
-          type: "dangerous-text",
-          token: redactEnvAssignmentsInString(segment[0]),
-          matched: !0,
-          reason: textReason
-        }), { reason: textReason };
-      if (steps.push({
-        type: "dangerous-text",
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: !1
-      }), segmentChangesCwd(segment))
-        steps.push({
-          type: "cwd-change",
-          segment: redactEnvAssignmentsInString(segment.join(" ")),
-          effectiveCwdNowUnknown: !0
-        }), effectiveCwd = null;
-      continue;
-    }
-    let result = explainSegment([...segment], depth + 1, {
-      ...options2,
-      effectiveCwd,
-      envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState)
-    }, steps, innerEntries[entryIndex]?.view);
-    if (result)
-      return result;
-    if (segmentChangesCwd(segment))
-      steps.push({
-        type: "cwd-change",
-        segment: redactEnvAssignmentsInString(segment.join(" ")),
-        effectiveCwdNowUnknown: !0
-      }), effectiveCwd = null;
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-  }
-  return null;
-}
-function explainSegment(tokens, depth, options2, steps, commandView) {
-  if (depth >= MAX_RECURSION_DEPTH)
-    return steps.push({
-      type: "error",
-      message: REASON_RECURSION_LIMIT
-    }), { reason: REASON_RECURSION_LIMIT };
-  let envResult = stripEnvAssignmentsWithInfo(tokens);
-  if (envResult.envAssignments.size > 0)
-    steps.push({
-      type: "env-strip",
-      input: redactEnvAssignmentTokens(tokens),
-      envVars: redactEnvVars(envResult.envAssignments),
-      output: envResult.tokens
-    });
-  let effectiveCwd = options2.effectiveCwd === void 0 ? options2.cwd : options2.effectiveCwd, cwdUnknown = effectiveCwd === null, baseCwdForRm = cwdUnknown ? void 0 : effectiveCwd ?? options2.cwd, originalCwd = cwdUnknown ? void 0 : options2.cwd, wrapperResult = stripWrappersWithInfo(envResult.tokens, baseCwdForRm), normalizedCommandView = commandView ? sliceCommandView(commandView, tokens.length - envResult.tokens.length + envResult.tokens.length - wrapperResult.tokens.length) : void 0, removed = envResult.tokens.slice(0, envResult.tokens.length - wrapperResult.tokens.length);
-  if (removed.length > 0)
-    steps.push({
-      type: "leading-tokens-stripped",
-      input: redactEnvAssignmentTokens(envResult.tokens),
-      removed: redactEnvAssignmentTokens(removed),
-      output: wrapperResult.tokens
-    });
-  let strippedTokens = wrapperResult.tokens, envAssignments = new Map(options2.envAssignments ?? []);
-  for (let [k, v] of envResult.envAssignments)
-    envAssignments.set(k, v);
-  for (let [k, v] of wrapperResult.envAssignments)
-    envAssignments.set(k, v);
-  let cwdForRm = wrapperResult.cwd === null ? void 0 : wrapperResult.cwd ?? baseCwdForRm, nestedEffectiveCwd = wrapperResult.cwd === void 0 ? options2.effectiveCwd : wrapperResult.cwd, nestedOptions = {
-    ...options2,
-    effectiveCwd: nestedEffectiveCwd,
-    envAssignments
   };
-  if (strippedTokens.length === 0)
-    return null;
-  let policy = options2.policySnapshot.policy, dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), policy);
-  if (dynamicCommandMatch)
-    return steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/segment.ts",
-      ruleFunction: "analyzeDynamicCommandStructure",
-      matched: !0,
-      reason: dynamicCommandMatch.reason
-    }), { reason: dynamicCommandMatch.reason };
-  let head = strippedTokens[0];
-  if (!head)
-    return null;
-  let transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
-  if (transparentWrapper) {
-    steps.push({
-      type: "transparent-wrapper",
-      wrapper: transparentWrapper.wrapper,
-      output: transparentWrapper.tokens
-    }), strippedTokens = transparentWrapper.tokens;
-    let transparentCommandView = normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0;
-    if (head = strippedTokens[0], !head)
-      return null;
-    return explainSegment(strippedTokens, depth, nestedOptions, steps, transparentCommandView);
-  }
-  let baseName = head.split("/").pop() ?? head, baseNameLower = baseName.toLowerCase();
-  if (isShellWrapperCommand2(head, baseNameLower)) {
-    let innerCmd = extractDashCArg(strippedTokens);
-    if (innerCmd) {
-      let redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
-      return steps.push({
-        type: "shell-wrapper",
-        wrapper: baseNameLower,
-        innerCommand: redactedInnerCmd
-      }), steps.push({
-        type: "recurse",
-        reason: "shell-wrapper",
-        innerCommand: redactedInnerCmd,
-        depth: depth + 1
-      }), explainInnerSegments(innerCmd, depth, nestedOptions, steps);
-    }
-  }
-  if (AWK_INTERPRETERS.has(baseNameLower)) {
-    let awkReason = analyzeAwkSystemCalls(strippedTokens, (command2) => {
-      return explainInnerSegments(command2, depth, nestedOptions, steps)?.reason ?? null;
-    });
-    if (awkReason)
-      return steps.push({
-        type: "rule-check",
-        ruleModule: "awk",
-        ruleFunction: "analyzeAwkSystemCalls",
-        matched: !0,
-        reason: awkReason
-      }), {
-        reason: awkReason === REASON_AWK_SYSTEM_DYNAMIC ? REASON_AWK_SYSTEM_DYNAMIC : awkReason
-      };
-  }
-  if (isInterpreterCommand(baseNameLower)) {
-    let codeArg = extractInterpreterCodeArg(strippedTokens);
-    if (codeArg) {
-      let paranoidBlocked = !!options2.paranoidInterpreters, redactedCodeArg = redactEnvAssignmentsInString(codeArg);
-      if (steps.push({
-        type: "interpreter",
-        interpreter: baseNameLower,
-        codeArg: redactedCodeArg,
-        paranoidBlocked
-      }), paranoidBlocked)
-        return { reason: REASON_INTERPRETER_BLOCKED };
-      steps.push({
-        type: "recurse",
-        reason: "interpreter",
-        innerCommand: redactedCodeArg,
-        depth: depth + 1
-      });
-      let nestedResult = explainInnerSegments(codeArg, depth, nestedOptions, steps);
-      if (nestedResult)
-        return nestedResult;
-      if (containsDangerousCode(codeArg))
-        return steps.push({
-          type: "dangerous-text",
-          token: redactedCodeArg,
-          matched: !0,
-          reason: REASON_INTERPRETER_DANGEROUS
-        }), { reason: REASON_INTERPRETER_DANGEROUS };
-      return null;
-    }
-  }
-  if (baseNameLower === "busybox" && strippedTokens.length > 1) {
-    let subcommand = strippedTokens[1] ?? "unknown";
-    steps.push({
-      type: "busybox",
-      subcommand
-    });
-    let busyboxInnerCmd = strippedTokens.slice(1).join(" ");
-    return steps.push({
-      type: "recurse",
-      reason: "busybox",
-      innerCommand: redactEnvAssignmentsInString(busyboxInnerCmd),
-      depth: depth + 1
-    }), explainSegment(strippedTokens.slice(1), depth + 1, nestedOptions, steps, normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : void 0);
-  }
-  let allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), tmpdirValue = envAssignments.get("TMPDIR") ?? process.env.TMPDIR ?? null, analyzeNested = (cmd, overrides) => {
-    let overriddenOptions = {
-      ...nestedOptions,
-      effectiveCwd: overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : nestedOptions.effectiveCwd,
-      envAssignments: overrides?.envAssignments ?? nestedOptions.envAssignments,
-      worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode
-    }, result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
-    return result ? { id: "", reason: result.reason, intent: "manual_only" } : null;
-  }, nestedCommandContext = {
-    cwd: cwdForRm,
-    originalCwd,
-    paranoidRm: options2.paranoidRm,
-    paranoidInterpreters: options2.paranoidInterpreters,
-    allowTmpdirVar,
-    envAssignments,
-    worktreeMode: options2.worktreeMode,
-    policy,
-    analyzeNested
-  }, isGit = baseNameLower === "git", isRm = baseName === "rm", isFind = baseName === "find", isXargs = baseName === "xargs", isParallel = baseName === "parallel";
-  if (isRm || isXargs || isParallel)
-    steps.push({
-      type: "tmpdir-check",
-      tmpdirValue,
-      isOverriddenToNonTemp: !allowTmpdirVar,
-      allowTmpdirVar
-    });
-  if (isGit) {
-    let gitOptions = {
-      cwd: cwdForRm,
-      envAssignments,
-      worktreeMode: options2.worktreeMode
-    }, relaxation = getGitWorktreeRelaxation(strippedTokens, gitOptions), reason = analyzeGit(strippedTokens, gitOptions);
-    if (steps.push({
-      type: "rule-check",
-      ruleModule: "git",
-      ruleFunction: "analyzeGit",
-      matched: !!reason || !!relaxation,
-      reason: reason ?? relaxation?.originalReason
-    }), relaxation)
-      steps.push({
-        type: "worktree-relaxation",
-        originalReason: relaxation.originalReason,
-        gitCwd: relaxation.gitCwd
-      });
-    if (reason)
-      return { reason };
-  }
-  if (isRm) {
-    let reason = analyzeRm(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoid: options2.paranoidRm,
-      allowTmpdirVar
-    });
-    if (steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/rm.ts",
-      ruleFunction: "analyzeRm",
-      matched: !!reason,
-      reason: reason ?? void 0
-    }), reason)
-      return { reason };
-  }
-  if (isFind) {
-    let reason = analyzeFind(strippedTokens);
-    if (steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/find.ts",
-      ruleFunction: "analyzeFind",
-      matched: !!reason,
-      reason: reason ?? void 0
-    }), reason)
-      return { reason };
-  }
-  if (isXargs) {
-    let match = analyzeXargs(strippedTokens, nestedCommandContext);
-    if (steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/xargs.ts",
-      ruleFunction: "analyzeXargs",
-      matched: !!match,
-      reason: match?.reason
-    }), match)
-      return { reason: match.reason };
-  }
-  if (isParallel) {
-    let match = analyzeParallel(strippedTokens, nestedCommandContext);
-    if (steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/parallel.ts",
-      ruleFunction: "analyzeParallel",
-      matched: !!match,
-      reason: match?.reason
-    }), match)
-      return { reason: match.reason };
-  }
-  let matchedKnown = isGit || isRm || isFind || isXargs || isParallel, tokensScanned = [], fallbackReason = null, fallbackRelaxation = null, embeddedCommandFound;
-  if (!matchedKnown && !DISPLAY_COMMANDS.has(normalizeCommandToken(head)))
-    for (let i = 1;i < strippedTokens.length && !fallbackReason; i++) {
-      let token = strippedTokens[i];
-      if (!token)
-        continue;
-      tokensScanned.push(token);
-      let cmd = normalizeCommandToken(token);
-      if (isShellWrapperCommand2(token, cmd)) {
-        let innerCmd = extractDashCArg([token, ...strippedTokens.slice(i + 1)]);
-        if (innerCmd) {
-          embeddedCommandFound = cmd;
-          let redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
-          steps.push({
-            type: "shell-wrapper",
-            wrapper: cmd,
-            innerCommand: redactedInnerCmd
-          }), steps.push({
-            type: "recurse",
-            reason: "shell-wrapper",
-            innerCommand: redactedInnerCmd,
-            depth: depth + 1
-          }), fallbackReason = explainInnerSegments(innerCmd, depth, nestedOptions, steps)?.reason ?? null;
+  return context;
+}
+function createCommandTraceRecorder(options2 = {}) {
+  let events = [], maxEvents = options2.maxEvents ?? 512, limits = {
+    maxTextLength: options2.maxTextLength ?? 2048,
+    maxListLength: options2.maxListLength ?? 128,
+    maxObjectProperties: options2.maxObjectProperties ?? options2.maxListLength ?? 128,
+    maxDepth: options2.maxDepth ?? 16
+  }, droppedEvents = 0, result, sensitiveHashes = /* @__PURE__ */ new Set;
+  return {
+    record(event) {
+      if (result)
+        return;
+      try {
+        if (!event || events.length >= maxEvents) {
+          droppedEvents++;
+          return;
         }
+        events.push(deepFreeze(sanitizeEvent(event, limits, sensitiveHashes)));
+      } catch {
+        droppedEvents++;
       }
-      if (!fallbackReason && cmd === "rm") {
-        embeddedCommandFound = "rm";
-        let rmTokens = ["rm", ...strippedTokens.slice(i + 1)];
-        fallbackReason = analyzeRm(rmTokens, {
-          cwd: cwdForRm,
-          originalCwd,
-          paranoid: options2.paranoidRm,
-          allowTmpdirVar
+    },
+    finish(terminal) {
+      if (result)
+        return result;
+      try {
+        result = deepFreeze({
+          events: Object.freeze(events),
+          droppedEvents,
+          terminal: sanitizeTerminal(terminal, limits, sensitiveHashes)
+        });
+      } catch {
+        droppedEvents++, result = Object.freeze({
+          events: Object.freeze(events),
+          droppedEvents,
+          terminal: Object.freeze({
+            result: "blocked",
+            reason: "trace unavailable".slice(0, limits.maxTextLength),
+            segment: "trace unavailable".slice(0, limits.maxTextLength)
+          })
         });
       }
-      if (!fallbackReason && cmd === "git") {
-        embeddedCommandFound = "git";
-        let gitTokens = ["git", ...strippedTokens.slice(i + 1)], gitOptions = {
-          cwd: cwdForRm,
-          envAssignments,
-          worktreeMode: !1
-        };
-        fallbackRelaxation = getGitWorktreeRelaxation(gitTokens, gitOptions), fallbackReason = analyzeGit(gitTokens, gitOptions);
-      }
-      if (!fallbackReason && cmd === "find") {
-        embeddedCommandFound = "find";
-        let findTokens = ["find", ...strippedTokens.slice(i + 1)];
-        fallbackReason = analyzeFind(findTokens);
-      }
+      return result;
     }
-  if (steps.push({
-    type: "fallback-scan",
-    tokensScanned,
-    embeddedCommandFound
-  }), fallbackRelaxation)
-    steps.push({
-      type: "worktree-relaxation",
-      originalReason: fallbackRelaxation.originalReason,
-      gitCwd: fallbackRelaxation.gitCwd
-    });
-  if (fallbackReason)
-    return { reason: fallbackReason };
-  let shouldCheckCustomRules = depth === 0 || !matchedKnown, hasRules = policy.rules.length > 0;
-  if (shouldCheckCustomRules && hasRules) {
-    let customResult = checkPolicyRuleMatch(strippedTokens, policy.rules);
-    if (steps.push({
-      type: "custom-rules-check",
-      rulesChecked: !0,
-      matched: !!customResult,
-      reason: customResult?.reason
-    }), customResult)
-      return { reason: customResult.reason };
-  } else
-    steps.push({
-      type: "custom-rules-check",
-      rulesChecked: !1,
-      matched: !1
-    });
-  return null;
+  };
 }
-function isShellWrapperCommand2(head, baseNameLower) {
-  return SHELL_WRAPPERS.has(baseNameLower) || head === "$SHELL";
+function sanitizeEvent(event, limits, sensitiveHashes) {
+  if (event.kind !== "step")
+    throw TypeError("invalid trace event");
+  let { scope, step } = event;
+  collectSensitiveHashes(step, sensitiveHashes, limits);
+  let sanitizedStep = sanitizeValue(step, limits, sensitiveHashes);
+  if (scope === "global")
+    return { kind: "step", scope: "global", step: sanitizedStep };
+  if (scope !== "segment")
+    throw TypeError("invalid trace event scope");
+  return {
+    kind: "step",
+    scope: "segment",
+    segmentIndex: event.segmentIndex,
+    step: sanitizedStep
+  };
+}
+function sanitizeTerminal(terminal, limits, sensitiveHashes) {
+  let result = terminal.result;
+  if (result === "allowed")
+    return Object.freeze({ result: "allowed" });
+  if (result !== "blocked")
+    throw TypeError("invalid trace terminal");
+  let ruleId = terminal.ruleId;
+  return Object.freeze({
+    result: "blocked",
+    reason: sanitizeValue(terminal.reason, limits, sensitiveHashes),
+    segment: sanitizeValue(terminal.segment, limits, sensitiveHashes),
+    ...ruleId ? {
+      ruleId: sanitizeValue(ruleId, limits, sensitiveHashes)
+    } : {}
+  });
+}
+function collectSensitiveHashes(value, hashes, limits, depth = 0, seen = /* @__PURE__ */ new WeakSet) {
+  if (typeof value === "string") {
+    let bounded = value.slice(0, limits.maxTextLength);
+    if (!bounded.includes("="))
+      return;
+    for (let assignment of getEnvAssignmentValues(bounded))
+      for (let token of assignment.match(/[^\s"'()$]+/g) ?? [])
+        hashes.add(hashText(token));
+    return;
+  }
+  if (!value || typeof value !== "object" || depth >= limits.maxDepth || seen.has(value))
+    return;
+  if (seen.add(value), Array.isArray(value)) {
+    let length = Math.min(value.length, limits.maxListLength);
+    for (let index = 0;index < length; index++)
+      collectSensitiveHashes(value[index], hashes, limits, depth + 1, seen);
+    return;
+  }
+  let retained = 0, sanitizedKeys = /* @__PURE__ */ new Set;
+  for (let key in value) {
+    if (!Object.hasOwn(value, key))
+      continue;
+    if (retained >= limits.maxObjectProperties)
+      break;
+    retained++, collectSensitiveHashes(key, hashes, limits);
+    let sanitizedKey = sanitizeText(key, limits, hashes);
+    if (sanitizedKeys.has(sanitizedKey))
+      continue;
+    sanitizedKeys.add(sanitizedKey), collectSensitiveHashes(value[key], hashes, limits, depth + 1, seen);
+  }
+}
+function sanitizeValue(value, limits, sensitiveHashes, depth = 0, seen = /* @__PURE__ */ new WeakSet) {
+  if (typeof value === "string")
+    return sanitizeText(value, limits, sensitiveHashes);
+  if (!value || typeof value !== "object")
+    return value;
+  if (depth >= limits.maxDepth)
+    return;
+  if (seen.has(value))
+    return;
+  if (seen.add(value), Array.isArray(value)) {
+    let sanitized2 = [], length = Math.min(value.length, limits.maxListLength);
+    for (let index = 0;index < length; index++)
+      sanitized2.push(sanitizeValue(value[index], limits, sensitiveHashes, depth + 1, seen));
+    return sanitized2;
+  }
+  let sanitized = {}, retained = 0;
+  for (let key in value) {
+    if (!Object.hasOwn(value, key))
+      continue;
+    if (retained >= limits.maxObjectProperties)
+      break;
+    retained++;
+    let sanitizedKey = sanitizeText(key, limits, sensitiveHashes);
+    if (Object.hasOwn(sanitized, sanitizedKey))
+      continue;
+    Object.defineProperty(sanitized, sanitizedKey, {
+      value: sanitizeValue(value[key], limits, sensitiveHashes, depth + 1, seen),
+      enumerable: !0,
+      configurable: !0,
+      writable: !0
+    });
+  }
+  return sanitized;
+}
+function sanitizeText(value, limits, sensitiveHashes) {
+  let bounded = value.slice(0, limits.maxTextLength), assignmentsRedacted = bounded.includes("=") ? redactEnvAssignmentValues(bounded) : bounded, derivedRedacted = sensitiveHashes.size > 0 ? redactDerivedSecrets(assignmentsRedacted, sensitiveHashes) : assignmentsRedacted;
+  return (mightContainNonAssignmentSecret(derivedRedacted) ? redactNonAssignmentSecrets(derivedRedacted) : derivedRedacted).slice(0, limits.maxTextLength);
+}
+function mightContainNonAssignmentSecret(text) {
+  return text.includes("PRIVATE KEY") || text.includes("://") || text.includes("eyJ") || text.includes(":") && /(?:authorization|cookie|x-api-key|api-key|(?:^|\s)(?:-u|--user)(?:\s|=))/i.test(text) || text.length >= 14 && PROVIDER_HINTS.some((hint) => text.includes(hint)) || text.length >= 49 && /\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/.test(text);
+}
+function redactDerivedSecrets(text, hashes) {
+  return text.replace(/[^\s"'()$]+/g, (token) => hashes.has(hashText(token)) ? "<redacted>" : token);
+}
+function hashText(text) {
+  let first = 2166136261, second = 2166136261;
+  for (let index = 0;index < text.length; index++)
+    first = Math.imul(first ^ text.charCodeAt(index), 16777619), second = Math.imul(second ^ text.charCodeAt(text.length - index - 1), 16777619);
+  return `${first >>> 0}:${second >>> 0}:${text.length}`;
+}
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (let child of Object.values(value))
+      deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+// src/engine/evaluate-command.ts
+function evaluateCommandWithTrace(command2, options2, suppliedProgram, suppliedFactStore) {
+  let factStore = suppliedFactStore ?? createSemanticFactStore(), program = suppliedProgram ?? factStore.getCommandProgram(command2, options2.shell ?? "auto"), recorder = createCommandTraceRecorder(), trace = createCommandTraceContext(recorder), displayProgram = program.dialect === "powershell" ? factStore.getCommandProgram(command2, "posix") : program, entries = projectLegacyCommandEntriesFromProgram(command2, displayProgram);
+  trace.recordGlobal({
+    type: "parse",
+    input: command2,
+    segments: entries.map((entry) => [...entry.tokens])
+  });
+  let modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy), analysis = analyzeCommandInternal(command2, 0, {
+    ...options2,
+    policy: options2.policySnapshot.policy,
+    invalidReason: void 0,
+    strict: options2.strict ?? modes.strict,
+    paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
+    paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
+    worktreeMode: options2.worktreeMode ?? modes.worktreeMode,
+    analyzePartialProgram: !0,
+    compatibility: "explain-legacy",
+    factStore,
+    trace
+  }, program), strictUnclosedQuote = !!options2.strict && program.issues.some((issue) => issue.code.includes("quote"));
+  if (analysis && !strictUnclosedQuote && trace.getNextSegmentIndex() < entries.length) {
+    let index = trace.getNextSegmentIndex();
+    trace.recordSegment({ type: "segment-skipped", index, reason: "prior-segment-blocked" }, index);
+  }
+  return Object.freeze({
+    analysis,
+    trace: recorder.finish(analysis ? {
+      result: "blocked",
+      reason: analysis.reason,
+      segment: analysis.segment,
+      ...analysis.ruleId ? { ruleId: analysis.ruleId } : {}
+    } : { result: "allowed" }),
+    program
+  });
 }
 
 // src/bin/explain/analyze.ts
 function explainCommand2(command2, options2) {
-  let trace = { steps: [], segments: [] }, analyzeOpts = buildAnalyzeOptions(options2), effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.policySnapshot.policy).effectiveLevel, { configSource, configValid } = getConfigSource({
+  let analyzeOptions = buildAnalyzeOptions(options2), effectiveLevel = getCCSafetyNetEnvModes(analyzeOptions.policySnapshot.policy).effectiveLevel, { configSource, configValid } = getConfigSource({
     cwd: options2?.cwd,
     userConfigDir: options2?.userConfigDir
   });
   if (!command2 || !command2.trim())
-    return trace.steps.push({ type: "error", message: "No command provided" }), {
-      trace,
+    return {
+      trace: { steps: [{ type: "error", message: "No command provided" }], segments: [] },
       result: "allowed",
       configSource,
       configValid,
       effectiveLevel
     };
-  let entries = projectLegacyCommandEntries(command2, analyzeOpts.shell), segments = entries.map((entry) => entry.tokens), redactedInput = redactEnvAssignmentsInString(command2), redactedSegments = projectLegacySegments(redactedInput, analyzeOpts.shell).map((seg) => redactEnvAssignmentTokens(seg));
-  if (trace.steps.push({
-    type: "parse",
-    input: redactedInput,
-    segments: redactedSegments
-  }), analyzeOpts.strict && isUnparseableCommand(command2, segments))
-    return trace.steps.push({
-      type: "strict-unparseable",
-      rawCommand: redactedInput,
-      reason: REASON_STRICT_UNPARSEABLE
-    }), {
-      trace,
-      result: "blocked",
-      reason: REASON_STRICT_UNPARSEABLE,
-      segment: redactEnvAssignmentsInString(command2),
-      configSource,
-      configValid,
-      effectiveLevel
-    };
-  let cursor = { nextIndex: 0 }, block = explainProgram(parseCommand(command2, analyzeOpts.shell), 0, analyzeOpts, {
-    effectiveCwd: analyzeOpts.effectiveCwd,
-    shellGitContextState: createShellGitContextEnvState(analyzeOpts.envAssignments)
-  }, trace, cursor);
-  if (block && cursor.nextIndex < entries.length)
-    trace.segments.push({
-      index: cursor.nextIndex,
-      steps: [
-        { type: "segment-skipped", index: cursor.nextIndex, reason: "prior-segment-blocked" }
-      ]
-    });
+  let evaluation = evaluateCommandWithTrace(command2, analyzeOptions);
   return {
-    trace,
-    result: block ? "blocked" : "allowed",
-    reason: block?.reason,
-    segment: block?.segment,
-    customRule: getCustomRuleMetadata(block?.reason, options2, analyzeOpts.cwd ?? process.cwd()),
+    trace: projectExplainTrace(evaluation.trace),
+    result: evaluation.analysis ? "blocked" : "allowed",
+    reason: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.reason) : void 0,
+    segment: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.segment) : void 0,
+    customRule: sanitizeCustomRule(getCustomRule(evaluation.analysis?.ruleId, analyzeOptions.policySnapshot)),
     configSource,
     configValid,
     effectiveLevel
   };
 }
-function explainProgram(program, depth, options2, state, trace, cursor) {
-  let hasPipelineInput = !1;
-  for (let node of program.nodes) {
-    switch (node.kind) {
-      case "connector":
-        hasPipelineInput = node.operator === "|";
-        continue;
-      case "group": {
-        let result2 = explainProgram(node.body, depth, options2, node.style === "subshell" ? cloneExplainState(state) : state, trace, cursor);
-        if (result2)
-          return result2;
-        hasPipelineInput = !1;
-        continue;
+function sanitizeCustomRule(rule) {
+  if (!rule)
+    return;
+  return {
+    id: sanitizeDiagnosticText(rule.id),
+    ...rule.rulebook ? {
+      rulebook: {
+        name: sanitizeDiagnosticText(rule.rulebook.name),
+        version: sanitizeDiagnosticText(rule.rulebook.version)
       }
-      case "unknown":
-        continue;
-      case "command":
-        break;
-    }
-    for (let nested of node.nested) {
-      let nestedResult = explainProgram(nested, depth, options2, cloneExplainState(state), trace, cursor);
-      if (nestedResult)
-        return nestedResult;
-    }
-    let segment = [...projectLegacyViewTokens(node)], segmentSteps = [], index = cursor.nextIndex++;
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      let reason = dangerousInText(segment[0]);
-      if (segmentSteps.push({
-        type: "dangerous-text",
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: !!reason,
-        reason: reason ?? void 0
-      }), trace.segments.push({ index, steps: segmentSteps }), reason)
-        return { reason, segment: redactEnvAssignmentsInString(segment.join(" ")) };
-      updateExplainState(segment, state, segmentSteps);
-      continue;
-    }
-    if (node.dialect === "powershell" && options2.policySnapshot.state === "ready") {
-      let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(node, hasPipelineInput, {
-        cwd: state.effectiveCwd === null ? void 0 : state.effectiveCwd ?? options2.cwd,
-        originalCwd: state.effectiveCwd === null ? void 0 : options2.cwd,
-        paranoid: options2.paranoidRm,
-        allowTmpdirVar: options2.allowTmpdirVar
-      }), options2.policySnapshot.policy);
-      if (segmentSteps.push({
-        type: "rule-check",
-        ruleModule: "analyze/powershell/remove-item.ts",
-        ruleFunction: "analyzePowerShellCommandViewMatch",
-        matched: !!match,
-        reason: match?.reason
-      }), match)
-        return trace.segments.push({ index, steps: segmentSteps }), {
-          reason: match.reason,
-          segment: redactEnvAssignmentsInString(node.legacyNormalized)
-        };
-    }
-    let result = explainSegment(segment, depth, {
-      ...options2,
-      effectiveCwd: state.effectiveCwd,
-      envAssignments: getSegmentGitContextEnvAssignments(segment, state.shellGitContextState)
-    }, segmentSteps, node);
-    if (trace.segments.push({ index, steps: segmentSteps }), result)
-      return {
-        reason: result.reason,
-        segment: redactEnvAssignmentsInString(node.legacyNormalized)
-      };
-    updateExplainState(segment, state, segmentSteps), hasPipelineInput = !1;
-  }
-  return null;
-}
-function updateExplainState(segment, state, steps) {
-  let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
-  if (nextCwd !== void 0) {
-    if (nextCwd === null)
-      steps.push(cwdChangeStep(segment));
-    state.effectiveCwd = nextCwd;
-  }
-  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
-}
-function cloneExplainState(state) {
-  return {
-    effectiveCwd: state.effectiveCwd,
-    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState)
-  };
-}
-function cwdChangeStep(segment) {
-  return {
-    type: "cwd-change",
-    segment: redactEnvAssignmentsInString(segment.join(" ")),
-    effectiveCwdNowUnknown: !0
-  };
-}
-function getCustomRuleMetadata(reason, options2, cwd) {
-  let id = reason?.match(/^\[([^\]]+)]/)?.[1];
-  if (!id)
-    return;
-  if (options2?.policySnapshot)
-    return options2.policySnapshot.policy.rules.some((rule) => rule.name === id) ? { id } : void 0;
-  let policy = loadRulesPolicy({ cwd, userConfigDir: options2?.userConfigDir });
-  if (!policy.rules.some((rule) => rule.name === id))
-    return;
-  let rulebook = policy.rulebooks.find((item) => item.rules.includes(id)), override = {
-    ...policy.userConfig?.overrides ?? {},
-    ...policy.projectConfig?.overrides ?? {}
-  }[id];
-  return {
-    id,
-    ...rulebook ? {
-      rulebook: { name: rulebook.name, version: rulebook.version },
-      source: rulebook.spec
     } : {},
-    ...override && typeof override === "object" ? { override: { type: "reason", reason: override.reason } } : {}
+    ...rule.source ? { source: sanitizeDiagnosticText(rule.source) } : {},
+    ...rule.override ? {
+      override: {
+        type: "reason",
+        reason: sanitizeDiagnosticText(rule.override.reason)
+      }
+    } : {}
   };
+}
+function projectExplainTrace(trace) {
+  let steps = trace.events.flatMap((event) => event.kind === "step" && event.scope === "global" ? [event.step] : []), segments = /* @__PURE__ */ new Map;
+  for (let event of trace.events) {
+    if (event.kind !== "step" || event.scope !== "segment")
+      continue;
+    let segment = segments.get(event.segmentIndex) ?? { index: event.segmentIndex, steps: [] };
+    segment.steps.push(event.step), segments.set(event.segmentIndex, segment);
+  }
+  return { steps, segments: [...segments.values()] };
+}
+function getCustomRule(ruleId, snapshot) {
+  let id = ruleId?.replace(/^custom\./, "");
+  if (!id || !snapshot.policy.rules.some((rule) => rule.name === id))
+    return;
+  return getPolicyRuleMetadata(snapshot, id) ?? Object.freeze({ id });
 }
 // src/bin/explain/flags.ts
 function parseExplainFlags(args) {

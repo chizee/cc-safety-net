@@ -5,5 +5,6 @@ export interface AnalyzeRmOptions {
     paranoid?: boolean;
     allowTmpdirVar?: boolean;
 }
+/** @internal */
 export declare function analyzeRm(tokens: string[], options?: AnalyzeRmOptions): string | null;
 export declare function analyzeRmMatch(tokens: string[], options?: AnalyzeRmOptions): DestructiveCommandRuleMatch | null;
