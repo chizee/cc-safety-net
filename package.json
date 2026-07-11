@@ -34,7 +34,7 @@
     "lint:ci": "biome ci .",
     "typecheck": "tsc --noEmit",
     "knip": "knip --production",
-    "check-duplicates": "bunx jscpd src tests --exitCode 1 --reporters ai",
+    "check-duplicates": "bunx jscpd src tests --noTips --exitCode 1 --reporters ai",
     "sg:scan": "ast-grep scan",
     "test": "bun test",
     "cc-safety-net": "bun run src/bin/cc-safety-net.ts",
