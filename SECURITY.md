@@ -27,6 +27,8 @@ The current public command analyzer returns `null` when it allows a command and 
 
 PowerShell support is partial. Its parser preserves native quoting, path separators, connectors, pipelines, and dynamic-word provenance for a conservative subset centered on `Remove-Item` and its supported aliases, plus existing cross-shell command rules; it is not a general PowerShell parser. Explicit `powershell` mode and quote-aware `auto` detection are covered, while `posix` mode intentionally does not apply PowerShell removal rules.
 
+The structural command IR is produced by the bounded internal POSIX and PowerShell parsers. Published JavaScript artifacts also embed `shell-quote` for legacy POSIX token and display compatibility. Although `shell-quote` is a build-time dependency in `package.json`, its bundled code is treated as production code for vulnerability monitoring, dependency audits, updates, SBOM generation, and security review.
+
 ## Reporting a Vulnerability
 
 Please do not report security vulnerabilities in public GitHub issues.

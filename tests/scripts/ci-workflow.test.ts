@@ -29,6 +29,12 @@ describe('CI and release workflows', () => {
     expect(workflow).toContain('git diff --exit-code -- dist assets/cc-safety-net.schema.json');
   });
 
+  test('audits bundled build dependencies instead of omitting development dependencies', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(workflow).toContain('run: bun run audit:dependencies');
+    expect(workflow).not.toMatch(/bun audit[^\n]*(?:--production|--omit[= ]dev)/);
+  });
+
   test('contains no history-rewriting release commands', () => {
     const source = workflows.map((entry) => entry[1]).join('\n');
     expect(source).not.toMatch(/git (?:push[^\n]*--force|reset|rebase|tag -f)/);

@@ -50,6 +50,8 @@ All-tool routing is not complete PowerShell path parsing. Complete coverage requ
 
 The command analyzer uses separate bounded parsers for POSIX-like shell commands and the supported PowerShell subset. These parsers model command boundaries, redirections, groups, substitutions, word provenance, and source spans; they are not claims of complete Bash or PowerShell grammar support. Malformed input is reported as partial, while commands beyond the parser's input, word, or nesting budgets are denied instead of being analyzed incompletely.
 
+For backward compatibility, published JavaScript bundles also embed `shell-quote` for legacy POSIX token projection. It is listed under `devDependencies` because package consumers do not resolve it at runtime, but its bundled code remains part of the production security surface and is included in dependency auditing.
+
 ## Prerequisites
 
 - **Node.js** 18 or higher.

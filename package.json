@@ -19,6 +19,7 @@
     "dist"
   ],
   "scripts": {
+    "audit:dependencies": "bun audit",
     "build": "bun run clean && bun run scripts/build.ts",
     "build:types": "tsc --project tsconfig.build.json --emitDeclarationOnly --declaration",
     "build:schema": "bun run scripts/build-schema.ts",
@@ -63,7 +64,7 @@
     "jscpd": "^4.0.9",
     "knip": "^5.79.0",
     "lint-staged": "^16.2.7",
-    "shell-quote": "^1.8.4"
+    "shell-quote": "^1.10.0"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.0.224"
@@ -80,6 +81,12 @@
   },
   "dependencies": {
     "zod": "4.3.5"
+  },
+  "overrides": {
+    "picomatch@^2.3.1": "2.3.2",
+    "picomatch@^4.0.1": "^4.0.5",
+    "smol-toml": "^1.7.0",
+    "yaml": "^2.9.0"
   },
   "trustedDependencies": [
     "@ast-grep/cli"

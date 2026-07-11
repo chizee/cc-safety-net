@@ -23,12 +23,13 @@ describe('published runtime contract', () => {
     expect(pkg.dependencies).toEqual({ zod: '4.3.5' });
     expect(pkg.devDependencies).toMatchObject({
       '@opencode-ai/plugin': '^1.0.224',
-      'shell-quote': '^1.8.4',
+      'shell-quote': '^1.10.0',
     });
     expect(pkg.peerDependencies).toEqual({ '@opencode-ai/plugin': '^1.0.224' });
     expect(pkg.peerDependenciesMeta).toEqual({
       '@opencode-ai/plugin': { optional: true },
     });
+    expect((pkg.scripts as Record<string, string>)['audit:dependencies']).toBe('bun audit');
     expect(pkg.gitHead).toBeUndefined();
   });
 });

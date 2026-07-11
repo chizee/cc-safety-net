@@ -25,19 +25,19 @@ var require_quote = __commonJS((exports, module) => {
       if (s === "")
         return "''";
       if (s && typeof s === "object") {
-        if (s.op === "glob") {
+        if ("op" in s && s.op === "glob") {
           if (typeof s.pattern !== "string")
             throw TypeError("glob token requires a string `pattern`");
           if (LINE_TERMINATORS.test(s.pattern))
             throw TypeError("glob `pattern` must not contain line terminators");
           return s.pattern.replace(GLOB_SHELL_SPECIAL, "\\$&");
         }
-        if (typeof s.op === "string") {
+        if ("op" in s && typeof s.op === "string") {
           if (OPS.indexOf(s.op) < 0)
             throw TypeError("invalid `op` value: " + JSON.stringify(s.op));
           return s.op.replace(/[\s\S]/g, "\\$&");
         }
-        if (typeof s.comment === "string") {
+        if ("comment" in s && typeof s.comment === "string") {
           if (LINE_TERMINATORS.test(s.comment))
             throw TypeError("`comment` must not contain line terminators");
           return "#" + s.comment;
@@ -48,7 +48,7 @@ var require_quote = __commonJS((exports, module) => {
         return "'" + s.replace(/(['])/g, "\\$1") + "'";
       if (/["'\s]/.test(s))
         return '"' + s.replace(/(["\\$`!])/g, "\\$1") + '"';
-      return String(s).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}])/g, "$1\\$2");
+      return String(s).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}~])/g, "$1\\$2");
     }).join(" ");
   };
 });
@@ -66,14 +66,14 @@ var require_parse = __commonJS((exports, module) => {
     ">\\&",
     "<\\&",
     "[&;()|<>]"
-  ].join("|") + ")", controlRE = new RegExp("^" + CONTROL + "$"), META = "|&;()<> \\t", SINGLE_QUOTE = '"((\\\\"|[^"])*?)"', DOUBLE_QUOTE = "'((\\\\'|[^'])*?)'", hash = /^#$/, SQ = "'", DQ = '"', DS = "$", TOKEN = "", mult = 4294967296;
+  ].join("|") + ")", controlRE = new RegExp("^" + CONTROL + "$"), META = "|&;()<> \\t", SINGLE_QUOTE = "'([^']*?)'", DOUBLE_QUOTE = '"((\\\\"|[^"])*?)"', hash = /^#$/, SQ = "'", DQ = '"', DS = "$", TOKEN = "", mult = 4294967296;
   for (i = 0;i < 4; i++)
     TOKEN += (mult * Math.random()).toString(16);
   var i, startsWithToken = new RegExp("^" + TOKEN);
   function matchAll(s, r) {
     var origIndex = r.lastIndex, matches = [], matchObj;
     while (matchObj = r.exec(s))
-      if (matches.push(matchObj), r.lastIndex === matchObj.index)
+      if (matches[matches.length] = matchObj, r.lastIndex === matchObj.index)
         r.lastIndex += 1;
     return r.lastIndex = origIndex, matches;
   }
@@ -90,9 +90,10 @@ var require_parse = __commonJS((exports, module) => {
   function parseInternal(string, env, opts) {
     if (!opts)
       opts = {};
-    var BS = opts.escape || "\\", BAREWORD = "(\\" + BS + `['"` + META + `]|[^\\s'"` + META + "])+", chunker = new RegExp([
+    var BS = opts.escape || "\\", ifs = opts.splitUnquoted === !0 ? ` 	
+` : typeof opts.splitUnquoted === "string" ? opts.splitUnquoted : "", BAREWORD = "(\\" + BS + `['"` + META + `]|[^\\s'"` + META + "])+", chunker = new RegExp([
       "(" + CONTROL + ")",
-      "(" + BAREWORD + "|" + SINGLE_QUOTE + "|" + DOUBLE_QUOTE + ")+"
+      "(" + BAREWORD + "|" + DOUBLE_QUOTE + "|" + SINGLE_QUOTE + ")+"
     ].join("|"), "g"), matches = matchAll(string, chunker);
     if (matches.length === 0)
       return [];
@@ -105,16 +106,25 @@ var require_parse = __commonJS((exports, module) => {
         return;
       if (controlRE.test(s))
         return { op: s };
-      var quote = !1, esc = !1, out = "", isGlob = !1, i2;
+      var quote = !1, esc = !1, out = "", words = [], sawQuote = !1, pendingNw = null, isGlob = !1, i2;
       function parseEnvVar() {
         i2 += 1;
         var varend, varname, char = s.charAt(i2);
         if (char === "{") {
           if (i2 += 1, s.charAt(i2) === "}")
             throw Error("Bad substitution: " + s.slice(i2 - 2, i2 + 1));
-          if (varend = s.indexOf("}", i2), varend < 0)
+          var depth = 1;
+          varend = i2;
+          while (depth > 0 && varend < s.length) {
+            if (s.charAt(varend) === "{" && s.charAt(varend - 1) === "$")
+              depth += 1;
+            else if (s.charAt(varend) === "}")
+              depth -= 1;
+            varend += 1;
+          }
+          if (depth !== 0)
             throw Error("Bad substitution: " + s.slice(i2));
-          varname = s.slice(i2, varend), i2 = varend;
+          varend -= 1, varname = s.slice(i2, varend), i2 = varend;
         } else if (/[*@#?$!_-]/.test(char))
           varname = char, i2 += 1;
         else {
@@ -126,8 +136,23 @@ var require_parse = __commonJS((exports, module) => {
         }
         return getVar(env, "", varname);
       }
+      function flushRun() {
+        if (pendingNw === null)
+          return;
+        if (pendingNw === 0) {
+          if (out !== "")
+            words[words.length] = out, out = "";
+        } else {
+          words[words.length] = out, out = "";
+          for (var fe = 1;fe < pendingNw; fe += 1)
+            words[words.length] = "";
+        }
+        pendingNw = null;
+      }
       for (i2 = 0;i2 < s.length; i2++) {
         var c = s.charAt(i2);
+        if (ifs && c !== DS)
+          flushRun();
         if (isGlob = isGlob || !quote && (c === "*" || c === "?"), esc)
           out += c, esc = !1;
         else if (quote)
@@ -145,7 +170,7 @@ var require_parse = __commonJS((exports, module) => {
           else
             out += c;
         else if (c === DQ || c === SQ)
-          quote = c;
+          quote = c, sawQuote = !0;
         else if (controlRE.test(c))
           return { op: s };
         else if (hash.test(c)) {
@@ -156,16 +181,44 @@ var require_parse = __commonJS((exports, module) => {
           return [commentObj];
         } else if (c === BS)
           esc = !0;
-        else if (c === DS)
-          out += parseEnvVar();
-        else
+        else if (c === DS) {
+          var value = parseEnvVar();
+          if (!ifs)
+            out += value;
+          else
+            for (var vi = 0;vi < value.length; vi += 1) {
+              var vc = value.charAt(vi);
+              if (ifs.indexOf(vc) < 0)
+                flushRun(), out += vc;
+              else if (pendingNw === null)
+                pendingNw = vc === " " || vc === "\t" || vc === `
+` ? 0 : 1;
+              else if (vc !== " " && vc !== "\t" && vc !== `
+`)
+                pendingNw += 1;
+            }
+        } else
           out += c;
       }
       if (isGlob)
         return { op: "glob", pattern: out };
+      if (ifs) {
+        if (pendingNw !== null && pendingNw > 0) {
+          words[words.length] = out, out = "";
+          for (var te = 1;te < pendingNw; te += 1)
+            words[words.length] = "";
+        }
+        if (out !== "" || sawQuote && words.length === 0)
+          words[words.length] = out;
+        return words;
+      }
       return out;
     }).reduce(function(prev, arg) {
-      return typeof arg > "u" ? prev : prev.concat(arg);
+      if (typeof arg > "u")
+        return prev;
+      return [].concat(arg).forEach(function(entry) {
+        prev[prev.length] = entry;
+      }), prev;
     }, []);
   }
   module.exports = function(s, env, opts) {
@@ -174,15 +227,13 @@ var require_parse = __commonJS((exports, module) => {
       return mapped;
     return mapped.reduce(function(acc, s2) {
       if (typeof s2 === "object")
-        return acc.concat(s2);
+        return acc[acc.length] = s2, acc;
       var xs = s2.split(RegExp("(" + TOKEN + ".*?" + TOKEN + ")", "g"));
       if (xs.length === 1)
-        return acc.concat(xs[0]);
-      return acc.concat(xs.filter(Boolean).map(function(x) {
-        if (startsWithToken.test(x))
-          return JSON.parse(x.split(TOKEN)[1]);
-        return x;
-      }));
+        return acc[acc.length] = xs[0], acc;
+      return xs.filter(Boolean).forEach(function(x) {
+        acc[acc.length] = startsWithToken.test(x) ? JSON.parse(x.split(TOKEN)[1]) : x;
+      }), acc;
     }, []);
   };
 });

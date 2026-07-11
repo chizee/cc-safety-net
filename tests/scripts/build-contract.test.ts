@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { requiresRepositoryExecutableMode, verifyBuildArtifacts } from '../../scripts/verify-build';
+import {
+  hasUnresolvedShellQuoteImport,
+  requiresRepositoryExecutableMode,
+  verifyBuildArtifacts,
+} from '../../scripts/verify-build';
 
 describe('generated artifact contract', () => {
   test('tracks only the four owned runtime artifacts', async () => {
@@ -17,6 +21,12 @@ describe('generated artifact contract', () => {
     expect(declaration).toContain('CCSafetyNetPlugin');
     expect(declaration).not.toContain('resolveOpenCodeShellRoute');
     expect(declaration).not.toContain('normalizeOpenCodeWindowsWorkdir');
+  });
+
+  test('detects unresolved shell-quote runtime imports without rejecting bundled source markers', () => {
+    expect(hasUnresolvedShellQuoteImport('import { parse } from "shell-quote";')).toBeTrue();
+    expect(hasUnresolvedShellQuoteImport('const parser = require("shell-quote/parse")')).toBeTrue();
+    expect(hasUnresolvedShellQuoteImport('// node_modules/shell-quote/parse.js')).toBeFalse();
   });
 
   test('skips repository filesystem mode enforcement only on Windows', () => {

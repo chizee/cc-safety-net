@@ -12,6 +12,12 @@ export function requiresRepositoryExecutableMode(platform: NodeJS.Platform): boo
   return platform !== 'win32';
 }
 
+export function hasUnresolvedShellQuoteImport(source: string): boolean {
+  return /(?:\bfrom\s+|\bimport\s*(?:\(\s*)?|\brequire\w*\(\s*)['"]shell-quote(?:\/[^'"]*)?['"]/.test(
+    source,
+  );
+}
+
 async function listFiles(directory: string): Promise<string[]> {
   return (
     await Promise.all(
@@ -41,6 +47,20 @@ export async function verifyBuildArtifacts(): Promise<string[]> {
   }
   if (!(await readFile('dist/bin/cc-safety-net.js', 'utf8')).startsWith('#!/usr/bin/env node\n')) {
     throw new Error('dist/bin/cc-safety-net.js has the wrong shebang');
+  }
+  const unresolvedShellQuoteImports = (
+    await Promise.all(
+      files
+        .filter((path) => path.endsWith('.js'))
+        .map(async (path) =>
+          hasUnresolvedShellQuoteImport(await readFile(path, 'utf8')) ? path : null,
+        ),
+    )
+  ).filter((path) => path !== null);
+  if (unresolvedShellQuoteImports.length > 0) {
+    throw new Error(
+      `Build artifacts contain unresolved shell-quote imports:\n${unresolvedShellQuoteImports.join('\n')}`,
+    );
   }
   return files;
 }

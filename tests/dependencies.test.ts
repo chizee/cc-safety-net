@@ -10,9 +10,9 @@ describe('runtime dependencies', () => {
     const lockfile = readFileSync('bun.lock', 'utf-8');
 
     expect(packageJson.dependencies).toEqual({ zod: '4.3.5' });
-    expect(packageJson.devDependencies?.['shell-quote']).toBe('^1.8.4');
-    expect(lockfile).toContain('"shell-quote": "^1.8.4"');
-    expect(lockfile).toContain('"shell-quote": ["shell-quote@1.8.4"');
-    expect(lockfile).not.toContain('shell-quote@1.8.3');
+    expect(packageJson.devDependencies?.['shell-quote']).toBe('^1.10.0');
+    expect(lockfile).toContain('"shell-quote": "^1.10.0"');
+    expect(lockfile).toContain('"shell-quote": ["shell-quote@1.10.0"');
+    expect(lockfile).not.toContain('shell-quote@1.8.4');
   });
 });
