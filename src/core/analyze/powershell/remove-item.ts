@@ -1,4 +1,3 @@
-import { type PowerShellToken, tokenizePowerShell } from '@/core/analyze/powershell/tokenize';
 import {
   classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
@@ -8,10 +7,16 @@ import {
 } from '@/core/analyze/recursive-delete-targets';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { ENV_FLAGS } from '@/core/env';
+import type { CommandView } from '@/domain/command';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
+type PowerShellToken = {
+  kind: 'word';
+  text: string;
+  dynamic: boolean;
+};
+
 const REMOVE_ITEM_ALIASES = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 'rm', 'rmdir']);
-const AUTO_REMOVE_ITEM_ALIASES = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 'rmdir']);
 
 const REASON_REMOVE_ITEM_RF =
   'PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
@@ -44,48 +49,22 @@ interface ParsedRemoveItem {
   hasDynamicTarget: boolean;
 }
 
-export function analyzePowerShellRemoveItemMatch(
-  command: string,
+/** @internal */
+export function analyzePowerShellCommandViewMatch(
+  command: CommandView,
+  hasPipelineInput: boolean,
   options: AnalyzePowerShellRemoveItemOptions = {},
+  ctx: RecursiveDeleteTargetContext = createRecursiveDeleteTargetContext(options),
 ): DestructiveCommandRuleMatch | null {
-  const ctx = createRecursiveDeleteTargetContext(options);
-  let segment: PowerShellToken[] = [];
-  let hasPipelineInput = false;
-
-  for (const token of tokenizePowerShell(command)) {
-    if (token.kind === 'word') {
-      segment.push(token);
-      continue;
-    }
-
-    const match = analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-    if (match) return match;
-
-    segment = [];
-    hasPipelineInput = token.text === '|';
-    if (token.text !== '|') {
-      hasPipelineInput = false;
-    }
-  }
-
-  return analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-}
-
-export function shouldAnalyzePowerShellRemoveItem(command: string): boolean {
-  const words = tokenizePowerShell(command).filter((token) => token.kind === 'word');
-  for (let i = 0; i < words.length; i++) {
-    const token = words[i];
-    if (!token || token.kind !== 'word') continue;
-    const normalized = normalizeCommandName(token.text);
-    if (AUTO_REMOVE_ITEM_ALIASES.has(normalized)) return true;
-    if (
-      normalized === 'rm' &&
-      words.slice(i + 1).some((word) => isPowerShellSpecificRmParameter(word))
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return analyzePowerShellSegment(
+    command.words.map((word) => ({
+      kind: 'word',
+      text: word.text,
+      dynamic: word.provenance !== 'literal',
+    })),
+    hasPipelineInput,
+    ctx,
+  );
 }
 
 function analyzePowerShellSegment(
@@ -275,20 +254,6 @@ function isProtectiveSwitchValue(value: string | undefined): boolean {
   }
   const normalized = value.toLowerCase();
   return normalized === '$true' || normalized === 'true';
-}
-
-function isPowerShellSpecificRmParameter(token: PowerShellToken): boolean {
-  if (token.kind !== 'word') return false;
-  const parameter = parseParameter(token.text);
-  if (!parameter) return false;
-  return (
-    (isForceParameter(parameter.name) && parameter.name !== 'f') ||
-    (isRecurseParameter(parameter.name) && parameter.name !== 'r') ||
-    isPathParameter(parameter.name) ||
-    isWhatIfParameter(parameter.name) ||
-    parameter.name === 'confirm' ||
-    parameter.name === 'cf'
-  );
 }
 
 function normalizeCommandName(name: string): string {

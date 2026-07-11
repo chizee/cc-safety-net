@@ -47,7 +47,7 @@ export function hasUnclosedQuotes(command: string): boolean {
   return state.inSingle || state.inDouble;
 }
 
-export function stripShellComments(command: string): string {
+function stripShellComments(command: string): string {
   let result = '';
   const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
   let inComment = false;

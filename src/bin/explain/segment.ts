@@ -25,7 +25,7 @@ import {
 } from '@/core/analyze/interpreters';
 import { analyzeParallel } from '@/core/analyze/parallel';
 import { analyzeRm } from '@/core/analyze/rm';
-import { segmentChangesCwd } from '@/core/analyze/segment';
+import { analyzeDynamicCommandStructure, segmentChangesCwd } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
   createShellGitContextEnvState,
@@ -35,15 +35,17 @@ import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { analyzeXargs } from '@/core/analyze/xargs';
+import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/core/git';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import {
   normalizeCommandToken,
-  splitShellCommands,
   stripEnvAssignmentsWithInfo,
   stripWrappersWithInfo,
 } from '@/core/shell';
+import type { CommandView } from '@/domain/command';
+import { projectLegacyCommandEntries, sliceCommandView } from '@/parser/projection';
 import type {
   AnalyzeNestedOverrides,
   AnalyzeOptions,
@@ -56,7 +58,10 @@ export interface SegmentResult {
   reason: string;
 }
 
-export function isUnparseableCommand(command: string, segments: string[][]): boolean {
+export function isUnparseableCommand(
+  command: string,
+  segments: readonly (readonly string[])[],
+): boolean {
   return (
     segments.length === 1 &&
     segments[0]?.length === 1 &&
@@ -81,7 +86,8 @@ function explainInnerSegments(
     return { reason: REASON_RECURSION_LIMIT };
   }
 
-  const innerSegments = splitShellCommands(innerCmd);
+  const innerEntries = projectLegacyCommandEntries(innerCmd, options.shell);
+  const innerSegments = innerEntries.map((entry) => entry.tokens);
 
   if (options.strict && isUnparseableCommand(innerCmd, innerSegments)) {
     steps.push({
@@ -99,7 +105,9 @@ function explainInnerSegments(
     options.effectiveCwd === undefined ? options.cwd : options.effectiveCwd;
   const shellGitContextState = createShellGitContextEnvState(options.envAssignments);
 
-  for (const segment of innerSegments) {
+  for (let entryIndex = 0; entryIndex < innerEntries.length; entryIndex++) {
+    const segment = innerEntries[entryIndex]?.tokens;
+    if (!segment) continue;
     // Check for unparseable segment (single token with spaces) - matches guard behavior
     if (segment.length === 1 && segment[0]?.includes(' ')) {
       const textReason = dangerousInText(segment[0]);
@@ -129,7 +137,7 @@ function explainInnerSegments(
     }
 
     const result = explainSegment(
-      segment,
+      [...segment],
       depth + 1,
       {
         ...options,
@@ -137,6 +145,7 @@ function explainInnerSegments(
         envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState),
       },
       steps,
+      innerEntries[entryIndex]?.view,
     );
     if (result) return result;
 
@@ -159,6 +168,7 @@ export function explainSegment(
   depth: number,
   options: AnalyzeOptions,
   steps: TraceStep[],
+  commandView?: CommandView,
 ): SegmentResult | null {
   if (depth >= MAX_RECURSION_DEPTH) {
     steps.push({
@@ -185,6 +195,15 @@ export function explainSegment(
   const originalCwd = cwdUnknown ? undefined : options.cwd;
 
   const wrapperResult = stripWrappersWithInfo(envResult.tokens, baseCwdForRm);
+  const normalizedCommandView = commandView
+    ? sliceCommandView(
+        commandView,
+        tokens.length -
+          envResult.tokens.length +
+          envResult.tokens.length -
+          wrapperResult.tokens.length,
+      )
+    : undefined;
   const removed = envResult.tokens.slice(0, envResult.tokens.length - wrapperResult.tokens.length);
   if (removed.length > 0) {
     steps.push({
@@ -217,6 +236,20 @@ export function explainSegment(
   }
 
   const policy = options.policySnapshot.policy;
+  const dynamicCommandMatch = filterDestructiveCommandMatch(
+    analyzeDynamicCommandStructure(normalizedCommandView),
+    policy,
+  );
+  if (dynamicCommandMatch) {
+    steps.push({
+      type: 'rule-check',
+      ruleModule: 'analyze/segment.ts',
+      ruleFunction: 'analyzeDynamicCommandStructure',
+      matched: true,
+      reason: dynamicCommandMatch.reason,
+    });
+    return { reason: dynamicCommandMatch.reason };
+  }
   let head = strippedTokens[0];
   if (!head) return null;
 
@@ -228,8 +261,12 @@ export function explainSegment(
       output: transparentWrapper.tokens,
     });
     strippedTokens = transparentWrapper.tokens;
+    const transparentCommandView = normalizedCommandView
+      ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex)
+      : undefined;
     head = strippedTokens[0];
     if (!head) return null;
+    return explainSegment(strippedTokens, depth, nestedOptions, steps, transparentCommandView);
   }
 
   // Derive baseName case-sensitively (matches guard behavior)
@@ -328,7 +365,13 @@ export function explainSegment(
       innerCommand: redactEnvAssignmentsInString(busyboxInnerCmd),
       depth: depth + 1,
     });
-    return explainSegment(strippedTokens.slice(1), depth + 1, nestedOptions, steps);
+    return explainSegment(
+      strippedTokens.slice(1),
+      depth + 1,
+      nestedOptions,
+      steps,
+      normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : undefined,
+    );
   }
 
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);

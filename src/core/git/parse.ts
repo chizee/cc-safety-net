@@ -1,6 +1,5 @@
-import { type ParseEntry, parse } from 'shell-quote';
 import { getBasename } from '@/core/shell';
-import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { parseSimpleWords } from '@/parser/projection';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from './worktree';
 
 const MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
@@ -251,14 +250,11 @@ function getGitConfigParameterEntries(
   if (parameters === undefined) {
     return [];
   }
-  if (hasUnclosedQuotes(parameters)) {
-    return null;
-  }
-
   const entries: GitConfigEntry[] = [];
-  for (const entry of parse(parameters, ENV_PROXY)) {
-    const token = getCommandTokenText(entry as ParseEntry);
-    const configEntry = parseGitConfigEntry(token ?? undefined);
+  const parsed = parseSimpleWords(parameters);
+  if (!parsed) return null;
+  for (const token of parsed) {
+    const configEntry = parseGitConfigEntry(token);
     if (!configEntry) {
       return null;
     }
@@ -327,17 +323,8 @@ function getEnvConfigValue(
 
 function parseGitAliasValue(value: string | undefined): string[] | null {
   const trimmedValue = value?.trimStart();
-  if (!trimmedValue || trimmedValue.startsWith('!') || hasUnclosedQuotes(trimmedValue)) {
+  if (!trimmedValue || trimmedValue.startsWith('!')) {
     return null;
   }
-
-  const result: string[] = [];
-  for (const entry of parse(trimmedValue, ENV_PROXY)) {
-    const token = getCommandTokenText(entry as ParseEntry);
-    if (token === null) {
-      return null;
-    }
-    result.push(token);
-  }
-  return result;
+  return parseSimpleWords(trimmedValue);
 }

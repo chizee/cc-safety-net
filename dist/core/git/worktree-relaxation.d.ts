@@ -3,6 +3,7 @@ export interface GitAnalyzeOptions {
     cwd?: string;
     envAssignments?: ReadonlyMap<string, string>;
     worktreeMode?: boolean;
+    dynamicArguments?: boolean;
 }
 export interface GitWorktreeRelaxation {
     originalReason: string;

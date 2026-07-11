@@ -6,21 +6,26 @@ import { buildAnalyzeOptions, getConfigSource } from '@/bin/explain/config';
 import { redactEnvAssignmentsInString, redactEnvAssignmentTokens } from '@/bin/explain/redact';
 import { explainSegment, isUnparseableCommand } from '@/bin/explain/segment';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
-import {
-  analyzePowerShellRemoveItemMatch,
-  shouldAnalyzePowerShellRemoveItem,
-} from '@/core/analyze/powershell/remove-item';
+import { analyzePowerShellCommandViewMatch } from '@/core/analyze/powershell/remove-item';
 import { resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
+  cloneShellGitContextEnvState,
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
+  type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { loadRulesPolicy } from '@/core/rules/policy';
-import { splitShellCommands } from '@/core/shell';
+import type { CommandProgram } from '@/domain/command';
+import { parseCommand } from '@/parser/command';
+import {
+  projectLegacyCommandEntries,
+  projectLegacySegments,
+  projectLegacyViewTokens,
+} from '@/parser/projection';
 import type { ExplainOptions, ExplainResult, ExplainTrace, TraceStep } from '@/types';
 
 export function explainCommand(command: string, options?: ExplainOptions): ExplainResult {
@@ -43,9 +48,10 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     };
   }
 
-  const segments = splitShellCommands(command);
+  const entries = projectLegacyCommandEntries(command, analyzeOpts.shell);
+  const segments = entries.map((entry) => entry.tokens);
   const redactedInput = redactEnvAssignmentsInString(command);
-  const redactedSegments = splitShellCommands(redactedInput).map((seg) =>
+  const redactedSegments = projectLegacySegments(redactedInput, analyzeOpts.shell).map((seg) =>
     redactEnvAssignmentTokens(seg),
   );
   trace.steps.push({
@@ -71,140 +77,171 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     };
   }
 
-  let blocked = false;
-  let blockReason: string | undefined;
-  let blockSegment: string | undefined;
-  let effectiveCwd: string | null | undefined = analyzeOpts.effectiveCwd;
-  const shellGitContextState = createShellGitContextEnvState(analyzeOpts.envAssignments);
-
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    if (!segment) continue;
-
-    const segmentSteps: TraceStep[] = [];
-
-    if (blocked) {
-      segmentSteps.push({
-        type: 'segment-skipped',
-        index: i,
-        reason: 'prior-segment-blocked',
-      });
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-
-    // Check for unparseable segment (single token with spaces) - matches guard behavior
-    if (segment.length === 1 && segment[0]?.includes(' ')) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        segmentSteps.push({
-          type: 'dangerous-text',
-          token: redactEnvAssignmentsInString(segment[0]),
-          matched: true,
-          reason: textReason,
-        });
-        trace.segments.push({ index: i, steps: segmentSteps });
-        blocked = true;
-        blockReason = textReason;
-        blockSegment = redactEnvAssignmentsInString(segment.join(' '));
-        continue;
-      }
-      segmentSteps.push({
-        type: 'dangerous-text',
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: false,
-      });
-      const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd !== undefined) {
-        if (nextCwd !== null) {
-          effectiveCwd = nextCwd;
-          trace.segments.push({ index: i, steps: segmentSteps });
-          continue;
-        }
-        segmentSteps.push(cwdChangeStep(segment));
-        effectiveCwd = null;
-      }
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-
-    const result = explainSegment(
-      segment,
-      0,
-      {
-        ...analyzeOpts,
-        effectiveCwd,
-        envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState),
-      },
-      segmentSteps,
-    );
-
-    if (result) {
-      blocked = true;
-      blockReason = result.reason;
-      blockSegment = redactEnvAssignmentsInString(segment.join(' '));
-    }
-
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      if (nextCwd !== null) {
-        effectiveCwd = nextCwd;
-        applyShellGitContextEnvSegment(segment, shellGitContextState);
-        trace.segments.push({ index: i, steps: segmentSteps });
-        continue;
-      }
-      segmentSteps.push(cwdChangeStep(segment));
-      effectiveCwd = null;
-    }
-
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-
-    trace.segments.push({ index: i, steps: segmentSteps });
-  }
-
-  if (
-    !blocked &&
-    analyzeOpts.policySnapshot.state === 'ready' &&
-    shouldAnalyzePowerShellRemoveItem(command)
-  ) {
-    const match = filterDestructiveCommandMatch(
-      analyzePowerShellRemoveItemMatch(command, {
-        cwd: analyzeOpts.effectiveCwd ?? analyzeOpts.cwd,
-        originalCwd: analyzeOpts.cwd,
-        paranoid: analyzeOpts.paranoidRm,
-        allowTmpdirVar: analyzeOpts.allowTmpdirVar,
-      }),
-      analyzeOpts.policySnapshot.policy,
-    );
-    const step: TraceStep = {
-      type: 'rule-check',
-      ruleModule: 'analyze/powershell/remove-item.ts',
-      ruleFunction: 'analyzePowerShellRemoveItemMatch',
-      matched: !!match,
-      reason: match?.reason,
-    };
-    const lastSegment = trace.segments[trace.segments.length - 1];
-    if (lastSegment) {
-      lastSegment.steps.push(step);
-    } else {
-      trace.segments.push({ index: 0, steps: [step] });
-    }
-    if (match) {
-      blocked = true;
-      blockReason = match.reason;
-      blockSegment = redactEnvAssignmentsInString(command);
-    }
+  const cursor = { nextIndex: 0 };
+  const block = explainProgram(
+    parseCommand(command, analyzeOpts.shell),
+    0,
+    analyzeOpts,
+    {
+      effectiveCwd: analyzeOpts.effectiveCwd,
+      shellGitContextState: createShellGitContextEnvState(analyzeOpts.envAssignments),
+    },
+    trace,
+    cursor,
+  );
+  if (block && cursor.nextIndex < entries.length) {
+    trace.segments.push({
+      index: cursor.nextIndex,
+      steps: [
+        { type: 'segment-skipped', index: cursor.nextIndex, reason: 'prior-segment-blocked' },
+      ],
+    });
   }
 
   return {
     trace,
-    result: blocked ? 'blocked' : 'allowed',
-    reason: blockReason,
-    segment: blockSegment,
-    customRule: getCustomRuleMetadata(blockReason, options, analyzeOpts.cwd ?? process.cwd()),
+    result: block ? 'blocked' : 'allowed',
+    reason: block?.reason,
+    segment: block?.segment,
+    customRule: getCustomRuleMetadata(block?.reason, options, analyzeOpts.cwd ?? process.cwd()),
     configSource,
     configValid,
     effectiveLevel,
+  };
+}
+
+type ExplainAnalysisOptions = ReturnType<typeof buildAnalyzeOptions>;
+type ExplainState = {
+  effectiveCwd: string | null | undefined;
+  shellGitContextState: ShellGitContextEnvState;
+};
+type ExplainBlock = { reason: string; segment: string };
+
+function explainProgram(
+  program: CommandProgram,
+  depth: number,
+  options: ExplainAnalysisOptions,
+  state: ExplainState,
+  trace: ExplainTrace,
+  cursor: { nextIndex: number },
+): ExplainBlock | null {
+  let hasPipelineInput = false;
+  for (const node of program.nodes) {
+    switch (node.kind) {
+      case 'connector':
+        hasPipelineInput = node.operator === '|';
+        continue;
+      case 'group': {
+        const result = explainProgram(
+          node.body,
+          depth,
+          options,
+          node.style === 'subshell' ? cloneExplainState(state) : state,
+          trace,
+          cursor,
+        );
+        if (result) return result;
+        hasPipelineInput = false;
+        continue;
+      }
+      case 'unknown':
+        continue;
+      case 'command':
+        break;
+    }
+
+    for (const nested of node.nested) {
+      const nestedResult = explainProgram(
+        nested,
+        depth,
+        options,
+        cloneExplainState(state),
+        trace,
+        cursor,
+      );
+      if (nestedResult) return nestedResult;
+    }
+
+    const segment = [...projectLegacyViewTokens(node)];
+    const segmentSteps: TraceStep[] = [];
+    const index = cursor.nextIndex++;
+    if (segment.length === 1 && segment[0]?.includes(' ')) {
+      const reason = dangerousInText(segment[0]);
+      segmentSteps.push({
+        type: 'dangerous-text',
+        token: redactEnvAssignmentsInString(segment[0]),
+        matched: !!reason,
+        reason: reason ?? undefined,
+      });
+      trace.segments.push({ index, steps: segmentSteps });
+      if (reason) return { reason, segment: redactEnvAssignmentsInString(segment.join(' ')) };
+      updateExplainState(segment, state, segmentSteps);
+      continue;
+    }
+
+    if (node.dialect === 'powershell' && options.policySnapshot.state === 'ready') {
+      const match = filterDestructiveCommandMatch(
+        analyzePowerShellCommandViewMatch(node, hasPipelineInput, {
+          cwd: state.effectiveCwd === null ? undefined : (state.effectiveCwd ?? options.cwd),
+          originalCwd: state.effectiveCwd === null ? undefined : options.cwd,
+          paranoid: options.paranoidRm,
+          allowTmpdirVar: options.allowTmpdirVar,
+        }),
+        options.policySnapshot.policy,
+      );
+      segmentSteps.push({
+        type: 'rule-check',
+        ruleModule: 'analyze/powershell/remove-item.ts',
+        ruleFunction: 'analyzePowerShellCommandViewMatch',
+        matched: !!match,
+        reason: match?.reason,
+      });
+      if (match) {
+        trace.segments.push({ index, steps: segmentSteps });
+        return {
+          reason: match.reason,
+          segment: redactEnvAssignmentsInString(node.legacyNormalized),
+        };
+      }
+    }
+
+    const result = explainSegment(
+      segment,
+      depth,
+      {
+        ...options,
+        effectiveCwd: state.effectiveCwd,
+        envAssignments: getSegmentGitContextEnvAssignments(segment, state.shellGitContextState),
+      },
+      segmentSteps,
+      node,
+    );
+    trace.segments.push({ index, steps: segmentSteps });
+    if (result) {
+      return {
+        reason: result.reason,
+        segment: redactEnvAssignmentsInString(node.legacyNormalized),
+      };
+    }
+    updateExplainState(segment, state, segmentSteps);
+    hasPipelineInput = false;
+  }
+  return null;
+}
+
+function updateExplainState(segment: readonly string[], state: ExplainState, steps: TraceStep[]) {
+  const nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd !== undefined) {
+    if (nextCwd === null) steps.push(cwdChangeStep(segment));
+    state.effectiveCwd = nextCwd;
+  }
+  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
+}
+
+function cloneExplainState(state: ExplainState): ExplainState {
+  return {
+    effectiveCwd: state.effectiveCwd,
+    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
   };
 }
 

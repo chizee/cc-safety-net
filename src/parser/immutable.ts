@@ -1,0 +1,136 @@
+import type {
+  CommandIssue,
+  CommandNode,
+  CommandProgram,
+  CommandRedirection,
+  CommandView,
+  CommandWord,
+  CommandWordPart,
+  WordProvenance,
+} from '@/domain/command';
+
+/** @internal */
+export function createCommandNodes() {
+  return [] as CommandNode[];
+}
+
+/** @internal */
+export function createCommandIssues() {
+  return [] as CommandIssue[];
+}
+
+/** @internal */
+export function createCommandAccumulator() {
+  return {
+    words: [] as CommandWord[],
+    redirections: [] as CommandRedirection[],
+    nested: [] as CommandProgram[],
+    start: -1,
+    end: -1,
+    reset() {
+      this.words = [];
+      this.redirections = [];
+      this.nested = [];
+      this.start = -1;
+      this.end = -1;
+    },
+  };
+}
+
+/** @internal */
+export function freezeCommandView(command: CommandView): CommandView {
+  return Object.freeze({
+    ...command,
+    span: Object.freeze(command.span),
+    words: Object.freeze(command.words),
+    tokens: Object.freeze(command.tokens),
+    analysisTokens: Object.freeze(command.analysisTokens),
+    redirections: Object.freeze(command.redirections),
+    nested: Object.freeze(command.nested),
+  });
+}
+
+/** @internal */
+export function appendAccumulatedCommand(
+  nodes: CommandNode[],
+  accumulator: ReturnType<typeof createCommandAccumulator>,
+  command: CommandView,
+) {
+  nodes.push(freezeCommandView(command));
+  accumulator.reset();
+}
+
+/** @internal */
+export function appendCommandWordPart(
+  parts: CommandWordPart[],
+  source: string,
+  start: number,
+  end: number,
+  provenance: WordProvenance,
+) {
+  if (end <= start) return;
+  parts.push({ raw: source.slice(start, end), span: { start, end }, provenance });
+}
+
+/** @internal */
+export function createCommandWordParts(source: string) {
+  const parts: CommandWordPart[] = [];
+  return {
+    parts,
+    push: (start: number, end: number, provenance: WordProvenance) =>
+      appendCommandWordPart(parts, source, start, end, provenance),
+  };
+}
+
+/** @internal */
+export function freezeCommandWord(
+  word: Omit<CommandWord, 'kind' | 'parts'> & Pick<Partial<CommandWord>, 'parts'>,
+): CommandWord {
+  const parts = word.parts ?? [
+    {
+      raw: word.raw,
+      span: word.span,
+      provenance: word.provenance,
+    },
+  ];
+  return Object.freeze({
+    kind: 'word',
+    ...word,
+    span: Object.freeze(word.span),
+    parts: Object.freeze(
+      parts.map((part) => Object.freeze({ ...part, span: Object.freeze(part.span) })),
+    ),
+  });
+}
+
+/** @internal */
+export function freezeParsedCommandWord(
+  source: string,
+  start: number,
+  end: number,
+  text: string,
+  provenance: WordProvenance,
+  quoted: boolean,
+  parts?: CommandWordPart[],
+) {
+  return freezeCommandWord({
+    text,
+    raw: source.slice(start, end),
+    span: { start, end },
+    provenance,
+    quoted,
+    ...(parts ? { parts } : {}),
+  });
+}
+
+/** @internal */
+export function freezeCommandProgram(program: CommandProgram): CommandProgram {
+  return Object.freeze({
+    ...program,
+    span: Object.freeze(program.span),
+    issues: Object.freeze(
+      program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) })),
+    ),
+    nodes: Object.freeze(program.nodes),
+  });
+}

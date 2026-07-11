@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { getBundledOutputs } from '../../scripts/build-output';
 
 describe('getBundledOutputs', () => {
+  // Phase 5 artifact evidence compares raw `wc -c` bytes for index/CLI/Pi to
+  // revision 0bf15f82. CLI startup is measured separately with 10 interleaved
+  // cold Node `--help` subprocesses for current and baseline artifacts; it is
+  // intentionally not asserted here because absolute process timing is host-sensitive.
   test('finds bundled outputs with Windows paths', () => {
     const outputs = getBundledOutputs([
       { path: 'C:\\a\\cc-safety-net\\cc-safety-net\\dist\\index.js', size: 1000 },

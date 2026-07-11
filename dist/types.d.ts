@@ -193,8 +193,6 @@ export declare const MAX_STRIP_ITERATIONS = 20;
 export declare const NAME_PATTERN: RegExp;
 export declare const COMMAND_PATTERN: RegExp;
 export declare const MAX_REASON_LENGTH = 256;
-/** Shell operators that split commands */
-export declare const SHELL_OPERATORS: Set<string>;
 /** Shell wrappers that need recursive analysis */
 export declare const SHELL_WRAPPERS: Set<string>;
 /** Interpreters that can execute code */

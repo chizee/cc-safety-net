@@ -20,44 +20,35 @@ var require_quote = __commonJS((exports, module) => {
     "|",
     "<",
     ">"
-  ];
-  var LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
-  var GLOB_SHELL_SPECIAL = /[\s#!"$&'():;<=>@\\^`|]/g;
-  module.exports = function quote(xs) {
+  ], LINE_TERMINATORS = /[\n\r\u2028\u2029]/, GLOB_SHELL_SPECIAL = /[\s#!"$&'():;<=>@\\^`|]/g;
+  module.exports = function(xs) {
     return xs.map(function(s) {
-      if (s === "") {
+      if (s === "")
         return "''";
-      }
       if (s && typeof s === "object") {
         if (s.op === "glob") {
-          if (typeof s.pattern !== "string") {
-            throw new TypeError("glob token requires a string `pattern`");
-          }
-          if (LINE_TERMINATORS.test(s.pattern)) {
-            throw new TypeError("glob `pattern` must not contain line terminators");
-          }
+          if (typeof s.pattern !== "string")
+            throw TypeError("glob token requires a string `pattern`");
+          if (LINE_TERMINATORS.test(s.pattern))
+            throw TypeError("glob `pattern` must not contain line terminators");
           return s.pattern.replace(GLOB_SHELL_SPECIAL, "\\$&");
         }
         if (typeof s.op === "string") {
-          if (OPS.indexOf(s.op) < 0) {
-            throw new TypeError("invalid `op` value: " + JSON.stringify(s.op));
-          }
+          if (OPS.indexOf(s.op) < 0)
+            throw TypeError("invalid `op` value: " + JSON.stringify(s.op));
           return s.op.replace(/[\s\S]/g, "\\$&");
         }
         if (typeof s.comment === "string") {
-          if (LINE_TERMINATORS.test(s.comment)) {
-            throw new TypeError("`comment` must not contain line terminators");
-          }
+          if (LINE_TERMINATORS.test(s.comment))
+            throw TypeError("`comment` must not contain line terminators");
           return "#" + s.comment;
         }
-        throw new TypeError("unrecognized object token shape");
+        throw TypeError("unrecognized object token shape");
       }
-      if (/["\s\\]/.test(s) && !/'/.test(s)) {
+      if (/["\s\\]/.test(s) && !/'/.test(s))
         return "'" + s.replace(/(['])/g, "\\$1") + "'";
-      }
-      if (/["'\s]/.test(s)) {
+      if (/["'\s]/.test(s))
         return '"' + s.replace(/(["\\$`!])/g, "\\$1") + '"';
-      }
       return String(s).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}])/g, "$1\\$2");
     }).join(" ");
   };
@@ -76,180 +67,121 @@ var require_parse = __commonJS((exports, module) => {
     ">\\&",
     "<\\&",
     "[&;()|<>]"
-  ].join("|") + ")";
-  var controlRE = new RegExp("^" + CONTROL + "$");
-  var META = "|&;()<> \\t";
-  var SINGLE_QUOTE = '"((\\\\"|[^"])*?)"';
-  var DOUBLE_QUOTE = "'((\\\\'|[^'])*?)'";
-  var hash = /^#$/;
-  var SQ = "'";
-  var DQ = '"';
-  var DS = "$";
-  var TOKEN = "";
-  var mult = 4294967296;
-  for (i = 0;i < 4; i++) {
+  ].join("|") + ")", controlRE = new RegExp("^" + CONTROL + "$"), META = "|&;()<> \\t", SINGLE_QUOTE = '"((\\\\"|[^"])*?)"', DOUBLE_QUOTE = "'((\\\\'|[^'])*?)'", hash = /^#$/, SQ = "'", DQ = '"', DS = "$", TOKEN = "", mult = 4294967296;
+  for (i = 0;i < 4; i++)
     TOKEN += (mult * Math.random()).toString(16);
-  }
-  var i;
-  var startsWithToken = new RegExp("^" + TOKEN);
+  var i, startsWithToken = new RegExp("^" + TOKEN);
   function matchAll(s, r) {
-    var origIndex = r.lastIndex;
-    var matches = [];
-    var matchObj;
-    while (matchObj = r.exec(s)) {
-      matches.push(matchObj);
-      if (r.lastIndex === matchObj.index) {
+    var origIndex = r.lastIndex, matches = [], matchObj;
+    while (matchObj = r.exec(s))
+      if (matches.push(matchObj), r.lastIndex === matchObj.index)
         r.lastIndex += 1;
-      }
-    }
-    r.lastIndex = origIndex;
-    return matches;
+    return r.lastIndex = origIndex, matches;
   }
   function getVar(env, pre, key) {
     var r = typeof env === "function" ? env(key) : env[key];
-    if (typeof r === "undefined" && key != "") {
+    if (typeof r > "u" && key != "")
       r = "";
-    } else if (typeof r === "undefined") {
+    else if (typeof r > "u")
       r = "$";
-    }
-    if (typeof r === "object") {
+    if (typeof r === "object")
       return pre + TOKEN + JSON.stringify(r) + TOKEN;
-    }
     return pre + r;
   }
   function parseInternal(string, env, opts) {
-    if (!opts) {
+    if (!opts)
       opts = {};
-    }
-    var BS = opts.escape || "\\";
-    var BAREWORD = "(\\" + BS + `['"` + META + `]|[^\\s'"` + META + "])+";
-    var chunker = new RegExp([
+    var BS = opts.escape || "\\", BAREWORD = "(\\" + BS + `['"` + META + `]|[^\\s'"` + META + "])+", chunker = new RegExp([
       "(" + CONTROL + ")",
       "(" + BAREWORD + "|" + SINGLE_QUOTE + "|" + DOUBLE_QUOTE + ")+"
-    ].join("|"), "g");
-    var matches = matchAll(string, chunker);
-    if (matches.length === 0) {
+    ].join("|"), "g"), matches = matchAll(string, chunker);
+    if (matches.length === 0)
       return [];
-    }
-    if (!env) {
+    if (!env)
       env = {};
-    }
-    var commented = false;
+    var commented = !1;
     return matches.map(function(match) {
       var s = match[0];
-      if (!s || commented) {
+      if (!s || commented)
         return;
-      }
-      if (controlRE.test(s)) {
+      if (controlRE.test(s))
         return { op: s };
-      }
-      var quote = false;
-      var esc = false;
-      var out = "";
-      var isGlob = false;
-      var i2;
+      var quote = !1, esc = !1, out = "", isGlob = !1, i2;
       function parseEnvVar() {
         i2 += 1;
-        var varend;
-        var varname;
-        var char = s.charAt(i2);
+        var varend, varname, char = s.charAt(i2);
         if (char === "{") {
-          i2 += 1;
-          if (s.charAt(i2) === "}") {
-            throw new Error("Bad substitution: " + s.slice(i2 - 2, i2 + 1));
-          }
-          varend = s.indexOf("}", i2);
-          if (varend < 0) {
-            throw new Error("Bad substitution: " + s.slice(i2));
-          }
-          varname = s.slice(i2, varend);
-          i2 = varend;
-        } else if (/[*@#?$!_-]/.test(char)) {
-          varname = char;
-          i2 += 1;
-        } else {
+          if (i2 += 1, s.charAt(i2) === "}")
+            throw Error("Bad substitution: " + s.slice(i2 - 2, i2 + 1));
+          if (varend = s.indexOf("}", i2), varend < 0)
+            throw Error("Bad substitution: " + s.slice(i2));
+          varname = s.slice(i2, varend), i2 = varend;
+        } else if (/[*@#?$!_-]/.test(char))
+          varname = char, i2 += 1;
+        else {
           var slicedFromI = s.slice(i2);
-          varend = slicedFromI.match(/[^\w\d_]/);
-          if (!varend) {
-            varname = slicedFromI;
-            i2 = s.length;
-          } else {
-            varname = slicedFromI.slice(0, varend.index);
-            i2 += varend.index - 1;
-          }
+          if (varend = slicedFromI.match(/[^\w\d_]/), !varend)
+            varname = slicedFromI, i2 = s.length;
+          else
+            varname = slicedFromI.slice(0, varend.index), i2 += varend.index - 1;
         }
         return getVar(env, "", varname);
       }
       for (i2 = 0;i2 < s.length; i2++) {
         var c = s.charAt(i2);
-        isGlob = isGlob || !quote && (c === "*" || c === "?");
-        if (esc) {
-          out += c;
-          esc = false;
-        } else if (quote) {
-          if (c === quote) {
-            quote = false;
-          } else if (quote == SQ) {
+        if (isGlob = isGlob || !quote && (c === "*" || c === "?"), esc)
+          out += c, esc = !1;
+        else if (quote)
+          if (c === quote)
+            quote = !1;
+          else if (quote == SQ)
             out += c;
-          } else {
-            if (c === BS) {
-              i2 += 1;
-              c = s.charAt(i2);
-              if (c === DQ || c === BS || c === DS) {
-                out += c;
-              } else {
-                out += BS + c;
-              }
-            } else if (c === DS) {
-              out += parseEnvVar();
-            } else {
+          else if (c === BS)
+            if (i2 += 1, c = s.charAt(i2), c === DQ || c === BS || c === DS)
               out += c;
-            }
-          }
-        } else if (c === DQ || c === SQ) {
+            else
+              out += BS + c;
+          else if (c === DS)
+            out += parseEnvVar();
+          else
+            out += c;
+        else if (c === DQ || c === SQ)
           quote = c;
-        } else if (controlRE.test(c)) {
+        else if (controlRE.test(c))
           return { op: s };
-        } else if (hash.test(c)) {
-          commented = true;
+        else if (hash.test(c)) {
+          commented = !0;
           var commentObj = { comment: string.slice(match.index + i2 + 1) };
-          if (out.length) {
+          if (out.length)
             return [out, commentObj];
-          }
           return [commentObj];
-        } else if (c === BS) {
-          esc = true;
-        } else if (c === DS) {
+        } else if (c === BS)
+          esc = !0;
+        else if (c === DS)
           out += parseEnvVar();
-        } else {
+        else
           out += c;
-        }
       }
-      if (isGlob) {
+      if (isGlob)
         return { op: "glob", pattern: out };
-      }
       return out;
     }).reduce(function(prev, arg) {
-      return typeof arg === "undefined" ? prev : prev.concat(arg);
+      return typeof arg > "u" ? prev : prev.concat(arg);
     }, []);
   }
-  module.exports = function parse(s, env, opts) {
+  module.exports = function(s, env, opts) {
     var mapped = parseInternal(s, env, opts);
-    if (typeof env !== "function") {
+    if (typeof env !== "function")
       return mapped;
-    }
     return mapped.reduce(function(acc, s2) {
-      if (typeof s2 === "object") {
+      if (typeof s2 === "object")
         return acc.concat(s2);
-      }
       var xs = s2.split(RegExp("(" + TOKEN + ".*?" + TOKEN + ")", "g"));
-      if (xs.length === 1) {
+      if (xs.length === 1)
         return acc.concat(xs[0]);
-      }
       return acc.concat(xs.filter(Boolean).map(function(x) {
-        if (startsWithToken.test(x)) {
+        if (startsWithToken.test(x))
           return JSON.parse(x.split(TOKEN)[1]);
-        }
         return x;
       }));
     }, []);
@@ -264,40 +196,31 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 function sanitizeSessionIdForFilename(sessionId) {
-  const raw = sessionId.trim();
-  if (!raw) {
+  let raw = sessionId.trim();
+  if (!raw)
     return null;
-  }
   let safe = raw.replace(/[^A-Za-z0-9_.-]+/g, "_");
-  safe = safe.replace(/^[._-]+|[._-]+$/g, "").slice(0, 128);
-  if (!safe || safe === "." || safe === "..") {
+  if (safe = safe.replace(/^[._-]+|[._-]+$/g, "").slice(0, 128), !safe || safe === "." || safe === "..")
     return null;
-  }
   return safe;
 }
 function encodeCwdForLogDirname(cwd) {
-  const encoded = (cwd ?? "").replace(/[^A-Za-z0-9]/g, "-").slice(0, 180);
-  return encoded || "no-cwd";
+  return (cwd ?? "").replace(/[^A-Za-z0-9]/g, "-").slice(0, 180) || "no-cwd";
 }
 function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
-  const safeSessionId = sanitizeSessionIdForFilename(sessionId);
-  if (!safeSessionId) {
+  let safeSessionId = sanitizeSessionIdForFilename(sessionId);
+  if (!safeSessionId)
     return;
-  }
-  const home = options.homeDir ?? getAuditLogHomeDir();
-  if (!home) {
+  let home = options.homeDir ?? getAuditLogHomeDir();
+  if (!home)
     return;
-  }
-  const logsDir = getAuditLogsDir(home);
-  if (!logsDir) {
+  let logsDir = getAuditLogsDir(home);
+  if (!logsDir)
     return;
-  }
   try {
-    const ts = new Date().toISOString();
-    const sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
-    mkdirSync(sessionDir, { recursive: true, mode: 448 });
-    const logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`);
-    const entry = {
+    let ts = (/* @__PURE__ */ new Date()).toISOString(), sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    mkdirSync(sessionDir, { recursive: !0, mode: 448 });
+    let logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`), entry = {
       ts,
       sessionId: safeSessionId,
       decision: options.decision ?? "deny",
@@ -314,7 +237,7 @@ function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
   } catch {}
 }
 function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
-  const home = homeFromEnv || homedir() || userInfo().homedir;
+  let home = homeFromEnv || homedir() || userInfo().homedir;
   return home && isAbsolute(home) ? home : null;
 }
 function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
@@ -344,20 +267,10 @@ var PROVIDER_TOKENS = [
 ];
 function redactSecrets(text) {
   let result = text;
-  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>");
-  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>");
-  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
-  result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>");
-  result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3");
-  result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@");
-  result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@");
-  result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
-  for (const re of PROVIDER_TOKENS) {
+  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, "<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_DSN|CONNECTION_STRING)=("[^"]*"|'[^']*'|[^\s]+(?:\s+[A-Z_][A-Z0-9_]*=[^\s]+)*)/gi, "$1=<redacted>"), result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_(?:URL|URI|CONNECTION_STRING))=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/gi, "$1=<redacted>"), result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@"), result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@"), result = result.replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, "$1$2<redacted>:<redacted>");
+  for (let re of PROVIDER_TOKENS)
     result = result.replace(re, "<redacted>");
-  }
-  result = result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>");
-  result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
-  return result;
+  return result = result.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>"), result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>"), result;
 }
 
 // src/core/audit-scan.ts
@@ -365,8 +278,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join as join2 } from "node:path";
 function listAuditLogFiles(logsDir) {
   try {
-    return readdirSync(logsDir, { withFileTypes: true, encoding: "utf8" }).flatMap((entry) => {
-      const filePath = join2(logsDir, entry.name);
+    return readdirSync(logsDir, { withFileTypes: !0, encoding: "utf8" }).flatMap((entry) => {
+      let filePath = join2(logsDir, entry.name);
       if (entry.isDirectory())
         return listAuditLogFiles(filePath);
       if (entry.name.endsWith(".jsonl"))
@@ -394,153 +307,130 @@ function readAuditLogEntries(filePath) {
 
 // src/bin/audit-log.ts
 function parseLogsFlags(args) {
-  const flags = {
+  let flags = {
     limit: 20,
     since: 30,
-    all: false,
-    json: false
+    all: !1,
+    json: !1
   };
   for (let index = 0;index < args.length; index++) {
-    const arg = args[index];
+    let arg = args[index];
     if (arg === "--all") {
-      flags.all = true;
+      flags.all = !0;
       continue;
     }
     if (arg === "--json") {
-      flags.json = true;
+      flags.json = !0;
       continue;
     }
     if (arg === "--limit") {
-      const limit = parsePositiveNumber(args[index + 1]);
-      if (limit === null) {
-        console.error("--limit must be a positive number");
-        return null;
-      }
-      flags.limit = limit;
-      index++;
+      let limit = parsePositiveNumber(args[index + 1]);
+      if (limit === null)
+        return console.error("--limit must be a positive number"), null;
+      flags.limit = limit, index++;
       continue;
     }
     if (arg === "--since") {
-      const since = parsePositiveNumber(args[index + 1]);
-      if (since === null) {
-        console.error("--since must be a positive number");
-        return null;
-      }
-      flags.since = since;
-      index++;
+      let since = parsePositiveNumber(args[index + 1]);
+      if (since === null)
+        return console.error("--since must be a positive number"), null;
+      flags.since = since, index++;
       continue;
     }
     if (arg === "--agent") {
-      const value = parseStringValue(args[index + 1], "--agent");
+      let value = parseStringValue(args[index + 1], "--agent");
       if (value === null)
         return null;
-      flags.agent = value;
-      index++;
+      flags.agent = value, index++;
       continue;
     }
     if (arg === "--rule") {
-      const value = parseStringValue(args[index + 1], "--rule");
+      let value = parseStringValue(args[index + 1], "--rule");
       if (value === null)
         return null;
-      flags.rule = value;
-      index++;
+      flags.rule = value, index++;
       continue;
     }
     if (arg === "--session") {
-      const value = parseStringValue(args[index + 1], "--session");
+      let value = parseStringValue(args[index + 1], "--session");
       if (value === null)
         return null;
-      flags.session = value;
-      index++;
+      flags.session = value, index++;
       continue;
     }
     if (arg === "--project") {
-      const value = parseStringValue(args[index + 1], "--project");
+      let value = parseStringValue(args[index + 1], "--project");
       if (value === null)
         return null;
-      flags.project = resolve(value);
-      index++;
+      flags.project = resolve(value), index++;
       continue;
     }
-    console.error(`Unknown option: ${arg}`);
-    return null;
+    return console.error(`Unknown option: ${arg}`), null;
   }
   return flags;
 }
 async function runLogsCommand(args, options = {}) {
-  const flags = parseLogsFlags(args);
+  let flags = parseLogsFlags(args);
   if (!flags)
     return 1;
-  const logsDir = options.logsDir ?? getAuditLogsDir();
-  if (!logsDir) {
-    console.log(flags.json ? "[]" : "No audit log entries found.");
-    return 0;
-  }
-  const cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000;
-  const entries = listAuditLogFiles(logsDir).flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file }))).filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff)).sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts)).slice(0, flags.limit);
-  if (flags.json) {
-    console.log(JSON.stringify(entries.map((item) => item.entry)));
-    return 0;
-  }
-  if (entries.length === 0) {
-    console.log("No audit log entries found.");
-    return 0;
-  }
-  for (const item of entries) {
+  let logsDir = options.logsDir ?? getAuditLogsDir();
+  if (!logsDir)
+    return console.log(flags.json ? "[]" : "No audit log entries found."), 0;
+  let cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000, entries = listAuditLogFiles(logsDir).flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file }))).filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff)).sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts)).slice(0, flags.limit);
+  if (flags.json)
+    return console.log(JSON.stringify(entries.map((item) => item.entry))), 0;
+  if (entries.length === 0)
+    return console.log("No audit log entries found."), 0;
+  for (let item of entries)
     console.log(formatLogEntry(item.entry));
-  }
   return 0;
 }
 function matchesLogsFlags(item, flags, logsDir, cutoff) {
   if (!flags.all && item.entry.decision === "allow")
-    return false;
+    return !1;
   if (Date.parse(item.entry.ts) < cutoff)
-    return false;
-  if (flags.agent !== undefined && item.entry.agent !== flags.agent)
-    return false;
-  if (flags.rule !== undefined && item.entry.ruleId !== flags.rule)
-    return false;
-  if (flags.session !== undefined && !matchesSession(item, logsDir, flags.session))
-    return false;
-  if (flags.project !== undefined && !matchesProject(item.entry.cwd, flags.project))
-    return false;
-  return true;
+    return !1;
+  if (flags.agent !== void 0 && item.entry.agent !== flags.agent)
+    return !1;
+  if (flags.rule !== void 0 && item.entry.ruleId !== flags.rule)
+    return !1;
+  if (flags.session !== void 0 && !matchesSession(item, logsDir, flags.session))
+    return !1;
+  if (flags.project !== void 0 && !matchesProject(item.entry.cwd, flags.project))
+    return !1;
+  return !0;
 }
 function matchesSession(item, logsDir, session) {
   if (item.entry.sessionId === session)
-    return true;
+    return !0;
   return dirname(item.file) === logsDir && basename(item.file, ".jsonl") === session;
 }
 function matchesProject(cwd, project) {
   if (!cwd)
-    return false;
+    return !1;
   return cwd === project || cwd.startsWith(`${project}/`);
 }
 function formatLogEntry(entry) {
-  const decision = renderTerminalText(entry.decision ?? "deny");
-  const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "";
+  let decision = renderTerminalText(entry.decision ?? "deny"), cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "";
   return `${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(entry.command)}${cwd}`;
 }
 function renderTerminalText(value) {
   return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    if (code <= 31 || code >= 127 && code <= 159) {
+    let code = character.charCodeAt(0);
+    if (code <= 31 || code >= 127 && code <= 159)
       return `\\x${code.toString(16).padStart(2, "0")}`;
-    }
     return character;
   }).join("");
 }
 function parsePositiveNumber(value) {
-  if (value === undefined)
+  if (value === void 0)
     return null;
-  const parsed = Number(value);
+  let parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 function parseStringValue(value, flag) {
-  if (value === undefined || value.startsWith("-")) {
-    console.error(`${flag} requires a value`);
-    return null;
-  }
+  if (value === void 0 || value.startsWith("-"))
+    return console.error(`${flag} requires a value`), null;
   return value;
 }
 
@@ -618,27 +508,27 @@ import { isAbsolute as isAbsolute11, relative as relative3 } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute as isAbsolute2, relative, resolve as resolve2 } from "node:path";
 function resolveContainedCwd(requestedCwd, trustedRoots) {
-  const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
+  let roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
   if (!roots[0])
     return;
-  const requested = canonicalDirectory(isAbsolute2(requestedCwd) ? requestedCwd : resolve2(roots[0], requestedCwd))[0];
+  let requested = canonicalDirectory(isAbsolute2(requestedCwd) ? requestedCwd : resolve2(roots[0], requestedCwd))[0];
   if (!requested)
     return;
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+  return roots.some((root) => isSameOrInside(requested, root)) ? requested : void 0;
 }
 function firstTrustedRoot(trustedRoots) {
   return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
 }
 function canonicalDirectory(path) {
   try {
-    const realPath = realpathSync(path);
+    let realPath = realpathSync(path);
     return statSync(realPath).isDirectory() ? [realPath] : [];
   } catch {
     return [];
   }
 }
 function isSameOrInside(path, root) {
-  const rel = relative(root, path);
+  let rel = relative(root, path);
   return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
 }
 
@@ -654,8 +544,7 @@ var ENV_FLAGS = {
   },
   worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
   debug: { name: "CC_SAFETY_NET_DEBUG" }
-};
-var SAFETY_LEVELS = ["standard", "strict", "paranoid"];
+}, SAFETY_LEVELS = ["standard", "strict", "paranoid"];
 function expandSafetyLevel(level) {
   return {
     failClosed: level === "strict" || level === "paranoid",
@@ -669,14 +558,13 @@ function maxSafetyLevel(policyLevel, envLevel) {
   return SAFETY_LEVELS.indexOf(envLevel) > SAFETY_LEVELS.indexOf(policyLevel) ? envLevel : policyLevel;
 }
 function parseEnvLevel() {
-  const value = getEnvFlagValue(ENV_FLAGS.level);
-  if (value === undefined)
+  let value = getEnvFlagValue(ENV_FLAGS.level);
+  if (value === void 0)
     return;
   if (SAFETY_LEVELS.includes(value))
     return value;
-  if (envTruthy(ENV_FLAGS.debug)) {
+  if (envTruthy(ENV_FLAGS.debug))
     console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
-  }
   return;
 }
 function deriveEffectiveLevel(values) {
@@ -689,52 +577,29 @@ function deriveEffectiveLevel(values) {
   return "custom";
 }
 function getCCSafetyNetEnvModes(policy = {}) {
-  const policyLevel = policy.safety?.level ?? "standard";
-  const envLevel = parseEnvLevel();
-  const baseLevel = maxSafetyLevel(policyLevel, envLevel);
-  const values = expandSafetyLevel(baseLevel);
-  const sources = {
+  let policyLevel = policy.safety?.level ?? "standard", envLevel = parseEnvLevel(), baseLevel = maxSafetyLevel(policyLevel, envLevel), values = expandSafetyLevel(baseLevel), sources = {
     failClosed: [`policy safety.level=${policyLevel}`],
     paranoidRm: [`policy safety.level=${policyLevel}`],
     paranoidInterpreters: [`policy safety.level=${policyLevel}`],
     worktreeMode: []
   };
-  if (envLevel && envLevel !== policyLevel) {
-    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
-  }
-  if (policy.safety?.overrides?.failClosed !== undefined) {
-    values.failClosed = policy.safety.overrides.failClosed;
-    sources.failClosed.push("policy safety.overrides.fail_closed");
-  }
-  if (policy.safety?.overrides?.paranoidRm !== undefined) {
-    values.paranoidRm = policy.safety.overrides.paranoidRm;
-    sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
-  }
-  if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
-    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
-    sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
-  }
-  if (envTruthy(ENV_FLAGS.strict)) {
-    values.failClosed = true;
-    sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoid)) {
-    values.paranoidRm = true;
-    values.paranoidInterpreters = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidRm)) {
-    values.paranoidRm = true;
-    sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
-  }
-  if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
-    values.paranoidInterpreters = true;
-    sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
-  }
-  const worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
+  if (envLevel && envLevel !== policyLevel)
+    sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`), sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`), sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
+  if (policy.safety?.overrides?.failClosed !== void 0)
+    values.failClosed = policy.safety.overrides.failClosed, sources.failClosed.push("policy safety.overrides.fail_closed");
+  if (policy.safety?.overrides?.paranoidRm !== void 0)
+    values.paranoidRm = policy.safety.overrides.paranoidRm, sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
+  if (policy.safety?.overrides?.paranoidInterpreters !== void 0)
+    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters, sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
+  if (envTruthy(ENV_FLAGS.strict))
+    values.failClosed = !0, sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
+  if (envTruthy(ENV_FLAGS.paranoid))
+    values.paranoidRm = !0, values.paranoidInterpreters = !0, sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`), sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
+  if (envTruthy(ENV_FLAGS.paranoidRm))
+    values.paranoidRm = !0, sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
+  if (envTruthy(ENV_FLAGS.paranoidInterpreters))
+    values.paranoidInterpreters = !0, sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
+  let worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
   if (policy.worktreeMode)
     sources.worktreeMode.push("policy workflow.worktree_mode");
   if (envTruthy(ENV_FLAGS.worktree))
@@ -749,60 +614,51 @@ function getCCSafetyNetEnvModes(policy = {}) {
   };
 }
 function envTruthy(flag) {
-  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
+  let value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
   return value === "1" || value?.toLowerCase() === "true";
 }
 function getEnvFlagValue(flag) {
-  if (process.env[flag.name] !== undefined) {
+  if (process.env[flag.name] !== void 0)
     return process.env[flag.name];
-  }
-  if (flag.legacyName) {
+  if (flag.legacyName)
     return process.env[flag.legacyName];
-  }
   return;
 }
 function envFlagIsSet(flag) {
-  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
+  return process.env[flag.name] !== void 0 || !!flag.legacyName && process.env[flag.legacyName] !== void 0;
 }
 
 // src/core/format.ts
 function formatBlockedMessage(input) {
-  const { reason, command, segment, toolName } = input;
-  const maxLen = input.maxLen ?? 200;
-  const redact = input.redact ?? ((t) => t);
-  let message = `BLOCKED by CC Safety Net
+  let { reason, command, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
 
 Reason: ${redact(reason)}`;
-  if (input.ruleId) {
+  if (input.ruleId)
     message += `
 
 Rule: ${input.ruleId}`;
-  }
-  if (toolName) {
+  if (toolName)
     message += `
 
 Tool: ${toolName}`;
-  }
   if (command) {
-    const safeCommand = redact(command);
+    let safeCommand = redact(command);
     message += `
 
 Command: ${excerpt(safeCommand, maxLen)}`;
   }
   if (segment && segment !== command) {
-    const safeSegment = redact(segment);
+    let safeSegment = redact(segment);
     message += `
 
 Segment: ${excerpt(safeSegment, maxLen)}`;
   }
-  message += `
+  return message += `
 
-${getFooter(input)}`;
-  return message;
+${getFooter(input)}`, message;
 }
 function getFooter(input) {
-  const intent = input.manualPermissionAdvice === false ? "hard_stop" : input.intent ?? "manual_only";
-  switch (intent) {
+  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
     case "hard_stop":
       return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
     case "use_alternative":
@@ -820,13 +676,10 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.";
-var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.";
-var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
 
 // src/core/tool-input.ts
-var PATCH_TOOL_NAMES = new Set(["applypatch", "patch"]);
-var PATH_TOOL_NAMES = new Set([
+var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TOOL_NAMES = /* @__PURE__ */ new Set([
   "create",
   "edit",
   "listdir",
@@ -846,17 +699,12 @@ var PATH_TOOL_NAMES = new Set([
   "write",
   "writefile",
   "writetofile"
-]);
-var GREP_TOOL_NAMES = new Set(["grep", "grepsearch", "rg"]);
-var GLOB_TOOL_NAMES = new Set(["findbyname", "glob"]);
-var PATCH_TEXT_KEYS = new Set(["command", "diff", "input", "patch", "patchtext"]);
-var UTF8_ENCODER = new TextEncoder;
-var UTF8_DECODER = new TextDecoder;
+]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder;
 function normalizeToolName(toolName) {
   return toolName.replace(/[-_\s]/g, "").toLowerCase();
 }
 function getNonCommandToolInputKind(toolName) {
-  const normalized = normalizeToolName(toolName);
+  let normalized = normalizeToolName(toolName);
   if (PATCH_TOOL_NAMES.has(normalized))
     return "patch";
   if (GREP_TOOL_NAMES.has(normalized))
@@ -870,15 +718,14 @@ function getNonCommandToolInputKind(toolName) {
 function getCommandFromToolInput(input) {
   if (!input || typeof input !== "object")
     return;
-  const command = input.command;
-  return typeof command === "string" && command !== "" ? command : undefined;
+  let command = input.command;
+  return typeof command === "string" && command !== "" ? command : void 0;
 }
 function extractPathLikeToolValues(input, pathLikeKeys) {
   if (!input || typeof input !== "object")
     return [];
-  if (Array.isArray(input)) {
+  if (Array.isArray(input))
     return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
-  }
   return Object.entries(input).flatMap(([key, value]) => {
     if (typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)))
       return [value];
@@ -891,69 +738,51 @@ function normalizeToolInputKey(key) {
   return key.replace(/-/g, "_").toLowerCase();
 }
 function extractPatchTargetsFromToolInput(input) {
-  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
+  return extractPatchTexts(input, !0).flatMap(extractPatchTargetsFromText);
 }
 function extractPatchTexts(input, allowString) {
   if (typeof input === "string")
     return allowString ? [input] : [];
   if (!input || typeof input !== "object")
     return [];
-  if (Array.isArray(input)) {
+  if (Array.isArray(input))
     return input.flatMap((value) => extractPatchTexts(value, allowString));
-  }
   return Object.entries(input).flatMap(([key, value]) => {
     if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
-      return extractPatchTexts(value, true);
+      return extractPatchTexts(value, !0);
     if (value && typeof value === "object")
-      return extractPatchTexts(value, false);
+      return extractPatchTexts(value, !1);
     return [];
   });
 }
 function extractPatchTargetsFromText(text) {
-  const targets = [];
-  const lines = text.split(/\r?\n/);
-  let inApplyPatch = false;
-  let inHunk = false;
-  let oldHunkLinesRemaining = null;
-  let newHunkLinesRemaining = null;
-  const resetHunk = () => {
-    inHunk = false;
-    oldHunkLinesRemaining = null;
-    newHunkLinesRemaining = null;
+  let targets = [], lines = text.split(/\r?\n/), inApplyPatch = !1, inHunk = !1, oldHunkLinesRemaining = null, newHunkLinesRemaining = null, resetHunk = () => {
+    inHunk = !1, oldHunkLinesRemaining = null, newHunkLinesRemaining = null;
   };
   for (let index = 0;index < lines.length; index++) {
-    const line = lines[index] ?? "";
+    let line = lines[index] ?? "";
     if (line === "*** Begin Patch") {
-      inApplyPatch = true;
-      resetHunk();
+      inApplyPatch = !0, resetHunk();
       continue;
     }
     if (line === "*** End Patch") {
-      inApplyPatch = false;
-      resetHunk();
+      inApplyPatch = !1, resetHunk();
       continue;
     }
     if (line.startsWith("@@")) {
-      const counts = parseUnifiedHunkLineCounts(line);
-      inHunk = true;
-      oldHunkLinesRemaining = counts?.oldLines ?? null;
-      newHunkLinesRemaining = counts?.newLines ?? null;
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+      let counts = parseUnifiedHunkLineCounts(line);
+      if (inHunk = !0, oldHunkLinesRemaining = counts?.oldLines ?? null, newHunkLinesRemaining = counts?.newLines ?? null, oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
         resetHunk();
       continue;
     }
     if (inHunk && oldHunkLinesRemaining !== null && newHunkLinesRemaining !== null) {
-      const oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0;
-      const newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
-      oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount);
-      newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount);
-      if (oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
+      let oldLineCount = line.startsWith(" ") || line.startsWith("-") ? 1 : 0, newLineCount = line.startsWith(" ") || line.startsWith("+") ? 1 : 0;
+      if (oldHunkLinesRemaining = Math.max(0, oldHunkLinesRemaining - oldLineCount), newHunkLinesRemaining = Math.max(0, newHunkLinesRemaining - newLineCount), oldHunkLinesRemaining === 0 && newHunkLinesRemaining === 0)
         resetHunk();
       continue;
     }
     if (line.startsWith("*** ")) {
-      resetHunk();
-      targets.push(...extractPatchTargetsFromMetadataLine(line));
+      resetHunk(), targets.push(...extractPatchTargetsFromMetadataLine(line));
       continue;
     }
     if (inHunk)
@@ -963,11 +792,10 @@ function extractPatchTargetsFromText(text) {
       continue;
     }
     if (line.startsWith("--- ")) {
-      const nextLine = lines[index + 1] ?? "";
+      let nextLine = lines[index + 1] ?? "";
       if (!nextLine.startsWith("+++ "))
         continue;
-      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), true), decodeGitMetadataTarget(nextLine.slice(4), true)));
-      index++;
+      targets.push(...cleanGitTargetPair(decodeGitMetadataTarget(line.slice(4), !0), decodeGitMetadataTarget(nextLine.slice(4), !0))), index++;
       continue;
     }
     if (!inApplyPatch)
@@ -976,7 +804,7 @@ function extractPatchTargetsFromText(text) {
   return targets;
 }
 function parseUnifiedHunkLineCounts(line) {
-  const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+  let hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
   if (!hunkHeader)
     return null;
   return {
@@ -985,81 +813,71 @@ function parseUnifiedHunkLineCounts(line) {
   };
 }
 function extractPatchTargetsFromMetadataLine(line) {
-  const applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
+  let applyPatchTarget = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line);
   if (applyPatchTarget?.[1])
     return cleanPatchTarget(applyPatchTarget[1]);
-  const moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
+  let moveTarget = /^\*\*\* Move to: (.+)$/.exec(line);
   if (moveTarget?.[1])
     return cleanPatchTarget(moveTarget[1]);
   if (line.startsWith("diff --git "))
     return extractGitDiffTargets(line.slice(11));
-  const oldTarget = /^--- (.+)$/.exec(line);
+  let oldTarget = /^--- (.+)$/.exec(line);
   if (oldTarget?.[1])
     return cleanUnifiedDiffTarget(oldTarget[1]);
-  const newTarget = /^\+\+\+ (.+)$/.exec(line);
+  let newTarget = /^\+\+\+ (.+)$/.exec(line);
   if (newTarget?.[1])
     return cleanUnifiedDiffTarget(newTarget[1]);
-  const extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
+  let extendedTarget = /^(?:rename|copy) (?:from|to) (.+)$/.exec(line);
   if (extendedTarget?.[1])
     return cleanExtendedGitTarget(extendedTarget[1]);
   return [];
 }
 function extractGitDiffTargets(header) {
-  const fields = parseGitDiffFields(header);
-  if (fields.length === 2 && fields[0] && fields[1]) {
+  let fields = parseGitDiffFields(header);
+  if (fields.length === 2 && fields[0] && fields[1])
     return cleanGitTargetPair(fields[0], fields[1]);
-  }
-  const matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
+  let matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
     header.slice(0, separator.index).trim(),
     header.slice((separator.index ?? 0) + separator[0].length).trim()
   ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
   return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
 }
 function parseGitDiffFields(header) {
-  const fields = [];
-  let index = 0;
+  let fields = [], index = 0;
   while (index < header.length) {
     while (/\s/.test(header[index] ?? ""))
       index++;
     if (index >= header.length)
       break;
-    const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
+    let quote = header[index] === '"' || header[index] === "'" ? header[index] : void 0;
     if (!quote) {
-      const end = header.slice(index).search(/\s/);
-      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
-      index = end === -1 ? header.length : index + end;
+      let end = header.slice(index).search(/\s/);
+      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end)), index = end === -1 ? header.length : index + end;
       continue;
     }
-    const field = parseQuotedGitDiffField(header, index, quote);
+    let field = parseQuotedGitDiffField(header, index, quote);
     if (!field)
       return [];
-    fields.push(field.value);
-    index = field.end;
+    fields.push(field.value), index = field.end;
   }
   return fields;
 }
 function parseQuotedGitDiffField(header, start, quote) {
-  const bytes = [];
-  let index = start + 1;
+  let bytes = [], index = start + 1;
   while (index < header.length) {
-    const character = header[index] ?? "";
-    if (character === quote) {
+    let character = header[index] ?? "";
+    if (character === quote)
       return { value: UTF8_DECODER.decode(Uint8Array.from(bytes)), end: index + 1 };
-    }
     if (character !== "\\" || quote === "'") {
-      bytes.push(...UTF8_ENCODER.encode(character));
-      index++;
+      bytes.push(...UTF8_ENCODER.encode(character)), index++;
       continue;
     }
-    const escaped = header.slice(index + 1);
-    const octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
+    let escaped = header.slice(index + 1), octal = /^[0-7]{1,3}/.exec(escaped)?.[0];
     if (octal) {
-      bytes.push(Number.parseInt(octal, 8));
-      index += octal.length + 1;
+      bytes.push(Number.parseInt(octal, 8)), index += octal.length + 1;
       continue;
     }
-    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? "")));
-    index += 2;
+    bytes.push(...UTF8_ENCODER.encode(decodeGitDiffEscape(escaped[0] ?? ""))), index += 2;
   }
   return null;
 }
@@ -1083,44 +901,40 @@ function cleanGitTargetPair(oldTarget, newTarget) {
     return cleanSingleGitTarget(newTarget);
   if (newTarget === "/dev/null")
     return cleanSingleGitTarget(oldTarget);
-  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/")) {
+  if (oldTarget.startsWith("a/") && newTarget.startsWith("b/"))
     return [oldTarget.slice(2), newTarget.slice(2)].flatMap(cleanExactPatchTarget);
-  }
-  const commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
+  let commonRemainder = getCommonGitPrefixRemainder(oldTarget, newTarget) ?? (oldTarget === newTarget ? stripFirstGitPathComponent(oldTarget) : null);
   return [oldTarget, newTarget, ...commonRemainder ? [commonRemainder] : []].flatMap(cleanExactPatchTarget);
 }
 function cleanSingleGitTarget(target) {
-  const stripped = stripFirstGitPathComponent(target);
+  let stripped = stripFirstGitPathComponent(target);
   return [target, ...stripped ? [stripped] : []].flatMap(cleanExactPatchTarget);
 }
 function stripFirstGitPathComponent(target) {
-  const separator = target.indexOf("/");
+  let separator = target.indexOf("/");
   return separator > 0 && separator < target.length - 1 ? target.slice(separator + 1) : null;
 }
 function getCommonGitPrefixRemainder(oldTarget, newTarget) {
-  const oldSeparator = oldTarget.indexOf("/");
-  const newSeparator = newTarget.indexOf("/");
+  let oldSeparator = oldTarget.indexOf("/"), newSeparator = newTarget.indexOf("/");
   if (oldSeparator < 1 || newSeparator < 1)
     return null;
   if (oldTarget.slice(0, oldSeparator) === newTarget.slice(0, newSeparator))
     return null;
-  const oldRemainder = oldTarget.slice(oldSeparator + 1);
+  let oldRemainder = oldTarget.slice(oldSeparator + 1);
   return oldRemainder === newTarget.slice(newSeparator + 1) ? oldRemainder : null;
 }
 function cleanUnifiedDiffTarget(target) {
-  return cleanGitDiffTarget(decodeGitMetadataTarget(target, true));
+  return cleanGitDiffTarget(decodeGitMetadataTarget(target, !0));
 }
 function cleanExtendedGitTarget(target) {
-  return cleanExactPatchTarget(decodeGitMetadataTarget(target, false));
+  return cleanExactPatchTarget(decodeGitMetadataTarget(target, !1));
 }
 function decodeGitMetadataTarget(target, allowTrailingMetadata) {
-  const trimmed = target.trim();
-  const quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : undefined;
+  let trimmed = target.trim(), quote = trimmed[0] === '"' || trimmed[0] === "'" ? trimmed[0] : void 0;
   if (quote) {
-    const field = parseQuotedGitDiffField(trimmed, 0, quote);
-    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === "")) {
+    let field = parseQuotedGitDiffField(trimmed, 0, quote);
+    if (field && (allowTrailingMetadata || trimmed.slice(field.end).trim() === ""))
       return field.value;
-    }
   }
   return allowTrailingMetadata ? trimmed.split("\t", 1)[0]?.trim() ?? "" : trimmed;
 }
@@ -1131,7 +945,7 @@ function cleanExactPatchTarget(target) {
   return target === "" || target === "/dev/null" ? [] : [target];
 }
 function cleanPatchTarget(target) {
-  const path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  let path = target.split("\t", 1)[0]?.trim().replace(/^['"]|['"]$/g, "") ?? "";
   return path === "" || path === "/dev/null" ? [] : [path];
 }
 
@@ -1221,11 +1035,10 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "parallel.rm-recursive-force-dynamic",
   "parallel.shell-dynamic",
   "parallel.command-stream-dynamic",
+  "shell.dynamic-structure",
   "shell.dynamic-executable",
   "raw-text.dangerous-command"
-];
-var DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set(DESTRUCTIVE_COMMAND_RULE_IDS);
-var DESTRUCTIVE_COMMAND_RULE_METADATA = [
+], DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set(DESTRUCTIVE_COMMAND_RULE_IDS), DESTRUCTIVE_COMMAND_RULE_METADATA = [
   {
     id: "git.ssh-env",
     category: "Git",
@@ -1570,6 +1383,13 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     intent: "scope_down"
   },
   {
+    id: "shell.dynamic-structure",
+    category: "Execution",
+    label: "Dynamic command structure",
+    description: "Blocks guarded subcommands and options assembled from substitution output.",
+    intent: "stop_and_explain"
+  },
+  {
     id: "shell.dynamic-executable",
     category: "Execution",
     label: "Dynamic executable name",
@@ -1583,8 +1403,7 @@ var DESTRUCTIVE_COMMAND_RULE_METADATA = [
     description: "Blocks dangerous commands detected in raw command text.",
     intent: "stop_and_explain"
   }
-];
-var DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
+], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
 function destructiveCommandMatch(id, reason, intent) {
   return {
     id,
@@ -1595,29 +1414,28 @@ function destructiveCommandMatch(id, reason, intent) {
 function filterDestructiveCommandMatch(match, policy) {
   if (!match)
     return null;
-  if (policy?.destructiveCommandProtectionEnabled === false)
+  if (policy?.destructiveCommandProtectionEnabled === !1)
     return null;
   return policy?.disabledDestructiveCommandRules.includes(match.id) ? null : match;
 }
 
 // src/core/analyze/awk.ts
-var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
-var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
+var AWK_INTERPRETERS = /* @__PURE__ */ new Set(["awk", "gawk", "nawk", "mawk"]), REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
 function analyzeAwkSystemCalls(tokens, analyzeNested) {
   return analyzeAwkSystemCallMatch(tokens, (command) => {
-    const reason = analyzeNested(command);
+    let reason = analyzeNested(command);
     return reason ? { id: "", reason, intent: "manual_only" } : null;
   })?.reason ?? null;
 }
 function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
-  for (const token of tokens.slice(1)) {
-    const commands = extractAwkExternalCommands(token);
+  for (let token of tokens.slice(1)) {
+    let commands = extractAwkExternalCommands(token);
     if (!commands)
       continue;
     if (commands.dynamic)
       return destructiveCommandMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
-    for (const command of commands.commands) {
-      const result = analyzeNested(command);
+    for (let command of commands.commands) {
+      let result = analyzeNested(command);
       if (result)
         return result;
     }
@@ -1625,8 +1443,7 @@ function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
   return null;
 }
 function extractAwkExternalCommands(code) {
-  const systemCommands = code.includes("system") ? extractAwkSystemCommands(code) : null;
-  const pipeCommands = extractAwkPipeCommands(code);
+  let systemCommands = code.includes("system") ? extractAwkSystemCommands(code) : null, pipeCommands = extractAwkPipeCommands(code);
   if (!systemCommands && !pipeCommands)
     return null;
   return {
@@ -1635,55 +1452,43 @@ function extractAwkExternalCommands(code) {
   };
 }
 function extractAwkSystemCommands(code) {
-  const commands = [];
-  let sawSystem = false;
-  let searchIndex = 0;
+  let commands = [], sawSystem = !1, searchIndex = 0;
   while (searchIndex < code.length) {
-    const systemIndex = code.indexOf("system", searchIndex);
+    let systemIndex = code.indexOf("system", searchIndex);
     if (systemIndex === -1)
       break;
-    searchIndex = systemIndex + "system".length;
-    if (isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex])) {
+    if (searchIndex = systemIndex + 6, isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex]))
       continue;
-    }
     let i = skipAwkWhitespace(code, searchIndex);
     if (code[i] !== "(")
       continue;
     i = skipAwkWhitespace(code, i + 1);
-    const quote = code[i];
+    let quote = code[i];
     if (quote !== '"' && quote !== "'") {
-      sawSystem = true;
+      sawSystem = !0;
       continue;
     }
-    const parsed = readAwkStringLiteral(code, i, quote);
+    let parsed = readAwkStringLiteral(code, i, quote);
     if (!parsed) {
-      sawSystem = true;
+      sawSystem = !0;
       continue;
     }
-    i = skipAwkWhitespace(code, parsed.endIndex);
-    sawSystem = true;
-    if (code[i] !== ")") {
-      return { dynamic: true, commands };
-    }
-    commands.push(parsed.value);
-    searchIndex = i + 1;
+    if (i = skipAwkWhitespace(code, parsed.endIndex), sawSystem = !0, code[i] !== ")")
+      return { dynamic: !0, commands };
+    commands.push(parsed.value), searchIndex = i + 1;
   }
   if (!sawSystem)
     return null;
-  return commands.length > 0 ? { dynamic: false, commands } : { dynamic: true, commands };
+  return commands.length > 0 ? { dynamic: !1, commands } : { dynamic: !0, commands };
 }
 function extractAwkPipeCommands(code) {
-  const commands = [];
-  let dynamic = false;
-  let sawPipeCommand = false;
-  let i = 0;
+  let commands = [], dynamic = !1, sawPipeCommand = !1, i = 0;
   while (i < code.length) {
-    const char = code[i];
+    let char = code[i];
     if (!char)
       break;
     if (char === '"' || char === "'") {
-      const parsed = readAwkStringLiteral(code, i, char);
-      i = parsed?.endIndex ?? i + 1;
+      i = readAwkStringLiteral(code, i, char)?.endIndex ?? i + 1;
       continue;
     }
     if (char === "#") {
@@ -1698,29 +1503,25 @@ function extractAwkPipeCommands(code) {
       i++;
       continue;
     }
-    const operatorEnd = code[i + 1] === "&" ? i + 2 : i + 1;
-    const afterPipe = skipAwkWhitespace(code, operatorEnd);
+    let operatorEnd = code[i + 1] === "&" ? i + 2 : i + 1, afterPipe = skipAwkWhitespace(code, operatorEnd);
     if (startsAwkKeyword(code, afterPipe, "getline")) {
-      sawPipeCommand = true;
-      const command = readAwkStringBeforePipe(code, i);
-      if (command === null) {
-        dynamic = true;
-      } else {
+      sawPipeCommand = !0;
+      let command = readAwkStringBeforePipe(code, i);
+      if (command === null)
+        dynamic = !0;
+      else
         commands.push(command);
-      }
       i = operatorEnd;
       continue;
     }
     if (isAwkPrintPipe(code, i)) {
-      sawPipeCommand = true;
-      const parsed = readAwkStringAt(code, afterPipe);
+      sawPipeCommand = !0;
+      let parsed = readAwkStringAt(code, afterPipe);
       if (!parsed) {
-        dynamic = true;
-        i = operatorEnd;
+        dynamic = !0, i = operatorEnd;
         continue;
       }
-      commands.push(parsed.value);
-      i = parsed.endIndex;
+      commands.push(parsed.value), i = parsed.endIndex;
       continue;
     }
     i++;
@@ -1734,71 +1535,64 @@ function isAwkIdentifierChar(char) {
 }
 function skipAwkWhitespace(code, index) {
   let i = index;
-  while (/\s/.test(code[i] ?? "")) {
+  while (/\s/.test(code[i] ?? ""))
     i++;
-  }
   return i;
 }
 function readAwkStringLiteral(code, startIndex, quote) {
-  let value = "";
-  let escaped = false;
+  let value = "", escaped = !1;
   for (let i = startIndex + 1;i < code.length; i++) {
-    const char = code[i];
+    let char = code[i];
     if (!char)
       break;
     if (escaped) {
-      const decoded = decodeAwkEscape(code, i);
+      let decoded = decodeAwkEscape(code, i);
       if (!decoded)
         return null;
-      value += decoded.value;
-      i = decoded.endIndex;
-      escaped = false;
+      value += decoded.value, i = decoded.endIndex, escaped = !1;
       continue;
     }
     if (char === "\\") {
-      escaped = true;
+      escaped = !0;
       continue;
     }
-    if (char === quote) {
+    if (char === quote)
       return { value, endIndex: i + 1 };
-    }
     value += char;
   }
   return null;
 }
 function readAwkStringAt(code, index) {
-  const quote = code[index];
+  let quote = code[index];
   if (quote !== '"' && quote !== "'")
     return null;
   return readAwkStringLiteral(code, index, quote);
 }
 function readAwkStringBeforePipe(code, pipeIndex) {
-  const endIndex = skipAwkWhitespaceBack(code, pipeIndex);
-  const quote = code[endIndex - 1];
+  let endIndex = skipAwkWhitespaceBack(code, pipeIndex), quote = code[endIndex - 1];
   if (quote !== '"' && quote !== "'")
     return null;
   for (let i = endIndex - 2;i >= 0; i--) {
     if (code[i] !== quote)
       continue;
-    const parsed = readAwkStringLiteral(code, i, quote);
-    if (parsed?.endIndex === endIndex) {
+    let parsed = readAwkStringLiteral(code, i, quote);
+    if (parsed?.endIndex === endIndex)
       return parsed.value;
-    }
   }
   return null;
 }
 function decodeAwkEscape(code, index) {
-  const char = code[index];
+  let char = code[index];
   if (!char)
     return null;
   if (char === "x") {
-    const hex = code.slice(index + 1, index + 3);
+    let hex = code.slice(index + 1, index + 3);
     if (!/^[0-9A-Fa-f]{2}$/.test(hex))
       return null;
     return { value: String.fromCharCode(Number.parseInt(hex, 16)), endIndex: index + 2 };
   }
   if (/[0-7]/.test(char)) {
-    const match = /^[0-7]{1,3}/.exec(code.slice(index));
+    let match = /^[0-7]{1,3}/.exec(code.slice(index));
     if (!match)
       return null;
     return {
@@ -1806,7 +1600,7 @@ function decodeAwkEscape(code, index) {
       endIndex: index + match[0].length - 1
     };
   }
-  const simpleEscapes = {
+  return { value: {
     a: "\x07",
     b: "\b",
     f: "\f",
@@ -1815,14 +1609,12 @@ function decodeAwkEscape(code, index) {
     r: "\r",
     t: "\t",
     v: "\v"
-  };
-  return { value: simpleEscapes[char] ?? char, endIndex: index };
+  }[char] ?? char, endIndex: index };
 }
 function skipAwkWhitespaceBack(code, index) {
   let i = index;
-  while (i > 0 && /\s/.test(code[i - 1] ?? "")) {
+  while (i > 0 && /\s/.test(code[i - 1] ?? ""))
     i--;
-  }
   return i;
 }
 function startsAwkKeyword(code, index, keyword) {
@@ -1832,45 +1624,43 @@ function isAwkPrintPipe(code, pipeIndex) {
   return /\b(?:print|printf)\b/.test(code.slice(findAwkStatementStart(code, pipeIndex), pipeIndex));
 }
 function findAwkStatementStart(code, index) {
-  const starts = [";", `
+  let starts = [";", `
 `, "{", "}"].map((marker) => code.lastIndexOf(marker, index - 1));
   return Math.max(...starts) + 1;
 }
 function findAwkLineEnd(code, index) {
-  const lineEnd = code.indexOf(`
+  let lineEnd = code.indexOf(`
 `, index);
   return lineEnd === -1 ? code.length : lineEnd + 1;
 }
 function isLikelyAwkRegexStart(code, index) {
-  const previousIndex = findPreviousAwkNonWhitespace(code, index);
+  let previousIndex = findPreviousAwkNonWhitespace(code, index);
   if (previousIndex === -1)
-    return true;
+    return !0;
   return "{([,;!~".includes(code[previousIndex] ?? "");
 }
 function findPreviousAwkNonWhitespace(code, index) {
-  for (let i = index - 1;i >= 0; i--) {
+  for (let i = index - 1;i >= 0; i--)
     if (!/\s/.test(code[i] ?? ""))
       return i;
-  }
   return -1;
 }
 function findAwkRegexEnd(code, index) {
-  let escaped = false;
+  let escaped = !1;
   for (let i = index;i < code.length; i++) {
-    const char = code[i];
+    let char = code[i];
     if (!char)
       break;
     if (escaped) {
-      escaped = false;
+      escaped = !1;
       continue;
     }
     if (char === "\\") {
-      escaped = true;
+      escaped = !0;
       continue;
     }
-    if (char === "/") {
+    if (char === "/")
       return i + 1;
-    }
   }
   return null;
 }
@@ -1893,18 +1683,7 @@ var BLOCK_INTENTS = [
 ];
 
 // src/types.ts
-var MAX_RECURSION_DEPTH = 10;
-var MAX_STRIP_ITERATIONS = 20;
-var NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
-var COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-var MAX_REASON_LENGTH = 256;
-var SHELL_OPERATORS = new Set(["&&", "||", "|&", "|", "&", ";", `
-`]);
-var SHELL_WRAPPERS = new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]);
-var INTERPRETERS = new Set(["python", "python3", "python2", "node", "ruby", "perl"]);
-var PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
-var RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/;
-var DANGEROUS_PATTERNS = [
+var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/, RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/, DANGEROUS_PATTERNS = [
   RM_RECURSIVE_FORCE_PATTERN,
   /\bgit\s+reset\s+--hard\b/,
   /\bgit\s+checkout\s+--\b/,
@@ -1917,34 +1696,29 @@ var DANGEROUS_PATTERNS = [
 ];
 
 // src/core/analyze/interpreters.ts
-var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.";
-var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)";
-var CODE_FLAGS = new Map([
-  ["python", new Set(["-c"])],
-  ["node", new Set(["-e", "--eval"])],
-  ["ruby", new Set(["-e"])],
-  ["perl", new Set(["-e", "-E"])]
-]);
-var CLUSTERED_CODE_FLAGS = new Map([
-  ["python", new Set(["c"])],
-  ["node", new Set(["e"])],
-  ["ruby", new Set(["e"])],
-  ["perl", new Set(["e", "E"])]
+var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.", REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)", CODE_FLAGS = /* @__PURE__ */ new Map([
+  ["python", /* @__PURE__ */ new Set(["-c"])],
+  ["node", /* @__PURE__ */ new Set(["-e", "--eval"])],
+  ["ruby", /* @__PURE__ */ new Set(["-e"])],
+  ["perl", /* @__PURE__ */ new Set(["-e", "-E"])]
+]), CLUSTERED_CODE_FLAGS = /* @__PURE__ */ new Map([
+  ["python", /* @__PURE__ */ new Set(["c"])],
+  ["node", /* @__PURE__ */ new Set(["e"])],
+  ["ruby", /* @__PURE__ */ new Set(["e"])],
+  ["perl", /* @__PURE__ */ new Set(["e", "E"])]
 ]);
 function extractInterpreterCodeArg(tokens) {
-  const interpreter = normalizeInterpreter(tokens[0] ?? "");
+  let interpreter = normalizeInterpreter(tokens[0] ?? "");
   for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       continue;
-    if (isInterpreterCodeFlag(interpreter, token)) {
+    if (isInterpreterCodeFlag(interpreter, token))
       return tokens[i + 1] || null;
-    }
-    const inlineEval = /^--eval=(.*)$/s.exec(token);
-    if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
+    let inlineEval = /^--eval=(.*)$/s.exec(token);
+    if (supportsInlineEval(interpreter) && inlineEval?.[1])
       return inlineEval[1];
-    }
-    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
+    let shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
     if (shortCodeArg)
       return shortCodeArg;
   }
@@ -1954,891 +1728,50 @@ function isInterpreterCommand(command) {
   return CODE_FLAGS.has(normalizeInterpreter(command));
 }
 function normalizeInterpreter(command) {
-  const interpreter = getBasename(command).toLowerCase();
+  let interpreter = getBasename(command).toLowerCase();
   return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? "python" : interpreter;
 }
 function isInterpreterCodeFlag(interpreter, token) {
-  return CODE_FLAGS.get(interpreter)?.has(token) ?? false;
+  return CODE_FLAGS.get(interpreter)?.has(token) ?? !1;
 }
 function supportsInlineEval(interpreter) {
-  return CODE_FLAGS.get(interpreter)?.has("--eval") ?? false;
+  return CODE_FLAGS.get(interpreter)?.has("--eval") ?? !1;
 }
 function extractShortCodeArg(interpreter, token, nextToken) {
-  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2) {
+  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
     return null;
-  }
-  const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
-  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
+  let flags = CLUSTERED_CODE_FLAGS.get(interpreter), codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? !1);
   if (codeFlagIndex < 0)
     return null;
   return token.slice(codeFlagIndex + 2) || nextToken || null;
 }
 function containsDangerousCode(code) {
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.test(code)) {
-      return true;
-    }
-  }
-  return false;
+  for (let pattern of DANGEROUS_PATTERNS)
+    if (pattern.test(code))
+      return !0;
+  return !1;
 }
 // src/core/shell/options.ts
 function extractShortOpts(tokens, options) {
-  const opts = new Set;
-  let pastDoubleDash = false;
-  for (const token of tokens) {
+  let opts = /* @__PURE__ */ new Set, pastDoubleDash = !1;
+  for (let token of tokens) {
     if (token === "--") {
-      pastDoubleDash = true;
+      pastDoubleDash = !0;
       continue;
     }
     if (pastDoubleDash)
       continue;
-    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
+    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1)
       for (let i = 1;i < token.length; i++) {
-        const char = token[i];
-        if (!char || !/[a-zA-Z]/.test(char)) {
+        let char = token[i];
+        if (!char || !/[a-zA-Z]/.test(char))
           break;
-        }
-        const shortOpt = `-${char}`;
-        opts.add(shortOpt);
-        if (options?.shortOptsWithValue?.has(shortOpt)) {
+        let shortOpt = `-${char}`;
+        if (opts.add(shortOpt), options?.shortOptsWithValue?.has(shortOpt))
           break;
-        }
       }
-    }
   }
   return opts;
-}
-// node_modules/shell-quote/index.js
-var $quote = require_quote();
-var $parse = require_parse();
-
-// src/core/shell/shared.ts
-var ENV_PROXY = new Proxy({}, {
-  get: (_, name) => `$${String(name)}`
-});
-function advanceQuoteScanState(char, state) {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-  if (char === "\\" && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-  if (char === "'" && !state.inDouble) {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-  if (char === '"' && !state.inSingle) {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-  return false;
-}
-function hasUnclosedQuotes(command) {
-  const state = { inSingle: false, inDouble: false, escaped: false };
-  for (const char of stripShellComments(command)) {
-    advanceQuoteScanState(char, state);
-  }
-  return state.inSingle || state.inDouble;
-}
-function stripShellComments(command) {
-  let result = "";
-  const state = { inSingle: false, inDouble: false, escaped: false };
-  let inComment = false;
-  for (let i = 0;i < command.length; i++) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (inComment) {
-      if (char === `
-` || char === "\r") {
-        result += char;
-        inComment = false;
-        state.escaped = false;
-      }
-      continue;
-    }
-    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
-      inComment = true;
-      continue;
-    }
-    result += char;
-    advanceQuoteScanState(char, state);
-  }
-  return result;
-}
-function startsShellComment(command, index) {
-  return index === 0 || /\s/.test(command[index - 1] ?? "");
-}
-function getCommandTokenText(token) {
-  if (typeof token === "string") {
-    return token;
-  }
-  if (token && typeof token === "object" && "pattern" in token && typeof token.pattern === "string") {
-    return token.pattern;
-  }
-  return null;
-}
-
-// src/core/shell/segments.ts
-var ARITHMETIC_SENTINEL = "__CC_SAFETY_NET_ARITH_SENTINEL__";
-var BACKTICK_ATTACHED_SUFFIX_SENTINEL = "__CC_SAFETY_NET_BACKTICK_SUFFIX__";
-var SHELL_DYNAMIC_SUBSTITUTION_TOKEN = "$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__";
-function splitShellCommands(command) {
-  return splitShellCommandsWithInfo(command).map((segment) => stripDynamicSubstitutionTokens(segment.tokens));
-}
-function stripDynamicSubstitutionTokens(tokens) {
-  return tokens.map((token) => token.replaceAll(SHELL_DYNAMIC_SUBSTITUTION_TOKEN, "")).filter((token) => token !== "");
-}
-function splitShellCommandsWithInfo(command) {
-  if (hasUnclosedQuotes(command)) {
-    return [{ tokens: [command], hasDynamicSubstitution: false }];
-  }
-  const normalizedCommand = _stripAttachedIoNumbers(_normalizeAnsiCQuotes(stripShellComments(command)).replace(/\r?\n|\r/g, " ; "));
-  const tokens = $parse(normalizedCommand, ENV_PROXY);
-  const segments = [];
-  let current = [];
-  let currentHasDynamicSubstitution = false;
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (isOperator(token)) {
-      if (current.length > 0) {
-        segments.push({
-          tokens: current,
-          hasDynamicSubstitution: currentHasDynamicSubstitution
-        });
-        current = [];
-        currentHasDynamicSubstitution = false;
-      }
-      i++;
-      continue;
-    }
-    if (_isProcessSubstitutionStart(tokens, i)) {
-      if (current.length > 0) {
-        segments.push({
-          tokens: current,
-          hasDynamicSubstitution: currentHasDynamicSubstitution
-        });
-        current = [];
-        currentHasDynamicSubstitution = false;
-      }
-      const { innerSegments, endIndex } = extractProcessSubstitution(tokens, i);
-      for (const seg of innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    if (_isRedirectOp(token)) {
-      const { redirectTarget, advance } = _getRedirectTargetInfo(tokens, i);
-      if (redirectTarget !== null) {
-        _pushInlineSubstitutionSegmentInfos(segments, redirectTarget);
-      }
-      i += advance;
-      continue;
-    }
-    if (_isCommandSubstitutionStart(tokens, i)) {
-      const substitution = getCommandSubstitution(tokens, i);
-      const hadCurrent = current.length > 0;
-      if (hadCurrent) {
-        currentHasDynamicSubstitution = true;
-        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-        if (!substitution.shouldKeepCurrent) {
-          segments.push({
-            tokens: current,
-            hasDynamicSubstitution: currentHasDynamicSubstitution
-          });
-          current = [];
-          currentHasDynamicSubstitution = false;
-        }
-      }
-      if (!hadCurrent) {
-        current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-        currentHasDynamicSubstitution = true;
-      }
-      for (const seg of substitution.innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      if (substitution.shouldKeepCurrent && substitution.attachedSuffix) {
-        current.push(substitution.attachedSuffix);
-      }
-      i = substitution.endIndex + (substitution.attachedSuffix !== null ? 2 : 1);
-      continue;
-    }
-    if (_isAttachedCommandSubstitutionStart(tokens, i)) {
-      const tokenText2 = tokens[i];
-      if (typeof tokenText2 === "string") {
-        const prefix = tokenText2.slice(0, -1);
-        if (prefix) {
-          if (current.length === 0) {
-            current.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
-          } else {
-            current.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-          }
-        } else {
-          current.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-        }
-      }
-      currentHasDynamicSubstitution = true;
-      const { innerSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
-      for (const seg of innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText === null) {
-      if (token && typeof token === "object" && "op" in token && typeof token.op === "string") {
-        _pushInlineSubstitutionSegmentInfos(segments, token.op);
-      }
-      i++;
-      continue;
-    }
-    _pushInlineSubstitutionSegmentInfos(segments, tokenText);
-    current.push(tokenText);
-    i++;
-  }
-  if (current.length > 0) {
-    segments.push({
-      tokens: current,
-      hasDynamicSubstitution: currentHasDynamicSubstitution
-    });
-  }
-  return segments;
-}
-function extractInlineCommandSubstitutions(token) {
-  const segments = [];
-  let i = 0;
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
-  while (i < token.length) {
-    const char = token[i];
-    if (!char) {
-      break;
-    }
-    if (advanceQuoteScanState(char, quoteState)) {
-      i++;
-      continue;
-    }
-    if (!quoteState.inSingle && char === "$" && token[i + 1] === "(" && token[i + 2] !== "(") {
-      const end = _findInlineCommandSubstitutionEnd(token, i + 2);
-      if (end === -1) {
-        break;
-      }
-      const innerCommand = token.slice(i + 2, end);
-      if (innerCommand.trim()) {
-        const innerSegments = splitShellCommands(innerCommand);
-        for (const seg of innerSegments) {
-          segments.push(seg);
-        }
-      }
-      i = end + 1;
-      continue;
-    }
-    i++;
-  }
-  return segments;
-}
-function isParenOpen(token) {
-  return typeof token === "object" && token !== null && "op" in token && token.op === "(";
-}
-function isParenClose(token) {
-  return typeof token === "object" && token !== null && "op" in token && token.op === ")";
-}
-function getCommandSubstitution(tokens, index) {
-  const { innerSegments, endIndex } = extractCommandSubstitution(tokens, index + 2);
-  const attachedSuffix = _getBacktickAttachedSuffix(tokens[endIndex + 1]);
-  return {
-    innerSegments,
-    endIndex,
-    attachedSuffix,
-    shouldKeepCurrent: attachedSuffix !== null && !_isRedirectOp(tokens[index - 1]) && !isOperatorToken(tokens[index - 1])
-  };
-}
-function extractCommandSubstitution(tokens, startIndex) {
-  if (tokens[startIndex] === ARITHMETIC_SENTINEL) {
-    return _extractArithmeticSubstitution(tokens, startIndex);
-  }
-  const innerSegments = [];
-  let currentSegment = [];
-  let depth = 1;
-  let i = startIndex;
-  while (i < tokens.length && depth > 0) {
-    const token = tokens[i];
-    if (isParenOpen(token)) {
-      depth++;
-      i++;
-      continue;
-    }
-    if (isParenClose(token)) {
-      depth--;
-      if (depth === 0)
-        break;
-      i++;
-      continue;
-    }
-    if (depth === 1 && token && isOperator(token)) {
-      if (currentSegment.length > 0) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      i++;
-      continue;
-    }
-    if (depth === 1 && _isProcessSubstitutionStart(tokens, i)) {
-      if (currentSegment.length > 0) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      const { innerSegments: nestedSegments, endIndex } = extractProcessSubstitution(tokens, i);
-      for (const seg of nestedSegments) {
-        innerSegments.push(seg);
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    if (depth === 1 && _isRedirectOp(token)) {
-      const { redirectTarget, advance } = _getRedirectTargetInfo(tokens, i);
-      if (redirectTarget !== null) {
-        _pushInlineSubstitutionSegments(innerSegments, redirectTarget);
-      }
-      i += advance;
-      continue;
-    }
-    if (depth === 1 && _isCommandSubstitutionStart(tokens, i)) {
-      const substitution = getCommandSubstitution(tokens, i);
-      const hadCurrentSegment = currentSegment.length > 0;
-      if (hadCurrentSegment) {
-        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-      }
-      if (!substitution.shouldKeepCurrent && hadCurrentSegment) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      if (!hadCurrentSegment) {
-        currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-      }
-      for (const seg of substitution.innerSegments) {
-        innerSegments.push(seg);
-      }
-      if (substitution.shouldKeepCurrent && substitution.attachedSuffix) {
-        currentSegment.push(substitution.attachedSuffix);
-      }
-      i = substitution.endIndex + (substitution.attachedSuffix !== null ? 2 : 1);
-      continue;
-    }
-    if (depth === 1 && _isAttachedCommandSubstitutionStart(tokens, i)) {
-      if (typeof token === "string") {
-        const prefix = token.slice(0, -1);
-        if (prefix) {
-          if (currentSegment.length === 0) {
-            currentSegment.push(`${prefix}${SHELL_DYNAMIC_SUBSTITUTION_TOKEN}`);
-          } else {
-            currentSegment.push(prefix, SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-          }
-        } else {
-          currentSegment.push(SHELL_DYNAMIC_SUBSTITUTION_TOKEN);
-        }
-      }
-      const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
-      for (const seg of nestedSegments) {
-        innerSegments.push(seg);
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null) {
-      currentSegment.push(tokenText);
-    }
-    i++;
-  }
-  if (currentSegment.length > 0) {
-    innerSegments.push(currentSegment);
-  }
-  return { innerSegments, endIndex: i };
-}
-function _extractArithmeticSubstitution(tokens, startIndex) {
-  const innerSegments = [];
-  let expression = "";
-  let depth = 1;
-  let i = startIndex + 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (_isCommandSubstitutionStart(tokens, i)) {
-      const nested = extractArithmeticNestedCommand(innerSegments, expression, tokens, i + 2);
-      expression = nested.expression;
-      i = nested.endIndex + 1;
-      continue;
-    }
-    if (_isAttachedCommandSubstitutionStart(tokens, i)) {
-      const tokenText = tokens[i];
-      if (typeof tokenText === "string") {
-        expression += tokenText.slice(0, -1);
-      }
-      const nested = extractArithmeticNestedCommand(innerSegments, expression, tokens, i + 2);
-      expression = nested.expression;
-      i = nested.endIndex + 1;
-      continue;
-    }
-    if (isParenOpen(token)) {
-      depth++;
-      expression += "(";
-      i++;
-      continue;
-    }
-    if (isParenClose(token)) {
-      depth--;
-      if (depth === 0) {
-        return {
-          innerSegments: expression ? [...innerSegments, [expression]] : innerSegments,
-          endIndex: i
-        };
-      }
-      expression += ")";
-      i++;
-      continue;
-    }
-    if (typeof token === "string") {
-      _pushInlineSubstitutionSegments(innerSegments, token);
-      expression += token;
-      i++;
-      continue;
-    }
-    if (token && typeof token === "object") {
-      if ("pattern" in token && typeof token.pattern === "string") {
-        expression += token.pattern;
-        i++;
-        continue;
-      }
-      if ("op" in token) {
-        expression += String(token.op);
-      }
-    }
-    i++;
-  }
-  return {
-    innerSegments: expression ? [...innerSegments, [expression]] : innerSegments,
-    endIndex: i
-  };
-}
-function extractArithmeticNestedCommand(innerSegments, expression, tokens, startIndex) {
-  if (expression) {
-    innerSegments.push([expression]);
-  }
-  const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(tokens, startIndex);
-  for (const seg of nestedSegments) {
-    innerSegments.push(seg);
-  }
-  return { expression: "", endIndex };
-}
-function _pushInlineSubstitutionSegments(segments, token) {
-  const inlineSegments = extractInlineCommandSubstitutions(token);
-  for (const seg of inlineSegments) {
-    segments.push(seg);
-  }
-}
-function _pushInlineSubstitutionSegmentInfos(segments, token) {
-  const inlineSegments = extractInlineCommandSubstitutions(token);
-  for (const seg of inlineSegments) {
-    segments.push({ tokens: seg, hasDynamicSubstitution: false });
-  }
-}
-function _normalizeAnsiCQuotes(command) {
-  let result = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-  for (let i = 0;i < command.length; ) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (escaped) {
-      result += char;
-      escaped = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "\\") {
-      result += char;
-      escaped = true;
-      i++;
-      continue;
-    }
-    if (!inSingle && !inDouble && command.startsWith("$'", i)) {
-      const parsed = _readAnsiCString(command, i + 2);
-      if (!parsed) {
-        result += char;
-        i++;
-        continue;
-      }
-      result += _singleQuoteShellToken(parsed.value);
-      i = parsed.endIndex + 1;
-      continue;
-    }
-    if (!inDouble && char === "'") {
-      inSingle = !inSingle;
-    } else if (!inSingle && char === '"') {
-      inDouble = !inDouble;
-    }
-    result += char;
-    i++;
-  }
-  return result;
-}
-function _readAnsiCString(command, startIndex) {
-  let value = "";
-  for (let i = startIndex;i < command.length; i++) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (char === "'") {
-      return { value, endIndex: i };
-    }
-    if (char !== "\\") {
-      value += char;
-      continue;
-    }
-    const decoded = _readAnsiEscape(command, i + 1);
-    value += decoded.value;
-    i = decoded.endIndex;
-  }
-  return null;
-}
-function _readAnsiEscape(command, index) {
-  const char = command[index];
-  if (!char)
-    return { value: "\\", endIndex: index };
-  const simpleEscapes = {
-    a: "\x07",
-    b: "\b",
-    e: "\x1B",
-    E: "\x1B",
-    f: "\f",
-    n: `
-`,
-    r: "\r",
-    t: "\t",
-    v: "\v",
-    "\\": "\\",
-    "'": "'",
-    '"': '"'
-  };
-  if (Object.hasOwn(simpleEscapes, char)) {
-    return { value: simpleEscapes[char] ?? char, endIndex: index };
-  }
-  if (char === "x") {
-    return _readFixedBaseEscape(command, index + 1, 16, 2, index);
-  }
-  if (char === "u") {
-    return _readFixedBaseEscape(command, index + 1, 16, 4, index);
-  }
-  if (char === "U") {
-    return _readFixedBaseEscape(command, index + 1, 16, 8, index);
-  }
-  if (/[0-7]/.test(char)) {
-    return _readFixedBaseEscape(command, index, 8, 3, index - 1);
-  }
-  return { value: char, endIndex: index };
-}
-function _readFixedBaseEscape(command, startIndex, base, maxLength, fallbackEndIndex) {
-  let digits = "";
-  let endIndex = startIndex - 1;
-  const digitRegex = base === 16 ? /[0-9a-fA-F]/ : /[0-7]/;
-  for (let i = startIndex;i < command.length && digits.length < maxLength; i++) {
-    const char = command[i];
-    if (!char || !digitRegex.test(char))
-      break;
-    digits += char;
-    endIndex = i;
-  }
-  if (!digits) {
-    return { value: command[fallbackEndIndex] ?? "", endIndex: fallbackEndIndex };
-  }
-  return { value: String.fromCodePoint(Number.parseInt(digits, base)), endIndex };
-}
-function _singleQuoteShellToken(value) {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-function _stripAttachedIoNumbers(command) {
-  let result = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-  let atTokenBoundary = true;
-  let arithmeticParenDepth = 0;
-  for (let i = 0;i < command.length; ) {
-    const char = command[i];
-    if (!char) {
-      break;
-    }
-    if (escaped) {
-      result += char;
-      escaped = false;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "\\") {
-      result += char;
-      escaped = true;
-      i++;
-      continue;
-    }
-    if (!inDouble && char === "'") {
-      result += char;
-      inSingle = !inSingle;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === '"') {
-      result += char;
-      inDouble = !inDouble;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "`") {
-      const endIndex = _findBacktickEnd(command, i + 1);
-      if (endIndex === -1) {
-        result += char;
-        atTokenBoundary = false;
-        i++;
-        continue;
-      }
-      result += `$(${command.slice(i + 1, endIndex)})`;
-      if (atTokenBoundary && command[endIndex + 1] && _isPathLikeBacktickSuffix(command[endIndex + 1])) {
-        result += BACKTICK_ATTACHED_SUFFIX_SENTINEL;
-      }
-      atTokenBoundary = false;
-      i = endIndex + 1;
-      continue;
-    }
-    if (!inSingle && !inDouble) {
-      if (arithmeticParenDepth === 0 && command.startsWith("$((", i)) {
-        result += `$( ${ARITHMETIC_SENTINEL} `;
-        arithmeticParenDepth = 1;
-        atTokenBoundary = false;
-        i += 3;
-        continue;
-      }
-      if (arithmeticParenDepth > 0) {
-        if (char === "(") {
-          arithmeticParenDepth++;
-          result += char;
-        } else if (char === ")") {
-          arithmeticParenDepth--;
-          if (arithmeticParenDepth === 0) {
-            result += ")";
-            if (command[i + 1] === ")") {
-              i += 2;
-            } else {
-              i++;
-            }
-            atTokenBoundary = false;
-            continue;
-          }
-          result += char;
-        } else {
-          result += char;
-        }
-        atTokenBoundary = false;
-        i++;
-        continue;
-      }
-      if (_isWhitespaceChar(char)) {
-        result += char;
-        atTokenBoundary = true;
-        i++;
-        continue;
-      }
-      if (atTokenBoundary && _isAsciiDigit(char)) {
-        let end = i + 1;
-        while (end < command.length) {
-          const nextChar = command[end];
-          if (!nextChar || !_isAsciiDigit(nextChar)) {
-            break;
-          }
-          end++;
-        }
-        const redirectOpLength = _getRawRedirectOpLength(command, end);
-        if (redirectOpLength > 0) {
-          i = end;
-          atTokenBoundary = true;
-          continue;
-        }
-      }
-    }
-    result += char;
-    atTokenBoundary = _isShellTokenBoundaryChar(char);
-    i++;
-  }
-  return result;
-}
-function isOperator(token) {
-  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS.has(token.op);
-}
-function isOperatorToken(token) {
-  return token !== undefined && isOperator(token);
-}
-var REDIRECT_OPS = new Set([">", ">>", "<", ">&", "<&", ">|"]);
-var RAW_REDIRECT_OPS = [">>", ">&", "<&", ">|", ">", "<"];
-function _isRedirectOp(token) {
-  return typeof token === "object" && token !== null && "op" in token && REDIRECT_OPS.has(token.op);
-}
-function _isCommandSubstitutionStart(tokens, index) {
-  return tokens[index] === "$" && isParenOpen(tokens[index + 1]);
-}
-function _isAttachedCommandSubstitutionStart(tokens, index) {
-  const token = tokens[index];
-  return typeof token === "string" && token !== "$" && token.endsWith("$") && isParenOpen(tokens[index + 1]);
-}
-function _getBacktickAttachedSuffix(token) {
-  return typeof token === "string" && token.startsWith(BACKTICK_ATTACHED_SUFFIX_SENTINEL) ? token.slice(BACKTICK_ATTACHED_SUFFIX_SENTINEL.length) : null;
-}
-function _isProcessSubstitutionStart(tokens, index) {
-  const token = tokens[index];
-  return typeof token === "object" && token !== null && "op" in token && (token.op === "<(" || token.op === ">" && isParenOpen(tokens[index + 1]));
-}
-function extractProcessSubstitution(tokens, startIndex) {
-  const token = tokens[startIndex];
-  if (typeof token === "object" && token !== null && "op" in token && token.op === "<(") {
-    return extractCommandSubstitution(tokens, startIndex + 1);
-  }
-  if (_isProcessSubstitutionStart(tokens, startIndex)) {
-    return extractCommandSubstitution(tokens, startIndex + 2);
-  }
-  return { innerSegments: [], endIndex: startIndex };
-}
-function _getRedirectTargetInfo(tokens, index) {
-  if (_isCommandSubstitutionStart(tokens, index + 1) || _isProcessSubstitutionStart(tokens, index + 1)) {
-    return { redirectTarget: null, advance: 1 };
-  }
-  const firstTarget = tokens[index + 1];
-  if (typeof firstTarget !== "string") {
-    const isGlobTarget = firstTarget && typeof firstTarget === "object" && "pattern" in firstTarget && typeof firstTarget.pattern === "string";
-    return { redirectTarget: null, advance: isGlobTarget ? 2 : 1 };
-  }
-  let redirectTarget = firstTarget;
-  let nextIndex = index + 2;
-  if (firstTarget.endsWith("$") && isParenOpen(tokens[nextIndex])) {
-    const { text, consumed } = _collectParenthesizedTokens(tokens, nextIndex);
-    if (consumed > 0) {
-      redirectTarget += text;
-      nextIndex += consumed;
-    }
-  }
-  return {
-    redirectTarget,
-    advance: nextIndex - index
-  };
-}
-function _findInlineCommandSubstitutionEnd(token, startIndex) {
-  let depth = 1;
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
-  for (let i = startIndex;i < token.length; i++) {
-    const char = token[i];
-    if (!char) {
-      break;
-    }
-    if (advanceQuoteScanState(char, quoteState)) {
-      continue;
-    }
-    if (!quoteState.inSingle && !quoteState.inDouble) {
-      if (char === "(") {
-        depth++;
-      } else if (char === ")") {
-        depth--;
-        if (depth === 0) {
-          return i;
-        }
-      }
-    }
-  }
-  return -1;
-}
-function _findBacktickEnd(command, startIndex) {
-  let escaped = false;
-  for (let i = startIndex;i < command.length; i++) {
-    const char = command[i];
-    if (!char) {
-      break;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "`") {
-      return i;
-    }
-  }
-  return -1;
-}
-function _collectParenthesizedTokens(tokens, startIndex) {
-  if (!isParenOpen(tokens[startIndex])) {
-    return { text: "", consumed: 0 };
-  }
-  const parts = [];
-  let depth = 0;
-  let i = startIndex;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (isParenOpen(token)) {
-      depth++;
-    } else if (isParenClose(token)) {
-      depth--;
-    }
-    const piece = _stringifyParseEntry(token);
-    if (piece) {
-      parts.push(piece);
-    }
-    i++;
-    if (depth === 0) {
-      break;
-    }
-  }
-  return { text: parts.join(" "), consumed: i - startIndex };
-}
-function _stringifyParseEntry(token) {
-  if (typeof token === "string") {
-    return token;
-  }
-  if (token && typeof token === "object") {
-    if ("pattern" in token && typeof token.pattern === "string") {
-      return token.pattern;
-    }
-    if ("op" in token) {
-      return String(token.op);
-    }
-  }
-  return "";
-}
-function _getRawRedirectOpLength(command, index) {
-  for (const op of RAW_REDIRECT_OPS) {
-    if (command.startsWith(op, index)) {
-      return op.length;
-    }
-  }
-  return 0;
-}
-function _isWhitespaceChar(char) {
-  return /\s/.test(char);
-}
-function _isAsciiDigit(char) {
-  return char >= "0" && char <= "9";
-}
-function _isPathLikeBacktickSuffix(char) {
-  return char === "/" || char === ".";
-}
-function _isShellTokenBoundaryChar(char) {
-  return _isWhitespaceChar(char) || ";|&()<>".includes(char);
 }
 // src/core/shell/wrappers.ts
 import { realpathSync as realpathSync3 } from "node:fs";
@@ -2850,21 +1783,17 @@ var GIT_CONTEXT_ENV_OVERRIDES = [
   "GIT_WORK_TREE",
   "GIT_COMMON_DIR",
   "GIT_INDEX_FILE"
-];
-var GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES);
-var GIT_CONFIG_AFFECTING_ENV_NAMES = new Set([
+], GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES), GIT_CONFIG_AFFECTING_ENV_NAMES = /* @__PURE__ */ new Set([
   "GIT_CONFIG_GLOBAL",
   "GIT_CONFIG_NOSYSTEM",
   "GIT_CONFIG_SYSTEM",
   "HOME",
   "XDG_CONFIG_HOME"
-]);
-var GIT_SSH_ENV_NAMES = new Set([
+]), GIT_SSH_ENV_NAMES = /* @__PURE__ */ new Set([
   "GIT_SSH_COMMAND",
   "GIT_SSH",
   "GIT_SSH_VARIANT"
-]);
-var GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
+]), GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
 function isGitContextEnvOverrideName(name) {
   return GIT_CONTEXT_ENV_OVERRIDE_NAMES.has(name);
 }
@@ -2875,12 +1804,10 @@ function isTrackedGitEnvName(name) {
   return isGitContextEnvOverrideName(name) || GIT_CONFIG_AFFECTING_ENV_NAMES.has(name) || GIT_SSH_ENV_NAMES.has(name) || isGitConfigEnvName(name);
 }
 function parseGitContextAppendEnvAssignment(token) {
-  const match = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE);
-  const name = match?.[1];
-  if (!name || !isTrackedGitEnvName(name)) {
+  let name = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE)?.[1];
+  if (!name || !isTrackedGitEnvName(name))
     return null;
-  }
-  const eqIdx = token.indexOf("=");
+  let eqIdx = token.indexOf("=");
   return { name, value: token.slice(eqIdx + 1) };
 }
 function hasGitSshEnvAssignment(envAssignments) {
@@ -2890,32 +1817,27 @@ function hasConfigAffectingEnvAssignment(envAssignments) {
   return hasAnyEnvAssignment(envAssignments, GIT_CONFIG_AFFECTING_ENV_NAMES);
 }
 function hasAnyEnvAssignment(envAssignments, names) {
-  if (!envAssignments) {
-    return false;
-  }
-  for (const key of envAssignments.keys()) {
-    if (names.has(key)) {
-      return true;
-    }
-  }
-  return false;
+  if (!envAssignments)
+    return !1;
+  for (let key of envAssignments.keys())
+    if (names.has(key))
+      return !0;
+  return !1;
 }
 
 // src/core/path.ts
 import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute3, parse as parsePath, sep } from "node:path";
 function resolveChdirTarget(baseCwd, target) {
-  const root = isAbsolute3(target) ? getPathRoot(target) : "";
-  let current = root || baseCwd;
-  for (const component of getPathComponents(root ? target.slice(root.length) : target)) {
-    if (component === "" || component === ".") {
+  let root = isAbsolute3(target) ? getPathRoot(target) : "", current = root || baseCwd;
+  for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
+    if (component === "" || component === ".")
       continue;
-    }
     if (component === "..") {
       current = dirname2(current);
       continue;
     }
-    const candidate = appendPathWithoutNormalizing(current, component);
+    let candidate = appendPathWithoutNormalizing(current, component);
     current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
   }
   return current;
@@ -2927,33 +1849,1309 @@ function getPathRoot(target) {
   return parsePath(target).root;
 }
 function getPathComponents(target) {
-  const separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
+  let separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
   return target.split(separator);
+}
+
+// src/parser/immutable.ts
+function createCommandNodes() {
+  return [];
+}
+function createCommandIssues() {
+  return [];
+}
+function createCommandAccumulator() {
+  return {
+    words: [],
+    redirections: [],
+    nested: [],
+    start: -1,
+    end: -1,
+    reset() {
+      this.words = [], this.redirections = [], this.nested = [], this.start = -1, this.end = -1;
+    }
+  };
+}
+function freezeCommandView(command) {
+  return Object.freeze({
+    ...command,
+    span: Object.freeze(command.span),
+    words: Object.freeze(command.words),
+    tokens: Object.freeze(command.tokens),
+    analysisTokens: Object.freeze(command.analysisTokens),
+    redirections: Object.freeze(command.redirections),
+    nested: Object.freeze(command.nested)
+  });
+}
+function appendAccumulatedCommand(nodes, accumulator, command) {
+  nodes.push(freezeCommandView(command)), accumulator.reset();
+}
+function appendCommandWordPart(parts, source, start, end, provenance) {
+  if (end <= start)
+    return;
+  parts.push({ raw: source.slice(start, end), span: { start, end }, provenance });
+}
+function createCommandWordParts(source) {
+  let parts = [];
+  return {
+    parts,
+    push: (start, end, provenance) => appendCommandWordPart(parts, source, start, end, provenance)
+  };
+}
+function freezeCommandWord(word) {
+  let parts = word.parts ?? [
+    {
+      raw: word.raw,
+      span: word.span,
+      provenance: word.provenance
+    }
+  ];
+  return Object.freeze({
+    kind: "word",
+    ...word,
+    span: Object.freeze(word.span),
+    parts: Object.freeze(parts.map((part) => Object.freeze({ ...part, span: Object.freeze(part.span) })))
+  });
+}
+function freezeParsedCommandWord(source, start, end, text, provenance, quoted, parts) {
+  return freezeCommandWord({
+    text,
+    raw: source.slice(start, end),
+    span: { start, end },
+    provenance,
+    quoted,
+    ...parts ? { parts } : {}
+  });
+}
+function freezeCommandProgram(program) {
+  return Object.freeze({
+    ...program,
+    span: Object.freeze(program.span),
+    issues: Object.freeze(program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) }))),
+    nodes: Object.freeze(program.nodes)
+  });
+}
+
+// src/parser/posix.ts
+function parsePosixCommand(source, dialect, limits) {
+  let span = { start: 0, end: source.length };
+  if (source.length > limits.maxInputLength)
+    return freezeCommandProgram({
+      kind: "program",
+      dialect,
+      source,
+      span,
+      status: "limited",
+      issues: [
+        {
+          code: "input-limit",
+          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
+          span
+        }
+      ],
+      nodes: []
+    });
+  let result = scanSequence(source, 0, source.length, dialect, limits, 0);
+  return freezeCommandProgram({
+    kind: "program",
+    dialect,
+    source,
+    span,
+    status: getParseStatus(result.issues, result.limited),
+    issues: result.issues,
+    nodes: result.nodes
+  });
+}
+function scanSequence(source, start, end, dialect, limits, depth, closing) {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flushCommand = () => {
+    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
+      return;
+    let span = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text), analysisTokens = accumulator.words.map((word) => word.provenance === "command-substitution" ? word.raw : word.text);
+    appendAccumulatedCommand(nodes, accumulator, {
+      kind: "command",
+      dialect,
+      source: source.slice(span.start, span.end),
+      span,
+      words: accumulator.words,
+      tokens,
+      analysisTokens,
+      redirections: accumulator.redirections,
+      nested: accumulator.nested,
+      dynamicExecutable: accumulator.words[0]?.provenance === "command-substitution",
+      legacyNormalized: issues.length > 0 && nodes.length === 0 ? source.slice(start, end) : tokens.join(" ")
+    });
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char)
+      break;
+    if (closing && char === closing)
+      return flushCommand(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
+    if (isShellWhitespace(char)) {
+      if (char === `
+` || char === "\r") {
+        flushCommand();
+        let connectorEnd = char === "\r" && source[i + 1] === `
+` ? i + 2 : i + 1;
+        nodes.push(Object.freeze({
+          kind: "connector",
+          operator: source.slice(i, connectorEnd),
+          span: Object.freeze({ start: i, end: connectorEnd })
+        })), i = connectorEnd;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (char === "#") {
+      while (i < end && source[i] !== `
+` && source[i] !== "\r")
+        i++;
+      continue;
+    }
+    let connector = readConnector(source, i);
+    if (connector) {
+      flushCommand(), nodes.push(Object.freeze({
+        kind: "connector",
+        operator: connector,
+        span: Object.freeze({ start: i, end: i + connector.length })
+      })), i += connector.length;
+      continue;
+    }
+    if ((char === "(" || char === "{") && accumulator.start === -1) {
+      if (depth >= limits.maxDepth)
+        return limitedResult(nodes, issues, i, wordCount, "depth-limit", limits.maxDepth);
+      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = freezeCommandProgram({
+        kind: "program",
+        dialect,
+        source: source.slice(bodySpan.start, bodySpan.end),
+        span: bodySpan,
+        status: getParseStatus(inner.issues, inner.limited),
+        issues: inner.issues,
+        nodes: inner.nodes
+      });
+      if (nodes.push(Object.freeze({
+        kind: "group",
+        style: char === "(" ? "subshell" : "brace",
+        span: Object.freeze({ start: i, end: groupEnd }),
+        body
+      })), issues.push(...inner.issues), !inner.closed)
+        issues.push({
+          code: char === "(" ? "unclosed-subshell" : "unclosed-brace-group",
+          message: `${char} group is not closed`,
+          span: { start: i, end: groupEnd }
+        });
+      wordCount += inner.words, limited ||= inner.limited, i = groupEnd;
+      continue;
+    }
+    let redirect = (char === "<" || char === ">") && source[i + 1] !== "(" ? readRedirect(source, i) : null;
+    if (redirect) {
+      if (accumulator.words.length > 0) {
+        let prior = accumulator.words.at(-1);
+        if (prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw))
+          accumulator.words.pop();
+      }
+      let redirectStart = i;
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
+      let targetStart = i + redirect.length;
+      while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
+        targetStart++;
+      let targetResult = targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length;
+      if (accumulator.redirections.push(Object.freeze({
+        kind: "redirection",
+        operator: redirect,
+        span: Object.freeze({ start: redirectStart, end: redirectEnd }),
+        ...targetResult ? { target: targetResult.word } : {}
+      })), targetResult)
+        accumulator.nested.push(...targetResult.nested), issues.push(...targetResult.issues), wordCount += targetResult.words, limited ||= targetResult.limited;
+      accumulator.end = redirectEnd, i = redirectEnd;
+      continue;
+    }
+    let wordResult = readWord(source, i, end, dialect, limits, depth);
+    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = wordResult.next, accumulator.words.push(wordResult.word), accumulator.nested.push(...wordResult.nested), issues.push(...wordResult.issues), wordCount += 1 + wordResult.words, limited ||= wordResult.limited, wordCount > limits.maxWords)
+      return limitedResult(nodes, issues, wordResult.next, wordCount, "word-limit", limits.maxWords);
+    i = wordResult.next > i ? wordResult.next : i + 1;
+  }
+  return flushCommand(), { nodes, issues, next: i, closed: closing === void 0, words: wordCount, limited };
+}
+function readWord(source, start, end, dialect, limits, depth) {
+  let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], nestedWords = 0, limited = !1;
+  while (i < end) {
+    let char = source[i], processSubstitution = (char === "<" || char === ">") && source[i + 1] === "(";
+    if (!char || isShellWhitespace(char) || (char === ";" || char === "|" || char === "&") && readConnector(source, i) || (char === "<" || char === ">") && !processSubstitution)
+      break;
+    if (char === ")")
+      break;
+    if (char === "'") {
+      quoted = !0;
+      let close = source.indexOf("'", i + 1);
+      if (close === -1 || close >= end) {
+        text += source.slice(i + 1, end), issues.push({
+          code: "unclosed-single-quote",
+          message: "single-quoted word is not closed",
+          span: { start: i, end }
+        }), i = end;
+        break;
+      }
+      text += source.slice(i + 1, close), i = close + 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !0;
+      let result = readDoubleQuoted(source, i, end, dialect, limits, depth);
+      text += result.text, nested.push(...result.nested), issues.push(...result.issues), nestedWords += result.words, limited ||= result.limited, provenance = mergeProvenance(provenance, result.provenance), i = result.next;
+      continue;
+    }
+    if (source.startsWith("$'", i)) {
+      quoted = !0;
+      let ansi = readAnsiCString(source, i + 2, end);
+      if (text += ansi.text, issues.push(...ansi.issues), !ansi.closed)
+        issues.push({
+          code: "unclosed-ansi-c-quote",
+          message: "ANSI-C quoted word is not closed",
+          span: { start: i, end }
+        });
+      i = ansi.next;
+      continue;
+    }
+    if (char === "\\") {
+      let next = source[i + 1];
+      if (!next) {
+        issues.push({
+          code: "trailing-escape",
+          message: "escape has no following character",
+          span: { start: i, end: i + 1 }
+        }), i++;
+        break;
+      }
+      text += next, i += 2;
+      continue;
+    }
+    let substitution = char === "$" || char === "<" || char === ">" || char === "`" ? readSubstitution(source, i, end, dialect, limits, depth) : null;
+    if (substitution) {
+      let collected = collectSubstitution(substitution, nested, issues);
+      nestedWords += collected.words, limited ||= collected.limited, provenance = collected.provenance, i = collected.next;
+      continue;
+    }
+    if (char === "$") {
+      let variable = appendVariable(source, i, end, text, provenance);
+      text = variable.text, provenance = variable.provenance, i = variable.next;
+      continue;
+    }
+    if (char === "*" || char === "?" || char === "[")
+      provenance = mergeProvenance(provenance, "glob");
+    text += char, i++;
+  }
+  return {
+    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePosixWordParts(source, start, i)),
+    nested,
+    issues,
+    next: i,
+    words: nestedWords,
+    limited
+  };
+}
+function readDoubleQuoted(source, start, end, dialect, limits, depth) {
+  let text = "", provenance = "literal", nested = [], issues = [], words = 0, limited = !1, i = start + 1;
+  while (i < end) {
+    let char = source[i];
+    if (char === '"')
+      return { text, provenance, nested, issues, next: i + 1, words, limited };
+    if (char === "\\" && source[i + 1]) {
+      let escaped = source[i + 1] ?? "";
+      if (escaped === `
+`) {
+        i += 2;
+        continue;
+      }
+      if (escaped === "\r" && source[i + 2] === `
+`) {
+        i += 3;
+        continue;
+      }
+      text += ["$", "`", '"', "\\"].includes(escaped) ? escaped : `\\${escaped}`, i += 2;
+      continue;
+    }
+    if (source.startsWith("$((", i)) {
+      let close = findSubstitutionEnd(source, i + 3, end, "))"), next = close === -1 ? end : close + 2;
+      if (text += source.slice(i, next), close === -1)
+        issues.push({
+          code: "unclosed-arithmetic",
+          message: "$(( substitution is not closed",
+          span: { start: i, end: next }
+        });
+      i = next;
+      continue;
+    }
+    let substitution = readSubstitution(source, i, end, dialect, limits, depth);
+    if (substitution) {
+      let collected = collectSubstitution(substitution, nested, issues);
+      words += collected.words, i = collected.next, limited ||= collected.limited, provenance = collected.provenance;
+      continue;
+    }
+    if (char === "$") {
+      let variable = appendVariable(source, i, end, text, provenance);
+      text = variable.text, provenance = variable.provenance, i = variable.next;
+      continue;
+    }
+    text += char ?? "", i++;
+  }
+  return issues.push({
+    code: "unclosed-double-quote",
+    message: "double-quoted word is not closed",
+    span: { start, end }
+  }), { text, provenance, nested, issues, next: end, words, limited };
+}
+function readSubstitution(source, start, end, dialect, limits, depth) {
+  let arithmetic = source.startsWith("$((", start), command = source.startsWith("$(", start) && !arithmetic, process2 = (source.startsWith("<(", start) || source.startsWith(">(", start)) && !0, backtick = source[start] === "`";
+  if (!arithmetic && !command && !process2 && !backtick)
+    return null;
+  let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, start + openLength, end, closing), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + closing.length;
+  if (depth >= limits.maxDepth)
+    return {
+      program: limitedProgram(source, start + openLength, innerEnd, dialect, "depth-limit"),
+      next,
+      provenance: arithmetic ? "arithmetic" : "command-substitution"
+    };
+  if (arithmetic) {
+    let arithmeticNodes = [], arithmeticIssues = [], cursor = start + openLength;
+    while (cursor < innerEnd) {
+      let nestedSubstitution = readSubstitution(source, cursor, innerEnd, dialect, limits, depth + 1);
+      if (!nestedSubstitution || nestedSubstitution.provenance === "arithmetic") {
+        cursor++;
+        continue;
+      }
+      arithmeticNodes.push(...nestedSubstitution.program.nodes), arithmeticIssues.push(...nestedSubstitution.program.issues), cursor = nestedSubstitution.next;
+    }
+    if (close === -1)
+      arithmeticIssues.push({
+        code: "unclosed-arithmetic",
+        message: "$(( substitution is not closed",
+        span: { start, end: next }
+      });
+    return {
+      program: freezeCommandProgram({
+        kind: "program",
+        dialect,
+        source: source.slice(start + openLength, innerEnd),
+        span: { start: start + openLength, end: innerEnd },
+        status: getParseStatus(arithmeticIssues),
+        issues: arithmeticIssues,
+        nodes: arithmeticNodes
+      }),
+      next,
+      provenance: "arithmetic"
+    };
+  }
+  let inner = scanSequence(source, start + openLength, innerEnd, dialect, limits, depth + 1), substitutionIssue = close === -1 ? [
+    {
+      code: arithmetic ? "unclosed-arithmetic" : "unclosed-command-substitution",
+      message: `${source.slice(start, start + openLength)} substitution is not closed`,
+      span: { start, end: next }
+    }
+  ] : [];
+  return {
+    program: freezeCommandProgram({
+      kind: "program",
+      dialect,
+      source: source.slice(start + openLength, innerEnd),
+      span: { start: start + openLength, end: innerEnd },
+      status: getParseStatus([...inner.issues, ...substitutionIssue], inner.limited),
+      issues: [...inner.issues, ...substitutionIssue],
+      nodes: inner.nodes
+    }),
+    next,
+    provenance: arithmetic ? "arithmetic" : "command-substitution"
+  };
+}
+function collectSubstitution(substitution, nested, issues) {
+  return nested.push(substitution.program), issues.push(...substitution.program.issues), {
+    provenance: substitution.provenance,
+    next: substitution.next,
+    limited: substitution.program.status === "limited",
+    words: substitution.program.nodes.filter((node) => node.kind === "command").length
+  };
+}
+function findSubstitutionEnd(source, start, end, closing) {
+  if (closing === "`") {
+    for (let i = start;i < end; i++)
+      if (source[i] === "\\")
+        i++;
+      else if (source[i] === "`")
+        return i;
+    return -1;
+  }
+  let depth = 1, single = !1, double = !1;
+  for (let i = start;i < end; i++) {
+    let char = source[i];
+    if (char === "\\") {
+      i++;
+      continue;
+    }
+    if (!double && char === "'")
+      single = !single;
+    if (!single && char === '"')
+      double = !double;
+    if (single)
+      continue;
+    if (source.startsWith("$(", i) && !source.startsWith("$((", i)) {
+      depth++, i++;
+      continue;
+    }
+    if (char === "(" && !double)
+      depth++;
+    if (char === ")" && !double) {
+      if (depth--, depth === 0)
+        return closing === "))" && source[i + 1] !== ")" ? -1 : i;
+    }
+  }
+  return -1;
+}
+function readConnector(source, index) {
+  let char = source[index];
+  if (char === ";")
+    return ";";
+  if (char === "&")
+    return source[index + 1] === "&" ? "&&" : "&";
+  if (char === "|")
+    return source[index + 1] === "|" ? "||" : source[index + 1] === "&" ? "|&" : "|";
+  return null;
+}
+function readRedirect(source, index) {
+  let char = source[index];
+  if (char === ">") {
+    if (source[index + 1] === ">")
+      return ">>";
+    if (source[index + 1] === "&")
+      return ">&";
+    return source[index + 1] === "|" ? ">|" : ">";
+  }
+  if (char !== "<")
+    return null;
+  if (source.startsWith("<<<", index))
+    return "<<<";
+  if (source[index + 1] === "<")
+    return "<<";
+  if (source[index + 1] === "&")
+    return "<&";
+  if (source[index + 1] === ">")
+    return "<>";
+  return "<";
+}
+function isShellWhitespace(char) {
+  let code = char.charCodeAt(0);
+  if (code === 32 || code >= 9 && code <= 13)
+    return !0;
+  if (code < 128)
+    return !1;
+  return /\s/u.test(char);
+}
+function readVariableEnd(source, start, end) {
+  if (source[start + 1] === "{") {
+    let close = source.indexOf("}", start + 2);
+    return close === -1 || close >= end ? end : close + 1;
+  }
+  let i = start + 1;
+  while (i < end && /[A-Za-z0-9_?@#$!*-]/.test(source[i] ?? ""))
+    i++;
+  return i === start + 1 ? start + 1 : i;
+}
+function readAnsiCString(source, start, end) {
+  let text = "", issues = [], i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "'")
+      return { text, next: i + 1, closed: !0, issues };
+    if (char !== "\\") {
+      text += char ?? "", i++;
+      continue;
+    }
+    let decoded = readAnsiEscape(source, i + 1, end);
+    if (text += decoded.text, decoded.invalidCodePoint !== void 0)
+      issues.push({
+        code: "invalid-ansi-c-code-point",
+        message: `ANSI-C escape is not a valid Unicode scalar value: ${decoded.invalidCodePoint}`,
+        span: { start: i, end: decoded.next }
+      });
+    i = decoded.next;
+  }
+  return { text, next: end, closed: !1, issues };
+}
+function readAnsiEscape(source, start, end) {
+  let char = source[start];
+  if (!char || start >= end)
+    return { text: "\\", next: start };
+  let simple = /* @__PURE__ */ new Map([
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["e", "\x1B"],
+    ["E", "\x1B"],
+    ["f", "\f"],
+    ["n", `
+`],
+    ["r", "\r"],
+    ["t", "\t"],
+    ["v", "\v"],
+    ["\\", "\\"],
+    ["'", "'"],
+    ['"', '"']
+  ]);
+  if (simple.has(char))
+    return { text: simple.get(char) ?? char, next: start + 1 };
+  if (char === "x")
+    return readFixedBaseEscape(source, start + 1, end, 16, 2, start + 1);
+  if (char === "u")
+    return readFixedBaseEscape(source, start + 1, end, 16, 4, start + 1);
+  if (char === "U")
+    return readFixedBaseEscape(source, start + 1, end, 16, 8, start + 1);
+  if (/[0-7]/.test(char))
+    return readFixedBaseEscape(source, start, end, 8, 3, start + 1);
+  return { text: char, next: start + 1 };
+}
+function readFixedBaseEscape(source, start, end, base, maxLength, fallbackNext) {
+  let digitPattern = base === 16 ? /[0-9a-fA-F]/ : /[0-7]/, digits = "", i = start;
+  while (i < end && digits.length < maxLength && digitPattern.test(source[i] ?? ""))
+    digits += source[i], i++;
+  if (!digits)
+    return { text: source[fallbackNext - 1] ?? "", next: fallbackNext };
+  let codePoint = Number.parseInt(digits, base);
+  return codePoint > 1114111 || codePoint >= 55296 && codePoint <= 57343 ? { text: "�", next: i, invalidCodePoint: codePoint } : { text: String.fromCodePoint(codePoint), next: i };
+}
+function getParseStatus(issues, limited = !1) {
+  if (limited)
+    return "limited";
+  if (issues.some((issue) => issue.code === "invalid-ansi-c-code-point"))
+    return "invalid";
+  return issues.length > 0 ? "partial" : "complete";
+}
+function appendVariable(source, start, end, text, provenance) {
+  let next = readVariableEnd(source, start, end);
+  return {
+    text: text + source.slice(start, next),
+    provenance: mergeProvenance(provenance, "variable"),
+    next
+  };
+}
+function derivePosixWordParts(source, start, end) {
+  let collector = createCommandWordParts(source), literalStart = start, single = !1, double = !1, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "\\" && !single) {
+      i += 2;
+      continue;
+    }
+    if (!double && char === "'") {
+      single = !single, i++;
+      continue;
+    }
+    if (!single && char === '"') {
+      double = !double, i++;
+      continue;
+    }
+    if (single) {
+      i++;
+      continue;
+    }
+    let arithmetic = source.startsWith("$((", i), command = source.startsWith("$(", i) && !arithmetic, process2 = !double && (source.startsWith("<(", i) || source.startsWith(">(", i)), backtick = char === "`";
+    if (arithmetic || command || process2 || backtick) {
+      let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, i + openLength, end, closing), next = close === -1 ? end : close + closing.length;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, arithmetic ? "arithmetic" : "command-substitution"), i = next, literalStart = next;
+      continue;
+    }
+    if (char === "$") {
+      let next = readVariableEnd(source, i, end);
+      if (next > i + 1) {
+        collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
+        continue;
+      }
+    }
+    if (!double && (char === "*" || char === "?" || char === "[")) {
+      collector.push(literalStart, i, "literal"), collector.push(i, i + 1, "glob"), i++, literalStart = i;
+      continue;
+    }
+    i++;
+  }
+  return collector.push(literalStart, end, "literal"), collector.parts;
+}
+function mergeProvenance(current, next) {
+  if (next === "command-substitution" || current === "command-substitution")
+    return "command-substitution";
+  if (next === "arithmetic" || current === "arithmetic")
+    return "arithmetic";
+  if (next === "variable" || current === "variable")
+    return "variable";
+  if (next === "glob" || current === "glob")
+    return "glob";
+  return current;
+}
+function limitedProgram(source, start, end, dialect, code) {
+  return freezeCommandProgram({
+    kind: "program",
+    dialect,
+    source: source.slice(start, end),
+    span: { start, end },
+    status: "limited",
+    issues: [{ code, message: "command structure exceeds parser limit", span: { start, end } }],
+    nodes: []
+  });
+}
+function limitedResult(nodes, issues, next, words, code, limit) {
+  return {
+    nodes,
+    issues: [
+      ...issues,
+      {
+        code,
+        message: `command structure exceeds parser limit ${limit}`,
+        span: { start: next, end: next }
+      }
+    ],
+    next,
+    closed: !1,
+    words,
+    limited: !0
+  };
+}
+
+// src/parser/powershell.ts
+var AUTO_POWERSHELL_HEADS = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]), AUTO_POWERSHELL_PARAMETERS = ["-rec", "-for", "-path", "-literalpath", "-whatif"], SELECTOR_LIMITS = { maxInputLength: 131072, maxWords: 16384, maxDepth: 64 };
+function shouldUsePowerShellParser(source) {
+  let candidate = source.toLowerCase().replaceAll("`", "");
+  if (![...AUTO_POWERSHELL_HEADS].some((head) => candidate.includes(head)) && !(candidate.includes("rm") && AUTO_POWERSHELL_PARAMETERS.some((word) => candidate.includes(word))) && !candidate.includes("<#"))
+    return !1;
+  let selector = scanSelectorCommands(source);
+  return selector.invalidComment || selector.commands.some(isPowerShellSelectorCommand);
+}
+function isPowerShellSelectorCommand(words) {
+  let headIndex = words[0] === "&" || words[0] === "." ? 1 : 0, head = words[headIndex]?.toLowerCase();
+  if (head && AUTO_POWERSHELL_HEADS.has(head))
+    return !0;
+  if (head !== "rm")
+    return !1;
+  return words.slice(headIndex + 1).some((word) => {
+    let parameter = word.toLowerCase().split(":", 1)[0] ?? "";
+    return AUTO_POWERSHELL_PARAMETERS.some((prefix) => parameter.startsWith(prefix));
+  });
+}
+function parsePowerShellCommand(source, limits) {
+  let span = { start: 0, end: source.length };
+  if (source.length > limits.maxInputLength)
+    return freezeCommandProgram({
+      kind: "program",
+      dialect: "powershell",
+      source,
+      span,
+      status: "limited",
+      issues: [
+        {
+          code: "input-limit",
+          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
+          span
+        }
+      ],
+      nodes: []
+    });
+  let result = scanPowerShellSequence(source, 0, source.length, limits, 0);
+  return freezeCommandProgram({
+    kind: "program",
+    dialect: "powershell",
+    source,
+    span,
+    status: getPowerShellParseStatus(result.issues, result.limited),
+    issues: result.issues,
+    nodes: result.nodes
+  });
+}
+function scanPowerShellSequence(source, start, end, limits, depth, closingBrace = !1) {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flush = () => {
+    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
+      return;
+    let commandSpan = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text);
+    appendAccumulatedCommand(nodes, accumulator, {
+      kind: "command",
+      dialect: "powershell",
+      source: source.slice(commandSpan.start, commandSpan.end),
+      span: commandSpan,
+      words: accumulator.words,
+      tokens,
+      analysisTokens: [...tokens],
+      redirections: accumulator.redirections,
+      nested: accumulator.nested,
+      dynamicExecutable: accumulator.words[0]?.provenance !== "literal",
+      legacyNormalized: tokens.join(" ")
+    });
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char)
+      break;
+    if (closingBrace && char === "}")
+      return flush(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
+    let comment = readPowerShellComment(source, i, end, limits.maxDepth);
+    if (comment) {
+      if (comment.issue)
+        issues.push(comment.issue);
+      if (comment.limited)
+        return flush(), {
+          nodes,
+          issues,
+          next: comment.next,
+          closed: !1,
+          words: wordCount,
+          limited: !0
+        };
+      i = comment.next;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (char === "\r" || char === `
+`) {
+        flush();
+        let next = char === "\r" && source[i + 1] === `
+` ? i + 2 : i + 1;
+        nodes.push(connector(source, i, next)), i = next;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    let operator = readOperator(source, i);
+    if (operator) {
+      flush(), nodes.push(connector(source, i, i + operator.length)), i += operator.length;
+      continue;
+    }
+    if (char === "{") {
+      if (flush(), depth >= limits.maxDepth)
+        return issues.push(depthLimitIssue(i, limits.maxDepth)), { nodes, issues, next: end, closed: !1, words: wordCount, limited: !0 };
+      let inner = scanPowerShellSequence(source, i + 1, end, limits, depth + 1, !0), bodyEnd = inner.closed ? inner.next - 1 : inner.next, body = freezeCommandProgram({
+        kind: "program",
+        dialect: "powershell",
+        source: source.slice(i + 1, bodyEnd),
+        span: { start: i + 1, end: bodyEnd },
+        status: inner.limited ? "limited" : inner.issues.length > 0 ? "partial" : "complete",
+        issues: inner.issues,
+        nodes: inner.nodes
+      });
+      if (nodes.push(Object.freeze({
+        kind: "group",
+        style: "brace",
+        span: Object.freeze({ start: i, end: inner.next }),
+        body
+      })), issues.push(...inner.issues), !inner.closed)
+        issues.push({
+          code: "unclosed-script-block",
+          message: "PowerShell script block is not closed",
+          span: { start: i, end: inner.next }
+        });
+      wordCount += inner.words, limited ||= inner.limited, i = inner.next;
+      continue;
+    }
+    if (char === "}") {
+      flush(), nodes.push(connector(source, i, i + 1)), i++;
+      continue;
+    }
+    if (char === ">" || char === "<") {
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
+      let operatorEnd = source[i + 1] === char ? i + 2 : i + 1, targetStart = operatorEnd;
+      while (/[ \t]/.test(source[targetStart] ?? ""))
+        targetStart++;
+      let target = targetStart < end ? readPowerShellWord(source, targetStart, end, limits, depth) : void 0, redirectEnd = target?.next ?? operatorEnd;
+      if (accumulator.redirections.push(Object.freeze({
+        kind: "redirection",
+        operator: source.slice(i, operatorEnd),
+        span: Object.freeze({ start: i, end: redirectEnd }),
+        ...target ? { target: target.word } : {}
+      })), target)
+        issues.push(...target.issues), accumulator.nested.push(...target.nested), wordCount += target.words, limited ||= target.limited;
+      accumulator.end = redirectEnd, i = redirectEnd;
+      continue;
+    }
+    if (char === ",") {
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.words.push(freezeCommandWord({
+        text: ",",
+        raw: ",",
+        span: { start: i, end: i + 1 },
+        provenance: "literal",
+        quoted: !1
+      })), accumulator.end = ++i;
+      continue;
+    }
+    let result = readPowerShellWord(source, i, end, limits, depth);
+    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = result.next, accumulator.words.push(result.word), issues.push(...result.issues), accumulator.nested.push(...result.nested), wordCount += 1 + result.words, limited ||= result.limited, wordCount > limits.maxWords)
+      return issues.push({
+        code: "word-limit",
+        message: `command exceeds ${limits.maxWords} words`,
+        span: { start: i, end: result.next }
+      }), flush(), { nodes, issues, next: result.next, closed: !1, words: wordCount, limited: !0 };
+    i = result.next > i ? result.next : i + 1;
+  }
+  return flush(), { nodes, issues, next: i, closed: !closingBrace, words: wordCount, limited };
+}
+function readPowerShellWord(source, start, end, limits, depth) {
+  let text = "", provenance = "literal", quoted = !1, issues = [], nested = [], nestedWords = 0, limited = !1, consumeSubexpression = (offset) => {
+    let subexpression = readPowerShellSubexpression(source, offset, end, limits, depth);
+    return text += source.slice(offset, subexpression.next), nested.push(subexpression.program), issues.push(...subexpression.program.issues), nestedWords += countProgramWords(subexpression.program), limited ||= subexpression.program.status === "limited", provenance = "command-substitution", subexpression.next;
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char || /\s/.test(char) || readOperator(source, i) || char === ">" || char === "<" || char === "#")
+      break;
+    if (char === ",")
+      break;
+    if (char === "`") {
+      let next = source[i + 1];
+      if (!next) {
+        issues.push({
+          code: "trailing-escape",
+          message: "PowerShell escape has no following character",
+          span: { start: i, end: i + 1 }
+        }), i++;
+        break;
+      }
+      text += next, i += 2;
+      continue;
+    }
+    if (source.startsWith("$(", i)) {
+      i = consumeSubexpression(i);
+      continue;
+    }
+    if (char === "'") {
+      quoted = !0, i++;
+      let closed = !1;
+      while (i < source.length) {
+        if (source[i] === "'" && source[i + 1] === "'") {
+          text += "'", i += 2;
+          continue;
+        }
+        if (source[i] === "'") {
+          closed = !0, i++;
+          break;
+        }
+        text += source[i] ?? "", i++;
+      }
+      if (!closed)
+        issues.push({
+          code: "unclosed-single-quote",
+          message: "single-quoted word is not closed",
+          span: { start, end: source.length }
+        });
+      continue;
+    }
+    if (char === '"') {
+      quoted = !0;
+      let quoteStart = i++, closed = !1;
+      while (i < end) {
+        let inner = source[i];
+        if (inner === "`" && source[i + 1]) {
+          text += source[i + 1], i += 2;
+          continue;
+        }
+        if (inner === '"') {
+          closed = !0, i++;
+          break;
+        }
+        if (source.startsWith("$(", i)) {
+          i = consumeSubexpression(i);
+          continue;
+        }
+        if (inner === "$")
+          provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
+        text += inner ?? "", i++;
+      }
+      if (!closed)
+        issues.push({
+          code: "unclosed-double-quote",
+          message: "double-quoted word is not closed",
+          span: { start: quoteStart, end: source.length }
+        });
+      continue;
+    }
+    if (char === "$")
+      provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
+    if (char === "@" && i === start)
+      provenance = "variable";
+    text += char, i++;
+  }
+  return {
+    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePowerShellWordParts(source, start, i)),
+    next: i,
+    issues,
+    nested,
+    words: nestedWords,
+    limited
+  };
+}
+function readPowerShellSubexpression(source, start, end, limits, depth) {
+  let close = findPowerShellSubexpressionEnd(source, start + 2, end), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + 1;
+  if (depth >= limits.maxDepth)
+    return {
+      program: freezeCommandProgram({
+        kind: "program",
+        dialect: "powershell",
+        source: source.slice(start + 2, innerEnd),
+        span: { start: start + 2, end: innerEnd },
+        status: "limited",
+        issues: [depthLimitIssue(start, limits.maxDepth)],
+        nodes: []
+      }),
+      next
+    };
+  let inner = scanPowerShellSequence(source, start + 2, innerEnd, limits, depth + 1), unclosedIssue = close === -1 ? [
+    {
+      code: "unclosed-command-subexpression",
+      message: "PowerShell command subexpression is not closed",
+      span: { start, end: next }
+    }
+  ] : [];
+  return {
+    program: freezeCommandProgram({
+      kind: "program",
+      dialect: "powershell",
+      source: source.slice(start + 2, innerEnd),
+      span: { start: start + 2, end: innerEnd },
+      status: inner.limited ? "limited" : inner.issues.length + unclosedIssue.length > 0 ? "partial" : "complete",
+      issues: [...inner.issues, ...unclosedIssue],
+      nodes: inner.nodes
+    }),
+    next
+  };
+}
+function findPowerShellSubexpressionEnd(source, start, end) {
+  let depth = 1, single = !1, double = !1;
+  for (let i = start;i < end; i++) {
+    let char = source[i];
+    if (char === "`") {
+      i++;
+      continue;
+    }
+    if (!double && char === "'") {
+      if (single && source[i + 1] === "'") {
+        i++;
+        continue;
+      }
+      single = !single;
+      continue;
+    }
+    if (!single && char === '"') {
+      double = !double;
+      continue;
+    }
+    if (single)
+      continue;
+    if (source.startsWith("$(", i)) {
+      depth++, i++;
+      continue;
+    }
+    if (!double && char === "(")
+      depth++;
+    if (char !== ")")
+      continue;
+    if (depth--, depth === 0)
+      return i;
+  }
+  return -1;
+}
+function countProgramWords(program) {
+  let count = 0;
+  for (let node of program.nodes) {
+    if (node.kind === "group")
+      count += countProgramWords(node.body);
+    if (node.kind === "command") {
+      count += node.words.length;
+      for (let nested of node.nested)
+        count += countProgramWords(nested);
+    }
+  }
+  return count;
+}
+function derivePowerShellWordParts(source, start, end) {
+  let collector = createCommandWordParts(source), literalStart = start, single = !1, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "`") {
+      i += 2;
+      continue;
+    }
+    if (char === "'") {
+      if (single && source[i + 1] === "'") {
+        i += 2;
+        continue;
+      }
+      single = !single, i++;
+      continue;
+    }
+    if (single) {
+      i++;
+      continue;
+    }
+    if (source.startsWith("$(", i)) {
+      let close = findPowerShellSubexpressionEnd(source, i + 2, end), next = close === -1 ? end : close + 1;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, "command-substitution"), i = next, literalStart = next;
+      continue;
+    }
+    if (char === "$" || char === "@" && i === start) {
+      let next = i + 1;
+      if (source[next] === "{") {
+        let close = source.indexOf("}", next + 1);
+        next = close === -1 || close >= end ? end : close + 1;
+      } else
+        while (next < end && /[A-Za-z0-9_:?]/.test(source[next] ?? ""))
+          next++;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
+      continue;
+    }
+    i++;
+  }
+  return collector.push(literalStart, end, "literal"), collector.parts;
+}
+function depthLimitIssue(start, limit) {
+  return {
+    code: "depth-limit",
+    message: `command structure exceeds parser limit ${limit}`,
+    span: { start, end: start }
+  };
+}
+function scanSelectorCommands(source) {
+  let commands = [], words = [], i = 0, wordCount = 0, invalidComment = !1, flush = () => {
+    if (words.length > 0)
+      commands.push(words);
+    words = [];
+  };
+  while (i < source.length && i < 131072 && wordCount < 16384) {
+    let char = source[i];
+    if (char === "\r" || char === `
+`) {
+      flush(), i += char === "\r" && source[i + 1] === `
+` ? 2 : 1;
+      continue;
+    }
+    if (/\s/.test(char ?? "")) {
+      i++;
+      continue;
+    }
+    let comment = readPowerShellComment(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS.maxDepth);
+    if (comment) {
+      invalidComment ||= !!comment.issue || comment.limited, i = comment.next;
+      continue;
+    }
+    let operator = readOperator(source, i);
+    if (operator) {
+      flush(), i += operator.length;
+      continue;
+    }
+    if (char === "{" || char === "}") {
+      flush(), i++;
+      continue;
+    }
+    let result = readPowerShellWord(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS, 0);
+    if (result.word.text)
+      words.push(result.word.text);
+    for (let nested of result.nested)
+      commands.push(...selectorCommandsFromProgram(nested));
+    wordCount++, i = result.next > i ? result.next : i + 1;
+  }
+  return flush(), { commands, invalidComment };
+}
+function selectorCommandsFromProgram(program) {
+  return program.nodes.flatMap((node) => {
+    if (node.kind === "group")
+      return selectorCommandsFromProgram(node.body);
+    if (node.kind !== "command")
+      return [];
+    return [
+      node.words.map((word) => word.text),
+      ...node.nested.flatMap(selectorCommandsFromProgram)
+    ];
+  });
+}
+function readOperator(source, index) {
+  for (let operator of ["&&", "||", ";", "|"])
+    if (source.startsWith(operator, index))
+      return operator;
+  return null;
+}
+function readPowerShellComment(source, start, end, maxDepth) {
+  if (source[start] === "#" && source[start + 1] !== ">") {
+    let next = start + 1;
+    while (next < end && source[next] !== "\r" && source[next] !== `
+`)
+      next++;
+    return { next, limited: !1 };
+  }
+  if (!source.startsWith("<#", start))
+    return null;
+  let depth = 1, i = start + 2;
+  while (i < end) {
+    if (source.startsWith("<#", i)) {
+      if (depth++, depth > maxDepth)
+        return {
+          next: end,
+          issue: {
+            code: "comment-depth-limit",
+            message: `PowerShell block comment exceeds nesting limit ${maxDepth}`,
+            span: { start, end: i + 2 }
+          },
+          limited: !0
+        };
+      i += 2;
+      continue;
+    }
+    if (source.startsWith("#>", i)) {
+      if (depth--, i += 2, depth === 0)
+        return { next: i, limited: !1 };
+      continue;
+    }
+    i++;
+  }
+  return {
+    next: end,
+    issue: {
+      code: "unclosed-block-comment",
+      message: "PowerShell block comment is not closed",
+      span: { start, end }
+    },
+    limited: !1
+  };
+}
+function getPowerShellParseStatus(issues, limited) {
+  if (limited)
+    return "limited";
+  if (issues.some((issue) => issue.code === "unclosed-block-comment"))
+    return "invalid";
+  return issues.length > 0 ? "partial" : "complete";
+}
+function connector(source, start, end) {
+  return Object.freeze({
+    kind: "connector",
+    operator: source.slice(start, end),
+    span: Object.freeze({ start, end })
+  });
+}
+
+// src/parser/command.ts
+var DEFAULT_COMMAND_PARSER_LIMITS = Object.freeze({
+  maxInputLength: 131072,
+  maxWords: 16384,
+  maxDepth: 64
+});
+function parseCommand(source, dialect = "auto", limits = DEFAULT_COMMAND_PARSER_LIMITS) {
+  if (dialect === "powershell" || dialect === "auto" && shouldUsePowerShellParser(source))
+    return parsePowerShellCommand(source, limits);
+  return parsePosixCommand(source, "posix", limits);
+}
+
+// src/parser/traversal.ts
+function* walkCommandViews(program) {
+  for (let node of program.nodes)
+    yield* walkNode(node);
+}
+function* walkNode(node) {
+  if (node.kind === "command") {
+    yield node;
+    for (let nested of node.nested)
+      yield* walkCommandViews(nested);
+    return;
+  }
+  if (node.kind === "group")
+    yield* walkCommandViews(node.body);
+}
+
+// src/parser/projection.ts
+function projectCommandViews(program) {
+  return Object.freeze([...walkCommandViews(program)]);
+}
+function sliceCommandView(view, start, end = view.words.length) {
+  let words = view.words.slice(start, end), span = {
+    start: words[0]?.span.start ?? view.span.end,
+    end: words.at(-1)?.span.end ?? view.span.end
+  };
+  return Object.freeze({
+    ...view,
+    source: view.source.slice(span.start - view.span.start, span.end - view.span.start),
+    span: Object.freeze(span),
+    words: Object.freeze(words),
+    tokens: Object.freeze(view.tokens.slice(start, end)),
+    analysisTokens: Object.freeze(view.analysisTokens.slice(start, end)),
+    dynamicExecutable: words[0]?.provenance === "command-substitution",
+    legacyNormalized: words.map((word) => word.text).join(" ")
+  });
+}
+function projectLegacySegments(source, dialect = "posix") {
+  return Object.freeze(projectLegacyCommandEntries(source, dialect).map((entry) => entry.tokens));
+}
+function projectLegacyCommandEntries(source, dialect = "posix") {
+  let program = parseCommand(source, dialect);
+  if (program.issues.some((issue) => issue.code.includes("quote")))
+    return Object.freeze([{ tokens: Object.freeze([source]) }]);
+  return Object.freeze(projectCommandViews(program).flatMap((view) => {
+    let tokens = projectLegacyViewTokens(view), arithmetic = view.words.flatMap((word) => word.provenance === "arithmetic" ? projectArithmeticText(word.raw) : []);
+    return [
+      Object.freeze({ tokens, view }),
+      ...arithmetic.map((text) => Object.freeze({ tokens: Object.freeze([text]) }))
+    ];
+  }));
+}
+function projectLegacyViewTokens(view) {
+  return Object.freeze(view.words.flatMap((word) => {
+    if (word.provenance === "arithmetic")
+      return [];
+    if (word.text === "" && word.provenance === "command-substitution")
+      return [];
+    if (word.provenance === "command-substitution" && (word.raw.startsWith('"') && word.raw.endsWith('"') || word.raw.startsWith("'") && word.raw.endsWith("'")))
+      return [word.raw.slice(1, -1)];
+    return [word.text];
+  }));
+}
+function projectArithmeticText(raw) {
+  if (!raw.startsWith("$(("))
+    return [];
+  let body = raw.slice(3), literal = ((body.endsWith("))") ? [body.slice(0, -2), body.slice(0, -1), body] : body.endsWith(")") ? [body.slice(0, -1), body] : [body]).find(hasBalancedParentheses) ?? body).replace(/\$\([^)]*\)/g, "").replace(/`[^`]*`/g, "").replace(/\s+/g, "");
+  return literal ? [literal] : [];
+}
+function hasBalancedParentheses(value) {
+  let depth = 0;
+  for (let char of value) {
+    if (char === "(")
+      depth++;
+    if (char === ")")
+      depth--;
+    if (depth < 0)
+      return !1;
+  }
+  return depth === 0;
+}
+function parseSimpleWords(source) {
+  let program = parseCommand(source, "posix");
+  if (program.status !== "complete" || program.nodes.length !== 1)
+    return null;
+  let command = program.nodes[0];
+  if (command?.kind !== "command")
+    return null;
+  if (command.redirections.length > 0 || command.nested.length > 0)
+    return null;
+  if (command.words.some((word) => word.provenance === "command-substitution"))
+    return null;
+  return [...command.tokens];
 }
 
 // src/core/shell/wrappers.ts
 var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function parseEnvAssignment(token) {
-  if (!ENV_ASSIGNMENT_RE.test(token)) {
+  if (!ENV_ASSIGNMENT_RE.test(token))
     return null;
-  }
-  const eqIdx = token.indexOf("=");
+  let eqIdx = token.indexOf("=");
   return { name: token.slice(0, eqIdx), value: token.slice(eqIdx + 1) };
 }
 function stripEnvAssignmentsWithInfo(tokens) {
-  const envAssignments = new Map;
-  let i = 0;
+  let envAssignments = /* @__PURE__ */ new Map, i = 0;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       break;
-    }
-    const assignment = parseEnvAssignment(token);
-    if (!assignment) {
+    let assignment = parseEnvAssignment(token);
+    if (!assignment)
       break;
-    }
-    envAssignments.set(assignment.name, assignment.value);
-    i++;
+    envAssignments.set(assignment.name, assignment.value), i++;
   }
   return { tokens: tokens.slice(i), envAssignments };
 }
@@ -2961,93 +3159,72 @@ function stripWrappers(tokens, cwd) {
   return stripWrappersWithInfo(tokens, cwd).tokens;
 }
 function stripWrappersWithInfo(tokens, cwd) {
-  let result = [...tokens];
-  const allEnvAssignments = new Map;
-  let currentCwd = cwd;
+  let result = [...tokens], allEnvAssignments = /* @__PURE__ */ new Map, currentCwd = cwd;
   for (let iteration = 0;iteration < MAX_STRIP_ITERATIONS; iteration++) {
-    const before = result.join(" ");
-    const { tokens: strippedTokens, envAssignments } = stripEnvAssignmentsWithInfo(result);
-    for (const [k, v] of envAssignments) {
+    let before = result.join(" "), { tokens: strippedTokens, envAssignments } = stripEnvAssignmentsWithInfo(result);
+    for (let [k, v] of envAssignments)
       allEnvAssignments.set(k, v);
-    }
-    result = strippedTokens;
-    if (result.length === 0)
+    if (result = strippedTokens, result.length === 0)
       break;
     while (result.length > 0 && result[0]?.includes("=") && !ENV_ASSIGNMENT_RE.test(result[0] ?? "")) {
-      const appendAssignment = parseGitContextAppendEnvAssignment(result[0] ?? "");
-      if (appendAssignment) {
+      let appendAssignment = parseGitContextAppendEnvAssignment(result[0] ?? "");
+      if (appendAssignment)
         allEnvAssignments.set(appendAssignment.name, appendAssignment.value);
-      }
       result = result.slice(1);
     }
     if (result.length === 0)
       break;
-    const head = result[0]?.toLowerCase();
-    if (head !== "sudo" && head !== "env" && head !== "command") {
+    let head = result[0]?.toLowerCase();
+    if (head !== "sudo" && head !== "env" && head !== "command")
       break;
-    }
     if (head === "sudo") {
-      const sudoResult = stripSudoWithInfo(result, currentCwd);
-      result = sudoResult.tokens;
-      if (sudoResult.cwd !== undefined) {
+      let sudoResult = stripSudoWithInfo(result, currentCwd);
+      if (result = sudoResult.tokens, sudoResult.cwd !== void 0)
         currentCwd = sudoResult.cwd;
-      }
     }
     if (head === "env") {
-      const envResult = stripEnvWithInfo(result, currentCwd);
-      result = envResult.tokens;
-      if (envResult.cwd !== undefined) {
+      let envResult = stripEnvWithInfo(result, currentCwd);
+      if (result = envResult.tokens, envResult.cwd !== void 0)
         currentCwd = envResult.cwd;
-      }
-      for (const [k, v] of envResult.envAssignments) {
+      for (let [k, v] of envResult.envAssignments)
         allEnvAssignments.set(k, v);
-      }
     }
-    if (head === "command") {
+    if (head === "command")
       result = stripCommand(result);
-    }
     if (result.join(" ") === before)
       break;
   }
-  const { tokens: finalTokens, envAssignments: finalAssignments } = stripEnvAssignmentsWithInfo(result);
-  for (const [k, v] of finalAssignments) {
+  let { tokens: finalTokens, envAssignments: finalAssignments } = stripEnvAssignmentsWithInfo(result);
+  for (let [k, v] of finalAssignments)
     allEnvAssignments.set(k, v);
-  }
   return { tokens: finalTokens, envAssignments: allEnvAssignments, cwd: currentCwd };
 }
-var SUDO_OPTS_WITH_VALUE = new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"]);
+var SUDO_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"]);
 function stripSudoWithInfo(tokens, cwd) {
-  let i = 1;
-  let currentCwd = cwd;
+  let i = 1, currentCwd = cwd;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
-    if (token === "--") {
+    if (token === "--")
       return { tokens: tokens.slice(i + 1), cwd: currentCwd };
-    }
-    if (!token.startsWith("-")) {
+    if (!token.startsWith("-"))
       break;
-    }
     if (token === "-D" || token === "--chdir") {
-      const target = tokens[i + 1];
-      currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
-      i += 2;
+      let target = tokens[i + 1];
+      currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null, i += 2;
       continue;
     }
     if (token.startsWith("--chdir=")) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice("--chdir=".length));
-      i++;
+      currentCwd = resolveWrapperCwd(currentCwd, token.slice(8)), i++;
       continue;
     }
     if (token.startsWith("-D") && token.length > 2) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice(2));
-      i++;
+      currentCwd = resolveWrapperCwd(currentCwd, token.slice(2)), i++;
       continue;
     }
     if (token === "-i" || token === "--login") {
-      currentCwd = null;
-      i++;
+      currentCwd = null, i++;
       continue;
     }
     if (SUDO_OPTS_WITH_VALUE.has(token)) {
@@ -3058,8 +3235,7 @@ function stripSudoWithInfo(tokens, cwd) {
   }
   return { tokens: tokens.slice(i), cwd: currentCwd };
 }
-var ENV_OPTS_NO_VALUE = new Set(["-i", "-0", "--null"]);
-var ENV_OPTS_WITH_VALUE = new Set([
+var ENV_OPTS_NO_VALUE = /* @__PURE__ */ new Set(["-i", "-0", "--null"]), ENV_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-u",
   "--unset",
   "-C",
@@ -3069,47 +3245,39 @@ var ENV_OPTS_WITH_VALUE = new Set([
   "-P"
 ]);
 function stripEnvWithInfo(tokens, cwd) {
-  const envAssignments = new Map;
-  let currentCwd = cwd;
-  let expandedTokens = tokens;
-  let i = 1;
+  let envAssignments = /* @__PURE__ */ new Map, currentCwd = cwd, expandedTokens = tokens, i = 1;
   while (i < expandedTokens.length) {
-    const token = expandedTokens[i];
+    let token = expandedTokens[i];
     if (!token)
       break;
-    if (token === "--") {
+    if (token === "--")
       return { tokens: expandedTokens.slice(i + 1), envAssignments, cwd: currentCwd };
-    }
     if (ENV_OPTS_NO_VALUE.has(token)) {
       i++;
       continue;
     }
     if (token === "-S" || token === "--split-string") {
-      const splitValue = expandedTokens[i + 1];
-      const splitTokens = splitValue !== undefined ? parseEnvSplitString(splitValue) : null;
+      let splitValue = expandedTokens[i + 1], splitTokens = splitValue !== void 0 ? parseEnvSplitString(splitValue) : null;
       if (!splitTokens) {
-        currentCwd = null;
-        i += 2;
+        currentCwd = null, i += 2;
         continue;
       }
       expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 2, splitTokens);
       continue;
     }
     if (token.startsWith("-S") && token.length > 2) {
-      const splitTokens = parseEnvSplitString(token.slice("-S".length));
+      let splitTokens = parseEnvSplitString(token.slice(2));
       if (!splitTokens) {
-        currentCwd = null;
-        i++;
+        currentCwd = null, i++;
         continue;
       }
       expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
       continue;
     }
     if (token.startsWith("--split-string=")) {
-      const splitTokens = parseEnvSplitString(token.slice("--split-string=".length));
+      let splitTokens = parseEnvSplitString(token.slice(15));
       if (!splitTokens) {
-        currentCwd = null;
-        i++;
+        currentCwd = null, i++;
         continue;
       }
       expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
@@ -3117,7 +3285,7 @@ function stripEnvWithInfo(tokens, cwd) {
     }
     if (ENV_OPTS_WITH_VALUE.has(token)) {
       if (token === "-C" || token === "--chdir") {
-        const target = expandedTokens[i + 1];
+        let target = expandedTokens[i + 1];
         currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
       }
       i += 2;
@@ -3128,9 +3296,8 @@ function stripEnvWithInfo(tokens, cwd) {
       continue;
     }
     if (token.startsWith("-C") && token.length > 2 || token.startsWith("--chdir=")) {
-      const target = token.startsWith("--chdir=") ? token.slice("--chdir=".length) : token.startsWith("-C=") ? token.slice("-C=".length) : token.slice("-C".length);
-      currentCwd = resolveWrapperCwd(currentCwd, target);
-      i++;
+      let target = token.startsWith("--chdir=") ? token.slice(8) : token.startsWith("-C=") ? token.slice(3) : token.slice(2);
+      currentCwd = resolveWrapperCwd(currentCwd, target), i++;
       continue;
     }
     if (token.startsWith("-P")) {
@@ -3141,42 +3308,26 @@ function stripEnvWithInfo(tokens, cwd) {
       i++;
       continue;
     }
-    const assignment = parseEnvAssignment(token);
-    if (!assignment) {
+    let assignment = parseEnvAssignment(token);
+    if (!assignment)
       break;
-    }
-    envAssignments.set(assignment.name, assignment.value);
-    i++;
+    envAssignments.set(assignment.name, assignment.value), i++;
   }
   return { tokens: expandedTokens.slice(i), envAssignments, cwd: currentCwd };
 }
 function parseEnvSplitString(value) {
-  if (hasUnclosedQuotes(value)) {
-    return null;
-  }
-  const parsed = $parse(value, ENV_PROXY);
-  const result = [];
-  for (const entry of parsed) {
-    const token = getCommandTokenText(entry);
-    if (token === null) {
-      return null;
-    }
-    result.push(token);
-  }
-  return result;
+  return parseSimpleWords(value);
 }
 function replaceEnvSplitTokens(tokens, index, consumed, splitTokens) {
   return [...tokens.slice(0, index), ...splitTokens, ...tokens.slice(index + consumed)];
 }
 function resolveWrapperCwd(cwd, target) {
-  if (target === "") {
+  if (target === "")
     return null;
-  }
   try {
-    if (!cwd && !isAbsolute4(target)) {
+    if (!cwd && !isAbsolute4(target))
       return null;
-    }
-    const baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
+    let baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -3188,21 +3339,19 @@ function getPathRoot2(target) {
 function stripCommand(tokens) {
   let i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
     if (token === "-p" || token === "-v" || token === "-V") {
       i++;
       continue;
     }
-    if (token === "--") {
+    if (token === "--")
       return tokens.slice(i + 1);
-    }
     if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
-      const chars = token.slice(1);
-      if (!/^[pvV]+$/.test(chars)) {
+      let chars = token.slice(1);
+      if (!/^[pvV]+$/.test(chars))
         break;
-      }
       i++;
       continue;
     }
@@ -3211,8 +3360,7 @@ function stripCommand(tokens) {
   return tokens.slice(i);
 }
 // src/core/analyze/transparent-wrappers.ts
-var BUILTIN_ANALYZED_COMMANDS = new Set(["rm", "find", "xargs", "parallel"]);
-var RESERVED_TRANSPARENT_WRAPPERS = new Set([
+var BUILTIN_ANALYZED_COMMANDS = /* @__PURE__ */ new Set(["rm", "find", "xargs", "parallel"]), RESERVED_TRANSPARENT_WRAPPERS = /* @__PURE__ */ new Set([
   "git",
   "busybox",
   ...BUILTIN_ANALYZED_COMMANDS,
@@ -3221,42 +3369,27 @@ var RESERVED_TRANSPARENT_WRAPPERS = new Set([
   ...AWK_INTERPRETERS
 ]);
 function unwrapTransparentWrapper(tokens, policy) {
-  const head = tokens[0];
-  if (!head || !policy.transparentWrappers.includes(getBasename(head))) {
+  let head = tokens[0];
+  if (!head || !policy.transparentWrappers.includes(getBasename(head)))
     return null;
-  }
-  const wrapper = getBasename(head);
-  const startIndex = tokens[1] === "--" ? 2 : 1;
-  const childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy));
+  let wrapper = getBasename(head), startIndex = tokens[1] === "--" ? 2 : 1, childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy));
   if (childIndex < 0)
     return null;
-  return { wrapper, tokens: [...tokens.slice(childIndex)] };
+  return { wrapper, tokens: [...tokens.slice(childIndex)], childIndex };
 }
 function isProtectableCommand(token, policy) {
-  const basename2 = getBasename(token);
-  const normalized = normalizeCommandToken(token);
+  let basename2 = getBasename(token), normalized = normalizeCommandToken(token);
   return normalized === "git" || basename2 === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename2) || policy.transparentWrappers.includes(basename2) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename2);
 }
 function isReservedTransparentWrapper(command2) {
-  const normalized = normalizeCommandToken(command2);
+  let normalized = normalizeCommandToken(command2);
   return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
 }
 
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname3, join as join3, resolve as resolve3 } from "node:path";
-var RULES_CONFIG_FILE = "rule.json";
-var RULES_LOCK_FILE = "rule.lock";
-var RULEBOOK_FILE = "rulebook.json";
-var LEGACY_RULES_CONFIG_FILE = "config.json";
-var SAFETY_NET_DIR = ".cc-safety-net";
-var RULES_SUBDIR = "rules";
-var CACHE_SUBDIR = "cache";
-var RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`;
-var CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME";
-var GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>";
-var RULE_SYNC_COMMAND = "`cc-safety-net rule sync`";
-var RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
+var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", RULEBOOK_FILE = "rulebook.json", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`, CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
   return resolve3(cwd ?? process.cwd(), RULES_DIR);
 }
@@ -3267,7 +3400,7 @@ function getUserRulesDir(options2) {
   return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname3(options2.userConfigPath) : join3(getUserSafetyNetHome(), RULES_SUBDIR));
 }
 function getUserSafetyNetHome() {
-  const home = process.env[CC_SAFETY_NET_HOME];
+  let home = process.env[CC_SAFETY_NET_HOME];
   return home ? resolve3(home) : join3(homedir2(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
@@ -3286,8 +3419,7 @@ function getLegacyProjectRulesConfigPath(options2 = {}) {
   return resolve3(options2.cwd ?? process.cwd(), ".safety-net.json");
 }
 function getPolicyPaths(options2) {
-  const userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2);
-  const projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
   return {
     userConfigPath,
     projectConfigPath,
@@ -3296,7 +3428,7 @@ function getPolicyPaths(options2) {
   };
 }
 function getScopePaths(options2) {
-  const configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
   return {
     configDir: dirname3(configPath),
     configPath,
@@ -3304,18 +3436,16 @@ function getScopePaths(options2) {
   };
 }
 function getRulebookDisplaySource(entry) {
-  if (entry.kind === "github" && entry.display_ref) {
+  if (entry.kind === "github" && entry.display_ref)
     return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
-  }
   return entry.spec;
 }
 function getRulebookCachePath(entry, options2) {
-  const digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
+  let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
   return join3(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
 }
 function getRulebookCacheSlug(entry) {
-  const source = entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec;
-  return source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
+  return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
 }
 function getRepositoryRulebookPath(name) {
   return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
@@ -3325,39 +3455,27 @@ function getRulesCacheDir(options2) {
 }
 
 // src/core/rules/policy/sources.ts
-var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
-var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
-var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
-var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
-var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
+var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/, GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/, GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/, GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/, RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
 function getRulebookSourceSyntaxError(source) {
-  if (isGitHubRulebookSource(source)) {
+  if (isGitHubRulebookSource(source))
     try {
-      parseGitHubSource(source);
-      return null;
+      return parseGitHubSource(source), null;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
-  }
   return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
 }
 function parseGitHubSource(spec) {
-  if (spec.startsWith("github:")) {
-    throw new Error(`Invalid rulebook source: ${spec}`);
-  }
-  const match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
-  }
-  const [ref, name, ...extraParts] = match[3].split("/");
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
-    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  }
+  if (spec.startsWith("github:"))
+    throw Error(`Invalid rulebook source: ${spec}`);
+  let match = spec.match(GITHUB_SOURCE_RE);
+  if (!match?.[1] || !match[2] || !match[3])
+    throw Error(`Invalid GitHub rulebook source: ${spec}`);
+  let [ref, name, ...extraParts] = match[3].split("/");
+  if (!ref || !GITHUB_REF_PATTERN.test(ref))
+    throw Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
+  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name))
+    throw Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
   return {
     owner: match[1],
     repo: match[2],
@@ -3373,51 +3491,43 @@ function isGitHubRulebookSource(source) {
   return GITHUB_SOURCE_RE.test(source);
 }
 function assertBareRulebookName(source) {
-  if (!NAME_PATTERN.test(source)) {
-    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
-  }
+  if (!NAME_PATTERN.test(source))
+    throw Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
 }
 function getRulebookLockEntrySourceIdentityError(entry) {
-  if (isGitHubRulebookSource(entry.spec)) {
+  if (isGitHubRulebookSource(entry.spec))
     return getGitHubLockEntrySourceIdentityError(entry);
-  }
   return getLocalLockEntrySourceIdentityError(entry);
 }
 function getLocalLockEntrySourceIdentityError(entry) {
-  if (!NAME_PATTERN.test(entry.spec)) {
+  if (!NAME_PATTERN.test(entry.spec))
     return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
-  }
-  if (entry.kind !== "local-directory") {
+  if (entry.kind !== "local-directory")
     return `lock entry for ${entry.spec} must use local-directory kind`;
-  }
-  if (entry.path === entry.spec && entry.name === entry.spec) {
+  if (entry.path === entry.spec && entry.name === entry.spec)
     return null;
-  }
   return `lock entry for ${entry.spec} does not match local source identity`;
 }
 function getGitHubLockEntrySourceIdentityError(entry) {
-  const syntaxError = getRulebookSourceSyntaxError(entry.spec);
+  let syntaxError = getRulebookSourceSyntaxError(entry.spec);
   if (syntaxError)
     return syntaxError;
-  const parsed = parseGitHubSource(entry.spec);
-  if (entry.kind !== "github") {
+  let parsed = parseGitHubSource(entry.spec);
+  if (entry.kind !== "github")
     return `lock entry for ${entry.spec} must use github kind`;
-  }
-  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name) {
+  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name)
     return null;
-  }
   return `lock entry for ${entry.spec} does not match GitHub source identity`;
 }
 function getSelectedUpdateSpecs(config, lock, match) {
-  const exactMatches = getExactSpecMatches(config.rules, match);
-  if (exactMatches.length > 0) {
-    return { ok: true, specs: exactMatches };
-  }
-  if (!lock) {
+  let exactMatches = getExactSpecMatches(config.rules, match);
+  if (exactMatches.length > 0)
+    return { ok: !0, specs: exactMatches };
+  if (!lock)
     return {
-      ok: false,
+      ok: !1,
       result: {
-        ok: false,
+        ok: !1,
         errors: [
           `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
         ],
@@ -3425,37 +3535,33 @@ function getSelectedUpdateSpecs(config, lock, match) {
         entries: []
       }
     };
-  }
-  const configuredSpecs = new Set(config.rules);
-  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
-  if (nameMatches.length === 1) {
-    return { ok: true, specs: nameMatches };
-  }
+  let configuredSpecs = new Set(config.rules), nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
+  if (nameMatches.length === 1)
+    return { ok: !0, specs: nameMatches };
   return noRulebookMatch(match, nameMatches);
 }
 function getRemoveMatches(rules, lock, match) {
-  const exactMatches = getExactSpecMatches(rules, match);
+  let exactMatches = getExactSpecMatches(rules, match);
   if (exactMatches.length > 0)
-    return { ok: true, specs: exactMatches };
-  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
+    return { ok: !0, specs: exactMatches };
+  let githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
   if (githubRefMatches.length > 0)
-    return { ok: true, specs: githubRefMatches };
-  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
+    return { ok: !0, specs: githubRefMatches };
+  let githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
   if (!githubRepositoryMatches.ok)
     return githubRepositoryMatches;
-  if (githubRepositoryMatches.specs.length > 0) {
-    return { ok: true, specs: githubRepositoryMatches.specs };
-  }
-  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
+  if (githubRepositoryMatches.specs.length > 0)
+    return { ok: !0, specs: githubRepositoryMatches.specs };
+  let nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
   if (nameMatches.length === 1)
-    return { ok: true, specs: nameMatches };
+    return { ok: !0, specs: nameMatches };
   return noRulebookMatch(match, nameMatches);
 }
 function noRulebookMatch(match, nameMatches) {
   return {
-    ok: false,
+    ok: !1,
     result: {
-      ok: false,
+      ok: !1,
       errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
       warnings: [],
       entries: []
@@ -3466,10 +3572,7 @@ function getExactSpecMatches(rules, match) {
   return rules.filter((spec) => spec === match);
 }
 function getGitHubRepositoryRefMatches(rules, match) {
-  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  const owner = parsed?.[1];
-  const repo = parsed?.[2];
-  const ref = parsed?.[3];
+  let parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE), owner = parsed?.[1], repo = parsed?.[2], ref = parsed?.[3];
   if (!owner || !repo || !ref)
     return [];
   return getConfiguredGitHubSourceMatches(rules, (source) => {
@@ -3478,18 +3581,16 @@ function getGitHubRepositoryRefMatches(rules, match) {
 }
 function getGitHubRepositoryMatches(rules, match) {
   if (!isGitHubRepositorySource(match))
-    return { ok: true, specs: [] };
-  const [owner, repo] = match.split("/");
-  const specs = getConfiguredGitHubSourceMatches(rules, (source) => {
+    return { ok: !0, specs: [] };
+  let [owner, repo] = match.split("/"), specs = getConfiguredGitHubSourceMatches(rules, (source) => {
     return source.owner === owner && source.repo === repo;
   });
-  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
-  if (refs.size < 2)
-    return { ok: true, specs };
+  if (new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref)).size < 2)
+    return { ok: !0, specs };
   return {
-    ok: false,
+    ok: !1,
     result: {
-      ok: false,
+      ok: !1,
       errors: [
         `Multiple refs are configured for ${match}. Use an explicit ref:`,
         `  cc-safety-net rule remove ${match}#<ref>`
@@ -3508,8 +3609,8 @@ function getConfiguredGitHubSource(spec) {
 }
 function getConfiguredGitHubSourceMatches(rules, matches) {
   return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    return source ? matches(source) : false;
+    let source = getConfiguredGitHubSource(spec);
+    return source ? matches(source) : !1;
   });
 }
 
@@ -3578,14 +3679,12 @@ var SECRET_BASENAME_RULES = [
     description: "Blocks generic credentials file basenames.",
     basename: "credentials"
   }
-];
-var SECRET_ENV_VARIANT_RULE = {
+], SECRET_ENV_VARIANT_RULE = {
   id: "secret.pattern.env-variant",
   category: "Pattern",
   label: ".env.*",
   description: "Blocks environment-specific .env variants."
-};
-var SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
+}, SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
   ".bak",
   ".backup",
   ".copy",
@@ -3594,8 +3693,7 @@ var SECRET_HOME_PATH_CONFIG_VARIANT_SUFFIXES = [
   ".orig",
   ".save",
   ".tmp"
-];
-var SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
+], SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
   {
     idSlug: "kube-config",
     label: "~/.kube/config",
@@ -3608,8 +3706,7 @@ var SECRET_HOME_PATH_CONFIG_VARIANT_BASES = [
     directoryParts: [".docker"],
     basename: "config.json"
   }
-];
-var SECRET_HOME_PATH_RULES = [
+], SECRET_HOME_PATH_RULES = [
   {
     id: "secret.home.ssh",
     category: "Home path",
@@ -3666,8 +3763,7 @@ var SECRET_HOME_PATH_RULES = [
     description: "Blocks GitHub CLI host credential files.",
     suffixParts: [".config", "gh", "hosts.yml"]
   }
-];
-var SECRET_CODING_CLI_RULES = [
+], SECRET_CODING_CLI_RULES = [
   {
     id: "secret.cli.claude-code",
     category: "Coding CLI",
@@ -3716,8 +3812,7 @@ var SECRET_CODING_CLI_RULES = [
     label: "Pi credentials",
     description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
   }
-];
-var SECRET_DIRECTORY_RULES = [
+], SECRET_DIRECTORY_RULES = [
   {
     id: "secret.dir.secrets",
     category: "Directory",
@@ -3725,15 +3820,13 @@ var SECRET_DIRECTORY_RULES = [
     description: "Blocks paths inside directories named secrets.",
     basename: "secrets"
   }
-];
-var SECRET_VARIANT_PREFIXES = [
+], SECRET_VARIANT_PREFIXES = [
   { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
   { prefix: "id_dsa", slug: "id-dsa", label: "id_dsa" },
   { prefix: "id_ed25519", slug: "id-ed25519", label: "id_ed25519" },
   { prefix: "id_ecdsa", slug: "id-ecdsa", label: "id_ecdsa" },
   { prefix: "credentials", slug: "credentials", label: "credentials" }
-];
-var SECRET_DOT_VARIANT_SUFFIXES = [
+], SECRET_DOT_VARIANT_SUFFIXES = [
   ".bak",
   ".backup",
   ".copy",
@@ -3744,30 +3837,26 @@ var SECRET_DOT_VARIANT_SUFFIXES = [
   ".pem",
   ".save",
   ".tmp"
-];
-var SECRET_VARIANT_SEPARATOR_RULES = SECRET_VARIANT_PREFIXES.map((rule) => ({
+], SECRET_VARIANT_SEPARATOR_RULES = SECRET_VARIANT_PREFIXES.map((rule) => ({
   id: `secret.variant.${rule.slug}.separator`,
   category: "Variant",
   label: `${rule.label}-* / ${rule.label}_*`,
   description: `Blocks ${rule.label} variants with dash or underscore suffixes.`,
   prefix: rule.prefix
-}));
-var SECRET_VARIANT_DOT_SUFFIX_RULES = SECRET_VARIANT_PREFIXES.flatMap((rule) => SECRET_DOT_VARIANT_SUFFIXES.map((suffix) => ({
+})), SECRET_VARIANT_DOT_SUFFIX_RULES = SECRET_VARIANT_PREFIXES.flatMap((rule) => SECRET_DOT_VARIANT_SUFFIXES.map((suffix) => ({
   id: `secret.variant.${rule.slug}.${suffix.slice(1)}`,
   category: "Variant",
   label: `${rule.label}${suffix}`,
   description: `Blocks ${rule.label}${suffix} private credential variants.`,
   prefix: rule.prefix,
   suffix
-})));
-var SECRET_BROAD_SSH_KEY_BASENAME_RULE = {
+}))), SECRET_BROAD_SSH_KEY_BASENAME_RULE = {
   id: "secret.pattern.ssh-key-basename",
   category: "Pattern",
   label: "*_(rsa|dsa|ed25519|ecdsa)",
   description: "Blocks extensionless SSH private key-like basenames.",
   pattern: /^.*_(rsa|dsa|ed25519|ecdsa)$/
-};
-var SECRET_EXTENSION_RULES = [
+}, SECRET_EXTENSION_RULES = [
   "agilekeychain",
   "asc",
   "bek",
@@ -3796,8 +3885,7 @@ var SECRET_EXTENSION_RULES = [
   label: `.${extension}`,
   description: `Blocks files with the .${extension} extension.`,
   extension
-}));
-var SECRET_EXTENSION_PATTERN_RULES = [
+})), SECRET_EXTENSION_PATTERN_RULES = [
   {
     id: "secret.ext-pattern.key",
     category: "Extension pattern",
@@ -3826,8 +3914,7 @@ var SECRET_EXTENSION_PATTERN_RULES = [
     description: "Blocks SQL dump extension patterns.",
     pattern: /^sql(dump)?$/
   }
-];
-var SECRET_PROTECTION_RULE_METADATA = [
+], SECRET_PROTECTION_RULE_METADATA = [
   ...SECRET_BASENAME_RULES,
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
@@ -3843,37 +3930,27 @@ var SECRET_PROTECTION_RULE_METADATA = [
   category: rule.category,
   label: rule.label,
   description: rule.description
-}));
-var SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);
-var SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
+})), SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id), SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
 
 // src/config/schema.ts
-var require2 = createRequire(import.meta.url);
-var schemas;
+var require2 = createRequire(import.meta.url), schemas;
 function createSchemas() {
-  const z = require2("zod");
-  const BlockIntentSchema = z.enum(BLOCK_INTENTS);
-  const RuleOverrideSchema = z.union([
+  let z = require2("zod"), BlockIntentSchema = z.enum(BLOCK_INTENTS), RuleOverrideSchema = z.union([
     z.literal("off"),
     z.looseObject({
       reason: z.string().min(1).max(MAX_REASON_LENGTH).describe("Replacement block reason"),
       intent: BlockIntentSchema.optional()
     })
-  ]).describe("Disable a rule or replace its block reason and intent.");
-  const RuleSourceSchema = z.string().min(1);
-  const RuleOverrideKeySchema = z.string().regex(/^[^/]+\/[^/]+$/);
-  const TransparentWrapperSchema = z.string().regex(COMMAND_PATTERN).describe("Command name such as 'git', 'docker', or 'rtk'.");
-  const RulesConfigSchema = z.looseObject({
+  ]).describe("Disable a rule or replace its block reason and intent."), RuleSourceSchema = z.string().min(1), RuleOverrideKeySchema = z.string().regex(/^[^/]+\/[^/]+$/), TransparentWrapperSchema = z.string().regex(COMMAND_PATTERN).describe("Command name such as 'git', 'docker', or 'rtk'."), RulesConfigSchema = z.looseObject({
     $schema: z.unknown().optional().describe("JSON Schema reference for IDE support"),
     version: z.literal(1).describe("Schema version (must be 1)"),
     rules: z.array(RuleSourceSchema).default([]).describe("Rulebook source strings such as project-rules or owner/repo#main/team-rules"),
     overrides: z.record(RuleOverrideKeySchema, RuleOverrideSchema).default({}).describe("Rule overrides by id"),
     transparent_wrappers: z.array(TransparentWrapperSchema).default([]).describe("Commands that transparently execute a visible protected child command")
   }).superRefine((config, context) => {
-    const sources = new Set;
+    let sources = /* @__PURE__ */ new Set;
     for (let index = 0;index < config.rules.length; index++) {
-      const source = config.rules[index];
-      const sourceError = getRulebookSourceSyntaxError(source);
+      let source = config.rules[index], sourceError = getRulebookSourceSyntaxError(source);
       if (sourceError) {
         context.addIssue({ code: "custom", message: sourceError, path: ["rules", index] });
         continue;
@@ -3888,9 +3965,9 @@ function createSchemas() {
       }
       sources.add(source);
     }
-    const wrappers2 = new Set;
+    let wrappers2 = /* @__PURE__ */ new Set;
     for (let index = 0;index < config.transparent_wrappers.length; index++) {
-      const wrapper = config.transparent_wrappers[index];
+      let wrapper = config.transparent_wrappers[index];
       if (wrappers2.has(wrapper)) {
         context.addIssue({
           code: "custom",
@@ -3909,14 +3986,11 @@ function createSchemas() {
       }
       wrappers2.add(wrapper);
     }
-  });
-  const SafetyOverridesSchema = z.strictObject({
+  }), SafetyOverridesSchema = z.strictObject({
     fail_closed: z.boolean().optional(),
     paranoid_rm: z.boolean().optional(),
     paranoid_interpreters: z.boolean().optional()
-  });
-  const OffOverridesSchema = z.record(z.string(), z.literal("off"));
-  const UserPolicySchema = z.strictObject({
+  }), OffOverridesSchema = z.record(z.string(), z.literal("off")), UserPolicySchema = z.strictObject({
     version: z.literal(1),
     safety: z.strictObject({
       level: z.enum(["standard", "strict", "paranoid"]).optional(),
@@ -3930,30 +4004,25 @@ function createSchemas() {
       deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional()
     }).optional()
   }).superRefine((policy, context) => {
-    for (const id of Object.keys(policy.destructive_command_protection?.overrides ?? {})) {
-      if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
+    for (let id of Object.keys(policy.destructive_command_protection?.overrides ?? {}))
+      if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id))
         context.addIssue({
           code: "custom",
           message: `unknown destructive command rule id "${id}"`,
           path: ["destructive_command_protection", "overrides", id]
         });
-      }
-    }
-    for (const id of Object.keys(policy.secret_protection?.overrides ?? {})) {
-      if (!SECRET_PROTECTION_RULE_ID_SET.has(id)) {
+    for (let id of Object.keys(policy.secret_protection?.overrides ?? {}))
+      if (!SECRET_PROTECTION_RULE_ID_SET.has(id))
         context.addIssue({
           code: "custom",
           message: `unknown secret protection rule id "${id}"`,
           path: ["secret_protection", "overrides", id]
         });
-      }
-    }
   });
   return { RulesConfigSchema, RuleOverrideSchema, UserPolicySchema };
 }
 function getSchemas() {
-  schemas ??= createSchemas();
-  return schemas;
+  return schemas ??= createSchemas(), schemas;
 }
 function getRulesConfigSchema() {
   return getSchemas().RulesConfigSchema;
@@ -3962,18 +4031,17 @@ function getUserPolicySchema() {
   return getSchemas().UserPolicySchema;
 }
 function getRulesConfigValidation(config) {
-  const errors = [];
-  const sources = new Set;
+  let errors = [], sources = /* @__PURE__ */ new Set;
   if (!isRecord(config))
     return { errors: ["Config must be an object"], sources };
   if (config.version !== 1)
     errors.push("version must be 1");
-  if (config.rules !== undefined) {
-    if (!Array.isArray(config.rules)) {
+  if (config.rules !== void 0)
+    if (!Array.isArray(config.rules))
       errors.push("rules must be an array of rulebook source strings");
-    } else {
+    else
       for (let index = 0;index < config.rules.length; index++) {
-        const source = config.rules[index];
+        let source = config.rules[index];
         if (typeof source !== "string") {
           errors.push(`rules[${index}]: must be a rulebook source string`);
           continue;
@@ -3986,78 +4054,65 @@ function getRulesConfigValidation(config) {
           errors.push(`rules[${index}]: duplicate rulebook source "${source}"`);
           continue;
         }
-        const sourceError = getRulebookSourceSyntaxError(source);
+        let sourceError = getRulebookSourceSyntaxError(source);
         if (sourceError) {
           errors.push(`rules[${index}]: ${sourceError}`);
           continue;
         }
         sources.add(source);
       }
-    }
-  }
-  validateRuleOverrides(config.overrides, errors);
-  validateTransparentWrappers(config.transparent_wrappers, errors);
-  return { errors, sources };
+  return validateRuleOverrides(config.overrides, errors), validateTransparentWrappers(config.transparent_wrappers, errors), { errors, sources };
 }
 function getUserPolicyDiagnostics(config) {
-  const parsed = getUserPolicySchema().safeParse(config);
-  if (parsed.success)
+  if (getUserPolicySchema().safeParse(config).success)
     return [];
-  const errors = [];
+  let errors = [];
   if (!isRecord(config))
     return ["Config must be an object"];
-  addUnknownFieldErrors(config, new Set([
+  if (addUnknownFieldErrors(config, /* @__PURE__ */ new Set([
     "version",
     "safety",
     "workflow",
     "destructive_command_protection",
     "secret_protection"
-  ]), errors);
-  if (config.version !== 1)
+  ]), errors), config.version !== 1)
     errors.push("version must be 1");
-  validateUserSafety(config.safety, errors);
-  validateUserWorkflow(config.workflow, errors);
-  validateUserDestructivePolicy(config.destructive_command_protection, errors);
-  validateUserSecretPolicy(config.secret_protection, errors);
-  return errors;
+  return validateUserSafety(config.safety, errors), validateUserWorkflow(config.workflow, errors), validateUserDestructivePolicy(config.destructive_command_protection, errors), validateUserSecretPolicy(config.secret_protection, errors), errors;
 }
 function validateRuleOverrides(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push("overrides must be an object if provided");
     return;
   }
-  for (const [key, override] of Object.entries(value)) {
-    if (!/^[^/]+\/[^/]+$/.test(key)) {
+  for (let [key, override] of Object.entries(value)) {
+    if (!/^[^/]+\/[^/]+$/.test(key))
       errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
-    }
     if (override === "off")
       continue;
     if (!isRecord(override)) {
       errors.push(`overrides.${key}: must be "off" or an object`);
       continue;
     }
-    if (typeof override.reason !== "string" || override.reason === "") {
+    if (typeof override.reason !== "string" || override.reason === "")
       errors.push(`overrides.${key}.reason: required non-empty string`);
-    } else if (override.reason.length > MAX_REASON_LENGTH) {
+    else if (override.reason.length > MAX_REASON_LENGTH)
       errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-    }
-    if (override.intent !== undefined && (typeof override.intent !== "string" || !BLOCK_INTENTS.includes(override.intent))) {
+    if (override.intent !== void 0 && (typeof override.intent !== "string" || !BLOCK_INTENTS.includes(override.intent)))
       errors.push(`overrides.${key}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-    }
   }
 }
 function validateTransparentWrappers(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!Array.isArray(value)) {
     errors.push("transparent_wrappers must be an array of command strings");
     return;
   }
-  const seen = new Set;
+  let seen = /* @__PURE__ */ new Set;
   for (let index = 0;index < value.length; index++) {
-    const command2 = value[index];
+    let command2 = value[index];
     if (typeof command2 !== "string") {
       errors.push(`transparent_wrappers[${index}]: must be a command string`);
       continue;
@@ -4078,86 +4133,75 @@ function validateTransparentWrappers(value, errors) {
   }
 }
 function validateUserSafety(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push("safety must be an object if provided");
     return;
   }
-  addUnknownFieldErrors(value, new Set(["level", "overrides"]), errors, "safety");
-  if (value.level !== undefined && !["standard", "strict", "paranoid"].includes(String(value.level))) {
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["level", "overrides"]), errors, "safety"), value.level !== void 0 && !["standard", "strict", "paranoid"].includes(String(value.level)))
     errors.push('safety.level must be "standard", "strict", or "paranoid"');
-  }
-  if (value.overrides === undefined)
+  if (value.overrides === void 0)
     return;
   if (!isRecord(value.overrides)) {
     errors.push("safety.overrides must be an object if provided");
     return;
   }
-  addUnknownFieldErrors(value.overrides, new Set(["fail_closed", "paranoid_rm", "paranoid_interpreters"]), errors, "safety.overrides");
-  for (const [key, override] of Object.entries(value.overrides)) {
+  addUnknownFieldErrors(value.overrides, /* @__PURE__ */ new Set(["fail_closed", "paranoid_rm", "paranoid_interpreters"]), errors, "safety.overrides");
+  for (let [key, override] of Object.entries(value.overrides))
     if (typeof override !== "boolean")
       errors.push(`safety.overrides.${key} must be a boolean`);
-  }
 }
 function validateUserWorkflow(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push("workflow must be an object if provided");
     return;
   }
-  addUnknownFieldErrors(value, new Set(["worktree_mode"]), errors, "workflow");
-  if (value.worktree_mode !== undefined && typeof value.worktree_mode !== "boolean") {
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["worktree_mode"]), errors, "workflow"), value.worktree_mode !== void 0 && typeof value.worktree_mode !== "boolean")
     errors.push("workflow.worktree_mode must be a boolean");
-  }
 }
 function validateUserDestructivePolicy(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push("destructive_command_protection must be an object if provided");
     return;
   }
-  addUnknownFieldErrors(value, new Set(["enabled", "overrides"]), errors, "destructive_command_protection");
-  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
     errors.push("destructive_command_protection.enabled must be a boolean");
-  }
   validateOffOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors);
 }
 function validateUserSecretPolicy(value, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push("secret_protection must be an object if provided");
     return;
   }
-  addUnknownFieldErrors(value, new Set(["enabled", "overrides", "deny_paths"]), errors, "secret_protection");
-  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides", "deny_paths"]), errors, "secret_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
     errors.push("secret_protection.enabled must be a boolean");
-  }
-  validateOffOverrides(value.overrides, "secret_protection", SECRET_PROTECTION_RULE_ID_SET, "secret protection", errors);
-  if (value.deny_paths === undefined)
+  if (validateOffOverrides(value.overrides, "secret_protection", SECRET_PROTECTION_RULE_ID_SET, "secret protection", errors), value.deny_paths === void 0)
     return;
   if (!Array.isArray(value.deny_paths)) {
     errors.push("secret_protection.deny_paths must be an array of paths");
     return;
   }
   for (let index = 0;index < value.deny_paths.length; index++) {
-    const path = value.deny_paths[index];
-    if (typeof path !== "string" || path.trim() === "") {
+    let path = value.deny_paths[index];
+    if (typeof path !== "string" || path.trim() === "")
       errors.push(`secret_protection.deny_paths[${index}] must be a non-empty path string`);
-    }
   }
 }
 function validateOffOverrides(value, field, knownIds, label, errors) {
-  if (value === undefined)
+  if (value === void 0)
     return;
   if (!isRecord(value)) {
     errors.push(`${field}.overrides must be an object if provided`);
     return;
   }
-  for (const [id, override] of Object.entries(value)) {
+  for (let [id, override] of Object.entries(value)) {
     if (!knownIds.has(id))
       errors.push(`unknown ${label} rule id "${id}"`);
     if (override !== "off")
@@ -4168,10 +4212,9 @@ function isRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 function addUnknownFieldErrors(record, allowed, errors, prefix) {
-  for (const key of Object.keys(record)) {
+  for (let key of Object.keys(record))
     if (!allowed.has(key))
       errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
-  }
 }
 // src/core/rules/policy/config-file.ts
 import { randomBytes } from "node:crypto";
@@ -4188,28 +4231,23 @@ var DEFAULT_CONFIG = {
 
 // src/core/rules/policy/config-file.ts
 function validateRulesConfig(config) {
-  const parsed = getRulesConfigSchema().safeParse(config);
-  const validation = getRulesConfigValidation(config);
+  let parsed = getRulesConfigSchema().safeParse(config), validation = getRulesConfigValidation(config);
   return {
     errors: parsed.success ? [] : validation.errors,
     sources: validation.sources
   };
 }
 function readRulesConfig(path) {
-  if (!existsSync(path)) {
+  if (!existsSync(path))
     return { config: null, errors: [] };
-  }
   try {
-    const content = readFileSync2(path, "utf-8");
-    if (!content.trim()) {
+    let content = readFileSync2(path, "utf-8");
+    if (!content.trim())
       return { config: null, errors: ["Config file is empty"] };
-    }
-    const parsed = JSON.parse(content);
-    const validation = validateRulesConfig(parsed);
-    if (validation.errors.length > 0) {
+    let parsed = JSON.parse(content), validation = validateRulesConfig(parsed);
+    if (validation.errors.length > 0)
       return { config: null, errors: validation.errors };
-    }
-    const cfg = getRulesConfigSchema().parse(parsed);
+    let cfg = getRulesConfigSchema().parse(parsed);
     return {
       config: {
         version: 1,
@@ -4227,11 +4265,10 @@ function readRulesConfig(path) {
   }
 }
 function readScopeRulesConfig(path) {
-  const loaded = readRulesConfig(path);
-  if (loaded.errors.length > 0) {
-    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
-  }
-  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
+  let loaded = readRulesConfig(path);
+  if (loaded.errors.length > 0)
+    return { ok: !1, result: { ok: !1, errors: loaded.errors, warnings: [], entries: [] } };
+  return { ok: !0, config: loaded.config ?? DEFAULT_CONFIG };
 }
 function writeDefaultRulesConfig(path, rules = []) {
   writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
@@ -4266,40 +4303,36 @@ function createAtomicTempPath(path) {
   return `${path}.${randomBytes(8).toString("hex")}.tmp`;
 }
 function writeJsonAtomic(path, value, mode) {
-  mkdirSync2(dirname4(path), { recursive: true });
-  const tempPath = createAtomicTempPath(path);
+  mkdirSync2(dirname4(path), { recursive: !0 });
+  let tempPath = createAtomicTempPath(path);
   try {
     writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
 `, {
       encoding: "utf-8",
       flag: "wx",
       mode
-    });
-    renameSync(tempPath, path);
+    }), renameSync(tempPath, path);
   } catch (error) {
-    rmSync(tempPath, { force: true });
-    throw error;
+    throw rmSync(tempPath, { force: !0 }), error;
   }
 }
 
 // src/core/policy.ts
-var POLICY_FILE = "policy.json";
-var SAFETY_LEVELS2 = new Set(["standard", "strict", "paranoid"]);
-var DEFAULT_GUI_POLICY = {
+var POLICY_FILE = "policy.json", SAFETY_LEVELS2 = /* @__PURE__ */ new Set(["standard", "strict", "paranoid"]), DEFAULT_GUI_POLICY = {
   version: 1,
   safety: {
     level: "standard",
     overrides: {}
   },
   workflow: {
-    worktree_mode: false
+    worktree_mode: !1
   },
   destructive_command_protection: {
-    enabled: true,
+    enabled: !0,
     overrides: {}
   },
   secret_protection: {
-    enabled: true,
+    enabled: !0,
     overrides: {},
     deny_paths: []
   }
@@ -4308,32 +4341,29 @@ function getUserPolicyPath(options2) {
   return join4(dirname5(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
-  const path = getUserPolicyPath(options2);
-  if (!existsSync2(path)) {
+  let path = getUserPolicyPath(options2);
+  if (!existsSync2(path))
     return {
       path,
-      exists: false,
+      exists: !1,
       raw: "",
       policy: createDefaultGuiPolicy(),
       errors: []
     };
-  }
-  const raw = readFileSync3(path, "utf-8");
-  if (!raw.trim()) {
+  let raw = readFileSync3(path, "utf-8");
+  if (!raw.trim())
     return {
       path,
-      exists: true,
+      exists: !0,
       raw,
       policy: createDefaultGuiPolicy(),
       errors: ["Config file is empty"]
     };
-  }
   try {
-    const parsed = JSON.parse(raw);
-    const errors = getUserPolicyDiagnostics(parsed);
+    let parsed = JSON.parse(raw), errors = getUserPolicyDiagnostics(parsed);
     return {
       path,
-      exists: true,
+      exists: !0,
       raw,
       policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
       errors
@@ -4341,7 +4371,7 @@ function readUserPolicyForGui(options2 = {}) {
   } catch (error) {
     return {
       path,
-      exists: true,
+      exists: !0,
       raw,
       policy: createDefaultGuiPolicy(),
       errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
@@ -4349,22 +4379,16 @@ function readUserPolicyForGui(options2 = {}) {
   }
 }
 function writeUserPolicyFromGui(policy, options2 = {}) {
-  const path = getUserPolicyPath(options2);
-  const errors = getUserPolicyDiagnostics(policy);
-  const normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
-  if (errors.length > 0) {
+  let path = getUserPolicyPath(options2), errors = getUserPolicyDiagnostics(policy), normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
+  if (errors.length > 0)
     return { path, policy: normalizedPolicy, errors };
-  }
-  mkdirSync3(dirname5(path), { recursive: true, mode: 448 });
-  writeJsonAtomic(path, normalizedPolicy, 384);
-  chmodSync(path, 384);
-  return { path, policy: normalizedPolicy, errors: [] };
+  return mkdirSync3(dirname5(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
-  const path = getUserPolicyPath(options2);
+  let path = getUserPolicyPath(options2);
   if (!existsSync2(path))
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  const raw = readFileSync3(path, "utf-8");
+  let raw = readFileSync3(path, "utf-8");
   if (!raw.trim())
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
   try {
@@ -4374,7 +4398,7 @@ function repairUserPolicyForGui(options2 = {}) {
   }
 }
 function loadPolicyConfig(options2 = {}) {
-  const user = readPolicyConfig(getUserPolicyPath(options2));
+  let user = readPolicyConfig(getUserPolicyPath(options2));
   return {
     safety: user.policy.safety,
     worktreeMode: user.policy.worktreeMode,
@@ -4387,11 +4411,7 @@ function loadPolicyConfig(options2 = {}) {
 function repairPolicyConfig(value) {
   if (!isRecord2(value))
     return createDefaultGuiPolicy();
-  const safety = isRecord2(value.safety) ? value.safety : {};
-  const safetyOverrides = isRecord2(safety.overrides) ? safety.overrides : {};
-  const workflow = isRecord2(value.workflow) ? value.workflow : {};
-  const destructiveCommand = isRecord2(value.destructive_command_protection) ? value.destructive_command_protection : {};
-  const secret = isRecord2(value.secret_protection) ? value.secret_protection : {};
+  let safety = isRecord2(value.safety) ? value.safety : {}, safetyOverrides = isRecord2(safety.overrides) ? safety.overrides : {}, workflow = isRecord2(value.workflow) ? value.workflow : {}, destructiveCommand = isRecord2(value.destructive_command_protection) ? value.destructive_command_protection : {}, secret = isRecord2(value.secret_protection) ? value.secret_protection : {};
   return {
     version: 1,
     safety: {
@@ -4403,14 +4423,14 @@ function repairPolicyConfig(value) {
       }
     },
     workflow: {
-      worktree_mode: typeof workflow.worktree_mode === "boolean" ? workflow.worktree_mode : false
+      worktree_mode: typeof workflow.worktree_mode === "boolean" ? workflow.worktree_mode : !1
     },
     destructive_command_protection: {
-      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : true,
+      enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : !0,
       overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
     },
     secret_protection: {
-      enabled: typeof secret.enabled === "boolean" ? secret.enabled : true,
+      enabled: typeof secret.enabled === "boolean" ? secret.enabled : !0,
       overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
       deny_paths: repairDenyPaths(secret.deny_paths)
     }
@@ -4449,49 +4469,40 @@ function createDefaultGuiPolicy() {
   };
 }
 function normalizeGuiPolicy(policy) {
-  const config = policy;
-  const safety = config.safety ?? {};
-  const safetyOverrides = safety.overrides ?? {};
-  const workflow = config.workflow ?? {};
-  const destructiveCommandPolicy = config.destructive_command_protection ?? {};
-  const destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {};
-  const secret = config.secret_protection ?? {};
-  const secretOverrides = secret.overrides ?? {};
+  let config = policy, safety = config.safety ?? {}, safetyOverrides = safety.overrides ?? {}, workflow = config.workflow ?? {}, destructiveCommandPolicy = config.destructive_command_protection ?? {}, destructiveCommandOverrides = destructiveCommandPolicy.overrides ?? {}, secret = config.secret_protection ?? {}, secretOverrides = secret.overrides ?? {};
   return {
     version: 1,
     safety: {
       level: safety.level ?? "standard",
       overrides: {
-        ...safetyOverrides.fail_closed !== undefined ? { fail_closed: safetyOverrides.fail_closed } : {},
-        ...safetyOverrides.paranoid_rm !== undefined ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
-        ...safetyOverrides.paranoid_interpreters !== undefined ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
+        ...safetyOverrides.fail_closed !== void 0 ? { fail_closed: safetyOverrides.fail_closed } : {},
+        ...safetyOverrides.paranoid_rm !== void 0 ? { paranoid_rm: safetyOverrides.paranoid_rm } : {},
+        ...safetyOverrides.paranoid_interpreters !== void 0 ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters } : {}
       }
     },
     workflow: {
-      worktree_mode: workflow.worktree_mode ?? false
+      worktree_mode: workflow.worktree_mode ?? !1
     },
     destructive_command_protection: {
-      enabled: destructiveCommandPolicy.enabled ?? true,
+      enabled: destructiveCommandPolicy.enabled ?? !0,
       overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
     },
     secret_protection: {
-      enabled: secret.enabled ?? true,
+      enabled: secret.enabled ?? !0,
       overrides: Object.fromEntries(Object.entries(secretOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : [])),
       deny_paths: [...secret.deny_paths ?? []]
     }
   };
 }
 function readPolicyConfig(path) {
-  const empty = createEmptyPolicy();
+  let empty = createEmptyPolicy();
   if (!existsSync2(path))
     return { policy: empty, errors: [] };
   try {
-    const content = readFileSync3(path, "utf-8");
-    if (!content.trim()) {
+    let content = readFileSync3(path, "utf-8");
+    if (!content.trim())
       return { policy: empty, errors: [`${path}: Config file is empty`] };
-    }
-    const parsed = JSON.parse(content);
-    const errors = getUserPolicyDiagnostics(parsed);
+    let parsed = JSON.parse(content), errors = getUserPolicyDiagnostics(parsed);
     if (errors.length > 0)
       return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
     return { policy: normalizePolicyConfig(getUserPolicySchema().parse(parsed)), errors: [] };
@@ -4505,24 +4516,21 @@ function readPolicyConfig(path) {
 function createEmptyPolicy() {
   return {
     safety: {},
-    worktreeMode: false,
-    destructiveCommandProtectionEnabled: true,
+    worktreeMode: !1,
+    destructiveCommandProtectionEnabled: !0,
     disabledDestructiveCommandRules: [],
-    secretProtection: { enabled: true, disabledRules: new Set, denyPaths: [] }
+    secretProtection: { enabled: !0, disabledRules: /* @__PURE__ */ new Set, denyPaths: [] }
   };
 }
 function normalizePolicyConfig(config) {
-  const safety = normalizeSafety(config.safety);
-  const workflow = config.workflow;
-  const destructiveCommand = config.destructive_command_protection;
-  const secret = config.secret_protection;
+  let safety = normalizeSafety(config.safety), workflow = config.workflow, destructiveCommand = config.destructive_command_protection, secret = config.secret_protection;
   return {
     safety,
-    worktreeMode: workflow?.worktree_mode ?? false,
-    destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? true,
+    worktreeMode: workflow?.worktree_mode ?? !1,
+    destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? !0,
     disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
     secretProtection: {
-      enabled: secret?.enabled ?? true,
+      enabled: secret?.enabled ?? !0,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
       denyPaths: [...secret?.deny_paths ?? []]
     }
@@ -4531,8 +4539,7 @@ function normalizePolicyConfig(config) {
 function normalizeSafety(value) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     return {};
-  const safety = value;
-  const overrides = safety.overrides ?? {};
+  let safety = value, overrides = safety.overrides ?? {};
   return {
     level: safety.level,
     overrides: {
@@ -4558,25 +4565,20 @@ function checkPolicyRuleMatch(tokens, rules) {
   return checkRuleMatch(tokens, rules);
 }
 function checkRuleMatch(tokens, rules) {
-  if (tokens.length === 0 || rules.length === 0) {
+  if (tokens.length === 0 || rules.length === 0)
     return null;
-  }
-  const command2 = normalizeCommandToken(tokens[0] ?? "");
-  const shortOpts = extractShortOpts(tokens);
-  for (const rule of rules) {
-    if (!matchesCommand(command2, rule.command)) {
+  let command2 = normalizeCommandToken(tokens[0] ?? ""), shortOpts = extractShortOpts(tokens);
+  for (let rule of rules) {
+    if (!matchesCommand(command2, rule.command))
       continue;
-    }
-    if (!matchesSubcommand(command2, tokens, rule.subcommand)) {
+    if (!matchesSubcommand(command2, tokens, rule.subcommand))
       continue;
-    }
-    if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
+    if (matchesBlockArgs(tokens, rule.block_args, shortOpts))
       return {
         id: `custom.${rule.name}`,
         reason: `[${rule.name}] ${rule.reason}`,
         intent: rule.intent ?? "manual_only"
       };
-    }
   }
   return null;
 }
@@ -4584,20 +4586,18 @@ function matchesCommand(command2, ruleCommand) {
   return command2 === normalizeCommandToken(ruleCommand);
 }
 function matchesSubcommand(command2, tokens, ruleSubcommand) {
-  if (!ruleSubcommand) {
-    return true;
-  }
+  if (!ruleSubcommand)
+    return !0;
   return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command2));
 }
-var GIT_OPTIONS_WITH_VALUES = new Set([
+var GIT_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set([
   "-c",
   "-C",
   "--git-dir",
   "--work-tree",
   "--namespace",
   "--config-env"
-]);
-var DOCKER_OPTIONS_WITH_VALUES = new Set([
+]), DOCKER_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set([
   "-c",
   "-H",
   "-l",
@@ -4608,8 +4608,7 @@ var DOCKER_OPTIONS_WITH_VALUES = new Set([
   "--tlscacert",
   "--tlscert",
   "--tlskey"
-]);
-var EMPTY_OPTIONS_WITH_VALUES = new Set;
+]), EMPTY_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set;
 function getOptionsWithValues(command2) {
   if (command2 === "git")
     return GIT_OPTIONS_WITH_VALUES;
@@ -4618,118 +4617,99 @@ function getOptionsWithValues(command2) {
   return EMPTY_OPTIONS_WITH_VALUES;
 }
 function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues) {
-  let skipNext = false;
+  let skipNext = !1;
   for (let i = startIndex;i < tokens.length; i++) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       continue;
     if (skipNext) {
-      skipNext = false;
+      skipNext = !1;
       continue;
     }
     if (token === "--") {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
+      let nextToken = tokens[i + 1];
+      if (nextToken && !nextToken.startsWith("-"))
         return nextToken === expectedSubcommand;
-      }
-      return false;
+      return !1;
     }
     if (optionsWithValues.has(token)) {
-      skipNext = true;
+      skipNext = !0;
       continue;
     }
     if (token.startsWith("-")) {
-      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)) {
-        return true;
-      }
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues))
+        return !0;
       continue;
     }
     return token === expectedSubcommand;
   }
-  return false;
+  return !1;
 }
 function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues) {
-  const value = tokens[optionIndex + 1];
-  if (!value || value.startsWith("-")) {
-    return false;
-  }
+  let value = tokens[optionIndex + 1];
+  if (!value || value.startsWith("-"))
+    return !1;
   return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
 }
 function matchesBlockArgs(tokens, blockArgs, shortOpts) {
-  const blockArgsSet = new Set(blockArgs);
-  for (const token of tokens) {
-    if (blockArgsSet.has(token)) {
-      return true;
-    }
-  }
-  for (const opt of shortOpts) {
-    if (blockArgsSet.has(opt)) {
-      return true;
-    }
-  }
-  return false;
+  let blockArgsSet = new Set(blockArgs);
+  for (let token of tokens)
+    if (blockArgsSet.has(token))
+      return !0;
+  for (let opt of shortOpts)
+    if (blockArgsSet.has(opt))
+      return !0;
+  return !1;
 }
 
 // src/core/rules/custom-rule-validation.ts
 function validateCustomRule(rule, index, ruleNames, options2 = {}) {
-  const errors = [];
-  const prefix = `rules[${index}]`;
-  if (!rule || typeof rule !== "object") {
-    errors.push(`${prefix}: must be an object`);
-    return errors;
-  }
-  const r = rule;
-  const messageStyle = options2.messageStyle ?? "legacy";
-  if (typeof r.name !== "string") {
+  let errors = [], prefix = `rules[${index}]`;
+  if (!rule || typeof rule !== "object")
+    return errors.push(`${prefix}: must be an object`), errors;
+  let r = rule, messageStyle = options2.messageStyle ?? "legacy";
+  if (typeof r.name !== "string")
     errors.push(`${prefix}.name: required string`);
-  } else {
-    if (!NAME_PATTERN.test(r.name)) {
+  else {
+    if (!NAME_PATTERN.test(r.name))
       errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
-    }
-    const lowerName = r.name.toLowerCase();
-    if (ruleNames.has(lowerName)) {
+    let lowerName = r.name.toLowerCase();
+    if (ruleNames.has(lowerName))
       errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
-    } else {
+    else
       ruleNames.add(lowerName);
-    }
   }
-  if (typeof r.command !== "string") {
+  if (typeof r.command !== "string")
     errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
-  } else if (!COMMAND_PATTERN.test(r.command)) {
+  else if (!COMMAND_PATTERN.test(r.command))
     errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
-  }
-  if (r.subcommand !== undefined) {
-    if (typeof r.subcommand !== "string") {
+  if (r.subcommand !== void 0) {
+    if (typeof r.subcommand !== "string")
       errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
-    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
+    else if (!COMMAND_PATTERN.test(r.subcommand))
       errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
-    }
   }
-  if (!Array.isArray(r.block_args)) {
+  if (!Array.isArray(r.block_args))
     errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
-  } else {
-    if (r.block_args.length === 0) {
+  else {
+    if (r.block_args.length === 0)
       errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
-    }
     for (let i = 0;i < r.block_args.length; i++) {
-      const arg = r.block_args[i];
-      if (typeof arg !== "string") {
+      let arg = r.block_args[i];
+      if (typeof arg !== "string")
         errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
-      } else if (arg === "") {
+      else if (arg === "")
         errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
-      }
     }
   }
-  if (typeof r.reason !== "string") {
+  if (typeof r.reason !== "string")
     errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
-  } else if (r.reason === "") {
+  else if (r.reason === "")
     errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
-  } else if (r.reason.length > MAX_REASON_LENGTH) {
+  else if (r.reason.length > MAX_REASON_LENGTH)
     errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-  }
-  if (r.intent !== undefined && !isBlockIntent(r.intent)) {
+  if (r.intent !== void 0 && !isBlockIntent(r.intent))
     errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-  }
   return errors;
 }
 function isBlockIntent(value) {
@@ -4738,53 +4718,43 @@ function isBlockIntent(value) {
 
 // src/core/rules/rulebook.ts
 function validateRulebook(rulebook) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!rulebook || typeof rulebook !== "object") {
+  let errors = [], ruleNames = /* @__PURE__ */ new Set;
+  if (!rulebook || typeof rulebook !== "object")
     return { errors: ["Rulebook must be an object"], ruleNames };
-  }
-  const rb = rulebook;
-  if (rb.rulebook_version !== 1) {
+  let rb = rulebook;
+  if (rb.rulebook_version !== 1)
     errors.push("rulebook_version must be 1");
-  }
-  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name)) {
+  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name))
     errors.push("name: required string matching rule name pattern");
-  }
-  if (typeof rb.version !== "string" || rb.version === "") {
+  if (typeof rb.version !== "string" || rb.version === "")
     errors.push("version: required non-empty string");
-  }
-  if (!Array.isArray(rb.allowed_commands)) {
+  if (!Array.isArray(rb.allowed_commands))
     errors.push("allowed_commands: required array");
-  } else {
+  else
     validateAllowedCommands(rb.allowed_commands, errors);
-  }
-  if (!Array.isArray(rb.rules)) {
+  if (!Array.isArray(rb.rules))
     errors.push("rules: required array");
-  } else {
-    for (let i = 0;i < rb.rules.length; i++) {
+  else
+    for (let i = 0;i < rb.rules.length; i++)
       errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: "rulebook" }));
-    }
-  }
-  if (!Array.isArray(rb.tests)) {
+  if (!Array.isArray(rb.tests))
     errors.push("tests: required array");
-  } else {
+  else
     validateFixtures(rb.tests, rb.rules, errors);
-  }
   if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
-    const allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
+    let allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
     for (let i = 0;i < rb.rules.length; i++) {
-      const rule = rb.rules[i];
-      if (typeof rule.command === "string" && !allowed.has(rule.command)) {
+      let rule = rb.rules[i];
+      if (typeof rule.command === "string" && !allowed.has(rule.command))
         errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
-      }
     }
   }
   return { errors, ruleNames };
 }
 function validateAllowedCommands(commands, errors) {
-  const seen = new Set;
+  let seen = /* @__PURE__ */ new Set;
   for (let i = 0;i < commands.length; i++) {
-    const command2 = commands[i];
+    let command2 = commands[i];
     if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
       errors.push(`allowed_commands[${i}]: must match command pattern`);
       continue;
@@ -4797,52 +4767,46 @@ function validateAllowedCommands(commands, errors) {
   }
 }
 function validateFixtures(tests, rules, errors) {
-  const blockedFixtures = new Set;
-  const ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
+  let blockedFixtures = /* @__PURE__ */ new Set, ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
   for (let i = 0;i < tests.length; i++) {
-    const fixture = tests[i];
+    let fixture = tests[i];
     if (!fixture || typeof fixture !== "object") {
       errors.push(`tests[${i}]: must be an object`);
       continue;
     }
-    const f = fixture;
-    if (typeof f.command !== "string" || f.command.trim() === "") {
+    let f = fixture;
+    if (typeof f.command !== "string" || f.command.trim() === "")
       errors.push(`tests[${i}].command: required non-empty string`);
-    }
-    if (f.expect !== "blocked" && f.expect !== "allowed") {
+    if (f.expect !== "blocked" && f.expect !== "allowed")
       errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
-    }
-    if (f.rule !== undefined && typeof f.rule !== "string") {
+    if (f.rule !== void 0 && typeof f.rule !== "string")
       errors.push(`tests[${i}].rule: must be a string if provided`);
-    }
-    if (f.expect === "blocked" && typeof f.rule !== "string") {
+    if (f.expect === "blocked" && typeof f.rule !== "string")
       errors.push(`tests[${i}].rule: required string for blocked fixtures`);
-    }
-    if (f.expect === "blocked" && typeof f.rule === "string") {
+    if (f.expect === "blocked" && typeof f.rule === "string")
       blockedFixtures.add(f.rule);
-    }
   }
   for (let i = 0;i < (Array.isArray(rules) ? rules.length : 0); i++) {
-    const rule = rules[i];
-    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name)) {
+    let rule = rules[i];
+    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name))
       errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
-    }
   }
-  for (const rule of blockedFixtures) {
-    if (!ruleNames.has(rule)) {
+  for (let rule of blockedFixtures)
+    if (!ruleNames.has(rule))
       errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
-    }
-  }
 }
 function runRulebookFixtures(rulebook) {
-  const failures = rulebook.tests.flatMap((fixture) => {
-    const segments2 = splitShellCommands(fixture.command).map((tokens) => {
-      const result = checkCustomRuleMatch(tokens, rulebook.rules);
-      return { tokens, result, matchedRule: result?.id.replace(/^custom\./, "") ?? null };
-    });
-    const firstSegment = segments2[0] ?? { tokens: [], result: null, matchedRule: null };
+  let failures = rulebook.tests.flatMap((fixture) => {
+    let segments = projectLegacySegments(fixture.command).map((tokens) => {
+      let mutableTokens = [...tokens], result = checkCustomRuleMatch(mutableTokens, rulebook.rules);
+      return {
+        tokens: mutableTokens,
+        result,
+        matchedRule: result?.id.replace(/^custom\./, "") ?? null
+      };
+    }), firstSegment = segments[0] ?? { tokens: [], result: null, matchedRule: null };
     if (fixture.expect === "allowed") {
-      const blockedSegment = segments2.find((segment) => segment.result);
+      let blockedSegment = segments.find((segment) => segment.result);
       return blockedSegment ? [
         {
           command: fixture.command,
@@ -4851,8 +4815,8 @@ function runRulebookFixtures(rulebook) {
         }
       ] : [];
     }
-    const firstBlockedSegment = segments2.find((segment) => segment.result);
-    if (!firstBlockedSegment) {
+    let firstBlockedSegment = segments.find((segment) => segment.result);
+    if (!firstBlockedSegment)
       return [
         {
           command: fixture.command,
@@ -4860,7 +4824,6 @@ function runRulebookFixtures(rulebook) {
           trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules)
         }
       ];
-    }
     if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule)
       return [];
     return [
@@ -4875,45 +4838,35 @@ function runRulebookFixtures(rulebook) {
 }
 function traceRulebookFixture(tokens, rules) {
   return rules.map((rule) => {
-    const result = checkCustomRules([...tokens], [rule]);
-    return `${result ? "matched" : "skipped"} ${rule.name}`;
+    return `${checkCustomRules([...tokens], [rule]) ? "matched" : "skipped"} ${rule.name}`;
   });
 }
 function assertValidRulebook(rulebook) {
-  const result = validateRulebook(rulebook);
-  if (result.errors.length > 0) {
-    throw new Error(result.errors.join("; "));
-  }
-  const parsed = rulebook;
-  const fixtures = runRulebookFixtures(parsed);
-  if (!fixtures.ok) {
-    throw new Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
-  }
+  let result = validateRulebook(rulebook);
+  if (result.errors.length > 0)
+    throw Error(result.errors.join("; "));
+  let parsed = rulebook, fixtures = runRulebookFixtures(parsed);
+  if (!fixtures.ok)
+    throw Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
   return parsed;
 }
 
 // src/core/rules/policy/lockfile.ts
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
-var RULEBOOK_SOURCE_KINDS = new Set(["local-directory", "github"]);
+var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/, RULEBOOK_SOURCE_KINDS = /* @__PURE__ */ new Set(["local-directory", "github"]);
 function readLockfile(path) {
-  if (!existsSync3(path)) {
+  if (!existsSync3(path))
     return { lock: null, errors: [] };
-  }
   try {
-    const parsed = JSON.parse(readFileSync4(path, "utf-8"));
-    if (!parsed || typeof parsed !== "object") {
+    let parsed = JSON.parse(readFileSync4(path, "utf-8"));
+    if (!parsed || typeof parsed !== "object")
       return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
-    }
-    const lock = parsed;
-    if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
+    let lock = parsed;
+    if (lock.version !== 1 || !Array.isArray(lock.rulebooks))
       return { lock: null, errors: [`malformed lockfile ${path}`] };
-    }
-    const parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`));
-    const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
-    if (entryErrors.length > 0) {
+    let parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`)), entryErrors = parsedEntries.flatMap((entry) => entry.errors);
+    if (entryErrors.length > 0)
       return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
-    }
     return {
       lock: {
         version: 1,
@@ -4931,11 +4884,9 @@ function readLockfile(path) {
   }
 }
 function parseLockEntry(entry, prefix) {
-  if (!entry || typeof entry !== "object") {
+  if (!entry || typeof entry !== "object")
     return { entry: null, errors: [`${prefix}: must be an object`] };
-  }
-  const candidate = entry;
-  const errors = [
+  let candidate = entry, errors = [
     ...validateRequiredString(candidate, prefix, "spec"),
     ...validateRequiredString(candidate, prefix, "name"),
     ...validateRequiredString(candidate, prefix, "version"),
@@ -4946,15 +4897,14 @@ function parseLockEntry(entry, prefix) {
   if (errors.length > 0)
     return { entry: null, errors };
   if (candidate.kind === "local-directory") {
-    const localEntry = {
+    let localEntry = {
       spec: requiredString(candidate, "spec"),
       kind: "local-directory",
       path: requiredString(candidate, "path"),
       name: requiredString(candidate, "name"),
       version: requiredString(candidate, "version"),
       digest: requiredString(candidate, "digest")
-    };
-    const identityError2 = getLockEntrySourceIdentityError(localEntry, prefix);
+    }, identityError2 = getLockEntrySourceIdentityError(localEntry, prefix);
     if (identityError2)
       return { entry: null, errors: [identityError2] };
     return {
@@ -4962,7 +4912,7 @@ function parseLockEntry(entry, prefix) {
       errors: []
     };
   }
-  const githubEntry = {
+  let githubEntry = {
     spec: requiredString(candidate, "spec"),
     kind: "github",
     owner: requiredString(candidate, "owner"),
@@ -4973,8 +4923,7 @@ function parseLockEntry(entry, prefix) {
     name: requiredString(candidate, "name"),
     version: requiredString(candidate, "version"),
     digest: requiredString(candidate, "digest")
-  };
-  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
+  }, identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
   if (identityError)
     return { entry: null, errors: [identityError] };
   return {
@@ -4989,29 +4938,25 @@ function validateDigest(candidate, prefix) {
   return typeof candidate.digest === "string" && SHA256_DIGEST_PATTERN.test(candidate.digest) ? [] : [`${prefix}.digest: required sha256 digest`];
 }
 function validateKind(candidate, prefix) {
-  if (typeof candidate.kind !== "string") {
+  if (typeof candidate.kind !== "string")
     return [`${prefix}.kind: required string`];
-  }
   return RULEBOOK_SOURCE_KINDS.has(candidate.kind) ? [] : [`${prefix}.kind: unknown kind "${candidate.kind}"`];
 }
 function validateKindFields(candidate, prefix) {
-  if (candidate.kind === "local-directory") {
+  if (candidate.kind === "local-directory")
     return validateRequiredString(candidate, prefix, "path");
-  }
-  if (candidate.kind === "github") {
+  if (candidate.kind === "github")
     return ["owner", "repo", "ref", "commit", "path"].flatMap((field) => validateRequiredString(candidate, prefix, field));
-  }
   return [];
 }
 function getLockEntrySourceIdentityError(entry, prefix) {
-  const error = getRulebookLockEntrySourceIdentityError(entry);
+  let error = getRulebookLockEntrySourceIdentityError(entry);
   return error ? `${prefix}: ${error}` : null;
 }
 function requiredString(candidate, field) {
-  const value = candidate[field];
-  if (typeof value !== "string") {
-    throw new Error(`Expected ${field} to be validated before reading`);
-  }
+  let value = candidate[field];
+  if (typeof value !== "string")
+    throw Error(`Expected ${field} to be validated before reading`);
   return value;
 }
 
@@ -5020,49 +4965,39 @@ import { createHash } from "node:crypto";
 import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
 import { join as join5 } from "node:path";
 async function resolveRulebookSource(spec, configDir, options2) {
-  if (isGitHubRulebookSource(spec)) {
+  if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec);
-  }
   return resolveLocalRulebook(spec, configDir, options2);
 }
 async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock) {
-  if (!isGitHubRulebookSource(spec) || options2.refresh) {
+  if (!isGitHubRulebookSource(spec) || options2.refresh)
     return resolveRulebookSource(spec, configDir, options2);
-  }
-  const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
-  if (!locked || locked.kind !== "github") {
+  let locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
+  if (!locked || locked.kind !== "github")
     return resolveRulebookSource(spec, configDir, options2);
-  }
   return readLockedGitHubRulebook(locked, configDir, options2);
 }
 async function discoverGitHubRepositoryRulebooks(source) {
-  const [owner, repo] = source.split("/");
-  if (!owner || !repo) {
-    throw new Error(`Invalid GitHub repository source: ${source}`);
-  }
-  const metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-  if (!metadataResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  }
-  const metadata = await metadataResponse.json();
-  if (!metadata.default_branch) {
-    throw new Error(`Failed to inspect ${source}: missing default branch`);
-  }
-  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source);
-  const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
-  if (!treeResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
-  }
-  const treeJson = await treeResponse.json();
-  const names = (treeJson.tree ?? []).flatMap((entry) => {
+  let [owner, repo] = source.split("/");
+  if (!owner || !repo)
+    throw Error(`Invalid GitHub repository source: ${source}`);
+  let metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+  if (!metadataResponse.ok)
+    throw Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
+  let metadata = await metadataResponse.json();
+  if (!metadata.default_branch)
+    throw Error(`Failed to inspect ${source}: missing default branch`);
+  let commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
+  if (!treeResponse.ok)
+    throw Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  let names = ((await treeResponse.json()).tree ?? []).flatMap((entry) => {
     if (entry.type !== "blob" || typeof entry.path !== "string")
       return [];
-    const match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
+    let match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
     return match?.[1] ? [match[1]] : [];
   }).sort();
-  if (names.length === 0) {
-    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
-  }
+  if (names.length === 0)
+    throw Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
   return names.map((name) => ({
     spec: `${owner}/${repo}#${commit}/${name}`,
     display_ref: metadata.default_branch
@@ -5070,15 +5005,12 @@ async function discoverGitHubRepositoryRulebooks(source) {
 }
 function resolveLocalRulebook(spec, configDir, _options) {
   assertBareRulebookName(spec);
-  const path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync4(path)) {
-    throw new Error(`Rulebook source not found: ${spec}`);
-  }
-  const content = readFileSync5(path, "utf-8");
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== spec) {
-    throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
-  }
+  let path = getLocalRulebookPath(configDir, spec);
+  if (!existsSync4(path))
+    throw Error(`Rulebook source not found: ${spec}`);
+  let content = readFileSync5(path, "utf-8"), rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== spec)
+    throw Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
   return {
     rulebook,
     content,
@@ -5093,17 +5025,12 @@ function resolveLocalRulebook(spec, configDir, _options) {
   };
 }
 async function resolveGitHubRulebook(spec) {
-  const parsed = parseGitHubSource(spec);
-  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec);
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== parsed.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
-  }
+  let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec), rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
+  if (!rawResponse.ok)
+    throw Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
+  let content = await rawResponse.text(), rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== parsed.name)
+    throw Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
   return {
     rulebook,
     content,
@@ -5122,46 +5049,39 @@ async function resolveGitHubRulebook(spec) {
   };
 }
 async function readLockedGitHubRulebook(entry, configDir, options2) {
-  const identityError = getRulebookLockEntrySourceIdentityError(entry);
-  if (identityError) {
-    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
-  }
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  let identityError = getRulebookLockEntrySourceIdentityError(entry);
+  if (identityError)
+    throw Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
+  let cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
   if (existsSync4(cachePath)) {
-    const content = readFileSync5(cachePath, "utf-8");
-    if (sha256Digest(content) === entry.digest) {
+    let content = readFileSync5(cachePath, "utf-8");
+    if (sha256Digest(content) === entry.digest)
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-    }
   }
   return fetchLockedGitHubRulebook(entry);
 }
 async function fetchLockedGitHubRulebook(entry) {
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  if (sha256Digest(content) !== entry.digest) {
-    throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
+  let rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
+  if (!rawResponse.ok)
+    throw Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
+  let content = await rawResponse.text();
+  if (sha256Digest(content) !== entry.digest)
+    throw Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
   return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
 }
 function assertRulebookMatchesLockEntry(content, entry) {
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== entry.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
-  }
+  let rulebook = assertValidRulebook(JSON.parse(content));
+  if (rulebook.name !== entry.name)
+    throw Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
   return rulebook;
 }
 async function resolveGitHubCommit(owner, repo, ref, source) {
-  const commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
-  if (!commitResponse.ok) {
-    throw new Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
-  }
-  const commitJson = await commitResponse.json();
-  if (!commitJson.sha) {
-    throw new Error(`Failed to resolve commit for ${source}`);
-  }
+  let commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
+  if (!commitResponse.ok)
+    throw Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
+  let commitJson = await commitResponse.json();
+  if (!commitJson.sha)
+    throw Error(`Failed to resolve commit for ${source}`);
   return commitJson.sha;
 }
 function getLocalRulebookPath(configDir, name) {
@@ -5173,23 +5093,14 @@ function sha256Digest(content) {
 
 // src/core/rules/policy/scope-policy.ts
 function loadRulesPolicy(options2 = {}) {
-  const paths = getPolicyPaths(options2);
-  const sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath);
-  const user = readRulesConfig(paths.userConfigPath);
-  const project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath);
-  const errors = [
+  let paths = getPolicyPaths(options2), sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath), user = readRulesConfig(paths.userConfigPath), project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath), errors = [
     ...getLegacyRulesConfigErrors(paths, options2),
     ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
     ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
-  ];
-  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname6(paths.userConfigPath), options2, "user") : emptyScopePolicy();
-  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname6(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
-  const duplicateNames = getDuplicateRulebookNames([
+  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname6(paths.userConfigPath), options2, "user") : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname6(paths.projectConfigPath), options2, "project") : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
-  ]);
-  const userOverrides = user.config?.overrides ?? {};
-  const projectOverrides = project.config?.overrides ?? {};
+  ]), userOverrides = user.config?.overrides ?? {}, projectOverrides = project.config?.overrides ?? {};
   return {
     rules: [
       ...applyOverrides(userPolicy.rules, userOverrides),
@@ -5206,30 +5117,28 @@ function loadRulesPolicy(options2 = {}) {
       ...userPolicy.canValidateOverrides ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds) : [],
       ...projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds) : []
     ],
-    userConfig: user.config ?? undefined,
-    projectConfig: project.config ?? undefined,
+    userConfig: user.config ?? void 0,
+    projectConfig: project.config ?? void 0,
     ...paths
   };
 }
 function getRulesConfigSourceDisplayMap(configPath) {
-  const config = readRulesConfig(configPath).config;
-  const lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
+  let config = readRulesConfig(configPath).config, lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
   if (!config || !lock)
-    return new Map;
-  const configuredSources = new Set(config.rules);
+    return /* @__PURE__ */ new Map;
+  let configuredSources = new Set(config.rules);
   return new Map(lock.rulebooks.filter((entry) => configuredSources.has(entry.spec)).map((entry) => [entry.spec, getRulebookDisplaySource(entry)]));
 }
 function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2) {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
+  let loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
   if (!loaded)
     return [];
   return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
 }
 function loadScopePolicyForConfig(configPath, lockPath, options2) {
-  const config = readRulesConfig(configPath).config;
-  if (!config) {
+  let config = readRulesConfig(configPath).config;
+  if (!config)
     return null;
-  }
   return {
     config,
     scope: loadScopePolicy(config, lockPath, dirname6(configPath), options2, "project")
@@ -5239,33 +5148,24 @@ function getUnknownOverrideErrorsForScope(config, scope) {
   return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
 }
 function loadScopePolicy(config, lockPath, configDir, options2, source) {
-  const lockResult = readLockfile(lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
-  }
-  const lock = lockResult.lock;
-  if (!lock && config.rules.length > 0) {
+  let lockResult = readLockfile(lockPath);
+  if (lockResult.errors.length > 0)
+    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: !1 };
+  let lock = lockResult.lock;
+  if (!lock && config.rules.length > 0)
     return {
       ...emptyScopePolicy(),
       errors: [`missing lockfile ${lockPath}; run ${RULE_SYNC_COMMAND}`],
-      canValidateOverrides: false
+      canValidateOverrides: !1
     };
-  }
-  const entries = lock?.rulebooks ?? [];
-  const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
-  const errors = [];
-  const loaded = config.rules.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
-      return [];
-    }
-    const loadedRulebook = loadLockedRulebook(entry, configDir, options2);
-    if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
-      errors.push(...loadedRulebook.errors);
-      return [];
-    }
-    const rulebook = loadedRulebook.rulebook;
+  let entries = lock?.rulebooks ?? [], entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry])), errors = [], loaded = config.rules.flatMap((spec) => {
+    let entry = entriesBySpec.get(spec);
+    if (!entry)
+      return errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`), [];
+    let loadedRulebook = loadLockedRulebook(entry, configDir, options2);
+    if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook)
+      return errors.push(...loadedRulebook.errors), [];
+    let rulebook = loadedRulebook.rulebook;
     return [
       {
         rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
@@ -5278,8 +5178,7 @@ function loadScopePolicy(config, lockPath, configDir, options2, source) {
         }
       }
     ];
-  });
-  const rules = loaded.flatMap((item) => item.rules);
+  }), rules = loaded.flatMap((item) => item.rules);
   return {
     rules,
     rulebooks: loaded.map((item) => item.rulebook),
@@ -5290,14 +5189,12 @@ function loadScopePolicy(config, lockPath, configDir, options2, source) {
   };
 }
 function loadLockedRulebook(entry, configDir, options2) {
-  const errors = [];
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (!existsSync5(cachePath)) {
+  let errors = [], cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  if (!existsSync5(cachePath))
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
     };
-  }
   let cacheContent;
   try {
     cacheContent = readFileSync6(cachePath, "utf-8");
@@ -5309,63 +5206,54 @@ function loadLockedRulebook(entry, configDir, options2) {
       ]
     };
   }
-  if (sha256Digest(cacheContent) !== entry.digest) {
+  if (sha256Digest(cacheContent) !== entry.digest)
     errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
   let rulebook = null;
   try {
-    const parsed = JSON.parse(cacheContent);
-    assertValidRulebook(parsed);
-    rulebook = parsed;
+    let parsed = JSON.parse(cacheContent);
+    assertValidRulebook(parsed), rulebook = parsed;
   } catch (error) {
     errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (entry.kind === "local-directory") {
-    const sourcePath = resolve4(configDir, entry.path);
-    const sourceRelative = relative2(resolve4(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute5(sourceRelative)) {
-      errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
-      return { rulebook: null, errors };
-    }
-    const localPath = join6(sourcePath, RULEBOOK_FILE);
-    if (!existsSync5(localPath)) {
+    let sourcePath = resolve4(configDir, entry.path), sourceRelative = relative2(resolve4(configDir), sourcePath);
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute5(sourceRelative))
+      return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
+    let localPath = join6(sourcePath, RULEBOOK_FILE);
+    if (!existsSync5(localPath))
       errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    } else {
+    else
       try {
-        const localContent = readFileSync6(localPath, "utf-8");
-        if (sha256Digest(localContent) !== entry.digest) {
+        let localContent = readFileSync6(localPath, "utf-8");
+        if (sha256Digest(localContent) !== entry.digest)
           errors.push(getLocalSourceDriftError(entry.spec, localContent));
-        }
       } catch (error) {
         errors.push(`failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
   }
   return { rulebook: errors.length === 0 ? rulebook : null, errors };
 }
 function mergeTransparentWrappers(userConfig, projectConfig) {
   return [
-    ...new Set([
+    .../* @__PURE__ */ new Set([
       ...userConfig?.transparent_wrappers ?? [],
       ...projectConfig?.transparent_wrappers ?? []
     ])
   ];
 }
 function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve4(userConfigPath) === resolve4(projectConfigPath)) {
-    return true;
-  }
-  if (!existsSync5(userConfigPath) || !existsSync5(projectConfigPath)) {
-    return false;
-  }
+  if (resolve4(userConfigPath) === resolve4(projectConfigPath))
+    return !0;
+  if (!existsSync5(userConfigPath) || !existsSync5(projectConfigPath))
+    return !1;
   try {
     return realpathSync4(userConfigPath) === realpathSync4(projectConfigPath);
   } catch {
-    return false;
+    return !1;
   }
 }
 function getLegacyRulesConfigErrors(paths, options2) {
-  return Array.from(new Set([
+  return Array.from(/* @__PURE__ */ new Set([
     ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json"),
     ...getLegacyRulesConfigError(getLegacyProjectRulesConfigPath(options2), paths.projectConfigPath, ".safety-net.json")
   ]));
@@ -5383,35 +5271,35 @@ function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
 }
 function legacyRulesConfigNeedsMigration(legacyPath) {
   try {
-    const parsed = JSON.parse(readFileSync6(legacyPath, "utf-8"));
+    let parsed = JSON.parse(readFileSync6(legacyPath, "utf-8"));
     if (!parsed || typeof parsed !== "object")
-      return true;
-    const config = parsed;
+      return !0;
+    let config = parsed;
     if (config.version !== 1)
-      return true;
-    if (config.rules === undefined)
-      return false;
+      return !0;
+    if (config.rules === void 0)
+      return !1;
     if (!Array.isArray(config.rules))
-      return true;
+      return !0;
     return config.rules.length > 0;
   } catch {
-    return true;
+    return !0;
   }
 }
 function hasMigrationEvidence(configPath, migratedFrom) {
-  const config = readRulesConfig(configPath).config;
+  let config = readRulesConfig(configPath).config;
   if (!config)
-    return false;
+    return !1;
   return config.rules.some((source) => getRulebookMigratedFrom(dirname6(configPath), source) === migratedFrom);
 }
 function getRulebookMigratedFrom(configDir, source) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  const path = join6(configDir, source, RULEBOOK_FILE);
+  let path = join6(configDir, source, RULEBOOK_FILE);
   if (!existsSync5(path))
     return null;
   try {
-    const rulebook = JSON.parse(readFileSync6(path, "utf-8"));
+    let rulebook = JSON.parse(readFileSync6(path, "utf-8"));
     return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
   } catch {
     return null;
@@ -5427,13 +5315,11 @@ function getLocalSourceDriftError(spec, content) {
 }
 function applyOverrides(rules, overrides) {
   return rules.flatMap((rule) => {
-    const override = overrides[rule.name];
-    if (override === "off") {
+    let override = overrides[rule.name];
+    if (override === "off")
       return [];
-    }
-    if (override && typeof override === "object") {
+    if (override && typeof override === "object")
       return [{ ...rule, intent: override.intent ?? rule.intent, reason: override.reason }];
-    }
     return [rule];
   });
 }
@@ -5444,9 +5330,8 @@ function getProjectOverrideUserRuleErrors(projectOverrides, userRuleIds) {
   return Object.keys(projectOverrides).filter((key) => userRuleIds.has(key)).map((key) => `project override cannot target user-scoped rule "${key}"`);
 }
 function getDuplicateRulebookNames(entries) {
-  const seen = new Set;
-  const duplicates = new Set;
-  for (const entry of entries) {
+  let seen = /* @__PURE__ */ new Set, duplicates = /* @__PURE__ */ new Set;
+  for (let entry of entries) {
     if (seen.has(entry.name)) {
       duplicates.add(entry.name);
       continue;
@@ -5463,18 +5348,15 @@ function emptyScopePolicy() {
     rules: [],
     rulebooks: [],
     entries: [],
-    knownRuleIds: new Set,
+    knownRuleIds: /* @__PURE__ */ new Set,
     errors: [],
-    canValidateOverrides: true
+    canValidateOverrides: !0
   };
 }
 
 // src/config/policy-snapshot.ts
 function loadPolicySnapshot(options2 = {}) {
-  const rules = loadRulesPolicy(options2);
-  const userPolicy = loadPolicyConfig(options2);
-  const diagnostics = [...rules.errors, ...userPolicy.errors];
-  const policy = {
+  let rules = loadRulesPolicy(options2), userPolicy = loadPolicyConfig(options2), diagnostics = [...rules.errors, ...userPolicy.errors], policy = {
     rules: rules.errors.length === 0 ? rules.rules : [],
     transparentWrappers: rules.errors.length === 0 ? rules.transparent_wrappers : [],
     safety: normalizeSafety2(userPolicy.safety),
@@ -5482,28 +5364,26 @@ function loadPolicySnapshot(options2 = {}) {
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
     disabledDestructiveCommandRules: [...userPolicy.disabledDestructiveCommandRules],
     secretProtection: {
-      enabled: userPolicy.secretProtection.enabled ?? true,
+      enabled: userPolicy.secretProtection.enabled ?? !0,
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
       denyPaths: [...userPolicy.secretProtection.denyPaths]
     }
   };
-  if (diagnostics.length === 0) {
+  if (diagnostics.length === 0)
     return createPolicySnapshot(policy);
-  }
   return createPolicySnapshot(policy, {
     diagnostics,
-    reason: combineInvalidReasons(rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join("; ")) : undefined, userPolicy.errors.length > 0 ? `invalid policy config: ${userPolicy.errors.join("; ")}. Fix or remove the policy file manually` : undefined)
+    reason: combineInvalidReasons(rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join("; ")) : void 0, userPolicy.errors.length > 0 ? `invalid policy config: ${userPolicy.errors.join("; ")}. Fix or remove the policy file manually` : void 0)
   });
 }
 function createPolicySnapshot(policy, invalid) {
-  const frozenPolicy = freezePolicy(policy);
-  if (!invalid) {
+  let frozenPolicy = freezePolicy(policy);
+  if (!invalid)
     return Object.freeze({
       state: "ready",
       policy: frozenPolicy,
       diagnostics: Object.freeze([])
     });
-  }
   return Object.freeze({
     state: "invalid",
     policy: frozenPolicy,
@@ -5512,14 +5392,13 @@ function createPolicySnapshot(policy, invalid) {
   });
 }
 function normalizeSafety2(safety) {
-  const overrides = safety.overrides;
-  const normalizedOverrides = {
-    ...overrides?.failClosed !== undefined ? { failClosed: overrides.failClosed } : {},
-    ...overrides?.paranoidRm !== undefined ? { paranoidRm: overrides.paranoidRm } : {},
-    ...overrides?.paranoidInterpreters !== undefined ? { paranoidInterpreters: overrides.paranoidInterpreters } : {}
+  let overrides = safety.overrides, normalizedOverrides = {
+    ...overrides?.failClosed !== void 0 ? { failClosed: overrides.failClosed } : {},
+    ...overrides?.paranoidRm !== void 0 ? { paranoidRm: overrides.paranoidRm } : {},
+    ...overrides?.paranoidInterpreters !== void 0 ? { paranoidInterpreters: overrides.paranoidInterpreters } : {}
   };
   return {
-    ...safety.level !== undefined ? { level: safety.level } : {},
+    ...safety.level !== void 0 ? { level: safety.level } : {},
     ...Object.keys(normalizedOverrides).length > 0 ? { overrides: normalizedOverrides } : {}
   };
 }
@@ -5555,10 +5434,7 @@ function dangerousInText(text) {
   return dangerousInTextMatch(text)?.reason ?? null;
 }
 function dangerousInTextMatch(text) {
-  const t = text.toLowerCase();
-  const stripped = t.trimStart();
-  const isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg ");
-  const patterns = [
+  let t = text.toLowerCase(), stripped = t.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
     {
       regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
       label: "rm -rf"
@@ -5594,7 +5470,7 @@ function dangerousInTextMatch(text) {
     {
       regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
       label: "git branch -D",
-      caseSensitive: true
+      caseSensitive: !0
     },
     {
       regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
@@ -5615,188 +5491,17 @@ function dangerousInTextMatch(text) {
     {
       regex: /\bfind\b[^\n;|&]*\s-delete\b/,
       label: "find -delete",
-      skipForEchoRg: true
+      skipForEchoRg: !0
     }
   ];
-  for (const { regex, label, skipForEchoRg, caseSensitive } of patterns) {
+  for (let { regex, label, skipForEchoRg, caseSensitive } of patterns) {
     if (skipForEchoRg && isEchoOrRg)
       continue;
-    const target = caseSensitive ? text : t;
-    if (regex.test(target)) {
+    let target = caseSensitive ? text : t;
+    if (regex.test(target))
       return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`);
-    }
   }
   return null;
-}
-
-// src/core/analyze/powershell/tokenize.ts
-function tokenizePowerShell(command2) {
-  const tokens = [];
-  let text = "";
-  let dynamic = false;
-  const pushWord = () => {
-    if (!text)
-      return;
-    tokens.push({
-      kind: "word",
-      text,
-      dynamic: dynamic || isDynamicText(text)
-    });
-    text = "";
-    dynamic = false;
-  };
-  let i = 0;
-  while (i < command2.length) {
-    const char = command2[i];
-    if (!char)
-      break;
-    if (/\s/.test(char)) {
-      pushWord();
-      if (char === `
-`) {
-        tokens.push({ kind: "operator", text: ";" });
-      }
-      i++;
-      continue;
-    }
-    if (char === ";") {
-      pushWord();
-      tokens.push({ kind: "operator", text: ";" });
-      i++;
-      continue;
-    }
-    if (char === ",") {
-      pushWord();
-      tokens.push({ kind: "word", text: ",", dynamic: false });
-      i++;
-      continue;
-    }
-    if ((char === "{" || char === "}") && !isPathLikeWord(text)) {
-      pushWord();
-      tokens.push({ kind: "operator", text: ";" });
-      i++;
-      continue;
-    }
-    if (char === "&" && command2[i + 1] === "&") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "&&" });
-      i += 2;
-      continue;
-    }
-    if (char === "|" && command2[i + 1] === "|") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "||" });
-      i += 2;
-      continue;
-    }
-    if (char === "|") {
-      pushWord();
-      tokens.push({ kind: "operator", text: "|" });
-      i++;
-      continue;
-    }
-    if (char === "'") {
-      const result = readSingleQuoted(command2, i + 1);
-      text += result.text;
-      i = result.nextIndex;
-      continue;
-    }
-    if (char === '"') {
-      const result = readDoubleQuoted(command2, i + 1);
-      text += result.text;
-      dynamic = dynamic || result.dynamic;
-      i = result.nextIndex;
-      continue;
-    }
-    if (char === "`") {
-      const next = command2[i + 1];
-      if (!next) {
-        i++;
-        continue;
-      }
-      text += next;
-      i += 2;
-      continue;
-    }
-    if (char === "$") {
-      if (command2[i + 1] === "{") {
-        const result = readBracedVariable(command2, i + 2);
-        text += result.text;
-        dynamic = true;
-        i = result.nextIndex;
-        continue;
-      }
-      dynamic = true;
-    }
-    text += char;
-    i++;
-  }
-  pushWord();
-  return tokens;
-}
-function readBracedVariable(command2, start) {
-  let text = "${";
-  let i = start;
-  while (i < command2.length) {
-    const char = command2[i];
-    text += char ?? "";
-    i++;
-    if (char === "}") {
-      return { text, nextIndex: i };
-    }
-  }
-  return { text, nextIndex: i };
-}
-function readSingleQuoted(command2, start) {
-  let text = "";
-  let i = start;
-  while (i < command2.length) {
-    const char = command2[i];
-    if (char === "'" && command2[i + 1] === "'") {
-      text += "'";
-      i += 2;
-      continue;
-    }
-    if (char === "'") {
-      return { text, nextIndex: i + 1 };
-    }
-    text += char ?? "";
-    i++;
-  }
-  return { text, nextIndex: i };
-}
-function readDoubleQuoted(command2, start) {
-  let text = "";
-  let dynamic = false;
-  let i = start;
-  while (i < command2.length) {
-    const char = command2[i];
-    if (char === "`") {
-      const next = command2[i + 1];
-      if (!next) {
-        i++;
-        continue;
-      }
-      text += next;
-      i += 2;
-      continue;
-    }
-    if (char === '"') {
-      return { text, dynamic, nextIndex: i + 1 };
-    }
-    if (char === "$") {
-      dynamic = true;
-    }
-    text += char ?? "";
-    i++;
-  }
-  return { text, dynamic, nextIndex: i };
-}
-function isDynamicText(text) {
-  return text.startsWith("$") || text.startsWith("@") || text.includes("$(") || text.includes("${") || text.includes("$_");
-}
-function isPathLikeWord(text) {
-  return text.includes("/") || text.includes("\\") || text.startsWith("~");
 }
 
 // src/core/analyze/recursive-delete-targets.ts
@@ -5808,92 +5513,72 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
   return {
     anchoredCwd: options2.originalCwd ?? options2.cwd ?? null,
     resolvedCwd: options2.cwd ?? null,
-    paranoid: options2.paranoid ?? false,
-    trustTmpdirVar: options2.allowTmpdirVar ?? true,
+    paranoid: options2.paranoid ?? !1,
+    trustTmpdirVar: options2.allowTmpdirVar ?? !0,
     homeDir: getHomeDirForRmPolicy()
   };
 }
 function classifyRecursiveDeleteTarget(target, ctx) {
-  if (isDangerousRootOrHomeTarget(target)) {
+  if (isDangerousRootOrHomeTarget(target))
     return { kind: "root_or_home_target" };
-  }
-  if (isTempTarget(target, ctx.trustTmpdirVar)) {
+  if (isTempTarget(target, ctx.trustTmpdirVar))
     return { kind: "temp_target" };
-  }
-  if (isDynamicTarget(target)) {
+  if (isDynamicTarget(target))
     return { kind: "dynamic_target" };
-  }
-  const anchoredCwd = ctx.anchoredCwd;
+  let anchoredCwd = ctx.anchoredCwd;
   if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
+    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir))
       return { kind: "home_cwd_target" };
-    }
-    if (isCwdSelfTarget(target, anchoredCwd)) {
+    if (isCwdSelfTarget(target, anchoredCwd))
       return { kind: "cwd_self_target" };
-    }
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
+    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd))
       return { kind: "within_anchored_cwd" };
-    }
   }
   return { kind: "outside_anchored_cwd" };
 }
 function isDangerousRootOrHomeTarget(path) {
-  const normalized = path.trim();
-  if (normalized === "/" || normalized === "/*") {
-    return true;
-  }
+  let normalized = path.trim();
+  if (normalized === "/" || normalized === "/*")
+    return !0;
   if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
-    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
-      return true;
-    }
+    if (normalized === "~" || normalized === "~/" || normalized === "~/*")
+      return !0;
   }
-  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
-    return true;
-  }
-  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
-    return true;
-  }
-  return false;
+  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*")
+    return !0;
+  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*")
+    return !0;
+  return !1;
 }
 function normalizePathForComparison(p) {
   let normalized = normalize(p);
   if (IS_WINDOWS) {
-    normalized = normalized.replace(/\//g, "\\").toLowerCase();
-    if (normalized.length > 3 && normalized.endsWith("\\")) {
+    if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
-    }
     return normalized;
   }
-  if (normalized.length > 1 && normalized.endsWith("/")) {
+  if (normalized.length > 1 && normalized.endsWith("/"))
     normalized = normalized.slice(0, -1);
-  }
   return normalized;
 }
 function isTempTarget(path, allowTmpdirVar) {
-  const normalized = path.trim();
-  if (hasParentDirectoryComponent(normalized)) {
-    return false;
-  }
-  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
-    return true;
-  }
-  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
-    return true;
-  }
-  const normalizedTmpdir = normalizePathForComparison(tmpdir());
-  const pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep3}`) || pathToCompare === normalizedTmpdir) {
-    return true;
-  }
+  let normalized = path.trim();
+  if (hasParentDirectoryComponent(normalized))
+    return !1;
+  if (normalized === "/tmp" || normalized.startsWith("/tmp/"))
+    return !0;
+  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/"))
+    return !0;
+  let normalizedTmpdir = normalizePathForComparison(tmpdir()), pathToCompare = normalizePathForComparison(normalized);
+  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep3}`) || pathToCompare === normalizedTmpdir)
+    return !0;
   if (allowTmpdirVar) {
-    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
-      return true;
-    }
-    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
-      return true;
-    }
+    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/"))
+      return !0;
+    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/"))
+      return !0;
   }
-  return false;
+  return !1;
 }
 function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
@@ -5905,21 +5590,20 @@ function isDynamicTarget(target) {
   return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
 }
 function hasShellGlobMetachar(target) {
-  let escaped = false;
-  for (const char of target) {
+  let escaped = !1;
+  for (let char of target) {
     if (escaped) {
-      escaped = false;
+      escaped = !1;
       continue;
     }
     if (char === "\\") {
-      escaped = true;
+      escaped = !0;
       continue;
     }
-    if (char === "*" || char === "?" || char === "[") {
-      return true;
-    }
+    if (char === "*" || char === "?" || char === "[")
+      return !0;
   }
-  return false;
+  return !1;
 }
 function isCwdHomeForRmPolicy(cwd, homeDir) {
   try {
@@ -5928,53 +5612,47 @@ function isCwdHomeForRmPolicy(cwd, homeDir) {
     try {
       return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
     } catch {
-      return false;
+      return !1;
     }
   }
 }
 function isCwdSelfTarget(target, cwd) {
-  if (target === "." || target === "./" || target === ".\\") {
-    return true;
-  }
+  if (target === "." || target === "./" || target === ".\\")
+    return !0;
   try {
     return normalizePathForComparison(realpathSync5(resolve5(cwd, target))) === normalizePathForComparison(realpathSync5(cwd));
   } catch {
     try {
       return normalizePathForComparison(resolve5(cwd, target)) === normalizePathForComparison(cwd);
     } catch {
-      return false;
+      return !1;
     }
   }
 }
 function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
-  const resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
-    return false;
-  }
-  if (isDynamicTarget(target)) {
-    return false;
-  }
-  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
+  let resolveCwd = effectiveCwd ?? originalCwd;
+  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}"))
+    return !1;
+  if (isDynamicTarget(target))
+    return !1;
+  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target))
     try {
       return isResolvedPathWithinCwd(target, originalCwd);
     } catch {
-      return false;
+      return !1;
     }
-  }
-  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
+  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\"))
     try {
       return isResolvedPathWithinCwd(resolve5(resolveCwd, target), originalCwd);
     } catch {
-      return false;
+      return !1;
     }
-  }
-  if (target.startsWith("../")) {
-    return false;
-  }
+  if (target.startsWith("../"))
+    return !1;
   try {
     return isResolvedPathWithinCwd(resolve5(resolveCwd, target), originalCwd);
   } catch {
-    return false;
+    return !1;
   }
 }
 function isResolvedPathWithinCwd(resolvedTarget, cwd) {
@@ -5985,143 +5663,88 @@ function isResolvedPathWithinCwd(resolvedTarget, cwd) {
   }
 }
 function isNormalizedPathWithin(target, cwd) {
-  const normalizedTarget = normalizePathForComparison(target);
-  const normalizedCwd = normalizePathForComparison(cwd);
+  let normalizedTarget = normalizePathForComparison(target), normalizedCwd = normalizePathForComparison(cwd);
   return normalizedTarget.startsWith(`${normalizedCwd}${sep3}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/powershell/remove-item.ts
-var REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]);
-var AUTO_REMOVE_ITEM_ALIASES = new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]);
-var REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
-var REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.";
-var REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.";
-var REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.";
-var REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
-function analyzePowerShellRemoveItemMatch(command2, options2 = {}) {
-  const ctx = createRecursiveDeleteTargetContext(options2);
-  let segment = [];
-  let hasPipelineInput = false;
-  for (const token of tokenizePowerShell(command2)) {
-    if (token.kind === "word") {
-      segment.push(token);
-      continue;
-    }
-    const match = analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-    if (match)
-      return match;
-    segment = [];
-    hasPipelineInput = token.text === "|";
-    if (token.text !== "|") {
-      hasPipelineInput = false;
-    }
-  }
-  return analyzePowerShellSegment(segment, hasPipelineInput, ctx);
-}
-function shouldAnalyzePowerShellRemoveItem(command2) {
-  const words = tokenizePowerShell(command2).filter((token) => token.kind === "word");
-  for (let i = 0;i < words.length; i++) {
-    const token = words[i];
-    if (!token || token.kind !== "word")
-      continue;
-    const normalized = normalizeCommandName(token.text);
-    if (AUTO_REMOVE_ITEM_ALIASES.has(normalized))
-      return true;
-    if (normalized === "rm" && words.slice(i + 1).some((word) => isPowerShellSpecificRmParameter(word))) {
-      return true;
-    }
-  }
-  return false;
+var REMOVE_ITEM_ALIASES = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]), REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.", REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.", REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.", REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
+function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext(options2)) {
+  return analyzePowerShellSegment(command2.words.map((word) => ({
+    kind: "word",
+    text: word.text,
+    dynamic: word.provenance !== "literal"
+  })), hasPipelineInput, ctx);
 }
 function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
-  const words = segment.filter((token) => token.kind === "word");
-  const commandIndex = getCommandIndex(words);
-  const command2 = words[commandIndex];
-  if (!command2 || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command2.text))) {
+  let words = segment.filter((token) => token.kind === "word"), commandIndex = getCommandIndex(words), command2 = words[commandIndex];
+  if (!command2 || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command2.text)))
     return null;
-  }
-  const parsed = parseRemoveItem(words.slice(commandIndex + 1));
-  if (parsed.whatIfProtected) {
+  let parsed = parseRemoveItem(words.slice(commandIndex + 1));
+  if (parsed.whatIfProtected)
     return null;
-  }
-  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
+  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
     return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
-  }
-  for (const target of parsed.targets) {
-    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))) {
+  for (let target of parsed.targets)
+    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
-    }
-  }
-  if (!parsed.recursive || !parsed.force) {
+  if (!parsed.recursive || !parsed.force)
     return null;
-  }
-  if (parsed.hasDynamicTarget || parsed.targets.length === 0) {
+  if (parsed.hasDynamicTarget || parsed.targets.length === 0)
     return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
-  }
-  for (const target of parsed.targets) {
-    const match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
+  for (let target of parsed.targets) {
+    let match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
     if (match)
       return match;
   }
   return null;
 }
 function parseRemoveItem(args) {
-  const targets = [];
-  let recursive = false;
-  let force = false;
-  let whatIfProtected = false;
-  let hasDynamicTarget = false;
-  let pastEndOfParameters = false;
+  let targets = [], recursive = !1, force = !1, whatIfProtected = !1, hasDynamicTarget = !1, pastEndOfParameters = !1;
   for (let i = 0;i < args.length; i++) {
-    const token = args[i];
+    let token = args[i];
     if (!token || token.kind !== "word")
       continue;
     if (isArraySeparator(token))
       continue;
     if (pastEndOfParameters) {
-      targets.push(targetFromToken(token));
-      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      targets.push(targetFromToken(token)), hasDynamicTarget = hasDynamicTarget || token.dynamic;
       continue;
     }
     if (token.text === "--") {
-      pastEndOfParameters = true;
+      pastEndOfParameters = !0;
       continue;
     }
-    const parameter = parseParameter(token.text);
+    let parameter = parseParameter(token.text);
     if (!parameter) {
-      targets.push(targetFromToken(token));
-      hasDynamicTarget = hasDynamicTarget || token.dynamic;
+      targets.push(targetFromToken(token)), hasDynamicTarget = hasDynamicTarget || token.dynamic;
       continue;
     }
     if (isPathParameter(parameter.name)) {
-      const value = parameter.value ? parameterValueToken(parameter.value, token) : args[++i];
-      if (value?.kind === "word") {
-        targets.push(targetFromToken(value));
-        hasDynamicTarget = hasDynamicTarget || value.dynamic;
-      } else {
-        hasDynamicTarget = true;
-      }
+      let value = parameter.value ? parameterValueToken(parameter.value, token) : args[++i];
+      if (value?.kind === "word")
+        targets.push(targetFromToken(value)), hasDynamicTarget = hasDynamicTarget || value.dynamic;
+      else
+        hasDynamicTarget = !0;
       continue;
     }
     if (isRecurseParameter(parameter.name)) {
-      recursive = true;
+      recursive = !0;
       continue;
     }
     if (isForceParameter(parameter.name)) {
-      force = true;
+      force = !0;
       continue;
     }
-    if (isWhatIfParameter(parameter.name)) {
+    if (isWhatIfParameter(parameter.name))
       whatIfProtected = isProtectiveSwitchValue(parameter.value);
-    }
   }
   return { targets, recursive, force, whatIfProtected, hasDynamicTarget };
 }
 function getCommandIndex(words) {
-  const first = words[0];
-  if (first?.kind === "word" && first.text === "&" || first?.text === ".") {
+  let first = words[0];
+  if (first?.kind === "word" && first.text === "&" || first?.text === ".")
     return words.length > 1 ? 1 : 0;
-  }
   return 0;
 }
 function targetFromToken(token) {
@@ -6144,14 +5767,11 @@ function parameterValueToken(value, source) {
   };
 }
 function parseParameter(text) {
-  if (!text.startsWith("-") || text === "-") {
+  if (!text.startsWith("-") || text === "-")
     return null;
-  }
-  const raw = text.slice(1);
-  const colonIndex = raw.indexOf(":");
-  if (colonIndex === -1) {
+  let raw = text.slice(1), colonIndex = raw.indexOf(":");
+  if (colonIndex === -1)
     return { name: raw.toLowerCase() };
-  }
   return {
     name: raw.slice(0, colonIndex).toLowerCase(),
     value: raw.slice(colonIndex + 1)
@@ -6170,19 +5790,10 @@ function isWhatIfParameter(name) {
   return name === "wi" || "whatif".startsWith(name);
 }
 function isProtectiveSwitchValue(value) {
-  if (value === undefined || value === "") {
-    return true;
-  }
-  const normalized = value.toLowerCase();
+  if (value === void 0 || value === "")
+    return !0;
+  let normalized = value.toLowerCase();
   return normalized === "$true" || normalized === "true";
-}
-function isPowerShellSpecificRmParameter(token) {
-  if (token.kind !== "word")
-    return false;
-  const parameter = parseParameter(token.text);
-  if (!parameter)
-    return false;
-  return isForceParameter(parameter.name) && parameter.name !== "f" || isRecurseParameter(parameter.name) && parameter.name !== "r" || isPathParameter(parameter.name) || isWhatIfParameter(parameter.name) || parameter.name === "confirm" || parameter.name === "cf";
 }
 function normalizeCommandName(name) {
   return name.toLowerCase();
@@ -6213,7 +5824,7 @@ import { realpathSync as realpathSync8 } from "node:fs";
 import { normalize as normalize3 } from "node:path";
 
 // src/core/analyze/constants.ts
-var DISPLAY_COMMANDS = new Set([
+var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
   "echo",
   "printf",
   "cat",
@@ -6314,102 +5925,99 @@ var DISPLAY_COMMANDS = new Set([
 
 // src/core/analyze/rm-flags.ts
 function hasRecursiveForceFlags(tokens) {
-  let hasRecursive = false;
-  let hasForce = false;
-  for (const token of tokens) {
+  let hasRecursive = !1, hasForce = !1;
+  for (let token of tokens) {
     if (token === "--")
       break;
-    if (token === "-r" || token === "-R" || token === "--recursive") {
-      hasRecursive = true;
-    } else if (token === "-f" || token === "--force") {
-      hasForce = true;
-    } else if (token.startsWith("-") && !token.startsWith("--")) {
+    if (token === "-r" || token === "-R" || token === "--recursive")
+      hasRecursive = !0;
+    else if (token === "-f" || token === "--force")
+      hasForce = !0;
+    else if (token.startsWith("-") && !token.startsWith("--")) {
       if (token.includes("r") || token.includes("R"))
-        hasRecursive = true;
+        hasRecursive = !0;
       if (token.includes("f"))
-        hasForce = true;
+        hasForce = !0;
     }
   }
   return hasRecursive && hasForce;
 }
 
 // src/core/analyze/find.ts
-var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.";
-var REASON_FIND_EXEC_RM_RF = "find -exec rm -rf is dangerous. Use explicit file list instead.";
-var FIND_PRIMARIES_WITH_VALUE = new Set([
-  "-amin",
-  "-anewer",
-  "-atime",
-  "-cmin",
-  "-cnewer",
-  "-context",
-  "-ctime",
-  "-exec",
-  "-execdir",
-  "-fprint",
-  "-fprintf",
-  "-fstype",
-  "-gid",
-  "-group",
-  "-ilname",
-  "-iname",
-  "-inum",
-  "-ipath",
-  "-iwholename",
-  "-iregex",
-  "-links",
-  "-lname",
-  "-mmin",
-  "-mtime",
-  "-name",
-  "-newer",
-  "-newerXY",
-  "-path",
-  "-perm",
-  "-printf",
-  "-regex",
-  "-samefile",
-  "-size",
-  "-type",
-  "-uid",
-  "-used",
-  "-user",
-  "-wholename",
-  "-xtype"
+var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.", REASON_FIND_EXEC_RM_RF = "find -exec rm -rf is dangerous. Use explicit file list instead.", FIND_EXEC_PRIMARIES = /* @__PURE__ */ new Set(["-exec", "-execdir", "-ok", "-okdir"]), FIND_PRIMARY_ARITY = new Map([
+  ...[
+    "-amin",
+    "-anewer",
+    "-atime",
+    "-cmin",
+    "-cnewer",
+    "-context",
+    "-ctime",
+    "-fprint",
+    "-fprint0",
+    "-fls",
+    "-fstype",
+    "-gid",
+    "-group",
+    "-ilname",
+    "-iname",
+    "-inum",
+    "-ipath",
+    "-iwholename",
+    "-iregex",
+    "-links",
+    "-lname",
+    "-maxdepth",
+    "-mindepth",
+    "-mmin",
+    "-mtime",
+    "-name",
+    "-newer",
+    "-newerXY",
+    "-newermt",
+    "-path",
+    "-perm",
+    "-printf",
+    "-regex",
+    "-samefile",
+    "-size",
+    "-type",
+    "-uid",
+    "-used",
+    "-user",
+    "-wholename",
+    "-xtype"
+  ].map((primary) => [primary, 1]),
+  ["-fprintf", 2]
 ]);
 function analyzeFind(tokens, context = {}) {
   return analyzeFindMatch(tokens, context)?.reason ?? null;
 }
 function analyzeFindMatch(tokens, context = {}) {
-  if (findHasDelete(tokens.slice(1))) {
+  if (findHasDelete(tokens.slice(1)))
     return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
-  }
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === "-exec" || token === "-execdir") {
-      const execCommand = getFindExecCommand(tokens, i);
-      const directReason = analyzeFindExecCommand(execCommand);
-      if (directReason) {
+    let token = tokens[i];
+    if (isFindExecPrimary(token)) {
+      let execCommand = getFindExecCommand(tokens, i), directoryRelative = token === "-execdir" || token === "-okdir", directReason = analyzeFindExecCommand(execCommand);
+      if (directReason)
         return directReason;
-      }
       if (context.analyzeTokens) {
-        const reason = context.analyzeTokens(execCommand, token === "-execdir" ? null : context.cwd);
-        if (reason) {
+        let reason = context.analyzeTokens(execCommand, directoryRelative ? null : context.cwd);
+        if (reason)
           return reason;
-        }
         continue;
       }
       if (context.analyzeNested) {
-        const reason = context.analyzeNested(execCommand.join(" "), {
-          effectiveCwd: token === "-execdir" ? undefined : context.cwd,
+        let reason = context.analyzeNested(execCommand.join(" "), {
+          effectiveCwd: directoryRelative ? void 0 : context.cwd,
           envAssignments: context.envAssignments
         });
-        if (reason) {
+        if (reason)
           return reason;
-        }
         continue;
       }
-      const fallbackReason = analyzeFindExecCommand(execCommand);
+      let fallbackReason = analyzeFindExecCommand(execCommand);
       if (fallbackReason)
         return fallbackReason;
     }
@@ -6418,47 +6026,34 @@ function analyzeFindMatch(tokens, context = {}) {
 }
 function analyzeFindExecCommand(tokens) {
   let execCommand = stripWrappers([...tokens]);
-  if (execCommand.length === 0) {
+  if (execCommand.length === 0)
     return null;
-  }
   let head = getBasename(execCommand[0] ?? "");
-  if (head === "busybox" && execCommand.length > 1) {
-    execCommand = execCommand.slice(1);
-    head = getBasename(execCommand[0] ?? "");
-  }
-  if (head === "rm" && hasRecursiveForceFlags(execCommand)) {
+  if (head === "busybox" && execCommand.length > 1)
+    execCommand = execCommand.slice(1), head = getBasename(execCommand[0] ?? "");
+  if (head === "rm" && hasRecursiveForceFlags(execCommand))
     return destructiveCommandMatch("find.exec-rm-recursive-force", REASON_FIND_EXEC_RM_RF);
-  }
   return null;
 }
 function getFindExecCommand(tokens, execIndex) {
-  const execTokens = tokens.slice(execIndex + 1);
-  const semicolonIdx = execTokens.indexOf(";");
-  const plusIdx = execTokens.indexOf("+");
-  const endIdx = semicolonIdx !== -1 && plusIdx !== -1 ? Math.min(semicolonIdx, plusIdx) : semicolonIdx !== -1 ? semicolonIdx : plusIdx !== -1 ? plusIdx : execTokens.length;
+  let execTokens = tokens.slice(execIndex + 1), semicolonIdx = execTokens.indexOf(";"), plusIdx = execTokens.indexOf("+"), endIdx = semicolonIdx !== -1 && plusIdx !== -1 ? Math.min(semicolonIdx, plusIdx) : semicolonIdx !== -1 ? semicolonIdx : plusIdx !== -1 ? plusIdx : execTokens.length;
   return execTokens.slice(0, endIdx);
 }
 function findHasDelete(tokens) {
-  let i = 0;
-  let insideExec = false;
-  let execDepth = 0;
+  let i = 0, insideExec = !1, execDepth = 0;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token) {
       i++;
       continue;
     }
-    if (token === "-exec" || token === "-execdir") {
-      insideExec = true;
-      execDepth++;
-      i++;
+    if (isFindExecPrimary(token)) {
+      insideExec = !0, execDepth++, i++;
       continue;
     }
     if (insideExec && (token === ";" || token === "+")) {
-      execDepth--;
-      if (execDepth === 0) {
-        insideExec = false;
-      }
+      if (execDepth--, execDepth === 0)
+        insideExec = !1;
       i++;
       continue;
     }
@@ -6466,62 +6061,57 @@ function findHasDelete(tokens) {
       i++;
       continue;
     }
-    if (findPrimaryTakesValue(token)) {
-      i += 2;
+    let arity = getFindPrimaryArity(token);
+    if (arity > 0) {
+      i += arity + 1;
       continue;
     }
-    if (token === "-delete") {
-      return true;
-    }
+    if (token === "-delete")
+      return !0;
     i++;
   }
-  return false;
+  return !1;
 }
-function findPrimaryTakesValue(token) {
-  return FIND_PRIMARIES_WITH_VALUE.has(token) || /^-newer[A-Za-z]{2}$/.test(token);
+function getFindPrimaryArity(token) {
+  return FIND_PRIMARY_ARITY.get(token) ?? (/^-newer[A-Za-z]{2}$/.test(token) ? 1 : 0);
+}
+function isFindExecPrimary(token) {
+  return token !== void 0 && FIND_EXEC_PRIMARIES.has(token);
 }
 
 // src/core/analyze/rm.ts
-var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.";
-var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
-var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
-var REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
+var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRm(tokens, options2 = {}) {
   return analyzeRmMatch(tokens, options2)?.reason ?? null;
 }
 function analyzeRmMatch(tokens, options2 = {}) {
-  const ctx = createRecursiveDeleteTargetContext(options2);
-  if (!hasRecursiveForceFlags(tokens)) {
+  let ctx = createRecursiveDeleteTargetContext(options2);
+  if (!hasRecursiveForceFlags(tokens))
     return null;
-  }
-  const targets = extractTargets(tokens);
-  for (const target of targets) {
-    const classification = classifyRecursiveDeleteTarget(target, ctx);
-    const reason = reasonForClassification(classification, ctx);
-    if (reason) {
+  let targets = extractTargets(tokens);
+  for (let target of targets) {
+    let classification = classifyRecursiveDeleteTarget(target, ctx), reason = reasonForClassification(classification, ctx);
+    if (reason)
       return reason;
-    }
   }
   return null;
 }
 function extractTargets(tokens) {
-  const targets = [];
-  let pastDoubleDash = false;
+  let targets = [], pastDoubleDash = !1;
   for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       continue;
     if (token === "--") {
-      pastDoubleDash = true;
+      pastDoubleDash = !0;
       continue;
     }
     if (pastDoubleDash) {
       targets.push(token);
       continue;
     }
-    if (!token.startsWith("-")) {
+    if (!token.startsWith("-"))
       targets.push(token);
-    }
   }
   return targets;
 }
@@ -6538,9 +6128,8 @@ function reasonForClassification(classification, ctx) {
     case "cwd_self_target":
       return destructiveCommandMatch("rm.recursive-force-cwd-self", REASON_RM_RF);
     case "within_anchored_cwd":
-      if (ctx.paranoid) {
+      if (ctx.paranoid)
         return destructiveCommandMatch("rm.recursive-force-paranoid", `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
-      }
       return null;
     case "outside_anchored_cwd":
       return destructiveCommandMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
@@ -6550,33 +6139,29 @@ function reasonForClassification(classification, ctx) {
 // src/core/analyze/shell-wrappers.ts
 function extractDashCArg(tokens) {
   for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       continue;
-    if (token === "-c") {
-      return getCommandStringAfterDashC(tokens, i, true);
-    }
-    if (token.startsWith("-") && token.includes("c") && !token.startsWith("--")) {
-      return getCommandStringAfterDashC(tokens, i, false);
-    }
+    if (token === "-c")
+      return getCommandStringAfterDashC(tokens, i, !0);
+    if (token.startsWith("-") && token.includes("c") && !token.startsWith("--"))
+      return getCommandStringAfterDashC(tokens, i, !1);
   }
   return null;
 }
 function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
-  if (tokens[dashCIndex + 1] === "--") {
+  if (tokens[dashCIndex + 1] === "--")
     return tokens[dashCIndex + 2] || null;
-  }
-  const commandString = tokens[dashCIndex + 1];
-  if (!commandString || !allowDashCommand && commandString.startsWith("-")) {
+  let commandString = tokens[dashCIndex + 1];
+  if (!commandString || !allowDashCommand && commandString.startsWith("-"))
     return null;
-  }
   return commandString;
 }
 
 // src/core/git/worktree.ts
 import { existsSync as existsSync6, lstatSync as lstatSync2, readFileSync as readFileSync7, realpathSync as realpathSync6, statSync as statSync2 } from "node:fs";
 import { dirname as dirname7, isAbsolute as isAbsolute6, join as join7, resolve as resolve6 } from "node:path";
-var GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
+var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-c",
   "-C",
   "--git-dir",
@@ -6586,128 +6171,106 @@ var GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
   "--config-env"
 ]);
 function hasGitContextEnvOverride(envAssignments) {
-  for (const name of GIT_CONTEXT_ENV_OVERRIDES) {
-    if (envAssignments?.has(name) || Object.hasOwn(process.env, name)) {
-      return true;
-    }
-  }
-  return false;
+  for (let name of GIT_CONTEXT_ENV_OVERRIDES)
+    if (envAssignments?.has(name) || Object.hasOwn(process.env, name))
+      return !0;
+  return !1;
 }
 function getGitExecutionContext(tokens, cwd) {
-  if (!cwd) {
-    return { gitCwd: null, hasExplicitGitContext: false };
-  }
+  if (!cwd)
+    return { gitCwd: null, hasExplicitGitContext: !1 };
   let gitCwd;
   try {
     gitCwd = realpathSync6(resolve6(cwd));
   } catch {
-    return { gitCwd: null, hasExplicitGitContext: false };
+    return { gitCwd: null, hasExplicitGitContext: !1 };
   }
-  if (!isDirectory(gitCwd)) {
-    return { gitCwd: null, hasExplicitGitContext: false };
-  }
-  let hasExplicitGitContext = false;
-  let i = 1;
+  if (!isDirectory(gitCwd))
+    return { gitCwd: null, hasExplicitGitContext: !1 };
+  let hasExplicitGitContext = !1, i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
-    if (token === "--") {
+    if (token === "--")
       break;
-    }
-    if (!token.startsWith("-")) {
+    if (!token.startsWith("-"))
       break;
-    }
     if (token === "-C") {
-      const target = tokens[i + 1];
-      if (!target) {
+      let target = tokens[i + 1];
+      if (!target)
         return { gitCwd: null, hasExplicitGitContext };
-      }
-      const resolvedCwd = resolveGitCwd(gitCwd, target);
-      if (!resolvedCwd) {
+      let resolvedCwd = resolveGitCwd(gitCwd, target);
+      if (!resolvedCwd)
         return { gitCwd: null, hasExplicitGitContext };
-      }
-      gitCwd = resolvedCwd;
-      i += 2;
+      gitCwd = resolvedCwd, i += 2;
       continue;
     }
     if (token.startsWith("-C") && token.length > 2) {
-      const resolvedCwd = resolveGitCwd(gitCwd, token.slice(2));
-      if (!resolvedCwd) {
+      let resolvedCwd = resolveGitCwd(gitCwd, token.slice(2));
+      if (!resolvedCwd)
         return { gitCwd: null, hasExplicitGitContext };
-      }
-      gitCwd = resolvedCwd;
-      i++;
+      gitCwd = resolvedCwd, i++;
       continue;
     }
     if (token === "--git-dir" || token === "--work-tree") {
-      hasExplicitGitContext = true;
-      i += 2;
+      hasExplicitGitContext = !0, i += 2;
       continue;
     }
     if (token.startsWith("--git-dir=") || token.startsWith("--work-tree=")) {
-      hasExplicitGitContext = true;
-      i++;
+      hasExplicitGitContext = !0, i++;
       continue;
     }
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
+    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token))
       i += 2;
-    } else if (token.startsWith("-c") && token.length > 2) {
+    else if (token.startsWith("-c") && token.length > 2)
       i++;
-    } else {
+    else
       i++;
-    }
   }
   return { gitCwd, hasExplicitGitContext };
 }
 function isLinkedWorktree(cwd) {
-  const dotGitPath = findDotGit(cwd);
-  if (!dotGitPath) {
-    return false;
-  }
+  let dotGitPath = findDotGit(cwd);
+  if (!dotGitPath)
+    return !1;
   try {
-    const stat = lstatSync2(dotGitPath);
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      return false;
-    }
-    const content = readFileSync7(dotGitPath, "utf-8");
-    const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:")) {
-      return false;
-    }
-    const rawGitDir = firstLine.slice("gitdir:".length).trim();
-    if (rawGitDir === "") {
-      return false;
-    }
-    const gitDir = isAbsolute6(rawGitDir) ? rawGitDir : resolve6(dirname7(dotGitPath), rawGitDir);
-    if (!existsSync6(join7(gitDir, "commondir"))) {
-      return false;
-    }
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath)) {
-      return false;
-    }
+    let stat = lstatSync2(dotGitPath);
+    if (stat.isSymbolicLink() || !stat.isFile())
+      return !1;
+    let firstLine = readFileSync7(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    if (!firstLine.startsWith("gitdir:"))
+      return !1;
+    let rawGitDir = firstLine.slice(7).trim();
+    if (rawGitDir === "")
+      return !1;
+    let gitDir = isAbsolute6(rawGitDir) ? rawGitDir : resolve6(dirname7(dotGitPath), rawGitDir);
+    if (!existsSync6(join7(gitDir, "commondir")))
+      return !1;
+    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
+      return !1;
     return worktreeConfigMatchesRoot(gitDir, dirname7(dotGitPath));
   } catch {
-    return false;
+    return !1;
   }
 }
 function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
-  const rawBacklink = readWorktreeGitdirBacklink(gitDir);
-  return rawBacklink === null ? false : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
+  let rawBacklink = readWorktreeGitdirBacklink(gitDir);
+  return rawBacklink === null ? !1 : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
 }
 function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
-  const configuredWorktree = readWorktreeConfigWorktree(gitDir);
-  return configuredWorktree === null ? true : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
+  let configuredWorktree = readWorktreeConfigWorktree(gitDir);
+  return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
 function readWorktreeGitdirBacklink(gitDir) {
-  const backlinkPath = join7(gitDir, "gitdir");
+  let backlinkPath = join7(gitDir, "gitdir");
   if (!existsSync6(backlinkPath))
     return null;
-  const rawBacklink = readFileSync7(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  let rawBacklink = readFileSync7(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
   return rawBacklink === "" ? null : rawBacklink;
 }
 function readWorktreeConfigWorktree(gitDir) {
-  const configWorktreePath = join7(gitDir, "config.worktree");
+  let configWorktreePath = join7(gitDir, "config.worktree");
   return existsSync6(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
 function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
@@ -6720,16 +6283,14 @@ function sameFilesystemPathOrFalse(left, right) {
   try {
     return sameFilesystemPath(left, right);
   } catch {
-    return false;
+    return !1;
   }
 }
 function sameFilesystemPath(left, right) {
   try {
-    const leftStat = statSync2(left);
-    const rightStat = statSync2(right);
-    if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino) {
-      return true;
-    }
+    let leftStat = statSync2(left), rightStat = statSync2(right);
+    if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
+      return !0;
   } catch {}
   return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
 }
@@ -6738,52 +6299,44 @@ function getCanonicalPathForComparison(path) {
 }
 function normalizePathForComparison2(path) {
   let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
-  normalized = normalized.replace(/\\/g, "/");
-  if (normalized.length > 1 && normalized.endsWith("/")) {
+  if (normalized = normalized.replace(/\\/g, "/"), normalized.length > 1 && normalized.endsWith("/"))
     normalized = normalized.slice(0, -1);
-  }
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function readCoreWorktree(configPath) {
-  const content = readFileSync7(configPath, "utf-8");
-  let inCore = false;
-  let configuredWorktree = null;
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";")) {
+  let content = readFileSync7(configPath, "utf-8"), inCore = !1, configuredWorktree = null;
+  for (let line of content.split(/\r?\n/)) {
+    let trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";"))
       continue;
-    }
     if (trimmed.startsWith("[")) {
       inCore = /^\[core\]$/i.test(trimmed);
       continue;
     }
-    if (!inCore) {
+    if (!inCore)
       continue;
-    }
-    const match = trimmed.match(/^worktree\s*=\s*(.*)$/i);
-    if (match) {
+    let match = trimmed.match(/^worktree\s*=\s*(.*)$/i);
+    if (match)
       configuredWorktree = parseGitConfigValue(match[1] ?? "");
-    }
   }
   return configuredWorktree;
 }
 function parseGitConfigValue(value) {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+  let trimmed = value.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"'))
     return trimmed;
-  }
   return unescapeDoubleQuotedGitConfigValue(trimmed.slice(1, -1));
 }
 function unescapeDoubleQuotedGitConfigValue(value) {
   let result = "";
   for (let i = 0;i < value.length; i++) {
-    const char = value[i];
+    let char = value[i];
     if (char !== "\\") {
       result += char;
       continue;
     }
-    const next = value[i + 1];
-    if (next === undefined) {
+    let next = value[i + 1];
+    if (next === void 0) {
       result += char;
       continue;
     }
@@ -6812,7 +6365,7 @@ function unescapeDoubleQuotedGitConfigValue(value) {
 }
 function resolveGitCwd(baseCwd, target) {
   try {
-    const resolved = resolveChdirTarget(baseCwd, target);
+    let resolved = resolveChdirTarget(baseCwd, target);
     return isDirectory(resolved) ? resolved : null;
   } catch {
     return null;
@@ -6822,7 +6375,7 @@ function isDirectory(path) {
   try {
     return statSync2(path).isDirectory();
   } catch {
-    return false;
+    return !1;
   }
 }
 function findDotGit(cwd) {
@@ -6834,27 +6387,23 @@ function findDotGit(cwd) {
 }
 function findDotGitInAncestors(cwd) {
   let current = cwd;
-  while (true) {
-    const dotGitPath = join7(current, ".git");
-    if (existsSync6(dotGitPath)) {
+  while (!0) {
+    let dotGitPath = join7(current, ".git");
+    if (existsSync6(dotGitPath))
       return dotGitPath;
-    }
-    const parent = dirname7(current);
-    if (parent === current) {
+    let parent = dirname7(current);
+    if (parent === current)
       return null;
-    }
     current = parent;
   }
 }
 
 // src/core/git/parse.ts
-var MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
-var REASON_GIT_ALIAS_CONFIG = "Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.";
+var MAX_GIT_ALIAS_EXPANSION_DEPTH = 5, REASON_GIT_ALIAS_CONFIG = "Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.";
 function splitAtDoubleDash(tokens) {
-  const index = tokens.indexOf("--");
-  if (index === -1) {
+  let index = tokens.indexOf("--");
+  if (index === -1)
     return { index: -1, before: tokens, after: [] };
-  }
   return {
     index,
     before: tokens.slice(0, index),
@@ -6862,141 +6411,115 @@ function splitAtDoubleDash(tokens) {
   };
 }
 function resolveGitCommandLineAliases(tokens, envAssignments) {
-  const configEntries = getGitConfigEntries(tokens, envAssignments);
-  if (configEntries.blockedReason) {
-    return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
-  }
-  const aliases = getGitConfigAliases(configEntries.entries);
-  if (aliases.size === 0) {
-    return { blockedReason: null, expanded: false, tokens };
-  }
-  let currentTokens = tokens;
-  let expanded = false;
+  let configEntries = getGitConfigEntries(tokens, envAssignments);
+  if (configEntries.blockedReason)
+    return { blockedReason: configEntries.blockedReason, expanded: !1, tokens };
+  let aliases = getGitConfigAliases(configEntries.entries);
+  if (aliases.size === 0)
+    return { blockedReason: null, expanded: !1, tokens };
+  let currentTokens = tokens, expanded = !1;
   for (let depth = 0;depth < MAX_GIT_ALIAS_EXPANSION_DEPTH; depth++) {
-    const { subcommand, rest } = extractGitSubcommandAndRest(currentTokens);
-    const aliasName = subcommand?.toLowerCase();
-    if (!aliasName || !aliases.has(aliasName)) {
+    let { subcommand, rest } = extractGitSubcommandAndRest(currentTokens), aliasName = subcommand?.toLowerCase();
+    if (!aliasName || !aliases.has(aliasName))
       return { blockedReason: null, expanded, tokens: currentTokens };
-    }
-    const aliasValue = aliases.get(aliasName);
-    const aliasTokens = parseGitAliasValue(aliasValue);
-    if (aliasTokens === null || aliasTokens.length === 0) {
-      return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: true, tokens: currentTokens };
-    }
-    currentTokens = ["git", ...aliasTokens, ...rest];
-    expanded = true;
+    let aliasValue = aliases.get(aliasName), aliasTokens = parseGitAliasValue(aliasValue);
+    if (aliasTokens === null || aliasTokens.length === 0)
+      return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: !0, tokens: currentTokens };
+    currentTokens = ["git", ...aliasTokens, ...rest], expanded = !0;
   }
-  return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: true, tokens: currentTokens };
+  return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: !0, tokens: currentTokens };
 }
 function hasGitCommandLineSshCommandConfig(tokens, envAssignments) {
   return getGitConfigEntries(tokens, envAssignments).entries.some((entry) => entry.key.toLowerCase() === "core.sshcommand");
 }
 function extractGitSubcommandAndRest(tokens) {
-  if (tokens.length === 0) {
+  if (tokens.length === 0)
     return { subcommand: null, rest: [] };
-  }
-  const firstToken = tokens[0];
-  const command2 = firstToken ? getBasename(firstToken).toLowerCase() : null;
-  if (command2 !== "git") {
+  let firstToken = tokens[0];
+  if ((firstToken ? getBasename(firstToken).toLowerCase() : null) !== "git")
     return { subcommand: null, rest: [] };
-  }
   let i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
     if (token === "--") {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
+      let nextToken = tokens[i + 1];
+      if (nextToken && !nextToken.startsWith("-"))
         return { subcommand: nextToken, rest: tokens.slice(i + 2) };
-      }
       return { subcommand: null, rest: tokens.slice(i + 1) };
     }
-    if (token.startsWith("-")) {
-      if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
+    if (token.startsWith("-"))
+      if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token))
         i += 2;
-      } else if (token.startsWith("-c") && token.length > 2) {
+      else if (token.startsWith("-c") && token.length > 2)
         i++;
-      } else if (token.startsWith("-C") && token.length > 2) {
+      else if (token.startsWith("-C") && token.length > 2)
         i++;
-      } else {
+      else
         i++;
-      }
-    } else {
+    else
       return { subcommand: token, rest: tokens.slice(i + 1) };
-    }
   }
   return { subcommand: null, rest: [] };
 }
 function getGitConfigAliases(entries) {
-  const aliases = new Map;
-  for (const entry of entries) {
-    const key = entry.key.toLowerCase();
-    if (!key.startsWith("alias.")) {
+  let aliases = /* @__PURE__ */ new Map;
+  for (let entry of entries) {
+    let key = entry.key.toLowerCase();
+    if (!key.startsWith("alias."))
       continue;
-    }
-    const name = key.slice("alias.".length);
-    if (name !== "") {
+    let name = key.slice(6);
+    if (name !== "")
       aliases.set(name, entry.value);
-    }
   }
   return aliases;
 }
 function getGitConfigEntries(tokens, envAssignments) {
-  if (tokens.length === 0) {
+  if (tokens.length === 0)
     return { blockedReason: null, entries: [] };
-  }
-  const firstToken = tokens[0];
-  const command2 = firstToken ? getBasename(firstToken).toLowerCase() : null;
-  if (command2 !== "git") {
+  let firstToken = tokens[0];
+  if ((firstToken ? getBasename(firstToken).toLowerCase() : null) !== "git")
     return { blockedReason: null, entries: [] };
-  }
-  const envEntries = getGitEnvConfigEntries(envAssignments);
-  if (envEntries.blockedReason) {
+  let envEntries = getGitEnvConfigEntries(envAssignments);
+  if (envEntries.blockedReason)
     return envEntries;
-  }
   return {
     blockedReason: null,
     entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)]
   };
 }
 function getGitCommandLineConfigEntries(tokens, envAssignments) {
-  const entries = [];
-  let i = 1;
+  let entries = [], i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token || token === "--" || !token.startsWith("-")) {
+    let token = tokens[i];
+    if (!token || token === "--" || !token.startsWith("-"))
       return entries;
-    }
     if (token === "-c") {
-      const entry = parseGitConfigEntry(tokens[i + 1]);
-      if (entry) {
+      let entry = parseGitConfigEntry(tokens[i + 1]);
+      if (entry)
         entries.push(entry);
-      }
       i += 2;
       continue;
     }
     if (token.startsWith("-c") && token.length > 2) {
-      const entry = parseGitConfigEntry(token.slice(2));
-      if (entry) {
+      let entry = parseGitConfigEntry(token.slice(2));
+      if (entry)
         entries.push(entry);
-      }
       i++;
       continue;
     }
     if (token === "--config-env") {
-      const entry = parseGitConfigEnvEntry(tokens[i + 1], envAssignments);
-      if (entry) {
+      let entry = parseGitConfigEnvEntry(tokens[i + 1], envAssignments);
+      if (entry)
         entries.push(entry);
-      }
       i += 2;
       continue;
     }
     if (token.startsWith("--config-env=")) {
-      const entry = parseGitConfigEnvEntry(token.slice("--config-env=".length), envAssignments);
-      if (entry) {
+      let entry = parseGitConfigEnvEntry(token.slice(13), envAssignments);
+      if (entry)
         entries.push(entry);
-      }
       i++;
       continue;
     }
@@ -7009,72 +6532,60 @@ function getGitCommandLineConfigEntries(tokens, envAssignments) {
   return entries;
 }
 function getGitEnvConfigEntries(envAssignments) {
-  const parameterEntries = getGitConfigParameterEntries(envAssignments);
-  if (parameterEntries === null) {
+  let parameterEntries = getGitConfigParameterEntries(envAssignments);
+  if (parameterEntries === null)
     return { blockedReason: REASON_GIT_ALIAS_CONFIG, entries: [] };
-  }
   return {
     blockedReason: null,
     entries: [...parameterEntries, ...getGitConfigCountEntries(envAssignments)]
   };
 }
 function getGitConfigParameterEntries(envAssignments) {
-  const parameters = getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments);
-  if (parameters === undefined) {
+  let parameters = getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments);
+  if (parameters === void 0)
     return [];
-  }
-  if (hasUnclosedQuotes(parameters)) {
+  let entries = [], parsed = parseSimpleWords(parameters);
+  if (!parsed)
     return null;
-  }
-  const entries = [];
-  for (const entry of $parse(parameters, ENV_PROXY)) {
-    const token = getCommandTokenText(entry);
-    const configEntry = parseGitConfigEntry(token ?? undefined);
-    if (!configEntry) {
+  for (let token of parsed) {
+    let configEntry = parseGitConfigEntry(token);
+    if (!configEntry)
       return null;
-    }
     entries.push(configEntry);
   }
   return entries;
 }
 function getGitConfigCountEntries(envAssignments) {
-  const countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
-  if (countValue === undefined) {
+  let countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
+  if (countValue === void 0)
     return [];
-  }
-  if (!/^\d+$/.test(countValue)) {
+  if (!/^\d+$/.test(countValue))
     return [];
-  }
-  const count = Number.parseInt(countValue, 10);
-  if (!Number.isSafeInteger(count)) {
+  let count = Number.parseInt(countValue, 10);
+  if (!Number.isSafeInteger(count))
     return [];
-  }
-  const entries = [];
+  let entries = [];
   for (let i = 0;i < count; i++) {
-    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
-    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
-    if (!key || value === undefined) {
+    let key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim(), value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    if (!key || value === void 0)
       return [];
-    }
     entries.push({ key, value });
   }
   return entries;
 }
 function parseGitConfigEntry(config) {
-  if (!config) {
+  if (!config)
     return null;
-  }
-  const eqIdx = config.indexOf("=");
+  let eqIdx = config.indexOf("=");
   return {
     key: (eqIdx === -1 ? config : config.slice(0, eqIdx)).trim(),
-    value: eqIdx === -1 ? undefined : config.slice(eqIdx + 1)
+    value: eqIdx === -1 ? void 0 : config.slice(eqIdx + 1)
   };
 }
 function parseGitConfigEnvEntry(configEnv, envAssignments) {
-  const eqIdx = configEnv?.indexOf("=") ?? -1;
-  if (!configEnv || eqIdx === -1) {
+  let eqIdx = configEnv?.indexOf("=") ?? -1;
+  if (!configEnv || eqIdx === -1)
     return null;
-  }
   return {
     key: configEnv.slice(0, eqIdx).trim(),
     value: getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments)
@@ -7084,46 +6595,14 @@ function getEnvConfigValue(name, envAssignments) {
   return envAssignments?.get(name) ?? process.env[name];
 }
 function parseGitAliasValue(value) {
-  const trimmedValue = value?.trimStart();
-  if (!trimmedValue || trimmedValue.startsWith("!") || hasUnclosedQuotes(trimmedValue)) {
+  let trimmedValue = value?.trimStart();
+  if (!trimmedValue || trimmedValue.startsWith("!"))
     return null;
-  }
-  const result = [];
-  for (const entry of $parse(trimmedValue, ENV_PROXY)) {
-    const token = getCommandTokenText(entry);
-    if (token === null) {
-      return null;
-    }
-    result.push(token);
-  }
-  return result;
+  return parseSimpleWords(trimmedValue);
 }
 
 // src/core/git/rules.ts
-var REASON_CHECKOUT_DOUBLE_DASH = "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.";
-var REASON_CHECKOUT_FORCE = "git checkout --force discards uncommitted changes. Use 'git stash' first.";
-var REASON_CHECKOUT_REF_PATH = "git checkout <ref> -- <path> overwrites working tree with ref version. Use 'git stash' first.";
-var REASON_CHECKOUT_PATHSPEC_FROM_FILE = "git checkout --pathspec-from-file can overwrite multiple files. Use 'git stash' first.";
-var REASON_CHECKOUT_AMBIGUOUS = "git checkout with multiple positional args may overwrite files. Use 'git switch' for branches or 'git restore' for files.";
-var REASON_SWITCH_DISCARD_CHANGES = "git switch --discard-changes discards uncommitted changes. Use 'git stash' first.";
-var REASON_SWITCH_FORCE = "git switch --force discards uncommitted changes. Use 'git stash' first.";
-var REASON_RESTORE = "git restore discards uncommitted changes. Use 'git stash' first, or use --staged to only unstage.";
-var REASON_RESTORE_WORKTREE = "git restore --worktree explicitly discards working tree changes. Use 'git stash' first.";
-var REASON_RESET_HARD = "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.";
-var REASON_RESET_MERGE = "git reset --merge can lose uncommitted changes. Use 'git stash' first.";
-var REASON_CLEAN = "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.";
-var REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-with-lease for safer force push.";
-var REASON_PUSH_DELETE = "git push deletes remote refs. Ask the user to run it manually if deletion is intended.";
-var REASON_PUSH_MIRROR = "git push " + "--mirror can force-update and delete remote refs. Ask the user to run it manually if mirror push is intended.";
-var REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.";
-var REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
-var REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
-var REASON_TAG_DELETE = "git tag -d permanently deletes tags. Ask the user to run it manually if deletion is intended.";
-var REASON_REFLOG_DELETE = "git reflog delete removes recovery history. Ask the user to run it manually if deletion is intended.";
-var REASON_STASH_DROP = "git stash drop permanently deletes stashed changes. Consider 'git stash list' first.";
-var REASON_STASH_CLEAR = "git stash clear deletes ALL stashed changes permanently. Use 'git stash list' to review; ask the user to run it manually if intended.";
-var REASON_WORKTREE_REMOVE_FORCE = "git worktree remove --force can delete uncommitted changes. Remove --force flag.";
-var CHECKOUT_OPTS_WITH_VALUE = new Set([
+var REASON_CHECKOUT_DOUBLE_DASH = "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.", REASON_CHECKOUT_FORCE = "git checkout --force discards uncommitted changes. Use 'git stash' first.", REASON_CHECKOUT_REF_PATH = "git checkout <ref> -- <path> overwrites working tree with ref version. Use 'git stash' first.", REASON_CHECKOUT_PATHSPEC_FROM_FILE = "git checkout --pathspec-from-file can overwrite multiple files. Use 'git stash' first.", REASON_CHECKOUT_AMBIGUOUS = "git checkout with multiple positional args may overwrite files. Use 'git switch' for branches or 'git restore' for files.", REASON_SWITCH_DISCARD_CHANGES = "git switch --discard-changes discards uncommitted changes. Use 'git stash' first.", REASON_SWITCH_FORCE = "git switch --force discards uncommitted changes. Use 'git stash' first.", REASON_RESTORE = "git restore discards uncommitted changes. Use 'git stash' first, or use --staged to only unstage.", REASON_RESTORE_WORKTREE = "git restore --worktree explicitly discards working tree changes. Use 'git stash' first.", REASON_RESET_HARD = "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.", REASON_RESET_MERGE = "git reset --merge can lose uncommitted changes. Use 'git stash' first.", REASON_CLEAN = "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.", REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-with-lease for safer force push.", REASON_PUSH_DELETE = "git push deletes remote refs. Ask the user to run it manually if deletion is intended.", REASON_PUSH_MIRROR = "git push --mirror can force-update and delete remote refs. Ask the user to run it manually if mirror push is intended.", REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.", REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.", REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.", REASON_TAG_DELETE = "git tag -d permanently deletes tags. Ask the user to run it manually if deletion is intended.", REASON_REFLOG_DELETE = "git reflog delete removes recovery history. Ask the user to run it manually if deletion is intended.", REASON_STASH_DROP = "git stash drop permanently deletes stashed changes. Consider 'git stash list' first.", REASON_STASH_CLEAR = "git stash clear deletes ALL stashed changes permanently. Use 'git stash list' to review; ask the user to run it manually if intended.", REASON_WORKTREE_REMOVE_FORCE = "git worktree remove --force can delete uncommitted changes. Remove --force flag.", CHECKOUT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-b",
   "-B",
   "--orphan",
@@ -7131,11 +6610,7 @@ var CHECKOUT_OPTS_WITH_VALUE = new Set([
   "--inter-hunk-context",
   "--pathspec-from-file",
   "--unified"
-]);
-var CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = new Set(["--recurse-submodules", "--track", "-t"]);
-var CHECKOUT_SHORT_OPTS_WITH_VALUE = new Set(["-b", "-B", "-U"]);
-var SWITCH_SHORT_OPTS_WITH_VALUE = new Set(["-c", "-C"]);
-var CHECKOUT_KNOWN_OPTS_NO_VALUE = new Set([
+]), CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = /* @__PURE__ */ new Set(["--recurse-submodules", "--track", "-t"]), CHECKOUT_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-b", "-B", "-U"]), SWITCH_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-c", "-C"]), CHECKOUT_KNOWN_OPTS_NO_VALUE = /* @__PURE__ */ new Set([
   "-q",
   "--quiet",
   "--no-quiet",
@@ -7171,14 +6646,13 @@ var CHECKOUT_KNOWN_OPTS_NO_VALUE = new Set([
   "--no-recurse-submodules"
 ]);
 function matchesGitLongOption(token, option) {
-  const optionName = token.split("=", 1)[0] ?? token;
+  let optionName = token.split("=", 1)[0] ?? token;
   return optionName.length >= 4 && option.startsWith(optionName) && optionName.startsWith("--") && optionName.slice(2).length >= 2;
 }
 function analyzeGitRule(tokens) {
-  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
-  if (!subcommand) {
+  let { subcommand, rest } = extractGitSubcommandAndRest(tokens);
+  if (!subcommand)
     return null;
-  }
   switch (subcommand.toLowerCase()) {
     case "checkout":
       return localDiscard(analyzeGitCheckout(rest));
@@ -7211,110 +6685,89 @@ function analyzeGitRule(tokens) {
   }
 }
 function localDiscard(match) {
-  return match ? { ...match, localDiscard: true } : null;
+  return match ? { ...match, localDiscard: !0 } : null;
 }
 function sharedState(match) {
-  return match ? { ...match, localDiscard: false } : null;
+  return match ? { ...match, localDiscard: !1 } : null;
 }
 function analyzeGitCheckout(tokens) {
-  const { index: doubleDashIdx, before: beforeDash } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(beforeDash, {
+  let { index: doubleDashIdx, before: beforeDash } = splitAtDoubleDash(tokens), shortOpts = extractShortOpts(beforeDash, {
     shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
   });
-  if (beforeDash.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
+  if (beforeDash.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f"))
     return destructiveCommandMatch("git.checkout-force", REASON_CHECKOUT_FORCE);
-  }
-  for (const token of tokens) {
-    if (token === "-b" || token === "-B" || token === "--orphan") {
+  for (let token of tokens) {
+    if (token === "-b" || token === "-B" || token === "--orphan")
       return null;
-    }
-    if (matchesGitLongOption(token, "--pathspec-from-file")) {
+    if (matchesGitLongOption(token, "--pathspec-from-file"))
       return destructiveCommandMatch("git.checkout-pathspec-from-file", REASON_CHECKOUT_PATHSPEC_FROM_FILE);
-    }
   }
   if (doubleDashIdx !== -1) {
-    const hasRefBeforeDash = beforeDash.some((t) => !t.startsWith("-"));
-    if (hasRefBeforeDash) {
+    if (beforeDash.some((t) => !t.startsWith("-")))
       return destructiveCommandMatch("git.checkout-ref-path", REASON_CHECKOUT_REF_PATH);
-    }
     return destructiveCommandMatch("git.checkout-double-dash", REASON_CHECKOUT_DOUBLE_DASH);
   }
-  const positionalArgs = getCheckoutPositionalArgs(tokens);
-  if (positionalArgs.length >= 2) {
+  if (getCheckoutPositionalArgs(tokens).length >= 2)
     return destructiveCommandMatch("git.checkout-ambiguous", REASON_CHECKOUT_AMBIGUOUS);
-  }
   return null;
 }
 function analyzeGitSwitch(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  if (before.some((token) => matchesGitLongOption(token, "--discard-changes"))) {
+  let { before } = splitAtDoubleDash(tokens);
+  if (before.some((token) => matchesGitLongOption(token, "--discard-changes")))
     return destructiveCommandMatch("git.switch-discard-changes", REASON_SWITCH_DISCARD_CHANGES);
-  }
-  const shortOpts = extractShortOpts(before, {
+  let shortOpts = extractShortOpts(before, {
     shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
   });
-  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
+  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f"))
     return destructiveCommandMatch("git.switch-force", REASON_SWITCH_FORCE);
-  }
   return null;
 }
 function getCheckoutPositionalArgs(tokens) {
-  const positional = [];
-  let i = 0;
+  let positional = [], i = 0;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
-    if (token === "--") {
+    if (token === "--")
       break;
-    }
-    if (token.startsWith("-")) {
-      if (CHECKOUT_OPTS_WITH_VALUE.has(token)) {
+    if (token.startsWith("-"))
+      if (CHECKOUT_OPTS_WITH_VALUE.has(token))
         i += 2;
-      } else if (token.startsWith("--") && token.includes("=")) {
+      else if (token.startsWith("--") && token.includes("="))
         i++;
-      } else if (CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token)) {
-        const nextToken = tokens[i + 1];
-        if (nextToken && !nextToken.startsWith("-") && (token === "--recurse-submodules" || token === "--track" || token === "-t")) {
-          const validModes = token === "--recurse-submodules" ? ["checkout", "on-demand"] : ["direct", "inherit"];
-          if (validModes.includes(nextToken)) {
+      else if (CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token)) {
+        let nextToken = tokens[i + 1];
+        if (nextToken && !nextToken.startsWith("-") && (token === "--recurse-submodules" || token === "--track" || token === "-t"))
+          if ((token === "--recurse-submodules" ? ["checkout", "on-demand"] : ["direct", "inherit"]).includes(nextToken))
             i += 2;
-          } else {
+          else
             i++;
-          }
-        } else {
+        else
           i++;
-        }
-      } else if (token.startsWith("--") && !CHECKOUT_KNOWN_OPTS_NO_VALUE.has(token) && !CHECKOUT_OPTS_WITH_VALUE.has(token) && !CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token)) {
+      } else if (token.startsWith("--") && !CHECKOUT_KNOWN_OPTS_NO_VALUE.has(token) && !CHECKOUT_OPTS_WITH_VALUE.has(token) && !CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token))
         i++;
-      } else {
+      else
         i++;
-      }
-    } else {
-      positional.push(token);
-      i++;
-    }
+    else
+      positional.push(token), i++;
   }
   return positional;
 }
 function analyzeGitRestore(tokens) {
-  let hasStaged = false;
-  for (const token of tokens) {
-    if (token === "--help" || token === "--version") {
+  let hasStaged = !1;
+  for (let token of tokens) {
+    if (token === "--help" || token === "--version")
       return null;
-    }
-    if (token === "--worktree" || token === "-W") {
+    if (token === "--worktree" || token === "-W")
       return destructiveCommandMatch("git.restore-worktree", REASON_RESTORE_WORKTREE);
-    }
-    if (token === "--staged" || token === "-S") {
-      hasStaged = true;
-    }
+    if (token === "--staged" || token === "-S")
+      hasStaged = !0;
   }
   return hasStaged ? null : destructiveCommandMatch("git.restore-unstaged", REASON_RESTORE);
 }
 function analyzeGitReset(tokens) {
   let match = null;
-  for (const token of tokens) {
+  for (let token of tokens) {
     if (matchesGitLongOption(token, "--hard")) {
       match = destructiveCommandMatch("git.reset-hard", REASON_RESET_HARD);
       break;
@@ -7324,48 +6777,36 @@ function analyzeGitReset(tokens) {
       break;
     }
   }
-  if (!match) {
+  if (!match)
     return null;
-  }
   return resetHasRef(tokens) ? sharedState(match) : localDiscard(match);
 }
 function resetHasRef(tokens) {
-  for (const token of tokens) {
-    if (token === "--") {
-      return false;
-    }
-    if (!token.startsWith("-")) {
-      return true;
-    }
+  for (let token of tokens) {
+    if (token === "--")
+      return !1;
+    if (!token.startsWith("-"))
+      return !0;
   }
-  return false;
+  return !1;
 }
 function analyzeGitClean(tokens) {
-  for (const token of tokens) {
-    if (token === "-n" || matchesGitLongOption(token, "--dry-run")) {
+  for (let token of tokens)
+    if (token === "-n" || matchesGitLongOption(token, "--dry-run"))
       return null;
-    }
-  }
-  const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
-  if (tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
+  let shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
+  if (tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f"))
     return destructiveCommandMatch("git.clean-force", REASON_CLEAN);
-  }
   return null;
 }
 function analyzeGitPush(tokens) {
-  const { before, after } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(before);
-  if (before.some((token) => matchesGitLongOption(token, "--mirror"))) {
+  let { before, after } = splitAtDoubleDash(tokens), shortOpts = extractShortOpts(before);
+  if (before.some((token) => matchesGitLongOption(token, "--mirror")))
     return destructiveCommandMatch("git.push-mirror", REASON_PUSH_MIRROR);
-  }
-  const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f") || getPushRefspecCandidates(before, after).some(isForcePushRefspec);
-  if (hasForce) {
+  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f") || getPushRefspecCandidates(before, after).some(isForcePushRefspec))
     return destructiveCommandMatch("git.push-force", REASON_PUSH_FORCE);
-  }
-  const hasDelete = before.some((token) => matchesGitLongOption(token, "--delete")) || shortOpts.has("-d") || getPushRefspecCandidates(before, after).some(isDeletePushRefspec);
-  if (hasDelete) {
+  if (before.some((token) => matchesGitLongOption(token, "--delete")) || shortOpts.has("-d") || getPushRefspecCandidates(before, after).some(isDeletePushRefspec))
     return destructiveCommandMatch("git.push-delete", REASON_PUSH_DELETE);
-  }
   return null;
 }
 function getPushRefspecCandidates(beforeDoubleDash, afterDoubleDash) {
@@ -7381,51 +6822,42 @@ function isDeletePushRefspec(token) {
   return token.length > 1 && token.startsWith(":");
 }
 function analyzeGitBranch(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(before);
-  const hasDelete = shortOpts.has("-D") || shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete"));
-  const hasForce = shortOpts.has("-D") || shortOpts.has("-f") || before.some((token) => matchesGitLongOption(token, "--force"));
-  if (hasDelete && hasForce) {
+  let { before } = splitAtDoubleDash(tokens), shortOpts = extractShortOpts(before), hasDelete = shortOpts.has("-D") || shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")), hasForce = shortOpts.has("-D") || shortOpts.has("-f") || before.some((token) => matchesGitLongOption(token, "--force"));
+  if (hasDelete && hasForce)
     return destructiveCommandMatch("git.branch-force-delete", REASON_BRANCH_DELETE);
-  }
   return null;
 }
 function analyzeGitRebase(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
+  let { before } = splitAtDoubleDash(tokens);
   return before.some((token) => matchesGitLongOption(token, "--abort")) ? destructiveCommandMatch("git.rebase-abort", REASON_REBASE_ABORT) : null;
 }
 function analyzeGitMerge(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
+  let { before } = splitAtDoubleDash(tokens);
   return before.some((token) => matchesGitLongOption(token, "--abort")) ? destructiveCommandMatch("git.merge-abort", REASON_MERGE_ABORT) : null;
 }
 function analyzeGitTag(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(before);
-  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? destructiveCommandMatch("git.tag-delete", REASON_TAG_DELETE) : null;
+  let { before } = splitAtDoubleDash(tokens);
+  return extractShortOpts(before).has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? destructiveCommandMatch("git.tag-delete", REASON_TAG_DELETE) : null;
 }
 function analyzeGitReflog(tokens) {
   return tokens[0] === "delete" ? destructiveCommandMatch("git.reflog-delete", REASON_REFLOG_DELETE) : null;
 }
 function analyzeGitStash(tokens) {
-  for (const token of tokens) {
-    if (token === "drop") {
+  for (let token of tokens) {
+    if (token === "drop")
       return destructiveCommandMatch("git.stash-drop", REASON_STASH_DROP);
-    }
-    if (token === "clear") {
+    if (token === "clear")
       return destructiveCommandMatch("git.stash-clear", REASON_STASH_CLEAR);
-    }
   }
   return null;
 }
 function analyzeGitWorktree(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const hasRemove = before.includes("remove");
-  if (!hasRemove)
+  let { before } = splitAtDoubleDash(tokens);
+  if (!before.includes("remove"))
     return null;
-  const shortOpts = extractShortOpts(before);
-  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
+  let shortOpts = extractShortOpts(before);
+  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f"))
     return destructiveCommandMatch("git.worktree-remove-force", REASON_WORKTREE_REMOVE_FORCE);
-  }
   return null;
 }
 
@@ -7441,93 +6873,77 @@ var TRUSTED_GIT_BINARIES = [
   "C:\\Program Files\\Git\\bin\\git.exe"
 ];
 function hasRecursiveSubmoduleConfig(tokens, envAssignments, gitCwd) {
-  const commandLineConfig = commandLineRecursiveSubmoduleConfig(tokens, envAssignments);
-  if (commandLineConfig !== null) {
+  let commandLineConfig = commandLineRecursiveSubmoduleConfig(tokens, envAssignments);
+  if (commandLineConfig !== null)
     return commandLineConfig;
-  }
-  const envConfig = envRecursiveSubmoduleConfig(envAssignments);
-  if (envConfig !== null) {
+  let envConfig = envRecursiveSubmoduleConfig(envAssignments);
+  if (envConfig !== null)
     return envConfig;
-  }
-  if (hasConfigAffectingEnvAssignment(envAssignments)) {
-    return true;
-  }
+  if (hasConfigAffectingEnvAssignment(envAssignments))
+    return !0;
   return effectiveGitConfigEnablesRecursiveSubmodules(gitCwd);
 }
 function commandLineRecursiveSubmoduleConfig(tokens, envAssignments) {
-  let recursiveSubmoduleConfig = null;
-  let i = 1;
+  let recursiveSubmoduleConfig = null, i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token || token === "--") {
+    let token = tokens[i];
+    if (!token || token === "--")
       return recursiveSubmoduleConfig;
-    }
-    if (!token.startsWith("-")) {
+    if (!token.startsWith("-"))
       return recursiveSubmoduleConfig;
-    }
     if (token === "-c") {
-      const configValue = recursiveSubmoduleConfigValue(tokens[i + 1]);
-      if (configValue !== null) {
+      let configValue = recursiveSubmoduleConfigValue(tokens[i + 1]);
+      if (configValue !== null)
         recursiveSubmoduleConfig = configValue;
-      }
       i += 2;
       continue;
     }
     if (token.startsWith("-c") && token.length > 2) {
-      const configValue = recursiveSubmoduleConfigValue(token.slice(2));
-      if (configValue !== null) {
+      let configValue = recursiveSubmoduleConfigValue(token.slice(2));
+      if (configValue !== null)
         recursiveSubmoduleConfig = configValue;
-      }
       i++;
       continue;
     }
     if (token === "--config-env") {
-      const configValue = recursiveSubmoduleConfigEnvValue(tokens[i + 1], envAssignments);
-      if (configValue !== null) {
+      let configValue = recursiveSubmoduleConfigEnvValue(tokens[i + 1], envAssignments);
+      if (configValue !== null)
         recursiveSubmoduleConfig = configValue;
-      }
       i += 2;
       continue;
     }
     if (token.startsWith("--config-env=")) {
-      const configValue = recursiveSubmoduleConfigEnvValue(token.slice("--config-env=".length), envAssignments);
-      if (configValue !== null) {
+      let configValue = recursiveSubmoduleConfigEnvValue(token.slice(13), envAssignments);
+      if (configValue !== null)
         recursiveSubmoduleConfig = configValue;
-      }
       i++;
       continue;
     }
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
+    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token))
       i += 2;
-    } else {
+    else
       i++;
-    }
   }
   return recursiveSubmoduleConfig;
 }
 function envRecursiveSubmoduleConfig(envAssignments) {
-  if (getEnvConfigValue2("GIT_CONFIG_PARAMETERS", envAssignments) !== undefined) {
-    return true;
-  }
-  const countValue = getEnvConfigValue2("GIT_CONFIG_COUNT", envAssignments);
-  if (countValue === undefined) {
+  if (getEnvConfigValue2("GIT_CONFIG_PARAMETERS", envAssignments) !== void 0)
+    return !0;
+  let countValue = getEnvConfigValue2("GIT_CONFIG_COUNT", envAssignments);
+  if (countValue === void 0)
     return null;
-  }
-  const count = Number.parseInt(countValue, 10);
-  if (!Number.isInteger(count) || count < 0) {
-    return true;
-  }
+  let count = Number.parseInt(countValue, 10);
+  if (!Number.isInteger(count) || count < 0)
+    return !0;
   let recursiveSubmoduleConfig = null;
   for (let i = 0;i < count; i++) {
-    const key = getEnvConfigValue2(`GIT_CONFIG_KEY_${i}`, envAssignments)?.toLowerCase();
-    if (key && isIncludeConfigKey(key)) {
-      return true;
-    }
-    if (key !== "submodule.recurse") {
+    let key = getEnvConfigValue2(`GIT_CONFIG_KEY_${i}`, envAssignments)?.toLowerCase();
+    if (key && isIncludeConfigKey(key))
+      return !0;
+    if (key !== "submodule.recurse")
       continue;
-    }
-    const value = getEnvConfigValue2(`GIT_CONFIG_VALUE_${i}`, envAssignments);
-    recursiveSubmoduleConfig = value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
+    let value = getEnvConfigValue2(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    recursiveSubmoduleConfig = value === void 0 || gitConfigValueEnablesRecursiveSubmodules(value);
   }
   return recursiveSubmoduleConfig;
 }
@@ -7535,15 +6951,13 @@ function getEnvConfigValue2(name, envAssignments) {
   return envAssignments?.get(name) ?? process.env[name];
 }
 function effectiveGitConfigEnablesRecursiveSubmodules(cwd, gitBinary = getTrustedGitBinary()) {
-  const localConfigResult = localGitConfigEnablesRecursiveSubmodules(cwd);
-  if (localConfigResult === null || localConfigResult) {
-    return true;
-  }
-  if (gitBinary === null) {
-    return true;
-  }
+  let localConfigResult = localGitConfigEnablesRecursiveSubmodules(cwd);
+  if (localConfigResult === null || localConfigResult)
+    return !0;
+  if (gitBinary === null)
+    return !0;
   try {
-    const value = execFileSync(gitBinary, ["config", "--get", "submodule.recurse"], {
+    let value = execFileSync(gitBinary, ["config", "--get", "submodule.recurse"], {
       cwd,
       encoding: "utf8",
       env: withoutGitConfigEnv(process.env),
@@ -7555,82 +6969,66 @@ function effectiveGitConfigEnablesRecursiveSubmodules(cwd, gitBinary = getTruste
   }
 }
 function localGitConfigEnablesRecursiveSubmodules(cwd) {
-  const configPaths = getLocalGitConfigPaths(cwd);
-  if (configPaths === null) {
+  let configPaths = getLocalGitConfigPaths(cwd);
+  if (configPaths === null)
     return null;
-  }
-  for (const configPath of configPaths) {
-    if (!existsSync7(configPath)) {
+  for (let configPath of configPaths) {
+    if (!existsSync7(configPath))
       continue;
-    }
-    const result = gitConfigFileEnablesRecursiveSubmodules(configPath);
-    if (result) {
-      return true;
-    }
+    if (gitConfigFileEnablesRecursiveSubmodules(configPath))
+      return !0;
   }
-  return false;
+  return !1;
 }
 function getTrustedGitBinary() {
-  for (const gitBinary of TRUSTED_GIT_BINARIES) {
-    if (existsSync7(gitBinary)) {
+  for (let gitBinary of TRUSTED_GIT_BINARIES)
+    if (existsSync7(gitBinary))
       return gitBinary;
-    }
-  }
   return null;
 }
 function withoutGitConfigEnv(env) {
-  const nextEnv = { ...env };
-  for (const key of Object.keys(nextEnv)) {
-    if (isGitConfigEnvName(key)) {
+  let nextEnv = { ...env };
+  for (let key of Object.keys(nextEnv))
+    if (isGitConfigEnvName(key))
       delete nextEnv[key];
-    }
-  }
   return nextEnv;
 }
 function isGitConfigUnsetError(error) {
   return typeof error === "object" && error !== null && "status" in error && error.status === 1;
 }
 function getLocalGitConfigPaths(cwd) {
-  const dotGitPath = findDotGitInAncestors(cwd);
-  if (dotGitPath === null) {
+  let dotGitPath = findDotGitInAncestors(cwd);
+  if (dotGitPath === null)
     return null;
-  }
-  const gitDir = resolveGitDirFromDotGit(dotGitPath);
-  if (gitDir === null) {
+  let gitDir = resolveGitDirFromDotGit(dotGitPath);
+  if (gitDir === null)
     return null;
-  }
-  const commonDir = resolveCommonGitDir(gitDir);
-  if (commonDir === null) {
+  let commonDir = resolveCommonGitDir(gitDir);
+  if (commonDir === null)
     return null;
-  }
   return [join8(commonDir, "config"), join8(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
-    const content = readFileSync8(dotGitPath, "utf-8");
-    const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:")) {
+    let firstLine = readFileSync8(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    if (!firstLine.startsWith("gitdir:"))
       return dotGitPath;
-    }
-    const rawGitDir = firstLine.slice("gitdir:".length).trim();
-    if (rawGitDir === "") {
+    let rawGitDir = firstLine.slice(7).trim();
+    if (rawGitDir === "")
       return null;
-    }
     return isAbsolute7(rawGitDir) ? rawGitDir : resolve7(dirname8(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  const commonDirPath = join8(gitDir, "commondir");
-  if (!existsSync7(commonDirPath)) {
+  let commonDirPath = join8(gitDir, "commondir");
+  if (!existsSync7(commonDirPath))
     return gitDir;
-  }
   try {
-    const rawCommonDir = readFileSync8(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (rawCommonDir === "") {
+    let rawCommonDir = readFileSync8(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    if (rawCommonDir === "")
       return null;
-    }
     return isAbsolute7(rawCommonDir) ? rawCommonDir : resolve7(gitDir, rawCommonDir);
   } catch {
     return null;
@@ -7641,29 +7039,23 @@ function gitConfigFileEnablesRecursiveSubmodules(configPath) {
   try {
     content = readFileSync8(configPath, "utf-8");
   } catch {
-    return true;
+    return !0;
   }
-  let section = "";
-  let recursiveSubmoduleConfig = false;
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";")) {
+  let section = "", recursiveSubmoduleConfig = !1;
+  for (let line of content.split(/\r?\n/)) {
+    let trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";"))
       continue;
-    }
-    const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
+    let sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
     if (sectionMatch) {
       section = sectionMatch[1]?.trim().toLowerCase() ?? "";
       continue;
     }
-    const eqIdx = trimmed.indexOf("=");
-    const key = (eqIdx === -1 ? trimmed : trimmed.slice(0, eqIdx)).trim().toLowerCase();
-    const value = eqIdx === -1 ? "true" : trimmed.slice(eqIdx + 1).trim();
-    if (isIncludeConfigSection(section) && key === "path") {
-      return true;
-    }
-    if (section === "submodule" && key === "recurse") {
+    let eqIdx = trimmed.indexOf("="), key = (eqIdx === -1 ? trimmed : trimmed.slice(0, eqIdx)).trim().toLowerCase(), value = eqIdx === -1 ? "true" : trimmed.slice(eqIdx + 1).trim();
+    if (isIncludeConfigSection(section) && key === "path")
+      return !0;
+    if (section === "submodule" && key === "recurse")
       recursiveSubmoduleConfig = gitConfigValueEnablesRecursiveSubmodules(value);
-    }
   }
   return recursiveSubmoduleConfig;
 }
@@ -7671,38 +7063,31 @@ function isIncludeConfigSection(section) {
   return section === "include" || section.startsWith("includeif ");
 }
 function recursiveSubmoduleConfigValue(config) {
-  if (!config) {
+  if (!config)
     return null;
-  }
-  const eqIdx = config.indexOf("=");
-  const key = (eqIdx === -1 ? config : config.slice(0, eqIdx)).toLowerCase();
-  if (isIncludeConfigKey(key)) {
-    return true;
-  }
-  if (key !== "submodule.recurse") {
+  let eqIdx = config.indexOf("="), key = (eqIdx === -1 ? config : config.slice(0, eqIdx)).toLowerCase();
+  if (isIncludeConfigKey(key))
+    return !0;
+  if (key !== "submodule.recurse")
     return null;
-  }
-  const value = eqIdx === -1 ? "true" : config.slice(eqIdx + 1).toLowerCase();
+  let value = eqIdx === -1 ? "true" : config.slice(eqIdx + 1).toLowerCase();
   return gitConfigValueEnablesRecursiveSubmodules(value);
 }
 function gitConfigValueEnablesRecursiveSubmodules(value) {
-  const normalizedValue = value.toLowerCase();
+  let normalizedValue = value.toLowerCase();
   return normalizedValue !== "false" && normalizedValue !== "no" && normalizedValue !== "off" && normalizedValue !== "0";
 }
 function recursiveSubmoduleConfigEnvValue(configEnv, envAssignments) {
-  const eqIdx = configEnv?.indexOf("=") ?? -1;
-  if (!configEnv || eqIdx === -1) {
+  let eqIdx = configEnv?.indexOf("=") ?? -1;
+  if (!configEnv || eqIdx === -1)
     return null;
-  }
-  const key = configEnv.slice(0, eqIdx).toLowerCase();
-  if (isIncludeConfigKey(key)) {
-    return true;
-  }
-  if (key !== "submodule.recurse") {
+  let key = configEnv.slice(0, eqIdx).toLowerCase();
+  if (isIncludeConfigKey(key))
+    return !0;
+  if (key !== "submodule.recurse")
     return null;
-  }
-  const value = getEnvConfigValue2(configEnv.slice(eqIdx + 1), envAssignments);
-  return value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
+  let value = getEnvConfigValue2(configEnv.slice(eqIdx + 1), envAssignments);
+  return value === void 0 || gitConfigValueEnablesRecursiveSubmodules(value);
 }
 function isIncludeConfigKey(key) {
   return key === "include.path" || key.startsWith("includeif.") && key.endsWith(".path");
@@ -7710,30 +7095,24 @@ function isIncludeConfigKey(key) {
 
 // src/core/git/worktree-relaxation.ts
 function getGitWorktreeRelaxationForMatch(tokens, match, options2) {
-  if (!match.localDiscard || !options2.worktreeMode || hasGitContextEnvOverride(options2.envAssignments)) {
+  if (!match.localDiscard || !options2.worktreeMode || hasGitContextEnvOverride(options2.envAssignments))
     return null;
-  }
-  const context = getGitExecutionContext(tokens, options2.cwd);
-  if (!context.gitCwd || context.hasExplicitGitContext) {
+  let context = getGitExecutionContext(tokens, options2.cwd);
+  if (!context.gitCwd || context.hasExplicitGitContext)
     return null;
-  }
-  if (!isLinkedWorktree(context.gitCwd)) {
+  if (!isLinkedWorktree(context.gitCwd))
     return null;
-  }
-  if (isNonRelaxableLocalDiscard(tokens, options2, context.gitCwd)) {
+  if (isNonRelaxableLocalDiscard(tokens, options2, context.gitCwd))
     return null;
-  }
   return {
     originalReason: match.reason,
     gitCwd: context.gitCwd
   };
 }
 function isNonRelaxableLocalDiscard(tokens, options2, gitCwd) {
-  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
-  const normalizedSubcommand = subcommand?.toLowerCase();
-  if (hasDynamicGitArgument(rest) || hasRecursiveSubmoduleConfig(tokens, options2.envAssignments, gitCwd) || hasRecurseSubmodulesOption(rest) || isForcedBranchReset(normalizedSubcommand, rest)) {
-    return true;
-  }
+  let { subcommand, rest } = extractGitSubcommandAndRest(tokens), normalizedSubcommand = subcommand?.toLowerCase();
+  if (options2.dynamicArguments || hasDynamicGitArgument(rest) || hasRecursiveSubmoduleConfig(tokens, options2.envAssignments, gitCwd) || hasRecurseSubmodulesOption(rest) || isForcedBranchReset(normalizedSubcommand, rest))
+    return !0;
   return normalizedSubcommand === "clean" && countCleanForceFlags(rest) > 1;
 }
 function hasDynamicGitArgument(tokens) {
@@ -7741,53 +7120,44 @@ function hasDynamicGitArgument(tokens) {
 }
 function isForcedBranchReset(subcommand, rest) {
   if (subcommand === "checkout") {
-    const { before } = splitAtDoubleDash(rest);
-    const shortOpts = extractShortOpts(before, {
+    let { before } = splitAtDoubleDash(rest), shortOpts = extractShortOpts(before, {
       shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
-    });
-    const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
-    const hasBranchReset = shortOpts.has("-B") || before.some((token) => token === "-B" || token.startsWith("-B"));
+    }), hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f"), hasBranchReset = shortOpts.has("-B") || before.some((token) => token === "-B" || token.startsWith("-B"));
     return hasForce && hasBranchReset;
   }
   if (subcommand === "switch") {
-    const { before } = splitAtDoubleDash(rest);
-    const shortOpts = extractShortOpts(before, {
+    let { before } = splitAtDoubleDash(rest), shortOpts = extractShortOpts(before, {
       shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
-    });
-    const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || before.some((token) => matchesGitLongOption(token, "--discard-changes")) || shortOpts.has("-f");
-    const hasForceCreate = before.some((token) => token === "-C" || token.startsWith("-C") || isForceCreateOption(token)) || shortOpts.has("-C");
+    }), hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || before.some((token) => matchesGitLongOption(token, "--discard-changes")) || shortOpts.has("-f"), hasForceCreate = before.some((token) => token === "-C" || token.startsWith("-C") || isForceCreateOption(token)) || shortOpts.has("-C");
     return hasForce && hasForceCreate;
   }
-  return false;
+  return !1;
 }
 function isForceCreateOption(token) {
-  const optionName = token.split("=", 1)[0] ?? token;
-  return optionName === "--force-create" || optionName.length >= "--force-c".length && "--force-create".startsWith(optionName);
+  let optionName = token.split("=", 1)[0] ?? token;
+  return optionName === "--force-create" || optionName.length >= 9 && "--force-create".startsWith(optionName);
 }
 function hasRecurseSubmodulesOption(tokens) {
   return tokens.some((token) => token.startsWith("--recurse-sub"));
 }
 function countCleanForceFlags(tokens) {
   let count = 0;
-  for (const token of tokens) {
+  for (let token of tokens) {
     if (token === "--force") {
       count++;
       continue;
     }
     if (token.startsWith("-") && !token.startsWith("--")) {
-      for (const opt of token.slice(1)) {
-        if (opt === "f") {
+      for (let opt of token.slice(1))
+        if (opt === "f")
           count++;
-        }
-      }
     }
   }
   return count;
 }
 
 // src/core/git/index.ts
-var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.";
-var GIT_NETWORK_SUBCOMMANDS = new Set([
+var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.", GIT_NETWORK_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "clone",
   "fetch",
   "pull",
@@ -7799,38 +7169,29 @@ function analyzeGit(tokens, options2 = {}) {
   return analyzeGitMatch(tokens, options2)?.reason ?? null;
 }
 function analyzeGitMatch(tokens, options2 = {}) {
-  const aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
-  if (aliasResolution.blockedReason) {
+  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
+  if (aliasResolution.blockedReason)
     return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
-  }
-  const analysisTokens = aliasResolution.tokens;
-  if ((hasGitSshEnvAssignment(options2.envAssignments) || hasGitCommandLineSshCommandConfig(tokens, options2.envAssignments)) && isGitNetworkOperation(analysisTokens)) {
+  let analysisTokens = aliasResolution.tokens;
+  if ((hasGitSshEnvAssignment(options2.envAssignments) || hasGitCommandLineSshCommandConfig(tokens, options2.envAssignments)) && isGitNetworkOperation(analysisTokens))
     return destructiveCommandMatch("git.ssh-env", REASON_GIT_SSH_ENV);
-  }
-  const match = analyzeGitRule(analysisTokens);
-  if (!match) {
+  let match = analyzeGitRule(analysisTokens);
+  if (!match)
     return null;
-  }
-  if (aliasResolution.expanded) {
+  if (aliasResolution.expanded)
     return match;
-  }
-  if (getGitWorktreeRelaxationForMatch(tokens, match, options2)) {
+  if (getGitWorktreeRelaxationForMatch(tokens, match, options2))
     return null;
-  }
   return match;
 }
 function isGitNetworkOperation(tokens) {
-  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
-  const subcommandName = subcommand?.toLowerCase();
-  if (!subcommandName) {
-    return false;
-  }
-  if (GIT_NETWORK_SUBCOMMANDS.has(subcommandName)) {
-    return true;
-  }
-  if (subcommandName === "archive") {
+  let { subcommand, rest } = extractGitSubcommandAndRest(tokens), subcommandName = subcommand?.toLowerCase();
+  if (!subcommandName)
+    return !1;
+  if (GIT_NETWORK_SUBCOMMANDS.has(subcommandName))
+    return !0;
+  if (subcommandName === "archive")
     return splitAtDoubleDash(rest).before.some((token) => matchesGitLongOption(token, "--remote"));
-  }
   return subcommandName === "remote" && isGitRemoteUpdateOperation(rest);
 }
 function isGitRemoteUpdateOperation(tokens) {
@@ -7840,103 +7201,88 @@ function isGitRemotePrefixOption(token) {
   return token === "-v" || matchesGitLongOption(token, "--verbose") || matchesGitLongOption(token, "--no-verbose");
 }
 function getGitWorktreeRelaxation(tokens, options2 = {}) {
-  const aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
-  if (aliasResolution.blockedReason || aliasResolution.expanded) {
+  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
+  if (aliasResolution.blockedReason || aliasResolution.expanded)
     return null;
-  }
-  const match = analyzeGitRule(aliasResolution.tokens);
-  if (!match) {
+  let match = analyzeGitRule(aliasResolution.tokens);
+  if (!match)
     return null;
-  }
   return getGitWorktreeRelaxationForMatch(tokens, match, options2);
 }
 
 // src/core/analyze/child-analyzer.ts
 function analyzeChildCommandMatch(tokens, context, options2 = {}) {
-  if (tokens.length === 0) {
+  if (tokens.length === 0)
     return null;
-  }
-  const head = tokens[0];
-  if (!head) {
+  let head = tokens[0];
+  if (!head)
     return null;
-  }
-  const normalizedHead = normalizeCommandToken(head);
+  let normalizedHead = normalizeCommandToken(head);
   if (SHELL_WRAPPERS.has(normalizedHead)) {
-    const shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : undefined);
-    if (options2.dynamicInput && shellDynamicMatch) {
+    let shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : void 0);
+    if (options2.dynamicInput && shellDynamicMatch)
       return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
-    }
-    const dashCArg = extractDashCArg(tokens);
-    if (dashCArg && context.analyzeNested) {
+    let dashCArg = extractDashCArg(tokens);
+    if (dashCArg && context.analyzeNested)
       return context.analyzeNested(dashCArg, {
         effectiveCwd: context.cwd,
         envAssignments: context.envAssignments
       });
-    }
     return null;
   }
-  if (AWK_INTERPRETERS.has(normalizedHead)) {
+  if (AWK_INTERPRETERS.has(normalizedHead))
     return filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(tokens, (command2) => context.analyzeNested ? context.analyzeNested(command2, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
     }) : null), context.policy);
-  }
   if (isInterpreterCommand(normalizedHead)) {
-    const codeArg = extractInterpreterCodeArg(tokens);
-    if (!codeArg) {
+    let codeArg = extractInterpreterCodeArg(tokens);
+    if (!codeArg)
       return null;
-    }
-    if (context.paranoidInterpreters) {
+    if (context.paranoidInterpreters)
       return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
-    }
-    const nestedResult = context.analyzeNested?.(codeArg, {
+    let nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
     });
-    if (nestedResult) {
+    if (nestedResult)
       return nestedResult;
-    }
     return containsDangerousCode(codeArg) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) : null;
   }
-  if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens)) {
+  if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens))
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
     }), context.policy) ?? getDynamicRmReason(options2, context);
-  }
-  if (normalizedHead === "find") {
+  if (normalizedHead === "find")
     return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
-      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
+      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? void 0 }, options2)
     }), context.policy);
-  }
-  if (normalizedHead === "git") {
+  if (normalizedHead === "git")
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
-      worktreeMode: options2.dynamicInput ? false : context.worktreeMode
+      worktreeMode: options2.dynamicInput ? !1 : context.worktreeMode
     }), context.policy);
-  }
   return null;
 }
 function getDynamicRmReason(options2, context) {
-  const rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason, intent: "manual_only" } : undefined);
+  let rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason, intent: "manual_only" } : void 0);
   return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.policy) : null;
 }
 
 // src/core/analyze/child-command.ts
 function normalizeChildCommand(tokens, context) {
-  const wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd);
-  const envAssignments = new Map(context.envAssignments ?? []);
-  for (const [k, v] of wrapperInfo.envAssignments) {
+  let wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd), envAssignments = new Map(context.envAssignments ?? []);
+  for (let [k, v] of wrapperInfo.envAssignments)
     envAssignments.set(k, v);
-  }
-  const childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.policy ?? { rules: [], transparentWrappers: [] });
+  let childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.policy ?? { rules: [], transparentWrappers: [] });
   return {
     tokens: childTokens,
-    cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
+    cwd: wrapperInfo.cwd === null ? void 0 : wrapperInfo.cwd ?? context.cwd,
     wrapperCwd: wrapperInfo.cwd,
     envAssignments,
     head: getBasename(childTokens[0] ?? "").toLowerCase()
@@ -7946,22 +7292,18 @@ function stripBusybox(tokens) {
   return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
 }
 function unwrapTransparentWrappers(tokens, policy) {
-  const strippedTokens = stripBusybox(tokens);
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
-  if (!transparentWrapper) {
+  let strippedTokens = stripBusybox(tokens), transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
+  if (!transparentWrapper)
     return strippedTokens;
-  }
   return unwrapTransparentWrappers(transparentWrapper.tokens, policy);
 }
 function collectCommandTemplate(tokens, start) {
-  const templateTokens = [];
-  let i = start;
+  let templateTokens = [], i = start;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (token === undefined || token === ":::")
+    let token = tokens[i];
+    if (token === void 0 || token === ":::")
       break;
-    templateTokens.push(token);
-    i++;
+    templateTokens.push(token), i++;
   }
   return {
     markerIndex: i < tokens.length && tokens[i] === ":::" ? i : -1,
@@ -7970,16 +7312,12 @@ function collectCommandTemplate(tokens, start) {
 }
 
 // src/core/analyze/parallel.ts
-var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.";
-var REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.";
-var PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
+var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.", PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
 function analyzeParallel(tokens, context) {
-  const parseResult = parseParallelCommand(tokens);
-  if (!parseResult) {
+  let parseResult = parseParallelCommand(tokens);
+  if (!parseResult)
     return null;
-  }
-  const {
+  let {
     template,
     args,
     templateHasPlaceholder,
@@ -7988,89 +7326,70 @@ function analyzeParallel(tokens, context) {
     envNames,
     readsCommandsFromInput
   } = parseResult;
-  if (readsCommandsFromInput) {
+  if (readsCommandsFromInput)
     return parallelCommandStreamDynamicReason(context);
-  }
   if (template.length === 0) {
-    const nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
-    for (const arg of args) {
-      const reason = context.analyzeNested(arg, nestedOverrides2);
-      if (reason) {
+    let nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
+    for (let arg of args) {
+      let reason = context.analyzeNested(arg, nestedOverrides2);
+      if (reason)
         return reason;
-      }
     }
     return null;
   }
-  const childCommand = normalizeChildCommand(template, context);
-  const childTokens = childCommand.tokens;
-  const dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments);
-  const envHasPlaceholder = dynamicEnvValues.some(hasParallelPlaceholder);
-  const hasPlaceholder = templateHasPlaceholder || envHasPlaceholder;
-  const hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder;
-  const nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
+  let childCommand = normalizeChildCommand(template, context), childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments), envHasPlaceholder = dynamicEnvValues.some(hasParallelPlaceholder), hasPlaceholder = templateHasPlaceholder || envHasPlaceholder, hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder, nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
   if (SHELL_WRAPPERS.has(childCommand.head)) {
-    const dashCArg = extractDashCArg(childTokens);
+    let dashCArg = extractDashCArg(childTokens);
     if (dashCArg) {
-      if (isOnlyParallelPlaceholder(dashCArg)) {
+      if (isOnlyParallelPlaceholder(dashCArg))
         return parallelShellDynamicReason(context);
-      }
       if (hasParallelPlaceholder(dashCArg)) {
         if (args.length > 0) {
-          for (const arg of args) {
-            const expandedScript = replaceParallelPlaceholder(dashCArg, arg);
-            const reason3 = context.analyzeNested(expandedScript, nestedOverrides);
-            if (reason3) {
+          for (let arg of args) {
+            let expandedScript = replaceParallelPlaceholder(dashCArg, arg), reason3 = context.analyzeNested(expandedScript, nestedOverrides);
+            if (reason3)
               return reason3;
-            }
           }
           return null;
         }
-        const reason2 = context.analyzeNested(dashCArg, nestedOverrides);
-        if (reason2) {
+        let reason2 = context.analyzeNested(dashCArg, nestedOverrides);
+        if (reason2)
           return reason2;
-        }
         return null;
       }
-      const reason = context.analyzeNested(dashCArg, nestedOverrides);
-      if (reason) {
+      let reason = context.analyzeNested(dashCArg, nestedOverrides);
+      if (reason)
         return reason;
-      }
-      const envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, args, context);
-      if (envReason) {
+      let envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, args, context);
+      if (envReason)
         return envReason;
-      }
-      if (hasPlaceholder) {
+      if (hasPlaceholder)
         return parallelShellDynamicReason(context);
-      }
       return null;
     }
-    if (args.length > 0) {
+    if (args.length > 0)
       return parallelShellDynamicReason(context);
-    }
-    if (hasPlaceholder) {
+    if (hasPlaceholder)
       return parallelShellDynamicReason(context);
-    }
     return null;
   }
   if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
-    if (templateHasPlaceholder && args.length > 0) {
+    if (templateHasPlaceholder && args.length > 0)
       return analyzeParallelRmExpansions(args.map((arg) => childTokens.map((t) => t.replace(/{}/g, arg))), childCommand.cwd, context);
-    }
-    if (args.length > 0) {
+    if (args.length > 0)
       return analyzeParallelRmExpansions(args.map((arg) => [...childTokens, arg]), childCommand.cwd, context);
-    }
     return parallelRmDynamicReason(context);
   }
-  const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
-  for (const tokens2 of tokenSets) {
-    const result = analyzeChildCommandMatch(tokens2, {
+  let tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
+  for (let tokens2 of tokenSets) {
+    let result = analyzeChildCommandMatch(tokens2, {
       cwd: childCommand.cwd,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
       paranoidInterpreters: context.paranoidInterpreters,
       allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
-      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
+      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode,
       analyzeNested: context.analyzeNested,
       policy: context.policy
     }, {
@@ -8078,9 +7397,8 @@ function analyzeParallel(tokens, context) {
       shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
       rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
     });
-    if (result) {
+    if (result)
       return result;
-    }
   }
   return null;
 }
@@ -8094,77 +7412,67 @@ function parallelRmDynamicReason(context) {
   return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
 }
 function analyzeParallelRmExpansions(tokenSets, cwd, context) {
-  for (const tokens of tokenSets) {
-    const rmResult = filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
+  for (let tokens of tokenSets) {
+    let rmResult = filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
       cwd,
       originalCwd: context.originalCwd,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
     }), context.policy);
-    if (rmResult) {
+    if (rmResult)
       return rmResult;
-    }
   }
   return null;
 }
 function getParallelChildTokenSets(childTokens, hasPlaceholder, args) {
-  if (hasPlaceholder && args.length > 0) {
+  if (hasPlaceholder && args.length > 0)
     return args.map((arg) => childTokens.map((token) => replaceParallelPlaceholder(token, arg)));
-  }
-  if (!hasPlaceholder && args.length > 0) {
+  if (!hasPlaceholder && args.length > 0)
     return args.map((arg) => [...childTokens, arg]);
-  }
   return [[...childTokens]];
 }
 function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
   return [
     ...envNames.flatMap((name) => {
-      const value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
-      return value === undefined ? [] : [value];
+      let value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
+      return value === void 0 ? [] : [value];
     }),
     ...childEnvAssignments.values()
   ];
 }
 function analyzeParallelDynamicEnvValues(values, args, context) {
-  for (const value of values) {
-    if (!hasParallelPlaceholder(value)) {
+  for (let value of values) {
+    if (!hasParallelPlaceholder(value))
       continue;
-    }
-    const commands = args.length > 0 ? args.map((arg) => replaceParallelPlaceholder(value, arg)) : [value];
-    for (const command2 of commands) {
-      const reason = context.analyzeNested(command2, {
+    let commands = args.length > 0 ? args.map((arg) => replaceParallelPlaceholder(value, arg)) : [value];
+    for (let command2 of commands) {
+      let reason = context.analyzeNested(command2, {
         envAssignments: context.envAssignments,
         effectiveCwd: context.cwd
       });
-      if (reason) {
+      if (reason)
         return reason;
-      }
     }
   }
   return null;
 }
 function buildNestedOverrides(envAssignments, cwd, runsRemotely) {
-  const overrides = { envAssignments };
-  if (cwd !== undefined) {
+  let overrides = { envAssignments };
+  if (cwd !== void 0)
     overrides.effectiveCwd = cwd;
-  }
-  if (runsRemotely) {
-    overrides.worktreeMode = false;
-  }
+  if (runsRemotely)
+    overrides.worktreeMode = !1;
   return overrides;
 }
 function buildCommandsModeOverrides(context, runsRemotely) {
-  const overrides = {};
-  if (context.envAssignments) {
+  let overrides = {};
+  if (context.envAssignments)
     overrides.envAssignments = context.envAssignments;
-  }
-  if (context.cwd !== undefined) {
+  if (context.cwd !== void 0)
     overrides.effectiveCwd = context.cwd;
-  }
-  if (runsRemotely) {
-    overrides.worktreeMode = false;
-  }
-  return Object.keys(overrides).length > 0 ? overrides : undefined;
+  if (runsRemotely)
+    overrides.worktreeMode = !1;
+  return Object.keys(overrides).length > 0 ? overrides : void 0;
 }
 function replaceParallelPlaceholder(token, arg) {
   return token.replace(/\{[^{}\s]*\}/g, arg);
@@ -8176,7 +7484,7 @@ function isOnlyParallelPlaceholder(token) {
   return /^\{[^{}\s]*\}$/.test(token);
 }
 function parseParallelCommand(tokens) {
-  const parallelOptsWithValue = new Set([
+  let parallelOptsWithValue = /* @__PURE__ */ new Set([
     "-a",
     "--arg-file",
     "--colsep",
@@ -8185,16 +7493,9 @@ function parseParallelCommand(tokens) {
     "--results",
     "--result",
     "--res"
-  ]);
-  let i = 1;
-  const templateTokens = [];
-  let childCommandTokens = [];
-  let markerIndex = -1;
-  let runsRemotely = false;
-  let usesPipe = false;
-  const envNames = [];
+  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, envNames = [];
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
     if (token === ":::") {
@@ -8202,41 +7503,33 @@ function parseParallelCommand(tokens) {
       break;
     }
     if (token === "--") {
-      const template = collectCommandTemplate(tokens, i + 1);
-      templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i + 1)];
-      markerIndex = template.markerIndex;
+      let template = collectCommandTemplate(tokens, i + 1);
+      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i + 1)], markerIndex = template.markerIndex;
       break;
     }
     if (token.startsWith("-")) {
       if (token === "--pipe" || token === "--pipepart") {
-        usesPipe = true;
-        i++;
+        usesPipe = !0, i++;
         continue;
       }
       if (token === "--env") {
-        envNames.push(...splitParallelEnvNames(tokens[i + 1]));
-        i += 2;
+        envNames.push(...splitParallelEnvNames(tokens[i + 1])), i += 2;
         continue;
       }
       if (token.startsWith("--env=")) {
-        envNames.push(...splitParallelEnvNames(token.slice("--env=".length)));
-        i++;
+        envNames.push(...splitParallelEnvNames(token.slice(6))), i++;
         continue;
       }
       if (token === "-S" || token === "--sshlogin" || token === "--slf" || token === "--sshloginfile") {
-        runsRemotely = true;
-        i += 2;
+        runsRemotely = !0, i += 2;
         continue;
       }
       if (token.startsWith("-S") && token.length > 2) {
-        runsRemotely = true;
-        i++;
+        runsRemotely = !0, i++;
         continue;
       }
       if (token.startsWith("--sshlogin=") || token.startsWith("--slf=") || token.startsWith("--sshloginfile=")) {
-        runsRemotely = true;
-        i++;
+        runsRemotely = !0, i++;
         continue;
       }
       if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
@@ -8257,35 +7550,30 @@ function parseParallelCommand(tokens) {
       }
       i++;
     } else {
-      const template = collectCommandTemplate(tokens, i);
-      templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i)];
-      markerIndex = template.markerIndex;
+      let template = collectCommandTemplate(tokens, i);
+      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i)], markerIndex = template.markerIndex;
       break;
     }
   }
-  const args = [];
-  if (markerIndex !== -1) {
+  let args = [];
+  if (markerIndex !== -1)
     for (let j = markerIndex + 1;j < tokens.length; j++) {
-      const token = tokens[j];
-      if (token && token !== ":::") {
+      let token = tokens[j];
+      if (token && token !== ":::")
         args.push(token);
-      }
     }
-  }
-  const templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
-  if (templateTokens.length === 0 && markerIndex === -1) {
+  let templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
+  if (templateTokens.length === 0 && markerIndex === -1)
     return {
       template: [],
       args: [],
       childCommandTokens: [],
-      templateHasPlaceholder: false,
+      templateHasPlaceholder: !1,
       runsRemotely,
-      usesStdin: true,
+      usesStdin: !0,
       envNames,
-      readsCommandsFromInput: true
+      readsCommandsFromInput: !0
     };
-  }
   return {
     template: templateTokens,
     args,
@@ -8294,46 +7582,42 @@ function parseParallelCommand(tokens) {
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
     envNames,
-    readsCommandsFromInput: false
+    readsCommandsFromInput: !1
   };
 }
 function splitParallelEnvNames(value) {
   return (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+}
+function extractParallelChildCommand(tokens) {
+  return parseParallelCommand(tokens)?.childCommandTokens ?? [];
 }
 
 // src/core/analyze/tmpdir.ts
 import { existsSync as existsSync8, lstatSync as lstatSync3, realpathSync as realpathSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { isAbsolute as isAbsolute8, join as join9, normalize as normalize2, parse as parsePath3, sep as sep4 } from "node:path";
-var INITIAL_SYSTEM_TMPDIR = tmpdir2();
-var TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
+var INITIAL_SYSTEM_TMPDIR = tmpdir2(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
-  if (!envAssignments.has("TMPDIR")) {
-    return false;
-  }
-  const tmpdirValue = envAssignments.get("TMPDIR") ?? "";
-  if (tmpdirValue === "") {
-    return true;
-  }
-  const normalizedTmpdirValue = tryResolveExistingPathComponents(tmpdirValue);
-  if (normalizedTmpdirValue === null) {
-    return true;
-  }
-  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root))) {
-    return false;
-  }
-  return true;
+  if (!envAssignments.has("TMPDIR"))
+    return !1;
+  let tmpdirValue = envAssignments.get("TMPDIR") ?? "";
+  if (tmpdirValue === "")
+    return !0;
+  let normalizedTmpdirValue = tryResolveExistingPathComponents(tmpdirValue);
+  if (normalizedTmpdirValue === null)
+    return !0;
+  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root)))
+    return !1;
+  return !0;
 }
 function getTrustedTempRoots() {
-  const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root));
-  const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
   if (!initialTmpdir)
     return roots;
   if (process.platform === "win32")
     return [...roots, initialTmpdir];
-  if (process.platform === "darwin" && isMacOSPerUserTempRoot(initialTmpdir)) {
+  if (process.platform === "darwin" && isMacOSPerUserTempRoot(initialTmpdir))
     return [...roots, initialTmpdir];
-  }
   return roots;
 }
 function isMacOSPerUserTempRoot(path) {
@@ -8347,39 +7631,29 @@ function tryResolveExistingPathComponents(path) {
   }
 }
 function resolveExistingPathComponents(path) {
-  const normalized = normalize2(path);
-  if (!isAbsolute8(normalized)) {
+  let normalized = normalize2(path);
+  if (!isAbsolute8(normalized))
     return normalized;
-  }
-  const root = parsePath3(normalized).root;
-  const components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean);
-  let current = root;
+  let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
-    const candidate = join9(current, components[i] ?? "");
-    if (!existsSync8(candidate)) {
+    let candidate = join9(current, components[i] ?? "");
+    if (!existsSync8(candidate))
       return join9(candidate, ...components.slice(i + 1));
-    }
     current = lstatSync3(candidate).isSymbolicLink() ? realpathSync7(candidate) : candidate;
   }
   return current;
 }
 function isPathOrSubpath(path, basePath) {
-  if (path === basePath) {
-    return true;
-  }
-  const baseWithSlash = basePath.endsWith(sep4) ? basePath : `${basePath}${sep4}`;
+  if (path === basePath)
+    return !0;
+  let baseWithSlash = basePath.endsWith(sep4) ? basePath : `${basePath}${sep4}`;
   return path.startsWith(baseWithSlash);
 }
 
 // src/core/analyze/xargs.ts
-var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.";
-var XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
+var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
 function analyzeXargs(tokens, context) {
-  const { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens);
-  const childCommand = normalizeChildCommand(rawChildTokens, context);
-  const childTokens = childCommand.tokens;
-  const childResult = analyzeChildCommandMatch(childTokens, {
+  let { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens), childCommand = normalizeChildCommand(rawChildTokens, context), childTokens = childCommand.tokens, childResult = analyzeChildCommandMatch(childTokens, {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
@@ -8394,14 +7668,11 @@ function analyzeXargs(tokens, context) {
     shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
     rmDynamicMatch: destructiveCommandMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
   });
-  if (childResult) {
+  if (childResult)
     return childResult;
-  }
-  if (childCommand.head !== "git") {
+  if (childCommand.head !== "git")
     return null;
-  }
-  const gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens;
-  const hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
+  let gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens, hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
   return analyzeChildCommandMatch(gitTokens, {
     cwd: childCommand.cwd,
     originalCwd: context.originalCwd,
@@ -8409,13 +7680,13 @@ function analyzeXargs(tokens, context) {
     paranoidInterpreters: context.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
-    worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
+    worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode,
     analyzeNested: context.analyzeNested,
     policy: context.policy
   });
 }
 function extractXargsChildCommandWithInfo(tokens) {
-  const xargsOptsWithValue = new Set([
+  let xargsOptsWithValue = /* @__PURE__ */ new Set([
     "-L",
     "-n",
     "-P",
@@ -8435,61 +7706,65 @@ function extractXargsChildCommandWithInfo(tokens) {
     "--delimiter",
     "--max-lines",
     "--process-slot-var"
-  ]);
-  let replacementToken = null;
-  let i = 1;
+  ]), replacementToken = null, i = 1;
   while (i < tokens.length) {
-    const token = tokens[i];
+    let token = tokens[i];
     if (!token)
       break;
-    if (token === "--") {
+    if (token === "--")
       return { childTokens: [...tokens.slice(i + 1)], replacementToken };
-    }
     if (token.startsWith("-")) {
       if (token === "-I") {
-        replacementToken = tokens[i + 1] ?? "{}";
-        i += 2;
+        replacementToken = tokens[i + 1] ?? "{}", i += 2;
         continue;
       }
       if (token.startsWith("-I") && token.length > 2) {
-        replacementToken = token.slice(2);
-        i++;
+        replacementToken = token.slice(2), i++;
         continue;
       }
       if (token === "--replace") {
-        replacementToken = "{}";
-        i++;
+        replacementToken = "{}", i++;
         continue;
       }
       if (token.startsWith("--replace=")) {
-        const value = token.slice("--replace=".length);
-        replacementToken = value === "" ? "{}" : value;
-        i++;
+        let value = token.slice(10);
+        replacementToken = value === "" ? "{}" : value, i++;
         continue;
       }
       if (token === "-J") {
         i += 2;
         continue;
       }
-      if (xargsOptsWithValue.has(token)) {
+      if (xargsOptsWithValue.has(token))
         i += 2;
-      } else if (token.startsWith("--") && token.includes("=")) {
+      else if (token.startsWith("--") && token.includes("="))
         i++;
-      } else if (token.startsWith("-L") || token.startsWith("-n") || token.startsWith("-P") || token.startsWith("-s")) {
+      else if (token.startsWith("-L") || token.startsWith("-n") || token.startsWith("-P") || token.startsWith("-s"))
         i++;
-      } else {
+      else
         i++;
-      }
-    } else {
+    } else
       return { childTokens: [...tokens.slice(i)], replacementToken };
-    }
   }
   return { childTokens: [], replacementToken };
 }
 
 // src/core/analyze/segment.ts
-var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.";
-var COMMAND_ANALYZERS = new Map([
+var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
+  "branch",
+  "checkout",
+  "clean",
+  "merge",
+  "push",
+  "rebase",
+  "reflog",
+  "reset",
+  "restore",
+  "stash",
+  "switch",
+  "tag",
+  "worktree"
+]), COMMAND_ANALYZERS = /* @__PURE__ */ new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
   ["find", analyzeFindCommand],
@@ -8497,105 +7772,84 @@ var COMMAND_ANALYZERS = new Map([
   ["parallel", analyzeParallelCommand]
 ]);
 function deriveCwdContext(options2) {
-  const cwdUnknown = options2.effectiveCwd === null;
-  const cwdForRm = cwdUnknown ? undefined : options2.effectiveCwd ?? options2.cwd;
-  const originalCwd = cwdUnknown ? undefined : options2.cwd;
+  let cwdUnknown = options2.effectiveCwd === null, cwdForRm = cwdUnknown ? void 0 : options2.effectiveCwd ?? options2.cwd, originalCwd = cwdUnknown ? void 0 : options2.cwd;
   return { cwdUnknown, cwdForRm, originalCwd };
 }
 function analyzeSegment(tokens, depth, options2) {
-  if (tokens.length === 0) {
+  if (tokens.length === 0)
     return null;
-  }
-  const { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2);
-  const { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
-  const {
+  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens), {
     tokens: stripped,
     envAssignments: wrapperEnvAssignments,
     cwd: wrapperCwd
-  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm);
-  const envAssignments = new Map(options2.envAssignments ?? []);
-  for (const [k, v] of leadingEnvAssignments) {
+  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView }, envAssignments = new Map(options2.envAssignments ?? []);
+  for (let [k, v] of leadingEnvAssignments)
     envAssignments.set(k, v);
-  }
-  for (const [k, v] of wrapperEnvAssignments) {
+  for (let [k, v] of wrapperEnvAssignments)
     envAssignments.set(k, v);
-  }
-  if (stripped.length === 0) {
+  if (stripped.length === 0)
     return null;
-  }
-  const head = stripped[0];
-  if (!head) {
+  let head = stripped[0];
+  if (!head)
     return null;
-  }
-  if (options2.invalidReason) {
+  if (options2.invalidReason)
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
-  }
-  const normalizedHead = normalizeCommandToken(head);
-  const basename2 = getBasename(head);
-  const cwdForRm = wrapperCwd === null ? undefined : wrapperCwd ?? baseCwdForRm;
-  const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
-  const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
-  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
-  const dynamicExecutableMatch = filterDestructiveCommandMatch(analyzeDynamicExecutable(head), options2.policy);
-  if (dynamicExecutableMatch) {
-    return blockResultFromMatch(dynamicExecutableMatch);
-  }
-  const transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
-  if (transparentWrapper) {
+  let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
+  if (dynamicCommandMatch)
+    return blockResultFromMatch(dynamicCommandMatch);
+  let transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
+  if (transparentWrapper)
     return analyzeSegment(transparentWrapper.tokens, depth, {
-      ...options2,
+      ...normalizedOptions,
+      commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0,
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
     });
-  }
   if (isShellWrapperCommand(head, normalizedHead)) {
-    const dashCArg = extractDashCArg(stripped);
-    if (dashCArg) {
+    let dashCArg = extractDashCArg(stripped);
+    if (dashCArg)
       return options2.analyzeNested(dashCArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
-    }
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
+    let awkReason = filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
     }))), options2.policy);
-    if (awkReason) {
+    if (awkReason)
       return blockResultFromMatch(awkReason);
-    }
   }
   if (isInterpreterCommand(normalizedHead)) {
-    const codeArg = extractInterpreterCodeArg(stripped);
+    let codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (options2.paranoidInterpreters) {
-        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.policy);
+        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
-      const innerReason = options2.analyzeNested(codeArg, {
+      let innerReason = options2.analyzeNested(codeArg, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
-      if (innerReason) {
+      if (innerReason)
         return innerReason;
-      }
       if (containsDangerousCode(codeArg)) {
-        const match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.policy);
+        let match = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
     }
   }
-  if (normalizedHead === "busybox" && stripped.length > 1) {
+  if (normalizedHead === "busybox" && stripped.length > 1)
     return analyzeSegment(stripped.slice(1), depth, {
-      ...options2,
+      ...normalizedOptions,
+      commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : void 0,
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
     });
-  }
-  const commandContext = {
+  let commandContext = {
     tokens: stripped,
     head,
     normalizedHead,
@@ -8606,81 +7860,183 @@ function analyzeSegment(tokens, depth, options2) {
     allowTmpdirVar,
     depth,
     effectiveCwd: nestedEffectiveCwd,
-    options: options2
-  };
-  const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.policy);
-  if (commandResult) {
+    options: normalizedOptions
+  }, commandAnalyzer = getCommandAnalyzer(commandContext), commandResult = filterDestructiveCommandMatch(commandAnalyzer?.(commandContext) ?? null, options2.policy);
+  if (commandResult)
     return blockResultFromMatch(commandResult);
-  }
-  const matchedKnown = commandAnalyzer !== undefined;
+  let matchedKnown = commandAnalyzer !== void 0;
   if (!matchedKnown) {
-    if (!DISPLAY_COMMANDS.has(normalizedHead)) {
+    if (!DISPLAY_COMMANDS.has(normalizedHead))
       for (let i = 1;i < stripped.length; i++) {
-        const token = stripped[i];
-        if (!token)
+        if (!stripped[i])
           continue;
-        const match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.policy);
+        let match = filterDestructiveCommandMatch(analyzeEmbeddedCommand(commandContext, i), options2.policy);
         if (match)
           return blockResultFromMatch(match);
       }
-    }
   }
-  const customRulesTopLevelOnly = matchedKnown;
-  if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkPolicyRuleMatch(stripped, options2.policy.rules);
-    if (customResult) {
+  if (depth === 0 || !matchedKnown) {
+    let customResult = checkPolicyRuleMatch(stripped, options2.policy.rules);
+    if (customResult)
       return blockResultFromMatch(customResult);
-    }
   }
   return null;
 }
-function blockResultFromMatch(match) {
-  return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
+function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
+  if (!view)
+    return;
+  return sliceCommandView(view, leadingAssignments + wrapperPrefix);
 }
-function analyzeDynamicExecutable(head) {
-  return head.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN) ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
+function blockResultFromMatch(match) {
+  return { reason: match.reason, ruleId: match.id || void 0, intent: match.intent };
+}
+function analyzeDynamicExecutable(dynamic) {
+  return dynamic ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
+}
+function analyzeDynamicCommandStructure(command2) {
+  return analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1) ?? analyzeDynamicStructure(command2);
+}
+function analyzeDynamicStructure(command2) {
+  if (!command2 || command2.words.length < 2)
+    return null;
+  let dynamicIndexes = command2.words.flatMap((word, index) => hasCommandSubstitutionPart(word) ? [index] : []);
+  if (dynamicIndexes.length === 0)
+    return null;
+  let head = normalizeCommandToken(command2.words[0]?.text ?? "");
+  if (head === "git") {
+    let subcommandIndex = findGitSubcommandIndex(command2.analysisTokens);
+    if (dynamicIndexes.some((index) => index <= subcommandIndex))
+      return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
+    if (analyzeGitMatch(command2.analysisTokens))
+      return null;
+    let subcommand = command2.words[subcommandIndex]?.text.toLowerCase(), dataBoundary = command2.analysisTokens.indexOf("--", subcommandIndex + 1);
+    if (subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
+      return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
+    return null;
+  }
+  if (head === "find")
+    return hasDynamicFindStructure(command2) ? destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE) : null;
+  if (head === "xargs")
+    return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs");
+  if (head === "parallel")
+    return analyzeDynamicChildStructure(command2, extractParallelChildCommand(command2.analysisTokens), "parallel");
+  return null;
+}
+function hasDynamicFindStructure(command2) {
+  let expressionStarted = !1, valuesRemaining = 0, childStart = !1, inChild = !1;
+  for (let i = 1;i < command2.words.length; i++) {
+    let word = command2.words[i];
+    if (!word)
+      continue;
+    let dynamic = hasCommandSubstitutionPart(word);
+    if (valuesRemaining > 0) {
+      valuesRemaining--;
+      continue;
+    }
+    if (inChild) {
+      if (word.text === ";" || word.text === "+") {
+        inChild = !1, expressionStarted = !0, childStart = !1;
+        continue;
+      }
+      if (dynamic && (childStart || hasOptionLiteralPart(word)))
+        return !0;
+      childStart = !1;
+      continue;
+    }
+    if (!expressionStarted && !word.text.startsWith("-")) {
+      if (dynamic && (i > 1 || hasOptionLiteralPart(word)))
+        return !0;
+      continue;
+    }
+    if (expressionStarted = !0, dynamic)
+      return !0;
+    let arity = getFindPrimaryArity(word.text);
+    if (arity > 0) {
+      valuesRemaining = arity;
+      continue;
+    }
+    if (isFindExecPrimary(word.text))
+      inChild = !0, childStart = !0;
+  }
+  return !1;
+}
+function analyzeDynamicChildStructure(command2, childTokens, kind) {
+  if (childTokens.length === 0)
+    return null;
+  let childStart = command2.analysisTokens.length - childTokens.length, childView = normalizeChildCommandView(sliceCommandView(command2, childStart));
+  if (childView.dynamicExecutable)
+    return destructiveCommandMatch(`${kind}.shell-dynamic`, kind === "xargs" ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL);
+  let nestedStructure = analyzeDynamicStructure(childView);
+  if (nestedStructure)
+    return nestedStructure;
+  if (childView.words[0]?.text === "rm" && childView.words.slice(1).some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word)))
+    return destructiveCommandMatch(`${kind}.rm-recursive-force-dynamic`, kind === "xargs" ? REASON_XARGS_RM : REASON_PARALLEL_RM);
+  return null;
+}
+function normalizeChildCommandView(view) {
+  let leading = stripEnvAssignmentsWithInfo([...view.analysisTokens]), withoutLeading = sliceCommandView(view, view.analysisTokens.length - leading.tokens.length), wrapped = stripWrappersWithInfo([...withoutLeading.analysisTokens]), normalized = sliceCommandView(withoutLeading, withoutLeading.analysisTokens.length - wrapped.tokens.length);
+  return normalized.analysisTokens[0] === "busybox" ? sliceCommandView(normalized, 1) : normalized;
+}
+function hasCommandSubstitutionPart(word) {
+  return word?.parts.some((part) => part.provenance === "command-substitution") ?? !1;
+}
+function hasOptionLiteralPart(word) {
+  return word?.parts.some((part) => part.provenance === "literal" && part.raw.replace(/^["']/, "").startsWith("-")) ?? !1;
+}
+function findGitSubcommandIndex(tokens) {
+  let i = 1;
+  while (i < tokens.length) {
+    let token = tokens[i] ?? "";
+    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
+      i += 2;
+      continue;
+    }
+    if (token.startsWith("-")) {
+      i++;
+      continue;
+    }
+    return i;
+  }
+  return i;
 }
 function isShellWrapperCommand(head, normalizedHead) {
-  return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
+  return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || head === "${SHELL}" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
 }
 function getCommandAnalyzer(context) {
   return COMMAND_ANALYZERS.get(context.normalizedHead);
 }
 function analyzeEmbeddedCommand(context, index) {
-  const token = context.tokens[index];
-  if (!token) {
+  let token = context.tokens[index];
+  if (!token)
     return null;
-  }
-  const cmd = normalizeCommandToken(token);
+  let cmd = normalizeCommandToken(token);
   if (isShellWrapperCommand(token, cmd)) {
-    const dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
-    if (!dashCArg) {
+    let dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
+    if (!dashCArg)
       return null;
-    }
-    const result = context.options.analyzeNested(dashCArg, {
+    let result = context.options.analyzeNested(dashCArg, {
       effectiveCwd: context.effectiveCwd,
       envAssignments: context.envAssignments
     });
     return result ? matchFromBlockResult(result) : null;
   }
-  const analyzer = COMMAND_ANALYZERS.get(cmd);
-  if (!analyzer || cmd === "xargs" || cmd === "parallel") {
+  let analyzer = COMMAND_ANALYZERS.get(cmd);
+  if (!analyzer || cmd === "xargs" || cmd === "parallel")
     return null;
-  }
-  const embeddedContext = {
+  let embeddedContext = {
     ...context,
     tokens: [cmd, ...context.tokens.slice(index + 1)],
     head: cmd,
     normalizedHead: cmd,
     basename: cmd,
-    options: cmd === "git" ? { ...context.options, worktreeMode: false } : context.options
+    options: cmd === "git" ? { ...context.options, worktreeMode: !1 } : context.options
   };
   return analyzer(embeddedContext);
 }
 function analyzeGitCommand(context) {
   return analyzeGitMatch(context.tokens, {
     cwd: context.cwdForRm,
+    dynamicArguments: context.options.commandView?.words.some((word) => word.provenance === "command-substitution"),
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode
   });
@@ -8738,46 +8094,34 @@ function getNestedCommandAnalyzeContext(context) {
 }
 var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
 function segmentChangesCwd(segment) {
-  const unwrapped = getCwdChangeTokens(segment);
-  if (unwrapped.length === 0) {
-    return false;
-  }
-  let head = unwrapped[0] ?? "";
-  let headIndex = 0;
-  if (head === "builtin" && unwrapped.length > 1) {
-    head = unwrapped[1] ?? "";
-    headIndex = 1;
-  }
-  if (head === "time") {
+  let unwrapped = getCwdChangeTokens(segment);
+  if (unwrapped.length === 0)
+    return !1;
+  let head = unwrapped[0] ?? "", headIndex = 0;
+  if (head === "builtin" && unwrapped.length > 1)
+    head = unwrapped[1] ?? "", headIndex = 1;
+  if (head === "time")
     head = getHeadAfterTimePrefix(unwrapped, headIndex + 1);
-  }
-  if (head === "cd" || head === "pushd" || head === "popd") {
-    return true;
-  }
-  const joined = segment.join(" ");
+  if (head === "cd" || head === "pushd" || head === "popd")
+    return !0;
+  let joined = segment.join(" ");
   return CWD_CHANGE_REGEX.test(joined);
 }
 function resolveCwdAfterSegment(segment, cwd) {
-  if (!segmentChangesCwd(segment)) {
+  if (!segmentChangesCwd(segment))
     return;
-  }
-  if (!cwd) {
+  if (!cwd)
     return null;
-  }
-  const unwrapped = getCwdChangeTokens(segment, cwd);
-  const cdIndex = getCdCommandIndex(unwrapped);
-  if (cdIndex === -1 || unwrapped[cdIndex] !== "cd") {
+  let unwrapped = getCwdChangeTokens(segment, cwd), cdIndex = getCdCommandIndex(unwrapped);
+  if (cdIndex === -1 || unwrapped[cdIndex] !== "cd")
     return null;
-  }
-  const target = unwrapped[cdIndex + 1];
-  if (!target || target === "-" || target.includes("$") || target.includes("`")) {
+  let target = unwrapped[cdIndex + 1];
+  if (!target || target === "-" || target.includes("$") || target.includes("`"))
     return null;
-  }
   try {
-    const resolved = resolveChdirTarget(cwd, target);
-    if (samePath(resolved, cwd)) {
+    let resolved = resolveChdirTarget(cwd, target);
+    if (samePath(resolved, cwd))
       return cwd;
-    }
   } catch {
     return null;
   }
@@ -8785,27 +8129,23 @@ function resolveCwdAfterSegment(segment, cwd) {
 }
 function getHeadAfterTimePrefix(tokens, startIndex) {
   let i = startIndex;
-  while (tokens[i]?.startsWith("-")) {
+  while (tokens[i]?.startsWith("-"))
     i++;
-  }
   return tokens[i] ?? "";
 }
 function getCdCommandIndex(tokens) {
   let headIndex = 0;
-  if (tokens[0] === "builtin" && tokens.length > 1) {
+  if (tokens[0] === "builtin" && tokens.length > 1)
     headIndex = 1;
-  }
-  if (tokens[headIndex] !== "time") {
+  if (tokens[headIndex] !== "time")
     return headIndex;
-  }
   let i = headIndex + 1;
-  while (tokens[i]?.startsWith("-")) {
+  while (tokens[i]?.startsWith("-"))
     i++;
-  }
   return i;
 }
 function getCwdChangeTokens(segment, cwd) {
-  const stripped = stripLeadingGrouping(segment);
+  let stripped = stripLeadingGrouping(segment);
   return stripWrappers([...stripped], cwd);
 }
 function samePath(a, b) {
@@ -8818,12 +8158,11 @@ function samePath(a, b) {
 function stripLeadingGrouping(tokens) {
   let i = 0;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (token === "{" || token === "(" || token === "$(") {
+    let token = tokens[i];
+    if (token === "{" || token === "(" || token === "$(")
       i++;
-    } else {
+    else
       break;
-    }
   }
   return tokens.slice(i);
 }
@@ -8831,143 +8170,123 @@ function stripLeadingGrouping(tokens) {
 // src/core/analyze/shell-git-env.ts
 var TMPDIR_ENV_NAME = "TMPDIR";
 function createShellGitContextEnvState(effectiveEnvAssignments) {
-  const initialEffectiveEnvAssignments = getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
+  let initialEffectiveEnvAssignments = getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
   return {
     effectiveEnvAssignments: initialEffectiveEnvAssignments,
-    shellAssignments: new Map,
+    shellAssignments: /* @__PURE__ */ new Map,
     exportedNames: getInitiallyExportedShellEnvNames(initialEffectiveEnvAssignments),
-    allexport: false,
-    keywordExport: false
+    allexport: !1,
+    keywordExport: !1
+  };
+}
+function cloneShellGitContextEnvState(state) {
+  return {
+    effectiveEnvAssignments: state.effectiveEnvAssignments ? new Map(state.effectiveEnvAssignments) : void 0,
+    shellAssignments: new Map(state.shellAssignments),
+    exportedNames: new Set(state.exportedNames),
+    allexport: state.allexport,
+    keywordExport: state.keywordExport
   };
 }
 function applyShellGitContextEnvSegment(tokens, state) {
-  const commandInfo = getShellCommandInfo(tokens);
-  if (!commandInfo) {
+  let commandInfo = getShellCommandInfo(tokens);
+  if (!commandInfo)
     return;
-  }
-  const { command: command2, commandIndex, leadingAssignments } = commandInfo;
+  let { command: command2, commandIndex, leadingAssignments } = commandInfo;
   if (command2 === null) {
-    for (const assignment of leadingAssignments.values()) {
+    for (let assignment of leadingAssignments.values())
       setShellGitContextAssignment(state, assignment);
-    }
     return;
   }
   if (command2 === "set") {
-    const changes = getSetOptionChanges(tokens, commandIndex);
-    if (changes.allexport !== null) {
+    let changes = getSetOptionChanges(tokens, commandIndex);
+    if (changes.allexport !== null)
       state.allexport = changes.allexport;
-    }
-    if (changes.keywordExport !== null) {
+    if (changes.keywordExport !== null)
       state.keywordExport = changes.keywordExport;
-    }
     return;
   }
   if (command2 === "unset") {
-    const operandsStart = getUnsetOperandsStart(tokens, commandIndex);
-    if (operandsStart === null) {
+    let operandsStart = getUnsetOperandsStart(tokens, commandIndex);
+    if (operandsStart === null)
       return;
-    }
-    for (const token of tokens.slice(operandsStart)) {
+    for (let token of tokens.slice(operandsStart))
       unsetTrackedGitContextEnvName(state, token);
-    }
     return;
   }
-  if (command2 !== "export" && command2 !== "typeset" && command2 !== "declare" && command2 !== "readonly") {
+  if (command2 !== "export" && command2 !== "typeset" && command2 !== "declare" && command2 !== "readonly")
     return;
-  }
-  for (const assignment of leadingAssignments.values()) {
+  for (let assignment of leadingAssignments.values())
     setShellGitContextAssignment(state, assignment);
-  }
   if (command2 === "export") {
-    const operandsStart = getExportOperandsStart(tokens, commandIndex);
-    if (operandsStart === null) {
+    let operandsStart = getExportOperandsStart(tokens, commandIndex);
+    if (operandsStart === null)
       return;
-    }
-    for (const token of tokens.slice(operandsStart)) {
+    for (let token of tokens.slice(operandsStart))
       addExportedGitContextEnvAssignment(state, token);
-    }
     return;
   }
-  const operandsInfo = getTypesetOperandsInfo(tokens, commandIndex);
-  if (operandsInfo === null) {
+  let operandsInfo = getTypesetOperandsInfo(tokens, commandIndex);
+  if (operandsInfo === null)
     return;
-  }
-  for (const token of tokens.slice(operandsInfo.operandsStart)) {
-    addTypesetGitContextEnvAssignment(state, token, operandsInfo.exports, command2 === "readonly" ? leadingAssignments : undefined);
-  }
+  for (let token of tokens.slice(operandsInfo.operandsStart))
+    addTypesetGitContextEnvAssignment(state, token, operandsInfo.exports, command2 === "readonly" ? leadingAssignments : void 0);
 }
 function getSegmentGitContextEnvAssignments(tokens, state) {
-  if (!state.keywordExport) {
+  if (!state.keywordExport)
     return state.effectiveEnvAssignments;
-  }
   let nextEnvAssignments = null;
-  for (const token of tokens) {
-    const assignment = parseGitContextEnvAssignment(token);
-    if (!assignment) {
+  for (let token of tokens) {
+    let assignment = parseGitContextEnvAssignment(token);
+    if (!assignment)
       continue;
-    }
-    nextEnvAssignments ??= new Map(state.effectiveEnvAssignments ?? []);
-    nextEnvAssignments.set(assignment.name, assignment.value);
+    nextEnvAssignments ??= new Map(state.effectiveEnvAssignments ?? []), nextEnvAssignments.set(assignment.name, assignment.value);
   }
   return nextEnvAssignments ?? state.effectiveEnvAssignments;
 }
 function getShellCommandInfo(tokens) {
-  const leadingAssignments = new Map;
-  let i = 0;
+  let leadingAssignments = /* @__PURE__ */ new Map, i = 0;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       return null;
-    }
-    const assignment = parseShellAssignment(token);
-    if (!assignment) {
+    let assignment = parseShellAssignment(token);
+    if (!assignment)
       break;
-    }
-    if (isTrackedShellEnvName(assignment.name)) {
+    if (isTrackedShellEnvName(assignment.name))
       leadingAssignments.set(assignment.name, assignment);
-    }
     i++;
   }
-  if (i >= tokens.length) {
+  if (i >= tokens.length)
     return { command: null, commandIndex: i, leadingAssignments };
-  }
-  let commandIndex = i;
-  let command2 = tokens[commandIndex] ?? null;
+  let commandIndex = i, command2 = tokens[commandIndex] ?? null;
   while (command2 === "builtin" || command2 === "command" || command2 === "time") {
     if (command2 === "builtin") {
-      commandIndex++;
-      if (tokens[commandIndex] === "--") {
+      if (commandIndex++, tokens[commandIndex] === "--")
         commandIndex++;
-      }
       command2 = tokens[commandIndex] ?? null;
       continue;
     }
     if (command2 === "command") {
-      const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
-      if (!commandBuiltinInfo) {
+      let commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
+      if (!commandBuiltinInfo)
         return null;
-      }
-      commandIndex = commandBuiltinInfo.commandIndex;
-      command2 = commandBuiltinInfo.command;
+      commandIndex = commandBuiltinInfo.commandIndex, command2 = commandBuiltinInfo.command;
       continue;
     }
-    const timePrefixInfo = getTimePrefixTarget(tokens, commandIndex);
-    if (!timePrefixInfo) {
+    let timePrefixInfo = getTimePrefixTarget(tokens, commandIndex);
+    if (!timePrefixInfo)
       return null;
-    }
-    commandIndex = timePrefixInfo.commandIndex;
-    command2 = timePrefixInfo.command;
+    commandIndex = timePrefixInfo.commandIndex, command2 = timePrefixInfo.command;
   }
-  if (command2 === null) {
+  if (command2 === null)
     return null;
-  }
   return { command: command2, commandIndex, leadingAssignments };
 }
 function getCommandBuiltinTarget(tokens, commandIndex) {
   return getPrefixedCommandTarget(tokens, commandIndex, (token) => {
-    if (token === "-p") {
+    if (token === "-p")
       return "skip";
-    }
     return token === "-v" || token === "-V" ? "abort" : "stop";
   });
 }
@@ -8977,132 +8296,107 @@ function getTimePrefixTarget(tokens, commandIndex) {
 function getPrefixedCommandTarget(tokens, commandIndex, optionAction) {
   let i = commandIndex + 1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       return null;
-    }
     if (token === "--") {
       i++;
       break;
     }
-    const action = optionAction(token);
-    if (action === "abort") {
+    let action = optionAction(token);
+    if (action === "abort")
       return null;
-    }
     if (action === "skip") {
       i++;
       continue;
     }
     break;
   }
-  const command2 = tokens[i];
+  let command2 = tokens[i];
   return command2 ? { command: command2, commandIndex: i } : null;
 }
 function parseShellAssignment(token) {
   return parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
 }
 function parseGitContextEnvAssignment(token) {
-  const assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-  if (!assignment || !isTrackedShellEnvName(assignment.name)) {
+  let assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
+  if (!assignment || !isTrackedShellEnvName(assignment.name))
     return null;
-  }
   return assignment;
 }
 function isTrackedShellEnvName(name) {
   return name === TMPDIR_ENV_NAME || isTrackedGitEnvName(name);
 }
 function getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments) {
-  const inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME].map((name) => {
-    const value = process.env[name];
-    return value === undefined ? null : [name, value];
+  let inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME].map((name) => {
+    let value = process.env[name];
+    return value === void 0 ? null : [name, value];
   }).filter((assignment) => assignment !== null);
-  if (inheritedAssignments.length === 0) {
+  if (inheritedAssignments.length === 0)
     return effectiveEnvAssignments;
-  }
   return new Map([...inheritedAssignments, ...effectiveEnvAssignments ?? []]);
 }
 function getInitiallyExportedShellEnvNames(effectiveEnvAssignments) {
-  const exportedNames = new Set;
-  for (const name of Object.keys(process.env)) {
-    if (isTrackedShellEnvName(name)) {
+  let exportedNames = /* @__PURE__ */ new Set;
+  for (let name of Object.keys(process.env))
+    if (isTrackedShellEnvName(name))
       exportedNames.add(name);
-    }
-  }
-  for (const name of effectiveEnvAssignments?.keys() ?? []) {
-    if (isTrackedShellEnvName(name)) {
+  for (let name of effectiveEnvAssignments?.keys() ?? [])
+    if (isTrackedShellEnvName(name))
       exportedNames.add(name);
-    }
-  }
   return exportedNames;
 }
 function setShellGitContextAssignment(state, assignment) {
-  state.shellAssignments.set(assignment.name, assignment.value);
-  if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name)) {
+  if (state.shellAssignments.set(assignment.name, assignment.value), assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
     setEffectiveGitContextAssignment(state, assignment);
-  }
 }
 function setEffectiveGitContextAssignment(state, assignment) {
-  const nextEnvAssignments = new Map(state.effectiveEnvAssignments ?? []);
-  nextEnvAssignments.set(assignment.name, assignment.value);
-  state.effectiveEnvAssignments = nextEnvAssignments;
+  let nextEnvAssignments = new Map(state.effectiveEnvAssignments ?? []);
+  nextEnvAssignments.set(assignment.name, assignment.value), state.effectiveEnvAssignments = nextEnvAssignments;
 }
 function addExportedGitContextEnvAssignment(state, token) {
-  const assignment = parseGitContextEnvAssignment(token);
+  let assignment = parseGitContextEnvAssignment(token);
   if (assignment) {
-    state.shellAssignments.set(assignment.name, assignment.value);
-    state.exportedNames.add(assignment.name);
-    setEffectiveGitContextAssignment(state, assignment);
+    state.shellAssignments.set(assignment.name, assignment.value), state.exportedNames.add(assignment.name), setEffectiveGitContextAssignment(state, assignment);
     return;
   }
-  if (isTrackedShellEnvName(token)) {
+  if (isTrackedShellEnvName(token))
     exportTrackedGitContextEnvName(state, token);
-  }
 }
 function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadingAssignments) {
-  const assignment = parseGitContextEnvAssignment(token);
+  let assignment = parseGitContextEnvAssignment(token);
   if (assignment) {
-    state.shellAssignments.set(assignment.name, assignment.value);
-    if (exports) {
-      state.exportedNames.add(assignment.name);
+    if (state.shellAssignments.set(assignment.name, assignment.value), exports)
+      state.exportedNames.add(assignment.name), setEffectiveGitContextAssignment(state, assignment);
+    else if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
       setEffectiveGitContextAssignment(state, assignment);
-    } else if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name)) {
-      setEffectiveGitContextAssignment(state, assignment);
-    }
     return;
   }
-  const readonlyAssignment = readonlyLeadingAssignments?.get(token);
+  let readonlyAssignment = readonlyLeadingAssignments?.get(token);
   if (readonlyAssignment) {
-    state.exportedNames.add(token);
-    setEffectiveGitContextAssignment(state, readonlyAssignment);
+    state.exportedNames.add(token), setEffectiveGitContextAssignment(state, readonlyAssignment);
     return;
   }
-  if (exports && isTrackedShellEnvName(token)) {
+  if (exports && isTrackedShellEnvName(token))
     exportTrackedGitContextEnvName(state, token);
-  }
 }
 function exportTrackedGitContextEnvName(state, name) {
-  state.exportedNames.add(name);
-  setEffectiveGitContextAssignment(state, {
+  state.exportedNames.add(name), setEffectiveGitContextAssignment(state, {
     name,
     value: state.shellAssignments.get(name) ?? ""
   });
 }
 function unsetTrackedGitContextEnvName(state, name) {
-  if (!isTrackedShellEnvName(name)) {
+  if (!isTrackedShellEnvName(name))
     return;
-  }
-  state.shellAssignments.delete(name);
-  state.exportedNames.delete(name);
-  if (name === TMPDIR_ENV_NAME) {
+  if (state.shellAssignments.delete(name), state.exportedNames.delete(name), name === TMPDIR_ENV_NAME) {
     setEffectiveGitContextAssignment(state, { name, value: "" });
     return;
   }
-  if (!state.effectiveEnvAssignments?.has(name)) {
+  if (!state.effectiveEnvAssignments?.has(name))
     return;
-  }
-  const nextEnvAssignments = new Map(state.effectiveEnvAssignments);
-  nextEnvAssignments.delete(name);
-  state.effectiveEnvAssignments = nextEnvAssignments.size === 0 ? undefined : nextEnvAssignments;
+  let nextEnvAssignments = new Map(state.effectiveEnvAssignments);
+  nextEnvAssignments.delete(name), state.effectiveEnvAssignments = nextEnvAssignments.size === 0 ? void 0 : nextEnvAssignments;
 }
 function getUnsetOperandsStart(tokens, commandIndex) {
   return getBuiltinOperandsStart(tokens, commandIndex, (token) => token === "-v");
@@ -9113,46 +8407,38 @@ function getExportOperandsStart(tokens, commandIndex) {
 function getBuiltinOperandsStart(tokens, commandIndex, skipsOption) {
   let i = commandIndex + 1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       return null;
-    }
-    if (token === "--") {
+    if (token === "--")
       return i + 1;
-    }
     if (skipsOption(token)) {
       i++;
       continue;
     }
-    if (token.startsWith("-")) {
+    if (token.startsWith("-"))
       return null;
-    }
     return i;
   }
   return i;
 }
 function getTypesetOperandsInfo(tokens, commandIndex) {
-  let i = commandIndex + 1;
-  let hasExportFlag = false;
+  let i = commandIndex + 1, hasExportFlag = !1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       return null;
-    }
-    if (token === "--") {
+    if (token === "--")
       return { operandsStart: i + 1, exports: hasExportFlag };
-    }
     if (token.startsWith("-")) {
-      if (token.slice(1).includes("x")) {
-        hasExportFlag = true;
-      }
+      if (token.slice(1).includes("x"))
+        hasExportFlag = !0;
       i++;
       continue;
     }
     if (token.startsWith("+")) {
-      if (token.slice(1).includes("x")) {
-        hasExportFlag = false;
-      }
+      if (token.slice(1).includes("x"))
+        hasExportFlag = !1;
       i++;
       continue;
     }
@@ -9161,45 +8447,36 @@ function getTypesetOperandsInfo(tokens, commandIndex) {
   return { operandsStart: i, exports: hasExportFlag };
 }
 function getSetOptionChanges(tokens, commandIndex) {
-  const changes = { allexport: null, keywordExport: null };
-  let i = commandIndex + 1;
+  let changes = { allexport: null, keywordExport: null }, i = commandIndex + 1;
   while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
+    let token = tokens[i];
+    if (!token)
       return changes;
-    }
-    if (token === "--") {
+    if (token === "--")
       return changes;
-    }
     if (token === "-o" || token === "+o") {
-      if (tokens[i + 1] === "allexport") {
+      if (tokens[i + 1] === "allexport")
         changes.allexport = token === "-o";
-      }
-      if (tokens[i + 1] === "keyword") {
+      if (tokens[i + 1] === "keyword")
         changes.keywordExport = token === "-o";
-      }
       i += 2;
       continue;
     }
     if (token.startsWith("-") && token.length > 1) {
-      const flags = token.slice(1);
-      if (flags.includes("a")) {
-        changes.allexport = true;
-      }
-      if (flags.includes("k")) {
-        changes.keywordExport = true;
-      }
+      let flags = token.slice(1);
+      if (flags.includes("a"))
+        changes.allexport = !0;
+      if (flags.includes("k"))
+        changes.keywordExport = !0;
       i++;
       continue;
     }
     if (token.startsWith("+") && token.length > 1) {
-      const flags = token.slice(1);
-      if (flags.includes("a")) {
-        changes.allexport = false;
-      }
-      if (flags.includes("k")) {
-        changes.keywordExport = false;
-      }
+      let flags = token.slice(1);
+      if (flags.includes("a"))
+        changes.allexport = !1;
+      if (flags.includes("k"))
+        changes.keywordExport = !1;
       i++;
       continue;
     }
@@ -9210,83 +8487,113 @@ function getSetOptionChanges(tokens, commandIndex) {
 
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2) {
-  if (depth >= MAX_RECURSION_DEPTH) {
+  if (depth >= MAX_RECURSION_DEPTH)
     return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
-  }
-  const segments2 = splitShellCommandsWithInfo(command2);
-  if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(segments2)) {
+  let program = parseCommand(command2, options2.shell);
+  if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(program))
     return null;
-  }
-  if (options2.strict && segments2.length === 1 && segments2[0]?.tokens.length === 1 && segments2[0].tokens[0] === command2 && command2.includes(" ")) {
+  if (program.status === "limited")
+    return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
+  if (program.status === "invalid")
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
-  }
-  if (options2.shell === "powershell" && !options2.invalidReason) {
-    const result = analyzePowerShellRemoveItemCommand(command2, options2);
-    if (result)
-      return result;
-  }
-  const originalCwd = options2.cwd;
-  let effectiveCwd = options2.effectiveCwd !== undefined ? options2.effectiveCwd : options2.cwd;
-  const shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  for (const segmentInfo of segments2) {
-    const segment = segmentInfo.hasDynamicSubstitution ? appendDynamicSubstitutionSentinelForGit(segmentInfo.tokens) : segmentInfo.tokens;
-    const segmentStr = segment.join(" ");
-    const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.policy);
-      if (textMatch) {
-        return {
-          reason: textMatch.reason,
-          segment: segmentStr,
-          ruleId: textMatch.id,
-          intent: textMatch.intent
-        };
-      }
-      const nextCwd2 = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd2 !== undefined) {
-        effectiveCwd = nextCwd2;
-      }
+  let hasUnclosedQuote = program.issues.some((issue) => issue.code.includes("quote"));
+  if (options2.strict && hasUnclosedQuote && command2.includes(" "))
+    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+  if (hasUnclosedQuote)
+    return analyzeUnparseableCommand(command2, options2);
+  let originalCwd = options2.cwd, effectiveCwd = options2.effectiveCwd !== void 0 ? options2.effectiveCwd : options2.cwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
+  return analyzeProgram(program, depth, options2, originalCwd, {
+    effectiveCwd,
+    shellGitContextState
+  });
+}
+function analyzeProgram(program, depth, options2, originalCwd, state) {
+  let hasPipelineInput = !1;
+  for (let node of program.nodes) {
+    if (node.kind === "connector") {
+      hasPipelineInput = node.operator === "|";
       continue;
     }
-    const result = analyzeSegment(segment, depth, {
-      ...options2,
-      cwd: originalCwd,
-      effectiveCwd,
-      envAssignments: segmentEnvAssignments,
-      analyzeNested: (nestedCommand, overrides) => {
-        const nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : effectiveCwd;
-        const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
-          ...options2,
-          effectiveCwd: nestedEffectiveCwd,
-          envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-          worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
-        });
-        return nestedResult ? {
-          reason: nestedResult.reason,
-          ruleId: nestedResult.ruleId,
-          intent: nestedResult.intent,
-          manualPermissionAdvice: nestedResult.manualPermissionAdvice
-        } : null;
-      }
-    });
-    if (result) {
-      return { ...result, segment: segmentStr };
+    if (node.kind === "group") {
+      let result2 = analyzeProgram(node.body, depth, options2, originalCwd, node.style === "subshell" ? cloneAnalysisState(state) : state);
+      if (result2)
+        return result2;
+      hasPipelineInput = !1;
+      continue;
     }
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      effectiveCwd = nextCwd;
-    }
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
+    if (node.kind !== "command")
+      continue;
+    let nestedState = cloneAnalysisState(state), nestedResult = analyzeNestedPrograms(node.nested, depth, options2, originalCwd, nestedState);
+    if (nestedResult)
+      return nestedResult;
+    let result = analyzeCommandView(node, depth, options2, originalCwd, state, hasPipelineInput);
+    if (result)
+      return result;
+    hasPipelineInput = !1;
   }
-  if ((options2.shell === undefined || options2.shell === "auto") && !options2.invalidReason && shouldAnalyzePowerShellRemoveItem(command2)) {
-    const result = analyzePowerShellRemoveItemCommand(command2, options2);
+  return null;
+}
+function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
+  for (let program of programs) {
+    let result = analyzeProgram(program, depth, options2, originalCwd, cloneAnalysisState(state));
     if (result)
       return result;
   }
   return null;
 }
-function analyzePowerShellRemoveItemCommand(command2, options2) {
-  return resultFromCommandMatch(command2, filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, getPowerShellRemoveItemOptions(options2)), options2.policy));
+function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput) {
+  let segment = [...commandView.analysisTokens], segmentStr = commandView.legacyNormalized, segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, state.shellGitContextState);
+  if (commandView.dialect === "powershell" && !options2.invalidReason) {
+    let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(commandView, hasPipelineInput, getPowerShellRemoveItemOptions(options2, state.effectiveCwd)), options2.policy);
+    if (match)
+      return resultFromCommandMatch(segmentStr, match);
+  }
+  if (segment.length === 1 && segment[0]?.includes(" ") && !commandView.dynamicExecutable) {
+    let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(segment[0]), options2.policy);
+    if (textMatch)
+      return {
+        reason: textMatch.reason,
+        segment: segmentStr,
+        ruleId: textMatch.id,
+        intent: textMatch.intent
+      };
+    return updateCwdAfterSegment(segment, state), null;
+  }
+  let result = analyzeSegment(segment, depth, {
+    ...options2,
+    commandView,
+    cwd: originalCwd,
+    effectiveCwd: state.effectiveCwd,
+    envAssignments: segmentEnvAssignments,
+    analyzeNested: (nestedCommand, overrides) => {
+      let nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : state.effectiveCwd, nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
+        ...options2,
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
+        worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
+      });
+      return nestedResult ? {
+        reason: nestedResult.reason,
+        ruleId: nestedResult.ruleId,
+        intent: nestedResult.intent,
+        manualPermissionAdvice: nestedResult.manualPermissionAdvice
+      } : null;
+    }
+  });
+  if (result)
+    return { ...result, segment: segmentStr };
+  return updateCwdAfterSegment(segment, state), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+}
+function updateCwdAfterSegment(segment, state) {
+  let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd !== void 0)
+    state.effectiveCwd = nextCwd;
+}
+function cloneAnalysisState(state) {
+  return {
+    effectiveCwd: state.effectiveCwd,
+    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState)
+  };
 }
 function resultFromCommandMatch(command2, match) {
   if (!match)
@@ -9298,46 +8605,46 @@ function resultFromCommandMatch(command2, match) {
     intent: match.intent
   };
 }
-function getPowerShellRemoveItemOptions(options2) {
-  const cwdUnknown = options2.effectiveCwd === null;
+function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effectiveCwd) {
+  let cwdUnknown = effectiveCwd === null;
   return {
-    cwd: cwdUnknown ? undefined : options2.effectiveCwd ?? options2.cwd,
-    originalCwd: cwdUnknown ? undefined : options2.cwd,
+    cwd: cwdUnknown ? void 0 : effectiveCwd ?? options2.cwd,
+    originalCwd: cwdUnknown ? void 0 : options2.cwd,
     paranoid: options2.paranoidRm,
     allowTmpdirVar: options2.allowTmpdirVar
   };
 }
-function appendDynamicSubstitutionSentinelForGit(tokens) {
-  if (!tokens.some((token) => getBasename(token).toLowerCase() === "git")) {
-    return tokens;
-  }
-  if (tokens.some((token) => token.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN))) {
-    return tokens;
-  }
-  return [...tokens, SHELL_DYNAMIC_SUBSTITUTION_TOKEN];
+function analyzeUnparseableCommand(command2, options2) {
+  let textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(command2), options2.policy);
+  return textMatch ? {
+    reason: textMatch.reason,
+    segment: command2,
+    ruleId: textMatch.id,
+    intent: textMatch.intent
+  } : null;
 }
-function isFailClosedRepairCommand(segments2) {
-  if (segments2.length !== 1 || segments2[0]?.hasDynamicSubstitution) {
-    return false;
-  }
-  const segment = segments2[0];
-  if (!segment) {
-    return false;
-  }
-  const tokens = segment.tokens;
-  if (tokens[0] === "cc-safety-net") {
+function isFailClosedRepairCommand(program) {
+  if (program.status !== "complete" || program.nodes.length !== 1)
+    return !1;
+  let command2 = program.nodes[0];
+  if (command2?.kind !== "command")
+    return !1;
+  if (command2.redirections.length > 0 || command2.nested.length > 0)
+    return !1;
+  if (command2.words.some((word) => word.provenance !== "literal"))
+    return !1;
+  let tokens = command2.tokens;
+  if (tokens.some((token) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)))
+    return !1;
+  if (tokens[0] === "cc-safety-net")
     return tokens[1] === "rule" && isRuleSyncArgs(tokens.slice(2));
-  }
-  if (tokens[0] === "npx") {
+  if (tokens[0] === "npx")
     return (tokens[1] === "-y" || tokens[1] === "--yes") && isPackageRuleSyncRepair(tokens, 2);
-  }
-  if (tokens[0] === "bunx" || tokens[0] === "pnpx") {
+  if (tokens[0] === "bunx" || tokens[0] === "pnpx")
     return isPackageRuleSyncRepair(tokens, 1);
-  }
-  if ((tokens[0] === "pnpm" || tokens[0] === "yarn") && tokens[1] === "dlx") {
+  if ((tokens[0] === "pnpm" || tokens[0] === "yarn") && tokens[1] === "dlx")
     return isPackageRuleSyncRepair(tokens, 2);
-  }
-  return false;
+  return !1;
 }
 function isPackageRuleSyncRepair(tokens, packageIndex) {
   return isCCSafetyNetPackage(tokens[packageIndex]) && tokens[packageIndex + 1] === "rule" && isRuleSyncArgs(tokens.slice(packageIndex + 2));
@@ -9351,11 +8658,11 @@ function isCCSafetyNetPackage(value) {
 
 // src/core/analyze/index.ts
 function analyzeCommand(command2, options2) {
-  const modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
+  let modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     policy: options2.policySnapshot.policy,
-    invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : undefined,
+    invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : void 0,
     strict: options2.strict ?? modes.strict,
     paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
     paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
@@ -9367,11 +8674,14 @@ function analyzeCommand(command2, options2) {
 import { homedir as homedir5 } from "node:os";
 import { dirname as dirname10, isAbsolute as isAbsolute9, join as join11, normalize as normalize4, resolve as resolve8 } from "node:path";
 
+// node_modules/shell-quote/index.js
+var $quote = require_quote(), $parse = require_parse();
+
 // src/core/path-canonicalization.ts
 import { realpathSync as realpathSync9 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { basename as basename2, dirname as dirname9, join as join10 } from "node:path";
-var SUPPORTED_PATH_ENV_NAMES = new Set([
+var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
   "CC_SAFETY_NET_HOME",
   "CLAUDE_CONFIG_DIR",
   "CODEX_HOME",
@@ -9396,7 +8706,7 @@ function resolveExistingPath(path) {
   try {
     return realpathSync9(path);
   } catch {
-    const parent = dirname9(path);
+    let parent = dirname9(path);
     if (parent === path)
       return path;
     return join10(resolveExistingPath(parent), basename2(path));
@@ -9410,9 +8720,60 @@ function getSupportedPathEnvironmentValue(name) {
   return process.env[name] ?? null;
 }
 
+// src/core/shell/shared.ts
+var ENV_PROXY = new Proxy({}, {
+  get: (_, name) => `$${String(name)}`
+});
+function advanceQuoteScanState(char, state) {
+  if (state.escaped)
+    return state.escaped = !1, !0;
+  if (char === "\\" && !state.inSingle)
+    return state.escaped = !0, !0;
+  if (char === "'" && !state.inDouble)
+    return state.inSingle = !state.inSingle, !0;
+  if (char === '"' && !state.inSingle)
+    return state.inDouble = !state.inDouble, !0;
+  return !1;
+}
+function hasUnclosedQuotes(command2) {
+  let state = { inSingle: !1, inDouble: !1, escaped: !1 };
+  for (let char of stripShellComments(command2))
+    advanceQuoteScanState(char, state);
+  return state.inSingle || state.inDouble;
+}
+function stripShellComments(command2) {
+  let result = "", state = { inSingle: !1, inDouble: !1, escaped: !1 }, inComment = !1;
+  for (let i = 0;i < command2.length; i++) {
+    let char = command2[i];
+    if (!char)
+      break;
+    if (inComment) {
+      if (char === `
+` || char === "\r")
+        result += char, inComment = !1, state.escaped = !1;
+      continue;
+    }
+    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command2, i)) {
+      inComment = !0;
+      continue;
+    }
+    result += char, advanceQuoteScanState(char, state);
+  }
+  return result;
+}
+function startsShellComment(command2, index) {
+  return index === 0 || /\s/.test(command2[index - 1] ?? "");
+}
+function getCommandTokenText(token) {
+  if (typeof token === "string")
+    return token;
+  if (token && typeof token === "object" && "pattern" in token && typeof token.pattern === "string")
+    return token.pattern;
+  return null;
+}
+
 // src/core/policy-protection.ts
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.";
-var READ_ONLY_TOOLS = new Set([
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
   "grep",
@@ -9426,8 +8787,7 @@ var READ_ONLY_TOOLS = new Set([
   "searchweb",
   "view",
   "viewfile"
-]);
-var PATH_LIKE_KEYS = new Set([
+]), PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   "absolutepath",
   "directorypath",
   "directory_path",
@@ -9441,8 +8801,7 @@ var PATH_LIKE_KEYS = new Set([
   "searchpath",
   "targetfile",
   "target_file"
-]);
-var READ_ONLY_COMMANDS = new Set([
+]), READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
   "cat",
   "file",
   "grep",
@@ -9455,37 +8814,30 @@ var READ_ONLY_COMMANDS = new Set([
   "stat",
   "tail",
   "wc"
-]);
-var SHELL_OPERATORS2 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-var WRITE_REDIRECTS = new Set([">", ">>", "<>", ">&", "&>", "&>>"]);
-var SHELL_SCRIPT_COMMANDS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
-var SCRIPT_ARGUMENT_OPTIONS = new Map([
-  ["bash", new Set(["-c"])],
-  ["dash", new Set(["-c"])],
-  ["ksh", new Set(["-c"])],
-  ["sh", new Set(["-c"])],
-  ["zsh", new Set(["-c"])],
-  ["python", new Set(["-c"])],
-  ["python3", new Set(["-c"])],
-  ["node", new Set(["-e", "--eval"])],
-  ["perl", new Set(["-e"])]
-]);
-var CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
-  ["bash", new Set(["c"])],
-  ["dash", new Set(["c"])],
-  ["ksh", new Set(["c"])],
-  ["sh", new Set(["c"])],
-  ["zsh", new Set(["c"])],
-  ["node", new Set(["e"])],
-  ["perl", new Set(["e"])]
-]);
-var POLICY_ENV_PATH_NAMES = new Set(["CC_SAFETY_NET_HOME"]);
-var SHELL_ENV_PROXY = new Proxy({}, {
+]), SHELL_OPERATORS = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), WRITE_REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<>", ">&", "&>", "&>>"]), SHELL_SCRIPT_COMMANDS = /* @__PURE__ */ new Set(["bash", "dash", "ksh", "sh", "zsh"]), SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
+  ["bash", /* @__PURE__ */ new Set(["-c"])],
+  ["dash", /* @__PURE__ */ new Set(["-c"])],
+  ["ksh", /* @__PURE__ */ new Set(["-c"])],
+  ["sh", /* @__PURE__ */ new Set(["-c"])],
+  ["zsh", /* @__PURE__ */ new Set(["-c"])],
+  ["python", /* @__PURE__ */ new Set(["-c"])],
+  ["python3", /* @__PURE__ */ new Set(["-c"])],
+  ["node", /* @__PURE__ */ new Set(["-e", "--eval"])],
+  ["perl", /* @__PURE__ */ new Set(["-e"])]
+]), CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
+  ["bash", /* @__PURE__ */ new Set(["c"])],
+  ["dash", /* @__PURE__ */ new Set(["c"])],
+  ["ksh", /* @__PURE__ */ new Set(["c"])],
+  ["sh", /* @__PURE__ */ new Set(["c"])],
+  ["zsh", /* @__PURE__ */ new Set(["c"])],
+  ["node", /* @__PURE__ */ new Set(["e"])],
+  ["perl", /* @__PURE__ */ new Set(["e"])]
+]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]), SHELL_ENV_PROXY = new Proxy({}, {
   get: (_, name) => ["$", "{", String(name), "}"].join("")
 });
 function findPolicyConfigMutationTargetInToolInput(toolName, input, route, context) {
-  for (const configCwd of new Set([context.configCwd, ...context.policyConfigCwds ?? []])) {
-    const target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
+  for (let configCwd of /* @__PURE__ */ new Set([context.configCwd, ...context.policyConfigCwds ?? []])) {
+    let target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
       configCwd,
       executionCwd: context.executionCwd
     });
@@ -9495,61 +8847,54 @@ function findPolicyConfigMutationTargetInToolInput(toolName, input, route, conte
   return null;
 }
 function findPolicyConfigMutationTargetForContext(toolName, input, route, context) {
-  if (route.kind === "patch") {
+  if (route.kind === "patch")
     return findPolicyConfigMutationTargetInPaths([
       ...extractPathLikeToolValues(input, PATH_LIKE_KEYS),
       ...extractPatchTargetsFromToolInput(input)
-    ], false, context);
-  }
-  const command2 = getCommandFromToolInput(input);
-  if (route.kind === "command") {
+    ], !1, context);
+  let command2 = getCommandFromToolInput(input);
+  if (route.kind === "command")
     return command2 ? findPolicyConfigMutationTargetInCommand(command2, context) : null;
-  }
   if (route.kind === "unknown" && command2) {
-    const commandTarget = findPolicyConfigMutationTargetInCommand(command2, context);
+    let commandTarget = findPolicyConfigMutationTargetInCommand(command2, context);
     if (commandTarget)
       return commandTarget;
   }
   return findPolicyConfigMutationTargetInPaths(extractPathLikeToolValues(input, PATH_LIKE_KEYS), route.kind === "grep" || route.kind === "glob" || isReadOnlyTool(toolName), context);
 }
 function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
-  const target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
+  let target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
   if (!target)
     return null;
   return readOnly ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(command2, context, variables = new Map) {
-  if (hasUnclosedQuotes(command2)) {
+function findPolicyConfigMutationTargetInCommand(command2, context, variables = /* @__PURE__ */ new Map) {
+  if (hasUnclosedQuotes(command2))
     return findPolicyConfigTargetInText(command2, context);
-  }
   let tokens;
   try {
     tokens = $parse(command2.replace(/\n/g, " ; "), SHELL_ENV_PROXY);
   } catch {
     return findPolicyConfigTargetInText(command2, context);
   }
-  let state = { cwd: context.executionCwd, variables };
-  let segment = [];
+  let state = { cwd: context.executionCwd, variables }, segment = [];
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (isOperator2(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
+    let token = tokens[i];
+    if (isOperator(token)) {
+      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
       if (target)
         return target;
-      state = applyShellState(segment, state);
-      segment = [];
+      state = applyShellState(segment, state), segment = [];
       continue;
     }
     if (isRedirectOp(token)) {
-      const targetIndex = getWriteRedirectTargetIndex(tokens, i);
-      const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
-      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd)) {
+      let targetIndex = getWriteRedirectTargetIndex(tokens, i), target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
+      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd))
         return { target: formatShellPolicyTarget(target) };
-      }
       i = targetIndex ?? i + 1;
       continue;
     }
-    const tokenText = getCommandTokenText(token);
+    let tokenText = getCommandTokenText(token);
     if (tokenText !== null)
       segment.push(tokenText);
   }
@@ -9558,34 +8903,33 @@ function findPolicyConfigMutationTargetInCommand(command2, context, variables = 
 function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
+  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
   if (scriptTarget)
     return scriptTarget;
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
+  let sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
   if (sedWriteTarget)
     return sedWriteTarget;
-  const target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
+  let target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
   if (!target)
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
 function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
-  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
-  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
+  let command2 = getBasename(stripped[0] ?? "").toLowerCase();
   if (!SCRIPT_ARGUMENT_OPTIONS.has(command2))
     return null;
-  const optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command2, token));
+  let optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command2, token));
   if (optionIndex === -1)
     return null;
-  const script = stripped[optionIndex + 1];
+  let script = stripped[optionIndex + 1];
   if (!script)
     return null;
-  if (SHELL_SCRIPT_COMMANDS.has(command2)) {
+  if (SHELL_SCRIPT_COMMANDS.has(command2))
     return findPolicyConfigMutationTargetInCommand(script, { configCwd, executionCwd: state.cwd }, state.variables);
-  }
-  const target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
+  let target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
     ...extractConstructedPolicyPathCandidates(script)
@@ -9593,14 +8937,14 @@ function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
   return target ? { target } : null;
 }
 function findSedScriptWritePolicyConfigTarget(segment, state, configCwd) {
-  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
     return null;
-  const target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
+  let target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
   return target ? { target } : null;
 }
 function applyShellState(segment, state) {
-  const variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables;
+  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables;
   return {
     cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }),
     variables
@@ -9608,33 +8952,33 @@ function applyShellState(segment, state) {
 }
 function extractShellAssignments(segment, variables) {
   return segment.flatMap((token) => {
-    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
-    return assignment?.[1] !== undefined && assignment[2] !== undefined ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
+    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
+    return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
   });
 }
 function getSegmentCwd(segment, state) {
-  const stripped = stripEnvAssignments(stripWrappers([...segment]));
+  let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "cd")
     return state.cwd;
-  const target = stripped[1];
+  let target = stripped[1];
   if (!target || target === "-")
     return state.cwd;
   return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd);
 }
 function extractSedScriptArguments(tokens) {
-  const scripts = [];
+  let scripts = [];
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === undefined)
+    let token = tokens[i];
+    if (token === void 0)
       break;
     if (token === "-e" || token === "--expression") {
-      const script = tokens[i + 1];
-      if (script !== undefined)
+      let script = tokens[i + 1];
+      if (script !== void 0)
         scripts.push(script);
       i++;
       continue;
     }
-    const expression = /^--expression=(.*)$/.exec(token);
+    let expression = /^--expression=(.*)$/.exec(token);
     if (expression?.[1]) {
       scripts.push(expression[1]);
       continue;
@@ -9656,18 +9000,18 @@ function extractSedWritePathCandidates(script) {
   return Array.from(script.matchAll(/(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g)).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ""));
 }
 function isReadOnlySegment(tokens) {
-  const stripped = stripEnvAssignments(stripWrappers([...tokens]));
+  let stripped = stripEnvAssignments(stripWrappers([...tokens]));
   if (stripped.length === 0)
-    return false;
-  const command2 = getBasename(stripped[0] ?? "").toLowerCase();
+    return !1;
+  let command2 = getBasename(stripped[0] ?? "").toLowerCase();
   if (!READ_ONLY_COMMANDS.has(command2))
-    return false;
+    return !1;
   if (command2 !== "sed")
-    return true;
+    return !0;
   return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
 }
 function stripEnvAssignments(tokens) {
-  const firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+  let firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
   return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
 }
 function isAssignmentOnlySegment(tokens) {
@@ -9675,20 +9019,20 @@ function isAssignmentOnlySegment(tokens) {
 }
 function isScriptArgumentOption(command2, token) {
   if (SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token))
-    return true;
+    return !0;
   if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
-    return false;
-  return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? false;
+    return !1;
+  return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? !1;
 }
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
 function isPolicyConfigPath(target, configCwd, executionCwd) {
-  const normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
+  let normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
   return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd).toLowerCase());
 }
 function getPolicyConfigProtectedPaths(cwd) {
-  const paths = getPolicyPaths({ cwd });
+  let paths = getPolicyPaths({ cwd });
   return [
     getUserPolicyPath(),
     ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
@@ -9696,11 +9040,10 @@ function getPolicyConfigProtectedPaths(cwd) {
   ];
 }
 function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
-  const configDir = dirname10(configPath);
-  const loaded = readRulesConfig(configPath);
+  let configDir = dirname10(configPath), loaded = readRulesConfig(configPath);
   if (!loaded.config)
     return [dirname10(configDir), configDir, configPath, lockPath];
-  const configuredSources = new Set(loaded.config.rules);
+  let configuredSources = new Set(loaded.config.rules);
   return [
     dirname10(configDir),
     configDir,
@@ -9708,13 +9051,13 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     lockPath,
     ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join11(configDir, source), join11(configDir, source, RULEBOOK_FILE)]),
     ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
-      const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
+      let cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
       return [dirname10(cachePath), cachePath];
     })
   ];
 }
 function findPolicyConfigTargetInText(text, context) {
-  const target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd));
+  let target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd));
   return target ? { target } : null;
 }
 function formatShellPolicyTarget(target) {
@@ -9724,40 +9067,40 @@ function extractPolicyConfigPathCandidates(text) {
   return text.split(/[^A-Za-z0-9_./\\~:$-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
 }
 function extractConstructedPolicyPathCandidates(text) {
-  const envNames = Array.from(text.matchAll(/(?:process\.env\.|os\.environ\[['"])([A-Za-z_][A-Za-z0-9_]*)/g)).map((match) => match[1]).filter((name) => name !== undefined && POLICY_ENV_PATH_NAMES.has(name));
+  let envNames = Array.from(text.matchAll(/(?:process\.env\.|os\.environ\[['"])([A-Za-z_][A-Za-z0-9_]*)/g)).map((match) => match[1]).filter((name) => name !== void 0 && POLICY_ENV_PATH_NAMES.has(name));
   if (envNames.length === 0)
     return [];
-  const suffixes = Array.from(text.matchAll(/['"](\/[^'"]+)['"]/g)).map((match) => match[1]).filter((suffix) => suffix !== undefined);
+  let suffixes = Array.from(text.matchAll(/['"](\/[^'"]+)['"]/g)).map((match) => match[1]).filter((suffix) => suffix !== void 0);
   return envNames.flatMap((name) => suffixes.map((suffix) => `$${name}${suffix}`));
 }
 function expandShellVariables(text, variables) {
   return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
-    const value = variables.get(name);
-    if (value === undefined)
+    let value = variables.get(name);
+    if (value === void 0)
       return match;
-    const isUsable = operator.startsWith(":") ? value !== "" : true;
+    let isUsable = operator.startsWith(":") ? value !== "" : !0;
     if (operator.endsWith("-"))
       return isUsable ? value : expandShellVariables(word, variables);
     return isUsable ? expandShellVariables(word, variables) : "";
   }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
 }
 function normalizeCandidatePath(target, cwd) {
-  const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
+  let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  const expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve8(homedir5(), unix.slice(2)) : unix;
+  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve8(homedir5(), unix.slice(2)) : unix;
   return resolveExistingPath(normalize4(isAbsolute9(expanded) ? expanded : resolve8(cwd, expanded))).replace(/\\/g, "/");
 }
-function isOperator2(token) {
-  const op = getParseOp(token);
-  return op !== null && SHELL_OPERATORS2.has(op);
+function isOperator(token) {
+  let op = getParseOp(token);
+  return op !== null && SHELL_OPERATORS.has(op);
 }
 function isRedirectOp(token) {
-  const op = getParseOp(token);
+  let op = getParseOp(token);
   return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
 }
 function getWriteRedirectTargetIndex(tokens, index) {
-  const op = getParseOp(tokens[index]);
+  let op = getParseOp(tokens[index]);
   if (op === ">" && getParseOp(tokens[index + 1]) === "|")
     return index + 2;
   return op !== null && WRITE_REDIRECTS.has(op) ? index + 1 : null;
@@ -9770,12 +9113,7 @@ function getParseOp(token) {
 import { homedir as homedir6 } from "node:os";
 import { isAbsolute as isAbsolute10, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
-var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.";
-var NON_PATH_OPERAND_COMMANDS = new Set(["echo", "printf"]);
-var PATH_ROOT_COMMANDS = new Set(["find"]);
-var FIND_EXEC_PRIMARIES = new Set(["-exec", "-execdir"]);
-var FIND_EXEC_TERMINATORS = new Set([";", "+"]);
-var FIND_MATCH_PATH_PRIMARIES = new Set([
+var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_MATCH_PATH_PRIMARIES = /* @__PURE__ */ new Set([
   "-name",
   "-iname",
   "-path",
@@ -9783,8 +9121,7 @@ var FIND_MATCH_PATH_PRIMARIES = new Set([
   "-wholename",
   "-iwholename",
   "-samefile"
-]);
-var CODE_INTERPRETERS = new Set([
+]), CODE_INTERPRETERS = /* @__PURE__ */ new Set([
   "python",
   "python2",
   "python3",
@@ -9801,42 +9138,31 @@ var CODE_INTERPRETERS = new Set([
   "zsh",
   "dash",
   "ksh"
-]);
-var CODE_EVAL_FLAGS = new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]);
-var CLUSTERED_CODE_EVAL_FLAGS = new Map([
-  ["bash", new Set(["c"])],
-  ["sh", new Set(["c"])],
-  ["zsh", new Set(["c"])],
-  ["dash", new Set(["c"])],
-  ["ksh", new Set(["c"])],
-  ["python", new Set(["c"])],
-  ["python2", new Set(["c"])],
-  ["python3", new Set(["c"])],
-  ["node", new Set(["e"])],
-  ["deno", new Set(["e"])],
-  ["bun", new Set(["e"])],
-  ["ruby", new Set(["e"])],
-  ["perl", new Set(["e", "E"])],
-  ["php", new Set(["r"])],
-  ["rscript", new Set(["e"])],
-  ["osascript", new Set(["e"])]
-]);
-var PATTERN_FIRST_COMMANDS = new Set(["grep", "rg"]);
-var PATTERN_FILE_SHORT = "f";
-var PATTERN_FILE_LONG = "file";
-var PATTERNLESS_FILES_LONG = "files";
-var PATTERN_SUPPLY_SHORT = new Set(["e", "f"]);
-var PATTERN_SUPPLY_LONG = new Set(["regexp", "file"]);
-var PATTERN_ARG_SHORT = new Set(["e", "f", "A", "B", "C", "m"]);
-var PATTERN_ARG_LONG = new Set([
+]), CODE_EVAL_FLAGS = /* @__PURE__ */ new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]), CLUSTERED_CODE_EVAL_FLAGS = /* @__PURE__ */ new Map([
+  ["bash", /* @__PURE__ */ new Set(["c"])],
+  ["sh", /* @__PURE__ */ new Set(["c"])],
+  ["zsh", /* @__PURE__ */ new Set(["c"])],
+  ["dash", /* @__PURE__ */ new Set(["c"])],
+  ["ksh", /* @__PURE__ */ new Set(["c"])],
+  ["python", /* @__PURE__ */ new Set(["c"])],
+  ["python2", /* @__PURE__ */ new Set(["c"])],
+  ["python3", /* @__PURE__ */ new Set(["c"])],
+  ["node", /* @__PURE__ */ new Set(["e"])],
+  ["deno", /* @__PURE__ */ new Set(["e"])],
+  ["bun", /* @__PURE__ */ new Set(["e"])],
+  ["ruby", /* @__PURE__ */ new Set(["e"])],
+  ["perl", /* @__PURE__ */ new Set(["e", "E"])],
+  ["php", /* @__PURE__ */ new Set(["r"])],
+  ["rscript", /* @__PURE__ */ new Set(["e"])],
+  ["osascript", /* @__PURE__ */ new Set(["e"])]
+]), PATTERN_FIRST_COMMANDS = /* @__PURE__ */ new Set(["grep", "rg"]), PATTERN_FILE_SHORT = "f", PATTERN_FILE_LONG = "file", PATTERNLESS_FILES_LONG = "files", PATTERN_SUPPLY_SHORT = /* @__PURE__ */ new Set(["e", "f"]), PATTERN_SUPPLY_LONG = /* @__PURE__ */ new Set(["regexp", "file"]), PATTERN_ARG_SHORT = /* @__PURE__ */ new Set(["e", "f", "A", "B", "C", "m"]), PATTERN_ARG_LONG = /* @__PURE__ */ new Set([
   "regexp",
   "file",
   "after-context",
   "before-context",
   "context",
   "max-count"
-]);
-var PATH_TARGET_KEYS = new Set([
+]), PATH_TARGET_KEYS = /* @__PURE__ */ new Set([
   "absolutepath",
   "directorypath",
   "directory_path",
@@ -9850,32 +9176,22 @@ var PATH_TARGET_KEYS = new Set([
   "searchpath",
   "targetfile",
   "target_file"
-]);
-var GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob"]);
-var GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, "glob", "pattern"]);
-var SHELL_OPERATORS3 = new Set(["&&", "||", "|&", "|", "&", ";"]);
-var PIPE_OPERATORS = new Set(["|", "|&"]);
-var PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__";
-var SHELL_STDIN_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
-var PROGRAM_SELECTING_INTERPRETER_FLAGS = new Map([["python", new Set(["-m"])]]);
-var VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
-  ["bash", new Set(["-O"])],
-  ["sh", new Set(["-O"])],
-  ["zsh", new Set(["-o"])],
-  ["dash", new Set(["-o"])],
-  ["ksh", new Set(["-o"])],
-  ["python", new Set(["-W", "-X"])],
-  ["node", new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
+]), GREP_TARGET_KEYS = /* @__PURE__ */ new Set([...PATH_TARGET_KEYS, "glob"]), GLOB_TARGET_KEYS = /* @__PURE__ */ new Set([...PATH_TARGET_KEYS, "glob", "pattern"]), SHELL_OPERATORS2 = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), PIPE_OPERATORS = /* @__PURE__ */ new Set(["|", "|&"]), PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__", SHELL_STDIN_INTERPRETERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh"]), PROGRAM_SELECTING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([["python", /* @__PURE__ */ new Set(["-m"])]]), VALUE_CONSUMING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([
+  ["bash", /* @__PURE__ */ new Set(["-O"])],
+  ["sh", /* @__PURE__ */ new Set(["-O"])],
+  ["zsh", /* @__PURE__ */ new Set(["-o"])],
+  ["dash", /* @__PURE__ */ new Set(["-o"])],
+  ["ksh", /* @__PURE__ */ new Set(["-o"])],
+  ["python", /* @__PURE__ */ new Set(["-W", "-X"])],
+  ["node", /* @__PURE__ */ new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
 function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
-  for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config, configCwd)) {
+  for (let target of targets) {
+    if (isDeniedByPolicy(target, cwd, config, configCwd))
       return { target, ruleId: "secret.deny-path" };
-    }
-    const ruleId = isSensitivePath(target, cwd, config);
-    if (ruleId) {
+    let ruleId = isSensitivePath(target, cwd, config);
+    if (ruleId)
       return { target, ruleId };
-    }
   }
   return null;
 }
@@ -9884,152 +9200,118 @@ function findSensitiveTargetInPolicyToolInput(input, route, executionCwd, config
 }
 function extractToolPathTargets(input, route) {
   if (route.kind === "command") {
-    const command3 = getCommandFromToolInput(input);
+    let command3 = getCommandFromToolInput(input);
     return command3 ? extractCommandPathTargets(command3) : [];
   }
   if (route.kind === "grep")
     return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
   if (route.kind === "glob")
     return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (route.kind === "patch") {
+  if (route.kind === "patch")
     return [
       ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
       ...extractPatchTargetsFromToolInput(input)
     ];
-  }
   if (route.kind === "path")
     return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
-  const command2 = getCommandFromToolInput(input);
+  let command2 = getCommandFromToolInput(input);
   return [
     ...command2 ? extractCommandPathTargets(command2) : [],
     ...extractPathLikeToolValues(input, PATH_TARGET_KEYS)
   ];
 }
 function extractCommandPathTargets(command2) {
-  if (hasUnclosedQuotes(command2)) {
+  if (hasUnclosedQuotes(command2))
     return [];
-  }
-  const expandedCommand = expandSupportedPathEnvironmentVariables(command2);
-  const targets = extractCommandSubstitutionPathTargets(expandedCommand);
-  const tokens = $parse(expandedCommand.replace(/\n/g, " ; "), ENV_PROXY);
-  let segment = [];
-  let pipeProducer = null;
+  let expandedCommand = expandSupportedPathEnvironmentVariables(command2), targets = extractCommandSubstitutionPathTargets(expandedCommand), tokens = $parse(expandedCommand.replace(/\n/g, " ; "), ENV_PROXY), segment = [], pipeProducer = null;
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (isOperator3(token)) {
+    let token = tokens[i];
+    if (isOperator2(token)) {
       if (segment.length > 0) {
-        targets.push(...extractSegmentPathTargets(segment));
-        if (pipeProducer !== null) {
+        if (targets.push(...extractSegmentPathTargets(segment)), pipeProducer !== null)
           targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
-        }
-        pipeProducer = isPipeOperator(token) ? segment : null;
-        segment = [];
-      } else {
+        pipeProducer = isPipeOperator(token) ? segment : null, segment = [];
+      } else
         pipeProducer = null;
-      }
       continue;
     }
     if (isRedirectOp2(token)) {
-      const target = getCommandTokenText(tokens[i + 1]);
+      let target = getCommandTokenText(tokens[i + 1]);
       if (target)
         targets.push(target);
       i++;
       continue;
     }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null) {
+    let tokenText = getCommandTokenText(token);
+    if (tokenText !== null)
       segment.push(tokenText);
-    }
   }
   if (segment.length > 0) {
-    targets.push(...extractSegmentPathTargets(segment));
-    if (pipeProducer !== null) {
+    if (targets.push(...extractSegmentPathTargets(segment)), pipeProducer !== null)
       targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
-    }
   }
   return targets;
 }
 function extractSegmentPathTargets(tokens) {
-  const assignmentValues = extractLeadingAssignmentValues(tokens);
-  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
+  let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1)
     return assignmentValues;
-  }
-  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
-  const post = stripped.slice(commandIndex + 1);
-  if (NON_PATH_OPERAND_COMMANDS.has(command2)) {
+  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase(), post = stripped.slice(commandIndex + 1);
+  if (NON_PATH_OPERAND_COMMANDS.has(command2))
     return assignmentValues;
-  }
-  if (PATTERN_FIRST_COMMANDS.has(command2)) {
+  if (PATTERN_FIRST_COMMANDS.has(command2))
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
-  }
-  if (PATH_ROOT_COMMANDS.has(command2)) {
+  if (PATH_ROOT_COMMANDS.has(command2))
     return [...assignmentValues, ...extractFindCommandTargets(post)];
-  }
-  if (AWK_INTERPRETERS.has(command2)) {
+  if (AWK_INTERPRETERS.has(command2))
     return [...assignmentValues, ...extractAwkPathTargets(post)];
-  }
-  if (isCodeInterpreter(command2)) {
+  if (isCodeInterpreter(command2))
     return [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
-  }
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
   ];
 }
 function extractPipeCarrierPathTargets(producer, consumer) {
-  if (xargsReadsPipeInputAsPath(consumer)) {
+  if (xargsReadsPipeInputAsPath(consumer))
     return extractDisplayCommandOperands(producer);
-  }
-  const stdinInterpreter = getStdinScriptInterpreter(consumer);
-  if (stdinInterpreter === null) {
+  let stdinInterpreter = getStdinScriptInterpreter(consumer);
+  if (stdinInterpreter === null)
     return [];
-  }
   return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(body) : extractPathLiteralsFromCode(body));
 }
 function extractDisplayCommandOperands(tokens) {
-  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1)
     return [];
-  }
-  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
-  if (!NON_PATH_OPERAND_COMMANDS.has(command2)) {
+  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  if (!NON_PATH_OPERAND_COMMANDS.has(command2))
     return [];
-  }
   return stripped.slice(commandIndex + 1);
 }
 function extractDisplayCommandBodies(tokens) {
-  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1)
     return [];
-  }
-  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
-  const args = stripped.slice(commandIndex + 1);
-  if (command2 === "echo") {
+  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase(), args = stripped.slice(commandIndex + 1);
+  if (command2 === "echo")
     return [stripEchoDisplayOptions(args).join(" ")];
-  }
-  if (command2 === "printf") {
+  if (command2 === "printf")
     return extractPrintfDisplayBodies(args);
-  }
   return [];
 }
 function stripEchoDisplayOptions(tokens) {
-  const optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
+  let optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
   return optionEnd === -1 ? [] : tokens.slice(optionEnd);
 }
 function extractPrintfDisplayBodies(tokens) {
-  const format = tokens[0];
-  if (format === undefined) {
+  let format = tokens[0];
+  if (format === void 0)
     return [];
-  }
-  const valuesPerFormat = getPrintfStringConversionCount(format);
-  if (valuesPerFormat === 0 || tokens.length === 1) {
+  let valuesPerFormat = getPrintfStringConversionCount(format);
+  if (valuesPerFormat === 0 || tokens.length === 1)
     return [decodePrintfEscapes(format)];
-  }
-  const values = tokens.slice(1);
+  let values = tokens.slice(1);
   return Array.from({ length: Math.ceil(values.length / valuesPerFormat) }, (_, index) => applyPrintfStringArguments(format, values.slice(index * valuesPerFormat, (index + 1) * valuesPerFormat)));
 }
 function getPrintfStringConversionCount(format) {
@@ -10038,12 +9320,10 @@ function getPrintfStringConversionCount(format) {
 function applyPrintfStringArguments(format, values) {
   let valueIndex = 0;
   return decodePrintfEscapes(format.replace(/%%|%[bqs]/g, (specifier) => {
-    if (specifier === "%%") {
+    if (specifier === "%%")
       return "%";
-    }
-    const value = values[valueIndex] ?? "";
-    valueIndex++;
-    return value;
+    let value = values[valueIndex] ?? "";
+    return valueIndex++, value;
   }));
 }
 function decodePrintfEscapes(value) {
@@ -10051,123 +9331,100 @@ function decodePrintfEscapes(value) {
 `).replace(/\\t/g, "\t").replace(/\\r/g, "\r");
 }
 function xargsReadsPipeInputAsPath(tokens) {
-  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1 || basename3(stripped[commandIndex] ?? "").toLowerCase() !== "xargs") {
-    return false;
-  }
-  const xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
-  if (xargs.childTokens.length === 0) {
-    return false;
-  }
-  if (xargs.replacementToken === "") {
-    return false;
-  }
-  const replacementToken = xargs.replacementToken;
-  const childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1 || basename3(stripped[commandIndex] ?? "").toLowerCase() !== "xargs")
+    return !1;
+  let xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
+  if (xargs.childTokens.length === 0)
+    return !1;
+  if (xargs.replacementToken === "")
+    return !1;
+  let replacementToken = xargs.replacementToken, childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
   return extractSegmentPathTargets(childTokens).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
 }
 function getStdinScriptInterpreter(tokens) {
-  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1)
     return null;
-  }
-  const command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
-  if (!isCodeInterpreter(command2)) {
+  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  if (!isCodeInterpreter(command2))
     return null;
-  }
   return interpreterReadsStdinScript(command2, stripped.slice(commandIndex + 1)) ? command2 : null;
 }
 function interpreterReadsStdinScript(command2, tokens) {
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === undefined)
+    let token = tokens[i];
+    if (token === void 0)
       break;
-    if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token) || /^--(?:eval|exec)=/.test(token)) {
-      return false;
-    }
-    if (token === "-") {
-      return true;
-    }
+    if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token) || /^--(?:eval|exec)=/.test(token))
+      return !1;
+    if (token === "-")
+      return !0;
     if (token.startsWith("-")) {
-      if (interpreterFlagSelectsProgram(command2, token)) {
-        return false;
-      }
-      if (interpreterFlagConsumesValue(command2, token)) {
+      if (interpreterFlagSelectsProgram(command2, token))
+        return !1;
+      if (interpreterFlagConsumesValue(command2, token))
         i++;
-      }
       continue;
     }
-    return false;
+    return !1;
   }
-  return true;
+  return !0;
 }
 function interpreterFlagSelectsProgram(command2, token) {
-  return PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? false;
+  return PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? !1;
 }
 function interpreterFlagConsumesValue(command2, token) {
-  return VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? false;
+  return VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? !1;
 }
 function normalizeInterpreterName(command2) {
   return /^python\d/.test(command2) ? "python" : command2;
 }
 function extractLeadingAssignmentValues(tokens) {
-  const values = [];
-  for (const token of tokens) {
-    if (isWrapperToken(token)) {
+  let values = [];
+  for (let token of tokens) {
+    if (isWrapperToken(token))
       continue;
-    }
-    const assignment = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(token);
-    if (assignment === null) {
+    let assignment = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(token);
+    if (assignment === null)
       break;
-    }
-    if (assignment[1] !== undefined && assignment[1] !== "") {
+    if (assignment[1] !== void 0 && assignment[1] !== "")
       values.push(assignment[1]);
-    }
   }
   return values;
 }
 function extractOperandPathCandidates(command2, token) {
-  if (token === "--") {
+  if (token === "--")
     return [];
-  }
-  const candidates = [];
-  const equals = token.indexOf("=");
-  if (equals > 0 && equals < token.length - 1) {
+  let candidates = [], equals = token.indexOf("=");
+  if (equals > 0 && equals < token.length - 1)
     candidates.push(token.slice(equals + 1));
-  }
-  if (isFileOperand(command2, token)) {
+  if (isFileOperand(command2, token))
     candidates.push(token);
-  }
   return candidates;
 }
 function extractPathRootTargets(tokens) {
-  const roots = [];
-  for (const token of tokens) {
-    if (token.startsWith("-") || token === "(" || token === "!" || token === ";") {
+  let roots = [];
+  for (let token of tokens) {
+    if (token.startsWith("-") || token === "(" || token === "!" || token === ";")
       break;
-    }
     roots.push(token);
   }
   return roots;
 }
 function extractFindCommandTargets(tokens) {
-  const targets = extractPathRootTargets(tokens);
+  let targets = extractPathRootTargets(tokens);
   for (let i = 0;i < tokens.length; i++) {
-    if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? ""))
+    if (!FIND_EXEC_PRIMARIES2.has(tokens[i] ?? ""))
       continue;
-    const execCommand = getFindExecCommand2(tokens, i);
-    targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== "{}"));
-    if (findExecConsumesPlaceholder(execCommand)) {
+    let execCommand = getFindExecCommand2(tokens, i);
+    if (targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand))
       targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
-    }
   }
   return targets;
 }
 function getFindExecCommand2(tokens, execIndex) {
-  const execTokens = tokens.slice(execIndex + 1);
-  const terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
+  let execTokens = tokens.slice(execIndex + 1), terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
   return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
 }
 function findExecConsumesPlaceholder(tokens) {
@@ -10177,8 +9434,8 @@ function extractFindMatchedPathTargets(tokens) {
   return tokens.flatMap((token, index) => {
     if (!FIND_MATCH_PATH_PRIMARIES.has(token))
       return [];
-    const value = tokens[index + 1];
-    return value === undefined ? [] : [value, normalizeFindPathPattern(value)];
+    let value = tokens[index + 1];
+    return value === void 0 ? [] : [value, normalizeFindPathPattern(value)];
   });
 }
 function normalizeFindPathPattern(pattern) {
@@ -10188,35 +9445,31 @@ function isCodeInterpreter(command2) {
   return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
 }
 function extractInterpreterPathTargets(command2, tokens) {
-  const candidates = [];
+  let candidates = [];
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === undefined)
+    let token = tokens[i];
+    if (token === void 0)
       break;
     if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token)) {
-      const code = tokens[i + 1];
-      if (code !== undefined) {
-        candidates.push(...extractPathLiteralsFromCode(code));
-        i++;
-      }
+      let code = tokens[i + 1];
+      if (code !== void 0)
+        candidates.push(...extractPathLiteralsFromCode(code)), i++;
       continue;
     }
-    const inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
-    if (inlineEval !== null && inlineEval[1] !== undefined) {
+    let inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
+    if (inlineEval !== null && inlineEval[1] !== void 0) {
       candidates.push(...extractPathLiteralsFromCode(inlineEval[1]));
       continue;
     }
-    if (!token.startsWith("-")) {
+    if (!token.startsWith("-"))
       candidates.push(token);
-    }
   }
   return candidates;
 }
 function isClusteredCodeEvalFlag(command2, token) {
   if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
-    return false;
-  const evalFlags = /^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2);
-  return evalFlags?.has(token[token.length - 1] ?? "") ?? false;
+    return !1;
+  return (/^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2))?.has(token[token.length - 1] ?? "") ?? !1;
 }
 function extractAwkPathTargets(tokens) {
   return [
@@ -10231,11 +9484,10 @@ function extractAwkSystemCommandTargets(code) {
   return extractAwkSystemCommands(code)?.commands.flatMap(extractCommandPathTargets) ?? [];
 }
 function extractAwkGetlineRedirectTargets(code) {
-  return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== undefined && value !== "");
+  return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== void 0 && value !== "");
 }
 function extractPathLiteralsFromCode(code) {
-  const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== undefined && value !== "");
-  const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
+  let quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== void 0 && value !== ""), bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 function extractCommandSubstitutionPathTargets(command2) {
@@ -10245,41 +9497,39 @@ function extractCommandSubstitutionPathTargets(command2) {
   ]);
 }
 function commandSubstitutionDecodesBase64(command2) {
-  const tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
+  let tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
   for (let i = 0;i < tokens.length; i++) {
-    const token = getCommandTokenText(tokens[i]);
-    if (token === null || basename3(token).toLowerCase() !== "base64") {
+    let token = getCommandTokenText(tokens[i]);
+    if (token === null || basename3(token).toLowerCase() !== "base64")
       continue;
-    }
     for (let j = i + 1;j < tokens.length; j++) {
-      if (isOperator3(tokens[j]))
+      if (isOperator2(tokens[j]))
         break;
-      const flag = getCommandTokenText(tokens[j]);
+      let flag = getCommandTokenText(tokens[j]);
       if (flag && isBase64DecodeFlag(flag))
-        return true;
+        return !0;
     }
   }
-  return false;
+  return !1;
 }
 function extractBase64DecodedPathCandidates(tokens) {
   return tokens.flatMap((token) => {
-    const tokenText = getCommandTokenText(token);
+    let tokenText = getCommandTokenText(token);
     return tokenText === null ? [] : [tokenText];
   }).flatMap(decodeBase64PathCandidate);
 }
 function decodeBase64PathCandidate(token) {
-  const normalized = normalizeBase64Token(token);
+  let normalized = normalizeBase64Token(token);
   if (normalized === null)
     return [];
-  const decoded = Buffer.from(normalized, "base64").toString("utf8");
+  let decoded = Buffer.from(normalized, "base64").toString("utf8");
   if (decoded === "" || hasControlCharacter(decoded))
     return [];
-  const canonical = Buffer.from(decoded, "utf8").toString("base64").replace(/=+$/g, "");
-  return canonical === normalized.replace(/=+$/g, "") ? [decoded] : [];
+  return Buffer.from(decoded, "utf8").toString("base64").replace(/=+$/g, "") === normalized.replace(/=+$/g, "") ? [decoded] : [];
 }
 function hasControlCharacter(value) {
   return Array.from(value).some((char) => {
-    const code = char.charCodeAt(0);
+    let code = char.charCodeAt(0);
     return code < 32 || code === 127;
   });
 }
@@ -10288,7 +9538,7 @@ function normalizeBase64Token(token) {
     return null;
   if (/=/.test(token.replace(/=+$/g, "")))
     return null;
-  const unpadded = token.replace(/=+$/g, "");
+  let unpadded = token.replace(/=+$/g, "");
   if (unpadded.length % 4 === 1)
     return null;
   return `${unpadded.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat((4 - unpadded.length % 4) % 4)}`;
@@ -10297,72 +9547,62 @@ function isBase64DecodeFlag(flag) {
   return flag === "--decode" || !flag.startsWith("--") && flag.startsWith("-") && /[dD]/.test(flag);
 }
 function extractCommandSubstitutionBodies(command2) {
-  const bodies = [];
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
+  let bodies = [], quoteState = { inSingle: !1, inDouble: !1, escaped: !1 };
   for (let i = 0;i < command2.length; i++) {
-    const char = command2[i];
+    let char = command2[i];
     if (!char)
       break;
     if (advanceQuoteScanState(char, quoteState))
       continue;
     if (startsCommandSubstitution(command2, i, quoteState)) {
-      const substitution = readCommandSubstitutionBody(command2, i + 1);
-      if (substitution !== null) {
-        bodies.push(substitution.body);
-        i = substitution.endIndex;
-      }
+      let substitution = readCommandSubstitutionBody(command2, i + 1);
+      if (substitution !== null)
+        bodies.push(substitution.body), i = substitution.endIndex;
       continue;
     }
     if (!quoteState.inSingle && char === "`") {
-      const substitution = readBacktickCommandSubstitutionBody(command2, i);
-      if (substitution !== null) {
-        bodies.push(substitution.body);
-        i = substitution.endIndex;
-      }
+      let substitution = readBacktickCommandSubstitutionBody(command2, i);
+      if (substitution !== null)
+        bodies.push(substitution.body), i = substitution.endIndex;
     }
   }
   return bodies;
 }
 function readCommandSubstitutionBody(command2, startIndex) {
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
-  let depth = 1;
+  let quoteState = { inSingle: !1, inDouble: !1, escaped: !1 }, depth = 1;
   for (let i = startIndex + 1;i < command2.length; i++) {
-    const char = command2[i];
+    let char = command2[i];
     if (!char)
       break;
     if (advanceQuoteScanState(char, quoteState))
       continue;
     if (startsCommandSubstitution(command2, i, quoteState)) {
-      depth++;
-      i++;
+      depth++, i++;
       continue;
     }
     if (!quoteState.inSingle && !quoteState.inDouble && char === ")") {
-      depth--;
-      if (depth === 0) {
+      if (depth--, depth === 0)
         return { body: command2.slice(startIndex + 1, i), endIndex: i };
-      }
     }
   }
   return null;
 }
 function readBacktickCommandSubstitutionBody(command2, startIndex) {
-  let escaped = false;
+  let escaped = !1;
   for (let i = startIndex + 1;i < command2.length; i++) {
-    const char = command2[i];
+    let char = command2[i];
     if (!char)
       break;
     if (escaped) {
-      escaped = false;
+      escaped = !1;
       continue;
     }
     if (char === "\\") {
-      escaped = true;
+      escaped = !0;
       continue;
     }
-    if (char === "`") {
+    if (char === "`")
       return { body: command2.slice(startIndex + 1, i), endIndex: i };
-    }
   }
   return null;
 }
@@ -10370,162 +9610,131 @@ function startsCommandSubstitution(command2, index, state) {
   return !state.inSingle && command2[index] === "$" && command2[index + 1] === "(" && command2[index + 2] !== "(";
 }
 function extractPatternCommandTargets(tokens) {
-  const optionFileTargets = [];
-  const positionals = [];
-  let patternFromOption = false;
-  let patternlessMode = false;
-  let afterDashDash = false;
+  let optionFileTargets = [], positionals = [], patternFromOption = !1, patternlessMode = !1, afterDashDash = !1;
   for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === undefined)
+    let token = tokens[i];
+    if (token === void 0)
       break;
     if (!afterDashDash && token === "--") {
-      afterDashDash = true;
+      afterDashDash = !0;
       continue;
     }
     if (afterDashDash) {
       positionals.push(token);
       continue;
     }
-    const longOption = /^--([^=]+)(?:=(.*))?$/.exec(token);
+    let longOption = /^--([^=]+)(?:=(.*))?$/.exec(token);
     if (longOption !== null) {
-      const name = longOption[1] ?? "";
-      const inlineValue = longOption[2];
+      let name = longOption[1] ?? "", inlineValue = longOption[2];
       if (name === PATTERNLESS_FILES_LONG)
-        patternlessMode = true;
+        patternlessMode = !0;
       if (PATTERN_SUPPLY_LONG.has(name))
-        patternFromOption = true;
-      if (inlineValue !== undefined) {
+        patternFromOption = !0;
+      if (inlineValue !== void 0) {
         if (name === PATTERN_FILE_LONG)
           optionFileTargets.push(inlineValue);
         continue;
       }
       if (PATTERN_ARG_LONG.has(name)) {
-        const next = tokens[i + 1];
-        if (name === PATTERN_FILE_LONG && next !== undefined)
+        let next = tokens[i + 1];
+        if (name === PATTERN_FILE_LONG && next !== void 0)
           optionFileTargets.push(next);
         i++;
       }
       continue;
     }
     if (token.startsWith("-") && token.length > 1) {
-      const flags = token.slice(1);
-      let consumerChar = "";
-      let consumerInline = "";
+      let flags = token.slice(1), consumerChar = "", consumerInline = "";
       for (let j = 0;j < flags.length; j++) {
-        const flag = flags[j] ?? "";
+        let flag = flags[j] ?? "";
         if (PATTERN_SUPPLY_SHORT.has(flag))
-          patternFromOption = true;
+          patternFromOption = !0;
         if (PATTERN_ARG_SHORT.has(flag)) {
-          consumerChar = flag;
-          consumerInline = flags.slice(j + 1);
+          consumerChar = flag, consumerInline = flags.slice(j + 1);
           break;
         }
       }
-      if (consumerChar !== "") {
+      if (consumerChar !== "")
         if (consumerInline.length > 0) {
           if (consumerChar === PATTERN_FILE_SHORT)
             optionFileTargets.push(consumerInline);
         } else {
-          const next = tokens[i + 1];
-          if (consumerChar === PATTERN_FILE_SHORT && next !== undefined) {
+          let next = tokens[i + 1];
+          if (consumerChar === PATTERN_FILE_SHORT && next !== void 0)
             optionFileTargets.push(next);
-          }
           i++;
         }
-      }
       continue;
     }
     positionals.push(token);
   }
-  const dropFirstPositional = !patternFromOption && !patternlessMode;
-  const positionalFiles = dropFirstPositional ? positionals.slice(1) : positionals;
+  let positionalFiles = !patternFromOption && !patternlessMode ? positionals.slice(1) : positionals;
   return [...optionFileTargets, ...positionalFiles];
 }
 function stripLeadingWrappersAndEnvAssignments(tokens) {
-  const firstCommandIndex = tokens.findIndex((token) => !isWrapperToken(token) && !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+  let firstCommandIndex = tokens.findIndex((token) => !isWrapperToken(token) && !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
   return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
 }
 function isWrapperToken(token) {
   return token === "env" || token === "command" || token === "builtin" || token === "sudo";
 }
 function isFileOperand(command2, token) {
-  if (token === "--") {
-    return false;
-  }
-  if (command2 === "tar") {
+  if (token === "--")
+    return !1;
+  if (command2 === "tar")
     return !token.startsWith("-") && !/\.(?:tar|tgz|tar\.gz|zip)$/i.test(token);
-  }
-  if (command2 === "zip") {
+  if (command2 === "zip")
     return !token.startsWith("-") && !/\.zip$/i.test(token);
-  }
   return !token.startsWith("-");
 }
-var PUBLIC_KEY_BASENAMES = new Set(["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"]);
-var ENV_PREFIX = ".env.";
-var ENV_EXEMPTION_BASENAMES = new Set([
+var PUBLIC_KEY_BASENAMES = /* @__PURE__ */ new Set(["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"]), ENV_PREFIX = ".env.", ENV_EXEMPTION_BASENAMES = /* @__PURE__ */ new Set([
   ".env.example",
   ".env.sample",
   ".env.template",
   ".env.defaults"
-]);
-var ENV_EXEMPTION_PREFIXES = [".env.example.", ".env.sample."];
-var SKIPPABLE_PATH_SEGMENTS = new Set(["node_modules", ".git", "__pycache__"]);
-var SKIPPABLE_PATH_SEGMENT_PAIRS = [
+]), ENV_EXEMPTION_PREFIXES = [".env.example.", ".env.sample."], SKIPPABLE_PATH_SEGMENTS = /* @__PURE__ */ new Set(["node_modules", ".git", "__pycache__"]), SKIPPABLE_PATH_SEGMENT_PAIRS = [
   ["vendor", "bundle"],
   ["vendor", "cache"]
 ];
 function isSensitivePath(target, cwd, config) {
-  const normalized = normalizeCandidatePath2(target, cwd);
-  if (!normalized) {
+  let normalized = normalizeCandidatePath2(target, cwd);
+  if (!normalized)
     return null;
-  }
-  const comparableName = comparable(normalized.split("/").pop() ?? "");
-  const comparablePath = comparable(normalized);
+  let comparableName = comparable(normalized.split("/").pop() ?? ""), comparablePath = comparable(normalized);
   if (isAllowedSensitiveTemplate(comparableName))
     return null;
-  for (const rule of SECRET_HOME_PATH_RULES) {
-    if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config)) {
+  for (let rule of SECRET_HOME_PATH_RULES)
+    if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-    }
-  }
-  const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
+  let codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
   if (codingCliRuleId)
     return codingCliRuleId;
-  for (const rule of SECRET_DIRECTORY_RULES) {
-    if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config)) {
+  for (let rule of SECRET_DIRECTORY_RULES)
+    if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-    }
-  }
   if (PUBLIC_KEY_BASENAMES.has(comparableName))
     return null;
-  for (const rule of SECRET_BASENAME_RULES) {
+  for (let rule of SECRET_BASENAME_RULES)
     if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-  }
-  if (comparableName.startsWith(ENV_PREFIX) && isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)) {
+  if (comparableName.startsWith(ENV_PREFIX) && isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config))
     return SECRET_ENV_VARIANT_RULE.id;
-  }
-  for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
+  for (let rule of SECRET_VARIANT_SEPARATOR_RULES)
     if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
-      const next = comparableName.slice(rule.prefix.length)[0];
+      let next = comparableName.slice(rule.prefix.length)[0];
       if ((next === "-" || next === "_") && isSecretRuleEnabled(rule.id, config))
         return rule.id;
     }
-  }
-  for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {
+  for (let rule of SECRET_VARIANT_DOT_SUFFIX_RULES)
     if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
-      if (comparableName.slice(rule.prefix.length) === rule.suffix && isSecretRuleEnabled(rule.id, config)) {
+      if (comparableName.slice(rule.prefix.length) === rule.suffix && isSecretRuleEnabled(rule.id, config))
         return rule.id;
-      }
     }
-  }
   if (isSkippablePathForBroadSignatures(comparablePath))
     return null;
-  if (hasBroadSshKeyBasename(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)) {
+  if (hasBroadSshKeyBasename(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config))
     return SECRET_BROAD_SSH_KEY_BASENAME_RULE.id;
-  }
-  const extensionRuleId = hasSensitiveExtension(comparableName, config);
+  let extensionRuleId = hasSensitiveExtension(comparableName, config);
   if (extensionRuleId)
     return extensionRuleId;
   return null;
@@ -10536,7 +9745,7 @@ function matchesHomePathSuffix(comparablePath, suffix) {
 function matchesCodingCliPath(normalized, cwd, config) {
   return SECRET_CODING_CLI_RULES.find((rule) => {
     if (!isSecretRuleEnabled(rule.id, config))
-      return false;
+      return !1;
     if (rule.id === "secret.cli.claude-code")
       return matchesClaudeCodePath(normalized, cwd);
     if (rule.id === "secret.cli.antigravity")
@@ -10553,7 +9762,7 @@ function matchesCodingCliPath(normalized, cwd, config) {
       return matchesOpenCodePath(normalized, cwd);
     if (rule.id === "secret.cli.pi")
       return matchesPiPath(normalized, cwd);
-    return false;
+    return !1;
   })?.id ?? null;
 }
 function matchesClaudeCodePath(normalized, cwd) {
@@ -10584,18 +9793,15 @@ function matchesGeminiPath(normalized, cwd) {
   ]);
 }
 function matchesCopilotCliPath(normalized, cwd) {
-  const root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd);
+  let root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd);
   return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
 }
 function matchesKimiCodePath(normalized, cwd) {
-  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd);
-  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd);
+  let currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd), legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd);
   return matchesFileInRoot(normalized, currentRoot, ["config.toml", "mcp.json", "server.token"]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
 }
 function matchesOpenCodePath(normalized, cwd) {
-  const dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode");
-  const configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode");
-  const programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
+  let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
   return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath2(root, cwd), [
     "opencode.json",
     "opencode.jsonc"
@@ -10617,7 +9823,7 @@ function matchesExactPath(normalized, path, cwd) {
   return sameComparablePath(normalized, normalizeCandidatePath2(path, cwd));
 }
 function matchesOptionalExactPath(normalized, path, cwd) {
-  return path?.trim() ? matchesExactPath(normalized, path, cwd) : false;
+  return path?.trim() ? matchesExactPath(normalized, path, cwd) : !1;
 }
 function sameComparablePath(a, b) {
   return comparable(a) === comparable(b);
@@ -10636,33 +9842,31 @@ function isDeniedByPolicy(target, cwd, config, configCwd) {
 }
 function matchesPolicyPath(target, cwd, paths, configCwd) {
   if (paths.length === 0)
-    return false;
-  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
+    return !1;
+  let normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
   return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized);
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
-  const parts = comparablePath.split("/");
+  let parts = comparablePath.split("/");
   return parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) || SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) => parts.some((part, index) => part === parent && parts[index + 1] === child));
 }
 function hasBroadSshKeyBasename(comparableName) {
   return !comparableName.includes(".") && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName);
 }
 function hasSensitiveExtension(comparableName, config) {
-  const extension = getExtension(comparableName);
+  let extension = getExtension(comparableName);
   if (extension === "")
     return null;
-  for (const rule of SECRET_EXTENSION_RULES) {
+  for (let rule of SECRET_EXTENSION_RULES)
     if (extension === rule.extension && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-  }
-  for (const rule of SECRET_EXTENSION_PATTERN_RULES) {
+  for (let rule of SECRET_EXTENSION_PATTERN_RULES)
     if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-  }
   return null;
 }
 function getExtension(comparableName) {
-  const index = comparableName.lastIndexOf(".");
+  let index = comparableName.lastIndexOf(".");
   return index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : "";
 }
 function comparable(value) {
@@ -10670,39 +9874,31 @@ function comparable(value) {
 }
 function isSecretRuleEnabled(id, config) {
   if (!config?.disabledRules)
-    return true;
+    return !0;
   if (Array.isArray(config.disabledRules))
     return !config.disabledRules.includes(id);
   return !config.disabledRules.has(id);
 }
 function normalizeCandidatePath2(target, cwd) {
-  const homeValue = process.env.HOME ?? homedir6();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
-  const normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
-  if (!normalized) {
+  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  if (!normalized)
     return "";
-  }
-  if (!home) {
+  if (!home)
     return normalized;
-  }
-  const expanded = expandHomePath(normalized, home);
-  const absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded));
-  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
     if (isAbsolute10(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
-  const relativeHomePath = canonicalAbsolute.slice(home.length);
+  let relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
 function normalizeAbsoluteCandidatePath(target, cwd) {
-  const homeValue = process.env.HOME ?? homedir6();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "";
-  const normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
-  const expanded = home ? expandHomePath(normalized, home) : normalized;
+  let expanded = home ? expandHomePath(normalized, home) : normalized;
   return normalizePathText(resolveExistingPath(isAbsolute10(expanded) ? expanded : resolve9(cwd, expanded)));
 }
 function normalizeFileUriPath(value) {
@@ -10722,10 +9918,9 @@ function expandHomePath(path, home) {
   return path;
 }
 function normalizePathText(value) {
-  const normalized = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");
-  if (normalized === "/") {
+  let normalized = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");
+  if (normalized === "/")
     return normalized;
-  }
   return normalized.replace(/\/+$/g, "");
 }
 function isSameOrChildPath(path, parent) {
@@ -10734,8 +9929,8 @@ function isSameOrChildPath(path, parent) {
 function basename3(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
-function isOperator3(token) {
-  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS3.has(token.op);
+function isOperator2(token) {
+  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS2.has(token.op);
 }
 function isPipeOperator(token) {
   return typeof token === "object" && token !== null && "op" in token && PIPE_OPERATORS.has(token.op);
@@ -10763,12 +9958,9 @@ var DEFAULT_DEPENDENCIES = {
   getModes: getCCSafetyNetEnvModes
 };
 function evaluateGuard(invocation, options2 = {}) {
-  const dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies };
-  const inputCommand = getCommandFromToolInput(invocation.input);
-  const command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand;
-  const policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(invocation.toolName, invocation.input, invocation.route, invocation.context));
+  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getCommandFromToolInput(invocation.input), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(invocation.toolName, invocation.input, invocation.route, invocation.context));
   if (policyTarget) {
-    const displayCommand = command2 ?? policyTarget.target;
+    let displayCommand = command2 ?? policyTarget.target;
     return {
       stage: "policy-protection",
       decision: {
@@ -10782,14 +9974,12 @@ function evaluateGuard(invocation, options2 = {}) {
       }
     };
   }
-  const snapshot = callDependency("config-load", invocation, () => dependencies.loadPolicySnapshot({
+  let snapshot = callDependency("config-load", invocation, () => dependencies.loadPolicySnapshot({
     ...options2.policyOptions,
     cwd: invocation.context.configCwd
-  }));
-  const policy = snapshot.policy;
-  const secretTarget = policy.secretProtection.enabled === false ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, policy.secretProtection, invocation.context.configCwd));
+  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, policy.secretProtection, invocation.context.configCwd));
   if (secretTarget) {
-    const displayCommand = command2 ?? secretTarget.target;
+    let displayCommand = command2 ?? secretTarget.target;
     return {
       stage: "secret-protection",
       decision: {
@@ -10814,7 +10004,7 @@ function evaluateGuard(invocation, options2 = {}) {
     };
   }
   if (!isCommandInvocation(invocation)) {
-    if (snapshot.state === "invalid") {
+    if (snapshot.state === "invalid")
       return {
         stage: "config-state",
         decision: {
@@ -10824,14 +10014,12 @@ function evaluateGuard(invocation, options2 = {}) {
           evidence: inputCommand ? [{ kind: "command", command: inputCommand, segment: inputCommand }] : []
         }
       };
-    }
     return { stage: "non-command", decision: { kind: "allow" } };
   }
-  if (!invocation.command || invocation.command.trim() === "") {
+  if (!invocation.command || invocation.command.trim() === "")
     return failedClosedEvaluation("command-validation", invocation);
-  }
-  const result = callDependency("command-analysis", invocation, () => {
-    const modes = dependencies.getModes(policy);
+  let result = callDependency("command-analysis", invocation, () => {
+    let modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(invocation.command, {
       cwd: invocation.context.executionCwd,
       shell: invocation.route.shell,
@@ -10844,9 +10032,8 @@ function evaluateGuard(invocation, options2 = {}) {
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
-  if (!options2.auditAllowed) {
+  if (!options2.auditAllowed)
     return { stage: "command-analysis", decision: { kind: "allow" } };
-  }
   return {
     stage: "command-analysis",
     decision: { kind: "allow" },
@@ -10867,7 +10054,7 @@ function callDependency(stage, invocation, call) {
   }
 }
 function failedClosedEvaluation(stage, invocation) {
-  const command2 = isCommandInvocation(invocation) ? invocation.command : getCommandFromToolInput(invocation.input);
+  let command2 = isCommandInvocation(invocation) ? invocation.command : getCommandFromToolInput(invocation.input);
   return {
     stage,
     decision: {
@@ -10879,8 +10066,7 @@ function failedClosedEvaluation(stage, invocation) {
   };
 }
 function blockedCommandEvaluation(invocation, result) {
-  const command2 = invocation.command;
-  const intent = getLegacyIntent(result);
+  let command2 = invocation.command, intent = getLegacyIntent(result);
   return {
     stage: "command-analysis",
     decision: {
@@ -10902,7 +10088,7 @@ function blockedCommandEvaluation(invocation, result) {
   };
 }
 function getLegacyIntent(result) {
-  if (result.manualPermissionAdvice === false)
+  if (result.manualPermissionAdvice === !1)
     return "hard_stop";
   return result.intent ?? "manual_only";
 }
@@ -10924,11 +10110,10 @@ function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermi
   }))));
 }
 async function readHookInput(outputDeny) {
-  const chunks = [];
-  for await (const chunk of process.stdin) {
+  let chunks = [];
+  for await (let chunk of process.stdin)
     chunks.push(chunk);
-  }
-  const inputText = Buffer.concat(chunks).toString("utf-8").trim();
+  let inputText = Buffer.concat(chunks).toString("utf-8").trim();
   if (!inputText) {
     outputDeny("Missing hook input JSON.");
     return;
@@ -10944,68 +10129,59 @@ function parseHookJson(inputText, outputDeny, strictReason) {
   }
 }
 function getToolRoute(toolName, commandTools) {
-  const shell = commandTools.get(toolName);
+  let shell = commandTools.get(toolName);
   return shell ? { kind: "command", shell } : { kind: getNonCommandToolInputKind(toolName) };
 }
 function resolveStandardHookContext(cwdInput, toolInput, toolName, outputDeny) {
-  const requestedCwd = cwdInput === undefined ? process.cwd() : cwdInput;
-  const cwd = typeof requestedCwd === "string" && requestedCwd.trim() !== "" ? firstTrustedRoot([requestedCwd]) : undefined;
+  let requestedCwd = cwdInput === void 0 ? process.cwd() : cwdInput, cwd = typeof requestedCwd === "string" && requestedCwd.trim() !== "" ? firstTrustedRoot([requestedCwd]) : void 0;
   if (cwd)
     return { configCwd: cwd, executionCwd: cwd };
-  outputFailedClosed(outputDeny, toolInput, toolName, stringField(requestedCwd));
-  return null;
+  return outputFailedClosed(outputDeny, toolInput, toolName, stringField(requestedCwd)), null;
 }
 function outputFailedClosed(outputDeny, toolInput, toolName, segment) {
-  const command2 = getCommandFromToolInput(toolInput);
-  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, segment ?? command2, undefined, toolName, undefined, "stop_and_explain");
+  let command2 = getCommandFromToolInput(toolInput);
+  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, segment ?? command2, void 0, toolName, void 0, "stop_and_explain");
 }
 async function runHookAdapter(adapter) {
-  const input = await readHookInput(adapter.outputDeny);
-  if (input === undefined) {
+  let input = await readHookInput(adapter.outputDeny);
+  if (input === void 0)
     return;
-  }
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     outputFailedClosed(adapter.outputDeny);
     return;
   }
-  if (!adapter.isSupported(input)) {
+  if (!adapter.isSupported(input))
     return;
-  }
-  const toolNameInput = adapter.getToolName(input);
+  let toolNameInput = adapter.getToolName(input);
   if (typeof toolNameInput !== "string" || toolNameInput.trim() === "") {
     outputFailedClosed(adapter.outputDeny);
     return;
   }
-  const toolName = toolNameInput;
-  const toolInputResult = adapter.getToolInput(input, toolName, adapter.outputDeny);
+  let toolName = toolNameInput, toolInputResult = adapter.getToolInput(input, toolName, adapter.outputDeny);
   if (!toolInputResult.ok)
     return;
-  const context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
+  let context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
   if (!context)
     return;
-  const invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null);
-  let evaluation;
+  let invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null), evaluation;
   try {
     evaluation = evaluateGuard(invocation, {
       auditAllowed: envTruthy(ENV_FLAGS.debug),
       dependencies: adapter.guardDependencies
     });
   } catch (error) {
-    if (!(error instanceof GuardEvaluationError)) {
+    if (!(error instanceof GuardEvaluationError))
       throw error;
-    }
-    logHookGuardError(error);
-    outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
+    logHookGuardError(error), outputGuardDenial(adapter.outputDeny, error.evaluation, toolName);
     return;
   }
-  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent });
-  outputGuardDenial(adapter.outputDeny, evaluation, toolName);
+  writeGuardAudit(evaluation.audit, () => adapter.getSessionId(input), { agent: adapter.agent }), outputGuardDenial(adapter.outputDeny, evaluation, toolName);
 }
 function outputGuardDenial(outputDeny, evaluation, toolName) {
   if (evaluation.decision.kind !== "deny")
     return;
-  const evidence = evaluation.decision.evidence.find((item) => item.kind === "command");
-  outputDeny(evaluation.decision.reason, evidence?.command, evidence?.segment, undefined, evaluation.stage === "command-analysis" ? undefined : toolName, evaluation.decision.ruleId, evaluation.decision.intent);
+  let evidence = evaluation.decision.evidence.find((item) => item.kind === "command");
+  outputDeny(evaluation.decision.reason, evidence?.command, evidence?.segment, void 0, evaluation.stage === "command-analysis" ? void 0 : toolName, evaluation.decision.ruleId, evaluation.decision.intent);
 }
 function logHookGuardError(error) {
   if (!envTruthy(ENV_FLAGS.debug))
@@ -11022,10 +10198,10 @@ function getHookGuardErrorLabel(stage) {
   return "hook analysis failed";
 }
 function stringField(value) {
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? value : void 0;
 }
 async function runConfiguredHookAdapter(adapter) {
-  const outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent);
+  let outputDeny = (reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice, toolName, ruleId, intent);
   await runHookAdapter({
     agent: adapter.agent,
     outputDeny,
@@ -11039,8 +10215,7 @@ async function runConfiguredHookAdapter(adapter) {
 }
 
 // src/bin/hook/antigravity-cli.ts
-var ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map([["run_command", "auto"]]);
-var ANTIGRAVITY_PATH_KEYS = new Set([
+var ANTIGRAVITY_CLI_COMMAND_TOOLS = /* @__PURE__ */ new Map([["run_command", "auto"]]), ANTIGRAVITY_PATH_KEYS = /* @__PURE__ */ new Set([
   "absolutepath",
   "directorypath",
   "file_path",
@@ -11061,10 +10236,10 @@ async function runAntigravityCliHook() {
       decision: "deny",
       reason: message
     }),
-    isSupported: () => true,
+    isSupported: () => !0,
     getToolName: (input) => input.toolCall?.name,
     getToolInput: (input, toolName) => ({
-      ok: true,
+      ok: !0,
       input: normalizeAntigravityToolArgs(input.toolCall?.args, toolName),
       route: getAntigravityCliToolRoute(toolName)
     }),
@@ -11073,60 +10248,47 @@ async function runAntigravityCliHook() {
   });
 }
 function resolveAntigravityContext(input, toolInput, toolName, outputDeny) {
-  const trustedRoots = usableWorkspacePaths(input);
-  const configRoots = trustedRoots.flatMap((root) => {
-    const canonicalRoot = firstTrustedRoot([root]);
+  let configRoots = usableWorkspacePaths(input).flatMap((root) => {
+    let canonicalRoot = firstTrustedRoot([root]);
     return canonicalRoot ? [canonicalRoot] : [];
   });
-  if (!configRoots[0]) {
-    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
-    return null;
-  }
+  if (!configRoots[0])
+    return outputAntigravityCwdDeny(outputDeny, toolInput, toolName), null;
   if (toolName !== "run_command") {
-    const targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
-    if (!targetRoot) {
-      outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
-      return null;
-    }
+    let targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
+    if (!targetRoot)
+      return outputAntigravityCwdDeny(outputDeny, toolInput, toolName), null;
     return {
       configCwd: targetRoot,
       executionCwd: targetRoot,
       policyConfigCwds: configRoots
     };
   }
-  const args = input.toolCall?.args;
-  if (!args || !Object.hasOwn(args, "Cwd")) {
+  let args = input.toolCall?.args;
+  if (!args || !Object.hasOwn(args, "Cwd"))
     return {
       configCwd: configRoots[0],
       executionCwd: configRoots[0],
       policyConfigCwds: configRoots
     };
-  }
-  const cwd = args.Cwd;
-  if (typeof cwd !== "string" || cwd.trim() === "") {
-    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
-    return null;
-  }
-  const containedCwd = resolveContainedCwd(cwd, configRoots);
+  let cwd = args.Cwd;
+  if (typeof cwd !== "string" || cwd.trim() === "")
+    return outputAntigravityCwdDeny(outputDeny, toolInput, toolName), null;
+  let containedCwd = resolveContainedCwd(cwd, configRoots);
   if (containedCwd) {
-    const configCwd = mostSpecificContainingRoot(containedCwd, configRoots);
-    if (!configCwd) {
-      outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
-      return null;
-    }
+    let configCwd = mostSpecificContainingRoot(containedCwd, configRoots);
+    if (!configCwd)
+      return outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd), null;
     return { configCwd, executionCwd: containedCwd, policyConfigCwds: configRoots };
   }
-  outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
-  return null;
+  return outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd), null;
 }
 function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
-  const route = getAntigravityCliToolRoute(toolName);
-  const targets = [
+  let route = getAntigravityCliToolRoute(toolName), targets = [
     ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
     ...route.kind === "patch" ? extractPatchTargetsFromToolInput(toolInput) : []
-  ].filter(isAbsolute11);
-  const targetRoots = new Set(targets.flatMap((target) => {
-    const root = mostSpecificContainingRoot(resolveExistingPath(target), configRoots);
+  ].filter(isAbsolute11), targetRoots = new Set(targets.flatMap((target) => {
+    let root = mostSpecificContainingRoot(resolveExistingPath(target), configRoots);
     return root ? [root] : [];
   }));
   if (targetRoots.size > 1)
@@ -11137,17 +10299,17 @@ function mostSpecificContainingRoot(path, roots) {
   return roots.filter((root) => isSameOrInside2(path, root)).reduce((best, root) => root.length > best.length ? root : best, "") || null;
 }
 function isSameOrInside2(path, root) {
-  const rel = relative3(root, path);
+  let rel = relative3(root, path);
   return rel === "" || !rel.startsWith("..") && !isAbsolute11(rel);
 }
 function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
-  const command2 = toolInput && typeof toolInput === "object" ? toolInput.command : undefined;
-  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof command2 === "string" ? command2 : undefined, cwd, undefined, toolName, undefined, "stop_and_explain");
+  let command2 = toolInput && typeof toolInput === "object" ? toolInput.command : void 0;
+  outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, typeof command2 === "string" ? command2 : void 0, cwd, void 0, toolName, void 0, "stop_and_explain");
 }
 function usableWorkspacePaths(input) {
-  if (input.workspacePaths === undefined)
+  if (input.workspacePaths === void 0)
     return [process.cwd()];
-  const workspacePaths = Array.isArray(input.workspacePaths) ? input.workspacePaths.filter((path) => typeof path === "string" && path.trim() !== "") : [];
+  let workspacePaths = Array.isArray(input.workspacePaths) ? input.workspacePaths.filter((path) => typeof path === "string" && path.trim() !== "") : [];
   return firstTrustedRoot(workspacePaths) ? workspacePaths : [];
 }
 function normalizeAntigravityToolArgs(args, toolName) {
@@ -11157,17 +10319,15 @@ function normalizeAntigravityToolArgs(args, toolName) {
     return args;
   return {
     ...args,
-    command: typeof args.CommandLine === "string" && args.CommandLine !== "" ? args.CommandLine : undefined
+    command: typeof args.CommandLine === "string" && args.CommandLine !== "" ? args.CommandLine : void 0
   };
 }
 
 // src/bin/hook/constants.ts
-var CLAUDE_CODE_HOOK_EVENT = "PreToolUse";
-var GEMINI_CLI_HOOK_EVENT = "BeforeTool";
-var KIMI_CODE_HOOK_EVENT = "PreToolUse";
+var CLAUDE_CODE_HOOK_EVENT = "PreToolUse", GEMINI_CLI_HOOK_EVENT = "BeforeTool", KIMI_CODE_HOOK_EVENT = "PreToolUse";
 
 // src/bin/hook/claude-code.ts
-var CLAUDE_CODE_COMMAND_TOOLS = new Map([
+var CLAUDE_CODE_COMMAND_TOOLS = /* @__PURE__ */ new Map([
   ["Bash", "posix"],
   ["PowerShell", "powershell"]
 ]);
@@ -11187,7 +10347,7 @@ async function runClaudeCodeHook() {
     isSupported: (input) => input.hook_event_name === CLAUDE_CODE_HOOK_EVENT,
     getToolName: (input) => input.tool_name,
     getToolInput: (input, toolName) => ({
-      ok: true,
+      ok: !0,
       input: input.tool_input,
       route: getClaudeCodeToolRoute(toolName)
     }),
@@ -11197,7 +10357,7 @@ async function runClaudeCodeHook() {
 }
 
 // src/bin/hook/copilot-cli.ts
-var COPILOT_CLI_COMMAND_TOOLS = new Map([
+var COPILOT_CLI_COMMAND_TOOLS = /* @__PURE__ */ new Map([
   ["bash", "auto"],
   ["Bash", "auto"]
 ]);
@@ -11211,17 +10371,15 @@ async function runCopilotCliHook() {
       permissionDecision: "deny",
       permissionDecisionReason: message
     }),
-    isSupported: () => true,
+    isSupported: () => !0,
     getToolName: (input) => input.toolName,
     getToolInput: (input, toolName, outputDeny) => {
-      if (typeof input.toolArgs !== "string") {
-        outputDeny("Failed to parse toolArgs JSON.");
-        return { ok: false };
-      }
-      const toolInput = parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.");
-      if (toolInput === undefined)
-        return { ok: false };
-      return { ok: true, input: toolInput, route: getCopilotCliToolRoute(toolName) };
+      if (typeof input.toolArgs !== "string")
+        return outputDeny("Failed to parse toolArgs JSON."), { ok: !1 };
+      let toolInput = parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.");
+      if (toolInput === void 0)
+        return { ok: !1 };
+      return { ok: !0, input: toolInput, route: getCopilotCliToolRoute(toolName) };
     },
     getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
     getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`
@@ -11229,7 +10387,7 @@ async function runCopilotCliHook() {
 }
 
 // src/bin/hook/gemini-cli.ts
-var GEMINI_CLI_COMMAND_TOOLS = new Map([["run_shell_command", "auto"]]);
+var GEMINI_CLI_COMMAND_TOOLS = /* @__PURE__ */ new Map([["run_shell_command", "auto"]]);
 function getGeminiCliToolRoute(toolName) {
   return getToolRoute(toolName, GEMINI_CLI_COMMAND_TOOLS);
 }
@@ -11244,7 +10402,7 @@ async function runGeminiCLIHook() {
     isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT,
     getToolName: (input) => input.tool_name,
     getToolInput: (input, toolName) => ({
-      ok: true,
+      ok: !0,
       input: input.tool_input,
       route: getGeminiCliToolRoute(toolName)
     }),
@@ -11254,7 +10412,7 @@ async function runGeminiCLIHook() {
 }
 
 // src/bin/hook/kimi-code.ts
-var KIMI_CODE_COMMAND_TOOLS = new Map([["Bash", "posix"]]);
+var KIMI_CODE_COMMAND_TOOLS = /* @__PURE__ */ new Map([["Bash", "posix"]]);
 function getKimiCodeToolRoute(toolName) {
   return getToolRoute(toolName, KIMI_CODE_COMMAND_TOOLS);
 }
@@ -11271,7 +10429,7 @@ async function runKimiCodeHook() {
     isSupported: (input) => input.hook_event_name === KIMI_CODE_HOOK_EVENT,
     getToolName: (input) => input.tool_name,
     getToolInput: (input, toolName) => ({
-      ok: true,
+      ok: !0,
       input: input.tool_input,
       route: getKimiCodeToolRoute(toolName)
     }),
@@ -11285,76 +10443,74 @@ var integrationMetadata = [
   {
     id: "claude-code",
     displayName: "Claude Code",
-    doctorVisible: true,
+    doctorVisible: !0,
     runtimeHook: {
       flags: ["-cc", "--claude-code"],
       description: "Run as Claude Code PreToolUse hook",
-      legacyTopLevel: true,
+      legacyTopLevel: !0,
       order: 2
     }
   },
   {
     id: "antigravity-cli",
     displayName: "Antigravity CLI",
-    doctorVisible: true,
+    doctorVisible: !0,
     runtimeHook: {
       flags: ["-ac", "--agy-cli"],
       description: "Run as Antigravity CLI PreToolUse hook",
-      legacyTopLevel: false,
+      legacyTopLevel: !1,
       order: 1
     }
   },
   {
     id: "codex",
     displayName: "Codex",
-    doctorVisible: true
+    doctorVisible: !0
   },
   {
     id: "copilot-cli",
     displayName: "Copilot CLI",
-    doctorVisible: true,
+    doctorVisible: !0,
     runtimeHook: {
       flags: ["-cp", "--copilot-cli"],
       description: "Run as Copilot CLI PreToolUse hook",
-      legacyTopLevel: true,
+      legacyTopLevel: !0,
       order: 3
     }
   },
   {
     id: "gemini-cli",
     displayName: "Gemini CLI",
-    doctorVisible: true,
+    doctorVisible: !0,
     runtimeHook: {
       flags: ["-gc", "--gemini-cli"],
       description: "Run as Gemini CLI BeforeTool hook",
-      legacyTopLevel: true,
+      legacyTopLevel: !0,
       order: 4
     }
   },
   {
     id: "kimi-code",
     displayName: "Kimi Code",
-    doctorVisible: true,
+    doctorVisible: !0,
     runtimeHook: {
       flags: ["-kc", "--kimi-code"],
       description: "Run as Kimi Code PreToolUse hook",
-      legacyTopLevel: false,
+      legacyTopLevel: !1,
       order: 5
     }
   },
   {
     id: "opencode",
     displayName: "OpenCode",
-    doctorVisible: true
+    doctorVisible: !0
   },
   {
     id: "pi",
     displayName: "Pi",
-    doctorVisible: true
+    doctorVisible: !0
   }
-];
-var doctorIntegrationOrder = integrationMetadata.filter((integration) => integration.doctorVisible).map((integration) => integration.id);
-var runtimeHookIntegrationMetadata = integrationMetadata.filter((integration) => ("runtimeHook" in integration)).toSorted((a, b) => a.runtimeHook.order - b.runtimeHook.order).map((integration) => ({
+], doctorIntegrationOrder = integrationMetadata.filter((integration) => integration.doctorVisible).map((integration) => integration.id), runtimeHookIntegrationMetadata = integrationMetadata.filter((integration) => ("runtimeHook" in integration)).toSorted((a, b) => a.runtimeHook.order - b.runtimeHook.order).map((integration) => ({
   id: integration.id,
   displayName: integration.displayName,
   flags: integration.runtimeHook.flags,
@@ -11372,8 +10528,7 @@ var hookRunners = {
   "copilot-cli": runCopilotCliHook,
   "gemini-cli": runGeminiCLIHook,
   "kimi-code": runKimiCodeHook
-};
-var hookIntegrations = runtimeHookIntegrationMetadata.map((integration) => ({
+}, hookIntegrations = runtimeHookIntegrationMetadata.map((integration) => ({
   ...integration,
   run: hookRunners[integration.id]
 }));
@@ -11388,9 +10543,7 @@ function findLegacyTopLevelHookIntegration(flag) {
 var platformOptions = hookIntegrations.map((integration) => ({
   flags: integration.flags.join(", "),
   description: integration.description
-}));
-var platformExamples = hookIntegrations.flatMap((integration) => integration.flags.map((flag) => `cc-safety-net hook ${flag}`));
-var hookCommand = {
+})), platformExamples = hookIntegrations.flatMap((integration) => integration.flags.map((flag) => `cc-safety-net hook ${flag}`)), hookCommand = {
   name: "hook",
   description: "Run as an agent CLI hook (reads JSON from stdin)",
   usage: "hook <coding cli>",
@@ -11415,8 +10568,7 @@ var installTargetOptions = [
   { flags: "--opencode", description: "Install OpenCode plugin" },
   { flags: "--pi", description: "Install Pi package" },
   { flags: "-h, --help", description: "Show this help" }
-];
-var installCommand = {
+], installCommand = {
   name: "install",
   description: "Install CC Safety Net into a coding agent CLI",
   usage: "install [coding cli]",
@@ -11432,8 +10584,7 @@ var installCommand = {
     "cc-safety-net install --opencode",
     "cc-safety-net install --pi"
   ]
-};
-var uninstallCommand = {
+}, uninstallCommand = {
   name: "uninstall",
   description: "Uninstall CC Safety Net from a coding agent CLI",
   usage: "uninstall [coding cli]",
@@ -11595,7 +10746,7 @@ function isVisibleCommand(command2) {
   return !command2.hidden;
 }
 function findCommand(nameOrAlias) {
-  const normalized = nameOrAlias.toLowerCase();
+  let normalized = nameOrAlias.toLowerCase();
   return commands.find((cmd) => cmd.name.toLowerCase() === normalized || getCommandAliases(cmd).some((alias) => alias.toLowerCase() === normalized));
 }
 function getVisibleCommands() {
@@ -11606,10 +10757,7 @@ function getVisibleCommands() {
 import { readFileSync as readFileSync9 } from "node:fs";
 import { basename as basename4 } from "node:path";
 function formatRelativeTime(date) {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / (1000 * 60));
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
+  let diff = Date.now() - date.getTime(), minutes = Math.floor(diff / 60000), hours = Math.floor(diff / 3600000), days = Math.floor(hours / 24);
   if (days > 0)
     return `${days}d ago`;
   if (hours > 0)
@@ -11619,45 +10767,27 @@ function formatRelativeTime(date) {
   return "just now";
 }
 function getActivitySummary(days = 7, logsDir = getAuditLogsDir()) {
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const recentEntries = [];
-  const recentSessions = new Set;
-  let totalBlocked = 0;
-  let oldestEntry;
-  let oldestEntryTs;
-  let newestEntry;
-  let newestEntryTs;
-  const files = logsDir ? listAuditLogFiles(logsDir) : [];
-  for (const file of files) {
+  let cutoff = Date.now() - days * 24 * 60 * 60 * 1000, recentEntries = [], recentSessions = /* @__PURE__ */ new Set, totalBlocked = 0, oldestEntry, oldestEntryTs, newestEntry, newestEntryTs, files = logsDir ? listAuditLogFiles(logsDir) : [];
+  for (let file of files)
     try {
-      const content = readFileSync9(file, "utf-8");
-      const lines = content.trim().split(`
+      let lines = readFileSync9(file, "utf-8").trim().split(`
 `).filter(Boolean);
-      for (const line of lines) {
+      for (let line of lines)
         try {
-          const entry = JSON.parse(line);
-          if (entry.decision === "allow") {
+          let entry = JSON.parse(line);
+          if (entry.decision === "allow")
             continue;
-          }
-          const ts = new Date(entry.ts).getTime();
+          let ts = new Date(entry.ts).getTime();
           if (ts >= cutoff) {
-            totalBlocked++;
-            recentSessions.add(entry.sessionId ?? basename4(file, ".jsonl"));
-            if (oldestEntryTs === undefined || ts <= oldestEntryTs) {
-              oldestEntry = entry.ts;
-              oldestEntryTs = ts;
-            }
-            if (newestEntryTs === undefined || ts > newestEntryTs) {
-              newestEntry = entry.ts;
-              newestEntryTs = ts;
-            }
+            if (totalBlocked++, recentSessions.add(entry.sessionId ?? basename4(file, ".jsonl")), oldestEntryTs === void 0 || ts <= oldestEntryTs)
+              oldestEntry = entry.ts, oldestEntryTs = ts;
+            if (newestEntryTs === void 0 || ts > newestEntryTs)
+              newestEntry = entry.ts, newestEntryTs = ts;
             insertRecentEntry(recentEntries, entry, ts);
           }
         } catch {}
-      }
     } catch {}
-  }
-  const displayEntries = recentEntries.map((e) => ({
+  let displayEntries = recentEntries.map((e) => ({
     timestamp: e.ts,
     command: e.command,
     reason: e.reason,
@@ -11672,17 +10802,14 @@ function getActivitySummary(days = 7, logsDir = getAuditLogsDir()) {
   };
 }
 function insertRecentEntry(entries, entry, ts) {
-  const index = entries.findIndex((existing) => ts > new Date(existing.ts).getTime());
+  let index = entries.findIndex((existing) => ts > new Date(existing.ts).getTime());
   if (index === -1) {
-    if (entries.length < 3) {
+    if (entries.length < 3)
       entries.push(entry);
-    }
     return;
   }
-  entries.splice(index, 0, entry);
-  if (entries.length > 3) {
+  if (entries.splice(index, 0, entry), entries.length > 3)
     entries.pop();
-  }
 }
 
 // src/bin/doctor/config.ts
@@ -11693,61 +10820,48 @@ import { dirname as dirname12 } from "node:path";
 import { existsSync as existsSync9, readFileSync as readFileSync10 } from "node:fs";
 import { resolve as resolve10 } from "node:path";
 function validateConfig(config) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!config || typeof config !== "object") {
-    errors.push("Config must be an object");
-    return { errors, ruleNames };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
+  let errors = [], ruleNames = /* @__PURE__ */ new Set;
+  if (!config || typeof config !== "object")
+    return errors.push("Config must be an object"), { errors, ruleNames };
+  let cfg = config;
+  if (cfg.version !== 1)
     errors.push("version must be 1");
-  }
-  if (cfg.rules !== undefined) {
-    if (!Array.isArray(cfg.rules)) {
+  if (cfg.rules !== void 0)
+    if (!Array.isArray(cfg.rules))
       errors.push("rules must be an array");
-    } else {
-      for (let i = 0;i < cfg.rules.length; i++) {
+    else
+      for (let i = 0;i < cfg.rules.length; i++)
         errors.push(...validateCustomRule(cfg.rules[i], i, ruleNames));
-      }
-    }
-  }
   return { errors, ruleNames };
 }
 function validateConfigFile(path) {
   return validateParsedConfigFile(path, validateConfig);
 }
 function readConfigFileInput(path) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!existsSync9(path)) {
-    errors.push(`File not found: ${path}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
+  let errors = [], ruleNames = /* @__PURE__ */ new Set;
+  if (!existsSync9(path))
+    return errors.push(`File not found: ${path}`), { ok: !1, result: { errors, ruleNames } };
   try {
-    const content = readFileSync10(path, "utf-8");
-    if (!content.trim()) {
-      errors.push("Config file is empty");
-      return { ok: false, result: { errors, ruleNames } };
-    }
-    return { ok: true, parsed: JSON.parse(content) };
+    let content = readFileSync10(path, "utf-8");
+    if (!content.trim())
+      return errors.push("Config file is empty"), { ok: !1, result: { errors, ruleNames } };
+    return { ok: !0, parsed: JSON.parse(content) };
   } catch (e) {
-    errors.push(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
-    return { ok: false, result: { errors, ruleNames } };
+    return errors.push(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`), { ok: !1, result: { errors, ruleNames } };
   }
 }
 function getLegacyProjectConfigPath(cwd) {
   return resolve10(cwd ?? process.cwd(), ".safety-net.json");
 }
 function validateRulesConfigFile(path) {
-  const loaded = readConfigFileInput(path);
+  let loaded = readConfigFileInput(path);
   if (!loaded.ok)
     return loaded.result;
-  const result = validateRulesConfig(loaded.parsed);
+  let result = validateRulesConfig(loaded.parsed);
   return { errors: result.errors, ruleNames: result.sources };
 }
 function validateParsedConfigFile(path, validate) {
-  const loaded = readConfigFileInput(path);
+  let loaded = readConfigFileInput(path);
   if (!loaded.ok)
     return loaded.result;
   return validate(loaded.parsed);
@@ -11766,43 +10880,34 @@ import {
 } from "node:fs";
 import { dirname as dirname11, isAbsolute as isAbsolute12, join as join12, relative as relative4, resolve as resolve11, sep as sep5 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
+  let internalOptions = options2, scope = getScopePaths(options2), scopeConfig = readScopeRulesConfig(scope.configPath);
   if (!scopeConfig.ok)
     return scopeConfig.result;
-  const config = scopeConfig.config;
-  if (options2.check) {
+  let config = scopeConfig.config;
+  if (options2.check)
     return checkRulesConfig(config, scope.configDir, scope.lockPath, options2);
-  }
   try {
-    const existingLockResult = readLockfile(scope.lockPath);
-    if (options2.only && existingLockResult.errors.length > 0) {
-      return { ok: false, errors: existingLockResult.errors, warnings: [], entries: [] };
-    }
-    const previousLock = existingLockResult.errors.length > 0 ? null : existingLockResult.lock;
-    const selectedSpecs = options2.only ? getSelectedUpdateSpecs(config, previousLock, options2.only) : { ok: true, specs: config.rules };
-    if (!selectedSpecs.ok) {
+    let existingLockResult = readLockfile(scope.lockPath);
+    if (options2.only && existingLockResult.errors.length > 0)
+      return { ok: !1, errors: existingLockResult.errors, warnings: [], entries: [] };
+    let previousLock = existingLockResult.errors.length > 0 ? null : existingLockResult.lock, selectedSpecs = options2.only ? getSelectedUpdateSpecs(config, previousLock, options2.only) : { ok: !0, specs: config.rules };
+    if (!selectedSpecs.ok)
       return selectedSpecs.result;
-    }
-    if (options2.only && !previousLock && selectedSpecs.specs.length < config.rules.length) {
+    if (options2.only && !previousLock && selectedSpecs.specs.length < config.rules.length)
       return {
-        ok: false,
+        ok: !1,
         errors: [`No lockfile available for partial update; run ${RULE_SYNC_COMMAND}`],
         warnings: [],
         entries: []
       };
-    }
-    const resolved = (await Promise.all(selectedSpecs.specs.map((spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock)))).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
-    for (const item of resolved) {
+    let resolved = (await Promise.all(selectedSpecs.specs.map((spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock)))).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
+    for (let item of resolved)
       writeCache(item.content, item.entry, scope.configDir, options2);
-    }
-    const entries = options2.only ? mergeSelectedLockEntries(config, previousLock, resolved) : resolved.map((item) => item.entry);
+    let entries = options2.only ? mergeSelectedLockEntries(config, previousLock, resolved) : resolved.map((item) => item.entry);
     writeJsonAtomic(scope.lockPath, { version: 1, rulebooks: entries });
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2);
+    let ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2);
     return {
-      ok: true,
+      ok: !0,
       errors: [],
       warnings,
       entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec))
@@ -11812,12 +10917,9 @@ async function syncRulesConfig(options2 = {}) {
   }
 }
 async function testRulebookSources(sources, options2 = {}) {
-  const scope = getScopePaths(options2);
+  let scope = getScopePaths(options2);
   try {
-    const resolved = await Promise.all(sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options2)));
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length]));
-    const fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
+    let resolved = await Promise.all(sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options2))), ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length])), fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
       `${item.entry.spec}: ${failure.command}: ${failure.message}`,
       ...failure.trace.map((line) => `  ${line}`)
     ].join(`
@@ -11836,98 +10938,85 @@ async function testRulebookSources(sources, options2 = {}) {
   }
 }
 async function addRulebookSource(source, options2 = {}) {
-  const scope = getScopePaths(options2);
-  mkdirSync4(scope.configDir, { recursive: true });
-  const before = existsSync10(scope.configPath) ? readFileSync11(scope.configPath, "utf-8") : null;
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
+  let scope = getScopePaths(options2);
+  mkdirSync4(scope.configDir, { recursive: !0 });
+  let before = existsSync10(scope.configPath) ? readFileSync11(scope.configPath, "utf-8") : null, scopeConfig = readScopeRulesConfig(scope.configPath);
   if (!scopeConfig.ok)
     return scopeConfig.result;
-  const config = scopeConfig.config;
-  let discoveredSources;
+  let config = scopeConfig.config, discoveredSources;
   try {
     discoveredSources = isGitHubRepositorySource(source) ? await discoverGitHubRepositoryRulebooks(source) : [{ spec: source }];
   } catch (error) {
     return {
-      ok: false,
+      ok: !1,
       errors: [error instanceof Error ? error.message : String(error)],
       warnings: [],
       entries: []
     };
   }
-  const sources = discoveredSources.map((item) => item.spec);
-  const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
-  if (nextRules.length !== config.rules.length) {
+  let sources = discoveredSources.map((item) => item.spec), nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
+  if (nextRules.length !== config.rules.length)
     writeJsonAtomic(scope.configPath, {
       version: 1,
       rules: nextRules,
       overrides: config.overrides ?? {},
       transparent_wrappers: config.transparent_wrappers ?? []
     });
-  }
-  const result = await syncRulesConfig({
+  let result = await syncRulesConfig({
     ...options2,
     discoveredDisplayRefs: new Map(discoveredSources.filter((item) => !!item.display_ref).map((item) => [item.spec, item.display_ref]))
   });
-  if (!result.ok) {
+  if (!result.ok)
     restoreConfig(scope.configPath, before);
-  }
   return result;
 }
 async function removeRulebookSource(match, options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const loaded = readRulesConfig(scope.configPath);
-  if (loaded.errors.length > 0) {
-    return { ok: false, errors: loaded.errors, warnings: [], entries: [] };
-  }
-  if (!loaded.config) {
+  let internalOptions = options2, scope = getScopePaths(options2), loaded = readRulesConfig(scope.configPath);
+  if (loaded.errors.length > 0)
+    return { ok: !1, errors: loaded.errors, warnings: [], entries: [] };
+  if (!loaded.config)
     return {
-      ok: false,
+      ok: !1,
       errors: [`No config found at ${scope.configPath}`],
       warnings: [],
       entries: []
     };
-  }
-  const lockResult = readLockfile(scope.lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ok: false, errors: lockResult.errors, warnings: [], entries: [] };
-  }
-  const matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
+  let lockResult = readLockfile(scope.lockPath);
+  if (lockResult.errors.length > 0)
+    return { ok: !1, errors: lockResult.errors, warnings: [], entries: [] };
+  let matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
   if (!matches.ok)
     return matches.result;
-  const sourceDirs = options2.deleteSource ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock) : { ok: true, dirs: [] };
+  let sourceDirs = options2.deleteSource ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock) : { ok: !0, dirs: [] };
   if (!sourceDirs.ok)
     return sourceDirs.result;
-  const before = readFileSync11(scope.configPath, "utf-8");
+  let before = readFileSync11(scope.configPath, "utf-8");
   writeJsonAtomic(scope.configPath, {
     version: 1,
     rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
     overrides: loaded.config.overrides ?? {},
     transparent_wrappers: loaded.config.transparent_wrappers ?? []
   });
-  const result = await syncRulesConfig(options2);
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-    return result;
-  }
-  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions);
+  let result = await syncRulesConfig(options2);
+  if (!result.ok)
+    return restoreConfig(scope.configPath, before), result;
+  let deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions);
   if (!deleteResult.ok) {
     restoreConfig(scope.configPath, before);
-    const rollback = await syncRulesConfig(options2);
-    if (!rollback.ok) {
+    let rollback = await syncRulesConfig(options2);
+    if (!rollback.ok)
       return {
-        ok: false,
+        ok: !1,
         errors: [...deleteResult.result.errors, ...rollback.errors],
         warnings: rollback.warnings,
         entries: rollback.entries
       };
-    }
     return deleteResult.result;
   }
   return result;
 }
 async function checkRulesConfig(config, configDir, lockPath, options2) {
-  const result = loadScopePolicy(config, lockPath, configDir, options2, "project");
+  let result = loadScopePolicy(config, lockPath, configDir, options2, "project");
   return {
     ok: result.errors.length === 0,
     errors: result.errors,
@@ -11936,16 +11025,13 @@ async function checkRulesConfig(config, configDir, lockPath, options2) {
   };
 }
 function preserveDisplayRef(item, previousLock, discoveredDisplayRefs) {
-  const previousEntry = previousLock?.rulebooks.find((entry) => entry.spec === item.entry.spec && entry.kind === "github");
-  const displayRef = discoveredDisplayRefs?.get(item.entry.spec) ?? (previousEntry?.kind === "github" ? previousEntry.display_ref : undefined);
+  let previousEntry = previousLock?.rulebooks.find((entry) => entry.spec === item.entry.spec && entry.kind === "github"), displayRef = discoveredDisplayRefs?.get(item.entry.spec) ?? (previousEntry?.kind === "github" ? previousEntry.display_ref : void 0);
   if (!displayRef || item.entry.kind !== "github")
     return item;
   return { ...item, entry: { ...item.entry, display_ref: displayRef } };
 }
 function mergeSelectedLockEntries(config, previousLock, resolved) {
-  const configuredSpecs = new Set(config.rules);
-  const previousSpecs = new Set(previousLock?.rulebooks.map((entry) => entry.spec) ?? []);
-  const resolvedBySpec = new Map(resolved.map((item) => [item.entry.spec, item.entry]));
+  let configuredSpecs = new Set(config.rules), previousSpecs = new Set(previousLock?.rulebooks.map((entry) => entry.spec) ?? []), resolvedBySpec = new Map(resolved.map((item) => [item.entry.spec, item.entry]));
   return [
     ...(previousLock?.rulebooks.filter((entry) => configuredSpecs.has(entry.spec)) ?? []).map((entry) => resolvedBySpec.get(entry.spec) ?? entry),
     ...resolved.filter((item) => !previousSpecs.has(item.entry.spec)).map((item) => item.entry)
@@ -11958,23 +11044,20 @@ function addRuleCount(entry, ruleCountsBySpec) {
   };
 }
 function writeCache(content, entry, configDir, options2) {
-  const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  mkdirSync4(dirname11(path), { recursive: true });
-  writeFileSync2(path, content, "utf-8");
+  let path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  mkdirSync4(dirname11(path), { recursive: !0 }), writeFileSync2(path, content, "utf-8");
 }
 function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
-  const internalOptions = options2;
-  const cacheRoot = join12(dirname11(configDir), "cache", "rulebooks");
+  let internalOptions = options2, cacheRoot = join12(dirname11(configDir), "cache", "rulebooks");
   if (!existsSync10(cacheRoot))
     return [];
-  const keep = new Set(entries.map((entry) => dirname11(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
-  return readdirSync2(cacheRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
-    const path = join12(cacheRoot, entry.name);
+  let keep = new Set(entries.map((entry) => dirname11(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
+  return readdirSync2(cacheRoot, { withFileTypes: !0 }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
+    let path = join12(cacheRoot, entry.name);
     if (keep.has(path))
       return [];
     try {
-      pruneRulebookCacheDir(path, internalOptions);
-      return [];
+      return pruneRulebookCacheDir(path, internalOptions), [];
     } catch (error) {
       return [
         `Failed to prune rulebook cache entry ${path}: ${error instanceof Error ? error.message : String(error)}`
@@ -11983,86 +11066,72 @@ function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
   });
 }
 function getLocalSourceDirsForDelete(configDir, specs, lock) {
-  const entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
-  const errors = specs.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
+  let entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []), errors = specs.flatMap((spec) => {
+    let entry = entriesBySpec.get(spec);
+    if (!entry)
       return NAME_PATTERN.test(spec) ? [] : ["--delete-source can only delete local rulebook sources"];
-    }
     return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
-  });
-  const dirs = specs.map((spec) => {
-    const entry = entriesBySpec.get(spec);
+  }), dirs = specs.map((spec) => {
+    let entry = entriesBySpec.get(spec);
     return join12(configDir, entry?.kind === "local-directory" ? entry.path : spec);
-  });
-  const dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir));
-  const allErrors = [...errors, ...dirErrors];
-  return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
+  }), dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir)), allErrors = [...errors, ...dirErrors];
+  return allErrors.length > 0 ? { ok: !1, result: { ok: !1, errors: allErrors, warnings: [], entries: [] } } : { ok: !0, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve11(configDir);
-  const resolvedDir = resolve11(dir);
-  const relativeDir = relative4(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute12(relativeDir)) {
+  let resolvedConfigDir = resolve11(configDir), resolvedDir = resolve11(dir), relativeDir = relative4(resolvedConfigDir, resolvedDir);
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute12(relativeDir))
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
-  }
   if (!existsSync10(resolvedDir))
     return [`Local rulebook source directory not found: ${dir}`];
-  if (!lstatSync4(resolvedDir).isDirectory()) {
+  if (!lstatSync4(resolvedDir).isDirectory())
     return [`Local rulebook source is not a directory: ${dir}`];
-  }
-  const entries = readdirSync2(resolvedDir);
-  if (!entries.includes("rulebook.json")) {
+  let entries = readdirSync2(resolvedDir);
+  if (!entries.includes("rulebook.json"))
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
-  }
-  if (!lstatSync4(join12(resolvedDir, "rulebook.json")).isFile()) {
+  if (!lstatSync4(join12(resolvedDir, "rulebook.json")).isFile())
     return [`Local rulebook source rulebook.json is not a file: ${dir}`];
-  }
-  if (entries.length > 1) {
+  if (entries.length > 1)
     return [
       `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
     ];
-  }
   return [];
 }
 function deleteLocalSourceDirs(dirs, options2) {
-  const errors = dirs.flatMap((dir) => {
+  let errors = dirs.flatMap((dir) => {
     try {
-      deleteLocalSourceDir(dir, options2);
-      return [];
+      return deleteLocalSourceDir(dir, options2), [];
     } catch (error) {
       return [
         `Failed to delete local rulebook source ${dir}: ${error instanceof Error ? error.message : String(error)}`
       ];
     }
   });
-  return errors.length > 0 ? { ok: false, result: { ok: false, errors, warnings: [], entries: [] } } : { ok: true };
+  return errors.length > 0 ? { ok: !1, result: { ok: !1, errors, warnings: [], entries: [] } } : { ok: !0 };
 }
 function pruneRulebookCacheDir(path, options2) {
   if (options2._testPruneRulebookCacheDir) {
     options2._testPruneRulebookCacheDir(path);
     return;
   }
-  rmSync2(path, { recursive: true, force: true });
+  rmSync2(path, { recursive: !0, force: !0 });
 }
 function deleteLocalSourceDir(dir, options2) {
   if (options2._testDeleteLocalSourceDir) {
     options2._testDeleteLocalSourceDir(dir);
     return;
   }
-  unlinkSync(join12(dir, "rulebook.json"));
-  rmdirSync(dir);
+  unlinkSync(join12(dir, "rulebook.json")), rmdirSync(dir);
 }
 function restoreConfig(path, content) {
   if (content === null) {
-    rmSync2(path, { force: true });
+    rmSync2(path, { force: !0 });
     return;
   }
   writeFileSync2(path, content, "utf-8");
 }
 function failWithError(error) {
   return {
-    ok: false,
+    ok: !1,
     errors: [error instanceof Error ? error.message : String(error)],
     warnings: [],
     entries: []
@@ -12070,14 +11139,12 @@ function failWithError(error) {
 }
 // src/bin/doctor/config.ts
 function getConfigSourceInfo(path, lockPath, userConfigDir) {
-  if (!existsSync11(path)) {
-    return { path, exists: false, valid: false, ruleCount: 0 };
-  }
-  const validation = validateRulesConfigFile(path);
-  validation.errors.push(...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }));
-  return {
+  if (!existsSync11(path))
+    return { path, exists: !1, valid: !1, ruleCount: 0 };
+  let validation = validateRulesConfigFile(path);
+  return validation.errors.push(...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir })), {
     path,
-    exists: true,
+    exists: !0,
     valid: validation.errors.length === 0,
     ruleCount: validation.ruleNames.size,
     ...validation.errors.length > 0 ? { errors: validation.errors } : {}
@@ -12094,16 +11161,12 @@ function toEffectiveRule(rule, source) {
   };
 }
 function getConfigInfo(cwd, options2) {
-  const userPath = options2?.userConfigPath ?? getUserRulesConfigPath();
-  const projectPath = options2?.projectConfigPath ?? getProjectRulesConfigPath(cwd);
-  const userConfigDir = dirname12(userPath);
-  const policy = loadRulesPolicy({
+  let userPath = options2?.userConfigPath ?? getUserRulesConfigPath(), projectPath = options2?.projectConfigPath ?? getProjectRulesConfigPath(cwd), userConfigDir = dirname12(userPath), policy = loadRulesPolicy({
     cwd,
     userConfigPath: userPath,
     projectConfigPath: projectPath,
     userConfigDir
-  });
-  const rulebookSources = new Map(policy.rulebooks.flatMap((rulebook) => rulebook.rules.map((rule) => [rule, rulebook.source])));
+  }), rulebookSources = new Map(policy.rulebooks.flatMap((rulebook) => rulebook.rules.map((rule) => [rule, rulebook.source])));
   return {
     userConfig: getConfigSourceInfo(userPath, getUserRulesLockPath({ userConfigPath: userPath }), userConfigDir),
     projectConfig: getConfigSourceInfo(projectPath, getRulesLockPathForConfigPath(projectPath), userConfigDir),
@@ -12157,15 +11220,15 @@ function getEnvironmentInfo() {
       value: getEnvFlagValue(v.flag),
       isSet: envFlagIsSet(v.flag),
       legacyName: v.flag.legacyName,
-      legacyValue: v.flag.legacyName ? process.env[v.flag.legacyName] : undefined,
-      legacyIsSet: v.flag.legacyName ? process.env[v.flag.legacyName] !== undefined : undefined,
+      legacyValue: v.flag.legacyName ? process.env[v.flag.legacyName] : void 0,
+      legacyIsSet: v.flag.legacyName ? process.env[v.flag.legacyName] !== void 0 : void 0,
       description: v.description,
       defaultBehavior: v.defaultBehavior
     })),
     {
       name: "CC_SAFETY_NET_HOME",
       value: process.env.CC_SAFETY_NET_HOME,
-      isSet: process.env.CC_SAFETY_NET_HOME !== undefined,
+      isSet: process.env.CC_SAFETY_NET_HOME !== void 0,
       description: "Override user-scope config/cache directory",
       defaultBehavior: "~/.cc-safety-net"
     }
@@ -12176,15 +11239,7 @@ function getEnvironmentInfo() {
 function shouldUseColor() {
   return Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
 }
-var green = (s) => shouldUseColor() ? `\x1B[32m${s}\x1B[0m` : s;
-var yellow = (s) => shouldUseColor() ? `\x1B[33m${s}\x1B[0m` : s;
-var blue = (s) => shouldUseColor() ? `\x1B[34m${s}\x1B[0m` : s;
-var magenta = (s) => shouldUseColor() ? `\x1B[35m${s}\x1B[0m` : s;
-var cyan = (s) => shouldUseColor() ? `\x1B[36m${s}\x1B[0m` : s;
-var red = (s) => shouldUseColor() ? `\x1B[31m${s}\x1B[0m` : s;
-var dim = (s) => shouldUseColor() ? `\x1B[2m${s}\x1B[0m` : s;
-var bold = (s) => shouldUseColor() ? `\x1B[1m${s}\x1B[0m` : s;
-var colors = {
+var green = (s) => shouldUseColor() ? `\x1B[32m${s}\x1B[0m` : s, yellow = (s) => shouldUseColor() ? `\x1B[33m${s}\x1B[0m` : s, blue = (s) => shouldUseColor() ? `\x1B[34m${s}\x1B[0m` : s, magenta = (s) => shouldUseColor() ? `\x1B[35m${s}\x1B[0m` : s, cyan = (s) => shouldUseColor() ? `\x1B[36m${s}\x1B[0m` : s, red = (s) => shouldUseColor() ? `\x1B[31m${s}\x1B[0m` : s, dim = (s) => shouldUseColor() ? `\x1B[2m${s}\x1B[0m` : s, bold = (s) => shouldUseColor() ? `\x1B[1m${s}\x1B[0m` : s, colors = {
   green,
   yellow,
   blue,
@@ -12193,9 +11248,7 @@ var colors = {
   red,
   dim,
   bold
-};
-var ANSI_RESET = "\x1B[0m";
-var DISTINCT_COLORS = [
+}, ANSI_RESET = "\x1B[0m", DISTINCT_COLORS = [
   39,
   82,
   198,
@@ -12226,46 +11279,35 @@ var DISTINCT_COLORS = [
 function createRandom(seed) {
   let state = seed;
   return () => {
-    state = (state * 1664525 + 1013904223) % 4294967296;
-    return state / 4294967296;
+    return state = (state * 1664525 + 1013904223) % 4294967296, state / 4294967296;
   };
 }
 function getShuffledPalette(seed) {
-  const palette = [...DISTINCT_COLORS];
-  const random = createRandom(seed);
+  let palette = [...DISTINCT_COLORS], random = createRandom(seed);
   for (let i = palette.length - 1;i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    const temp = palette[i];
-    palette[i] = palette[j];
-    palette[j] = temp;
+    let j = Math.floor(random() * (i + 1)), temp = palette[i];
+    palette[i] = palette[j], palette[j] = temp;
   }
   return palette;
 }
 function generateDistinctColor(index, seed = 0) {
   if (!shouldUseColor())
     return "";
-  const palette = getShuffledPalette(seed);
-  const colorCode = palette[index % palette.length];
-  return `\x1B[38;5;${colorCode}m`;
+  let palette = getShuffledPalette(seed);
+  return `\x1B[38;5;${palette[index % palette.length]}m`;
 }
 function colorizeToken(token, index, seed = 0) {
   if (!shouldUseColor())
     return `"${token}"`;
-  const colorCode = generateDistinctColor(index, seed);
-  return `${colorCode}"${token}"${ANSI_RESET}`;
+  return `${generateDistinctColor(index, seed)}"${token}"${ANSI_RESET}`;
 }
 
 // src/bin/doctor/format.ts
 function formatAsciiTable(options2) {
-  const rawRows = options2.rawRows ?? options2.rows;
-  const colWidths = (options2.headers ?? rawRows[0] ?? []).map((h, i) => {
-    const maxDataWidth = Math.max(...rawRows.map((r) => r[i]?.length ?? 0));
+  let rawRows = options2.rawRows ?? options2.rows, colWidths = (options2.headers ?? rawRows[0] ?? []).map((h, i) => {
+    let maxDataWidth = Math.max(...rawRows.map((r) => r[i]?.length ?? 0));
     return Math.max(h.length, maxDataWidth);
-  });
-  const pad = (s, w, raw) => s + " ".repeat(Math.max(0, w - raw.length));
-  const line = (char, corners) => corners[0] + colWidths.map((w) => char.repeat(w + 2)).join(corners[1]) + corners[2];
-  const formatRow = (cells, rawCells) => `│ ${cells.map((c, i) => pad(c, colWidths[i] ?? 0, rawCells[i] ?? "")).join(" │ ")} │`;
-  const headerLines = options2.headers ? [`   ${formatRow(options2.headers, options2.headers)}`, `   ${line("─", ["├", "┼", "┤"])}`] : [];
+  }), pad = (s, w, raw) => s + " ".repeat(Math.max(0, w - raw.length)), line = (char, corners) => corners[0] + colWidths.map((w) => char.repeat(w + 2)).join(corners[1]) + corners[2], formatRow = (cells, rawCells) => `│ ${cells.map((c, i) => pad(c, colWidths[i] ?? 0, rawCells[i] ?? "")).join(" │ ")} │`, headerLines = options2.headers ? [`   ${formatRow(options2.headers, options2.headers)}`, `   ${line("─", ["├", "┼", "┤"])}`] : [];
   return [
     `   ${line("─", ["┌", "┬", "┐"])}`,
     ...headerLines,
@@ -12275,51 +11317,37 @@ function formatAsciiTable(options2) {
 `);
 }
 function formatHooksSection(hooks) {
-  const lines = [];
-  lines.push("Hook Integration");
-  lines.push(formatHooksTable(hooks));
-  const failures = [];
-  const warnings = [];
-  const errors = [];
-  for (const hook of hooks) {
-    const platformName = getIntegrationDisplayName(hook.platform);
+  let lines = [];
+  lines.push("Hook Integration"), lines.push(formatHooksTable(hooks));
+  let failures = [], warnings = [], errors = [];
+  for (let hook of hooks) {
+    let platformName = getIntegrationDisplayName(hook.platform);
     if (hook.selfTest) {
-      for (const result of hook.selfTest.results) {
-        if (!result.passed) {
+      for (let result of hook.selfTest.results)
+        if (!result.passed)
           failures.push({ platform: platformName, result });
-        }
-      }
     }
-    if (hook.errors && hook.errors.length > 0) {
-      for (const err of hook.errors) {
-        if (hook.status === "configured") {
+    if (hook.errors && hook.errors.length > 0)
+      for (let err of hook.errors)
+        if (hook.status === "configured")
           warnings.push({ platform: platformName, message: err });
-        } else {
+        else
           errors.push({ platform: platformName, message: err });
-        }
-      }
-    }
   }
   if (failures.length > 0) {
-    lines.push("");
-    lines.push(colors.red("   Failures:"));
-    for (const f of failures) {
-      lines.push(colors.red(`   • ${f.platform}: ${f.result.description}`));
-      lines.push(colors.red(`     expected ${f.result.expected}, got ${f.result.actual}`));
-    }
+    lines.push(""), lines.push(colors.red("   Failures:"));
+    for (let f of failures)
+      lines.push(colors.red(`   • ${f.platform}: ${f.result.description}`)), lines.push(colors.red(`     expected ${f.result.expected}, got ${f.result.actual}`));
   }
-  for (const w of warnings) {
+  for (let w of warnings)
     lines.push(`   Warning (${w.platform}): ${w.message}`);
-  }
-  for (const e of errors) {
+  for (let e of errors)
     lines.push(colors.red(`   Error (${e.platform}): ${e.message}`));
-  }
   return lines.join(`
 `);
 }
 function formatHooksTable(hooks) {
-  const headers = ["Platform", "Status", "Tests"];
-  const getStatusDisplay = (h) => {
+  let headers = ["Platform", "Status", "Tests"], getStatusDisplay = (h) => {
     switch (h.status) {
       case "configured":
         return { text: "Configured", colored: colors.green("Configured") };
@@ -12328,30 +11356,23 @@ function formatHooksTable(hooks) {
       case "n/a":
         return { text: "N/A", colored: colors.dim("N/A") };
     }
-  };
-  const rowData = hooks.map((h) => {
-    const platformName = getIntegrationDisplayName(h.platform);
-    const statusDisplay = getStatusDisplay(h);
-    let testsText = "-";
+  }, rowData = hooks.map((h) => {
+    let platformName = getIntegrationDisplayName(h.platform), statusDisplay = getStatusDisplay(h), testsText = "-";
     if (h.status === "configured" && h.selfTest) {
-      const label = h.selfTest.failed > 0 ? "FAIL" : "OK";
+      let label = h.selfTest.failed > 0 ? "FAIL" : "OK";
       testsText = `${h.selfTest.passed}/${h.selfTest.total} ${label}`;
     }
     return {
       colored: [platformName, statusDisplay.colored, testsText],
       raw: [platformName, statusDisplay.text, testsText]
     };
-  });
-  const rows = rowData.map((r) => r.colored);
-  const rawRows = rowData.map((r) => r.raw);
+  }), rows = rowData.map((r) => r.colored), rawRows = rowData.map((r) => r.raw);
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatRulesTable(rules) {
-  if (rules.length === 0) {
+  if (rules.length === 0)
     return "   (no custom rules)";
-  }
-  const headers = ["Source", "Name", "Command", "Block Args"];
-  const rows = rules.map((r) => [
+  let headers = ["Source", "Name", "Command", "Block Args"], rows = rules.map((r) => [
     r.source,
     r.name,
     r.subcommand ? `${r.command} ${r.subcommand}` : r.command,
@@ -12360,79 +11381,57 @@ function formatRulesTable(rules) {
   return formatAsciiTable({ headers, rows });
 }
 function formatConfigSection(report) {
-  const lines = [];
-  lines.push("Configuration");
-  lines.push(formatConfigTable(report.userConfig, report.projectConfig));
-  lines.push("");
-  if (report.effectiveRules.length > 0) {
-    lines.push(`   Effective rules (${report.effectiveRules.length} total):`);
-    lines.push(formatRulesTable(report.effectiveRules));
-  } else {
+  let lines = [];
+  if (lines.push("Configuration"), lines.push(formatConfigTable(report.userConfig, report.projectConfig)), lines.push(""), report.effectiveRules.length > 0)
+    lines.push(`   Effective rules (${report.effectiveRules.length} total):`), lines.push(formatRulesTable(report.effectiveRules));
+  else
     lines.push("   Effective rules: (none - using built-in rules only)");
-  }
-  for (const shadow of report.shadowedRules) {
-    lines.push("");
-    lines.push(`   Note: Project rule "${shadow.name}" shadows user rule with same name`);
-  }
+  for (let shadow of report.shadowedRules)
+    lines.push(""), lines.push(`   Note: Project rule "${shadow.name}" shadows user rule with same name`);
   return lines.join(`
 `);
 }
 function formatConfigTable(userConfig, projectConfig) {
-  const headers = ["Scope", "Status"];
-  const getStatusDisplay = (config) => {
-    if (!config.exists) {
+  let headers = ["Scope", "Status"], getStatusDisplay = (config) => {
+    if (!config.exists)
       return { text: "N/A", colored: colors.dim("N/A") };
-    }
     if (!config.valid) {
-      const errMsg = config.errors?.[0] ?? "unknown error";
-      const text = `Invalid (${errMsg})`;
+      let text = `Invalid (${config.errors?.[0] ?? "unknown error"})`;
       return { text, colored: colors.red(text) };
     }
     return { text: "Configured", colored: colors.green("Configured") };
-  };
-  const userStatus = getStatusDisplay(userConfig);
-  const projectStatus = getStatusDisplay(projectConfig);
-  const rows = [
+  }, userStatus = getStatusDisplay(userConfig), projectStatus = getStatusDisplay(projectConfig), rows = [
     ["User", userStatus.colored],
     ["Project", projectStatus.colored]
-  ];
-  const rawRows = [
+  ], rawRows = [
     ["User", userStatus.text],
     ["Project", projectStatus.text]
   ];
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatEnvironmentSection(envVars) {
-  const lines = [];
-  lines.push("Environment");
-  lines.push(formatEnvironmentTable(envVars));
-  return lines.join(`
+  let lines = [];
+  return lines.push("Environment"), lines.push(formatEnvironmentTable(envVars)), lines.join(`
 `);
 }
 function formatEffectiveSafetySection(report) {
-  const lines = [`Effective Safety`, `   Effective: ${report.effectiveSafety.level}`];
-  const capabilityLabels = [
+  let lines = ["Effective Safety", `   Effective: ${report.effectiveSafety.level}`], capabilityLabels = [
     ["fail_closed", "fail_closed"],
     ["paranoid_rm", "paranoid_rm"],
     ["paranoid_interpreters", "paranoid_interpreters"]
   ];
-  for (const [key, label] of capabilityLabels) {
-    const capability = report.effectiveSafety.capabilities[key];
-    const state = capability.enabled ? colors.green("ON") : colors.dim("OFF");
-    const sources = capability.sources.length > 0 ? ` (${capability.sources.join(", ")})` : "";
+  for (let [key, label] of capabilityLabels) {
+    let capability = report.effectiveSafety.capabilities[key], state = capability.enabled ? colors.green("ON") : colors.dim("OFF"), sources = capability.sources.length > 0 ? ` (${capability.sources.join(", ")})` : "";
     lines.push(`   ${label}: ${state}${sources}`);
   }
   return lines.join(`
 `);
 }
 function formatEnvironmentTable(envVars) {
-  const headers = ["Variable", "Status", "Legacy"];
-  const rows = envVars.map((v) => {
-    const statusIcon = v.isSet ? colors.green("✓") : colors.dim("✗");
-    const legacyStatus = v.legacyName && v.legacyIsSet ? `${v.legacyName} ${colors.green("✓")}` : v.legacyName ?? "";
+  let headers = ["Variable", "Status", "Legacy"], rows = envVars.map((v) => {
+    let statusIcon = v.isSet ? colors.green("✓") : colors.dim("✗"), legacyStatus = v.legacyName && v.legacyIsSet ? `${v.legacyName} ${colors.green("✓")}` : v.legacyName ?? "";
     return [v.name, statusIcon, legacyStatus];
-  });
-  const rawRows = envVars.map((v) => [
+  }), rawRows = envVars.map((v) => [
     v.name,
     v.isSet ? "✓" : "✗",
     v.legacyName && v.legacyIsSet ? `${v.legacyName} ✓` : v.legacyName ?? ""
@@ -12440,125 +11439,94 @@ function formatEnvironmentTable(envVars) {
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatActivitySection(activity) {
-  const lines = [];
-  if (activity.totalBlocked === 0) {
-    lines.push("Recent Activity");
-    lines.push("   No blocked commands in the last 7 days");
-    lines.push("   Tip: This is normal for new installations");
-  } else {
-    lines.push(`Recent Activity (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`);
-    lines.push(formatActivityTable(activity.recentEntries));
-  }
+  let lines = [];
+  if (activity.totalBlocked === 0)
+    lines.push("Recent Activity"), lines.push("   No blocked commands in the last 7 days"), lines.push("   Tip: This is normal for new installations");
+  else
+    lines.push(`Recent Activity (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`), lines.push(formatActivityTable(activity.recentEntries));
   return lines.join(`
 `);
 }
 function formatActivityTable(entries) {
-  const headers = ["Time", "Command"];
-  const rows = entries.map((e) => {
-    const cmd = e.command.length > 40 ? `${e.command.slice(0, 37)}...` : e.command;
+  let headers = ["Time", "Command"], rows = entries.map((e) => {
+    let cmd = e.command.length > 40 ? `${e.command.slice(0, 37)}...` : e.command;
     return [e.relativeTime, cmd];
   });
   return formatAsciiTable({ headers, rows });
 }
 function formatUpdateSection(update) {
-  const lines = [];
+  let lines = [];
   lines.push("Update Check");
-  const rowData = [];
-  if (update.latestVersion === null && !update.error) {
-    rowData.push({
+  let rowData = [];
+  if (update.latestVersion === null && !update.error)
+    return rowData.push({
       label: "Status",
       value: colors.dim("Skipped"),
       rawValue: "Skipped"
-    });
-    rowData.push({
+    }), rowData.push({
       label: "Installed",
       value: update.currentVersion,
       rawValue: update.currentVersion
-    });
-    lines.push(formatUpdateTable(rowData));
-    return lines.join(`
+    }), lines.push(formatUpdateTable(rowData)), lines.join(`
 `);
-  }
-  if (update.error) {
-    rowData.push({
+  if (update.error)
+    return rowData.push({
       label: "Status",
       value: `${colors.yellow("⚠")} Error`,
       rawValue: "⚠ Error"
-    });
-    rowData.push({
+    }), rowData.push({
       label: "Installed",
       value: update.currentVersion,
       rawValue: update.currentVersion
-    });
-    rowData.push({
+    }), rowData.push({
       label: "Error",
       value: colors.dim(update.error),
       rawValue: update.error
-    });
-    lines.push(formatUpdateTable(rowData));
-    return lines.join(`
+    }), lines.push(formatUpdateTable(rowData)), lines.join(`
 `);
-  }
-  if (update.updateAvailable) {
-    rowData.push({
+  if (update.updateAvailable)
+    return rowData.push({
       label: "Status",
       value: `${colors.yellow("⚠")} Update Available`,
       rawValue: "⚠ Update Available"
-    });
-    rowData.push({
+    }), rowData.push({
       label: "Current",
       value: update.currentVersion,
       rawValue: update.currentVersion
-    });
-    rowData.push({
+    }), rowData.push({
       label: "Latest",
       value: colors.green(update.latestVersion ?? ""),
       rawValue: update.latestVersion ?? ""
-    });
-    lines.push(formatUpdateTable(rowData));
-    lines.push("");
-    lines.push("   Run: bunx cc-safety-net@latest doctor");
-    lines.push("   Or:  npx cc-safety-net@latest doctor");
-    return lines.join(`
+    }), lines.push(formatUpdateTable(rowData)), lines.push(""), lines.push("   Run: bunx cc-safety-net@latest doctor"), lines.push("   Or:  npx cc-safety-net@latest doctor"), lines.join(`
 `);
-  }
-  rowData.push({
+  return rowData.push({
     label: "Status",
     value: `${colors.green("✓")} Up to date`,
     rawValue: "✓ Up to date"
-  });
-  rowData.push({
+  }), rowData.push({
     label: "Version",
     value: update.currentVersion,
     rawValue: update.currentVersion
-  });
-  lines.push(formatUpdateTable(rowData));
-  return lines.join(`
+  }), lines.push(formatUpdateTable(rowData)), lines.join(`
 `);
 }
 function formatUpdateTable(rowData) {
-  const rows = rowData.map((r) => [r.label, r.value]);
-  const rawRows = rowData.map((r) => [r.label, r.rawValue]);
+  let rows = rowData.map((r) => [r.label, r.value]), rawRows = rowData.map((r) => [r.label, r.rawValue]);
   return formatAsciiTable({ rows, rawRows });
 }
 function formatSystemInfoSection(system) {
-  const lines = [];
-  lines.push("System Info");
-  lines.push(formatSystemInfoTable(system));
-  return lines.join(`
+  let lines = [];
+  return lines.push("System Info"), lines.push(formatSystemInfoTable(system)), lines.join(`
 `);
 }
 function formatSystemInfoTable(system) {
-  const headers = ["Component", "Version"];
-  const formatValue = (value) => {
+  let headers = ["Component", "Version"], formatValue = (value) => {
     if (value === null)
       return colors.dim("not found");
     return value;
-  };
-  const rawValue = (value) => {
+  }, rawValue = (value) => {
     return value ?? "not found";
-  };
-  const rowData = [
+  }, rowData = [
     { label: "cc-safety-net", value: system.version },
     { label: "Claude Code", value: system.claudeCodeVersion },
     { label: "Antigravity CLI", value: system.antigravityCliVersion },
@@ -12572,30 +11540,21 @@ function formatSystemInfoTable(system) {
     { label: "npm", value: system.npmVersion },
     { label: "Bun", value: system.bunVersion },
     { label: "Platform", value: system.platform }
-  ];
-  const rows = rowData.map((r) => [r.label, formatValue(r.value)]);
-  const rawRows = rowData.map((r) => [r.label, rawValue(r.value)]);
+  ], rows = rowData.map((r) => [r.label, formatValue(r.value)]), rawRows = rowData.map((r) => [r.label, rawValue(r.value)]);
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatSummary(report) {
-  const hooksFailed = report.hooks.every((h) => h.status !== "configured");
-  const selfTestFailed = report.hooks.some((h) => h.selfTest && h.selfTest.failed > 0);
-  const configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0;
-  const failures = [hooksFailed, selfTestFailed, configFailed].filter(Boolean).length;
-  let warnings = 0;
+  let hooksFailed = report.hooks.every((h) => h.status !== "configured"), selfTestFailed = report.hooks.some((h) => h.selfTest && h.selfTest.failed > 0), configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0, failures = [hooksFailed, selfTestFailed, configFailed].filter(Boolean).length, warnings = 0;
   if (report.update.updateAvailable)
     warnings++;
   if (report.activity.totalBlocked === 0)
     warnings++;
-  warnings += report.shadowedRules.length;
-  if (failures > 0) {
+  if (warnings += report.shadowedRules.length, failures > 0)
     return colors.red(`
 ${failures} check(s) failed.`);
-  }
-  if (warnings > 0) {
+  if (warnings > 0)
     return colors.yellow(`
 All checks passed with ${warnings} warning(s).`);
-  }
   return colors.green(`
 All checks passed.`);
 }
@@ -12612,50 +11571,36 @@ function getAntigravityHooksPath(homeDir) {
 }
 
 // src/bin/doctor/hooks.ts
-var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin";
-var CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list";
-var CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace";
-var CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list";
-var CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git";
-var GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list";
-var GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net";
-var ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
-var KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
-var SELF_TEST_CASES = [
-  { command: "git reset --hard", description: "git reset --hard", expectBlocked: true },
-  { command: "rm -rf /", description: "rm -rf /", expectBlocked: true },
-  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: false }
-];
-var SELF_TEST_SNAPSHOT = Object.freeze({
+var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/, SELF_TEST_CASES = [
+  { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
+  { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
+  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: !1 }
+], SELF_TEST_SNAPSHOT = Object.freeze({
   state: "ready",
   diagnostics: Object.freeze([]),
   policy: Object.freeze({
     rules: Object.freeze([]),
     transparentWrappers: Object.freeze([]),
     safety: Object.freeze({}),
-    worktreeMode: false,
-    destructiveCommandProtectionEnabled: true,
+    worktreeMode: !1,
+    destructiveCommandProtectionEnabled: !0,
     disabledDestructiveCommandRules: Object.freeze([]),
     secretProtection: Object.freeze({
-      enabled: true,
+      enabled: !0,
       disabledRules: Object.freeze([]),
       denyPaths: Object.freeze([])
     })
   })
 });
 function runSelfTest() {
-  const selfTestCwd = join14(tmpdir3(), "cc-safety-net-self-test");
-  const results = SELF_TEST_CASES.map((tc) => {
-    const result = analyzeCommand(tc.command, {
+  let selfTestCwd = join14(tmpdir3(), "cc-safety-net-self-test"), results = SELF_TEST_CASES.map((tc) => {
+    let result = analyzeCommand(tc.command, {
       cwd: selfTestCwd,
       policySnapshot: SELF_TEST_SNAPSHOT,
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false
-    });
-    const wasBlocked = result !== null;
-    const expected = tc.expectBlocked ? "blocked" : "allowed";
-    const actual = wasBlocked ? "blocked" : "allowed";
+      strict: !1,
+      paranoidRm: !1,
+      paranoidInterpreters: !1
+    }), wasBlocked = result !== null, expected = tc.expectBlocked ? "blocked" : "allowed", actual = wasBlocked ? "blocked" : "allowed";
     return {
       command: tc.command,
       description: tc.description,
@@ -12664,55 +11609,37 @@ function runSelfTest() {
       passed: expected === actual,
       reason: result?.reason
     };
-  });
-  const passed = results.filter((r) => r.passed).length;
-  const failed = results.filter((r) => !r.passed).length;
+  }), passed = results.filter((r) => r.passed).length, failed = results.filter((r) => !r.passed).length;
   return { passed, failed, total: results.length, results };
 }
 function stripJsonComments(content) {
-  let result = "";
-  let i = 0;
-  let inString = false;
-  let isEscaped = false;
-  let lastCommaIndex = -1;
+  let result = "", i = 0, inString = !1, isEscaped = !1, lastCommaIndex = -1;
   while (i < content.length) {
-    const char = content[i];
-    const next = content[i + 1];
+    let char = content[i], next = content[i + 1];
     if (isEscaped) {
-      result += char;
-      isEscaped = false;
-      i++;
+      result += char, isEscaped = !1, i++;
       continue;
     }
     if (char === '"' && !inString) {
-      inString = true;
-      lastCommaIndex = -1;
-      result += char;
-      i++;
+      inString = !0, lastCommaIndex = -1, result += char, i++;
       continue;
     }
     if (char === '"' && inString) {
-      inString = false;
-      result += char;
-      i++;
+      inString = !1, result += char, i++;
       continue;
     }
     if (char === "\\" && inString) {
-      isEscaped = true;
-      result += char;
-      i++;
+      isEscaped = !0, result += char, i++;
       continue;
     }
     if (inString) {
-      result += char;
-      i++;
+      result += char, i++;
       continue;
     }
     if (char === "/" && next === "/") {
       while (i < content.length && content[i] !== `
-`) {
+`)
         i++;
-      }
       continue;
     }
     if (char === "/" && next === "*") {
@@ -12727,48 +11654,38 @@ function stripJsonComments(content) {
       continue;
     }
     if (char === ",") {
-      lastCommaIndex = result.length;
-      result += char;
-      i++;
+      lastCommaIndex = result.length, result += char, i++;
       continue;
     }
     if (char === "}" || char === "]") {
       if (lastCommaIndex !== -1) {
-        const between = result.slice(lastCommaIndex + 1);
-        if (/^\s*$/.test(between)) {
+        let between = result.slice(lastCommaIndex + 1);
+        if (/^\s*$/.test(between))
           result = result.slice(0, lastCommaIndex) + between;
-        }
       }
-      lastCommaIndex = -1;
-      result += char;
-      i++;
+      lastCommaIndex = -1, result += char, i++;
       continue;
     }
-    if (!/\s/.test(char)) {
+    if (!/\s/.test(char))
       lastCommaIndex = -1;
-    }
-    result += char;
-    i++;
+    result += char, i++;
   }
   return result;
 }
 function detectClaudeCode(pluginListOutput) {
-  if (!pluginListOutput) {
+  if (!pluginListOutput)
     return { platform: "claude-code", status: "n/a" };
-  }
-  const pluginBlock = _findClaudeSafetyNetPluginBlock(pluginListOutput);
-  if (!pluginBlock) {
+  let pluginBlock = _findClaudeSafetyNetPluginBlock(pluginListOutput);
+  if (!pluginBlock)
     return { platform: "claude-code", status: "n/a" };
-  }
-  if (/^\s*Status:\s*.*\bdisabled\b\s*$/im.test(pluginBlock)) {
+  if (/^\s*Status:\s*.*\bdisabled\b\s*$/im.test(pluginBlock))
     return {
       platform: "claude-code",
       status: "disabled",
       method: "plugin list",
       configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH
     };
-  }
-  if (/^\s*Status:\s*.*\benabled\b\s*$/im.test(pluginBlock)) {
+  if (/^\s*Status:\s*.*\benabled\b\s*$/im.test(pluginBlock))
     return {
       platform: "claude-code",
       status: "configured",
@@ -12776,7 +11693,6 @@ function detectClaudeCode(pluginListOutput) {
       configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
       selfTest: runSelfTest()
     };
-  }
   return {
     platform: "claude-code",
     status: "disabled",
@@ -12786,67 +11702,53 @@ function detectClaudeCode(pluginListOutput) {
   };
 }
 function _findClaudeSafetyNetPluginBlock(output) {
-  const pluginLinePattern = new RegExp(`^\\s*(?:[^\\w\\s@]+\\s+)?${_escapeRegExp(CLAUDE_SAFETY_NET_PLUGIN_ID)}\\s*$`);
-  const pluginStartPattern = /^\s*(?:[^\w\s@]+\s+)?\S+@\S+\s*$/;
-  const lines = output.split(`
-`);
-  const startIndex = lines.findIndex((line) => pluginLinePattern.test(line));
+  let pluginLinePattern = new RegExp(`^\\s*(?:[^\\w\\s@]+\\s+)?${_escapeRegExp(CLAUDE_SAFETY_NET_PLUGIN_ID)}\\s*$`), pluginStartPattern = /^\s*(?:[^\w\s@]+\s+)?\S+@\S+\s*$/, lines = output.split(`
+`), startIndex = lines.findIndex((line) => pluginLinePattern.test(line));
   if (startIndex === -1)
     return;
-  const endIndex = lines.findIndex((line, index) => index > startIndex && pluginStartPattern.test(line));
-  return lines.slice(startIndex, endIndex === -1 ? undefined : endIndex).join(`
+  let endIndex = lines.findIndex((line, index) => index > startIndex && pluginStartPattern.test(line));
+  return lines.slice(startIndex, endIndex === -1 ? void 0 : endIndex).join(`
 `);
 }
 function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  const errors = [];
-  const configDir = join14(homeDir, ".config", "opencode");
-  const candidates = ["opencode.json", "opencode.jsonc"];
-  for (const filename of candidates) {
-    const configPath = join14(configDir, filename);
-    if (existsSync12(configPath)) {
+  let errors = [], configDir = join14(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  for (let filename of candidates) {
+    let configPath = join14(configDir, filename);
+    if (existsSync12(configPath))
       try {
-        const content = readFileSync12(configPath, "utf-8");
-        const json = stripJsonComments(content);
-        const config = JSON.parse(json);
-        const plugins = config.plugin ?? [];
-        const hasSafetyNet = plugins.some((p) => p.includes("cc-safety-net"));
-        if (hasSafetyNet) {
+        let content = readFileSync12(configPath, "utf-8"), json = stripJsonComments(content);
+        if ((JSON.parse(json).plugin ?? []).some((p) => p.includes("cc-safety-net")))
           return {
             platform: "opencode",
             status: "configured",
             method: "plugin array",
             configPath,
             selfTest: runSelfTest(),
-            errors: errors.length > 0 ? errors : undefined
+            errors: errors.length > 0 ? errors : void 0
           };
-        }
       } catch (e) {
         errors.push(`Failed to parse ${filename}: ${e instanceof Error ? e.message : String(e)}`);
       }
-    }
   }
   return {
     platform: "opencode",
     status: "n/a",
-    errors: errors.length > 0 ? errors : undefined
+    errors: errors.length > 0 ? errors : void 0
   };
 }
 function detectGeminiCLI(extensionsListOutput) {
-  if (!extensionsListOutput) {
+  if (!extensionsListOutput)
     return { platform: "gemini-cli", status: "n/a" };
-  }
-  const extension = _parseGeminiExtensionsList(extensionsListOutput).find((item) => item.source?.includes(GEMINI_SAFETY_NET_SOURCE));
-  if (!extension) {
+  let extension = _parseGeminiExtensionsList(extensionsListOutput).find((item) => item.source?.includes(GEMINI_SAFETY_NET_SOURCE));
+  if (!extension)
     return { platform: "gemini-cli", status: "n/a" };
-  }
-  const effectiveEnabled = extension.enabledWorkspace ?? extension.enabledUser ?? true;
-  const errors = effectiveEnabled ? [] : [
-    extension.enabledWorkspace === false ? "Enabled (Workspace) is false" : "Enabled (User) is false"
+  let errors = extension.enabledWorkspace ?? extension.enabledUser ?? !0 ? [] : [
+    extension.enabledWorkspace === !1 ? "Enabled (Workspace) is false" : "Enabled (User) is false"
   ];
-  if (errors.length > 0) {
+  if (errors.length > 0)
     return {
       platform: "gemini-cli",
       status: "disabled",
@@ -12854,7 +11756,6 @@ function detectGeminiCLI(extensionsListOutput) {
       configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
       errors
     };
-  }
   return {
     platform: "gemini-cli",
     status: "configured",
@@ -12872,33 +11773,30 @@ function _findAntigravitySafetyNetHooks(config) {
   return Object.values(config).flatMap((definition) => {
     if (!definition || typeof definition !== "object" || Array.isArray(definition))
       return [];
-    const record = definition;
-    const preToolUse = record.PreToolUse;
+    let record = definition, preToolUse = record.PreToolUse;
     if (!Array.isArray(preToolUse))
       return [];
     return preToolUse.flatMap((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry))
         return [];
-      const hooks = entry.hooks;
+      let hooks = entry.hooks;
       if (!Array.isArray(hooks))
         return [];
       return hooks.flatMap((hook) => {
         if (!hook || typeof hook !== "object" || Array.isArray(hook))
           return [];
-        const command2 = hook.command;
-        if (typeof command2 !== "string" || !ANTIGRAVITY_HOOK_COMMAND_PATTERN.test(command2)) {
+        let command2 = hook.command;
+        if (typeof command2 !== "string" || !ANTIGRAVITY_HOOK_COMMAND_PATTERN.test(command2))
           return [];
-        }
-        return [{ command: command2, enabled: record.enabled !== false }];
+        return [{ command: command2, enabled: record.enabled !== !1 }];
       });
     });
   });
 }
 function detectAntigravityCli(homeDir) {
-  const configPath = getAntigravityHooksPath(homeDir);
-  if (!existsSync12(configPath)) {
+  let configPath = getAntigravityHooksPath(homeDir);
+  if (!existsSync12(configPath))
     return { platform: "antigravity-cli", status: "n/a", configPath };
-  }
   let matches;
   try {
     matches = _findAntigravitySafetyNetHooks(JSON.parse(readFileSync12(configPath, "utf-8")));
@@ -12912,7 +11810,7 @@ function detectAntigravityCli(homeDir) {
       ]
     };
   }
-  if (matches.some((match) => match.enabled)) {
+  if (matches.some((match) => match.enabled))
     return {
       platform: "antigravity-cli",
       status: "configured",
@@ -12920,26 +11818,22 @@ function detectAntigravityCli(homeDir) {
       configPath,
       selfTest: runSelfTest()
     };
-  }
-  if (matches.length > 0) {
+  if (matches.length > 0)
     return {
       platform: "antigravity-cli",
       status: "disabled",
       method: "hook config",
       configPath
     };
-  }
   return { platform: "antigravity-cli", status: "n/a", configPath };
 }
 function detectKimiCode(homeDir) {
-  const configPath = _getKimiConfigPath(homeDir);
-  if (!existsSync12(configPath)) {
+  let configPath = _getKimiConfigPath(homeDir);
+  if (!existsSync12(configPath))
     return { platform: "kimi-code", status: "n/a", configPath };
-  }
   try {
-    if (!KIMI_HOOK_COMMAND_PATTERN.test(readFileSync12(configPath, "utf-8"))) {
+    if (!KIMI_HOOK_COMMAND_PATTERN.test(readFileSync12(configPath, "utf-8")))
       return { platform: "kimi-code", status: "n/a", configPath };
-    }
   } catch (e) {
     return {
       platform: "kimi-code",
@@ -12957,64 +11851,55 @@ function detectKimiCode(homeDir) {
   };
 }
 function detectPi(probe) {
-  if (!probe || probe.status === "unavailable") {
+  if (!probe || probe.status === "unavailable")
     return { platform: "pi", status: "n/a" };
-  }
-  if (probe.status === "error") {
+  if (probe.status === "error")
     return {
       platform: "pi",
       status: "n/a",
       method: "pi probe",
       errors: [probe.error ?? "Pi probe failed"]
     };
-  }
-  if (!probe.installedAndEnabled) {
+  if (!probe.installedAndEnabled)
     return { platform: "pi", status: "n/a", method: "pi probe" };
-  }
-  const configPaths = probe.matched.map((resource) => resource.path).filter((path) => typeof path === "string");
+  let configPaths = probe.matched.map((resource) => resource.path).filter((path) => typeof path === "string");
   return {
     platform: "pi",
     status: "configured",
     method: "pi probe",
     configPath: configPaths[0],
-    configPaths: configPaths.length > 0 ? configPaths : undefined,
+    configPaths: configPaths.length > 0 ? configPaths : void 0,
     selfTest: runSelfTest()
   };
 }
 function _parseGeminiExtensionsList(output) {
-  const blocks = output.split(`
+  return output.split(`
 `).reduce((result, line) => {
-    if (/^\S/.test(line) || result.length === 0) {
-      result.push(line);
-      return result;
-    }
-    const index = result.length - 1;
-    result[index] = `${result[index]}
-${line}`;
-    return result;
-  }, []);
-  return blocks.map((block) => ({
+    if (/^\S/.test(line) || result.length === 0)
+      return result.push(line), result;
+    let index = result.length - 1;
+    return result[index] = `${result[index]}
+${line}`, result;
+  }, []).map((block) => ({
     source: /^\s*Source:\s*(.+)$/m.exec(block)?.[1],
     enabledUser: _parseGeminiEnabledValue(block, "User"),
     enabledWorkspace: _parseGeminiEnabledValue(block, "Workspace")
   }));
 }
 function _parseGeminiEnabledValue(block, scope) {
-  const match = new RegExp(`^\\s*Enabled \\(${scope}\\):\\s*(true|false)\\s*$`, "im").exec(block);
+  let match = new RegExp(`^\\s*Enabled \\(${scope}\\):\\s*(true|false)\\s*$`, "im").exec(block);
   if (!match)
     return;
   return match[1] === "true";
 }
 function detectCodex(pluginListOutput) {
-  if (!pluginListOutput) {
+  if (!pluginListOutput)
     return { platform: "codex", status: "n/a" };
-  }
-  const pluginLine = pluginListOutput.split(`
+  let pluginLine = pluginListOutput.split(`
 `).find((line) => line.includes(CODEX_SAFETY_NET_SOURCE));
-  if (!pluginLine) {
+  if (!pluginLine)
     return { platform: "codex", status: "n/a" };
-  }
-  if (!pluginLine.includes("installed, enabled")) {
+  if (!pluginLine.includes("installed, enabled"))
     return {
       platform: "codex",
       status: "disabled",
@@ -13022,7 +11907,6 @@ function detectCodex(pluginListOutput) {
       configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
       errors: [`Codex plugin line for ${CODEX_SAFETY_NET_SOURCE} must contain installed, enabled.`]
     };
-  }
   return {
     platform: "codex",
     status: "configured",
@@ -13033,24 +11917,23 @@ function detectCodex(pluginListOutput) {
 }
 function _isSafetyNetCopilotCommand(command2) {
   if (!command2?.includes("cc-safety-net"))
-    return false;
+    return !1;
   return /(^|\s)hook\s+(?:[^\s]+\s+)*(--copilot-cli|-cp)(\s|$)/.test(command2);
 }
 function _parseSemver(version) {
   if (!version)
     return null;
-  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
+  let match = version.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match)
     return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 function _compareSemver(version, threshold) {
-  const parsed = _parseSemver(version);
+  let parsed = _parseSemver(version);
   if (!parsed)
     return null;
   for (let index = 0;index < threshold.length; index++) {
-    const left = parsed[index] ?? 0;
-    const right = threshold[index] ?? 0;
+    let left = parsed[index] ?? 0, right = threshold[index] ?? 0;
     if (left > right)
       return 1;
     if (left < right)
@@ -13059,13 +11942,13 @@ function _compareSemver(version, threshold) {
   return 0;
 }
 function _supportsCopilotUserHookFiles(version) {
-  const comparison = _compareSemver(version, [0, 0, 422]);
+  let comparison = _compareSemver(version, [0, 0, 422]);
   if (comparison === null)
     return null;
   return comparison >= 0;
 }
 function _supportsCopilotInlineHooks(version) {
-  const comparison = _compareSemver(version, [1, 0, 8]);
+  let comparison = _compareSemver(version, [1, 0, 8]);
   if (comparison === null)
     return null;
   return comparison >= 0;
@@ -13074,10 +11957,9 @@ function _getCopilotConfigHome(homeDir) {
   return process.env.COPILOT_HOME || join14(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
-  const preToolUseHooks = config.hooks?.preToolUse ?? [];
-  return preToolUseHooks.some((hook) => {
+  return (config.hooks?.preToolUse ?? []).some((hook) => {
     if (hook.type !== "command")
-      return false;
+      return !1;
     return _isSafetyNetCopilotCommand(hook.command) || _isSafetyNetCopilotCommand(hook.bash) || _isSafetyNetCopilotCommand(hook.powershell);
   });
 }
@@ -13093,27 +11975,24 @@ function _listJsonFiles(dirPath, errors) {
   try {
     return readdirSync3(dirPath).filter((name) => name.endsWith(".json")).sort((a, b) => a.localeCompare(b));
   } catch (e) {
-    errors?.push(`Failed to read ${dirPath}: ${e instanceof Error ? e.message : String(e)}`);
-    return [];
+    return errors?.push(`Failed to read ${dirPath}: ${e instanceof Error ? e.message : String(e)}`), [];
   }
 }
 function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
   if (!existsSync12(dirPath))
     return [];
-  const matches = [];
-  for (const filename of _listJsonFiles(dirPath, errors)) {
-    const configPath = join14(dirPath, filename);
-    const config = _readCopilotConfigFile(configPath, errors);
-    if (config && _hasSafetyNetCopilotHook(config)) {
+  let matches = [];
+  for (let filename of _listJsonFiles(dirPath, errors)) {
+    let configPath = join14(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
-    }
   }
   return matches;
 }
 function _collectCopilotInlineConfig(configPath, errors) {
   if (!existsSync12(configPath))
     return;
-  const config = _readCopilotConfigFile(configPath, errors);
+  let config = _readCopilotConfigFile(configPath, errors);
   if (!config)
     return;
   return { path: configPath, config };
@@ -13126,68 +12005,52 @@ function _warnOnUnsupportedCopilotSource(errors, version, sourceDescription, req
   errors.push(`Copilot CLI version unavailable; skipping ${sourceDescription} because it requires ${requiredVersion}+`);
 }
 function _resolveCopilotInlineDisableSource(inlineSources) {
-  const precedence = [
+  let precedence = [
     inlineSources.localSettings,
     inlineSources.repoSettings,
     inlineSources.userConfig
   ];
-  for (const source of precedence) {
-    if (source?.config.disableAllHooks === true)
+  for (let source of precedence) {
+    if (source?.config.disableAllHooks === !0)
       return source.path;
-    if (source?.config.disableAllHooks === false)
+    if (source?.config.disableAllHooks === !1)
       return;
   }
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  const configHome = _getCopilotConfigHome(homeDir);
-  const repoHookDir = join14(cwd, ".github", "hooks");
-  const userHookDir = join14(configHome, "hooks");
-  const repoConfigDir = join14(cwd, ".github", "copilot");
-  const inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion);
-  const inlineErrors = inlineSupport === true ? errors : undefined;
-  const inlineSources = {
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join14(cwd, ".github", "hooks"), userHookDir = join14(configHome, "hooks"), repoConfigDir = join14(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
     userConfig: _collectCopilotInlineConfig(join14(configHome, "config.json"), inlineErrors),
     repoSettings: _collectCopilotInlineConfig(join14(repoConfigDir, "settings.json"), inlineErrors),
     localSettings: _collectCopilotInlineConfig(join14(repoConfigDir, "settings.local.json"), inlineErrors)
   };
-  if (inlineSupport !== false) {
-    const disableSource = _resolveCopilotInlineDisableSource(inlineSources);
+  if (inlineSupport !== !1) {
+    let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
     if (disableSource) {
-      if (inlineSupport === null) {
+      if (inlineSupport === null)
         errors.push(`Copilot CLI version unavailable; treating disableAllHooks in ${disableSource} as active`);
-      }
       return { activeConfigPaths: [], disabledBy: disableSource };
     }
   }
-  const repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors);
-  const userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion);
-  const userHookErrors = userHookSupport === true ? errors : undefined;
-  const userHookFiles = existsSync12(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [];
-  const userHookPaths = [];
-  for (const filename of userHookFiles) {
-    const configPath = join14(userHookDir, filename);
-    const config = _readCopilotConfigFile(configPath, userHookErrors);
-    if (config && _hasSafetyNetCopilotHook(config)) {
+  let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync12(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
+  for (let filename of userHookFiles) {
+    let configPath = join14(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
-    }
   }
-  if (userHookSupport !== true && userHookPaths.length > 0) {
-    _warnOnUnsupportedCopilotSource(errors, copilotCliVersion, `user hook files in ${userHookDir}`, "0.0.422");
-    userHookPaths.length = 0;
-  }
-  const inlinePaths = [];
-  const inlineSourcesByPrecedence = [
+  if (userHookSupport !== !0 && userHookPaths.length > 0)
+    _warnOnUnsupportedCopilotSource(errors, copilotCliVersion, `user hook files in ${userHookDir}`, "0.0.422"), userHookPaths.length = 0;
+  let inlinePaths = [], inlineSourcesByPrecedence = [
     inlineSources.localSettings,
     inlineSources.repoSettings,
     inlineSources.userConfig
   ];
-  for (const source of inlineSourcesByPrecedence) {
+  for (let source of inlineSourcesByPrecedence) {
     if (!source)
       continue;
     if (!_hasSafetyNetCopilotHook(source.config))
       continue;
-    if (inlineSupport === true) {
+    if (inlineSupport === !0) {
       inlinePaths.push(source.path);
       continue;
     }
@@ -13205,37 +12068,33 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   };
 }
 function detectAllHooks(cwd, options2) {
-  const homeDir = options2?.homeDir ?? homedir7();
-  const detectCopilotCLI = () => {
-    const errors = [];
-    const hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
-    if (hooksCheck.disabledBy) {
+  let homeDir = options2?.homeDir ?? homedir7(), detectCopilotCLI = () => {
+    let errors = [], hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
+    if (hooksCheck.disabledBy)
       return {
         platform: "copilot-cli",
         status: "disabled",
         method: "hook config",
         configPath: hooksCheck.disabledBy,
         configPaths: [hooksCheck.disabledBy],
-        errors: errors.length > 0 ? errors : undefined
+        errors: errors.length > 0 ? errors : void 0
       };
-    }
-    if (options2?.copilotPluginInstalled === true || hooksCheck.activeConfigPaths.length > 0) {
-      const viaPlugin = options2?.copilotPluginInstalled === true;
-      const primaryConfigPath = hooksCheck.activeConfigPaths[0];
+    if (options2?.copilotPluginInstalled === !0 || hooksCheck.activeConfigPaths.length > 0) {
+      let viaPlugin = options2?.copilotPluginInstalled === !0, primaryConfigPath = hooksCheck.activeConfigPaths[0];
       return {
         platform: "copilot-cli",
         status: "configured",
         method: viaPlugin ? "plugin list" : "hook config",
-        configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : undefined),
-        configPaths: hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : undefined,
+        configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : void 0),
+        configPaths: hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : void 0,
         selfTest: runSelfTest(),
-        errors: errors.length > 0 ? errors : undefined
+        errors: errors.length > 0 ? errors : void 0
       };
     }
     return {
       platform: "copilot-cli",
       status: "n/a",
-      errors: errors.length > 0 ? errors : undefined
+      errors: errors.length > 0 ? errors : void 0
     };
   };
   return doctorIntegrationOrder.map((platform) => {
@@ -13267,15 +12126,9 @@ import { existsSync as existsSync13 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
 import { delimiter, extname, join as join15 } from "node:path";
-var CURRENT_VERSION = "1.0.6";
-var VERSION_FETCH_TIMEOUT_MS = 2000;
-var PI_PROBE_TIMEOUT_MS = 5000;
-var PI_SENTINEL_COMMAND = "cc-safety-net";
-var PI_PROBE_COMMAND = "__cc_safety_net_probe";
-var TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM";
-var PI_PROBE_UNAVAILABLE = {
+var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
-  installedAndEnabled: false,
+  installedAndEnabled: !1,
   matched: []
 };
 function getPackageVersion() {
@@ -13283,23 +12136,22 @@ function getPackageVersion() {
 }
 var COPILOT_PLUGIN_ID = "copilot-safety-net";
 function getEnvValue(env, name) {
-  const direct = env[name];
+  let direct = env[name];
   if (direct)
     return direct;
-  const matchingName = Object.keys(env).find((key) => key.toLowerCase() === name.toLowerCase() && !!env[key]);
+  let matchingName = Object.keys(env).find((key) => key.toLowerCase() === name.toLowerCase() && !!env[key]);
   return matchingName ? env[matchingName] : direct;
 }
 function getWindowsExecutableExtensions(env) {
   return (getEnvValue(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").filter((extension) => extension.length > 0);
 }
 function resolveWindowsCommand(command2, env) {
-  const candidates = extname(command2) ? [command2] : [
+  let candidates = extname(command2) ? [command2] : [
     ...getWindowsExecutableExtensions(env).map((extension) => `${command2}${extension}`),
     command2
   ];
-  if (command2.includes("/") || command2.includes("\\")) {
+  if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync13(candidate)) ?? command2;
-  }
   return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join15(dir, candidate))).find((candidate) => existsSync13(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
@@ -13308,11 +12160,10 @@ function quoteWindowsCommandArg(value) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 function getSpawnCommand(args, env) {
-  const [command2, ...rest] = args;
-  const platform = env[TEST_SPAWN_PLATFORM_ENV] === "win32" ? "win32" : process.platform;
+  let [command2, ...rest] = args, platform = env[TEST_SPAWN_PLATFORM_ENV] === "win32" ? "win32" : process.platform;
   if (!command2 || platform !== "win32")
     return { cmd: command2 ?? "", args: rest };
-  const resolved = resolveWindowsCommand(command2, env);
+  let resolved = resolveWindowsCommand(command2, env);
   if (!/\.(?:bat|cmd)$/i.test(resolved))
     return { cmd: resolved, args: rest };
   return {
@@ -13325,47 +12176,36 @@ function getSpawnCommand(args, env) {
   };
 }
 var defaultVersionFetcher = async (args) => {
-  const [cmd, ...rest] = args;
+  let [cmd, ...rest] = args;
   if (!cmd)
     return null;
   return new Promise((resolve12) => {
     try {
-      const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
-      const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
+      let spawnCommand = getSpawnCommand([cmd, ...rest], process.env), proc = spawn(spawnCommand.cmd, spawnCommand.args, {
         stdio: ["ignore", "pipe", "pipe"]
-      });
-      let isSettled = false;
-      let output = "";
-      let errorOutput = "";
+      }), isSettled = !1, output = "", errorOutput = "";
       proc.stdout.on("data", (data) => {
         output += data.toString();
-      });
-      proc.stderr.on("data", (data) => {
+      }), proc.stderr.on("data", (data) => {
         errorOutput += data.toString();
       });
-      const finish = (value) => {
+      let finish = (value) => {
         if (isSettled)
           return;
-        isSettled = true;
-        clearTimeout(timeoutId);
-        resolve12(value);
-      };
-      const timeoutId = setTimeout(() => {
-        proc.kill();
-        finish(null);
+        isSettled = !0, clearTimeout(timeoutId), resolve12(value);
+      }, timeoutId = setTimeout(() => {
+        proc.kill(), finish(null);
       }, VERSION_FETCH_TIMEOUT_MS);
       proc.on("close", (code) => {
         finish(code === 0 ? output.trim() || errorOutput.trim() || null : null);
-      });
-      proc.on("error", () => {
+      }), proc.on("error", () => {
         finish(null);
       });
     } catch {
       resolve12(null);
     }
   });
-};
-var PI_PROBE_EXTENSION = `
+}, PI_PROBE_EXTENSION = `
 import { writeFileSync } from "node:fs";
 
 export default function (pi) {
@@ -13408,118 +12248,97 @@ export default function (pi) {
 }
 `.trimStart();
 function runCommand(args, options2) {
-  const [cmd, ...rest] = args;
-  if (!cmd) {
-    return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false });
-  }
+  let [cmd, ...rest] = args;
+  if (!cmd)
+    return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: !1 });
   return new Promise((resolve12) => {
     try {
-      const env = { ...process.env, ...options2.env ?? {} };
-      const spawnCommand = getSpawnCommand([cmd, ...rest], env);
-      const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
+      let env = { ...process.env, ...options2.env ?? {} }, spawnCommand = getSpawnCommand([cmd, ...rest], env), proc = spawn(spawnCommand.cmd, spawnCommand.args, {
         cwd: options2.cwd,
         env,
         stdio: ["ignore", "pipe", "pipe"]
-      });
-      let isSettled = false;
-      let stdout = "";
-      let stderr = "";
+      }), isSettled = !1, stdout = "", stderr = "";
       proc.stdout.on("data", (data) => {
         stdout += data.toString();
-      });
-      proc.stderr.on("data", (data) => {
+      }), proc.stderr.on("data", (data) => {
         stderr += data.toString();
       });
-      const finish = (result) => {
+      let finish = (result) => {
         if (isSettled)
           return;
-        isSettled = true;
-        clearTimeout(timeoutId);
-        resolve12(result);
-      };
-      const timeoutId = setTimeout(() => {
-        proc.kill();
-        finish({ code: null, stdout, stderr, timedOut: true });
+        isSettled = !0, clearTimeout(timeoutId), resolve12(result);
+      }, timeoutId = setTimeout(() => {
+        proc.kill(), finish({ code: null, stdout, stderr, timedOut: !0 });
       }, options2.timeoutMs);
       proc.on("close", (code) => {
-        finish({ code, stdout, stderr, timedOut: false });
-      });
-      proc.on("error", (error) => {
-        finish({ code: null, stdout, stderr, timedOut: false, error: error.message });
+        finish({ code, stdout, stderr, timedOut: !1 });
+      }), proc.on("error", (error) => {
+        finish({ code: null, stdout, stderr, timedOut: !1, error: error.message });
       });
     } catch (error) {
       resolve12({
         code: null,
         stdout: "",
         stderr: "",
-        timedOut: false,
+        timedOut: !1,
         error: error instanceof Error ? error.message : String(error)
       });
     }
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  const tempDir = await mkdtemp(join15(tmpdir4(), "cc-safety-net-pi-probe-"));
-  const probePath = join15(tempDir, "pi-extension-probe.ts");
-  const resultPath = join15(tempDir, "result.json");
-  const stdoutPath = join15(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join15(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join15(tempDir, "pi-extension-probe.ts"), resultPath = join15(tempDir, "result.json"), stdoutPath = join15(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
-    const result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
+    let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
       cwd,
       env: { PI_PROBE_OUT: resultPath },
       timeoutMs: PI_PROBE_TIMEOUT_MS
     });
-    await writeFile(stdoutPath, result.stdout);
-    if (result.timedOut) {
+    if (await writeFile(stdoutPath, result.stdout), result.timedOut)
       return {
         status: "error",
-        installedAndEnabled: false,
+        installedAndEnabled: !1,
         matched: [],
         error: "Pi probe timed out"
       };
-    }
-    if (result.error) {
+    if (result.error)
       return {
         status: "error",
-        installedAndEnabled: false,
+        installedAndEnabled: !1,
         matched: [],
         error: `Pi probe failed: ${result.error}`
       };
-    }
-    if (result.code !== 0) {
+    if (result.code !== 0)
       return {
         status: "error",
-        installedAndEnabled: false,
+        installedAndEnabled: !1,
         matched: [],
         error: `Pi probe exited with code ${result.code ?? "unknown"}${result.stderr.trim() ? `: ${result.stderr.trim()}` : ""}`
       };
-    }
     return parsePiProbeResult(await readFile(resultPath, "utf-8"));
   } catch (error) {
     return {
       status: "error",
-      installedAndEnabled: false,
+      installedAndEnabled: !1,
       matched: [],
       error: `Pi probe failed: ${error instanceof Error ? error.message : String(error)}`
     };
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: !0, force: !0 });
   }
 };
 function parsePiProbeResult(content) {
   try {
-    const parsed = JSON.parse(content);
-    if (!isObject(parsed)) {
+    let parsed = JSON.parse(content);
+    if (!isObject(parsed))
       return {
         status: "error",
-        installedAndEnabled: false,
+        installedAndEnabled: !1,
         matched: [],
         error: "Pi probe result was not an object"
       };
-    }
-    const matched = Array.isArray(parsed.matched) ? parsed.matched.map(parsePiProbeResource).filter((resource) => resource !== null) : [];
-    const installedAndEnabled = parsed.installedAndEnabled === true;
+    let matched = Array.isArray(parsed.matched) ? parsed.matched.map(parsePiProbeResource).filter((resource) => resource !== null) : [], installedAndEnabled = parsed.installedAndEnabled === !0;
     return {
       status: installedAndEnabled ? "configured" : "not-found",
       installedAndEnabled,
@@ -13528,7 +12347,7 @@ function parsePiProbeResult(content) {
   } catch (error) {
     return {
       status: "error",
-      installedAndEnabled: false,
+      installedAndEnabled: !1,
       matched: [],
       error: `Failed to parse Pi probe result: ${error instanceof Error ? error.message : String(error)}`
     };
@@ -13554,43 +12373,33 @@ function isObject(value) {
 function parseVersion(output) {
   if (!output)
     return null;
-  const claudeMatch = /Claude Code\s+(\d+\.\d+\.\d+)/i.exec(output);
+  let claudeMatch = /Claude Code\s+(\d+\.\d+\.\d+)/i.exec(output);
   if (claudeMatch)
     return claudeMatch[1] ?? null;
-  const versionMatch = /v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/i.exec(output);
+  let versionMatch = /v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/i.exec(output);
   if (versionMatch)
     return versionMatch[1] ?? null;
-  const firstLine = output.split(`
-`)[0]?.trim();
-  return firstLine || null;
+  return output.split(`
+`)[0]?.trim() || null;
 }
 function hasCopilotSafetyNetPlugin(output) {
   if (!output)
-    return false;
-  const pluginPattern = new RegExp(`(^|[^a-z0-9-])${COPILOT_PLUGIN_ID}([^a-z0-9-]|$)`, "m");
-  return pluginPattern.test(output);
+    return !1;
+  return new RegExp(`(^|[^a-z0-9-])${COPILOT_PLUGIN_ID}([^a-z0-9-]|$)`, "m").test(output);
 }
 async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
-  const piRawPromise = fetcher(["pi", "--version"]);
-  const piProbeRunner = options2.piProbeRunner ?? defaultPiProbeRunner;
-  const shouldRunPiProbe = !!options2.piProbeRunner || fetcher === defaultVersionFetcher;
-  const piProbePromise = piRawPromise.then((piRaw2) => {
+  let piRawPromise = fetcher(["pi", "--version"]), piProbeRunner = options2.piProbeRunner ?? defaultPiProbeRunner, shouldRunPiProbe = !!options2.piProbeRunner || fetcher === defaultVersionFetcher, piProbePromise = piRawPromise.then((piRaw2) => {
     if (!piRaw2)
       return PI_PROBE_UNAVAILABLE;
     if (!shouldRunPiProbe)
       return PI_PROBE_UNAVAILABLE;
     return piProbeRunner(options2.cwd ?? process.cwd());
-  });
-  const fetchCopilotVersion = async () => {
-    const binaryVersionPromise = fetcher(["copilot", "--binary-version"]);
-    const fallbackVersionPromise = fetcher(["copilot", "--version"]);
-    const binaryVersion = await binaryVersionPromise;
-    if (binaryVersion) {
+  }), fetchCopilotVersion = async () => {
+    let binaryVersionPromise = fetcher(["copilot", "--binary-version"]), fallbackVersionPromise = fetcher(["copilot", "--version"]), binaryVersion = await binaryVersionPromise;
+    if (binaryVersion)
       return binaryVersion;
-    }
     return fallbackVersionPromise;
-  };
-  const [
+  }, [
     claudeRaw,
     claudePluginListOutput,
     antigravityRaw,
@@ -13650,11 +12459,8 @@ async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
 // src/bin/doctor/updates.ts
 function isNewerVersion(latest, current) {
   if (current === "dev")
-    return false;
-  const latestParts = latest.split(".").map(Number);
-  const currentParts = current.split(".").map(Number);
-  const [latestMajor = 0, latestMinor = 0, latestPatch = 0] = latestParts;
-  const [currentMajor = 0, currentMinor = 0, currentPatch = 0] = currentParts;
+    return !1;
+  let latestParts = latest.split(".").map(Number), currentParts = current.split(".").map(Number), [latestMajor = 0, latestMinor = 0, latestPatch = 0] = latestParts, [currentMajor = 0, currentMinor = 0, currentPatch = 0] = currentParts;
   if (latestMajor !== currentMajor)
     return latestMajor > currentMajor;
   if (latestMinor !== currentMinor)
@@ -13662,23 +12468,19 @@ function isNewerVersion(latest, current) {
   return latestPatch > currentPatch;
 }
 async function checkForUpdates() {
-  const currentVersion = getPackageVersion();
-  const controller = new AbortController;
-  const timeout = setTimeout(() => controller.abort(), 3000);
+  let currentVersion = getPackageVersion(), controller = new AbortController, timeout = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch("https://registry.npmjs.org/cc-safety-net/latest", {
+    let res = await fetch("https://registry.npmjs.org/cc-safety-net/latest", {
       signal: controller.signal
     });
-    if (!res.ok) {
+    if (!res.ok)
       return {
         currentVersion,
         latestVersion: null,
-        updateAvailable: false,
+        updateAvailable: !1,
         error: `npm registry returned ${res.status}`
       };
-    }
-    const data = await res.json();
-    const updateAvailable = isNewerVersion(data.version, currentVersion);
+    let data = await res.json(), updateAvailable = isNewerVersion(data.version, currentVersion);
     return {
       currentVersion,
       latestVersion: data.version,
@@ -13688,7 +12490,7 @@ async function checkForUpdates() {
     return {
       currentVersion,
       latestVersion: null,
-      updateAvailable: false,
+      updateAvailable: !1,
       error: e instanceof Error ? e.message : "Network error"
     };
   } finally {
@@ -13700,18 +12502,7 @@ async function checkForUpdates() {
 import * as readline from "node:readline";
 
 // src/bin/utils/lolcat.ts
-var ANSI_RESET2 = "\x1B[0m";
-var ANSI_RESET_FOREGROUND = "\x1B[39m";
-var DEFAULT_DURATION = 12;
-var DEFAULT_FREQUENCY = 0.1;
-var DEFAULT_SPEED = 40;
-var DEFAULT_SPREAD = 3;
-var FRAME_RATE = 30;
 var CURSOR_DOWN = (rows) => `\x1B[${rows}B`;
-var HIDE_CURSOR = "\x1B[?25l";
-var RESTORE_CURSOR = "\x1B8";
-var SAVE_CURSOR = "\x1B7";
-var SHOW_CURSOR = "\x1B[?25h";
 function wait(milliseconds) {
   return new Promise((resolve12) => setTimeout(resolve12, milliseconds));
 }
@@ -13721,18 +12512,13 @@ function waitForAnimationFrame(milliseconds, sleep, signal) {
   if (signal.aborted)
     return Promise.resolve();
   return new Promise((resolve12, reject) => {
-    const cleanup = () => signal.removeEventListener("abort", onAbort);
-    const onAbort = () => {
-      cleanup();
-      resolve12();
+    let cleanup = () => signal.removeEventListener("abort", onAbort), onAbort = () => {
+      cleanup(), resolve12();
     };
-    signal.addEventListener("abort", onAbort, { once: true });
-    sleep(milliseconds).then(() => {
-      cleanup();
-      resolve12();
+    signal.addEventListener("abort", onAbort, { once: !0 }), sleep(milliseconds).then(() => {
+      cleanup(), resolve12();
     }, (error) => {
-      cleanup();
-      reject(error);
+      cleanup(), reject(error);
     });
   });
 }
@@ -13750,35 +12536,23 @@ function rainbow(frequency, offset) {
   };
 }
 function colorizeCharacter(character, frequency, offset) {
-  const color = rainbow(frequency, offset);
-  return `\x1B[38;2;${color.red};${color.green};${color.blue}m${character}${ANSI_RESET_FOREGROUND}`;
+  let color = rainbow(frequency, offset);
+  return `\x1B[38;2;${color.red};${color.green};${color.blue}m${character}\x1B[39m`;
 }
 function renderLolcat(text, options2 = {}) {
   if (!text)
     return "";
-  const frequency = positiveOrDefault(options2.frequency, DEFAULT_FREQUENCY);
-  const seed = options2.seed ?? 0;
-  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
+  let frequency = positiveOrDefault(options2.frequency, 0.1), seed = options2.seed ?? 0, spread = positiveOrDefault(options2.spread, 3);
   return `${text.split(`
 `).map((line, lineIndex) => Array.from(line).map((character, characterIndex) => colorizeCharacter(character, frequency, seed + lineIndex + characterIndex / spread)).join("")).join(`
-`)}${ANSI_RESET2}`;
+`)}\x1B[0m`;
 }
 async function writeAnimatedLolcat(text, options2 = {}) {
   if (!text)
     return;
-  const output = options2.output ?? process.stdout;
-  const sleep = options2.sleep ?? wait;
-  const speed = positiveOrDefault(options2.speed, DEFAULT_SPEED);
-  const duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, DEFAULT_DURATION)));
-  const spread = positiveOrDefault(options2.spread, DEFAULT_SPREAD);
-  const lines = text.split(`
-`).map((line) => Array.from(line));
-  const width = Math.max(...lines.map((line) => line.length));
-  const totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed;
-  const frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / FRAME_RATE))) : 0;
-  const frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
-  const renderFrame = (visibleColumns, seedOffset) => lines.map((line, lineIndex) => [
-    RESTORE_CURSOR,
+  let output = options2.output ?? process.stdout, sleep = options2.sleep ?? wait, speed = positiveOrDefault(options2.speed, 40), duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, 12))), spread = positiveOrDefault(options2.spread, 3), lines = text.split(`
+`).map((line) => Array.from(line)), width = Math.max(...lines.map((line) => line.length)), totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed, frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / 33.333333333333336)) : 0, frameDelay = frameCount > 0 ? totalDuration / frameCount : 0, renderFrame = (visibleColumns, seedOffset) => lines.map((line, lineIndex) => [
+    "\x1B8",
     lineIndex > 0 ? CURSOR_DOWN(lineIndex) : "",
     renderLolcat(line.slice(0, visibleColumns).join(""), {
       frequency: options2.frequency,
@@ -13786,23 +12560,19 @@ async function writeAnimatedLolcat(text, options2 = {}) {
       spread
     })
   ].join("")).join("");
-  output.write(`${HIDE_CURSOR}${SAVE_CURSOR}`);
+  output.write("\x1B[?25l\x1B7");
   try {
     for (let frameIndex = 1;frameIndex <= frameCount; frameIndex += 1) {
       if (options2.signal?.aborted)
         break;
-      const progress = frameIndex / frameCount;
-      const easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
-      output.write(renderFrame(Math.max(1, Math.ceil(width * easedProgress)), (1 - easedProgress) * spread * 2));
-      await waitForAnimationFrame(frameDelay, sleep, options2.signal);
+      let progress = frameIndex / frameCount, easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
+      output.write(renderFrame(Math.max(1, Math.ceil(width * easedProgress)), (1 - easedProgress) * spread * 2)), await waitForAnimationFrame(frameDelay, sleep, options2.signal);
     }
   } finally {
-    output.write(renderFrame(width, 0));
-    output.write(RESTORE_CURSOR);
-    if (lines.length > 1)
+    if (output.write(renderFrame(width, 0)), output.write("\x1B8"), lines.length > 1)
       output.write(CURSOR_DOWN(lines.length - 1));
     output.write(`
-${ANSI_RESET2}${SHOW_CURSOR}`);
+\x1B[0m\x1B[?25h`);
   }
 }
 
@@ -13817,11 +12587,10 @@ function shouldPrintInstallBanner(output) {
   return Boolean(output.isTTY);
 }
 async function printInstallBanner(options2 = {}) {
-  const output = options2.output ?? process.stdout;
+  let output = options2.output ?? process.stdout;
   if (!shouldPrintInstallBanner(output))
     return;
-  const input = options2.input ?? process.stdin;
-  const animationOptions = {
+  let input = options2.input ?? process.stdin, animationOptions = {
     duration: options2.duration,
     frequency: options2.frequency,
     output,
@@ -13834,29 +12603,20 @@ async function printInstallBanner(options2 = {}) {
     await writeAnimatedLolcat(INSTALL_ASCII_ART, animationOptions);
     return;
   }
-  const controller = new AbortController;
-  const wasFlowing = input.readableFlowing === true;
-  const wasRaw = input.isRaw === true;
-  let interrupted = false;
-  const onKeyPress = (_inputValue, key) => {
+  let controller = new AbortController, wasFlowing = input.readableFlowing === !0, wasRaw = input.isRaw === !0, interrupted = !1, onKeyPress = (_inputValue, key) => {
     if (key.ctrl && key.name === "c")
-      interrupted = true;
+      interrupted = !0;
     if (interrupted || key.name === "return" || key.name === "enter")
       controller.abort();
   };
-  readline.emitKeypressEvents(input);
-  input.on("keypress", onKeyPress);
-  input.setRawMode(true);
-  input.resume();
+  readline.emitKeypressEvents(input), input.on("keypress", onKeyPress), input.setRawMode(!0), input.resume();
   try {
     await writeAnimatedLolcat(INSTALL_ASCII_ART, {
       ...animationOptions,
       signal: controller.signal
     });
   } finally {
-    input.off("keypress", onKeyPress);
-    input.setRawMode(wasRaw);
-    if (!wasFlowing)
+    if (input.off("keypress", onKeyPress), input.setRawMode(wasRaw), !wasFlowing)
       input.pause();
   }
   if (!interrupted)
@@ -13869,49 +12629,37 @@ async function printInstallBanner(options2 = {}) {
 }
 
 // src/bin/startup/banner.ts
-var CLEAR_LINE = "\r\x1B[2K";
-var HIDE_CURSOR2 = "\x1B[?25l";
-var SHOW_CURSOR2 = "\x1B[?25h";
-var SPINNER_DELAY = 100;
-var SPINNER_INTERVAL = 80;
 var SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 function wait2(milliseconds) {
   return new Promise((resolve12) => setTimeout(resolve12, milliseconds));
 }
 async function waitForReady(ready, options2) {
-  const output = options2.output ?? process.stdout;
+  let output = options2.output ?? process.stdout;
   if (!output.isTTY) {
     await ready;
     return;
   }
-  const sleep = options2.sleep ?? wait2;
-  let settled = false;
-  const trackedReady = ready.then((value) => {
-    settled = true;
-    return value;
+  let sleep = options2.sleep ?? wait2, settled = !1, trackedReady = ready.then((value) => {
+    return settled = !0, value;
   }, (error) => {
-    settled = true;
-    throw error;
+    throw settled = !0, error;
   });
-  const readyBeforeSpinner = await Promise.race([
-    trackedReady.then(() => true),
-    sleep(SPINNER_DELAY).then(() => false)
-  ]);
-  if (readyBeforeSpinner)
+  if (await Promise.race([
+    trackedReady.then(() => !0),
+    sleep(100).then(() => !1)
+  ]))
     return;
-  output.write(HIDE_CURSOR2);
+  output.write("\x1B[?25l");
   try {
-    for (let frameIndex = 0;!settled; frameIndex += 1) {
-      output.write(`${CLEAR_LINE}${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]} ${options2.loadingMessage ?? "Loading…"}`);
-      await Promise.race([trackedReady, sleep(SPINNER_INTERVAL)]);
-    }
+    for (let frameIndex = 0;!settled; frameIndex += 1)
+      output.write(`\r\x1B[2K${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]} ${options2.loadingMessage ?? "Loading…"}`), await Promise.race([trackedReady, sleep(80)]);
     await trackedReady;
   } finally {
-    output.write(`${CLEAR_LINE}${SHOW_CURSOR2}`);
+    output.write("\r\x1B[2K\x1B[?25h");
   }
 }
 async function resolveAfterOptionalBanner(showBanner, startWork, printBanner, options2 = {}) {
-  const work = startWork();
+  let work = startWork();
   if (showBanner)
     await printBanner();
   if (showBanner && work.ready)
@@ -13929,44 +12677,36 @@ function parseDoctorFlags(args) {
 
 // src/bin/doctor/index.ts
 async function runDoctor(options2 = {}) {
-  const report = await resolveAfterOptionalBanner(!options2.json, () => {
-    const reportPromise = collectDoctorReport(options2);
+  let report = await resolveAfterOptionalBanner(!options2.json, () => {
+    let reportPromise = collectDoctorReport(options2);
     return {
       ready: reportPromise,
       finish: () => reportPromise
     };
   }, () => printInstallBanner(), { loadingMessage: "Checking system status…" });
-  if (options2.json) {
+  if (options2.json)
     console.log(JSON.stringify(report, null, 2));
-  } else {
+  else
     printReport(report);
-  }
   return doctorHasFailure(report.hooks, {
     userConfig: report.userConfig,
     projectConfig: report.projectConfig
   }) ? 1 : 0;
 }
 async function collectDoctorReport(options2) {
-  const cwd = options2.cwd ?? process.cwd();
-  const system = await getSystemInfo(undefined, { cwd });
-  const hooks = detectAllHooks(cwd, {
+  let cwd = options2.cwd ?? process.cwd(), system = await getSystemInfo(void 0, { cwd }), hooks = detectAllHooks(cwd, {
     claudePluginListOutput: system.claudePluginListOutput,
     codexPluginListOutput: system.codexPluginListOutput,
     geminiExtensionsListOutput: system.geminiExtensionsListOutput,
     copilotCliVersion: system.copilotCliVersion,
     copilotPluginInstalled: system.copilotPluginInstalled,
     piSafetyNetProbe: system.piSafetyNetProbe
-  });
-  const configInfo = getConfigInfo(cwd);
-  const environment = getEnvironmentInfo();
-  const modes = getCCSafetyNetEnvModes(loadPolicySnapshot({ cwd }).policy);
-  const activity = getActivitySummary(7);
-  const update = options2.skipUpdateCheck ? {
+  }), configInfo = getConfigInfo(cwd), environment = getEnvironmentInfo(), modes = getCCSafetyNetEnvModes(loadPolicySnapshot({ cwd }).policy), activity = getActivitySummary(7), update = options2.skipUpdateCheck ? {
     currentVersion: getPackageVersion(),
     latestVersion: null,
-    updateAvailable: false
+    updateAvailable: !1
   } : await checkForUpdates();
-  const report = {
+  return {
     hooks,
     userConfig: configInfo.userConfig,
     projectConfig: configInfo.projectConfig,
@@ -13988,52 +12728,33 @@ async function collectDoctorReport(options2) {
     update,
     system
   };
-  return report;
 }
 function doctorHasFailure(hooks, configInfo) {
   return hooks.length > 0 && hooks.every((h) => h.status !== "configured") || hooks.some((h) => h.selfTest && h.selfTest.failed > 0) || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
 }
 function printReport(report) {
-  console.log();
-  console.log(formatHooksSection(report.hooks));
-  console.log();
-  console.log(formatConfigSection(report));
-  console.log();
-  console.log(formatEnvironmentSection(report.environment));
-  console.log();
-  console.log(formatEffectiveSafetySection(report));
-  console.log();
-  console.log(formatActivitySection(report.activity));
-  console.log();
-  console.log(formatSystemInfoSection(report.system));
-  console.log();
-  console.log(formatUpdateSection(report.update));
-  console.log(formatSummary(report));
+  console.log(), console.log(formatHooksSection(report.hooks)), console.log(), console.log(formatConfigSection(report)), console.log(), console.log(formatEnvironmentSection(report.environment)), console.log(), console.log(formatEffectiveSafetySection(report)), console.log(), console.log(formatActivitySection(report.activity)), console.log(), console.log(formatSystemInfoSection(report.system)), console.log(), console.log(formatUpdateSection(report.update)), console.log(formatSummary(report));
 }
 
 // src/bin/explain/config.ts
 import { existsSync as existsSync14 } from "node:fs";
 import { resolve as resolve12 } from "node:path";
 function getConfigSource(options2) {
-  const projectPath = getProjectRulesConfigPath(options2?.cwd);
+  let projectPath = getProjectRulesConfigPath(options2?.cwd);
   if (existsSync14(projectPath)) {
-    const validation = validateRulesConfigFile(projectPath);
-    if (validation.errors.length === 0) {
-      return { configSource: projectPath, configValid: true };
-    }
-    return { configSource: projectPath, configValid: false };
+    if (validateRulesConfigFile(projectPath).errors.length === 0)
+      return { configSource: projectPath, configValid: !0 };
+    return { configSource: projectPath, configValid: !1 };
   }
-  const userPath = options2?.userConfigPath ?? getUserRulesConfigPath(options2);
+  let userPath = options2?.userConfigPath ?? getUserRulesConfigPath(options2);
   if (existsSync14(userPath)) {
-    const validation = validateRulesConfigFile(userPath);
+    let validation = validateRulesConfigFile(userPath);
     return { configSource: userPath, configValid: validation.errors.length === 0 };
   }
-  return { configSource: null, configValid: true };
+  return { configSource: null, configValid: !0 };
 }
 function buildAnalyzeOptions(explainOptions) {
-  const cwd = resolve12(explainOptions?.cwd ?? process.cwd());
-  const policySnapshot = explainOptions?.policySnapshot ?? loadPolicySnapshot({ cwd, userConfigDir: explainOptions?.userConfigDir });
-  const modes = getCCSafetyNetEnvModes(policySnapshot.policy);
+  let cwd = resolve12(explainOptions?.cwd ?? process.cwd()), policySnapshot = explainOptions?.policySnapshot ?? loadPolicySnapshot({ cwd, userConfigDir: explainOptions?.userConfigDir }), modes = getCCSafetyNetEnvModes(policySnapshot.policy);
   return {
     cwd,
     effectiveCwd: cwd,
@@ -14048,10 +12769,9 @@ function buildAnalyzeOptions(explainOptions) {
 // src/bin/explain/redact.ts
 var ENV_ASSIGNMENT_RE2 = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function redactEnvVars(envMap) {
-  const result = {};
-  for (const key of envMap.keys()) {
+  let result = {};
+  for (let key of envMap.keys())
     result[key] = "<redacted>";
-  }
   return result;
 }
 function redactEnvAssignmentsInString(str) {
@@ -14060,7 +12780,7 @@ function redactEnvAssignmentsInString(str) {
 function redactEnvAssignmentTokens(tokens) {
   return tokens.map((token) => {
     if (ENV_ASSIGNMENT_RE2.test(token)) {
-      const eqIdx = token.indexOf("=");
+      let eqIdx = token.indexOf("=");
       return `${token.slice(0, eqIdx)}=<redacted>`;
     }
     return token;
@@ -14068,240 +12788,208 @@ function redactEnvAssignmentTokens(tokens) {
 }
 
 // src/bin/explain/segment.ts
-function isUnparseableCommand(command2, segments2) {
-  return segments2.length === 1 && segments2[0]?.length === 1 && segments2[0][0] === command2 && command2.includes(" ");
+function isUnparseableCommand(command2, segments) {
+  return segments.length === 1 && segments[0]?.length === 1 && segments[0][0] === command2 && command2.includes(" ");
 }
 function explainInnerSegments(innerCmd, depth, options2, steps) {
-  if (depth + 1 >= MAX_RECURSION_DEPTH) {
-    steps.push({
+  if (depth + 1 >= MAX_RECURSION_DEPTH)
+    return steps.push({
       type: "error",
       message: REASON_RECURSION_LIMIT
-    });
-    return { reason: REASON_RECURSION_LIMIT };
-  }
-  const innerSegments = splitShellCommands(innerCmd);
-  if (options2.strict && isUnparseableCommand(innerCmd, innerSegments)) {
-    steps.push({
+    }), { reason: REASON_RECURSION_LIMIT };
+  let innerEntries = projectLegacyCommandEntries(innerCmd, options2.shell), innerSegments = innerEntries.map((entry) => entry.tokens);
+  if (options2.strict && isUnparseableCommand(innerCmd, innerSegments))
+    return steps.push({
       type: "strict-unparseable",
       rawCommand: redactEnvAssignmentsInString(innerCmd),
       reason: REASON_STRICT_UNPARSEABLE
-    });
-    return { reason: REASON_STRICT_UNPARSEABLE };
-  }
-  let effectiveCwd = options2.effectiveCwd === undefined ? options2.cwd : options2.effectiveCwd;
-  const shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  for (const segment of innerSegments) {
+    }), { reason: REASON_STRICT_UNPARSEABLE };
+  let effectiveCwd = options2.effectiveCwd === void 0 ? options2.cwd : options2.effectiveCwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
+  for (let entryIndex = 0;entryIndex < innerEntries.length; entryIndex++) {
+    let segment = innerEntries[entryIndex]?.tokens;
+    if (!segment)
+      continue;
     if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        steps.push({
+      let textReason = dangerousInText(segment[0]);
+      if (textReason)
+        return steps.push({
           type: "dangerous-text",
           token: redactEnvAssignmentsInString(segment[0]),
-          matched: true,
+          matched: !0,
           reason: textReason
-        });
-        return { reason: textReason };
-      }
-      steps.push({
+        }), { reason: textReason };
+      if (steps.push({
         type: "dangerous-text",
         token: redactEnvAssignmentsInString(segment[0]),
-        matched: false
-      });
-      if (segmentChangesCwd(segment)) {
+        matched: !1
+      }), segmentChangesCwd(segment))
         steps.push({
           type: "cwd-change",
           segment: redactEnvAssignmentsInString(segment.join(" ")),
-          effectiveCwdNowUnknown: true
-        });
-        effectiveCwd = null;
-      }
+          effectiveCwdNowUnknown: !0
+        }), effectiveCwd = null;
       continue;
     }
-    const result = explainSegment(segment, depth + 1, {
+    let result = explainSegment([...segment], depth + 1, {
       ...options2,
       effectiveCwd,
       envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState)
-    }, steps);
+    }, steps, innerEntries[entryIndex]?.view);
     if (result)
       return result;
-    if (segmentChangesCwd(segment)) {
+    if (segmentChangesCwd(segment))
       steps.push({
         type: "cwd-change",
         segment: redactEnvAssignmentsInString(segment.join(" ")),
-        effectiveCwdNowUnknown: true
-      });
-      effectiveCwd = null;
-    }
+        effectiveCwdNowUnknown: !0
+      }), effectiveCwd = null;
     applyShellGitContextEnvSegment(segment, shellGitContextState);
   }
   return null;
 }
-function explainSegment(tokens, depth, options2, steps) {
-  if (depth >= MAX_RECURSION_DEPTH) {
-    steps.push({
+function explainSegment(tokens, depth, options2, steps, commandView) {
+  if (depth >= MAX_RECURSION_DEPTH)
+    return steps.push({
       type: "error",
       message: REASON_RECURSION_LIMIT
-    });
-    return { reason: REASON_RECURSION_LIMIT };
-  }
-  const envResult = stripEnvAssignmentsWithInfo(tokens);
-  if (envResult.envAssignments.size > 0) {
+    }), { reason: REASON_RECURSION_LIMIT };
+  let envResult = stripEnvAssignmentsWithInfo(tokens);
+  if (envResult.envAssignments.size > 0)
     steps.push({
       type: "env-strip",
       input: redactEnvAssignmentTokens(tokens),
       envVars: redactEnvVars(envResult.envAssignments),
       output: envResult.tokens
     });
-  }
-  const effectiveCwd = options2.effectiveCwd === undefined ? options2.cwd : options2.effectiveCwd;
-  const cwdUnknown = effectiveCwd === null;
-  const baseCwdForRm = cwdUnknown ? undefined : effectiveCwd ?? options2.cwd;
-  const originalCwd = cwdUnknown ? undefined : options2.cwd;
-  const wrapperResult = stripWrappersWithInfo(envResult.tokens, baseCwdForRm);
-  const removed = envResult.tokens.slice(0, envResult.tokens.length - wrapperResult.tokens.length);
-  if (removed.length > 0) {
+  let effectiveCwd = options2.effectiveCwd === void 0 ? options2.cwd : options2.effectiveCwd, cwdUnknown = effectiveCwd === null, baseCwdForRm = cwdUnknown ? void 0 : effectiveCwd ?? options2.cwd, originalCwd = cwdUnknown ? void 0 : options2.cwd, wrapperResult = stripWrappersWithInfo(envResult.tokens, baseCwdForRm), normalizedCommandView = commandView ? sliceCommandView(commandView, tokens.length - envResult.tokens.length + envResult.tokens.length - wrapperResult.tokens.length) : void 0, removed = envResult.tokens.slice(0, envResult.tokens.length - wrapperResult.tokens.length);
+  if (removed.length > 0)
     steps.push({
       type: "leading-tokens-stripped",
       input: redactEnvAssignmentTokens(envResult.tokens),
       removed: redactEnvAssignmentTokens(removed),
       output: wrapperResult.tokens
     });
-  }
-  let strippedTokens = wrapperResult.tokens;
-  const envAssignments = new Map(options2.envAssignments ?? []);
-  for (const [k, v] of envResult.envAssignments) {
+  let strippedTokens = wrapperResult.tokens, envAssignments = new Map(options2.envAssignments ?? []);
+  for (let [k, v] of envResult.envAssignments)
     envAssignments.set(k, v);
-  }
-  for (const [k, v] of wrapperResult.envAssignments) {
+  for (let [k, v] of wrapperResult.envAssignments)
     envAssignments.set(k, v);
-  }
-  const cwdForRm = wrapperResult.cwd === null ? undefined : wrapperResult.cwd ?? baseCwdForRm;
-  const nestedEffectiveCwd = wrapperResult.cwd === undefined ? options2.effectiveCwd : wrapperResult.cwd;
-  const nestedOptions = {
+  let cwdForRm = wrapperResult.cwd === null ? void 0 : wrapperResult.cwd ?? baseCwdForRm, nestedEffectiveCwd = wrapperResult.cwd === void 0 ? options2.effectiveCwd : wrapperResult.cwd, nestedOptions = {
     ...options2,
     effectiveCwd: nestedEffectiveCwd,
     envAssignments
   };
-  if (strippedTokens.length === 0) {
+  if (strippedTokens.length === 0)
     return null;
-  }
-  const policy = options2.policySnapshot.policy;
+  let policy = options2.policySnapshot.policy, dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), policy);
+  if (dynamicCommandMatch)
+    return steps.push({
+      type: "rule-check",
+      ruleModule: "analyze/segment.ts",
+      ruleFunction: "analyzeDynamicCommandStructure",
+      matched: !0,
+      reason: dynamicCommandMatch.reason
+    }), { reason: dynamicCommandMatch.reason };
   let head = strippedTokens[0];
   if (!head)
     return null;
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
+  let transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
   if (transparentWrapper) {
     steps.push({
       type: "transparent-wrapper",
       wrapper: transparentWrapper.wrapper,
       output: transparentWrapper.tokens
-    });
-    strippedTokens = transparentWrapper.tokens;
-    head = strippedTokens[0];
-    if (!head)
+    }), strippedTokens = transparentWrapper.tokens;
+    let transparentCommandView = normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0;
+    if (head = strippedTokens[0], !head)
       return null;
+    return explainSegment(strippedTokens, depth, nestedOptions, steps, transparentCommandView);
   }
-  const baseName = head.split("/").pop() ?? head;
-  const baseNameLower = baseName.toLowerCase();
+  let baseName = head.split("/").pop() ?? head, baseNameLower = baseName.toLowerCase();
   if (isShellWrapperCommand2(head, baseNameLower)) {
-    const innerCmd = extractDashCArg(strippedTokens);
+    let innerCmd = extractDashCArg(strippedTokens);
     if (innerCmd) {
-      const redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
-      steps.push({
+      let redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
+      return steps.push({
         type: "shell-wrapper",
         wrapper: baseNameLower,
         innerCommand: redactedInnerCmd
-      });
-      steps.push({
+      }), steps.push({
         type: "recurse",
         reason: "shell-wrapper",
         innerCommand: redactedInnerCmd,
         depth: depth + 1
-      });
-      return explainInnerSegments(innerCmd, depth, nestedOptions, steps);
+      }), explainInnerSegments(innerCmd, depth, nestedOptions, steps);
     }
   }
   if (AWK_INTERPRETERS.has(baseNameLower)) {
-    const awkReason = analyzeAwkSystemCalls(strippedTokens, (command2) => {
-      const nestedResult = explainInnerSegments(command2, depth, nestedOptions, steps);
-      return nestedResult?.reason ?? null;
+    let awkReason = analyzeAwkSystemCalls(strippedTokens, (command2) => {
+      return explainInnerSegments(command2, depth, nestedOptions, steps)?.reason ?? null;
     });
-    if (awkReason) {
-      steps.push({
+    if (awkReason)
+      return steps.push({
         type: "rule-check",
         ruleModule: "awk",
         ruleFunction: "analyzeAwkSystemCalls",
-        matched: true,
+        matched: !0,
         reason: awkReason
-      });
-      return {
+      }), {
         reason: awkReason === REASON_AWK_SYSTEM_DYNAMIC ? REASON_AWK_SYSTEM_DYNAMIC : awkReason
       };
-    }
   }
   if (isInterpreterCommand(baseNameLower)) {
-    const codeArg = extractInterpreterCodeArg(strippedTokens);
+    let codeArg = extractInterpreterCodeArg(strippedTokens);
     if (codeArg) {
-      const paranoidBlocked = !!options2.paranoidInterpreters;
-      const redactedCodeArg = redactEnvAssignmentsInString(codeArg);
-      steps.push({
+      let paranoidBlocked = !!options2.paranoidInterpreters, redactedCodeArg = redactEnvAssignmentsInString(codeArg);
+      if (steps.push({
         type: "interpreter",
         interpreter: baseNameLower,
         codeArg: redactedCodeArg,
         paranoidBlocked
-      });
-      if (paranoidBlocked) {
+      }), paranoidBlocked)
         return { reason: REASON_INTERPRETER_BLOCKED };
-      }
       steps.push({
         type: "recurse",
         reason: "interpreter",
         innerCommand: redactedCodeArg,
         depth: depth + 1
       });
-      const nestedResult = explainInnerSegments(codeArg, depth, nestedOptions, steps);
+      let nestedResult = explainInnerSegments(codeArg, depth, nestedOptions, steps);
       if (nestedResult)
         return nestedResult;
-      if (containsDangerousCode(codeArg)) {
-        steps.push({
+      if (containsDangerousCode(codeArg))
+        return steps.push({
           type: "dangerous-text",
           token: redactedCodeArg,
-          matched: true,
+          matched: !0,
           reason: REASON_INTERPRETER_DANGEROUS
-        });
-        return { reason: REASON_INTERPRETER_DANGEROUS };
-      }
+        }), { reason: REASON_INTERPRETER_DANGEROUS };
       return null;
     }
   }
   if (baseNameLower === "busybox" && strippedTokens.length > 1) {
-    const subcommand = strippedTokens[1] ?? "unknown";
+    let subcommand = strippedTokens[1] ?? "unknown";
     steps.push({
       type: "busybox",
       subcommand
     });
-    const busyboxInnerCmd = strippedTokens.slice(1).join(" ");
-    steps.push({
+    let busyboxInnerCmd = strippedTokens.slice(1).join(" ");
+    return steps.push({
       type: "recurse",
       reason: "busybox",
       innerCommand: redactEnvAssignmentsInString(busyboxInnerCmd),
       depth: depth + 1
-    });
-    return explainSegment(strippedTokens.slice(1), depth + 1, nestedOptions, steps);
+    }), explainSegment(strippedTokens.slice(1), depth + 1, nestedOptions, steps, normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : void 0);
   }
-  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
-  const tmpdirValue = envAssignments.get("TMPDIR") ?? process.env.TMPDIR ?? null;
-  const analyzeNested = (cmd, overrides) => {
-    const overriddenOptions = {
+  let allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), tmpdirValue = envAssignments.get("TMPDIR") ?? process.env.TMPDIR ?? null, analyzeNested = (cmd, overrides) => {
+    let overriddenOptions = {
       ...nestedOptions,
       effectiveCwd: overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : nestedOptions.effectiveCwd,
       envAssignments: overrides?.envAssignments ?? nestedOptions.envAssignments,
       worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode
-    };
-    const result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
+    }, result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
     return result ? { id: "", reason: result.reason, intent: "manual_only" } : null;
-  };
-  const nestedCommandContext = {
+  }, nestedCommandContext = {
     cwd: cwdForRm,
     originalCwd,
     paranoidRm: options2.paranoidRm,
@@ -14311,132 +12999,112 @@ function explainSegment(tokens, depth, options2, steps) {
     worktreeMode: options2.worktreeMode,
     policy,
     analyzeNested
-  };
-  const isGit = baseNameLower === "git";
-  const isRm = baseName === "rm";
-  const isFind = baseName === "find";
-  const isXargs = baseName === "xargs";
-  const isParallel = baseName === "parallel";
-  if (isRm || isXargs || isParallel) {
+  }, isGit = baseNameLower === "git", isRm = baseName === "rm", isFind = baseName === "find", isXargs = baseName === "xargs", isParallel = baseName === "parallel";
+  if (isRm || isXargs || isParallel)
     steps.push({
       type: "tmpdir-check",
       tmpdirValue,
       isOverriddenToNonTemp: !allowTmpdirVar,
       allowTmpdirVar
     });
-  }
   if (isGit) {
-    const gitOptions = {
+    let gitOptions = {
       cwd: cwdForRm,
       envAssignments,
       worktreeMode: options2.worktreeMode
-    };
-    const relaxation = getGitWorktreeRelaxation(strippedTokens, gitOptions);
-    const reason = analyzeGit(strippedTokens, gitOptions);
-    steps.push({
+    }, relaxation = getGitWorktreeRelaxation(strippedTokens, gitOptions), reason = analyzeGit(strippedTokens, gitOptions);
+    if (steps.push({
       type: "rule-check",
       ruleModule: "git",
       ruleFunction: "analyzeGit",
       matched: !!reason || !!relaxation,
       reason: reason ?? relaxation?.originalReason
-    });
-    if (relaxation) {
+    }), relaxation)
       steps.push({
         type: "worktree-relaxation",
         originalReason: relaxation.originalReason,
         gitCwd: relaxation.gitCwd
       });
-    }
     if (reason)
       return { reason };
   }
   if (isRm) {
-    const reason = analyzeRm(strippedTokens, {
+    let reason = analyzeRm(strippedTokens, {
       cwd: cwdForRm,
       originalCwd,
       paranoid: options2.paranoidRm,
       allowTmpdirVar
     });
-    steps.push({
+    if (steps.push({
       type: "rule-check",
       ruleModule: "analyze/rm.ts",
       ruleFunction: "analyzeRm",
       matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
+      reason: reason ?? void 0
+    }), reason)
       return { reason };
   }
   if (isFind) {
-    const reason = analyzeFind(strippedTokens);
-    steps.push({
+    let reason = analyzeFind(strippedTokens);
+    if (steps.push({
       type: "rule-check",
       ruleModule: "analyze/find.ts",
       ruleFunction: "analyzeFind",
       matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
+      reason: reason ?? void 0
+    }), reason)
       return { reason };
   }
   if (isXargs) {
-    const match = analyzeXargs(strippedTokens, nestedCommandContext);
-    steps.push({
+    let match = analyzeXargs(strippedTokens, nestedCommandContext);
+    if (steps.push({
       type: "rule-check",
       ruleModule: "analyze/xargs.ts",
       ruleFunction: "analyzeXargs",
       matched: !!match,
       reason: match?.reason
-    });
-    if (match)
+    }), match)
       return { reason: match.reason };
   }
   if (isParallel) {
-    const match = analyzeParallel(strippedTokens, nestedCommandContext);
-    steps.push({
+    let match = analyzeParallel(strippedTokens, nestedCommandContext);
+    if (steps.push({
       type: "rule-check",
       ruleModule: "analyze/parallel.ts",
       ruleFunction: "analyzeParallel",
       matched: !!match,
       reason: match?.reason
-    });
-    if (match)
+    }), match)
       return { reason: match.reason };
   }
-  const matchedKnown = isGit || isRm || isFind || isXargs || isParallel;
-  const tokensScanned = [];
-  let fallbackReason = null;
-  let fallbackRelaxation = null;
-  let embeddedCommandFound;
-  if (!matchedKnown && !DISPLAY_COMMANDS.has(normalizeCommandToken(head))) {
+  let matchedKnown = isGit || isRm || isFind || isXargs || isParallel, tokensScanned = [], fallbackReason = null, fallbackRelaxation = null, embeddedCommandFound;
+  if (!matchedKnown && !DISPLAY_COMMANDS.has(normalizeCommandToken(head)))
     for (let i = 1;i < strippedTokens.length && !fallbackReason; i++) {
-      const token = strippedTokens[i];
+      let token = strippedTokens[i];
       if (!token)
         continue;
       tokensScanned.push(token);
-      const cmd = normalizeCommandToken(token);
+      let cmd = normalizeCommandToken(token);
       if (isShellWrapperCommand2(token, cmd)) {
-        const innerCmd = extractDashCArg([token, ...strippedTokens.slice(i + 1)]);
+        let innerCmd = extractDashCArg([token, ...strippedTokens.slice(i + 1)]);
         if (innerCmd) {
           embeddedCommandFound = cmd;
-          const redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
+          let redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
           steps.push({
             type: "shell-wrapper",
             wrapper: cmd,
             innerCommand: redactedInnerCmd
-          });
-          steps.push({
+          }), steps.push({
             type: "recurse",
             reason: "shell-wrapper",
             innerCommand: redactedInnerCmd,
             depth: depth + 1
-          });
-          fallbackReason = explainInnerSegments(innerCmd, depth, nestedOptions, steps)?.reason ?? null;
+          }), fallbackReason = explainInnerSegments(innerCmd, depth, nestedOptions, steps)?.reason ?? null;
         }
       }
       if (!fallbackReason && cmd === "rm") {
         embeddedCommandFound = "rm";
-        const rmTokens = ["rm", ...strippedTokens.slice(i + 1)];
+        let rmTokens = ["rm", ...strippedTokens.slice(i + 1)];
         fallbackReason = analyzeRm(rmTokens, {
           cwd: cwdForRm,
           originalCwd,
@@ -14446,55 +13114,47 @@ function explainSegment(tokens, depth, options2, steps) {
       }
       if (!fallbackReason && cmd === "git") {
         embeddedCommandFound = "git";
-        const gitTokens = ["git", ...strippedTokens.slice(i + 1)];
-        const gitOptions = {
+        let gitTokens = ["git", ...strippedTokens.slice(i + 1)], gitOptions = {
           cwd: cwdForRm,
           envAssignments,
-          worktreeMode: false
+          worktreeMode: !1
         };
-        fallbackRelaxation = getGitWorktreeRelaxation(gitTokens, gitOptions);
-        fallbackReason = analyzeGit(gitTokens, gitOptions);
+        fallbackRelaxation = getGitWorktreeRelaxation(gitTokens, gitOptions), fallbackReason = analyzeGit(gitTokens, gitOptions);
       }
       if (!fallbackReason && cmd === "find") {
         embeddedCommandFound = "find";
-        const findTokens = ["find", ...strippedTokens.slice(i + 1)];
+        let findTokens = ["find", ...strippedTokens.slice(i + 1)];
         fallbackReason = analyzeFind(findTokens);
       }
     }
-  }
-  steps.push({
+  if (steps.push({
     type: "fallback-scan",
     tokensScanned,
     embeddedCommandFound
-  });
-  if (fallbackRelaxation) {
+  }), fallbackRelaxation)
     steps.push({
       type: "worktree-relaxation",
       originalReason: fallbackRelaxation.originalReason,
       gitCwd: fallbackRelaxation.gitCwd
     });
-  }
   if (fallbackReason)
     return { reason: fallbackReason };
-  const shouldCheckCustomRules = depth === 0 || !matchedKnown;
-  const hasRules = policy.rules.length > 0;
+  let shouldCheckCustomRules = depth === 0 || !matchedKnown, hasRules = policy.rules.length > 0;
   if (shouldCheckCustomRules && hasRules) {
-    const customResult = checkPolicyRuleMatch(strippedTokens, policy.rules);
-    steps.push({
+    let customResult = checkPolicyRuleMatch(strippedTokens, policy.rules);
+    if (steps.push({
       type: "custom-rules-check",
-      rulesChecked: true,
+      rulesChecked: !0,
       matched: !!customResult,
       reason: customResult?.reason
-    });
-    if (customResult)
+    }), customResult)
       return { reason: customResult.reason };
-  } else {
+  } else
     steps.push({
       type: "custom-rules-check",
-      rulesChecked: false,
-      matched: false
+      rulesChecked: !1,
+      matched: !1
     });
-  }
   return null;
 }
 function isShellWrapperCommand2(head, baseNameLower) {
@@ -14503,38 +13163,29 @@ function isShellWrapperCommand2(head, baseNameLower) {
 
 // src/bin/explain/analyze.ts
 function explainCommand2(command2, options2) {
-  const trace = { steps: [], segments: [] };
-  const analyzeOpts = buildAnalyzeOptions(options2);
-  const effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.policySnapshot.policy).effectiveLevel;
-  const { configSource, configValid } = getConfigSource({
+  let trace = { steps: [], segments: [] }, analyzeOpts = buildAnalyzeOptions(options2), effectiveLevel = getCCSafetyNetEnvModes(analyzeOpts.policySnapshot.policy).effectiveLevel, { configSource, configValid } = getConfigSource({
     cwd: options2?.cwd,
     userConfigDir: options2?.userConfigDir
   });
-  if (!command2 || !command2.trim()) {
-    trace.steps.push({ type: "error", message: "No command provided" });
-    return {
+  if (!command2 || !command2.trim())
+    return trace.steps.push({ type: "error", message: "No command provided" }), {
       trace,
       result: "allowed",
       configSource,
       configValid,
       effectiveLevel
     };
-  }
-  const segments2 = splitShellCommands(command2);
-  const redactedInput = redactEnvAssignmentsInString(command2);
-  const redactedSegments = splitShellCommands(redactedInput).map((seg) => redactEnvAssignmentTokens(seg));
-  trace.steps.push({
+  let entries = projectLegacyCommandEntries(command2, analyzeOpts.shell), segments = entries.map((entry) => entry.tokens), redactedInput = redactEnvAssignmentsInString(command2), redactedSegments = projectLegacySegments(redactedInput, analyzeOpts.shell).map((seg) => redactEnvAssignmentTokens(seg));
+  if (trace.steps.push({
     type: "parse",
     input: redactedInput,
     segments: redactedSegments
-  });
-  if (analyzeOpts.strict && isUnparseableCommand(command2, segments2)) {
-    trace.steps.push({
+  }), analyzeOpts.strict && isUnparseableCommand(command2, segments))
+    return trace.steps.push({
       type: "strict-unparseable",
       rawCommand: redactedInput,
       reason: REASON_STRICT_UNPARSEABLE
-    });
-    return {
+    }), {
       trace,
       result: "blocked",
       reason: REASON_STRICT_UNPARSEABLE,
@@ -14543,139 +13194,130 @@ function explainCommand2(command2, options2) {
       configValid,
       effectiveLevel
     };
-  }
-  let blocked = false;
-  let blockReason;
-  let blockSegment;
-  let effectiveCwd = analyzeOpts.effectiveCwd;
-  const shellGitContextState = createShellGitContextEnvState(analyzeOpts.envAssignments);
-  for (let i = 0;i < segments2.length; i++) {
-    const segment = segments2[i];
-    if (!segment)
-      continue;
-    const segmentSteps = [];
-    if (blocked) {
-      segmentSteps.push({
-        type: "segment-skipped",
-        index: i,
-        reason: "prior-segment-blocked"
-      });
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        segmentSteps.push({
-          type: "dangerous-text",
-          token: redactEnvAssignmentsInString(segment[0]),
-          matched: true,
-          reason: textReason
-        });
-        trace.segments.push({ index: i, steps: segmentSteps });
-        blocked = true;
-        blockReason = textReason;
-        blockSegment = redactEnvAssignmentsInString(segment.join(" "));
-        continue;
-      }
-      segmentSteps.push({
-        type: "dangerous-text",
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: false
-      });
-      const nextCwd2 = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd2 !== undefined) {
-        if (nextCwd2 !== null) {
-          effectiveCwd = nextCwd2;
-          trace.segments.push({ index: i, steps: segmentSteps });
-          continue;
-        }
-        segmentSteps.push(cwdChangeStep(segment));
-        effectiveCwd = null;
-      }
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-    const result = explainSegment(segment, 0, {
-      ...analyzeOpts,
-      effectiveCwd,
-      envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState)
-    }, segmentSteps);
-    if (result) {
-      blocked = true;
-      blockReason = result.reason;
-      blockSegment = redactEnvAssignmentsInString(segment.join(" "));
-    }
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      if (nextCwd !== null) {
-        effectiveCwd = nextCwd;
-        applyShellGitContextEnvSegment(segment, shellGitContextState);
-        trace.segments.push({ index: i, steps: segmentSteps });
-        continue;
-      }
-      segmentSteps.push(cwdChangeStep(segment));
-      effectiveCwd = null;
-    }
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-    trace.segments.push({ index: i, steps: segmentSteps });
-  }
-  if (!blocked && analyzeOpts.policySnapshot.state === "ready" && shouldAnalyzePowerShellRemoveItem(command2)) {
-    const match = filterDestructiveCommandMatch(analyzePowerShellRemoveItemMatch(command2, {
-      cwd: analyzeOpts.effectiveCwd ?? analyzeOpts.cwd,
-      originalCwd: analyzeOpts.cwd,
-      paranoid: analyzeOpts.paranoidRm,
-      allowTmpdirVar: analyzeOpts.allowTmpdirVar
-    }), analyzeOpts.policySnapshot.policy);
-    const step = {
-      type: "rule-check",
-      ruleModule: "analyze/powershell/remove-item.ts",
-      ruleFunction: "analyzePowerShellRemoveItemMatch",
-      matched: !!match,
-      reason: match?.reason
-    };
-    const lastSegment = trace.segments[trace.segments.length - 1];
-    if (lastSegment) {
-      lastSegment.steps.push(step);
-    } else {
-      trace.segments.push({ index: 0, steps: [step] });
-    }
-    if (match) {
-      blocked = true;
-      blockReason = match.reason;
-      blockSegment = redactEnvAssignmentsInString(command2);
-    }
-  }
+  let cursor = { nextIndex: 0 }, block = explainProgram(parseCommand(command2, analyzeOpts.shell), 0, analyzeOpts, {
+    effectiveCwd: analyzeOpts.effectiveCwd,
+    shellGitContextState: createShellGitContextEnvState(analyzeOpts.envAssignments)
+  }, trace, cursor);
+  if (block && cursor.nextIndex < entries.length)
+    trace.segments.push({
+      index: cursor.nextIndex,
+      steps: [
+        { type: "segment-skipped", index: cursor.nextIndex, reason: "prior-segment-blocked" }
+      ]
+    });
   return {
     trace,
-    result: blocked ? "blocked" : "allowed",
-    reason: blockReason,
-    segment: blockSegment,
-    customRule: getCustomRuleMetadata(blockReason, options2, analyzeOpts.cwd ?? process.cwd()),
+    result: block ? "blocked" : "allowed",
+    reason: block?.reason,
+    segment: block?.segment,
+    customRule: getCustomRuleMetadata(block?.reason, options2, analyzeOpts.cwd ?? process.cwd()),
     configSource,
     configValid,
     effectiveLevel
+  };
+}
+function explainProgram(program, depth, options2, state, trace, cursor) {
+  let hasPipelineInput = !1;
+  for (let node of program.nodes) {
+    switch (node.kind) {
+      case "connector":
+        hasPipelineInput = node.operator === "|";
+        continue;
+      case "group": {
+        let result2 = explainProgram(node.body, depth, options2, node.style === "subshell" ? cloneExplainState(state) : state, trace, cursor);
+        if (result2)
+          return result2;
+        hasPipelineInput = !1;
+        continue;
+      }
+      case "unknown":
+        continue;
+      case "command":
+        break;
+    }
+    for (let nested of node.nested) {
+      let nestedResult = explainProgram(nested, depth, options2, cloneExplainState(state), trace, cursor);
+      if (nestedResult)
+        return nestedResult;
+    }
+    let segment = [...projectLegacyViewTokens(node)], segmentSteps = [], index = cursor.nextIndex++;
+    if (segment.length === 1 && segment[0]?.includes(" ")) {
+      let reason = dangerousInText(segment[0]);
+      if (segmentSteps.push({
+        type: "dangerous-text",
+        token: redactEnvAssignmentsInString(segment[0]),
+        matched: !!reason,
+        reason: reason ?? void 0
+      }), trace.segments.push({ index, steps: segmentSteps }), reason)
+        return { reason, segment: redactEnvAssignmentsInString(segment.join(" ")) };
+      updateExplainState(segment, state, segmentSteps);
+      continue;
+    }
+    if (node.dialect === "powershell" && options2.policySnapshot.state === "ready") {
+      let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(node, hasPipelineInput, {
+        cwd: state.effectiveCwd === null ? void 0 : state.effectiveCwd ?? options2.cwd,
+        originalCwd: state.effectiveCwd === null ? void 0 : options2.cwd,
+        paranoid: options2.paranoidRm,
+        allowTmpdirVar: options2.allowTmpdirVar
+      }), options2.policySnapshot.policy);
+      if (segmentSteps.push({
+        type: "rule-check",
+        ruleModule: "analyze/powershell/remove-item.ts",
+        ruleFunction: "analyzePowerShellCommandViewMatch",
+        matched: !!match,
+        reason: match?.reason
+      }), match)
+        return trace.segments.push({ index, steps: segmentSteps }), {
+          reason: match.reason,
+          segment: redactEnvAssignmentsInString(node.legacyNormalized)
+        };
+    }
+    let result = explainSegment(segment, depth, {
+      ...options2,
+      effectiveCwd: state.effectiveCwd,
+      envAssignments: getSegmentGitContextEnvAssignments(segment, state.shellGitContextState)
+    }, segmentSteps, node);
+    if (trace.segments.push({ index, steps: segmentSteps }), result)
+      return {
+        reason: result.reason,
+        segment: redactEnvAssignmentsInString(node.legacyNormalized)
+      };
+    updateExplainState(segment, state, segmentSteps), hasPipelineInput = !1;
+  }
+  return null;
+}
+function updateExplainState(segment, state, steps) {
+  let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd !== void 0) {
+    if (nextCwd === null)
+      steps.push(cwdChangeStep(segment));
+    state.effectiveCwd = nextCwd;
+  }
+  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
+}
+function cloneExplainState(state) {
+  return {
+    effectiveCwd: state.effectiveCwd,
+    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState)
   };
 }
 function cwdChangeStep(segment) {
   return {
     type: "cwd-change",
     segment: redactEnvAssignmentsInString(segment.join(" ")),
-    effectiveCwdNowUnknown: true
+    effectiveCwdNowUnknown: !0
   };
 }
 function getCustomRuleMetadata(reason, options2, cwd) {
-  const id = reason?.match(/^\[([^\]]+)]/)?.[1];
+  let id = reason?.match(/^\[([^\]]+)]/)?.[1];
   if (!id)
     return;
-  if (options2?.policySnapshot) {
-    return options2.policySnapshot.policy.rules.some((rule) => rule.name === id) ? { id } : undefined;
-  }
-  const policy = loadRulesPolicy({ cwd, userConfigDir: options2?.userConfigDir });
+  if (options2?.policySnapshot)
+    return options2.policySnapshot.policy.rules.some((rule) => rule.name === id) ? { id } : void 0;
+  let policy = loadRulesPolicy({ cwd, userConfigDir: options2?.userConfigDir });
   if (!policy.rules.some((rule) => rule.name === id))
     return;
-  const rulebook = policy.rulebooks.find((item) => item.rules.includes(id));
-  const override = {
+  let rulebook = policy.rulebooks.find((item) => item.rules.includes(id)), override = {
     ...policy.userConfig?.overrides ?? {},
     ...policy.projectConfig?.overrides ?? {}
   }[id];
@@ -14690,12 +13332,9 @@ function getCustomRuleMetadata(reason, options2, cwd) {
 }
 // src/bin/explain/flags.ts
 function parseExplainFlags(args) {
-  let json = false;
-  let cwd;
-  const remaining = [];
-  let i = 0;
+  let json = !1, cwd, remaining = [], i = 0;
   while (i < args.length) {
-    const arg = args[i];
+    let arg = args[i];
     if (arg === "--help" || arg === "-h") {
       i++;
       continue;
@@ -14708,33 +13347,25 @@ function parseExplainFlags(args) {
       remaining.push(...args.slice(i));
       break;
     }
-    if (arg === "--json") {
-      json = true;
-      i++;
-    } else if (arg === "--cwd") {
-      i++;
-      if (i >= args.length || args[i]?.startsWith("--")) {
-        console.error("Error: --cwd requires a path");
-        return null;
-      }
-      cwd = args[i];
-      i++;
+    if (arg === "--json")
+      json = !0, i++;
+    else if (arg === "--cwd") {
+      if (i++, i >= args.length || args[i]?.startsWith("--"))
+        return console.error("Error: --cwd requires a path"), null;
+      cwd = args[i], i++;
     } else {
       remaining.push(...args.slice(i));
       break;
     }
   }
-  const command2 = remaining.length === 1 ? remaining[0] : $quote(remaining);
-  if (!command2) {
-    console.error("Error: No command provided");
-    console.error("Usage: cc-safety-net explain [--json] [--cwd <path>] <command>");
-    return null;
-  }
+  let command2 = remaining.length === 1 ? remaining[0] : $quote(remaining);
+  if (!command2)
+    return console.error("Error: No command provided"), console.error("Usage: cc-safety-net explain [--json] [--cwd <path>] <command>"), null;
   return { json, cwd, command: command2 };
 }
 // src/bin/explain/format-helpers.ts
 function getBoxChars(asciiOnly) {
-  if (asciiOnly) {
+  if (asciiOnly)
     return {
       dh: "=",
       dv: "|",
@@ -14750,7 +13381,6 @@ function getBoxChars(asciiOnly) {
       br: "+",
       sh: "="
     };
-  }
   return {
     dh: "═",
     dv: "║",
@@ -14768,11 +13398,10 @@ function getBoxChars(asciiOnly) {
   };
 }
 function formatHeader(box, width) {
-  const title = "  Command Analysis";
-  const padding = width - title.length;
+  let padding = width - 18;
   return [
     `${box.dtl}${box.dh.repeat(width)}${box.dtr}`,
-    `${box.dv}${title}${" ".repeat(padding)}${box.dv}`,
+    `${box.dv}  Command Analysis${" ".repeat(padding)}${box.dv}`,
     `${box.dbl}${box.dh.repeat(width)}${box.dbr}`
   ];
 }
@@ -14780,147 +13409,85 @@ function formatTokenArray(tokens) {
   return JSON.stringify(tokens);
 }
 function formatColoredTokenArray(tokens, seed = 0) {
-  const coloredTokens = tokens.map((token, index) => colorizeToken(token, index, seed));
-  return `[${coloredTokens.join(",")}]`;
+  return `[${tokens.map((token, index) => colorizeToken(token, index, seed)).join(",")}]`;
 }
 function wrapReason(reason, indent, maxWidth = 70) {
-  const words = reason.split(" ");
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    if (current.length + word.length + 1 > maxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
+  let words = reason.split(" "), lines = [], current = "";
+  for (let word of words)
+    if (current.length + word.length + 1 > maxWidth)
+      lines.push(current), current = word;
+    else
       current = current ? `${current} ${word}` : word;
-    }
-  }
   if (current)
     lines.push(current);
   return lines.map((line, i) => i === 0 ? line : `${indent}${line}`);
 }
 function formatStepStyleD(step, stepNum, box) {
-  const lines = [];
+  let lines = [];
   switch (step.type) {
     case "parse":
       return null;
     case "env-strip": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strip environment variables`);
-      const envKeys = Object.keys(step.envVars);
-      lines.push(`  Removed: ${envKeys.map((k) => `${k}=<redacted>`).join(", ")}`);
-      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
-      return { lines, incrementStep: true };
+      lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Strip environment variables`);
+      let envKeys = Object.keys(step.envVars);
+      return lines.push(`  Removed: ${envKeys.map((k) => `${k}=<redacted>`).join(", ")}`), lines.push(`  Tokens:  ${formatTokenArray(step.output)}`), { lines, incrementStep: !0 };
     }
-    case "leading-tokens-stripped": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strip wrappers`);
-      lines.push(`  Removed: ${step.removed.join(", ")}`);
-      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
-      return { lines, incrementStep: true };
-    }
-    case "shell-wrapper": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Detect shell wrapper`);
-      lines.push(`  Wrapper: ${step.wrapper} -c`);
-      lines.push(`  Inner:   ${step.innerCommand}`);
-      return { lines, incrementStep: true };
-    }
+    case "leading-tokens-stripped":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Strip wrappers`), lines.push(`  Removed: ${step.removed.join(", ")}`), lines.push(`  Tokens:  ${formatTokenArray(step.output)}`), { lines, incrementStep: !0 };
+    case "shell-wrapper":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Detect shell wrapper`), lines.push(`  Wrapper: ${step.wrapper} -c`), lines.push(`  Inner:   ${step.innerCommand}`), { lines, incrementStep: !0 };
     case "interpreter": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Detect interpreter`);
-      lines.push(`  Interpreter: ${step.interpreter}`);
-      lines.push(`  Code:        ${step.codeArg}`);
-      if (step.paranoidBlocked) {
-        lines.push(`  Result:      ✗ BLOCKED (paranoid mode)`);
-      }
-      return { lines, incrementStep: true };
+      if (lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Detect interpreter`), lines.push(`  Interpreter: ${step.interpreter}`), lines.push(`  Code:        ${step.codeArg}`), step.paranoidBlocked)
+        lines.push("  Result:      ✗ BLOCKED (paranoid mode)");
+      return { lines, incrementStep: !0 };
     }
-    case "busybox": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`);
-      lines.push(`  Subcommand: ${step.subcommand}`);
-      return { lines, incrementStep: true };
-    }
-    case "transparent-wrapper": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`);
-      lines.push(`  Wrapper: ${step.wrapper}`);
-      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
-      return { lines, incrementStep: true };
-    }
+    case "busybox":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`), lines.push(`  Subcommand: ${step.subcommand}`), { lines, incrementStep: !0 };
+    case "transparent-wrapper":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`), lines.push(`  Wrapper: ${step.wrapper}`), lines.push(`  Tokens:  ${formatTokenArray(step.output)}`), { lines, incrementStep: !0 };
     case "recurse":
-      return { lines: [], incrementStep: false };
+      return { lines: [], incrementStep: !1 };
     case "rule-check": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Match rules`);
-      const ruleRef = `${step.ruleModule}:${step.ruleFunction}()`;
-      lines.push(`  Rule:   ${ruleRef}`);
-      if (step.matched) {
-        lines.push(`  Result: MATCHED`);
-      } else {
-        lines.push(`  Result: No match`);
-      }
-      return { lines, incrementStep: true };
+      lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Match rules`);
+      let ruleRef = `${step.ruleModule}:${step.ruleFunction}()`;
+      if (lines.push(`  Rule:   ${ruleRef}`), step.matched)
+        lines.push("  Result: MATCHED");
+      else
+        lines.push("  Result: No match");
+      return { lines, incrementStep: !0 };
     }
-    case "worktree-relaxation": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Worktree relaxation`);
-      lines.push(`  Mode:   ${ENV_FLAGS.worktree.name}`);
-      lines.push(`  Git cwd: ${step.gitCwd}`);
-      lines.push(`  Result: Allowed local discard in linked worktree`);
-      return { lines, incrementStep: true };
-    }
+    case "worktree-relaxation":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Worktree relaxation`), lines.push(`  Mode:   ${ENV_FLAGS.worktree.name}`), lines.push(`  Git cwd: ${step.gitCwd}`), lines.push("  Result: Allowed local discard in linked worktree"), { lines, incrementStep: !0 };
     case "tmpdir-check":
       return null;
     case "fallback-scan": {
-      if (step.embeddedCommandFound) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Fallback scan`);
-        lines.push(`  Found: ${step.embeddedCommandFound}`);
-        return { lines, incrementStep: true };
-      }
+      if (step.embeddedCommandFound)
+        return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Fallback scan`), lines.push(`  Found: ${step.embeddedCommandFound}`), { lines, incrementStep: !0 };
       return null;
     }
     case "custom-rules-check": {
       if (step.rulesChecked) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Custom rules`);
-        if (step.matched) {
-          lines.push(`  Result: MATCHED`);
-        } else {
-          lines.push(`  Result: No match`);
-        }
-        return { lines, incrementStep: true };
+        if (lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Custom rules`), step.matched)
+          lines.push("  Result: MATCHED");
+        else
+          lines.push("  Result: No match");
+        return { lines, incrementStep: !0 };
       }
       return null;
     }
     case "cwd-change":
       return null;
     case "dangerous-text": {
-      if (step.matched) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Dangerous text check`);
-        lines.push(`  Token:  ${step.token}`);
-        lines.push(`  Result: MATCHED`);
-        return { lines, incrementStep: true };
-      }
+      if (step.matched)
+        return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Dangerous text check`), lines.push(`  Token:  ${step.token}`), lines.push("  Result: MATCHED"), { lines, incrementStep: !0 };
       return null;
     }
-    case "strict-unparseable": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strict mode check`);
-      lines.push(`  Command: ${step.rawCommand}`);
-      lines.push(`  Result:  ✗ UNPARSEABLE`);
-      return { lines, incrementStep: true };
-    }
+    case "strict-unparseable":
+      return lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Strict mode check`), lines.push(`  Command: ${step.rawCommand}`), lines.push("  Result:  ✗ UNPARSEABLE"), { lines, incrementStep: !0 };
     case "segment-skipped":
       return null;
-    case "error": {
-      lines.push("");
-      lines.push(`ERROR: ${step.message}`);
-      return { lines, incrementStep: false };
-    }
+    case "error":
+      return lines.push(""), lines.push(`ERROR: ${step.message}`), { lines, incrementStep: !1 };
     default:
       return null;
   }
@@ -14928,146 +13495,94 @@ function formatStepStyleD(step, stepNum, box) {
 
 // src/bin/explain/format.ts
 function formatTraceHuman(result, options2) {
-  const box = getBoxChars(options2?.asciiOnly ?? false);
-  const width = 58;
-  const lines = [];
-  let stepNum = 1;
-  lines.push(...formatHeader(box, width));
-  lines.push("");
-  const errorStep = result.trace.steps.find((s) => s.type === "error");
+  let box = getBoxChars(options2?.asciiOnly ?? !1), width = 58, lines = [], stepNum = 1;
+  lines.push(...formatHeader(box, 58)), lines.push("");
+  let errorStep = result.trace.steps.find((s) => s.type === "error");
   if (errorStep && errorStep.type === "error") {
-    lines.push("ERROR");
-    lines.push(`  ${errorStep.message}`);
-    lines.push("");
-    lines.push("RESULT");
-    lines.push(`  Status: ${result.result === "blocked" ? colors.red("BLOCKED") : colors.green("ALLOWED")}`);
-    lines.push("");
-    lines.push("CONFIG");
-    const configPath2 = result.configSource ?? "none";
-    lines.push(`  Path: ${configPath2}`);
-    return lines.join(`
+    lines.push("ERROR"), lines.push(`  ${errorStep.message}`), lines.push(""), lines.push("RESULT"), lines.push(`  Status: ${result.result === "blocked" ? colors.red("BLOCKED") : colors.green("ALLOWED")}`), lines.push(""), lines.push("CONFIG");
+    let configPath2 = result.configSource ?? "none";
+    return lines.push(`  Path: ${configPath2}`), lines.join(`
 `);
   }
-  const parseStep = result.trace.steps.find((s) => s.type === "parse");
+  let parseStep = result.trace.steps.find((s) => s.type === "parse");
   if (parseStep && parseStep.type === "parse") {
-    lines.push("INPUT");
-    lines.push(`  ${parseStep.input}`);
-    lines.push("");
-    lines.push(`STEP ${stepNum} ${box.h} Split shell commands`);
-    stepNum++;
+    lines.push("INPUT"), lines.push(`  ${parseStep.input}`), lines.push(""), lines.push(`STEP ${stepNum} ${box.h} Split shell commands`), stepNum++;
     for (let i = 0;i < parseStep.segments.length; i++) {
-      const seg = parseStep.segments[i];
+      let seg = parseStep.segments[i];
       if (seg) {
-        const seed = Math.random();
+        let seed = Math.random();
         lines.push(`  Segment ${i + 1}: ${formatColoredTokenArray(seg, seed)}`);
       }
     }
   }
-  const segments2 = result.trace.segments;
-  const hasMultipleSegments = segments2.length > 1;
-  for (const seg of segments2) {
+  let segments = result.trace.segments, hasMultipleSegments = segments.length > 1;
+  for (let seg of segments) {
     if (hasMultipleSegments) {
       lines.push("");
       let segCommand = "";
       if (parseStep && parseStep.type === "parse") {
-        const tokens = parseStep.segments[seg.index];
-        if (tokens) {
+        let tokens = parseStep.segments[seg.index];
+        if (tokens)
           segCommand = tokens.join(" ");
-        }
       }
-      const maxLabelLen = width - 4;
-      let displayCommand = segCommand;
-      const baseLabel = ` Segment ${seg.index + 1}: `;
-      const suffix = " ";
+      let maxLabelLen = 54, displayCommand = segCommand, baseLabel = ` Segment ${seg.index + 1}: `, suffix = " ";
       if (segCommand) {
-        const totalLen = baseLabel.length + segCommand.length + suffix.length;
-        if (totalLen > maxLabelLen) {
-          const availableForCmd = maxLabelLen - baseLabel.length - suffix.length;
+        if (baseLabel.length + segCommand.length + suffix.length > maxLabelLen) {
+          let availableForCmd = maxLabelLen - baseLabel.length - suffix.length;
           displayCommand = `${segCommand.substring(0, availableForCmd - 1)}…`;
         }
       }
-      const labelContent = segCommand ? `${baseLabel}${displayCommand}${suffix}` : ` Segment ${seg.index + 1} `;
-      const coloredContent = segCommand ? `${baseLabel}${colors.cyan(displayCommand)}${suffix}` : labelContent;
-      const segLineLen = width - labelContent.length;
-      const leftLen = Math.floor(segLineLen / 2);
-      const rightLen = segLineLen - leftLen;
+      let labelContent = segCommand ? `${baseLabel}${displayCommand}${suffix}` : ` Segment ${seg.index + 1} `, coloredContent = segCommand ? `${baseLabel}${colors.cyan(displayCommand)}${suffix}` : labelContent, segLineLen = 58 - labelContent.length, leftLen = Math.floor(segLineLen / 2), rightLen = segLineLen - leftLen;
       lines.push(`${box.sh.repeat(leftLen)}${coloredContent}${box.sh.repeat(rightLen)}`);
     }
-    const skippedStep = seg.steps.find((s) => s.type === "segment-skipped");
-    if (skippedStep) {
-      lines.push("");
-      lines.push("  (skipped — prior segment blocked)");
+    if (seg.steps.find((s) => s.type === "segment-skipped")) {
+      lines.push(""), lines.push("  (skipped — prior segment blocked)");
       continue;
     }
-    let inRecursion = false;
-    let hasVisibleSteps = false;
-    for (const step of seg.steps) {
-      const formattedStep = formatStepStyleD(step, stepNum, box);
+    let inRecursion = !1, hasVisibleSteps = !1;
+    for (let step of seg.steps) {
+      let formattedStep = formatStepStyleD(step, stepNum, box);
       if (formattedStep) {
-        hasVisibleSteps = true;
-        if (step.type === "recurse") {
+        if (hasVisibleSteps = !0, step.type === "recurse") {
           lines.push("");
-          const recurseLabel = " RECURSING ";
-          const recurseLineLen = width - recurseLabel.length - 4;
-          lines.push(`  ${box.tl}${box.h}${recurseLabel}${box.h.repeat(recurseLineLen)}`);
-          lines.push(`  ${box.v}`);
-          inRecursion = true;
+          let recurseLabel = " RECURSING ", recurseLineLen = 58 - recurseLabel.length - 4;
+          lines.push(`  ${box.tl}${box.h}${recurseLabel}${box.h.repeat(recurseLineLen)}`), lines.push(`  ${box.v}`), inRecursion = !0;
           continue;
         }
-        for (const line of formattedStep.lines) {
-          if (inRecursion) {
+        for (let line of formattedStep.lines)
+          if (inRecursion)
             lines.push(`  ${box.v} ${line}`);
-          } else {
+          else
             lines.push(line);
-          }
-        }
-        if (formattedStep.incrementStep) {
+        if (formattedStep.incrementStep)
           stepNum++;
-        }
       }
     }
-    if (inRecursion) {
-      lines.push(`  ${box.v}`);
-      lines.push(`  ${box.bl}${box.h.repeat(width - 2)}`);
-      inRecursion = false;
-    }
-    if (!hasVisibleSteps) {
-      lines.push("");
-      lines.push(`  ${colors.green("✓")} Allowed (no matching rules)`);
-    }
+    if (inRecursion)
+      lines.push(`  ${box.v}`), lines.push(`  ${box.bl}${box.h.repeat(56)}`), inRecursion = !1;
+    if (!hasVisibleSteps)
+      lines.push(""), lines.push(`  ${colors.green("✓")} Allowed (no matching rules)`);
   }
-  lines.push("");
-  lines.push("RESULT");
-  if (result.result === "blocked") {
-    lines.push(`  Status: ${colors.red("BLOCKED")}`);
-    if (result.customRule) {
-      lines.push(`  Rule: ${result.customRule.id}`);
-      if (result.customRule.rulebook) {
+  if (lines.push(""), lines.push("RESULT"), result.result === "blocked") {
+    if (lines.push(`  Status: ${colors.red("BLOCKED")}`), result.customRule) {
+      if (lines.push(`  Rule: ${result.customRule.id}`), result.customRule.rulebook)
         lines.push(`  Rulebook: ${result.customRule.rulebook.name} ${result.customRule.rulebook.version}`);
-      }
-      if (result.customRule.source) {
+      if (result.customRule.source)
         lines.push(`  Source: ${result.customRule.source}`);
-      }
-      if (result.customRule.override) {
+      if (result.customRule.override)
         lines.push(`  Override: reason ${result.customRule.override.reason}`);
-      }
     }
     if (result.reason) {
-      const reasonLines = wrapReason(result.reason, "          ");
+      let reasonLines = wrapReason(result.reason, "          ");
       lines.push(`  Reason: ${reasonLines[0]}`);
-      for (let i = 1;i < reasonLines.length; i++) {
+      for (let i = 1;i < reasonLines.length; i++)
         lines.push(reasonLines[i] ?? "");
-      }
     }
-  } else {
+  } else
     lines.push(`  Status: ${colors.green("ALLOWED")}`);
-  }
-  lines.push("");
-  lines.push("CONFIG");
-  const configPath = result.configSource ?? "none";
-  const configStatus = result.configValid ? "" : " (invalid)";
-  lines.push(`  Path: ${configPath}${configStatus}`);
-  return lines.join(`
+  lines.push(""), lines.push("CONFIG");
+  let configPath = result.configSource ?? "none", configStatus = result.configValid ? "" : " (invalid)";
+  return lines.push(`  Path: ${configPath}${configStatus}`), lines.join(`
 `);
 }
 function formatTraceJson(result) {
@@ -16867,48 +15382,32 @@ function renderPolicyGuiHtml(token) {
 }
 
 // src/bin/gui/index.ts
-var REPO = "kenryu42/cc-safety-net";
-var REPO_URL = `https://github.com/${REPO}`;
-var STAR_TIMEOUT_MS = 1e4;
+var REPO = "kenryu42/cc-safety-net", REPO_URL = `https://github.com/${REPO}`, STAR_TIMEOUT_MS = 1e4;
 async function runGuiCommand(args, options2 = {}) {
-  const flags = parseGuiArgs(args);
-  const log = options2.log ?? console.log;
-  const error = options2.error ?? console.error;
-  if (!flags) {
-    error("Usage: cc-safety-net gui [--no-open]");
-    return 1;
-  }
-  const server = await createPolicyGuiServer(options2);
-  log(`CC Safety Net policy GUI: ${server.url}`);
-  if (!flags.noOpen) {
+  let flags = parseGuiArgs(args), log = options2.log ?? console.log, error = options2.error ?? console.error;
+  if (!flags)
+    return error("Usage: cc-safety-net gui [--no-open]"), 1;
+  let server = await createPolicyGuiServer(options2);
+  if (log(`CC Safety Net policy GUI: ${server.url}`), !flags.noOpen)
     try {
       await (options2.openBrowser ?? openBrowser)(server.url);
     } catch (openError) {
-      error(`Failed to open browser: ${openError instanceof Error ? openError.message : String(openError)}`);
-      error(`Open this URL manually: ${server.url}`);
+      error(`Failed to open browser: ${openError instanceof Error ? openError.message : String(openError)}`), error(`Open this URL manually: ${server.url}`);
     }
-  }
-  if (options2.keepAlive === false) {
-    await server.close();
-    return 0;
-  }
-  await waitForShutdown(server);
-  return 0;
+  if (options2.keepAlive === !1)
+    return await server.close(), 0;
+  return await waitForShutdown(server), 0;
 }
 async function createPolicyGuiServer(options2 = {}) {
-  const token = options2.token ?? randomBytes2(24).toString("base64url");
-  const server = createServer((request, response) => {
+  let token = options2.token ?? randomBytes2(24).toString("base64url"), server = createServer((request, response) => {
     handleRequest(request, response, token, options2);
   });
   await new Promise((resolve13, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve13();
+    server.once("error", reject), server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject), resolve13();
     });
   });
-  const address = server.address();
-  const origin = `http://127.0.0.1:${address.port}`;
+  let origin = `http://127.0.0.1:${server.address().port}`;
   return {
     origin,
     token,
@@ -16922,10 +15421,9 @@ function parseGuiArgs(args) {
   return { noOpen: args.includes("--no-open") };
 }
 async function handleRequest(request, response, token, options2) {
-  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  let url = new URL(request.url ?? "/", "http://127.0.0.1");
   if (request.method === "GET" && url.pathname === "/favicon.ico") {
-    response.writeHead(204, { "cache-control": "no-store" });
-    response.end();
+    response.writeHead(204, { "cache-control": "no-store" }), response.end();
     return;
   }
   if (!requestHasValidToken(request, url, token)) {
@@ -16946,12 +15444,12 @@ async function handleRequest(request, response, token, options2) {
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/policy") {
-    const body = await readJsonBody(request);
+    let body = await readJsonBody(request);
     if (!body.ok) {
       sendJson(response, 400, { errors: [body.error] });
       return;
     }
-    const result = writeUserPolicyFromGui(body.value, options2);
+    let result = writeUserPolicyFromGui(body.value, options2);
     sendJson(response, result.errors.length > 0 ? 400 : 200, result);
     return;
   }
@@ -16968,8 +15466,8 @@ async function handleRequest(request, response, token, options2) {
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/star") {
-    const result = await (options2.starRepo ?? starRepo)();
-    sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
+    let result = await (options2.starRepo ?? starRepo)();
+    sendJson(response, 200, result.ok ? { ok: !0 } : { ok: !1, fallbackUrl: REPO_URL });
     return;
   }
   sendJson(response, 404, { error: "Not found" });
@@ -16984,21 +15482,20 @@ function getActiveEnvironmentOverrides() {
 }
 function requestHasValidToken(request, url, token) {
   if (url.searchParams.get("token") !== token)
-    return false;
+    return !1;
   if (request.method !== "POST")
-    return true;
+    return !0;
   return request.headers["x-cc-safety-net-token"] === token;
 }
 async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) {
+  let chunks = [];
+  for await (let chunk of request)
     chunks.push(chunk);
-  }
   try {
-    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf-8") || "{}") };
+    return { ok: !0, value: JSON.parse(Buffer.concat(chunks).toString("utf-8") || "{}") };
   } catch (error) {
     return {
-      ok: false,
+      ok: !1,
       error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`
     };
   }
@@ -17007,15 +15504,13 @@ function sendHtml(response, html) {
   response.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store"
-  });
-  response.end(html);
+  }), response.end(html);
 }
 function sendJson(response, status, body) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store"
-  });
-  response.end(JSON.stringify(body));
+  }), response.end(JSON.stringify(body));
 }
 function closeServer(server) {
   return new Promise((resolve13, reject) => {
@@ -17024,34 +15519,23 @@ function closeServer(server) {
 }
 function waitForShutdown(server) {
   return new Promise((resolve13) => {
-    const cleanup = () => {
-      process.off("SIGINT", shutdown);
-      process.off("SIGTERM", shutdown);
+    let cleanup = () => {
+      process.off("SIGINT", shutdown), process.off("SIGTERM", shutdown);
+    }, shutdown = () => {
+      cleanup(), server.close().then(resolve13);
     };
-    const shutdown = () => {
-      cleanup();
-      server.close().then(resolve13);
-    };
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
+    process.once("SIGINT", shutdown), process.once("SIGTERM", shutdown);
   });
 }
 function openBrowser(url) {
-  const command2 = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  let command2 = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open", args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   return new Promise((resolve13, reject) => {
-    const child = spawn2(command2, args, { detached: true, stdio: "ignore" });
-    const handleError = (error) => {
-      child.off("spawn", handleSpawn);
-      reject(error);
+    let child = spawn2(command2, args, { detached: !0, stdio: "ignore" }), handleError = (error) => {
+      child.off("spawn", handleSpawn), reject(error);
+    }, handleSpawn = () => {
+      child.off("error", handleError), child.unref(), resolve13();
     };
-    const handleSpawn = () => {
-      child.off("error", handleError);
-      child.unref();
-      resolve13();
-    };
-    child.once("error", handleError);
-    child.once("spawn", handleSpawn);
+    child.once("error", handleError), child.once("spawn", handleSpawn);
   });
 }
 async function starRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
@@ -17060,7 +15544,7 @@ async function starRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
   };
 }
 async function fetchStarContext(options2 = {}) {
-  const [starred, starCount, blockedTotal] = await Promise.all([
+  let [starred, starCount, blockedTotal] = await Promise.all([
     userHasStarredRepo(options2.command),
     fetchStarCount(options2.fetchRepo),
     Promise.resolve(getActivitySummary(36500, options2.logsDir).totalBlocked)
@@ -17070,46 +15554,39 @@ async function fetchStarContext(options2 = {}) {
 async function userHasStarredRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) {
   if (await runGhCommand(command2, ["auth", "status"], timeoutMs) !== 0)
     return null;
-  const starredExitCode = await runGhCommand(command2, ["api", `/user/starred/${REPO}`], timeoutMs);
+  let starredExitCode = await runGhCommand(command2, ["api", `/user/starred/${REPO}`], timeoutMs);
   if (starredExitCode === 0)
-    return true;
+    return !0;
   if (starredExitCode === null)
     return null;
-  return false;
+  return !1;
 }
 function runGhCommand(command2, args, timeoutMs) {
   return new Promise((resolve13) => {
-    const child = spawn2(command2, args, {
+    let child = spawn2(command2, args, {
       stdio: "ignore",
-      windowsHide: true
-    });
-    let settled = false;
-    let timeout;
-    const finish = (code) => {
+      windowsHide: !0
+    }), settled = !1, timeout, finish = (code) => {
       if (settled)
         return;
-      settled = true;
-      if (timeout)
+      if (settled = !0, timeout)
         clearTimeout(timeout);
       resolve13(code);
     };
-    child.once("error", () => finish(null));
-    child.once("close", finish);
-    timeout = setTimeout(() => {
-      child.kill();
-      finish(null);
+    child.once("error", () => finish(null)), child.once("close", finish), timeout = setTimeout(() => {
+      child.kill(), finish(null);
     }, timeoutMs);
   });
 }
 async function fetchStarCount(fetchRepo = fetch) {
   try {
-    const response = await fetchRepo(`https://api.github.com/repos/${REPO}`, {
+    let response = await fetchRepo(`https://api.github.com/repos/${REPO}`, {
       headers: { accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(STAR_TIMEOUT_MS)
     });
     if (!response.ok)
       return null;
-    const body = await response.json();
+    let body = await response.json();
     return typeof body.stargazers_count === "number" ? body.stargazers_count : null;
   } catch {
     return null;
@@ -17117,9 +15594,7 @@ async function fetchStarCount(fetchRepo = fetch) {
 }
 
 // src/bin/help.ts
-var version = "1.0.6";
-var INDENT = "  ";
-var PROGRAM_NAME = "cc-safety-net";
+var version = "1.0.6", INDENT = "  ", PROGRAM_NAME = "cc-safety-net";
 function formatOptionFlags(option) {
   return option.argument ? `${option.flags} ${option.argument}` : option.flags;
 }
@@ -17133,95 +15608,56 @@ function getCommandSummaryWidth(commands2) {
   return Math.max(...commands2.map((cmd) => `${PROGRAM_NAME} ${cmd.usage}`.length));
 }
 function formatCommandSummary(cmd, maxUsageWidth) {
-  const usage = `${PROGRAM_NAME} ${cmd.usage}`;
+  let usage = `${PROGRAM_NAME} ${cmd.usage}`;
   return `${INDENT}${usage.padEnd(maxUsageWidth + 2)}${cmd.description}`;
 }
 function formatEnvironmentVariable(name, description) {
   return `${INDENT}${name.padEnd(Math.max(40, name.length + 2))}${description}`;
 }
 function printCommandHelp(command2) {
-  const lines = [];
-  lines.push(`${PROGRAM_NAME} ${command2.name}`);
-  lines.push("");
-  lines.push(`${INDENT}${command2.description}`);
-  lines.push("");
-  lines.push("USAGE:");
-  lines.push(`${INDENT}${PROGRAM_NAME} ${command2.usage}`);
-  lines.push("");
-  if (command2.subcommands && command2.subcommands.length > 0) {
+  let lines = [];
+  if (lines.push(`${PROGRAM_NAME} ${command2.name}`), lines.push(""), lines.push(`${INDENT}${command2.description}`), lines.push(""), lines.push("USAGE:"), lines.push(`${INDENT}${PROGRAM_NAME} ${command2.usage}`), lines.push(""), command2.subcommands && command2.subcommands.length > 0) {
     lines.push("SUBCOMMANDS:");
-    const subcommandWidth = getSubcommandsColumnWidth(command2.subcommands);
-    for (const subcommand of command2.subcommands) {
+    let subcommandWidth = getSubcommandsColumnWidth(command2.subcommands);
+    for (let subcommand of command2.subcommands)
       lines.push(`${INDENT}${subcommand.usage.padEnd(subcommandWidth + 2)}${subcommand.description}`);
-    }
     lines.push("");
   }
   if (command2.options.length > 0) {
     lines.push("OPTIONS:");
-    const optWidth = getOptionsColumnWidth(command2.options);
-    for (const opt of command2.options) {
-      const flags = formatOptionFlags(opt);
+    let optWidth = getOptionsColumnWidth(command2.options);
+    for (let opt of command2.options) {
+      let flags = formatOptionFlags(opt);
       lines.push(`${INDENT}${flags.padEnd(optWidth + 2)}${opt.description}`);
     }
     lines.push("");
   }
   if (command2.examples && command2.examples.length > 0) {
     lines.push("EXAMPLES:");
-    for (const example of command2.examples) {
+    for (let example of command2.examples)
       lines.push(`${INDENT}${example}`);
-    }
   }
   console.log(lines.join(`
 `));
 }
 function printHelp() {
-  const visibleCommands = getVisibleCommands();
-  const maxUsageWidth = getCommandSummaryWidth(visibleCommands);
-  const lines = [];
-  lines.push(`${PROGRAM_NAME} v${version}`);
-  lines.push("");
-  lines.push("Blocks destructive git and filesystem commands before execution.");
-  lines.push("");
-  lines.push("COMMANDS:");
-  for (const cmd of visibleCommands) {
+  let visibleCommands = getVisibleCommands(), maxUsageWidth = getCommandSummaryWidth(visibleCommands), lines = [];
+  lines.push(`${PROGRAM_NAME} v${version}`), lines.push(""), lines.push("Blocks destructive git and filesystem commands before execution."), lines.push(""), lines.push("COMMANDS:");
+  for (let cmd of visibleCommands)
     lines.push(formatCommandSummary(cmd, maxUsageWidth));
-  }
-  lines.push("");
-  lines.push("GLOBAL OPTIONS:");
-  lines.push(`${INDENT}-h, --help       Show help (use with command for command-specific help)`);
-  lines.push(`${INDENT}-V, --version    Show version`);
-  lines.push("");
-  lines.push("HELP:");
-  lines.push(`${INDENT}${PROGRAM_NAME} help <command>     Show help for a specific command`);
-  lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`);
-  lines.push("");
-  lines.push("ENVIRONMENT VARIABLES:");
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.level.name}=standard|strict|paranoid`, "Set session safety level"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`, "Allow local git discards in linked worktrees"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, "Log allowed hook commands for debugging"));
-  lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME", "Override rule config home directory"));
-  lines.push("");
-  lines.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):");
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, "Force safety.overrides.fail_closed on"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, "Force paranoid_rm and paranoid_interpreters on"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, "Force safety.overrides.paranoid_rm on"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Force safety.overrides.paranoid_interpreters on"));
-  console.log(lines.join(`
+  lines.push(""), lines.push("GLOBAL OPTIONS:"), lines.push(`${INDENT}-h, --help       Show help (use with command for command-specific help)`), lines.push(`${INDENT}-V, --version    Show version`), lines.push(""), lines.push("HELP:"), lines.push(`${INDENT}${PROGRAM_NAME} help <command>     Show help for a specific command`), lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`), lines.push(""), lines.push("ENVIRONMENT VARIABLES:"), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.level.name}=standard|strict|paranoid`, "Set session safety level")), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`, "Allow local git discards in linked worktrees")), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, "Log allowed hook commands for debugging")), lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME", "Override rule config home directory")), lines.push(""), lines.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):"), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, "Force safety.overrides.fail_closed on")), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, "Force paranoid_rm and paranoid_interpreters on")), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, "Force safety.overrides.paranoid_rm on")), lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Force safety.overrides.paranoid_interpreters on")), console.log(lines.join(`
 `));
 }
 function printVersion() {
   console.log(version);
 }
 function showCommandHelp(commandName) {
-  const command2 = findCommand(commandName);
-  if (!command2) {
-    return false;
-  }
-  if (command2.hidden || command2.name.toLowerCase() !== commandName.toLowerCase()) {
-    return false;
-  }
-  printCommandHelp(command2);
-  return true;
+  let command2 = findCommand(commandName);
+  if (!command2)
+    return !1;
+  if (command2.hidden || command2.name.toLowerCase() !== commandName.toLowerCase())
+    return !1;
+  return printCommandHelp(command2), !0;
 }
 
 // src/bin/hook/install.ts
@@ -17230,8 +15666,7 @@ import { homedir as homedir8 } from "node:os";
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync15, mkdirSync as mkdirSync5, readFileSync as readFileSync13, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname13 } from "node:path";
-var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli";
-var MANAGED_HOOK_NAME = "cc-safety-net";
+var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli", MANAGED_HOOK_NAME = "cc-safety-net";
 function managedHookEntry() {
   return {
     PreToolUse: [
@@ -17249,68 +15684,59 @@ function managedHookEntry() {
 }
 function parseAntigravityHooksConfig(configPath) {
   try {
-    const config = JSON.parse(readFileSync13(configPath, "utf-8"));
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new Error("Antigravity hooks config must be a JSON object");
-    }
+    let config = JSON.parse(readFileSync13(configPath, "utf-8"));
+    if (!config || typeof config !== "object" || Array.isArray(config))
+      throw Error("Antigravity hooks config must be a JSON object");
     return config;
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`Failed to parse Antigravity hooks config ${configPath}: ${error.message}`);
-    }
+    if (error instanceof SyntaxError)
+      throw Error(`Failed to parse Antigravity hooks config ${configPath}: ${error.message}`);
     throw error;
   }
 }
 function getManagedHookDefinition(config) {
-  const existing = config[MANAGED_HOOK_NAME];
-  if (existing === undefined) {
-    config[MANAGED_HOOK_NAME] = managedHookEntry();
-    return config[MANAGED_HOOK_NAME];
-  }
-  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
-    throw new Error(`Antigravity hooks config entry "${MANAGED_HOOK_NAME}" must be an object`);
-  }
-  if (!Array.isArray(existing.PreToolUse)) {
+  let existing = config[MANAGED_HOOK_NAME];
+  if (existing === void 0)
+    return config[MANAGED_HOOK_NAME] = managedHookEntry(), config[MANAGED_HOOK_NAME];
+  if (!existing || typeof existing !== "object" || Array.isArray(existing))
+    throw Error(`Antigravity hooks config entry "${MANAGED_HOOK_NAME}" must be an object`);
+  if (!Array.isArray(existing.PreToolUse))
     existing.PreToolUse = [];
-  }
   return existing;
 }
 function hasManagedHookCommand(definition) {
-  return definition.PreToolUse?.some((entry) => entry.hooks?.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND)) ?? false;
+  return definition.PreToolUse?.some((entry) => entry.hooks?.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND)) ?? !1;
 }
 function hasActiveManagedHook(config) {
-  return Object.values(config).some((definition) => definition.enabled !== false && hasManagedHookCommand(definition));
+  return Object.values(config).some((definition) => definition.enabled !== !1 && hasManagedHookCommand(definition));
 }
 function enableManagedHookDefinition(config) {
-  if (config[MANAGED_HOOK_NAME] === undefined)
-    return false;
-  const definition = getManagedHookDefinition(config);
-  if (definition.enabled !== false || !hasManagedHookCommand(definition))
-    return false;
-  definition.enabled = true;
-  return true;
+  if (config[MANAGED_HOOK_NAME] === void 0)
+    return !1;
+  let definition = getManagedHookDefinition(config);
+  if (definition.enabled !== !1 || !hasManagedHookCommand(definition))
+    return !1;
+  return definition.enabled = !0, !0;
 }
 function appendManagedHook(config) {
-  if (config[MANAGED_HOOK_NAME] === undefined) {
+  if (config[MANAGED_HOOK_NAME] === void 0) {
     config[MANAGED_HOOK_NAME] = managedHookEntry();
     return;
   }
-  const definition = getManagedHookDefinition(config);
-  definition.PreToolUse ??= [];
-  definition.enabled = true;
-  definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
+  let definition = getManagedHookDefinition(config);
+  definition.PreToolUse ??= [], definition.enabled = !0, definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
 }
 function removeManagedHook(config) {
-  let removed = false;
-  for (const definition of Object.values(config)) {
+  let removed = !1;
+  for (let definition of Object.values(config)) {
     if (!Array.isArray(definition.PreToolUse))
       continue;
     definition.PreToolUse = definition.PreToolUse.flatMap((entry) => {
       if (!Array.isArray(entry.hooks))
         return [entry];
-      const hooks = entry.hooks.filter((hook) => hook.command !== ANTIGRAVITY_HOOK_COMMAND);
+      let hooks = entry.hooks.filter((hook) => hook.command !== ANTIGRAVITY_HOOK_COMMAND);
       if (hooks.length !== entry.hooks.length)
-        removed = true;
+        removed = !0;
       return hooks.length === 0 ? [] : [{ ...entry, hooks }];
     });
   }
@@ -17321,33 +15747,24 @@ function writeAntigravityHooksConfig(configPath, config) {
 `);
 }
 function installAntigravityCli(homeDir) {
-  const configPath = getAntigravityHooksPath(homeDir);
-  mkdirSync5(dirname13(configPath), { recursive: true });
-  if (!existsSync15(configPath)) {
-    writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() });
-    return { path: configPath, alreadyInstalled: false };
-  }
-  const config = parseAntigravityHooksConfig(configPath);
+  let configPath = getAntigravityHooksPath(homeDir);
+  if (mkdirSync5(dirname13(configPath), { recursive: !0 }), !existsSync15(configPath))
+    return writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() }), { path: configPath, alreadyInstalled: !1 };
+  let config = parseAntigravityHooksConfig(configPath);
   if (hasActiveManagedHook(config))
-    return { path: configPath, alreadyInstalled: true };
-  if (enableManagedHookDefinition(config)) {
-    writeAntigravityHooksConfig(configPath, config);
-    return { path: configPath, alreadyInstalled: false };
-  }
-  appendManagedHook(config);
-  writeAntigravityHooksConfig(configPath, config);
-  return { path: configPath, alreadyInstalled: false };
+    return { path: configPath, alreadyInstalled: !0 };
+  if (enableManagedHookDefinition(config))
+    return writeAntigravityHooksConfig(configPath, config), { path: configPath, alreadyInstalled: !1 };
+  return appendManagedHook(config), writeAntigravityHooksConfig(configPath, config), { path: configPath, alreadyInstalled: !1 };
 }
 function uninstallAntigravityCli(homeDir) {
-  const configPath = getAntigravityHooksPath(homeDir);
+  let configPath = getAntigravityHooksPath(homeDir);
   if (!existsSync15(configPath))
-    return { path: configPath, alreadyInstalled: false };
-  const config = parseAntigravityHooksConfig(configPath);
-  const removed = removeManagedHook(config);
-  if (!removed)
-    return { path: configPath, alreadyInstalled: false };
-  writeAntigravityHooksConfig(configPath, config);
-  return { path: configPath, alreadyInstalled: true };
+    return { path: configPath, alreadyInstalled: !1 };
+  let config = parseAntigravityHooksConfig(configPath);
+  if (!removeManagedHook(config))
+    return { path: configPath, alreadyInstalled: !1 };
+  return writeAntigravityHooksConfig(configPath, config), { path: configPath, alreadyInstalled: !0 };
 }
 
 // src/bin/hook/install/kimi-code.ts
@@ -17356,36 +15773,30 @@ import { dirname as dirname14, join as join16 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
-  return char !== undefined && /\s/.test(char);
+  return char !== void 0 && /\s/.test(char);
 }
 function skipString(content, index, errorMessage) {
-  let current = index + 1;
-  let isEscaped = false;
+  let current = index + 1, isEscaped = !1;
   while (current < content.length) {
-    const char = content[current];
+    let char = content[current];
     if (isEscaped) {
-      isEscaped = false;
-      current++;
+      isEscaped = !1, current++;
       continue;
     }
     if (char === "\\") {
-      isEscaped = true;
-      current++;
+      isEscaped = !0, current++;
       continue;
     }
     if (char === '"')
       return current + 1;
     current++;
   }
-  throw new Error(errorMessage);
+  throw Error(errorMessage);
 }
 function findMatchingBracket(content, openIndex, options2) {
-  const open = content[openIndex];
-  const close = open === "[" ? "]" : "}";
-  let depth = 0;
-  let index = openIndex;
+  let open = content[openIndex], close = open === "[" ? "]" : "}", depth = 0, index = openIndex;
   while (index < content.length) {
-    const nextIndex = options2.skipComment?.(content, index) ?? index;
+    let nextIndex = options2.skipComment?.(content, index) ?? index;
     if (nextIndex !== index) {
       index = nextIndex;
       continue;
@@ -17397,29 +15808,24 @@ function findMatchingBracket(content, openIndex, options2) {
     if (content[index] === open)
       depth++;
     if (content[index] === close) {
-      depth--;
-      if (depth === 0)
+      if (depth--, depth === 0)
         return index;
     }
     index++;
   }
-  throw new Error(options2.bracketError);
+  throw Error(options2.bracketError);
 }
 function getLineIndent(content, index) {
-  const lineStart = content.lastIndexOf(`
+  let lineStart = content.lastIndexOf(`
 `, index) + 1;
-  const match = /^[ \t]*/.exec(content.slice(lineStart));
-  return match?.[0] ?? "";
+  return /^[ \t]*/.exec(content.slice(lineStart))?.[0] ?? "";
 }
 function removeArrayRangeItem(content, item) {
-  let removeStart = item.start;
-  let removeEnd = item.end;
-  let index = item.end;
+  let { start: removeStart, end: removeEnd, end: index } = item;
   while (isWhitespace(content[index]))
     index++;
   if (content[index] === ",") {
-    removeEnd = index + 1;
-    if (content[removeEnd] === `
+    if (removeEnd = index + 1, content[removeEnd] === `
 `)
       removeEnd++;
     return `${content.slice(0, removeStart)}${content.slice(removeEnd)}`;
@@ -17429,44 +15835,36 @@ function removeArrayRangeItem(content, item) {
     index--;
   if (content[index] === ",") {
     removeStart = index;
-    const lineStart = content.lastIndexOf(`
+    let lineStart = content.lastIndexOf(`
 `, removeStart - 1);
-    if (lineStart !== -1 && /^\s*$/.test(content.slice(lineStart + 1, removeStart))) {
+    if (lineStart !== -1 && /^\s*$/.test(content.slice(lineStart + 1, removeStart)))
       removeStart = lineStart;
-    }
   }
   return `${content.slice(0, removeStart)}${content.slice(removeEnd)}`;
 }
 
 // src/bin/hook/install/kimi-code.ts
-var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code";
-var KIMI_HOOK_BLOCK = `[[hooks]]
+var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code", KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
-command = "${KIMI_HOOK_COMMAND}"`;
-var KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
+command = "${KIMI_HOOK_COMMAND}"`, KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
   return join16(process.env.KIMI_CODE_HOME ?? join16(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
-  const result = content.split(`
+  return content.split(`
 `).reduce((state, line) => {
-    if (/^\s*\[/.test(line)) {
-      state.activeTable = true;
-      state.lines.push(line);
-      return state;
-    }
+    if (/^\s*\[/.test(line))
+      return state.activeTable = !0, state.lines.push(line), state;
     if (!state.activeTable && /^\s*hooks\s*=\s*\[\s*]\s*(?:#.*)?$/.test(line))
       return state;
-    state.lines.push(line);
-    return state;
-  }, { activeTable: false, lines: [] });
-  return result.lines.join(`
+    return state.lines.push(line), state;
+  }, { activeTable: !1, lines: [] }).lines.join(`
 `);
 }
 function skipTomlComment(content, index) {
   if (content[index] !== "#")
     return index;
-  const newlineIndex = content.indexOf(`
+  let newlineIndex = content.indexOf(`
 `, index + 1);
   return newlineIndex === -1 ? content.length : newlineIndex + 1;
 }
@@ -17478,19 +15876,16 @@ function findTomlArrayClose(content, openIndex) {
   });
 }
 function findTopLevelInlineHooksArray(content) {
-  let activeTable = false;
-  let index = 0;
+  let activeTable = !1, index = 0;
   while (index < content.length) {
-    const lineEnd = content.indexOf(`
-`, index);
-    const end = lineEnd === -1 ? content.length : lineEnd;
-    const line = content.slice(index, end);
+    let lineEnd = content.indexOf(`
+`, index), end = lineEnd === -1 ? content.length : lineEnd, line = content.slice(index, end);
     if (/^\s*\[/.test(line))
-      activeTable = true;
+      activeTable = !0;
     if (!activeTable) {
-      const match = /^(\s*)hooks\s*=\s*\[/.exec(line);
+      let match = /^(\s*)hooks\s*=\s*\[/.exec(line);
       if (match) {
-        const arrayStart = index + match[0].lastIndexOf("[");
+        let arrayStart = index + match[0].lastIndexOf("[");
         return { start: arrayStart, end: findTomlArrayClose(content, arrayStart) };
       }
     }
@@ -17499,19 +15894,15 @@ function findTopLevelInlineHooksArray(content) {
   return;
 }
 function appendKimiInlineHook(content, hooksRange) {
-  const beforeClose = content.slice(0, hooksRange.end).trimEnd();
-  const closingIndent = getLineIndent(content, hooksRange.end);
-  const itemIndent = closingIndent === "" ? "     " : `${closingIndent}  `;
-  const needsComma = !beforeClose.endsWith("[") && !beforeClose.endsWith(",");
+  let beforeClose = content.slice(0, hooksRange.end).trimEnd(), closingIndent = getLineIndent(content, hooksRange.end), itemIndent = closingIndent === "" ? "     " : `${closingIndent}  `, needsComma = !beforeClose.endsWith("[") && !beforeClose.endsWith(",");
   return `${beforeClose}${needsComma ? "," : ""}
 ${itemIndent}${KIMI_INLINE_HOOK}${content.slice(hooksRange.end)}`;
 }
 function appendKimiHook(content) {
-  const inlineHooksRange = findTopLevelInlineHooksArray(content);
-  if (inlineHooksRange && content.slice(inlineHooksRange.start + 1, inlineHooksRange.end).trim()) {
+  let inlineHooksRange = findTopLevelInlineHooksArray(content);
+  if (inlineHooksRange && content.slice(inlineHooksRange.start + 1, inlineHooksRange.end).trim())
     return appendKimiInlineHook(content, inlineHooksRange);
-  }
-  const trimmed = removeTopLevelEmptyHooksArray(content).trimEnd();
+  let trimmed = removeTopLevelEmptyHooksArray(content).trimEnd();
   if (trimmed === "")
     return `${KIMI_HOOK_BLOCK}
 `;
@@ -17521,11 +15912,10 @@ ${KIMI_HOOK_BLOCK}
 `;
 }
 function removeKimiTableHookBlocks(content) {
-  const blocks = content.split(/(?=^\s*\[\[hooks]]\s*$)/m);
-  return blocks.filter((block) => !/^\s*\[\[hooks]]\s*$/m.test(block) || !block.includes(KIMI_HOOK_COMMAND)).join("").trimEnd();
+  return content.split(/(?=^\s*\[\[hooks]]\s*$)/m).filter((block) => !/^\s*\[\[hooks]]\s*$/m.test(block) || !block.includes(KIMI_HOOK_COMMAND)).join("").trimEnd();
 }
 function removeKimiInlineHook(content, hooksRange) {
-  const itemStart = content.indexOf(KIMI_INLINE_HOOK, hooksRange.start);
+  let itemStart = content.indexOf(KIMI_INLINE_HOOK, hooksRange.start);
   if (itemStart === -1 || itemStart > hooksRange.end)
     return content;
   return removeArrayRangeItem(content, {
@@ -17534,31 +15924,25 @@ function removeKimiInlineHook(content, hooksRange) {
   });
 }
 function installKimiCode(homeDir) {
-  const configPath = getKimiConfigPath(homeDir);
-  mkdirSync6(dirname14(configPath), { recursive: true });
-  if (!existsSync16(configPath)) {
-    writeFileSync4(configPath, `${KIMI_HOOK_BLOCK}
-`);
-    return { path: configPath, alreadyInstalled: false };
-  }
-  const content = readFileSync14(configPath, "utf-8");
+  let configPath = getKimiConfigPath(homeDir);
+  if (mkdirSync6(dirname14(configPath), { recursive: !0 }), !existsSync16(configPath))
+    return writeFileSync4(configPath, `${KIMI_HOOK_BLOCK}
+`), { path: configPath, alreadyInstalled: !1 };
+  let content = readFileSync14(configPath, "utf-8");
   if (content.includes(KIMI_HOOK_COMMAND))
-    return { path: configPath, alreadyInstalled: true };
-  writeFileSync4(configPath, appendKimiHook(content));
-  return { path: configPath, alreadyInstalled: false };
+    return { path: configPath, alreadyInstalled: !0 };
+  return writeFileSync4(configPath, appendKimiHook(content)), { path: configPath, alreadyInstalled: !1 };
 }
 function uninstallKimiCode(homeDir) {
-  const configPath = getKimiConfigPath(homeDir);
+  let configPath = getKimiConfigPath(homeDir);
   if (!existsSync16(configPath))
-    return { path: configPath, alreadyInstalled: false };
-  const content = readFileSync14(configPath, "utf-8");
+    return { path: configPath, alreadyInstalled: !1 };
+  let content = readFileSync14(configPath, "utf-8");
   if (!content.includes(KIMI_HOOK_COMMAND))
-    return { path: configPath, alreadyInstalled: false };
-  const inlineHooksRange = findTopLevelInlineHooksArray(content);
-  const updated = inlineHooksRange ? removeKimiInlineHook(content, inlineHooksRange) : `${removeKimiTableHookBlocks(content)}
+    return { path: configPath, alreadyInstalled: !1 };
+  let inlineHooksRange = findTopLevelInlineHooksArray(content), updated = inlineHooksRange ? removeKimiInlineHook(content, inlineHooksRange) : `${removeKimiTableHookBlocks(content)}
 `;
-  writeFileSync4(configPath, updated);
-  return { path: configPath, alreadyInstalled: true };
+  return writeFileSync4(configPath, updated), { path: configPath, alreadyInstalled: !0 };
 }
 
 // src/bin/hook/install/native.ts
@@ -17575,28 +15959,23 @@ function formatCommandFailure(command2, status, output) {
 }
 function runNativeCommands(commands2) {
   commands2.forEach((command2) => {
-    const result = spawnSync(command2[0], command2.slice(1), {
+    let result = spawnSync(command2[0], command2.slice(1), {
       encoding: "utf-8",
       stdio: "pipe"
-    });
-    const output = [result.stdout, result.stderr].filter(Boolean).join(`
+    }), output = [result.stdout, result.stderr].filter(Boolean).join(`
 `);
-    if (result.error) {
-      throw new Error(formatCommandFailure(command2, null, `${result.error.message}
+    if (result.error)
+      throw Error(formatCommandFailure(command2, null, `${result.error.message}
 ${output}`.trim()));
-    }
-    if (result.status !== 0) {
-      throw new Error(formatCommandFailure(command2, result.status, output));
-    }
+    if (result.status !== 0)
+      throw Error(formatCommandFailure(command2, result.status, output));
   });
 }
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync17, readFileSync as readFileSync15, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { join as join17 } from "node:path";
-var OPENCODE_PACKAGE = "cc-safety-net";
-var OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
-var OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
+var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
   return join17(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
@@ -17607,16 +15986,16 @@ function getOpenCodeCachePath(homeDir) {
   return join17(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
-  rmSync3(getOpenCodeCachePath(homeDir), { recursive: true, force: true });
+  rmSync3(getOpenCodeCachePath(homeDir), { recursive: !0, force: !0 });
 }
 function skipJsonComment(content, index) {
   if (content[index] === "/" && content[index + 1] === "/") {
-    const newlineIndex = content.indexOf(`
+    let newlineIndex = content.indexOf(`
 `, index + 2);
     return newlineIndex === -1 ? content.length : newlineIndex + 1;
   }
   if (content[index] === "/" && content[index + 1] === "*") {
-    const closeIndex = content.indexOf("*/", index + 2);
+    let closeIndex = content.indexOf("*/", index + 2);
     return closeIndex === -1 ? content.length : closeIndex + 2;
   }
   return index;
@@ -17628,7 +16007,7 @@ function skipJsonTrivia(content, index) {
       current++;
       continue;
     }
-    const next = skipJsonComment(content, current);
+    let next = skipJsonComment(content, current);
     if (next === current)
       return current;
     current = next;
@@ -17636,24 +16015,21 @@ function skipJsonTrivia(content, index) {
   return current;
 }
 function findJsonStringEnd(content, index) {
-  let current = index + 1;
-  let isEscaped = false;
+  let current = index + 1, isEscaped = !1;
   while (current < content.length) {
     if (isEscaped) {
-      isEscaped = false;
-      current++;
+      isEscaped = !1, current++;
       continue;
     }
     if (content[current] === "\\") {
-      isEscaped = true;
-      current++;
+      isEscaped = !0, current++;
       continue;
     }
     if (content[current] === '"')
       return current + 1;
     current++;
   }
-  throw new Error("Unterminated string in OpenCode config");
+  throw Error("Unterminated string in OpenCode config");
 }
 function readJsonString(content, start, end) {
   return JSON.parse(content.slice(start, end));
@@ -17666,22 +16042,19 @@ function findJsonArrayClose(content, openIndex) {
   });
 }
 function findOpenCodePluginArray(content) {
-  let depth = 0;
-  let index = 0;
+  let depth = 0, index = 0;
   while (index < content.length) {
-    const next = skipJsonComment(content, index);
+    let next = skipJsonComment(content, index);
     if (next !== index) {
       index = next;
       continue;
     }
     if (content[index] === '"') {
-      const end = findJsonStringEnd(content, index);
+      let end = findJsonStringEnd(content, index);
       if (depth === 1 && readJsonString(content, index, end) === "plugin") {
-        const colonIndex = skipJsonTrivia(content, end);
-        const arrayStart = skipJsonTrivia(content, colonIndex + 1);
-        if (content[colonIndex] === ":" && content[arrayStart] === "[") {
+        let colonIndex = skipJsonTrivia(content, end), arrayStart = skipJsonTrivia(content, colonIndex + 1);
+        if (content[colonIndex] === ":" && content[arrayStart] === "[")
           return { start: arrayStart, end: findJsonArrayClose(content, arrayStart) };
-        }
       }
       index = end;
       continue;
@@ -17695,20 +16068,17 @@ function findOpenCodePluginArray(content) {
   return;
 }
 function findManagedPluginItems(content, pluginArray) {
-  const ranges = [];
-  let index = pluginArray.start + 1;
+  let ranges = [], index = pluginArray.start + 1;
   while (index < pluginArray.end) {
-    const next = skipJsonComment(content, index);
+    let next = skipJsonComment(content, index);
     if (next !== index) {
       index = next;
       continue;
     }
     if (content[index] === '"') {
-      const end = findJsonStringEnd(content, index);
-      const value = readJsonString(content, index, end);
-      if (typeof value === "string" && value.includes(OPENCODE_PACKAGE)) {
+      let end = findJsonStringEnd(content, index), value = readJsonString(content, index, end);
+      if (typeof value === "string" && value.includes(OPENCODE_PACKAGE))
         ranges.push({ start: index, end });
-      }
       index = end;
       continue;
     }
@@ -17720,52 +16090,47 @@ function parseOpenCodeConfig(content, configPath) {
   try {
     return JSON.parse(stripJsonComments(content));
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`Failed to parse OpenCode config ${configPath}: ${error.message}`);
-    }
+    if (error instanceof SyntaxError)
+      throw Error(`Failed to parse OpenCode config ${configPath}: ${error.message}`);
     throw error;
   }
 }
 function hasManagedPlugin(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
-    return false;
-  const plugins = config.plugin;
+    return !1;
+  let plugins = config.plugin;
   if (!Array.isArray(plugins))
-    return false;
+    return !1;
   return plugins.some((plugin) => typeof plugin === "string" && plugin.includes(OPENCODE_PACKAGE));
 }
 function removeManagedPlugins(content, configPath) {
-  const pluginArray = findOpenCodePluginArray(content);
+  let pluginArray = findOpenCodePluginArray(content);
   if (!pluginArray)
-    throw new Error(`Failed to locate OpenCode plugin array in ${configPath}`);
-  const updated = [...findManagedPluginItems(content, pluginArray)].reverse().reduce(removeArrayRangeItem, content);
-  parseOpenCodeConfig(updated, configPath);
-  return updated;
+    throw Error(`Failed to locate OpenCode plugin array in ${configPath}`);
+  let updated = [...findManagedPluginItems(content, pluginArray)].reverse().reduce(removeArrayRangeItem, content);
+  return parseOpenCodeConfig(updated, configPath), updated;
 }
 function uninstallOpenCode(homeDir) {
   clearOpenCodeCache(homeDir);
-  const configPaths = getOpenCodeConfigPaths(homeDir);
-  const existingConfigPath = configPaths.find((configPath) => existsSync17(configPath));
-  const errors = [];
-  for (const configPath of configPaths) {
+  let configPaths = getOpenCodeConfigPaths(homeDir), existingConfigPath = configPaths.find((configPath) => existsSync17(configPath)), errors = [];
+  for (let configPath of configPaths) {
     if (!existsSync17(configPath))
       continue;
     try {
-      const content = readFileSync15(configPath, "utf-8");
+      let content = readFileSync15(configPath, "utf-8");
       if (!hasManagedPlugin(parseOpenCodeConfig(content, configPath)))
         continue;
-      writeFileSync5(configPath, removeManagedPlugins(content, configPath));
-      return { path: configPath, alreadyInstalled: true };
+      return writeFileSync5(configPath, removeManagedPlugins(content, configPath)), { path: configPath, alreadyInstalled: !0 };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
   if (errors.length > 0)
-    throw new Error(errors.join(`
+    throw Error(errors.join(`
 `));
   return {
     path: existingConfigPath ?? getDefaultOpenCodeConfigPath(homeDir),
-    alreadyInstalled: false
+    alreadyInstalled: !1
   };
 }
 
@@ -17813,10 +16178,9 @@ var INSTALL_TARGETS = [
     probeCommand: ["opencode", "--version"]
   },
   { target: "pi", flag: "--pi", label: "Pi", probeCommand: ["pi", "--version"] }
-];
-var TARGET_FLAGS = new Map(INSTALL_TARGETS.map((target) => [target.flag, target.target]));
+], TARGET_FLAGS = new Map(INSTALL_TARGETS.map((target) => [target.flag, target.target]));
 function orderInstallTargets(targets) {
-  const selectedTargets = new Set(targets);
+  let selectedTargets = new Set(targets);
   return INSTALL_TARGETS.map((target) => target.target).filter((target) => selectedTargets.has(target));
 }
 function runInstallTargetsInOrder(targets, runTarget) {
@@ -17824,8 +16188,7 @@ function runInstallTargetsInOrder(targets, runTarget) {
 }
 
 // src/bin/hook/install/selection.ts
-var PROBE_TIMEOUT_MS = 2000;
-var ASYNC_PROBE_TIMEOUT_MS = 1000;
+var PROBE_TIMEOUT_MS = 2000, ASYNC_PROBE_TIMEOUT_MS = 1000;
 function titleCaseAction(action) {
   return action === "install" ? "Install" : "Uninstall";
 }
@@ -17836,10 +16199,10 @@ function targetPreposition(action) {
   return action === "install" ? "into" : "from";
 }
 function isAvailable(choice) {
-  return choice?.available === true;
+  return choice?.available === !0;
 }
 function selectedInChoiceOrder(choices, selected) {
-  const selectedTargets = new Set(selected);
+  let selectedTargets = new Set(selected);
   return choices.filter((choice) => selectedTargets.has(choice.target)).map((choice) => choice.target);
 }
 function nextSelectableCursor(choices, cursor, direction) {
@@ -17863,7 +16226,7 @@ function mapKeyPress(input, key) {
   return null;
 }
 function defaultInstallTargetProbe(command2) {
-  const result = spawnSync2(command2[0], command2.slice(1), {
+  let result = spawnSync2(command2[0], command2.slice(1), {
     env: process.env,
     stdio: "ignore",
     timeout: PROBE_TIMEOUT_MS
@@ -17872,37 +16235,29 @@ function defaultInstallTargetProbe(command2) {
 }
 function defaultAsyncInstallTargetProbe(command2) {
   return new Promise((resolve13) => {
-    const proc = spawn3(command2[0], command2.slice(1), {
+    let proc = spawn3(command2[0], command2.slice(1), {
       env: process.env,
       stdio: "ignore"
-    });
-    let settled = false;
-    const finish = (available) => {
+    }), settled = !1, finish = (available) => {
       if (settled)
         return;
-      settled = true;
-      clearTimeout(timeoutId);
-      resolve13(available);
-    };
-    const timeoutId = setTimeout(() => {
-      proc.kill();
-      finish(false);
+      settled = !0, clearTimeout(timeoutId), resolve13(available);
+    }, timeoutId = setTimeout(() => {
+      proc.kill(), finish(!1);
     }, ASYNC_PROBE_TIMEOUT_MS);
-    proc.on("error", () => finish(false));
-    proc.on("close", (code) => finish(code === 0));
+    proc.on("error", () => finish(!1)), proc.on("close", (code) => finish(code === 0));
   });
 }
 function buildInstallTargetChoices(probe = defaultInstallTargetProbe, options2 = {}) {
-  const configuredTargets = new Set(options2.configuredTargets ?? []);
-  if (options2.async) {
+  let configuredTargets = new Set(options2.configuredTargets ?? []);
+  if (options2.async)
     return Promise.all(INSTALL_TARGETS.map(async (target) => ({
       target: target.target,
       flag: target.flag,
       label: target.label,
       ...getChoiceAvailability(options2.action, await probe(target.probeCommand), configuredTargets.has(target.target))
     })));
-  }
-  const syncProbe = probe;
+  let syncProbe = probe;
   return INSTALL_TARGETS.map((target) => ({
     target: target.target,
     flag: target.flag,
@@ -17911,10 +16266,10 @@ function buildInstallTargetChoices(probe = defaultInstallTargetProbe, options2 =
   }));
 }
 function buildInstallTargetChoicesAsync(probe = defaultAsyncInstallTargetProbe, options2 = {}) {
-  return buildInstallTargetChoices(probe, { ...options2, async: true });
+  return buildInstallTargetChoices(probe, { ...options2, async: !0 });
 }
 function applyInstallTargetState(choices, options2) {
-  const configuredTargets = new Set(options2.configuredTargets ?? []);
+  let configuredTargets = new Set(options2.configuredTargets ?? []);
   return choices.map((choice) => ({
     ...choice,
     ...getChoiceAvailability(options2.action, choice.available, configuredTargets.has(choice.target))
@@ -17922,12 +16277,12 @@ function applyInstallTargetState(choices, options2) {
 }
 function getChoiceAvailability(action, cliAvailable, configured) {
   if (!cliAvailable)
-    return { available: false, unavailableReason: "CLI not installed" };
+    return { available: !1, unavailableReason: "CLI not installed" };
   if (action === "install" && configured)
-    return { available: false, unavailableReason: "already installed" };
+    return { available: !1, unavailableReason: "already installed" };
   if (action === "uninstall" && !configured)
-    return { available: false, unavailableReason: "not installed" };
-  return { available: true };
+    return { available: !1, unavailableReason: "not installed" };
+  return { available: !0 };
 }
 function createInstallSelectionState(choices) {
   return {
@@ -17938,39 +16293,25 @@ function createInstallSelectionState(choices) {
 function reduceInstallSelectionState(state, choices, key) {
   if (key === "confirm" || key === "abort")
     return { state, done: key };
-  if (key === "up") {
+  if (key === "up")
     return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, -1) } };
-  }
-  if (key === "down") {
+  if (key === "down")
     return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, 1) } };
-  }
-  const choice = choices[state.cursor];
+  let choice = choices[state.cursor];
   if (!isAvailable(choice))
     return { state };
-  const selected = state.selected.includes(choice.target) ? state.selected.filter((target) => target !== choice.target) : selectedInChoiceOrder(choices, [...state.selected, choice.target]);
+  let selected = state.selected.includes(choice.target) ? state.selected.filter((target) => target !== choice.target) : selectedInChoiceOrder(choices, [...state.selected, choice.target]);
   return { state: { ...state, selected } };
 }
-var CHECKBOX_ON = "◉";
-var CHECKBOX_OFF = "◯";
-var CURSOR_ON = ">";
-var CURSOR_OFF = " ";
+var CHECKBOX_ON = "◉", CHECKBOX_OFF = "◯", CURSOR_ON = ">", CURSOR_OFF = " ";
 function renderInstallSelection(action, choices, state, options2 = {}) {
-  const useColor = options2.color !== false;
-  const formatDim = useColor ? colors.dim : (value) => value;
-  const formatCheckboxOn = useColor ? colors.green : (value) => value;
-  const formatFocus = useColor ? colors.bold : (value) => value;
+  let useColor = options2.color !== !1, formatDim = useColor ? colors.dim : (value) => value, formatCheckboxOn = useColor ? colors.green : (value) => value, formatFocus = useColor ? colors.bold : (value) => value;
   return [
     "",
     `${titleCaseAction(action)} CC Safety Net ${targetPreposition(action)}:`,
     "",
     ...choices.map((choice, index) => {
-      const selected = state.selected.includes(choice.target);
-      const focused = index === state.cursor;
-      const marker = selected ? CHECKBOX_ON : CHECKBOX_OFF;
-      const cursor = focused ? CURSOR_ON : CURSOR_OFF;
-      const suffix = choice.available ? "" : ` (${choice.unavailableReason ?? "not installed"})`;
-      const rowBody = `${marker} ${choice.label}${suffix}`;
-      const formatted = !choice.available ? formatDim(rowBody) : selected ? formatCheckboxOn(rowBody) : focused ? formatFocus(rowBody) : rowBody;
+      let selected = state.selected.includes(choice.target), focused = index === state.cursor, marker = selected ? CHECKBOX_ON : CHECKBOX_OFF, cursor = focused ? CURSOR_ON : CURSOR_OFF, suffix = choice.available ? "" : ` (${choice.unavailableReason ?? "not installed"})`, rowBody = `${marker} ${choice.label}${suffix}`, formatted = !choice.available ? formatDim(rowBody) : selected ? formatCheckboxOn(rowBody) : focused ? formatFocus(rowBody) : rowBody;
       return `${cursor} ${formatted}`;
     }),
     "",
@@ -17982,65 +16323,46 @@ function canPromptInstallTargets(input = process.stdin, output = process.stdout)
   return Boolean(input.isTTY && output.isTTY && typeof input.setRawMode === "function");
 }
 function promptInstallTargets(action, choices, options2 = {}) {
-  const input = options2.input ?? process.stdin;
-  const output = options2.output ?? process.stdout;
-  let state = createInstallSelectionState(choices);
-  if (choices.every((choice) => !choice.available)) {
-    output.write(`${renderInstallSelection(action, choices, state)}
-`);
-    output.write(`No selectable integrations found for ${action}.
-`);
-    return Promise.resolve(null);
-  }
+  let input = options2.input ?? process.stdin, output = options2.output ?? process.stdout, state = createInstallSelectionState(choices);
+  if (choices.every((choice) => !choice.available))
+    return output.write(`${renderInstallSelection(action, choices, state)}
+`), output.write(`No selectable integrations found for ${action}.
+`), Promise.resolve(null);
   readline2.emitKeypressEvents(input);
-  const wasRaw = input.isRaw === true;
-  input.setRawMode(true);
-  input.resume();
-  let renderedLines = 0;
-  const clearFrame = () => {
+  let wasRaw = input.isRaw === !0;
+  input.setRawMode(!0), input.resume();
+  let renderedLines = 0, clearFrame = () => {
     if (renderedLines === 0)
       return;
-    readline2.moveCursor(output, 0, -renderedLines);
-    readline2.cursorTo(output, 0);
-    readline2.clearScreenDown(output);
-  };
-  const draw = () => {
+    readline2.moveCursor(output, 0, -renderedLines), readline2.cursorTo(output, 0), readline2.clearScreenDown(output);
+  }, draw = () => {
     clearFrame();
-    const frame = renderInstallSelection(action, choices, state);
+    let frame = renderInstallSelection(action, choices, state);
     output.write(`${frame}
-`);
-    renderedLines = frame.split(`
+`), renderedLines = frame.split(`
 `).length;
   };
   return new Promise((resolve13) => {
-    const cleanup = () => {
-      input.off("keypress", onKeyPress);
-      input.setRawMode(wasRaw);
-      input.pause();
-      clearFrame();
-    };
-    const finish = (targets) => {
-      cleanup();
-      if (targets && targets.length > 0) {
+    let cleanup = () => {
+      input.off("keypress", onKeyPress), input.setRawMode(wasRaw), input.pause(), clearFrame();
+    }, finish = (targets) => {
+      if (cleanup(), targets && targets.length > 0)
         output.write(`${activeVerb(action)} selected integrations...
 `);
-      }
       resolve13(targets);
     };
     function onKeyPress(inputValue, key) {
-      const mappedKey = mapKeyPress(inputValue, key);
+      let mappedKey = mapKeyPress(inputValue, key);
       if (!mappedKey)
         return;
-      const next = reduceInstallSelectionState(state, choices, mappedKey);
-      state = next.state;
-      if (next.done === "abort") {
+      let next = reduceInstallSelectionState(state, choices, mappedKey);
+      if (state = next.state, next.done === "abort") {
         finish(null);
         return;
       }
       if (next.done === "confirm") {
         if (state.selected.length === 0) {
-          output.write("\x07");
-          draw();
+          output.write("\x07"), draw();
           return;
         }
         finish(state.selected);
@@ -18048,8 +16370,7 @@ function promptInstallTargets(action, choices, options2 = {}) {
       }
       draw();
     }
-    input.on("keypress", onKeyPress);
-    draw();
+    input.on("keypress", onKeyPress), draw();
   });
 }
 
@@ -18111,25 +16432,25 @@ function getHomeDir() {
   return process.env.HOME ?? homedir8();
 }
 function parseInstallTarget(args, action) {
-  const unknownOption = args.find((arg) => arg.startsWith("-") && !TARGET_FLAGS.has(arg));
+  let unknownOption = args.find((arg) => arg.startsWith("-") && !TARGET_FLAGS.has(arg));
   if (unknownOption)
-    throw new Error(`Unknown ${action} option: ${unknownOption}`);
-  const unexpectedArg = args.find((arg) => !arg.startsWith("-"));
+    throw Error(`Unknown ${action} option: ${unknownOption}`);
+  let unexpectedArg = args.find((arg) => !arg.startsWith("-"));
   if (unexpectedArg)
-    throw new Error(`Unexpected argument for ${action}: ${unexpectedArg}`);
-  const targets = args.flatMap((arg) => {
-    const target = TARGET_FLAGS.get(arg);
+    throw Error(`Unexpected argument for ${action}: ${unexpectedArg}`);
+  let targets = args.flatMap((arg) => {
+    let target = TARGET_FLAGS.get(arg);
     return target ? [target] : [];
   });
   if (targets.length !== 1)
-    throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(", ")}`);
+    throw Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(", ")}`);
   return targets[0];
 }
 async function settle(promise) {
   try {
-    return { ok: true, value: await promise };
+    return { ok: !0, value: await promise };
   } catch (error) {
-    return { ok: false, error };
+    return { ok: !1, error };
   }
 }
 function unwrapSettled(result) {
@@ -18138,15 +16459,11 @@ function unwrapSettled(result) {
   throw result.error;
 }
 async function detectConfiguredInstallTargets() {
-  const piRawPromise = defaultVersionFetcher(["pi", "--version"]);
-  const copilotBinaryVersionPromise = defaultVersionFetcher(["copilot", "--binary-version"]);
-  const copilotFallbackVersionPromise = defaultVersionFetcher(["copilot", "--version"]);
-  const piProbePromise = piRawPromise.then((piRaw) => {
+  let piRawPromise = defaultVersionFetcher(["pi", "--version"]), copilotBinaryVersionPromise = defaultVersionFetcher(["copilot", "--binary-version"]), copilotFallbackVersionPromise = defaultVersionFetcher(["copilot", "--version"]), piProbePromise = piRawPromise.then((piRaw) => {
     if (!piRaw)
-      return { status: "unavailable", installedAndEnabled: false, matched: [] };
+      return { status: "unavailable", installedAndEnabled: !1, matched: [] };
     return defaultPiProbeRunner(process.cwd());
-  });
-  const [
+  }), [
     claudePluginListOutput,
     codexPluginListOutput,
     geminiExtensionsListOutput,
@@ -18180,24 +16497,18 @@ function startResolveInstallTargets(action, args, options2) {
     return {
       finish: async () => [parseInstallTarget(args, action)]
     };
-  if (!options2.selectTargets && !canPromptInstallTargets(options2.input, options2.output)) {
+  if (!options2.selectTargets && !canPromptInstallTargets(options2.input, options2.output))
     return {
       finish: async () => [parseInstallTarget(args, action)]
     };
-  }
-  const detectConfiguredTargets = options2.detectConfiguredTargets ?? detectConfiguredInstallTargets;
-  const configuredTargetsPromise = settle(detectConfiguredTargets());
-  const choicesPromise = settle(buildInstallTargetChoicesAsync(options2.probeTargets));
-  const ready = Promise.all([choicesPromise, configuredTargetsPromise]);
+  let detectConfiguredTargets = options2.detectConfiguredTargets ?? detectConfiguredInstallTargets, configuredTargetsPromise = settle(detectConfiguredTargets()), choicesPromise = settle(buildInstallTargetChoicesAsync(options2.probeTargets)), ready = Promise.all([choicesPromise, configuredTargetsPromise]);
   return {
     ready,
     finish: async () => {
-      const [choices, configuredTargets] = await ready;
-      const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
+      let [choices, configuredTargets] = await ready, targetChoices = applyInstallTargetState(unwrapSettled(choices), {
         action,
         configuredTargets: unwrapSettled(configuredTargets)
-      });
-      const selected = options2.selectTargets ? await options2.selectTargets(action, targetChoices) : await promptInstallTargets(action, targetChoices, {
+      }), selected = options2.selectTargets ? await options2.selectTargets(action, targetChoices) : await promptInstallTargets(action, targetChoices, {
         input: options2.input,
         output: options2.output
       });
@@ -18211,21 +16522,18 @@ function isNativeInstallTarget(target) {
   return target in NATIVE_INSTALLS;
 }
 function installNativeTarget(target, homeDir) {
-  const definition = NATIVE_INSTALLS[target];
-  definition.beforeInstall?.(homeDir);
-  runNativeCommands(definition.installCommands);
-  console.log([`Installed ${definition.name} integration`, definition.postInstallMessage].filter(Boolean).join(`
+  let definition = NATIVE_INSTALLS[target];
+  definition.beforeInstall?.(homeDir), runNativeCommands(definition.installCommands), console.log([`Installed ${definition.name} integration`, definition.postInstallMessage].filter(Boolean).join(`
 `));
 }
 function uninstallNativeTarget(target) {
-  const definition = NATIVE_INSTALLS[target];
+  let definition = NATIVE_INSTALLS[target];
   if (!definition.uninstallCommands)
-    throw new Error(`${definition.name} uninstall is not supported`);
-  runNativeCommands(definition.uninstallCommands);
-  console.log(`Uninstalled ${definition.name} integration`);
+    throw Error(`${definition.name} uninstall is not supported`);
+  runNativeCommands(definition.uninstallCommands), console.log(`Uninstalled ${definition.name} integration`);
 }
 function uninstallOpenCodeTarget(homeDir) {
-  const result = uninstallOpenCode(homeDir);
+  let result = uninstallOpenCode(homeDir);
   console.log(result.alreadyInstalled ? `Uninstalled OpenCode plugin from ${result.path}` : `OpenCode plugin not installed in ${result.path}`);
 }
 function runSingleInstallTarget(action, target, homeDir) {
@@ -18241,14 +16549,12 @@ function runSingleInstallTarget(action, target, homeDir) {
     uninstallNativeTarget(target);
     return;
   }
-  const result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir);
-  const name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI";
-  const pastTense = action === "install" ? "Installed" : "Uninstalled";
+  let result = target === "kimi-code" ? action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir) : action === "install" ? installAntigravityCli(homeDir) : uninstallAntigravityCli(homeDir), name = target === "kimi-code" ? "Kimi Code" : "Antigravity CLI", pastTense = action === "install" ? "Installed" : "Uninstalled";
   console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
 }
 async function runInstallCommand(action, args, options2 = {}) {
   try {
-    const targets = await resolveAfterOptionalBanner(true, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({
+    let targets = await resolveAfterOptionalBanner(!0, () => startResolveInstallTargets(action, args, options2), () => printInstallBanner({
       input: options2.input ?? process.stdin,
       output: options2.output ?? process.stdout
     }), {
@@ -18257,29 +16563,23 @@ async function runInstallCommand(action, args, options2 = {}) {
     });
     if (!targets)
       return 1;
-    const homeDir = getHomeDir();
-    runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));
-    return 0;
+    let homeDir = getHomeDir();
+    return runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir)), 0;
   } catch (e) {
-    console.error(formatInstallError(e));
-    return 1;
+    return console.error(formatInstallError(e)), 1;
   }
 }
 function formatInstallError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
-  if (code === "EACCES" || code === "EPERM") {
+  let message = error instanceof Error ? error.message : String(error), code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+  if (code === "EACCES" || code === "EPERM")
     return `${message}
 Check file permissions for the target config file and parent directory.`;
-  }
-  if (code === "ENOENT") {
+  if (code === "ENOENT")
     return `${message}
 Check that the target config path and parent directory exist.`;
-  }
-  if (code === "ENOTDIR") {
+  if (code === "ENOTDIR")
     return `${message}
 Check that every parent path component is a directory.`;
-  }
   return message;
 }
 
@@ -18288,143 +16588,7 @@ import { existsSync as existsSync20, mkdirSync as mkdirSync7 } from "node:fs";
 import { dirname as dirname17, join as join20 } from "node:path";
 
 // src/bin/rule/doc.ts
-var RULE_DOC = `# Custom Rules Reference
-
-Agent reference for generating CC Safety Net rulebook configuration.
-
-## Config Locations
-
-| Scope | Config path | Rulebook path | Cache path | Priority |
-|-------|-------------|---------------|------------|----------|
-| User | \`~/.cc-safety-net/rules/rule.json\` | \`~/.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`~/.cc-safety-net/cache/rulebooks/\` | Lower |
-| Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`.cc-safety-net/cache/rulebooks/\` | Higher |
-| GitHub source | Listed in a local \`rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` in the source repository | Consumer local cache | Source order |
-
-Use \`cc-safety-net rule init\` to create an inert local config. Use \`--global\` for user scope. Use \`cc-safety-net rule init --example\` to also create an inactive example rulebook.
-
-Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files are not loaded at runtime. Convert them with \`cc-safety-net rule migrate\`.
-
-## rule.json Schema
-
-\`\`\`json
-{
-  "version": 1,
-  "rules": ["project-rules", "owner/repo#main/team-rules"],
-  "overrides": {
-    "project-rules/block-docker-system-prune": {
-      "reason": "Use targeted Docker cleanup commands."
-    },
-    "team-rules/block-npm-global": "off"
-  },
-  "transparent_wrappers": ["rtk"]
-}
-\`\`\`
-
-- \`version\`: Required. Must be \`1\`.
-- \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
-- \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
-- Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
-- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.
-- \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
-- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
-- Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.
-
-## Rulebook Sources
-
-- Local sources are bare rulebook names such as \`project-rules\`; the rulebook file is \`.cc-safety-net/rules/project-rules/rulebook.json\`.
-- GitHub sources use \`owner/repo#ref/<rulebook-name>\`.
-- GitHub refs must be one path segment, such as a tag, SHA, or branch name without \`/\`.
-- Rulebook source names must be unique in a config.
-
-## rulebook.json Schema
-
-\`\`\`json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "description": "Project-specific CC Safety Net rules.",
-  "author": "project",
-  "allowed_commands": ["docker"],
-  "rules": [
-    {
-      "name": "block-docker-system-prune",
-      "command": "docker",
-      "subcommand": "system",
-      "block_args": ["prune"],
-      "reason": "Use targeted cleanup instead."
-    }
-  ],
-  "tests": [
-    {
-      "command": "docker system prune",
-      "expect": "blocked",
-      "rule": "block-docker-system-prune"
-    },
-    {
-      "command": "docker ps",
-      "expect": "allowed"
-    }
-  ]
-}
-\`\`\`
-
-### Rulebook Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`rulebook_version\` | Yes | Must be \`1\` |
-| \`name\` | Yes | \`^[a-zA-Z][a-zA-Z0-9_-]{0,63}$\` |
-| \`version\` | Yes | Non-empty string |
-| \`description\` | No | String |
-| \`author\` | No | String |
-| \`allowed_commands\` | Yes | Unique command names matching \`^[a-zA-Z][a-zA-Z0-9_-]*$\` |
-| \`rules\` | Yes | Array of rule objects |
-| \`tests\` | Yes | Array of fixtures |
-
-### Rule Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`name\` | Yes | Unique within the rulebook; same pattern as rulebook \`name\` |
-| \`command\` | Yes | Must be listed in \`allowed_commands\`; basename only, not path |
-| \`subcommand\` | No | Same pattern as \`command\`; omit to match any subcommand |
-| \`block_args\` | Yes | Non-empty array of non-empty strings |
-| \`reason\` | Yes | Non-empty string, max 256 chars |
-
-### Test Fixture Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`command\` | Yes | Non-empty shell command string |
-| \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
-| \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
-
-Every rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.
-
-## Matching Behavior
-
-- **Command**: Normalized to basename (\`/usr/bin/git\` → \`git\`).
-- **Subcommand**: First non-option argument after command.
-- **Arguments**: Matched literally. Command blocked if **any** \`block_args\` item is present.
-- **Short options**: Expanded (\`-Ap\` matches \`-A\`).
-- **Long options**: Exact match (\`--all-files\` does not match \`--all\`).
-- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.
-- **Transparent wrappers**: A configured wrapper such as \`rtk\` lets \`rtk git commit\` be analyzed as \`git commit\` only when \`git\` is protected by built-in analyzers or active custom rules. \`rtk -- git commit\` is also supported.
-
-## Workflow
-
-1. Run \`cc-safety-net rule init\` or create \`rule.json\` manually.
-2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
-3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
-4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source.
-5. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
-6. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
-7. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
-8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
-
-Invalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with \`cc-safety-net rule sync\`.
-`;
+var RULE_DOC = "# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | Lower |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Higher |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- Override values are either `\"off\"` to disable a rule or `{ \"reason\": \"...\" }` to replace the rule reason.\n- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- Rulebook source names must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | String |\n| `author` | No | String |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | Yes | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook; same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nEvery rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.\n\n## Matching Behavior\n\n- **Command**: Normalized to basename (`/usr/bin/git` → `git`).\n- **Subcommand**: First non-option argument after command.\n- **Arguments**: Matched literally. Command blocked if **any** `block_args` item is present.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source.\n5. Run `cc-safety-net rule sync` after adding or changing rulebook sources.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.\n7. Run `cc-safety-net rule test` to execute rulebook fixtures.\n8. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nInvalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `cc-safety-net rule sync`.\n";
 
 // src/bin/rule/format.ts
 function printRuleChangeResult(result, action) {
@@ -18432,11 +16596,7 @@ function printRuleChangeResult(result, action) {
     printResultErrors(result);
     return;
   }
-  printResultWarnings(result);
-  console.log(action);
-  console.log("Rule config synced.");
-  console.log("");
-  printActiveRulebookSummary(result.entries);
+  printResultWarnings(result), console.log(action), console.log("Rule config synced."), console.log(""), printActiveRulebookSummary(result.entries);
 }
 function printActiveRulebookSummary(entries) {
   if (entries.length === 0) {
@@ -18444,10 +16604,8 @@ function printActiveRulebookSummary(entries) {
     return;
   }
   console.log(`Active rulebooks (${entries.length}):`);
-  for (const entry of entries) {
-    console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount ?? 0)})`);
-    console.log(`    Source: ${formatRulebookSource(entry, new Map)}`);
-  }
+  for (let entry of entries)
+    console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount ?? 0)})`), console.log(`    Source: ${formatRulebookSource(entry, /* @__PURE__ */ new Map)}`);
 }
 function formatRuleCount(count) {
   return `${count} ${count === 1 ? "rule" : "rules"}`;
@@ -18455,45 +16613,33 @@ function formatRuleCount(count) {
 function formatRulebookSource(entry, sourceDisplayMap) {
   return sourceDisplayMap.get(entry.spec) ?? getRulebookDisplaySource(entry);
 }
-function printRulesTestResult(result, sourceDisplayMap = new Map) {
+function printRulesTestResult(result, sourceDisplayMap = /* @__PURE__ */ new Map) {
   if (!result.ok) {
     printResultErrors(result);
     return;
   }
-  printResultWarnings(result);
-  console.log("Rulebook tests passed.");
-  console.log("");
-  for (const entry of result.entries) {
-    console.log(`  ${entry.name} ${entry.version}`);
-    console.log(`    Source: ${formatRulebookSource(entry, sourceDisplayMap)}`);
-    console.log(`    Rules: ${entry.ruleCount ?? 0}`);
-    console.log(`    Tests: ${entry.testCount ?? 0}`);
-  }
+  printResultWarnings(result), console.log("Rulebook tests passed."), console.log("");
+  for (let entry of result.entries)
+    console.log(`  ${entry.name} ${entry.version}`), console.log(`    Source: ${formatRulebookSource(entry, sourceDisplayMap)}`), console.log(`    Rules: ${entry.ruleCount ?? 0}`), console.log(`    Tests: ${entry.testCount ?? 0}`);
   if (result.entries.length < 2)
     return;
-  console.log("");
-  console.log(`Tested ${result.entries.length} rulebooks, ${sumStats(result.entries, "ruleCount")} rules, ${sumStats(result.entries, "testCount")} tests.`);
+  console.log(""), console.log(`Tested ${result.entries.length} rulebooks, ${sumStats(result.entries, "ruleCount")} rules, ${sumStats(result.entries, "testCount")} tests.`);
 }
 function printRulesListReport(policy, sourceDisplayMaps) {
   printListSection("Active sources", policy.rulebooks, (rulebook) => [
     `[${rulebook.source}] ${rulebook.name} ${rulebook.version}`,
     `  Source: ${sourceDisplayMaps[rulebook.source].get(rulebook.spec) ?? rulebook.spec}`
-  ]);
-  printListSection("Active rules", policy.rules, (rule) => [
+  ]), printListSection("Active rules", policy.rules, (rule) => [
     `[${getRuleSource(policy, rule.name)}] ${rule.name}`,
     `  Command: ${rule.subcommand ? `${rule.command} ${rule.subcommand}` : rule.command}`,
     `  Block args: ${rule.block_args.join(", ")}`,
     `  Reason: ${rule.reason}`
-  ]);
-  printListSection("Disabled rules", getMergedOverrides(policy, "off"), (override) => [
+  ]), printListSection("Disabled rules", getMergedOverrides(policy, "off"), (override) => [
     override.key
-  ]);
-  printListSection("Reason overrides", getMergedOverrides(policy, "reason"), (override) => [
+  ]), printListSection("Reason overrides", getMergedOverrides(policy, "reason"), (override) => [
     override.key,
     `  Reason: ${override.value.reason}`
-  ]);
-  printListSection("Transparent wrappers", policy.transparent_wrappers, (wrapper) => [wrapper]);
-  printListSection("Issues", policy.errors, (error) => [error]);
+  ]), printListSection("Transparent wrappers", policy.transparent_wrappers, (wrapper) => [wrapper]), printListSection("Issues", policy.errors, (error) => [error]);
 }
 function printListSection(title, items, format) {
   if (items.length === 0) {
@@ -18501,10 +16647,10 @@ function printListSection(title, items, format) {
     return;
   }
   console.log(`${title} (${items.length}):`);
-  for (const item of items) {
-    const [firstLine, ...detailLines] = format(item);
+  for (let item of items) {
+    let [firstLine, ...detailLines] = format(item);
     console.log(`  - ${firstLine}`);
-    for (const line of detailLines)
+    for (let line of detailLines)
       console.log(`    ${line}`);
   }
 }
@@ -18525,23 +16671,22 @@ function sumStats(entries, key) {
   return entries.reduce((total, entry) => total + (entry[key] ?? 0), 0);
 }
 function printResultErrors(result) {
-  for (const error of result.errors)
+  for (let error of result.errors)
     console.error(error);
 }
 function printResultWarnings(result) {
   if (!result.warnings || result.warnings.length === 0)
     return;
-  for (const warning of result.warnings)
+  for (let warning of result.warnings)
     console.warn(warning);
 }
 
 // src/bin/rule/migrate.ts
 import { existsSync as existsSync18, readFileSync as readFileSync16, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { dirname as dirname15, join as join18 } from "node:path";
-var PROJECT_MIGRATED_FROM = ".safety-net.json";
-var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
+var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
-  const results = [
+  return [
     await migrateRulesScope({
       legacyPath: getLegacyProjectRulesConfigPath({ cwd: options2.cwd }),
       configPath: getProjectRulesConfigPath(options2.cwd),
@@ -18556,82 +16701,66 @@ async function runRulesMigrate(options2) {
       defaultRulebookName: "user-rules",
       migratedFrom: USER_MIGRATED_FROM,
       cleanup: options2.cleanup,
-      syncOptions: { cwd: options2.cwd, global: true }
+      syncOptions: { cwd: options2.cwd, global: !0 }
     })
-  ];
-  return results.every((result) => result) ? 0 : 1;
+  ].every((result) => result) ? 0 : 1;
 }
 async function migrateRulesScope(options2) {
-  if (!existsSync18(options2.legacyPath)) {
-    console.log(`No legacy config found at ${options2.legacyPath}`);
-    return true;
-  }
-  const legacy = readLegacyRulesConfig(options2.legacyPath);
+  if (!existsSync18(options2.legacyPath))
+    return console.log(`No legacy config found at ${options2.legacyPath}`), !0;
+  let legacy = readLegacyRulesConfig(options2.legacyPath);
   if (!legacy.ok) {
-    for (const error of legacy.errors)
+    for (let error of legacy.errors)
       console.error(error);
-    return false;
+    return !1;
   }
-  const loaded = readRulesConfig(options2.configPath);
+  let loaded = readRulesConfig(options2.configPath);
   if (loaded.errors.length > 0) {
-    for (const error of loaded.errors)
+    for (let error of loaded.errors)
       console.error(error);
-    return false;
+    return !1;
   }
-  const config = loaded.config ?? {
+  let config = loaded.config ?? {
     version: 1,
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  };
-  const rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
-  const rulebookPath = join18(dirname15(options2.configPath), rulebookName, "rulebook.json");
-  const snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom), rulebookPath = join18(dirname15(options2.configPath), rulebookName, "rulebook.json"), snapshots = [
     snapshotFile(options2.configPath),
     snapshotFile(rulebookPath),
     snapshotFile(getRulesLockPathForConfigPath(options2.configPath))
-  ];
-  const result = await writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, legacy.config.rules, config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName], config.overrides ?? {}, config.transparent_wrappers ?? []);
+  ], result = await writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, legacy.config.rules, config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName], config.overrides ?? {}, config.transparent_wrappers ?? []);
   if (!result.ok) {
     restoreFiles(snapshots);
-    for (const error of result.errors)
+    for (let error of result.errors)
       console.error(error);
-    return false;
+    return !1;
   }
-  if (!options2.cleanup) {
-    console.log(`Migrated legacy config at ${options2.legacyPath}. Legacy file is no longer used.`);
-    return true;
-  }
-  if (!isCleanupVerified(options2.configPath, rulebookPath, rulebookName, options2.migratedFrom, legacy.config.rules)) {
-    console.error(`Migration cleanup verification failed for ${options2.legacyPath}`);
-    return false;
-  }
-  rmSync4(options2.legacyPath, { force: true });
-  console.log(`Deleted legacy config at ${options2.legacyPath}`);
-  return true;
+  if (!options2.cleanup)
+    return console.log(`Migrated legacy config at ${options2.legacyPath}. Legacy file is no longer used.`), !0;
+  if (!isCleanupVerified(options2.configPath, rulebookPath, rulebookName, options2.migratedFrom, legacy.config.rules))
+    return console.error(`Migration cleanup verification failed for ${options2.legacyPath}`), !1;
+  return rmSync4(options2.legacyPath, { force: !0 }), console.log(`Deleted legacy config at ${options2.legacyPath}`), !0;
 }
 async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, rules, configRules, overrides, transparentWrappers) {
   try {
-    writeJsonAtomic(options2.configPath, {
+    return writeJsonAtomic(options2.configPath, {
       version: 1,
       rules: configRules,
       overrides,
       transparent_wrappers: transparentWrappers
-    });
-    writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options2.migratedFrom, rules));
-    return await syncRulesConfig(options2.syncOptions);
+    }), writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options2.migratedFrom, rules)), await syncRulesConfig(options2.syncOptions);
   } catch (error) {
-    return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
+    return { ok: !1, errors: [error instanceof Error ? error.message : String(error)] };
   }
 }
 function readLegacyRulesConfig(path) {
   try {
-    const parsed = JSON.parse(readFileSync16(path, "utf-8"));
-    const validation = validateConfig(parsed);
+    let parsed = JSON.parse(readFileSync16(path, "utf-8")), validation = validateConfig(parsed);
     if (validation.errors.length > 0)
-      return { ok: false, errors: validation.errors };
+      return { ok: !1, errors: validation.errors };
     return {
-      ok: true,
+      ok: !0,
       config: {
         version: 1,
         rules: parsed.rules ?? []
@@ -18639,19 +16768,19 @@ function readLegacyRulesConfig(path) {
     };
   } catch (error) {
     return {
-      ok: false,
+      ok: !1,
       errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
     };
   }
 }
 function getMigratedRulebookName(configDir, sources, defaultRulebookName, migratedFrom) {
-  const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
+  let existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
   if (existing)
     return existing;
   if (!existsSync18(join18(configDir, defaultRulebookName, "rulebook.json")))
     return defaultRulebookName;
   for (let i = 2;; i++) {
-    const name = `${defaultRulebookName}-${i}`;
+    let name = `${defaultRulebookName}-${i}`;
     if (!existsSync18(join18(configDir, name, "rulebook.json")))
       return name;
   }
@@ -18674,23 +16803,22 @@ function getMigratedRulebook(name, migratedFrom, rules) {
   };
 }
 function isCleanupVerified(configPath, rulebookPath, rulebookName, migratedFrom, legacyRules) {
-  const config = readRulesConfig(configPath).config;
-  if (!config?.rules.includes(rulebookName) || !existsSync18(rulebookPath))
-    return false;
+  if (!readRulesConfig(configPath).config?.rules.includes(rulebookName) || !existsSync18(rulebookPath))
+    return !1;
   try {
-    const rulebook = JSON.parse(readFileSync16(rulebookPath, "utf-8"));
+    let rulebook = JSON.parse(readFileSync16(rulebookPath, "utf-8"));
     return rulebook.migrated_from === migratedFrom && JSON.stringify(rulebook.rules) === JSON.stringify(legacyRules);
   } catch {
-    return false;
+    return !1;
   }
 }
 function snapshotFile(path) {
   return { path, content: existsSync18(path) ? readFileSync16(path, "utf-8") : null };
 }
 function restoreFiles(snapshots) {
-  for (const snapshot of snapshots) {
+  for (let snapshot of snapshots) {
     if (snapshot.content === null) {
-      rmSync4(snapshot.path, { force: true });
+      rmSync4(snapshot.path, { force: !0 });
       continue;
     }
     writeFileSync6(snapshot.path, snapshot.content, "utf-8");
@@ -18700,155 +16828,115 @@ function restoreFiles(snapshots) {
 // src/bin/rule/verify.ts
 import { existsSync as existsSync19, readdirSync as readdirSync4, readFileSync as readFileSync17, statSync as statSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { dirname as dirname16, join as join19, resolve as resolve13 } from "node:path";
-var VERIFY_HEADER = "CC Safety Net Config";
-var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
-var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
-var RULES_DIR_RESERVED_ENTRIES = new Set(["rule.json", "rule.lock", "cache"]);
+var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
-  const cwd = options2.cwd ?? process.cwd();
-  const userConfig = options2.userConfigPath ?? getUserRulesConfigPath();
-  const projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd);
-  const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
-  const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
-  const githubSourceRulesDir = resolve13(cwd, RULES_DIR);
-  const userConfigDir = dirname16(userConfig);
-  let hasErrors = false;
-  let hasWarnings = false;
-  const configsChecked = [];
-  const warnings = [];
-  const githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
-  printRulesVerifyHeader();
-  if (existsSync19(userConfig)) {
-    const result = validateRulesConfigFile(userConfig);
-    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
+  let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve13(cwd, RULES_DIR), userConfigDir = dirname16(userConfig), hasErrors = !1, hasWarnings = !1, configsChecked = [], warnings = [], githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
+  if (printRulesVerifyHeader(), existsSync19(userConfig)) {
+    let result = validateRulesConfigFile(userConfig);
+    if (result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
       userConfigDir
-    }));
-    configsChecked.push({
+    })), configsChecked.push({
       scope: "User",
       path: userConfig,
       result,
       schema: "rules",
       sourceDisplayMap: getRulesConfigSourceDisplayMap(userConfig)
-    });
-    if (result.errors.length > 0)
-      hasErrors = true;
+    }), result.errors.length > 0)
+      hasErrors = !0;
   }
-  if (existsSync19(legacyUserConfig)) {
-    hasWarnings = true;
-    if (existsSync19(userConfig)) {
+  if (existsSync19(legacyUserConfig))
+    if (hasWarnings = !0, existsSync19(userConfig))
       warnings.push(getLegacyRulesConfigWarning("user", "cleanup"));
-    } else {
-      const result = validateConfigFile(legacyUserConfig);
-      configsChecked.push({
+    else {
+      let result = validateConfigFile(legacyUserConfig);
+      if (configsChecked.push({
         scope: "User",
         path: legacyUserConfig,
         result,
         schema: "legacy",
-        sourceDisplayMap: new Map,
-        inactive: true
-      });
-      warnings.push(getLegacyRulesConfigWarning("user", result.errors.length > 0 ? "fix-or-delete" : "migrate"));
-      if (result.errors.length > 0)
-        hasErrors = true;
+        sourceDisplayMap: /* @__PURE__ */ new Map,
+        inactive: !0
+      }), warnings.push(getLegacyRulesConfigWarning("user", result.errors.length > 0 ? "fix-or-delete" : "migrate")), result.errors.length > 0)
+        hasErrors = !0;
     }
-  }
   if (existsSync19(projectConfig)) {
-    const result = validateRulesConfigFile(projectConfig);
-    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, getRulesLockPathForConfigPath(projectConfig), {
+    let result = validateRulesConfigFile(projectConfig);
+    if (result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, getRulesLockPathForConfigPath(projectConfig), {
       userConfigDir
-    }));
-    configsChecked.push({
+    })), configsChecked.push({
       scope: "Project",
       path: resolve13(projectConfig),
       result,
       schema: "rules",
       sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig)
-    });
-    if (result.errors.length > 0)
-      hasErrors = true;
-    if (existsSync19(legacyProjectConfig)) {
-      hasWarnings = true;
-      warnings.push(getLegacyRulesConfigWarning("project", "cleanup"));
-    }
+    }), result.errors.length > 0)
+      hasErrors = !0;
+    if (existsSync19(legacyProjectConfig))
+      hasWarnings = !0, warnings.push(getLegacyRulesConfigWarning("project", "cleanup"));
   } else if (existsSync19(legacyProjectConfig)) {
-    hasWarnings = true;
-    hasErrors = true;
-    const result = validateConfigFile(legacyProjectConfig);
+    hasWarnings = !0, hasErrors = !0;
+    let result = validateConfigFile(legacyProjectConfig);
     configsChecked.push({
       scope: "Project",
       path: resolve13(legacyProjectConfig),
       result,
       schema: "legacy",
-      sourceDisplayMap: new Map,
-      inactive: true
-    });
-    warnings.push(getLegacyRulesConfigWarning("project", result.errors.length > 0 ? "fix-or-delete" : "migrate"));
+      sourceDisplayMap: /* @__PURE__ */ new Map,
+      inactive: !0
+    }), warnings.push(getLegacyRulesConfigWarning("project", result.errors.length > 0 ? "fix-or-delete" : "migrate"));
   }
   if (githubSourceRules?.result.errors.length)
-    hasErrors = true;
-  if (configsChecked.length === 0 && !githubSourceRules) {
-    console.log(`
-No config files found. Using built-in rules only.`);
-    return 0;
-  }
-  for (const config of configsChecked) {
-    if (config.inactive) {
+    hasErrors = !0;
+  if (configsChecked.length === 0 && !githubSourceRules)
+    return console.log(`
+No config files found. Using built-in rules only.`), 0;
+  for (let config of configsChecked)
+    if (config.inactive)
       printInactiveLegacyRulesConfig(config.scope, config.path, config.result, config.sourceDisplayMap);
-    } else if (config.result.errors.length > 0) {
+    else if (config.result.errors.length > 0)
       printInvalidRulesConfig(config.scope, config.path, config.result.errors);
-    } else {
-      if (config.schema === "rules" && addRulesSchemaIfMissing(config.path)) {
+    else {
+      if (config.schema === "rules" && addRulesSchemaIfMissing(config.path))
         console.log(`
 Added $schema to ${config.scope.toLowerCase()} config.`);
-      }
       printValidRulesConfig(config.scope, config.path, config.result, config.schema, config.sourceDisplayMap);
     }
-  }
-  for (const warning of warnings)
+  for (let warning of warnings)
     console.error(`
 ${colors.red(warning)}`);
-  if (githubSourceRules) {
-    if (githubSourceRules.result.errors.length > 0) {
+  if (githubSourceRules)
+    if (githubSourceRules.result.errors.length > 0)
       printInvalidGitHubSourceRules(githubSourceRules.path, githubSourceRules.result.errors);
-    } else {
+    else
       printValidGitHubSourceRules(githubSourceRules.path, githubSourceRules.result);
-    }
-  }
-  if (hasErrors) {
-    console.error(`
-Config validation failed.`);
-    return 1;
-  }
-  console.log(hasWarnings ? `
+  if (hasErrors)
+    return console.error(`
+Config validation failed.`), 1;
+  return console.log(hasWarnings ? `
 Configs valid with warnings.` : `
-All configs valid.`);
-  return 0;
+All configs valid.`), 0;
 }
 function getLegacyRulesConfigWarning(scope, action) {
-  const label = `legacy ${scope} config`;
-  if (action === "cleanup") {
+  let label = `legacy ${scope} config`;
+  if (action === "cleanup")
     return `Warning: Legacy ${scope} config is no longer needed. Run \`npx -y cc-safety-net rule migrate --cleanup\` to clean it up safely.`;
-  }
-  if (action === "migrate") {
+  if (action === "migrate")
     return `Warning: Legacy ${scope} config is ignored by CC Safety Net. Run \`npx -y cc-safety-net rule migrate\`.`;
-  }
   return `Warning: Legacy ${scope} config is no longer supported. Fix or delete the ${label}, then run \`npx -y cc-safety-net rule migrate\`.`;
 }
 function getGitHubSourceRulesValidation(path) {
   if (!existsSync19(path))
     return null;
-  const result = validateGitHubSourceRules(path);
+  let result = validateGitHubSourceRules(path);
   if (result.ruleNames.size === 0 && result.errors.length === 0)
     return null;
   return { path, result };
 }
 function validateGitHubSourceRules(path) {
-  const errors = [];
-  const ruleNames = new Set;
+  let errors = [], ruleNames = /* @__PURE__ */ new Set;
   try {
-    if (!statSync3(path).isDirectory()) {
+    if (!statSync3(path).isDirectory())
       return { errors: [`${RULES_DIR} must be a directory`], ruleNames };
-    }
   } catch (error) {
     return {
       errors: [
@@ -18857,11 +16945,10 @@ function validateGitHubSourceRules(path) {
       ruleNames
     };
   }
-  const entries = readdirSync4(path, { withFileTypes: true }).filter((entry) => !RULES_DIR_RESERVED_ENTRIES.has(entry.name)).sort((a, b) => a.name.localeCompare(b.name));
-  if (entries.length === 0) {
+  let entries = readdirSync4(path, { withFileTypes: !0 }).filter((entry) => !RULES_DIR_RESERVED_ENTRIES.has(entry.name)).sort((a, b) => a.name.localeCompare(b.name));
+  if (entries.length === 0)
     return { errors, ruleNames };
-  }
-  for (const entry of entries) {
+  for (let entry of entries) {
     if (!NAME_PATTERN.test(entry.name)) {
       errors.push(`rulebook directory names must match ${NAME_PATTERN}: ${entry.name}`);
       continue;
@@ -18870,13 +16957,13 @@ function validateGitHubSourceRules(path) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    const rulebookPath = join19(path, entry.name, "rulebook.json");
+    let rulebookPath = join19(path, entry.name, "rulebook.json");
     if (!existsSync19(rulebookPath)) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
     }
     try {
-      const rulebook = assertValidRulebook(JSON.parse(readFileSync17(rulebookPath, "utf-8")));
+      let rulebook = assertValidRulebook(JSON.parse(readFileSync17(rulebookPath, "utf-8")));
       if (rulebook.name !== entry.name) {
         errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
         continue;
@@ -18889,47 +16976,33 @@ function validateGitHubSourceRules(path) {
   return { errors, ruleNames };
 }
 function printRulesVerifyHeader() {
-  console.log(VERIFY_HEADER);
-  console.log(VERIFY_SEPARATOR);
+  console.log(VERIFY_HEADER), console.log(VERIFY_SEPARATOR);
 }
 function printValidRulesConfig(scope, path, result, schema, sourceDisplayMap) {
-  console.log(`
-✓ ${scope} config: ${path}`);
-  console.log(`  Schema: ${schema === "rules" ? "rulebook sources" : "legacy inline rules"}`);
-  if (result.ruleNames.size > 0) {
+  if (console.log(`
+✓ ${scope} config: ${path}`), console.log(`  Schema: ${schema === "rules" ? "rulebook sources" : "legacy inline rules"}`), result.ruleNames.size > 0) {
     console.log(`  ${schema === "rules" ? "Sources" : "Rules"}:`);
     let i = 1;
-    for (const name of result.ruleNames) {
-      console.log(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
-      i++;
-    }
-  } else {
+    for (let name of result.ruleNames)
+      console.log(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`), i++;
+  } else
     console.log(`  ${schema === "rules" ? "Sources" : "Rules"}: (none)`);
-  }
 }
 function printInactiveLegacyRulesConfig(scope, path, result, sourceDisplayMap) {
-  console.error(`
-✗ Legacy ${scope.toLowerCase()} config: ${path}`);
-  console.error("  Schema: legacy inline rules");
-  console.error("  Status: ignored by CC Safety Net");
-  if (result.errors.length > 0) {
+  if (console.error(`
+✗ Legacy ${scope.toLowerCase()} config: ${path}`), console.error("  Schema: legacy inline rules"), console.error("  Status: ignored by CC Safety Net"), result.errors.length > 0) {
     console.error("  Errors:");
     let errorNum = 1;
-    for (const error of result.errors) {
-      for (const part of error.split("; ")) {
-        console.error(`    ${errorNum}. ${part}`);
-        errorNum++;
-      }
-    }
+    for (let error of result.errors)
+      for (let part of error.split("; "))
+        console.error(`    ${errorNum}. ${part}`), errorNum++;
     return;
   }
   if (result.ruleNames.size > 0) {
     console.error("  Rules:");
     let i = 1;
-    for (const name of result.ruleNames) {
-      console.error(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
-      i++;
-    }
+    for (let name of result.ruleNames)
+      console.error(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`), i++;
     return;
   }
   console.error("  Rules: (none)");
@@ -18939,44 +17012,35 @@ function printInvalidRulesConfig(scope, path, errors) {
 }
 function printValidGitHubSourceRules(path, result) {
   console.log(`
-✓ GitHub source rules: ${path}`);
-  console.log("  Rulebooks:");
+✓ GitHub source rules: ${path}`), console.log("  Rulebooks:");
   let i = 1;
-  for (const name of result.ruleNames) {
-    console.log(`    ${i}. ${name}`);
-    i++;
-  }
+  for (let name of result.ruleNames)
+    console.log(`    ${i}. ${name}`), i++;
 }
 function printInvalidGitHubSourceRules(path, errors) {
   printInvalidVerifyTarget("GitHub source rules", path, errors);
 }
 function printInvalidVerifyTarget(label, path, errors) {
   console.error(`
-✗ ${label}: ${path}`);
-  console.error("  Errors:");
+✗ ${label}: ${path}`), console.error("  Errors:");
   let errorNum = 1;
-  for (const error of errors) {
-    for (const part of error.split("; ")) {
-      console.error(`    ${errorNum}. ${part}`);
-      errorNum++;
-    }
-  }
+  for (let error of errors)
+    for (let part of error.split("; "))
+      console.error(`    ${errorNum}. ${part}`), errorNum++;
 }
 function addRulesSchemaIfMissing(path) {
   try {
-    const content = readFileSync17(path, "utf-8");
-    const parsed = JSON.parse(content);
+    let content = readFileSync17(path, "utf-8"), parsed = JSON.parse(content);
     if (parsed.$schema)
-      return false;
-    writeFileSync7(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
-    return true;
+      return !1;
+    return writeFileSync7(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8"), !0;
   } catch {
-    return false;
+    return !1;
   }
 }
 
 // src/bin/rule/index.ts
-var RULE_SUBCOMMANDS = new Set([
+var RULE_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "init",
   "add",
   "remove",
@@ -18988,163 +17052,128 @@ var RULE_SUBCOMMANDS = new Set([
   "migrate",
   "doc",
   "verify"
-]);
-var RULE_WRAPPER_ACTIONS = new Set(["add", "remove", "list"]);
+]), RULE_WRAPPER_ACTIONS = /* @__PURE__ */ new Set(["add", "remove", "list"]);
 async function runRuleCommand(args) {
-  const flags = parseRuleFlags(args);
+  let flags = parseRuleFlags(args);
   if (flags.errors.length > 0) {
-    for (const error of flags.errors)
+    for (let error of flags.errors)
       console.error(error);
     return 1;
   }
-  const subcommand = flags.positionals[0];
-  if (flags.help) {
-    printCommandHelp(ruleCommand);
-    return 0;
-  }
-  if (!subcommand) {
-    printCommandHelp(ruleCommand);
-    return 1;
-  }
-  const value = flags.positionals[1];
-  const options2 = { global: flags.global, check: flags.check };
+  let subcommand = flags.positionals[0];
+  if (flags.help)
+    return printCommandHelp(ruleCommand), 0;
+  if (!subcommand)
+    return printCommandHelp(ruleCommand), 1;
+  let value = flags.positionals[1], options2 = { global: flags.global, check: flags.check };
   if (subcommand === "init") {
-    const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
-    const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    ensureRulesConfig(configPath);
-    mkdirSync7(join20(dirname17(dir), "cache", "rulebooks"), { recursive: true });
-    const rulebookPath = join20(dir, "example-rules", "rulebook.json");
+    let dir = flags.global ? getUserRulesDir() : getProjectRulesDir(), configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
+    ensureRulesConfig(configPath), mkdirSync7(join20(dirname17(dir), "cache", "rulebooks"), { recursive: !0 });
+    let rulebookPath = join20(dir, "example-rules", "rulebook.json");
     if (flags.example && !existsSync20(rulebookPath))
       writeStarterRulebook(rulebookPath, "example-rules");
-    const result = await syncRulesConfig(options2);
-    printRuleChangeResult(result, "Rule config initialized.");
-    return result.ok ? 0 : 1;
+    let result = await syncRulesConfig(options2);
+    return printRuleChangeResult(result, "Rule config initialized."), result.ok ? 0 : 1;
   }
   if (subcommand === "add") {
-    if (!value) {
-      console.error("rule add requires a source");
-      return 1;
-    }
-    const result = await addRulebookSource(value, options2);
-    printRuleChangeResult(result, `Added rulebook source: ${value}`);
-    return result.ok ? 0 : 1;
+    if (!value)
+      return console.error("rule add requires a source"), 1;
+    let result = await addRulebookSource(value, options2);
+    return printRuleChangeResult(result, `Added rulebook source: ${value}`), result.ok ? 0 : 1;
   }
   if (subcommand === "remove") {
-    if (!value) {
-      console.error("rule remove requires a source");
-      return 1;
-    }
-    const result = await removeRulebookSource(value, {
+    if (!value)
+      return console.error("rule remove requires a source"), 1;
+    let result = await removeRulebookSource(value, {
       ...options2,
       deleteSource: flags.deleteSource
     });
-    printRuleChangeResult(result, `Removed rulebook source: ${value}`);
-    return result.ok ? 0 : 1;
+    return printRuleChangeResult(result, `Removed rulebook source: ${value}`), result.ok ? 0 : 1;
   }
   if (subcommand === "update" || subcommand === "sync") {
-    const result = await syncRulesConfig({
+    let result = await syncRulesConfig({
       ...options2,
-      only: subcommand === "update" ? value : undefined
+      only: subcommand === "update" ? value : void 0
     });
-    printRuleChangeResult(result, flags.check ? "Rule config checked." : "Rule config synced.");
-    return result.ok ? 0 : 1;
+    return printRuleChangeResult(result, flags.check ? "Rule config checked." : "Rule config synced."), result.ok ? 0 : 1;
   }
   if (subcommand === "list") {
-    const policy = loadRulesPolicy();
-    printRulesListReport(policy, {
+    let policy = loadRulesPolicy();
+    return printRulesListReport(policy, {
       user: getRulesConfigSourceDisplayMap(policy.userConfigPath),
       project: getRulesConfigSourceDisplayMap(policy.projectConfigPath)
-    });
-    return policy.errors.length > 0 ? 1 : 0;
+    }), policy.errors.length > 0 ? 1 : 0;
   }
-  if (subcommand === "wrapper") {
+  if (subcommand === "wrapper")
     return runRuleWrapperCommand(flags);
-  }
   if (subcommand === "test") {
-    const sources = value ? [value] : [];
-    const result = await testRulebookSources(sources, options2);
-    printRulesTestResult(result);
-    return result.ok ? 0 : 1;
+    let result = await testRulebookSources(value ? [value] : [], options2);
+    return printRulesTestResult(result), result.ok ? 0 : 1;
   }
-  if (subcommand === "migrate") {
+  if (subcommand === "migrate")
     return runRulesMigrate({ cleanup: flags.cleanup, cwd: process.cwd() });
-  }
-  if (subcommand === "doc") {
-    console.log(RULE_DOC);
-    return 0;
-  }
-  if (subcommand === "verify") {
+  if (subcommand === "doc")
+    return console.log(RULE_DOC), 0;
+  if (subcommand === "verify")
     return runRulesVerify();
-  }
   return 1;
 }
 function parseRuleFlags(args) {
-  const flags = {
-    global: false,
-    check: false,
-    cleanup: false,
-    deleteSource: false,
-    example: false,
-    help: false,
+  let flags = {
+    global: !1,
+    check: !1,
+    cleanup: !1,
+    deleteSource: !1,
+    example: !1,
+    help: !1,
     positionals: [],
     errors: []
   };
-  for (const arg of args) {
-    if (arg === "-g" || arg === "--global") {
-      flags.global = true;
-    } else if (arg === "--check") {
-      flags.check = true;
-    } else if (arg === "--delete-source") {
-      flags.deleteSource = true;
-    } else if (arg === "--cleanup") {
-      flags.cleanup = true;
-    } else if (arg === "--example") {
-      flags.example = true;
-    } else if (arg === "-h" || arg === "--help") {
-      flags.help = true;
-    } else if (arg.startsWith("-")) {
+  for (let arg of args)
+    if (arg === "-g" || arg === "--global")
+      flags.global = !0;
+    else if (arg === "--check")
+      flags.check = !0;
+    else if (arg === "--delete-source")
+      flags.deleteSource = !0;
+    else if (arg === "--cleanup")
+      flags.cleanup = !0;
+    else if (arg === "--example")
+      flags.example = !0;
+    else if (arg === "-h" || arg === "--help")
+      flags.help = !0;
+    else if (arg.startsWith("-"))
       flags.errors.push(unknownRuleOption(flags.positionals[0], arg));
-    } else {
+    else
       flags.positionals.push(arg);
-    }
-  }
-  validateRuleFlags(flags);
-  return flags;
+  return validateRuleFlags(flags), flags;
 }
 function validateRuleFlags(flags) {
-  const [subcommand] = flags.positionals;
-  if (subcommand && !RULE_SUBCOMMANDS.has(subcommand)) {
+  let [subcommand] = flags.positionals;
+  if (subcommand && !RULE_SUBCOMMANDS.has(subcommand))
     flags.errors.push(`Unknown rule subcommand: ${subcommand}`);
-  }
-  if (flags.deleteSource && subcommand !== "remove") {
-    if (subcommand && RULE_SUBCOMMANDS.has(subcommand)) {
+  if (flags.deleteSource && subcommand !== "remove")
+    if (subcommand && RULE_SUBCOMMANDS.has(subcommand))
       flags.errors.push(`Unknown option for rule ${subcommand}: --delete-source`);
-    } else {
+    else
       flags.errors.push("--delete-source is only valid with 'rule remove'");
-    }
-  }
-  if (flags.cleanup && subcommand !== "migrate") {
+  if (flags.cleanup && subcommand !== "migrate")
     flags.errors.push(unknownRuleOption(subcommand, "--cleanup"));
-  }
-  if (flags.example && subcommand !== "init") {
+  if (flags.example && subcommand !== "init")
     flags.errors.push(unknownRuleOption(subcommand, "--example"));
-  }
   if (subcommand === "migrate") {
     if (flags.global)
       flags.errors.push("Unknown option for rule migrate: --global");
     if (flags.check)
       flags.errors.push("Unknown option for rule migrate: --check");
-    if (flags.positionals.length > 1) {
+    if (flags.positionals.length > 1)
       flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
-    }
-  } else if (subcommand === "wrapper") {
+  } else if (subcommand === "wrapper")
     validateRuleWrapperFlags(flags);
-  } else if (flags.positionals.length > 2) {
+  else if (flags.positionals.length > 2)
     flags.errors.push(`Unexpected rule argument: ${flags.positionals[2]}`);
-  }
-  if (subcommand === "list" && flags.global) {
+  if (subcommand === "list" && flags.global)
     flags.errors.push("Unknown option for rule list: --global");
-  }
 }
 function unknownRuleOption(subcommand, option) {
   if (subcommand === "migrate")
@@ -19152,8 +17181,7 @@ function unknownRuleOption(subcommand, option) {
   return `Unknown rule option: ${option}`;
 }
 function validateRuleWrapperFlags(flags) {
-  const action = flags.positionals[1];
-  const command2 = flags.positionals[2];
+  let action = flags.positionals[1], command2 = flags.positionals[2];
   if (!action) {
     flags.errors.push("rule wrapper requires add, remove, or list");
     return;
@@ -19171,16 +17199,15 @@ function validateRuleWrapperFlags(flags) {
     flags.errors.push(`rule wrapper ${action} requires a command`);
     return;
   }
-  if (flags.positionals.length > 3) {
+  if (flags.positionals.length > 3)
     flags.errors.push(`Unexpected rule wrapper argument: ${flags.positionals[3]}`);
-  }
 }
 function ensureRulesConfig(configPath) {
   if (!existsSync20(configPath)) {
     writeDefaultRulesConfig(configPath);
     return;
   }
-  const loaded = readRulesConfig(configPath);
+  let loaded = readRulesConfig(configPath);
   if (!loaded.config)
     return;
   writeJsonAtomic(configPath, {
@@ -19191,48 +17218,38 @@ function ensureRulesConfig(configPath) {
   });
 }
 async function runRuleWrapperCommand(flags) {
-  const action = flags.positionals[1];
-  const command2 = flags.positionals[2];
-  const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
+  let action = flags.positionals[1], command2 = flags.positionals[2], configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
   if (action === "list") {
-    const loaded2 = readRulesConfig(configPath);
+    let loaded2 = readRulesConfig(configPath);
     if (loaded2.errors.length > 0) {
-      for (const error of loaded2.errors)
+      for (let error of loaded2.errors)
         console.error(error);
       return 1;
     }
-    printTransparentWrappers(loaded2.config?.transparent_wrappers ?? []);
-    return 0;
+    return printTransparentWrappers(loaded2.config?.transparent_wrappers ?? []), 0;
   }
-  if (!command2 || !COMMAND_PATTERN.test(command2)) {
-    console.error("transparent wrapper must match command pattern");
-    return 1;
-  }
-  if (isReservedTransparentWrapper(command2)) {
-    console.error(`reserved command "${command2}" cannot be a wrapper`);
-    return 1;
-  }
-  const loaded = readRulesConfig(configPath);
+  if (!command2 || !COMMAND_PATTERN.test(command2))
+    return console.error("transparent wrapper must match command pattern"), 1;
+  if (isReservedTransparentWrapper(command2))
+    return console.error(`reserved command "${command2}" cannot be a wrapper`), 1;
+  let loaded = readRulesConfig(configPath);
   if (loaded.errors.length > 0) {
-    for (const error of loaded.errors)
+    for (let error of loaded.errors)
       console.error(error);
     return 1;
   }
-  const config = loaded.config ?? {
+  let config = loaded.config ?? {
     version: 1,
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  };
-  const wrappers2 = action === "add" ? [...new Set([...config.transparent_wrappers ?? [], command2])] : (config.transparent_wrappers ?? []).filter((wrapper) => wrapper !== command2);
-  writeJsonAtomic(configPath, {
+  }, wrappers2 = action === "add" ? [.../* @__PURE__ */ new Set([...config.transparent_wrappers ?? [], command2])] : (config.transparent_wrappers ?? []).filter((wrapper) => wrapper !== command2);
+  return writeJsonAtomic(configPath, {
     version: 1,
     rules: config.rules,
     overrides: config.overrides ?? {},
     transparent_wrappers: wrappers2
-  });
-  console.log(action === "add" ? `Added transparent wrapper: ${command2}` : `Removed transparent wrapper: ${command2}`);
-  return 0;
+  }), console.log(action === "add" ? `Added transparent wrapper: ${command2}` : `Removed transparent wrapper: ${command2}`), 0;
 }
 function printTransparentWrappers(wrappers2) {
   if (wrappers2.length === 0) {
@@ -19240,7 +17257,7 @@ function printTransparentWrappers(wrappers2) {
     return;
   }
   console.log(`Transparent wrappers (${wrappers2.length}):`);
-  for (const wrapper of wrappers2)
+  for (let wrapper of wrappers2)
     console.log(`  - ${wrapper}`);
 }
 
@@ -19249,78 +17266,64 @@ import { existsSync as existsSync21, readFileSync as readFileSync18 } from "node
 import { homedir as homedir9 } from "node:os";
 import { join as join21 } from "node:path";
 async function readStdinAsync() {
-  if (process.stdin.isTTY) {
+  if (process.stdin.isTTY)
     return null;
-  }
   return new Promise((resolve14) => {
     let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
+    process.stdin.setEncoding("utf-8"), process.stdin.on("data", (chunk) => {
       data += chunk;
-    });
-    process.stdin.on("end", () => {
-      const trimmed = data.trim();
+    }), process.stdin.on("end", () => {
+      let trimmed = data.trim();
       resolve14(trimmed || null);
-    });
-    process.stdin.on("error", () => {
+    }), process.stdin.on("error", () => {
       resolve14(null);
     });
   });
 }
 function getSettingsPath() {
-  if (process.env.CLAUDE_SETTINGS_PATH) {
+  if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  }
   return join21(homedir9(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
-  const settingsPath = getSettingsPath();
-  if (!existsSync21(settingsPath)) {
-    return false;
-  }
+  let settingsPath = getSettingsPath();
+  if (!existsSync21(settingsPath))
+    return !1;
   try {
-    const content = readFileSync18(settingsPath, "utf-8");
-    const settings = JSON.parse(content);
-    if (!settings.enabledPlugins) {
-      return false;
-    }
-    const pluginKey = "safety-net@cc-marketplace";
-    if (!(pluginKey in settings.enabledPlugins)) {
-      return false;
-    }
-    return settings.enabledPlugins[pluginKey] === true;
+    let content = readFileSync18(settingsPath, "utf-8"), settings = JSON.parse(content);
+    if (!settings.enabledPlugins)
+      return !1;
+    let pluginKey = "safety-net@cc-marketplace";
+    if (!(pluginKey in settings.enabledPlugins))
+      return !1;
+    return settings.enabledPlugins[pluginKey] === !0;
   } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
+    if (envTruthy(ENV_FLAGS.debug))
       console.error(`CC Safety Net debug: failed to read Claude settings: ${settingsPath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return false;
+    return !1;
   }
 }
 async function printStatusline() {
-  const enabled = isPluginEnabled();
-  let status;
-  if (!enabled) {
+  let enabled = isPluginEnabled(), status;
+  if (!enabled)
     status = "\uD83D\uDEE1️ CC Safety Net ❌";
-  } else {
-    const modes = getCCSafetyNetEnvModes();
-    const levelEmoji = {
+  else {
+    let modes = getCCSafetyNetEnvModes(), levelEmoji = {
       standard: "✅",
       strict: "\uD83D\uDD12",
       paranoid: "\uD83D\uDC41️",
       custom: "\uD83D\uDD27"
     }[modes.effectiveLevel];
-    if (modes.worktreeMode) {
+    if (modes.worktreeMode)
       status = `\uD83D\uDEE1️ CC Safety Net ${levelEmoji}\uD83C\uDF33`;
-    } else {
+    else
       status = `\uD83D\uDEE1️ CC Safety Net ${levelEmoji}`;
-    }
   }
-  const stdinInput = await readStdinAsync();
-  if (stdinInput && !stdinInput.startsWith("{")) {
+  let stdinInput = await readStdinAsync();
+  if (stdinInput && !stdinInput.startsWith("{"))
     console.log(`${stdinInput} | ${status}`);
-  } else {
+  else
     console.log(status);
-  }
 }
 
 // src/bin/cc-safety-net.ts
@@ -19328,35 +17331,24 @@ function hasHelpFlag(args) {
   return args.includes("--help") || args.includes("-h");
 }
 function handleHelpCommand(args) {
-  if (args[0] !== "help") {
-    return false;
-  }
-  const commandName = args[1];
-  if (!commandName) {
-    printHelp();
+  if (args[0] !== "help")
+    return !1;
+  let commandName = args[1];
+  if (!commandName)
+    printHelp(), process.exit(0);
+  if (showCommandHelp(commandName))
     process.exit(0);
-  }
-  if (showCommandHelp(commandName)) {
-    process.exit(0);
-  }
-  console.error(`Unknown command: ${commandName}`);
-  console.error("Run 'cc-safety-net --help' for available commands.");
-  process.exit(1);
+  console.error(`Unknown command: ${commandName}`), console.error("Run 'cc-safety-net --help' for available commands."), process.exit(1);
 }
 function handleCommandHelp(args) {
-  if (!hasHelpFlag(args)) {
-    return false;
-  }
-  const commandName = args[0];
-  if (!commandName || commandName.startsWith("-")) {
-    return false;
-  }
-  const command2 = findCommand(commandName);
-  if (command2) {
-    showCommandHelp(commandName);
-    process.exit(0);
-  }
-  return false;
+  if (!hasHelpFlag(args))
+    return !1;
+  let commandName = args[0];
+  if (!commandName || commandName.startsWith("-"))
+    return !1;
+  if (findCommand(commandName))
+    showCommandHelp(commandName), process.exit(0);
+  return !1;
 }
 var commandParsers = {
   explain: (args) => ({ mode: "explain", args }),
@@ -19364,17 +17356,13 @@ var commandParsers = {
   statusline: (args) => {
     if (args.includes("--claude-code") || args.includes("-cc"))
       return { mode: "statusline" };
-    console.error("statusline requires --claude-code (-cc)");
-    showCommandHelp("statusline");
-    process.exit(1);
+    console.error("statusline requires --claude-code (-cc)"), showCommandHelp("statusline"), process.exit(1);
   },
   hook: (args) => {
-    const integration = findHookIntegrationByFlag(args);
+    let integration = findHookIntegrationByFlag(args);
     if (integration)
       return { mode: "hook", integration };
-    console.error("hook requires an integration flag. Try: cc-safety-net hook --kimi-code");
-    showCommandHelp("hook");
-    process.exit(1);
+    console.error("hook requires an integration flag. Try: cc-safety-net hook --kimi-code"), showCommandHelp("hook"), process.exit(1);
   },
   install: (args) => ({ mode: "install", args }),
   uninstall: (args) => ({ mode: "uninstall", args }),
@@ -19383,37 +17371,26 @@ var commandParsers = {
   gui: (args) => ({ mode: "gui", args })
 };
 function parseCliArgs(args) {
-  if (handleHelpCommand(args)) {
+  if (handleHelpCommand(args))
     return null;
-  }
-  if (handleCommandHelp(args)) {
+  if (handleCommandHelp(args))
     return null;
-  }
-  if (args.length === 0 || hasHelpFlag(args)) {
-    printHelp();
-    process.exit(0);
-  }
-  if (args.includes("--version") || args.includes("-V")) {
-    printVersion();
-    process.exit(0);
-  }
-  const commandName = args[0];
-  if (!commandName) {
-    printHelp();
-    process.exit(0);
-  }
-  const command2 = findCommand(commandName);
-  if (command2) {
+  if (args.length === 0 || hasHelpFlag(args))
+    printHelp(), process.exit(0);
+  if (args.includes("--version") || args.includes("-V"))
+    printVersion(), process.exit(0);
+  let commandName = args[0];
+  if (!commandName)
+    printHelp(), process.exit(0);
+  let command2 = findCommand(commandName);
+  if (command2)
     return commandParsers[command2.name](args.slice(1));
-  }
-  const legacyIntegration = findLegacyTopLevelHookIntegration(commandName);
+  let legacyIntegration = findLegacyTopLevelHookIntegration(commandName);
   if (legacyIntegration)
     return { mode: "hook", integration: legacyIntegration };
   if (commandName === "--statusline")
     return { mode: "statusline" };
-  console.error(`Unknown option: ${commandName}`);
-  console.error("Run 'cc-safety-net --help' for usage.");
-  process.exit(1);
+  console.error(`Unknown option: ${commandName}`), console.error("Run 'cc-safety-net --help' for usage."), process.exit(1);
 }
 var commandHandlers = {
   hook: async (command2) => {
@@ -19432,8 +17409,7 @@ var commandHandlers = {
     await printStatusline();
   },
   doctor: async (command2) => {
-    const flags = parseDoctorFlags(command2.args);
-    const exitCode = await runDoctor({
+    let flags = parseDoctorFlags(command2.args), exitCode = await runDoctor({
       json: flags.json,
       skipUpdateCheck: flags.skipUpdateCheck
     });
@@ -19446,26 +17422,21 @@ var commandHandlers = {
     process.exit(await runGuiCommand(command2.args));
   },
   explain: async (command2) => {
-    if (hasHelpFlag(command2.args) || command2.args.length === 0) {
-      showCommandHelp("explain");
-      process.exit(0);
-    }
-    const flags = parseExplainFlags(command2.args);
-    if (!flags) {
+    if (hasHelpFlag(command2.args) || command2.args.length === 0)
+      showCommandHelp("explain"), process.exit(0);
+    let flags = parseExplainFlags(command2.args);
+    if (!flags)
       process.exit(1);
-    }
-    const result = explainCommand2(flags.command, { cwd: flags.cwd });
-    const asciiOnly = !!process.env.NO_COLOR || !process.stdout.isTTY;
-    if (flags.json) {
+    let result = explainCommand2(flags.command, { cwd: flags.cwd }), asciiOnly = !!process.env.NO_COLOR || !process.stdout.isTTY;
+    if (flags.json)
       console.log(formatTraceJson(result));
-    } else {
+    else
       console.log(formatTraceHuman(result, { asciiOnly }));
-    }
     process.exit(0);
   }
 };
 function assertNever(command2) {
-  throw new Error(`Unhandled command mode: ${JSON.stringify(command2)}`);
+  throw Error(`Unhandled command mode: ${JSON.stringify(command2)}`);
 }
 async function runParsedCommand(command2) {
   switch (command2.mode) {
@@ -19501,11 +17472,10 @@ async function runParsedCommand(command2) {
   }
 }
 async function main() {
-  const command2 = parseCliArgs(process.argv.slice(2));
+  let command2 = parseCliArgs(process.argv.slice(2));
   if (command2)
     await runParsedCommand(command2);
 }
 main().catch((error) => {
-  console.error("CC Safety Net error:", error);
-  process.exit(1);
+  console.error("CC Safety Net error:", error), process.exit(1);
 });

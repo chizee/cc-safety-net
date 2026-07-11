@@ -1,3 +1,5 @@
+import { type RecursiveDeleteTargetContext } from '@/core/analyze/recursive-delete-targets';
+import type { CommandView } from '@/domain/command';
 import type { DestructiveCommandRuleMatch } from '@/types';
 interface AnalyzePowerShellRemoveItemOptions {
     cwd?: string;
@@ -5,6 +7,6 @@ interface AnalyzePowerShellRemoveItemOptions {
     paranoid?: boolean;
     allowTmpdirVar?: boolean;
 }
-export declare function analyzePowerShellRemoveItemMatch(command: string, options?: AnalyzePowerShellRemoveItemOptions): DestructiveCommandRuleMatch | null;
-export declare function shouldAnalyzePowerShellRemoveItem(command: string): boolean;
+/** @internal */
+export declare function analyzePowerShellCommandViewMatch(command: CommandView, hasPipelineInput: boolean, options?: AnalyzePowerShellRemoveItemOptions, ctx?: RecursiveDeleteTargetContext): DestructiveCommandRuleMatch | null;
 export {};

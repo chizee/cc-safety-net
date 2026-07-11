@@ -13,6 +13,7 @@ const result = await Bun.build({
   outdir: 'dist',
   target: 'node',
   external: ['zod'],
+  minify: { syntax: true },
   define: {
     __PKG_VERSION__: JSON.stringify(pkg.version),
   },

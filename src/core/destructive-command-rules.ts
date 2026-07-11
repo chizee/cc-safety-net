@@ -51,6 +51,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'parallel.rm-recursive-force-dynamic',
   'parallel.shell-dynamic',
   'parallel.command-stream-dynamic',
+  'shell.dynamic-structure',
   'shell.dynamic-executable',
   'raw-text.dangerous-command',
 ] as const;
@@ -412,6 +413,13 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: 'parallel dynamic command stream',
     description: 'Blocks parallel command streams from dynamic input.',
     intent: 'scope_down',
+  },
+  {
+    id: 'shell.dynamic-structure',
+    category: 'Execution',
+    label: 'Dynamic command structure',
+    description: 'Blocks guarded subcommands and options assembled from substitution output.',
+    intent: 'stop_and_explain',
   },
   {
     id: 'shell.dynamic-executable',

@@ -17,6 +17,7 @@ const RESERVED_TRANSPARENT_WRAPPERS = new Set([
 interface TransparentWrapperUnwrap {
   wrapper: string;
   tokens: string[];
+  childIndex: number;
 }
 
 export function unwrapTransparentWrapper(
@@ -35,7 +36,7 @@ export function unwrapTransparentWrapper(
       index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy),
   );
   if (childIndex < 0) return null;
-  return { wrapper, tokens: [...tokens.slice(childIndex)] };
+  return { wrapper, tokens: [...tokens.slice(childIndex)], childIndex };
 }
 
 function isProtectableCommand(

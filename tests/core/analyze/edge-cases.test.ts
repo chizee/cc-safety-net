@@ -138,6 +138,15 @@ describe('edge cases', () => {
   });
 
   describe('unparseable commands with heuristics', () => {
+    test('invalid ANSI-C executable escapes fail closed without throwing', () => {
+      for (const sequence of ['\\UFFFFFFFF', '\\U00110000', '\\uD800']) {
+        const result = analyzeCommand(`$'${sequence}' -rf /`);
+
+        expect(result?.reason).toContain('could not be safely analyzed');
+        expect(result?.intent).toBe('stop_and_explain');
+      }
+    });
+
     test('non strict unparseable rm -rf still blocked by heuristic', () => {
       assertBlocked("rm -rf /some/path 'unterminated", 'rm -rf');
     });
@@ -227,6 +236,14 @@ describe('edge cases', () => {
   describe('command substitution', () => {
     test('command substitution git reset hard blocked', () => {
       assertBlocked('echo $(git reset --hard )', 'git reset --hard');
+    });
+
+    test('command substitutions execute before their containing destructive command', () => {
+      expect(analyzeCommand('git reset --hard $(rm -rf /)')?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
+      expect(analyzeCommand('rm -rf / $(git reset --hard)')?.ruleId).toBe('git.reset-hard');
+      expect(analyzeCommand('git reset --hard $(git status)')?.ruleId).toBe('git.reset-hard');
     });
 
     test('command substitution find delete blocked', () => {
@@ -352,6 +369,176 @@ describe('edge cases', () => {
 
     test('safe command substitution argument remains allowed', () => {
       assertAllowed('echo $(printf ok)', tempDir);
+    });
+
+    test('blocks dynamic assembly of guarded command structure', () => {
+      expect(analyzeCommand('git reset $(printf --hard)')?.ruleId).toBe('shell.dynamic-structure');
+      expect(analyzeCommand('git reset --ha$(printf rd)')?.ruleId).toBe('shell.dynamic-structure');
+      expect(analyzeCommand('find . -del$(printf ete)')?.ruleId).toBe('shell.dynamic-structure');
+      expect(analyzeCommand('xargs r$(printf m) -rf')?.ruleId).toBe('xargs.shell-dynamic');
+      expect(analyzeCommand('parallel r$(printf m) -rf ::: child')?.ruleId).toBe(
+        'parallel.shell-dynamic',
+      );
+    });
+
+    test('allows dynamic data arguments for commands whose structure stays literal', () => {
+      expect(analyzeCommand('git status $(printf path)')).toBeNull();
+      expect(analyzeCommand('find $(printf .) -name foo')).toBeNull();
+      expect(analyzeCommand('xargs echo $(printf data)')).toBeNull();
+      expect(analyzeCommand('parallel echo $(printf data) ::: child')).toBeNull();
+    });
+
+    test('preserves dynamic structure provenance through command wrappers', () => {
+      for (const command of [
+        'FOO=bar env git reset --ha$(printf rd)',
+        'env -i FOO=bar -- git reset $(printf --hard)',
+        'command -p -- git reset --ha$(printf rd)',
+        'sudo -u root -- git reset $(printf --hard)',
+        'busybox git reset --ha$(printf rd)',
+      ]) {
+        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+      }
+
+      expect(
+        analyzeCommand('wrap -- git reset --ha$(printf rd)', {
+          config: { transparent_wrappers: ['wrap'] },
+        })?.ruleId,
+      ).toBe('shell.dynamic-structure');
+    });
+
+    test('preserves dynamic structure provenance through xargs and parallel child wrappers', () => {
+      for (const command of [
+        'xargs env FOO=bar git reset --ha$(printf rd)',
+        'xargs command -- r$(printf m) -rf',
+        'xargs busybox rm -$(printf rf)',
+        'parallel env FOO=bar git reset --ha$(printf rd) ::: child',
+        'parallel command -- r$(printf m) -rf ::: child',
+        'parallel busybox rm -$(printf rf) ::: child',
+      ]) {
+        expect(analyzeCommand(command)).not.toBeNull();
+      }
+    });
+
+    test('allows wrapped dynamic data when command structure stays literal', () => {
+      for (const command of [
+        'env FOO=bar git status -- $(printf path)',
+        'command -- git status -- $(printf path)',
+        'sudo -u root -- git status -- $(printf path)',
+        'busybox find . -name $(printf pattern)',
+        'xargs env FOO=bar printf $(printf data)',
+        'parallel command -- printf $(printf data) ::: child',
+      ]) {
+        expect(analyzeCommand(command)).toBeNull();
+      }
+    });
+
+    test('models Git option and pathspec boundaries for dynamic words', () => {
+      expect(analyzeCommand('git status -- $(printf path)')).toBeNull();
+      expect(analyzeCommand('git reset $(printf --hard) -- path')?.ruleId).toBe(
+        'shell.dynamic-structure',
+      );
+      expect(analyzeCommand('git reset --hard -- $(printf path)')?.ruleId).toBe('git.reset-hard');
+    });
+
+    test('blocks substitution-derived Git global options and their values before dispatch', () => {
+      for (const command of [
+        `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`,
+        `git -c$(printf 'alias.boom=!printf PROBE_OK') boom`,
+        `git --config-env "$(printf 'alias.boom=BOOM_ALIAS')" boom`,
+        `git --config-env=$(printf 'alias.boom=BOOM_ALIAS') boom`,
+        'git --config-env alias.boom=$(printf BOOM_ALIAS) boom',
+        'git --config-env=alias.boom=$(printf BOOM_ALIAS) boom',
+        'git $(printf --no-pager) status',
+        'git -C $(printf /tmp) status',
+        'git -C$(printf /tmp) status',
+        'git --git-dir $(printf .git) status',
+        'git --git-dir=$(printf .git) status',
+        'git --work-tree $(printf .) status',
+        'git --work-tree=$(printf .) status',
+        'git --namespace $(printf ns) status',
+        'git --namespace=$(printf ns) status',
+        'git -C $(printf /tmp) reset --hard',
+      ]) {
+        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+      }
+    });
+
+    test('allows literal Git global forms and substitution-derived pathspec data', () => {
+      for (const command of [
+        'git -c color.ui=false status',
+        'git --config-env foo.bar=SAFE_CONFIG status',
+        'git --config-env=foo.bar=SAFE_CONFIG status',
+        `git -C ${tempDir} status`,
+        'git --git-dir=.git status',
+        'git --work-tree=. status',
+        'git --namespace=ns status',
+        'git status -- $(printf path)',
+      ]) {
+        expect(analyzeCommand(command)).toBeNull();
+      }
+    });
+
+    test('honors dynamic-structure rule disablement for Git globals', () => {
+      expect(
+        analyzeCommand(`git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`, {
+          config: { disabledDestructiveCommandRules: ['shell.dynamic-structure'] },
+        }),
+      ).toBeNull();
+    });
+
+    test.skipIf(process.platform === 'win32')(
+      'proves native Git dispatch can be changed by a substitution-derived config value',
+      () => {
+        const result = Bun.spawnSync(
+          ['sh', '-c', `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`],
+          {
+            cwd: tempDir,
+            env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', HOME: tempDir },
+            stderr: 'pipe',
+            stdout: 'pipe',
+          },
+        );
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr.toString()).toBe('');
+        expect(result.stdout.toString()).toBe('PROBE_OK');
+      },
+    );
+
+    test('models find primary values and exec child boundaries for dynamic words', () => {
+      for (const command of [
+        'find . -name $(printf pattern)',
+        'find . -printf $(printf format)',
+        'find . -fprint $(printf output)',
+        'find . -fprint0 $(printf output)',
+        'find . -fls $(printf output)',
+        'find . -fprintf $(printf output) $(printf format)',
+        'find . -exec printf $(printf data) ;',
+        'find . -execdir printf $(printf data) ;',
+        'find . -ok printf $(printf data) ;',
+        'find . -okdir printf $(printf data) ;',
+      ]) {
+        expect(analyzeCommand(command)).toBeNull();
+      }
+
+      for (const command of [
+        'find . $(printf -delete)',
+        'find . -fprint $(printf output) $(printf -delete)',
+        'find . -fprintf $(printf output) $(printf format) $(printf -delete)',
+        'find . -exec $(printf rm) -f {} ;',
+        'find . -execdir $(printf rm) -f {} ;',
+        'find . -ok $(printf rm) -f {} ;',
+        'find . -okdir $(printf rm) -f {} ;',
+        'find . -exec rm -$(printf rf) {} ;',
+      ]) {
+        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+      }
+    });
+
+    test('uses output-primary arity when distinguishing find data from delete actions', () => {
+      expect(analyzeCommand('find . -fprintf output -delete')).toBeNull();
+      expect(analyzeCommand('find . -fprintf output format -delete')?.ruleId).toBe('find.delete');
+      expect(analyzeCommand('find . -fprint output -delete')?.ruleId).toBe('find.delete');
     });
   });
 
@@ -1130,6 +1317,23 @@ describe('edge cases', () => {
       // After cd, effectiveCwd becomes null (unknown) and must be passed to nested analysis
       // rm -rf foo with unknown CWD should be blocked (can't verify it's within cwd)
       assertBlocked('cd /tmp && bash -c "rm -rf foo"', 'rm -rf', tempDir);
+    });
+
+    test('subshell cwd changes do not leak into following outer commands', () => {
+      assertAllowed('(cd /tmp); rm -rf child', tempDir);
+    });
+
+    test('subshell environment changes do not leak into following outer commands', () => {
+      withEnv({ TMPDIR: tempDir }, () => {
+        assertAllowed('(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir);
+        assertAllowed('echo $(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir);
+      });
+    });
+
+    test('brace group environment changes remain visible to following commands', () => {
+      withEnv({ TMPDIR: tempDir }, () => {
+        assertBlocked('{ export TMPDIR=/Users; }; rm -rf $TMPDIR/build', 'rm -rf', tempDir);
+      });
     });
 
     test('cd makes effectiveCwd unknown and propagates to interpreter -c', () => {

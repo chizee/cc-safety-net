@@ -12,7 +12,12 @@ import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import type { TraceStep } from '@/types';
 import { MAX_RECURSION_DEPTH } from '@/types';
-import { policySnapshot, type TestExplainOptions, testExplainOptions } from '../../helpers/policy';
+import {
+  analyzeTestCommand,
+  policySnapshot,
+  type TestExplainOptions,
+  testExplainOptions,
+} from '../../helpers/policy';
 import { getTraceSteps, toShellPath, withEnv, withLinkedWorktreeFixture } from '../../helpers.ts';
 
 function explainCommand(command: string, options?: TestExplainOptions) {
@@ -98,6 +103,86 @@ function writeExplainRulebookFixture(tempDir: string): void {
 }
 
 describe('explainCommand', () => {
+  test('matches enforcement for dynamically assembled executable and command structure', () => {
+    for (const command of [
+      '$(printf r)m -rf /',
+      'git reset $(printf --hard)',
+      'git reset --ha$(printf rd)',
+      'find . -del$(printf ete)',
+      'xargs r$(printf m) -rf',
+      'parallel r$(printf m) -rf ::: child',
+    ]) {
+      const enforced = analyzeTestCommand(command);
+      const explained = explainCommand(command);
+
+      expect(enforced).not.toBeNull();
+      expect(explained.result).toBe('blocked');
+      expect(explained.reason).toBe(enforced?.reason);
+    }
+  });
+
+  test('matches enforcement for dynamic Git globals and find output-primary arity', () => {
+    for (const command of [
+      `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`,
+      `git -c$(printf 'alias.boom=!printf PROBE_OK') boom`,
+      `git --config-env "$(printf 'alias.boom=BOOM_ALIAS')" boom`,
+      `git --config-env=$(printf 'alias.boom=BOOM_ALIAS') boom`,
+      'git --config-env alias.boom=$(printf BOOM_ALIAS) boom',
+      'git --config-env=alias.boom=$(printf BOOM_ALIAS) boom',
+      'git -C $(printf /tmp) status',
+      'git -C$(printf /tmp) status',
+      'git --git-dir $(printf .git) status',
+      'git --git-dir=$(printf .git) status',
+      'git --work-tree $(printf .) status',
+      'git --work-tree=$(printf .) status',
+      'git --namespace $(printf ns) status',
+      'git --namespace=$(printf ns) status',
+      'git -C $(printf /tmp) reset --hard',
+      'find . -fprint $(printf output)',
+      'find . -fprint0 $(printf output)',
+      'find . -fls $(printf output)',
+      'find . -fprintf $(printf output) $(printf format)',
+      'find . -fprintf $(printf output) $(printf format) $(printf -delete)',
+    ]) {
+      const enforced = analyzeTestCommand(command);
+      const explained = explainCommand(command);
+
+      expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
+      expect(explained.reason).toBe(enforced?.reason);
+    }
+  });
+
+  test('matches dynamic-structure disablement for a substitution-derived Git global', () => {
+    const command = `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`;
+    const config = { disabledDestructiveCommandRules: ['shell.dynamic-structure'] };
+
+    expect(analyzeTestCommand(command, { config })).toBeNull();
+    expect(explainCommand(command, { config }).result).toBe('allowed');
+  });
+
+  test('matches enforcement execution order and state boundaries for structured programs', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'explain-structure-'));
+    try {
+      for (const command of [
+        'git reset --hard $(rm -rf /)',
+        '(cd /tmp); rm -rf build',
+        'echo $(cd /tmp); rm -rf build',
+        '{ cd /tmp; }; rm -rf build',
+        'FOO=bar; git reset --hard',
+        'env FOO=bar git reset --ha$(printf rd)',
+        'command -- find . -exec rm -$(printf rf) {} ;',
+      ]) {
+        const enforced = analyzeTestCommand(command, { cwd });
+        const explained = explainCommand(command, { cwd });
+
+        expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
+        expect(explained.reason).toBe(enforced?.reason);
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('git status returns allowed', () => {
     const result = explainCommand('git status');
     expect(result.result).toBe('allowed');

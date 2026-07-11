@@ -5,46 +5,52 @@ import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/type
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
 const REASON_FIND_EXEC_RM_RF = 'find -exec rm -rf is dangerous. Use explicit file list instead.';
-const FIND_PRIMARIES_WITH_VALUE = new Set([
-  '-amin',
-  '-anewer',
-  '-atime',
-  '-cmin',
-  '-cnewer',
-  '-context',
-  '-ctime',
-  '-exec',
-  '-execdir',
-  '-fprint',
-  '-fprintf',
-  '-fstype',
-  '-gid',
-  '-group',
-  '-ilname',
-  '-iname',
-  '-inum',
-  '-ipath',
-  '-iwholename',
-  '-iregex',
-  '-links',
-  '-lname',
-  '-mmin',
-  '-mtime',
-  '-name',
-  '-newer',
-  '-newerXY',
-  '-path',
-  '-perm',
-  '-printf',
-  '-regex',
-  '-samefile',
-  '-size',
-  '-type',
-  '-uid',
-  '-used',
-  '-user',
-  '-wholename',
-  '-xtype',
+const FIND_EXEC_PRIMARIES = new Set(['-exec', '-execdir', '-ok', '-okdir']);
+const FIND_PRIMARY_ARITY = new Map<string, number>([
+  ...[
+    '-amin',
+    '-anewer',
+    '-atime',
+    '-cmin',
+    '-cnewer',
+    '-context',
+    '-ctime',
+    '-fprint',
+    '-fprint0',
+    '-fls',
+    '-fstype',
+    '-gid',
+    '-group',
+    '-ilname',
+    '-iname',
+    '-inum',
+    '-ipath',
+    '-iwholename',
+    '-iregex',
+    '-links',
+    '-lname',
+    '-maxdepth',
+    '-mindepth',
+    '-mmin',
+    '-mtime',
+    '-name',
+    '-newer',
+    '-newerXY',
+    '-newermt',
+    '-path',
+    '-perm',
+    '-printf',
+    '-regex',
+    '-samefile',
+    '-size',
+    '-type',
+    '-uid',
+    '-used',
+    '-user',
+    '-wholename',
+    '-xtype',
+  ].map((primary) => [primary, 1] as const),
+  ['-fprintf', 2],
 ]);
 
 export interface AnalyzeFindContext {
@@ -76,21 +82,19 @@ export function analyzeFindMatch(
     return destructiveCommandMatch('find.delete', REASON_FIND_DELETE);
   }
 
-  // Check all -exec and -execdir blocks for dangerous commands
+  // Check all executable child primaries for dangerous commands
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token === '-exec' || token === '-execdir') {
+    if (isFindExecPrimary(token)) {
       const execCommand = getFindExecCommand(tokens, i);
+      const directoryRelative = token === '-execdir' || token === '-okdir';
       const directReason = analyzeFindExecCommand(execCommand);
       if (directReason) {
         return directReason;
       }
 
       if (context.analyzeTokens) {
-        const reason = context.analyzeTokens(
-          execCommand,
-          token === '-execdir' ? null : context.cwd,
-        );
+        const reason = context.analyzeTokens(execCommand, directoryRelative ? null : context.cwd);
         if (reason) {
           return reason;
         }
@@ -99,7 +103,7 @@ export function analyzeFindMatch(
 
       if (context.analyzeNested) {
         const reason = context.analyzeNested(execCommand.join(' '), {
-          effectiveCwd: token === '-execdir' ? undefined : context.cwd,
+          effectiveCwd: directoryRelative ? undefined : context.cwd,
           envAssignments: context.envAssignments,
         });
         if (reason) {
@@ -139,7 +143,7 @@ function getFindExecCommand(tokens: readonly string[], execIndex: number): strin
   const execTokens = tokens.slice(execIndex + 1);
   const semicolonIdx = execTokens.indexOf(';');
   const plusIdx = execTokens.indexOf('+');
-  // If no terminator found, shell-quote may have parsed it as an operator.
+  // If no terminator is present, the parser may have separated the token as an operator.
   // In that case, treat the rest of the tokens as the exec command.
   const endIdx =
     semicolonIdx !== -1 && plusIdx !== -1
@@ -169,8 +173,8 @@ function findHasDelete(tokens: readonly string[]): boolean {
       continue;
     }
 
-    // Track -exec/-execdir blocks
-    if (token === '-exec' || token === '-execdir') {
+    // Track executable child-primary blocks
+    if (isFindExecPrimary(token)) {
       insideExec = true;
       execDepth++;
       i++;
@@ -194,8 +198,9 @@ function findHasDelete(tokens: readonly string[]): boolean {
     }
 
     // Options that take an argument - skip the next token
-    if (findPrimaryTakesValue(token)) {
-      i += 2; // Skip option and its argument
+    const arity = getFindPrimaryArity(token);
+    if (arity > 0) {
+      i += arity + 1;
       continue;
     }
 
@@ -210,6 +215,12 @@ function findHasDelete(tokens: readonly string[]): boolean {
   return false;
 }
 
-function findPrimaryTakesValue(token: string): boolean {
-  return FIND_PRIMARIES_WITH_VALUE.has(token) || /^-newer[A-Za-z]{2}$/.test(token);
+/** @internal */
+export function getFindPrimaryArity(token: string): number {
+  return FIND_PRIMARY_ARITY.get(token) ?? (/^-newer[A-Za-z]{2}$/.test(token) ? 1 : 0);
+}
+
+/** @internal */
+export function isFindExecPrimary(token: string | undefined): token is string {
+  return token !== undefined && FIND_EXEC_PRIMARIES.has(token);
 }

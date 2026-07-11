@@ -13,6 +13,7 @@ export interface GitAnalyzeOptions {
   cwd?: string;
   envAssignments?: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
+  dynamicArguments?: boolean;
 }
 
 export interface GitWorktreeRelaxation {
@@ -61,6 +62,7 @@ function isNonRelaxableLocalDiscard(
   const normalizedSubcommand = subcommand?.toLowerCase();
 
   if (
+    options.dynamicArguments ||
     hasDynamicGitArgument(rest) ||
     hasRecursiveSubmoduleConfig(tokens, options.envAssignments, gitCwd) ||
     hasRecurseSubmodulesOption(rest) ||

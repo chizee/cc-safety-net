@@ -1,10 +1,9 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute, parse as parsePath } from 'node:path';
-import { type ParseEntry, parse } from 'shell-quote';
 import { parseGitContextAppendEnvAssignment } from '@/core/git/env';
 import { resolveChdirTarget } from '@/core/path';
+import { parseSimpleWords } from '@/parser/projection';
 import { MAX_STRIP_ITERATIONS } from '@/types';
-import { ENV_PROXY, getCommandTokenText, hasUnclosedQuotes } from './shared';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -289,20 +288,7 @@ function stripEnvWithInfo(tokens: string[], cwd?: string | null): EnvStrippingRe
 }
 
 function parseEnvSplitString(value: string): string[] | null {
-  if (hasUnclosedQuotes(value)) {
-    return null;
-  }
-
-  const parsed = parse(value, ENV_PROXY);
-  const result: string[] = [];
-  for (const entry of parsed) {
-    const token = getCommandTokenText(entry as ParseEntry);
-    if (token === null) {
-      return null;
-    }
-    result.push(token);
-  }
-  return result;
+  return parseSimpleWords(value);
 }
 
 function replaceEnvSplitTokens(

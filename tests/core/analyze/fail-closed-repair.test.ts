@@ -51,6 +51,8 @@ describe('fail-closed repair commands', () => {
     'pnpm dlx cc-safety-net@1.2.3 rule --global sync',
     'pnpx cc-safety-net rule sync',
     'yarn dlx cc-safety-net rule sync',
+    "'cc-safety-net' 'rule' 'sync'",
+    '"npx" "-y" "cc-safety-net" "rule" "sync"',
   ])('allows exact rule sync repair command: %s', (command) => {
     expectAllowed(command);
   });
@@ -73,6 +75,18 @@ describe('fail-closed repair commands', () => {
     'yarn cc-safety-net rule sync',
     'yarn dlx other-package rule sync',
     'yarn dlx cc-safety-net rule sync && rm -rf /',
+    'FOO=bar cc-safety-net rule sync',
+    'cc-safety-net rule sync > /tmp/sync.log',
+    'cc-safety-net rule sync < /dev/null',
+    'cc-safety-net rule sync | cat',
+    'cc-safety-net rule sync &',
+    'cc-safety-net rule sync ;',
+    '(cc-safety-net rule sync)',
+    '{ cc-safety-net rule sync; }',
+    'cc-safety-net rule $(printf sync)',
+    'cc-safety-net rule sync $(true)',
+    'command cc-safety-net rule sync',
+    'env cc-safety-net rule sync',
   ])('blocks repair command lookalike while fail-closed: %s', (command) => {
     expectBlocked(command);
   });

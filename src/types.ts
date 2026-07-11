@@ -218,9 +218,6 @@ export const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 export const COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 export const MAX_REASON_LENGTH = 256;
 
-/** Shell operators that split commands */
-export const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';', '\n']);
-
 /** Shell wrappers that need recursive analysis */
 export const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'ksh', 'dash', 'fish', 'csh', 'tcsh']);
 

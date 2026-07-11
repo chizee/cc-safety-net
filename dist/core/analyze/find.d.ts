@@ -7,3 +7,7 @@ export interface AnalyzeFindContext {
 }
 export declare function analyzeFind(tokens: readonly string[], context?: AnalyzeFindContext): string | null;
 export declare function analyzeFindMatch(tokens: readonly string[], context?: AnalyzeFindContext): DestructiveCommandRuleMatch | null;
+/** @internal */
+export declare function getFindPrimaryArity(token: string): number;
+/** @internal */
+export declare function isFindExecPrimary(token: string | undefined): token is string;

@@ -6,5 +6,7 @@ export interface ShellGitContextEnvState {
     keywordExport: boolean;
 }
 export declare function createShellGitContextEnvState(effectiveEnvAssignments?: ReadonlyMap<string, string>): ShellGitContextEnvState;
+/** @internal */
+export declare function cloneShellGitContextEnvState(state: ShellGitContextEnvState): ShellGitContextEnvState;
 export declare function applyShellGitContextEnvSegment(tokens: readonly string[], state: ShellGitContextEnvState): void;
 export declare function getSegmentGitContextEnvAssignments(tokens: readonly string[], state: ShellGitContextEnvState): ReadonlyMap<string, string> | undefined;

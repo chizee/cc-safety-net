@@ -6,9 +6,11 @@ import {
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
 
-const REASON_XARGS_RM =
+/** @internal */
+export const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
-const REASON_XARGS_SHELL =
+/** @internal */
+export const REASON_XARGS_SHELL =
   'xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
 const XARGS_APPENDED_INPUT = '__CC_SAFETY_NET_XARGS_INPUT__';
 

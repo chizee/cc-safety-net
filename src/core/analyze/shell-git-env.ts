@@ -41,6 +41,21 @@ export function createShellGitContextEnvState(
   };
 }
 
+/** @internal */
+export function cloneShellGitContextEnvState(
+  state: ShellGitContextEnvState,
+): ShellGitContextEnvState {
+  return {
+    effectiveEnvAssignments: state.effectiveEnvAssignments
+      ? new Map(state.effectiveEnvAssignments)
+      : undefined,
+    shellAssignments: new Map(state.shellAssignments),
+    exportedNames: new Set(state.exportedNames),
+    allexport: state.allexport,
+    keywordExport: state.keywordExport,
+  };
+}
+
 export function applyShellGitContextEnvSegment(
   tokens: readonly string[],
   state: ShellGitContextEnvState,

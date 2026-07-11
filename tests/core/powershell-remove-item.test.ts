@@ -102,6 +102,32 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
+  test('ignores destructive text in PowerShell comments and blocks later real commands', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('Write-Output ok # Remove-Item . -Recurse -Force', cwd)).toBeNull();
+      expect(
+        analyzePowerShell('<# ; | Remove-Item . -Recurse -Force <# nested #> #> git status', cwd),
+      ).toBeNull();
+      expect(
+        analyzePowerShell('<# Remove-Item . -Recurse -Force #>\nRemove-Item . -Recurse -Force', cwd)
+          ?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-cwd-self');
+    });
+  });
+
+  test('fails closed on malformed and depth-limited PowerShell block comments', () => {
+    withTempProject((cwd) => {
+      expect(
+        analyzeCommand('<# Remove-Item . -Recurse -Force', { cwd, shell: 'auto' }),
+      ).toMatchObject({
+        intent: 'stop_and_explain',
+      });
+      expect(analyzePowerShell(`${'<#'.repeat(65)}comment${'#>'.repeat(65)}`, cwd)).toMatchObject({
+        intent: 'stop_and_explain',
+      });
+    });
+  });
+
   test('blocks invocation operator form', () => {
     withTempProject((cwd) => {
       const result = analyzePowerShell('& Remove-Item . -Recurse -Force', cwd);
@@ -118,6 +144,31 @@ describe('PowerShell Remove-Item support', () => {
       expect(analyzePowerShell('. { Remove-Item . -Recurse -Force }', cwd)?.ruleId).toBe(
         'powershell.remove-item-recursive-force-cwd-self',
       );
+    });
+  });
+
+  test('analyzes nested PowerShell subexpressions before their containing command', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('Write-Output $(git reset --hard)', cwd)?.ruleId).toBe(
+        'git.reset-hard',
+      );
+      expect(analyzePowerShell('Write-Output $(Remove-Item . -Recurse -Force)', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+      expect(analyzePowerShell('Write-Output $(git status)', cwd)).toBeNull();
+      expect(
+        analyzePowerShell('Remove-Item . -Recurse -Force $(git reset --hard)', cwd)?.ruleId,
+      ).toBe('git.reset-hard');
+    });
+  });
+
+  test('fails closed on malformed and depth-limited PowerShell subexpressions', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell('Write-Output $(git reset --hard', cwd)?.ruleId).toBe(
+        'git.reset-hard',
+      );
+      const deeplyNested = `${'$('.repeat(65)}Write-Output ok${')'.repeat(65)}`;
+      expect(analyzePowerShell(deeplyNested, cwd)?.reason).toContain('recursion depth');
     });
   });
 
@@ -280,6 +331,23 @@ describe('PowerShell Remove-Item support', () => {
         'powershell.remove-item-recursive-force-cwd-self',
       );
       expect(analyzeCommand('rm -r /', { cwd, config })).toBeNull();
+    });
+  });
+
+  test('auto shell selects PowerShell from later command heads and keeps cross-shell rules', () => {
+    withTempProject((cwd) => {
+      expect(
+        analyzeCommand('Write-Output ok; Remove-Item . -Recurse -Force', { cwd, config })?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-cwd-self');
+      expect(
+        analyzeCommand('Write-Output ok\nRemove-Item . -Recurse -Force', { cwd, config })?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-cwd-self');
+      expect(analyzeCommand('Write-Output ok; git reset --hard', { cwd, config })?.ruleId).toBe(
+        'git.reset-hard',
+      );
+      expect(analyzeCommand('Write-Output ok; rm -rf /', { cwd, config })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
     });
   });
 });

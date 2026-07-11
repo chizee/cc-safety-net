@@ -12,23 +12,34 @@ import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import {
-  extractShortOpts,
-  splitShellCommands,
-  splitShellCommandsWithInfo,
-  stripWrappersWithInfo,
-} from '@/core/shell';
+import { extractShortOpts, stripWrappersWithInfo } from '@/core/shell';
+import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { parseCommand } from '@/parser/command';
+import { projectCommandViews, projectLegacySegments } from '@/parser/projection';
 import { MAX_STRIP_ITERATIONS } from '@/types';
 import { createLinkedWorktreeFixture } from '../../helpers.ts';
 
-const DYNAMIC_SUBSTITUTION_TOKEN = [
-  String.fromCharCode(36),
-  '__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__',
-].join('');
 const RM_COMMAND = ['r', 'm'].join('');
 const RM_RECURSIVE_FORCE = ['-', 'r', 'f'].join('');
 
+const splitShellCommands = (command: string) =>
+  projectLegacySegments(command).map((segment) => [...segment]);
+
 describe('shell parsing helpers', () => {
+  describe('shared quote and token helpers', () => {
+    test('ignores quotes in comments while preserving following physical lines', () => {
+      expect(hasUnclosedQuotes("echo ok # 'ignored\necho done")).toBeFalse();
+      expect(hasUnclosedQuotes("echo '# literal' \"unterminated")).toBeTrue();
+    });
+
+    test('projects string and glob entries without inventing unknown token text', () => {
+      expect(getCommandTokenText('literal')).toBe('literal');
+      expect(getCommandTokenText({ op: 'glob', pattern: '*.ts' })).toBe('*.ts');
+      expect(getCommandTokenText({ op: ';' })).toBeNull();
+      expect(getCommandTokenText(undefined)).toBeNull();
+    });
+  });
+
   describe('extractDashCArg', () => {
     test('returns null for empty tokens', () => {
       expect(extractDashCArg([])).toBeNull();
@@ -165,8 +176,8 @@ describe('shell parsing helpers', () => {
       ]);
     });
 
-    test('extracts multiple backtick substitutions from one token', () => {
-      expect(splitShellCommands('echo `a`:`b`')).toEqual([['echo'], ['a'], ['b'], [':']]);
+    test('extracts multiple backtick substitutions while preserving the literal suffix', () => {
+      expect(splitShellCommands('echo `a`:`b`')).toEqual([['echo', ':'], ['a'], ['b']]);
     });
 
     test('handles nested $(...) with operators', () => {
@@ -238,47 +249,38 @@ describe('shell parsing helpers', () => {
 
     test('reports attached command substitution metadata generically', () => {
       expect(splitShellCommands('git reset --hard$(printf HEAD~1)')).toEqual([
-        ['printf', 'HEAD~1'],
         ['git', 'reset', '--hard'],
+        ['printf', 'HEAD~1'],
       ]);
-      expect(splitShellCommandsWithInfo('git reset --hard$(printf HEAD~1)')).toEqual([
-        { tokens: ['printf', 'HEAD~1'], hasDynamicSubstitution: false },
-        {
-          tokens: ['git', 'reset', '--hard', DYNAMIC_SUBSTITUTION_TOKEN],
-          hasDynamicSubstitution: true,
-        },
-      ]);
-      expect(splitShellCommandsWithInfo('rm -rf /tmp/$(printf x)')).toEqual([
-        { tokens: ['printf', 'x'], hasDynamicSubstitution: false },
-        {
-          tokens: ['rm', '-rf', '/tmp/', DYNAMIC_SUBSTITUTION_TOKEN],
-          hasDynamicSubstitution: true,
-        },
-      ]);
+      const gitViews = projectCommandViews(parseCommand('git reset --hard$(printf HEAD~1)'));
+      const rmViews = projectCommandViews(parseCommand('rm -rf /tmp/$(printf x)'));
+
+      expect(gitViews[0]?.words[2]?.provenance).toBe('command-substitution');
+      expect(rmViews[0]?.words[2]?.provenance).toBe('command-substitution');
     });
 
     test('represents command substitution output in outer segments', () => {
       const substitution = [String.fromCharCode(36), '(printf /)'].join('');
-      expect(
-        splitShellCommandsWithInfo([RM_COMMAND, RM_RECURSIVE_FORCE, substitution].join(' ')),
-      ).toEqual([
-        {
-          tokens: [RM_COMMAND, RM_RECURSIVE_FORCE, DYNAMIC_SUBSTITUTION_TOKEN],
-          hasDynamicSubstitution: true,
-        },
-        { tokens: ['printf', '/'], hasDynamicSubstitution: false },
+      const views = projectCommandViews(
+        parseCommand([RM_COMMAND, RM_RECURSIVE_FORCE, substitution].join(' ')),
+      );
+
+      expect(views.map((view) => view.tokens)).toEqual([
+        [RM_COMMAND, RM_RECURSIVE_FORCE, ''],
+        ['printf', '/'],
       ]);
+      expect(views[0]?.words[2]?.provenance).toBe('command-substitution');
     });
 
     test('represents attached command substitution output in outer tokens', () => {
       const substitution = [String.fromCharCode(36), '(printf m)'].join('');
-      expect(splitShellCommandsWithInfo(`r${substitution} ${RM_RECURSIVE_FORCE} /`)).toEqual([
-        { tokens: ['printf', 'm'], hasDynamicSubstitution: false },
-        {
-          tokens: [`r${DYNAMIC_SUBSTITUTION_TOKEN}`, RM_RECURSIVE_FORCE, '/'],
-          hasDynamicSubstitution: true,
-        },
+      const views = projectCommandViews(parseCommand(`r${substitution} ${RM_RECURSIVE_FORCE} /`));
+
+      expect(views.map((view) => view.tokens)).toEqual([
+        ['r', RM_RECURSIVE_FORCE, '/'],
+        ['printf', 'm'],
       ]);
+      expect(views[0]?.words[0]?.provenance).toBe('command-substitution');
     });
 
     test('drops glob redirect targets instead of treating them as args', () => {
@@ -290,14 +292,13 @@ describe('shell parsing helpers', () => {
     });
 
     test('keeps attached command substitutions in redirect targets analyzable', () => {
-      expect(splitShellCommands('rm -rf /tmp/foo >file$(git reset --hard)')).toEqual([
-        ['git', 'reset', '--hard'],
-        ['rm', '-rf', '/tmp/foo'],
-      ]);
-      expect(splitShellCommands('rm -rf /tmp/foo >$TMPDIR/$(rm -rf /)')).toEqual([
-        ['rm', '-rf', '/'],
-        ['rm', '-rf', '/tmp/foo'],
-      ]);
+      const gitResult = splitShellCommands('rm -rf /tmp/foo >file$(git reset --hard)');
+      const rmResult = splitShellCommands('rm -rf /tmp/foo >$TMPDIR/$(rm -rf /)');
+
+      expect(gitResult).toContainEqual(['git', 'reset', '--hard']);
+      expect(gitResult).toContainEqual(['rm', '-rf', '/tmp/foo']);
+      expect(rmResult).toContainEqual(['rm', '-rf', '/']);
+      expect(rmResult).toContainEqual(['rm', '-rf', '/tmp/foo']);
     });
 
     test('keeps operands after redirects in the same segment', () => {
@@ -368,10 +369,10 @@ describe('shell parsing helpers', () => {
     });
 
     test('keeps backtick substitutions inside quoted redirect targets analyzable', () => {
-      expect(splitShellCommands('echo x >"`git reset --hard`"')).toEqual([
-        ['git', 'reset', '--hard'],
-        ['echo', 'x'],
-      ]);
+      const result = splitShellCommands('echo x >"`git reset --hard`"');
+
+      expect(result).toContainEqual(['git', 'reset', '--hard']);
+      expect(result).toContainEqual(['echo', 'x']);
     });
 
     test('keeps bare backtick redirect targets analyzable', () => {
@@ -440,39 +441,38 @@ describe('shell parsing helpers', () => {
       expect(splitShellCommands("echo 'b\\'$(printf ok)'c'")).toContainEqual(['printf', 'ok']);
     });
 
-    test('does not treat escaped or quoted inline substitutions as executable commands', () => {
+    test('does not treat an escaped inline substitution as executable', () => {
       expect(splitShellCommands('echo $(printf "x\\$(git status)y")')).toEqual([
         ['echo'],
         ['printf', 'x$(git status)y'],
       ]);
-      expect(splitShellCommands('echo $(printf "x\'$(git status)\'y")')).toEqual([
-        ['echo'],
-        ['printf', "x'$(git status)'y"],
+    });
+
+    test('recognizes substitutions beside literal quote characters inside double quotes', () => {
+      expect(splitShellCommands('echo $(printf "x\'$(git status)\'y")')).toContainEqual([
+        'git',
+        'status',
       ]);
-      expect(splitShellCommands('echo $(printf "x\\"$(git status)\\"y")')).toEqual([
-        ['echo'],
-        ['printf', 'x"$(git status)"y'],
+      expect(splitShellCommands('echo $(printf "x\\"$(git status)\\"y")')).toContainEqual([
+        'git',
+        'status',
       ]);
     });
 
     test('tracks nested parentheses inside inline command substitutions', () => {
       expect(splitShellCommands('echo "x$(printf y(z))"')).toEqual([
-        ['printf', 'y', 'z'],
         ['echo', 'x$(printf y(z))'],
+        ['printf', 'y(z', ''],
       ]);
     });
 
     test('tracks quoted and escaped content while scanning inline command substitutions', () => {
       expect(splitShellCommands('echo "x$(printf \'y\')w"')).toEqual([
-        ['printf', 'y'],
         ['echo', "x$(printf 'y')w"],
-      ]);
-      expect(splitShellCommands('echo \'x$(printf "y")w\'')).toEqual([
         ['printf', 'y'],
-        ['echo', 'x$(printf "y")w'],
       ]);
+      expect(splitShellCommands('echo \'x$(printf "y")w\'')).toEqual([['echo', 'x$(printf "y")w']]);
       expect(splitShellCommands("echo 'x$(printf y\\(z\\))w'")).toEqual([
-        ['printf', 'y(z)'],
         ['echo', 'x$(printf y\\(z\\))w'],
       ]);
       expect(splitShellCommands("echo 'x$(printf y(z)'")).toEqual([['echo', 'x$(printf y(z)']]);
@@ -487,7 +487,7 @@ describe('shell parsing helpers', () => {
     });
 
     test('preserves glob arguments while reconstructing redirect target substitutions', () => {
-      expect(splitShellCommands('echo >foo$(git *.ts)')).toEqual([['git', '*.ts'], ['echo']]);
+      expect(splitShellCommands('echo >foo$(git *.ts)')).toEqual([['echo'], ['git', '*.ts']]);
     });
 
     test('handles escaped backticks in redirect targets without hanging', () => {
@@ -500,8 +500,7 @@ describe('shell parsing helpers', () => {
     test('extracts process substitution inside command substitution', () => {
       const result = splitShellCommands('echo $(diff <(cat file1) file2)');
       expect(result).toContainEqual(['cat', 'file1']);
-      expect(result).toContainEqual(['diff']);
-      expect(result).toContainEqual(['file2']);
+      expect(result).toContainEqual(['diff', 'file2']);
     });
 
     test('keeps attached backtick suffix inside command substitution', () => {

@@ -1,0 +1,128 @@
+import { describe, expect, test } from 'bun:test';
+import { parseCommand } from '@/parser/command';
+import { projectCommandViews } from '@/parser/projection';
+import { walkCommandViews } from '@/parser/traversal';
+import { expectProgramSpans } from './assertions';
+
+describe('command parser boundary', () => {
+  test('returns deterministic POSIX views with absolute UTF-16 spans', () => {
+    const source = 'echo "😀" && git reset --hard\r\nrm -rf /tmp/x';
+    const first = parseCommand(source, 'posix');
+    const second = parseCommand(source, 'posix');
+
+    expect(first).toEqual(second);
+    expect(first.status).toBe('complete');
+    expect(projectCommandViews(first).map((view) => view.tokens)).toEqual([
+      ['echo', '😀'],
+      ['git', 'reset', '--hard'],
+      ['rm', '-rf', '/tmp/x'],
+    ]);
+    expectProgramSpans(first, source);
+  });
+
+  test('preserves adjacent and empty quoted words as static literals', () => {
+    const views = projectCommandViews(parseCommand("printf '' a\"\"b 'c'd", 'posix'));
+
+    expect(views).toHaveLength(1);
+    expect(views[0]?.tokens).toEqual(['printf', '', 'ab', 'cd']);
+    expect(views[0]?.words.map((word) => word.provenance)).toEqual([
+      'literal',
+      'literal',
+      'literal',
+      'literal',
+    ]);
+  });
+
+  test('preserves POSIX double-quoted backslashes that do not escape shell metacharacters', () => {
+    const views = projectCommandViews(
+      parseCommand('"C:\\Program Files\\Git\\bin\\git.exe" reset --hard', 'posix'),
+    );
+
+    expect(views[0]?.tokens).toEqual(['C:\\Program Files\\Git\\bin\\git.exe', 'reset', '--hard']);
+  });
+
+  test('models connectors, redirects, substitutions, and groups structurally', () => {
+    const source = 'echo x >$(git reset --hard); (rm -rf /tmp/x)';
+    const program = parseCommand(source, 'posix');
+    const views = [...walkCommandViews(program)];
+
+    expect(program.nodes.map((node) => node.kind)).toContain('connector');
+    expect(program.nodes.map((node) => node.kind)).toContain('group');
+    expect(views.map((view) => view.tokens)).toEqual([
+      ['echo', 'x'],
+      ['git', 'reset', '--hard'],
+      ['rm', '-rf', '/tmp/x'],
+    ]);
+    expect(views[0]?.redirections[0]?.operator).toBe('>');
+    expect(views[0]?.redirections[0]?.target?.provenance).toBe('command-substitution');
+  });
+
+  test('marks executable substitution output without a sentinel token', () => {
+    const view = projectCommandViews(parseCommand('$(printf r)m -rf /', 'posix'))[0];
+
+    expect(view?.tokens).toEqual(['m', '-rf', '/']);
+    expect(view?.words[0]?.provenance).toBe('command-substitution');
+    expect(view?.dynamicExecutable).toBeTrue();
+    expect(view?.tokens.join(' ')).not.toContain('CC_SAFETY_NET');
+  });
+
+  test('preserves literal and dynamic provenance for each assembled word part', () => {
+    const view = projectCommandViews(
+      parseCommand('git reset --ha$(printf rd) $(printf path)', 'posix'),
+    )[0];
+
+    expect(
+      view?.words
+        .slice(2)
+        .map((word) => word.parts.map((part) => ({ raw: part.raw, provenance: part.provenance }))),
+    ).toEqual([
+      [
+        { raw: '--ha', provenance: 'literal' },
+        { raw: '$(printf rd)', provenance: 'command-substitution' },
+      ],
+      [{ raw: '$(printf path)', provenance: 'command-substitution' }],
+    ]);
+  });
+
+  test('returns explicit partial issues for expected malformed syntax', () => {
+    const source = 'echo "unterminated';
+    const program = parseCommand(source, 'posix');
+
+    expect(program.status).toBe('partial');
+    expect(program.issues).toEqual([
+      {
+        code: 'unclosed-double-quote',
+        message: 'double-quoted word is not closed',
+        span: { start: 5, end: source.length },
+      },
+    ]);
+    expect(projectCommandViews(program)[0]?.legacyNormalized).toBe(source);
+  });
+
+  test('rejects invalid ANSI-C Unicode code points without throwing', () => {
+    for (const sequence of ['\\UFFFFFFFF', '\\U00110000', '\\uD800']) {
+      const source = `printf $'${sequence}'`;
+      const program = parseCommand(source, 'posix');
+
+      expect(program).toMatchObject({
+        status: 'invalid',
+        issues: [{ code: 'invalid-ansi-c-code-point' }],
+      });
+    }
+    expect(projectCommandViews(parseCommand("printf $'\\U0010FFFF'", 'posix'))[0]?.tokens).toEqual([
+      'printf',
+      String.fromCodePoint(0x10ffff),
+    ]);
+  });
+
+  test('accepts 60k input and reports larger input as limited', () => {
+    const accepted = `printf ${'x'.repeat(60_000)}`;
+    const limited = `printf ${'x'.repeat(140_000)}`;
+
+    expect(parseCommand(accepted, 'posix').status).toBe('complete');
+    expect(parseCommand(limited, 'posix')).toMatchObject({
+      status: 'limited',
+      issues: [{ code: 'input-limit' }],
+    });
+  });
+});

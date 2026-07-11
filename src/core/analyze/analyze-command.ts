@@ -1,22 +1,18 @@
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
-import {
-  analyzePowerShellRemoveItemMatch,
-  shouldAnalyzePowerShellRemoveItem,
-} from '@/core/analyze/powershell/remove-item';
+import { analyzePowerShellCommandViewMatch } from '@/core/analyze/powershell/remove-item';
 import { analyzeSegment, resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
   applyShellGitContextEnvSegment,
+  cloneShellGitContextEnvState,
   createShellGitContextEnvState,
   getSegmentGitContextEnvAssignments,
+  type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import {
-  getBasename,
-  SHELL_DYNAMIC_SUBSTITUTION_TOKEN,
-  splitShellCommandsWithInfo,
-} from '@/core/shell';
+import type { CommandProgram, CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
+import { parseCommand } from '@/parser/command';
 import {
   type AnalyzeNestedOverrides,
   type AnalyzeOptions,
@@ -39,127 +35,192 @@ export function analyzeCommandInternal(
     return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
   }
 
-  const segments = splitShellCommandsWithInfo(command);
-  if (depth === 0 && options.invalidReason && isFailClosedRepairCommand(segments)) {
+  const program = parseCommand(command, options.shell);
+  if (depth === 0 && options.invalidReason && isFailClosedRepairCommand(program)) {
     return null;
   }
 
-  // Strict mode: block if command couldn't be parsed (unclosed quotes, etc.)
-  // Detected when splitShellCommands returns a single segment containing the raw command
-  if (
-    options.strict &&
-    segments.length === 1 &&
-    segments[0]?.tokens.length === 1 &&
-    segments[0].tokens[0] === command &&
-    command.includes(' ')
-  ) {
+  if (program.status === 'limited') {
+    return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
+  }
+
+  if (program.status === 'invalid') {
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
-  if (options.shell === 'powershell' && !options.invalidReason) {
-    const result = analyzePowerShellRemoveItemCommand(command, options);
-    if (result) return result;
+  const hasUnclosedQuote = program.issues.some((issue) => issue.code.includes('quote'));
+  if (options.strict && hasUnclosedQuote && command.includes(' ')) {
+    return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
+  }
+
+  if (hasUnclosedQuote) {
+    return analyzeUnparseableCommand(command, options);
   }
 
   const originalCwd = options.cwd;
   // Preserve effectiveCwd from caller (e.g., after cd in prior segment of outer command)
   // undefined = use cwd, null = unknown (after cd/pushd)
-  let effectiveCwd: string | null | undefined =
-    options.effectiveCwd !== undefined ? options.effectiveCwd : options.cwd;
+  const effectiveCwd = options.effectiveCwd !== undefined ? options.effectiveCwd : options.cwd;
   const shellGitContextState = createShellGitContextEnvState(options.envAssignments);
+  return analyzeProgram(program, depth, options, originalCwd, {
+    effectiveCwd,
+    shellGitContextState,
+  });
+}
 
-  for (const segmentInfo of segments) {
-    const segment = segmentInfo.hasDynamicSubstitution
-      ? appendDynamicSubstitutionSentinelForGit(segmentInfo.tokens)
-      : segmentInfo.tokens;
-    const segmentStr = segment.join(' ');
-    const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
+type AnalysisState = {
+  effectiveCwd: string | null | undefined;
+  shellGitContextState: ShellGitContextEnvState;
+};
 
-    if (segment.length === 1 && segment[0]?.includes(' ')) {
-      const textMatch = filterDestructiveCommandMatch(
-        dangerousInTextMatch(segment[0]),
-        options.policy,
-      );
-      if (textMatch) {
-        return {
-          reason: textMatch.reason,
-          segment: segmentStr,
-          ruleId: textMatch.id,
-          intent: textMatch.intent,
-        };
-      }
-      const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd !== undefined) {
-        effectiveCwd = nextCwd;
-      }
+function analyzeProgram(
+  program: CommandProgram,
+  depth: number,
+  options: InternalOptions,
+  originalCwd: string | undefined,
+  state: AnalysisState,
+): AnalyzeResult | null {
+  let hasPipelineInput = false;
+  for (const node of program.nodes) {
+    if (node.kind === 'connector') {
+      hasPipelineInput = node.operator === '|';
       continue;
     }
-
-    const result = analyzeSegment(segment, depth, {
-      ...options,
-      cwd: originalCwd,
-      effectiveCwd,
-      envAssignments: segmentEnvAssignments,
-      analyzeNested: (
-        nestedCommand: string,
-        overrides?: AnalyzeNestedOverrides,
-      ): Omit<AnalyzeResult, 'segment'> | null => {
-        // Pass current effectiveCwd so nested analysis sees CWD changes from prior segments
-        const nestedEffectiveCwd =
-          overrides && Object.hasOwn(overrides, 'effectiveCwd')
-            ? overrides.effectiveCwd
-            : effectiveCwd;
-        const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
-          ...options,
-          effectiveCwd: nestedEffectiveCwd,
-          envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-          worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
-        });
-        return nestedResult
-          ? {
-              reason: nestedResult.reason,
-              ruleId: nestedResult.ruleId,
-              intent: nestedResult.intent,
-              manualPermissionAdvice: nestedResult.manualPermissionAdvice,
-            }
-          : null;
-      },
-    });
-    if (result) {
-      return { ...result, segment: segmentStr };
+    if (node.kind === 'group') {
+      const result = analyzeProgram(
+        node.body,
+        depth,
+        options,
+        originalCwd,
+        node.style === 'subshell' ? cloneAnalysisState(state) : state,
+      );
+      if (result) return result;
+      hasPipelineInput = false;
+      continue;
     }
+    if (node.kind !== 'command') continue;
 
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      effectiveCwd = nextCwd;
-    }
-
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-  }
-
-  if (
-    (options.shell === undefined || options.shell === 'auto') &&
-    !options.invalidReason &&
-    shouldAnalyzePowerShellRemoveItem(command)
-  ) {
-    const result = analyzePowerShellRemoveItemCommand(command, options);
+    const nestedState = cloneAnalysisState(state);
+    const nestedResult = analyzeNestedPrograms(
+      node.nested,
+      depth,
+      options,
+      originalCwd,
+      nestedState,
+    );
+    if (nestedResult) return nestedResult;
+    const result = analyzeCommandView(node, depth, options, originalCwd, state, hasPipelineInput);
     if (result) return result;
+    hasPipelineInput = false;
   }
-
   return null;
 }
 
-function analyzePowerShellRemoveItemCommand(
-  command: string,
+function analyzeNestedPrograms(
+  programs: readonly CommandProgram[],
+  depth: number,
   options: InternalOptions,
+  originalCwd: string | undefined,
+  state: AnalysisState,
 ): AnalyzeResult | null {
-  return resultFromCommandMatch(
-    command,
-    filterDestructiveCommandMatch(
-      analyzePowerShellRemoveItemMatch(command, getPowerShellRemoveItemOptions(options)),
-      options.policy,
-    ),
+  for (const program of programs) {
+    const result = analyzeProgram(program, depth, options, originalCwd, cloneAnalysisState(state));
+    if (result) return result;
+  }
+  return null;
+}
+
+function analyzeCommandView(
+  commandView: CommandView,
+  depth: number,
+  options: InternalOptions,
+  originalCwd: string | undefined,
+  state: AnalysisState,
+  hasPipelineInput: boolean,
+): AnalyzeResult | null {
+  const segment = [...commandView.analysisTokens];
+  const segmentStr = commandView.legacyNormalized;
+  const segmentEnvAssignments = getSegmentGitContextEnvAssignments(
+    segment,
+    state.shellGitContextState,
   );
+
+  if (commandView.dialect === 'powershell' && !options.invalidReason) {
+    const match = filterDestructiveCommandMatch(
+      analyzePowerShellCommandViewMatch(
+        commandView,
+        hasPipelineInput,
+        getPowerShellRemoveItemOptions(options, state.effectiveCwd),
+      ),
+      options.policy,
+    );
+    if (match) return resultFromCommandMatch(segmentStr, match);
+  }
+
+  if (segment.length === 1 && segment[0]?.includes(' ') && !commandView.dynamicExecutable) {
+    const textMatch = filterDestructiveCommandMatch(
+      dangerousInTextMatch(segment[0]),
+      options.policy,
+    );
+    if (textMatch) {
+      return {
+        reason: textMatch.reason,
+        segment: segmentStr,
+        ruleId: textMatch.id,
+        intent: textMatch.intent,
+      };
+    }
+    updateCwdAfterSegment(segment, state);
+    return null;
+  }
+
+  const result = analyzeSegment(segment, depth, {
+    ...options,
+    commandView,
+    cwd: originalCwd,
+    effectiveCwd: state.effectiveCwd,
+    envAssignments: segmentEnvAssignments,
+    analyzeNested: (
+      nestedCommand: string,
+      overrides?: AnalyzeNestedOverrides,
+    ): Omit<AnalyzeResult, 'segment'> | null => {
+      const nestedEffectiveCwd =
+        overrides && Object.hasOwn(overrides, 'effectiveCwd')
+          ? overrides.effectiveCwd
+          : state.effectiveCwd;
+      const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
+        ...options,
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
+        worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
+      });
+      return nestedResult
+        ? {
+            reason: nestedResult.reason,
+            ruleId: nestedResult.ruleId,
+            intent: nestedResult.intent,
+            manualPermissionAdvice: nestedResult.manualPermissionAdvice,
+          }
+        : null;
+    },
+  });
+  if (result) return { ...result, segment: segmentStr };
+
+  updateCwdAfterSegment(segment, state);
+  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
+  return null;
+}
+
+function updateCwdAfterSegment(segment: readonly string[], state: AnalysisState): void {
+  const nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  if (nextCwd !== undefined) state.effectiveCwd = nextCwd;
+}
+
+function cloneAnalysisState(state: AnalysisState): AnalysisState {
+  return {
+    effectiveCwd: state.effectiveCwd,
+    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
+  };
 }
 
 function resultFromCommandMatch(
@@ -175,39 +236,43 @@ function resultFromCommandMatch(
   };
 }
 
-function getPowerShellRemoveItemOptions(options: InternalOptions) {
-  const cwdUnknown = options.effectiveCwd === null;
+function getPowerShellRemoveItemOptions(
+  options: InternalOptions,
+  effectiveCwd: string | null | undefined = options.effectiveCwd,
+) {
+  const cwdUnknown = effectiveCwd === null;
   return {
-    cwd: cwdUnknown ? undefined : (options.effectiveCwd ?? options.cwd),
+    cwd: cwdUnknown ? undefined : (effectiveCwd ?? options.cwd),
     originalCwd: cwdUnknown ? undefined : options.cwd,
     paranoid: options.paranoidRm,
     allowTmpdirVar: options.allowTmpdirVar,
   };
 }
 
-function appendDynamicSubstitutionSentinelForGit(tokens: string[]): string[] {
-  if (!tokens.some((token) => getBasename(token).toLowerCase() === 'git')) {
-    return tokens;
-  }
-  if (tokens.some((token) => token.includes(SHELL_DYNAMIC_SUBSTITUTION_TOKEN))) {
-    return tokens;
-  }
-  return [...tokens, SHELL_DYNAMIC_SUBSTITUTION_TOKEN];
+function analyzeUnparseableCommand(
+  command: string,
+  options: InternalOptions,
+): AnalyzeResult | null {
+  const textMatch = filterDestructiveCommandMatch(dangerousInTextMatch(command), options.policy);
+  return textMatch
+    ? {
+        reason: textMatch.reason,
+        segment: command,
+        ruleId: textMatch.id,
+        intent: textMatch.intent,
+      }
+    : null;
 }
 
-function isFailClosedRepairCommand(
-  segments: ReturnType<typeof splitShellCommandsWithInfo>,
-): boolean {
-  if (segments.length !== 1 || segments[0]?.hasDynamicSubstitution) {
-    return false;
-  }
+function isFailClosedRepairCommand(program: ReturnType<typeof parseCommand>): boolean {
+  if (program.status !== 'complete' || program.nodes.length !== 1) return false;
+  const command = program.nodes[0];
+  if (command?.kind !== 'command') return false;
+  if (command.redirections.length > 0 || command.nested.length > 0) return false;
+  if (command.words.some((word) => word.provenance !== 'literal')) return false;
 
-  const segment = segments[0];
-  if (!segment) {
-    return false;
-  }
-
-  const tokens = segment.tokens;
+  const tokens = command.tokens;
+  if (tokens.some((token) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token))) return false;
   if (tokens[0] === 'cc-safety-net') {
     return tokens[1] === 'rule' && isRuleSyncArgs(tokens.slice(2));
   }
@@ -227,7 +292,7 @@ function isFailClosedRepairCommand(
   return false;
 }
 
-function isPackageRuleSyncRepair(tokens: string[], packageIndex: number): boolean {
+function isPackageRuleSyncRepair(tokens: readonly string[], packageIndex: number): boolean {
   return (
     isCCSafetyNetPackage(tokens[packageIndex]) &&
     tokens[packageIndex + 1] === 'rule' &&
@@ -235,7 +300,7 @@ function isPackageRuleSyncRepair(tokens: string[], packageIndex: number): boolea
   );
 }
 
-function isRuleSyncArgs(args: string[]): boolean {
+function isRuleSyncArgs(args: readonly string[]): boolean {
   return (
     args.length >= 1 &&
     args.length <= 2 &&
