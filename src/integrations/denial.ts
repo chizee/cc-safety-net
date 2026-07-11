@@ -1,8 +1,11 @@
 import { redactSecrets } from '@/core/audit';
 import { formatBlockedMessage } from '@/core/format';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
-import type { BlockIntent } from '@/domain/decision';
-import type { GuardEvaluation } from '@/engine/guard';
+import type { BlockIntent, Decision } from '@/domain/decision';
+
+type GuardEvaluation = {
+  decision: Exclude<Decision, { kind: 'indeterminate' }>;
+};
 
 /** @internal */
 export type IntegrationDenial = {

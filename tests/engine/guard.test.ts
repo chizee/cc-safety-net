@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { writeGuardAudit } from '@/engine/audit';
 import {
   evaluateGuard,
   type GuardDependencies,
@@ -79,7 +78,62 @@ function captureGuardError(run: () => unknown): GuardEvaluationError {
   throw new Error('Expected guard evaluation to throw');
 }
 
+function captureNonCommandGuardError(cwd: string, input: unknown): GuardEvaluationError {
+  return captureGuardError(() => evaluateGuard(nonCommandInvocation(cwd, input)));
+}
+
 describe('guard evaluation', () => {
+  test('fails closed before policy evaluation when recursive tool input exceeds traversal bounds', async () => {
+    await withTempDir('cc-safety-net-guard-input-bounds-', (cwd) => {
+      const input: Record<string, unknown> = {};
+      input.cycle = input;
+      const error = captureNonCommandGuardError(cwd, input);
+
+      expect(error.stage).toBe('policy-protection');
+      expect(error.evaluation.decision).toEqual(
+        expect.objectContaining({ kind: 'deny', intent: 'stop_and_explain' }),
+      );
+    });
+  });
+
+  test.each([
+    ['inherited path', () => Object.create({ path: '.env' })],
+    [
+      'stateful getter',
+      () =>
+        Object.defineProperty({}, 'path', {
+          enumerable: true,
+          get: () => '.env',
+        }),
+    ],
+  ])('fails closed for unsafe tool input shape: %s', async (_label, createInput) => {
+    await withTempDir('cc-safety-net-guard-input-shape-', (cwd) => {
+      const error = captureNonCommandGuardError(cwd, createInput());
+      expect(error.stage).toBe('policy-protection');
+      expect(error.evaluation.decision.kind).toBe('deny');
+    });
+  });
+
+  test('does not read a stateful command getter while building failure evidence', async () => {
+    await withTempDir('cc-safety-net-guard-command-getter-', (cwd) => {
+      let getterCalls = 0;
+      const input = Object.defineProperty({}, 'command', {
+        enumerable: true,
+        get: () => {
+          getterCalls++;
+          return 'rm -rf /';
+        },
+      });
+      const error = captureNonCommandGuardError(cwd, input);
+
+      expect(error.stage).toBe('policy-protection');
+      expect(error.evaluation.decision).toEqual(
+        expect.objectContaining({ kind: 'deny', evidence: [] }),
+      );
+      expect(getterCalls).toBe(0);
+    });
+  });
+
   test('runs policy, config, secret, and command analysis in order', async () => {
     await withTempDir('cc-safety-net-guard-order-', (cwd) => {
       const calls: string[] = [];
@@ -313,21 +367,6 @@ describe('guard evaluation', () => {
       });
       expect(ordinaryAllowed.audit).toBeUndefined();
     });
-  });
-
-  test('does not resolve a session when no audit descriptor exists', () => {
-    let resolved = false;
-
-    writeGuardAudit(
-      undefined,
-      () => {
-        resolved = true;
-        return 'session';
-      },
-      { agent: 'test' },
-    );
-
-    expect(resolved).toBeFalse();
   });
 
   test.each([

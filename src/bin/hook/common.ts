@@ -3,7 +3,6 @@ import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { getCommandFromToolInput, getNonCommandToolInputKind } from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
-import { type GuardDependencies, GuardEvaluationError, type GuardStage } from '@/engine/guard';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -11,7 +10,12 @@ import {
   type IntegrationDenial,
   projectGuardDenial,
 } from '@/integrations/denial';
-import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import {
+  evaluateRuntimeGuard,
+  type GuardDependencies,
+  GuardEvaluationError,
+  type GuardStage,
+} from '@/integrations/runtime';
 
 type HookDenyOutput = (denial: IntegrationDenial) => void;
 
@@ -37,6 +41,9 @@ type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {
 
 type ToolInputResult = { ok: true; input: unknown; route: ToolRoute } | { ok: false };
 
+/** @internal Maximum raw stdin accepted from hook hosts before fail-closed denial (8 MiB). */
+export const HOOK_INPUT_MAX_BYTES = 8 * 1024 * 1024;
+
 function outputHookDeny(
   createDenyOutput: (message: string) => object,
   denial: IntegrationDenial,
@@ -45,13 +52,13 @@ function outputHookDeny(
 }
 
 async function readHookInput<T>(outputDeny: HookDenyOutput): Promise<T | undefined> {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
+  let inputText: string;
+  try {
+    inputText = (await readBoundedHookInput(process.stdin)).trim();
+  } catch {
+    outputDeny({ reason: 'Failed to parse hook input JSON.' });
+    return undefined;
   }
-
-  const inputText = Buffer.concat(chunks).toString('utf-8').trim();
 
   if (!inputText) {
     outputDeny({ reason: 'Missing hook input JSON.' });
@@ -59,6 +66,38 @@ async function readHookInput<T>(outputDeny: HookDenyOutput): Promise<T | undefin
   }
 
   return parseHookJson<T>(inputText, outputDeny, 'Failed to parse hook input JSON.');
+}
+
+/** @internal Reads hook input without buffering more than HOOK_INPUT_MAX_BYTES raw bytes. */
+export async function readBoundedHookInput(
+  input: (AsyncIterable<Buffer | Uint8Array | string> | Iterable<Buffer | Uint8Array | string>) & {
+    destroy?: () => unknown;
+    cancel?: () => unknown;
+  },
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of input) {
+    const buffer =
+      typeof chunk === 'string'
+        ? Buffer.from(chunk, 'utf-8')
+        : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    bytes += buffer.byteLength;
+    if (bytes > HOOK_INPUT_MAX_BYTES) {
+      stopHookInput(input);
+      throw new Error('hook input byte limit exceeded');
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, bytes).toString('utf-8');
+}
+
+function stopHookInput(input: { destroy?: () => unknown; cancel?: () => unknown }): void {
+  const stop = input.destroy ?? input.cancel;
+  if (!stop) return;
+  try {
+    Promise.resolve(stop.call(input)).catch(() => {});
+  } catch {}
 }
 
 export function parseHookJson<T>(

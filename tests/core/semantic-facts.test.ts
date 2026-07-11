@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { parse as parseShellQuote } from 'shell-quote';
-import { analyzeCommandWithProgram } from '@/core/analyze/with-program';
+import { analyzeCommandWithProgram } from '@/core/analyze';
 import { findPolicyConfigMutationTargetInSemanticFacts } from '@/core/policy-protection';
 import { findSensitiveTargetInSemanticFacts } from '@/core/secret-protection';
-import { createSemanticFacts, getCommandSyntaxFact } from '@/engine/facts';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import { policySnapshot } from '../helpers/policy';
 

@@ -194,4 +194,50 @@ describe('configuration schemas', () => {
     expect(serialized).toContain('intent');
     expect(serialized).toContain('scope_down');
   });
+
+  test('keeps authoritative Zod acceptance in parity with deterministic legacy diagnostics', () => {
+    const rulesFields = [undefined, [], ['project-rules'], ['bad source!'], 'project-rules'];
+    const overrideFields = [
+      undefined,
+      {},
+      { 'team/block-prune': 'off' },
+      { malformed: 'off' },
+      { 'team/block-prune': { reason: '', intent: 'retry_forever' } },
+    ];
+    const wrapperFields = [undefined, [], ['rtk'], ['git'], ['rtk', 'rtk'], [1]];
+    for (const version of [1, 2, undefined]) {
+      for (const rules of rulesFields) {
+        for (const overrides of overrideFields) {
+          for (const transparent_wrappers of wrapperFields) {
+            const input = { version, rules, overrides, transparent_wrappers };
+            expect(getRulesConfigSchema().safeParse(input).success).toBe(
+              getRulesConfigDiagnostics(input).length === 0,
+            );
+          }
+        }
+      }
+    }
+
+    const safetyFields = [undefined, {}, { level: 'standard' }, { level: 'unsafe' }, 'standard'];
+    const workflowFields = [undefined, {}, { worktree_mode: true }, { worktree_mode: 'yes' }];
+    const secretFields = [
+      undefined,
+      {},
+      { enabled: true, deny_paths: ['private/token'] },
+      { overrides: { unknown: 'off' } },
+      { deny_paths: [' '] },
+    ];
+    for (const version of [1, 2, undefined]) {
+      for (const safety of safetyFields) {
+        for (const workflow of workflowFields) {
+          for (const secret_protection of secretFields) {
+            const input = { version, safety, workflow, secret_protection };
+            expect(getUserPolicySchema().safeParse(input).success).toBe(
+              getUserPolicyDiagnostics(input).length === 0,
+            );
+          }
+        }
+      }
+    }
+  });
 });

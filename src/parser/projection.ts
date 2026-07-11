@@ -1,5 +1,4 @@
-import type { CommandProgram, CommandView } from '@/domain/command';
-import type { ShellKind } from '@/types';
+import type { CommandProgram, CommandView, ShellKind } from '@/domain/command';
 import { parseCommand } from './command';
 import { walkCommandViews } from './traversal';
 

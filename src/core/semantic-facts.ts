@@ -6,7 +6,7 @@ import {
   extractPathLikeToolValues,
   getCommandFromToolInput,
 } from '@/core/tool-input';
-import type { CommandProgram, CommandView } from '@/domain/command';
+import type { CommandProgram, CommandView, ShellKind } from '@/domain/command';
 import type { ToolInvocation } from '@/domain/invocation';
 import type {
   CommandFactUsage,
@@ -18,7 +18,6 @@ import type {
   ShellSyntaxFacts,
 } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
-import type { ShellKind } from '@/types';
 
 const PATH_LIKE_KEYS = new Set([
   'absolutepath',

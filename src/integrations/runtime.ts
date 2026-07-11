@@ -1,6 +1,13 @@
 import type { ToolInvocation } from '@/domain/invocation';
-import { writeGuardAudit } from '@/engine/audit';
 import { evaluateGuard, type GuardOptions } from '@/engine/guard';
+import { writeGuardAudit } from '@/integrations/audit';
+
+export type {
+  GuardDependencies,
+  GuardEvaluation,
+  GuardStage,
+} from '@/engine/guard';
+export { GuardEvaluationError } from '@/engine/guard';
 
 type RuntimeAuditOptions = {
   agent: string;

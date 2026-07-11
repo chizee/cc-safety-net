@@ -19,14 +19,14 @@ import {
   SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_VARIANT_SEPARATOR_RULES,
 } from '@/core/secret-protection-rules';
-import { advanceQuoteScanState } from '@/core/shell/shared';
-import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
-import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 import {
   createSemanticFacts,
   getCommandSyntaxFact,
   projectSensitiveShellText,
-} from '@/engine/facts';
+} from '@/core/semantic-facts';
+import { advanceQuoteScanState } from '@/core/shell/shared';
+import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
+import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';

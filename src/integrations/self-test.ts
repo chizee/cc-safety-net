@@ -1,6 +1,5 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
 import { createToolInvocation } from '@/domain/invocation';
 import type { PolicySnapshot } from '@/domain/policy';
 import { evaluateRuntimeGuard } from '@/integrations/runtime';
@@ -82,7 +81,6 @@ export function runIntegrationSelfTest(): SelfTestSummary {
           dependencies: {
             loadPolicySnapshot: () => SNAPSHOT,
             getModes: () => STANDARD_MODES,
-            analyzeCommand,
           },
         },
         audit: { agent: 'self-test', getSessionId: () => undefined },

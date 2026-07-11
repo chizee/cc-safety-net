@@ -1,5 +1,15 @@
 import { writeAuditLog } from '@/core/audit';
-import type { GuardAuditDescriptor } from '@/engine/guard';
+import type { BlockIntent } from '@/domain/decision';
+
+type GuardAuditDescriptor = {
+  decision: 'allow' | 'deny';
+  command: string;
+  segment: string;
+  reason: string;
+  cwd: string;
+  ruleId?: string;
+  intent?: BlockIntent;
+};
 
 /** @internal */
 export function writeGuardAudit(

@@ -1,11 +1,52 @@
 import { describe, expect, test } from 'bun:test';
 import {
   extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
   getNonCommandToolInputKind,
   normalizeToolName,
+  TOOL_INPUT_LIMITS,
 } from '@/core/tool-input';
 
 describe('tool input routing', () => {
+  test('reads only safe own data command fields', () => {
+    expect(getCommandFromToolInput({ command: 'git status' })).toBe('git status');
+    const nonEnumerable = Object.defineProperty({}, 'command', {
+      value: 'git diff',
+      enumerable: false,
+    });
+    expect(getCommandFromToolInput(nonEnumerable)).toBe('git diff');
+    expect(getCommandFromToolInput({ command: '' })).toBeUndefined();
+  });
+
+  test('rejects inherited, accessor, nonstandard, and proxy command fields without reading them', () => {
+    let getterCalls = 0;
+    const accessor = Object.defineProperty({}, 'command', {
+      enumerable: true,
+      get: () => {
+        getterCalls++;
+        return 'rm -rf /';
+      },
+    });
+    const descriptorProxy = new Proxy(
+      { command: 'rm -rf /' },
+      {
+        getOwnPropertyDescriptor: () => {
+          throw new Error('descriptor trap');
+        },
+      },
+    );
+
+    expect(() => getCommandFromToolInput(Object.create({ command: 'rm -rf /' }))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+    expect(() => getCommandFromToolInput(accessor)).toThrow('tool input traversal limit exceeded');
+    expect(() => getCommandFromToolInput(descriptorProxy)).toThrow(
+      'tool input traversal limit exceeded',
+    );
+    expect(getterCalls).toBe(0);
+  });
+
   test.each([
     ['apply_patch', 'applypatch'],
     ['apply-patch', 'applypatch'],
@@ -50,6 +91,123 @@ describe('tool input routing', () => {
     ['PowerShell', 'unknown'],
   ] as const)('classifies %s as %s', (toolName, kind) => {
     expect(getNonCommandToolInputKind(toolName)).toBe(kind);
+  });
+});
+
+describe('bounded tool input traversal', () => {
+  test('preserves ordered duplicates for shared non-cyclic input objects', () => {
+    const shared = { path: 'src/shared.ts' };
+    expect(extractPathLikeToolValues({ first: shared, second: shared }, new Set(['path']))).toEqual(
+      ['src/shared.ts', 'src/shared.ts'],
+    );
+  });
+
+  test('accepts exact string and aggregate byte boundaries and rejects one byte more', () => {
+    const exactString = 'x'.repeat(TOOL_INPUT_LIMITS.maxStringBytes);
+    expect(extractPathLikeToolValues({ path: exactString }, new Set(['path']))).toEqual([
+      exactString,
+    ]);
+    expect(() => extractPathLikeToolValues({ path: `${exactString}x` }, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+
+    const quarter = 'x'.repeat(TOOL_INPUT_LIMITS.maxStringBytes);
+    expect(
+      extractPathLikeToolValues(
+        { path: quarter, nested: [{ path: quarter }, { path: quarter }, { path: quarter }] },
+        new Set(['path']),
+      ),
+    ).toEqual([quarter, quarter, quarter, quarter]);
+    expect(() =>
+      extractPathLikeToolValues(
+        {
+          path: quarter,
+          nested: [{ path: quarter }, { path: quarter }, { path: quarter }, { path: 'x' }],
+        },
+        new Set(['path']),
+      ),
+    ).toThrow('tool input traversal limit exceeded');
+  });
+
+  test('fails closed on cycles and exhausted depth or node budgets', () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => extractPathLikeToolValues(cyclic, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+
+    const exactDepth: Record<string, unknown> = { path: 'target' };
+    let nested = exactDepth;
+    for (let depth = 1; depth < TOOL_INPUT_LIMITS.maxDepth; depth++) nested = { nested };
+    expect(extractPathLikeToolValues(nested, new Set(['path']))).toEqual(['target']);
+    expect(() => extractPathLikeToolValues({ nested }, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+
+    expect(
+      extractPathLikeToolValues(
+        Array.from({ length: TOOL_INPUT_LIMITS.maxNodes - 1 }, () => null),
+        new Set(['path']),
+      ),
+    ).toEqual([]);
+    expect(() =>
+      extractPathLikeToolValues(
+        Array.from({ length: TOOL_INPUT_LIMITS.maxNodes }, () => null),
+        new Set(['path']),
+      ),
+    ).toThrow('tool input traversal limit exceeded');
+  });
+
+  test('rejects inherited fields, nonstandard prototypes, accessors, and proxy traps', () => {
+    const inherited = Object.create({ path: '.env' }) as Record<string, unknown>;
+    const getter = Object.defineProperty({}, 'path', {
+      enumerable: true,
+      get: () => '.env',
+    });
+    const throwingProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('proxy trap');
+        },
+      },
+    );
+    const transparentProxy = new Proxy({ path: 'README.md' }, {});
+
+    expect(() => extractPathLikeToolValues(inherited, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+    expect(() => extractPathLikeToolValues(getter, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+    expect(() => extractPathLikeToolValues(throwingProxy, new Set(['path']))).toThrow();
+    expect(() => extractPathLikeToolValues(transparentProxy, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+  });
+
+  test('rejects wide accessor objects before consulting any descriptor value', () => {
+    let getterCalls = 0;
+    const input = Object.defineProperties(
+      {},
+      Object.fromEntries(
+        Array.from({ length: TOOL_INPUT_LIMITS.maxKeys + 50 }, (_, index) => [
+          `path${index}`,
+          {
+            enumerable: true,
+            get: () => {
+              getterCalls++;
+              return '.env';
+            },
+          },
+        ]),
+      ),
+    );
+
+    expect(() => extractPathLikeToolValues(input, new Set(['path']))).toThrow(
+      'tool input traversal limit exceeded',
+    );
+    expect(getterCalls).toBe(0);
   });
 });
 
@@ -179,6 +337,24 @@ describe('patch target extraction', () => {
       'old.txt',
       'private secret.txt',
       'secret-é.pem',
+    ]);
+  });
+
+  test('handles standalone new-file metadata and malformed quoted metadata conservatively', () => {
+    expect(
+      extractPatchTargetsFromToolInput({
+        patch: [
+          '+++ b/standalone.ts',
+          'rename to "private secret.txt" trailing-metadata',
+          'diff --git "a/unterminated b/unterminated',
+        ].join('\n'),
+      }),
+    ).toEqual([
+      'standalone.ts',
+      '"private secret.txt" trailing-metadata',
+      '"a/unterminated',
+      'b/unterminated',
+      'unterminated',
     ]);
   });
 

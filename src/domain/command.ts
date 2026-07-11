@@ -1,4 +1,4 @@
-import type { ShellKind } from '@/types';
+export type ShellKind = 'posix' | 'powershell' | 'auto';
 
 /** @internal */
 export type CommandDialect = Exclude<ShellKind, 'auto'>;

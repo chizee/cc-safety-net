@@ -4,7 +4,6 @@ import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { getNonCommandToolInputKind } from '@/core/tool-input';
 import type { CommandToolKind, ToolInvocation } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
-import { type GuardDependencies, GuardEvaluationError } from '@/engine/guard';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -12,7 +11,11 @@ import {
   type IntegrationDenial,
   projectGuardDenial,
 } from '@/integrations/denial';
-import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import {
+  evaluateRuntimeGuard,
+  type GuardDependencies,
+  GuardEvaluationError,
+} from '@/integrations/runtime';
 
 type PiApi = {
   on: (

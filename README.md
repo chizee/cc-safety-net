@@ -233,6 +233,8 @@ Both support `--json` for machine-readable output. Full reference: [CLI Commands
 
 Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches or lockfiles while evaluating a tool call. If local rulebook source content changes, or a required lock/cache entry is missing or invalid, commands fail closed until you explicitly run `npx -y cc-safety-net rule sync`. The next tool call reloads and verifies the synchronized snapshot from disk.
 
+Untrusted hook and tool payloads, plus remote rulebook responses, have generous fixed resource limits. Inputs that exceed them fail closed; the exact limits and security rationale are documented in [SECURITY.md](SECURITY.md).
+
 ## Upgrading from an older version
 
 > [!WARNING]

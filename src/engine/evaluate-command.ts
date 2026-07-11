@@ -1,12 +1,12 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { createSemanticFactStore } from '@/core/semantic-facts';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { projectLegacyCommandEntriesFromProgram } from '@/parser/projection';
 import type { AnalyzeOptions, AnalyzeResult } from '@/types';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
-import { createSemanticFactStore } from './facts';
 
 /** @internal */
 export type TracedCommandEvaluation = Readonly<{

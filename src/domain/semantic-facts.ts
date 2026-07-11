@@ -1,6 +1,5 @@
-import type { CommandIssue, CommandProgram, CommandView } from '@/domain/command';
+import type { CommandIssue, CommandProgram, CommandView, ShellKind } from '@/domain/command';
 import type { ToolCallContext, ToolRoute } from '@/domain/invocation';
-import type { ShellKind } from '@/types';
 
 /** @internal */
 export type CommandFactUsage = 'input-candidate' | 'declared-command';

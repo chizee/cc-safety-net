@@ -1,4 +1,39 @@
-import type { TraceStep } from '@/types';
+/** Trace step for explain command - discriminated union of all step types. */
+export type TraceStep =
+  | { type: 'parse'; input: string; segments: string[][] }
+  | { type: 'env-strip'; input: string[]; envVars: Record<string, '<redacted>'>; output: string[] }
+  | { type: 'leading-tokens-stripped'; input: string[]; removed: string[]; output: string[] }
+  | { type: 'shell-wrapper'; wrapper: string; innerCommand: string }
+  | { type: 'interpreter'; interpreter: string; codeArg: string; paranoidBlocked: boolean }
+  | { type: 'busybox'; subcommand: string }
+  | { type: 'transparent-wrapper'; wrapper: string; output: string[] }
+  | {
+      type: 'recurse';
+      reason: 'shell-wrapper' | 'interpreter' | 'busybox';
+      innerCommand: string;
+      depth: number;
+    }
+  | {
+      type: 'rule-check';
+      ruleModule: string;
+      ruleFunction: string;
+      matched: boolean;
+      reason?: string;
+    }
+  | { type: 'worktree-relaxation'; originalReason: string; gitCwd: string }
+  | {
+      type: 'tmpdir-check';
+      tmpdirValue: string | null;
+      isOverriddenToNonTemp: boolean;
+      allowTmpdirVar: boolean;
+    }
+  | { type: 'fallback-scan'; tokensScanned: string[]; embeddedCommandFound?: string }
+  | { type: 'custom-rules-check'; rulesChecked: boolean; matched: boolean; reason?: string }
+  | { type: 'cwd-change'; segment: string; effectiveCwdNowUnknown: true }
+  | { type: 'dangerous-text'; token: string; matched: boolean; reason?: string }
+  | { type: 'strict-unparseable'; rawCommand: string; reason: string }
+  | { type: 'segment-skipped'; index: number; reason: 'prior-segment-blocked' }
+  | { type: 'error'; message: string; partial?: boolean };
 
 export type CommandTraceEvent = Readonly<
   | { kind: 'step'; scope: 'global'; step: TraceStep }

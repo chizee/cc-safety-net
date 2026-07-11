@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
-import { getRulebookSourceSyntaxError } from '@/core/rules/policy/sources';
+import { getRulebookSourceSyntaxError } from '@/core/rules/policy/source-syntax';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 import { BLOCK_INTENTS } from '@/domain/decision';
 import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';

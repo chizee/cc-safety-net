@@ -1,3 +1,4 @@
+import { types as utilTypes } from 'node:util';
 import type { NonCommandToolInputKind } from '@/domain/invocation';
 
 const PATCH_TOOL_NAMES = new Set(['applypatch', 'patch']);
@@ -28,6 +29,28 @@ const PATCH_TEXT_KEYS = new Set(['command', 'diff', 'input', 'patch', 'patchtext
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 
+/** @internal Generous fail-closed bounds for untrusted recursive tool input. */
+export const TOOL_INPUT_LIMITS = Object.freeze({
+  maxDepth: 64,
+  maxNodes: 10_000,
+  maxKeys: 10_000,
+  maxStringBytes: 1024 * 1024,
+  maxAggregateStringBytes: 4 * 1024 * 1024,
+});
+
+type ToolInputTraversalState = {
+  nodes: number;
+  keys: number;
+  stringBytes: number;
+  ancestors: Set<object>;
+};
+
+type ToolInputObjectSnapshot = {
+  object: object;
+  array: boolean;
+  entries: readonly (readonly [string, unknown])[];
+};
+
 export function normalizeToolName(toolName: string): string {
   return toolName.replace(/[-_\s]/g, '').toLowerCase();
 }
@@ -43,7 +66,14 @@ export function getNonCommandToolInputKind(toolName: string): NonCommandToolInpu
 
 export function getCommandFromToolInput(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
-  const command = (input as Record<string, unknown>).command;
+  assertSafeToolInputObject(input);
+  const descriptor = Object.getOwnPropertyDescriptor(input, 'command');
+  if (!descriptor) {
+    if ('command' in input) throwToolInputLimit();
+    return undefined;
+  }
+  if (descriptor.get || descriptor.set) throwToolInputLimit();
+  const command = descriptor.value;
   return typeof command === 'string' && command !== '' ? command : undefined;
 }
 
@@ -51,16 +81,30 @@ export function extractPathLikeToolValues(
   input: unknown,
   pathLikeKeys: ReadonlySet<string>,
 ): string[] {
-  if (!input || typeof input !== 'object') return [];
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
-  }
+  return extractPathLikeToolValuesAt(
+    input,
+    pathLikeKeys,
+    { nodes: 0, keys: 0, stringBytes: 0, ancestors: new Set() },
+    1,
+  );
+}
 
-  return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string' && pathLikeKeys.has(normalizeToolInputKey(key))) return [value];
-    if (value && typeof value === 'object') return extractPathLikeToolValues(value, pathLikeKeys);
-    return [];
+function extractPathLikeToolValuesAt(
+  input: unknown,
+  pathLikeKeys: ReadonlySet<string>,
+  state: ToolInputTraversalState,
+  depth: number,
+): string[] {
+  const snapshot = snapshotToolInputObject(input, state, depth);
+  if (!snapshot) return [];
+  const values = snapshot.entries.flatMap(([key, value]) => {
+    const nested = extractPathLikeToolValuesAt(value, pathLikeKeys, state, depth + 1);
+    return typeof value === 'string' && pathLikeKeys.has(normalizeToolInputKey(key))
+      ? [value]
+      : nested;
   });
+  state.ancestors.delete(snapshot.object);
+  return values;
 }
 
 function normalizeToolInputKey(key: string): string {
@@ -68,21 +112,90 @@ function normalizeToolInputKey(key: string): string {
 }
 
 export function extractPatchTargetsFromToolInput(input: unknown): string[] {
-  return extractPatchTexts(input, true).flatMap(extractPatchTargetsFromText);
+  return extractPatchTexts(
+    input,
+    true,
+    { nodes: 0, keys: 0, stringBytes: 0, ancestors: new Set() },
+    1,
+  ).flatMap(extractPatchTargetsFromText);
 }
 
-function extractPatchTexts(input: unknown, allowString: boolean): string[] {
+function extractPatchTexts(
+  input: unknown,
+  allowString: boolean,
+  state: ToolInputTraversalState,
+  depth: number,
+): string[] {
+  const snapshot = snapshotToolInputObject(input, state, depth);
   if (typeof input === 'string') return allowString ? [input] : [];
-  if (!input || typeof input !== 'object') return [];
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => extractPatchTexts(value, allowString));
-  }
+  if (!snapshot) return [];
+  const texts = snapshot.entries.flatMap(([key, value]) =>
+    extractPatchTexts(
+      value,
+      snapshot.array ? allowString : PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)),
+      state,
+      depth + 1,
+    ),
+  );
+  state.ancestors.delete(snapshot.object);
+  return texts;
+}
 
-  return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) => {
-    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key))) return extractPatchTexts(value, true);
-    if (value && typeof value === 'object') return extractPatchTexts(value, false);
-    return [];
+function enterToolInputValue(input: unknown, state: ToolInputTraversalState, depth: number): void {
+  state.nodes++;
+  if (
+    (input !== null && typeof input === 'object' && depth > TOOL_INPUT_LIMITS.maxDepth) ||
+    state.nodes > TOOL_INPUT_LIMITS.maxNodes
+  ) {
+    throwToolInputLimit();
+  }
+  if (typeof input !== 'string') return;
+  const bytes = Buffer.byteLength(input);
+  state.stringBytes += bytes;
+  if (
+    bytes > TOOL_INPUT_LIMITS.maxStringBytes ||
+    state.stringBytes > TOOL_INPUT_LIMITS.maxAggregateStringBytes
+  ) {
+    throwToolInputLimit();
+  }
+}
+
+function snapshotToolInputObject(
+  input: unknown,
+  state: ToolInputTraversalState,
+  depth: number,
+): ToolInputObjectSnapshot | null {
+  enterToolInputValue(input, state, depth);
+  if (!input || typeof input !== 'object') return null;
+  const array = assertSafeToolInputObject(input);
+  if (state.ancestors.has(input)) throwToolInputLimit();
+  const keys = Reflect.ownKeys(input);
+  state.keys += keys.length;
+  if (state.keys > TOOL_INPUT_LIMITS.maxKeys) throwToolInputLimit();
+  const entries = keys.flatMap((key): (readonly [string, unknown])[] => {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || descriptor.get || descriptor.set) throwToolInputLimit();
+    return typeof key === 'string' && descriptor.enumerable ? [[key, descriptor.value]] : [];
   });
+  state.ancestors.add(input);
+  return { object: input, array, entries };
+}
+
+function assertSafeToolInputObject(input: object): boolean {
+  if (utilTypes.isProxy(input)) throwToolInputLimit();
+  const array = Array.isArray(input);
+  const prototype = Object.getPrototypeOf(input);
+  if (
+    (array && prototype !== Array.prototype) ||
+    (!array && prototype !== Object.prototype && prototype !== null)
+  ) {
+    throwToolInputLimit();
+  }
+  return array;
+}
+
+function throwToolInputLimit(): never {
+  throw new Error('tool input traversal limit exceeded');
 }
 
 function extractPatchTargetsFromText(text: string): string[] {

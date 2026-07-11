@@ -2,10 +2,10 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { explainCommand } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
 import * as gitAnalysis from '@/core/git';
+import { createSemanticFactStore } from '@/core/semantic-facts';
 import type { CommandTraceTerminal } from '@/domain/command-trace';
 import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
-import { createSemanticFactStore } from '@/engine/facts';
 import { parseCommand } from '@/parser/command';
 import { policySnapshot } from '../helpers/policy';
 

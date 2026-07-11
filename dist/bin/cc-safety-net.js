@@ -699,6 +699,7 @@ function envFlagIsSet(flag) {
 }
 
 // src/core/tool-input.ts
+import { types as utilTypes } from "node:util";
 var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TOOL_NAMES = /* @__PURE__ */ new Set([
   "create",
   "edit",
@@ -719,7 +720,13 @@ var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TO
   "write",
   "writefile",
   "writetofile"
-]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder;
+]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, TOOL_INPUT_LIMITS = Object.freeze({
+  maxDepth: 64,
+  maxNodes: 1e4,
+  maxKeys: 1e4,
+  maxStringBytes: 1048576,
+  maxAggregateStringBytes: 4194304
+});
 function normalizeToolName(toolName) {
   return toolName.replace(/[-_\s]/g, "").toLowerCase();
 }
@@ -738,42 +745,82 @@ function getNonCommandToolInputKind(toolName) {
 function getCommandFromToolInput(input) {
   if (!input || typeof input !== "object")
     return;
-  let command = input.command;
+  assertSafeToolInputObject(input);
+  let descriptor = Object.getOwnPropertyDescriptor(input, "command");
+  if (!descriptor) {
+    if ("command" in input)
+      throwToolInputLimit();
+    return;
+  }
+  if (descriptor.get || descriptor.set)
+    throwToolInputLimit();
+  let command = descriptor.value;
   return typeof command === "string" && command !== "" ? command : void 0;
 }
 function extractPathLikeToolValues(input, pathLikeKeys) {
-  if (!input || typeof input !== "object")
+  return extractPathLikeToolValuesAt(input, pathLikeKeys, { nodes: 0, keys: 0, stringBytes: 0, ancestors: /* @__PURE__ */ new Set }, 1);
+}
+function extractPathLikeToolValuesAt(input, pathLikeKeys, state, depth) {
+  let snapshot = snapshotToolInputObject(input, state, depth);
+  if (!snapshot)
     return [];
-  if (Array.isArray(input))
-    return input.flatMap((value) => extractPathLikeToolValues(value, pathLikeKeys));
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)))
-      return [value];
-    if (value && typeof value === "object")
-      return extractPathLikeToolValues(value, pathLikeKeys);
-    return [];
+  let values = snapshot.entries.flatMap(([key, value]) => {
+    let nested = extractPathLikeToolValuesAt(value, pathLikeKeys, state, depth + 1);
+    return typeof value === "string" && pathLikeKeys.has(normalizeToolInputKey(key)) ? [value] : nested;
   });
+  return state.ancestors.delete(snapshot.object), values;
 }
 function normalizeToolInputKey(key) {
   return key.replace(/-/g, "_").toLowerCase();
 }
 function extractPatchTargetsFromToolInput(input) {
-  return extractPatchTexts(input, !0).flatMap(extractPatchTargetsFromText);
+  return extractPatchTexts(input, !0, { nodes: 0, keys: 0, stringBytes: 0, ancestors: /* @__PURE__ */ new Set }, 1).flatMap(extractPatchTargetsFromText);
 }
-function extractPatchTexts(input, allowString) {
+function extractPatchTexts(input, allowString, state, depth) {
+  let snapshot = snapshotToolInputObject(input, state, depth);
   if (typeof input === "string")
     return allowString ? [input] : [];
-  if (!input || typeof input !== "object")
+  if (!snapshot)
     return [];
-  if (Array.isArray(input))
-    return input.flatMap((value) => extractPatchTexts(value, allowString));
-  return Object.entries(input).flatMap(([key, value]) => {
-    if (PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)))
-      return extractPatchTexts(value, !0);
-    if (value && typeof value === "object")
-      return extractPatchTexts(value, !1);
-    return [];
+  let texts = snapshot.entries.flatMap(([key, value]) => extractPatchTexts(value, snapshot.array ? allowString : PATCH_TEXT_KEYS.has(normalizeToolInputKey(key)), state, depth + 1));
+  return state.ancestors.delete(snapshot.object), texts;
+}
+function enterToolInputValue(input, state, depth) {
+  if (state.nodes++, input !== null && typeof input === "object" && depth > TOOL_INPUT_LIMITS.maxDepth || state.nodes > TOOL_INPUT_LIMITS.maxNodes)
+    throwToolInputLimit();
+  if (typeof input !== "string")
+    return;
+  let bytes = Buffer.byteLength(input);
+  if (state.stringBytes += bytes, bytes > TOOL_INPUT_LIMITS.maxStringBytes || state.stringBytes > TOOL_INPUT_LIMITS.maxAggregateStringBytes)
+    throwToolInputLimit();
+}
+function snapshotToolInputObject(input, state, depth) {
+  if (enterToolInputValue(input, state, depth), !input || typeof input !== "object")
+    return null;
+  let array = assertSafeToolInputObject(input);
+  if (state.ancestors.has(input))
+    throwToolInputLimit();
+  let keys = Reflect.ownKeys(input);
+  if (state.keys += keys.length, state.keys > TOOL_INPUT_LIMITS.maxKeys)
+    throwToolInputLimit();
+  let entries = keys.flatMap((key) => {
+    let descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || descriptor.get || descriptor.set)
+      throwToolInputLimit();
+    return typeof key === "string" && descriptor.enumerable ? [[key, descriptor.value]] : [];
   });
+  return state.ancestors.add(input), { object: input, array, entries };
+}
+function assertSafeToolInputObject(input) {
+  if (utilTypes.isProxy(input))
+    throwToolInputLimit();
+  let array = Array.isArray(input), prototype = Object.getPrototypeOf(input);
+  if (array && prototype !== Array.prototype || !array && prototype !== Object.prototype && prototype !== null)
+    throwToolInputLimit();
+  return array;
+}
+function throwToolInputLimit() {
+  throw Error("tool input traversal limit exceeded");
 }
 function extractPatchTargetsFromText(text) {
   let targets = [], lines = text.split(/\r?\n/), inApplyPatch = !1, inHunk = !1, oldHunkLinesRemaining = null, newHunkLinesRemaining = null, resetHunk = () => {
@@ -974,6 +1021,86 @@ function createToolInvocation(toolName, input, route, context, command) {
   if (route.kind !== "command")
     return { toolName, input, route, context };
   return { toolName, input, route, context, command };
+}
+
+// src/core/format.ts
+function formatBlockedMessage(input) {
+  let { reason, command, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
+
+Reason: ${redact(reason)}`;
+  if (input.ruleId)
+    message += `
+
+Rule: ${input.ruleId}`;
+  if (toolName)
+    message += `
+
+Tool: ${toolName}`;
+  if (command) {
+    let safeCommand = redact(command);
+    message += `
+
+Command: ${excerpt(safeCommand, maxLen)}`;
+  }
+  if (segment && segment !== command) {
+    let safeSegment = redact(segment);
+    message += `
+
+Segment: ${excerpt(safeSegment, maxLen)}`;
+  }
+  return message += `
+
+${getFooter(input)}`, message;
+}
+function getFooter(input) {
+  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
+    case "hard_stop":
+      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
+    case "use_alternative":
+      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
+    case "scope_down":
+      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
+    case "manual_only":
+      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
+    case "stop_and_explain":
+      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
+  }
+}
+function excerpt(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+// src/core/reasons.ts
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+
+// src/integrations/denial.ts
+function projectGuardDenial(evaluation, options) {
+  if (evaluation.decision.kind !== "deny")
+    return;
+  let evidence = options.includeEvidence ? evaluation.decision.evidence.find((item) => item.kind === "command") : void 0;
+  return {
+    reason: evaluation.decision.reason,
+    ruleId: evaluation.decision.ruleId,
+    intent: evaluation.decision.intent,
+    command: evidence?.command,
+    segment: evidence?.segment,
+    toolName: options.toolName
+  };
+}
+function createFailedClosedDenial(options = {}) {
+  return {
+    reason: REASON_SAFETY_NET_FAILED_CLOSED,
+    intent: "stop_and_explain",
+    command: options.command,
+    segment: options.segment ?? options.command,
+    toolName: options.toolName
+  };
+}
+function formatDenial(denial) {
+  return formatBlockedMessage({ ...denial, redact: redactSecrets });
+}
+function formatIntegrationError(cause) {
+  return redactSecrets(cause instanceof Error ? cause.message : String(cause));
 }
 
 // src/config/policy-metadata.ts
@@ -1675,6 +1802,51 @@ function getBasename(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
 
+// src/core/rules/policy/source-syntax.ts
+var NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/, RULEBOOK_FILE = "rulebook.json", RULES_DIR = ".cc-safety-net/rules";
+var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/, GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/, GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/, RULES_DIR_RE = ".cc-safety-net/rules".replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), RULEBOOK_FILE_RE = "rulebook.json".replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
+function getRepositoryRulebookPath(name) {
+  return `.cc-safety-net/rules/${name}/rulebook.json`;
+}
+function getRulebookSourceSyntaxError(source) {
+  if (isGitHubRulebookSource(source))
+    try {
+      return parseGitHubSource(source), null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
+}
+function parseGitHubSource(spec) {
+  if (spec.startsWith("github:"))
+    throw Error(`Invalid rulebook source: ${spec}`);
+  let match = spec.match(GITHUB_SOURCE_RE);
+  if (!match?.[1] || !match[2] || !match[3])
+    throw Error(`Invalid GitHub rulebook source: ${spec}`);
+  let [ref, name, ...extraParts] = match[3].split("/");
+  if (!ref || !GITHUB_REF_PATTERN.test(ref))
+    throw Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
+  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name))
+    throw Error(`GitHub rulebook sources must be owner/repo#ref/<rulebook-name>: ${spec}`);
+  return {
+    owner: match[1],
+    repo: match[2],
+    ref,
+    path: getRepositoryRulebookPath(name),
+    name
+  };
+}
+function isGitHubRepositorySource(source) {
+  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
+}
+function isGitHubRulebookSource(source) {
+  return GITHUB_SOURCE_RE.test(source);
+}
+function assertBareRulebookName(source) {
+  if (!NAME_PATTERN.test(source))
+    throw Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
+}
+
 // src/domain/decision.ts
 var BLOCK_INTENTS = [
   "hard_stop",
@@ -1685,7 +1857,7 @@ var BLOCK_INTENTS = [
 ];
 
 // src/types.ts
-var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/, RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/, DANGEROUS_PATTERNS = [
+var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/, RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/, DANGEROUS_PATTERNS = [
   RM_RECURSIVE_FORCE_PATTERN,
   /\bgit\s+reset\s+--hard\b/,
   /\bgit\s+checkout\s+--\b/,
@@ -3391,234 +3563,6 @@ function isReservedTransparentWrapper(command2) {
   return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
 }
 
-// src/core/rules/policy/paths.ts
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname3, join as join3, resolve as resolve3 } from "node:path";
-var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", RULEBOOK_FILE = "rulebook.json", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`, CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
-function getProjectRulesDir(cwd) {
-  return resolve3(cwd ?? process.cwd(), RULES_DIR);
-}
-function getProjectRulesConfigPath(cwd) {
-  return join3(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
-}
-function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname3(options2.userConfigPath) : join3(getUserSafetyNetHome(), RULES_SUBDIR));
-}
-function getUserSafetyNetHome() {
-  let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve3(home) : join3(homedir2(), SAFETY_NET_DIR);
-}
-function getUserRulesConfigPath(options2) {
-  return join3(getUserRulesDir(options2), RULES_CONFIG_FILE);
-}
-function getUserRulesLockPath(options2) {
-  return join3(getUserRulesDir(options2), RULES_LOCK_FILE);
-}
-function getRulesLockPathForConfigPath(configPath) {
-  return join3(dirname3(configPath), RULES_LOCK_FILE);
-}
-function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join3(dirname3(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
-}
-function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve3(options2.cwd ?? process.cwd(), ".safety-net.json");
-}
-function getPolicyPaths(options2) {
-  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    userConfigPath,
-    projectConfigPath,
-    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
-    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
-  };
-}
-function getScopePaths(options2) {
-  let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    configDir: dirname3(configPath),
-    configPath,
-    lockPath: getRulesLockPathForConfigPath(configPath)
-  };
-}
-function getRulebookDisplaySource(entry) {
-  if (entry.kind === "github" && entry.display_ref)
-    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
-  return entry.spec;
-}
-function getRulebookCachePath(entry, options2) {
-  let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join3(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
-}
-function getRulebookCacheSlug(entry) {
-  return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
-}
-function getRepositoryRulebookPath(name) {
-  return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
-}
-function getRulesCacheDir(options2) {
-  return join3(dirname3(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
-}
-
-// src/core/rules/policy/sources.ts
-var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/, GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/, GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/, GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/, RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
-function getRulebookSourceSyntaxError(source) {
-  if (isGitHubRulebookSource(source))
-    try {
-      return parseGitHubSource(source), null;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
-}
-function parseGitHubSource(spec) {
-  if (spec.startsWith("github:"))
-    throw Error(`Invalid rulebook source: ${spec}`);
-  let match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3])
-    throw Error(`Invalid GitHub rulebook source: ${spec}`);
-  let [ref, name, ...extraParts] = match[3].split("/");
-  if (!ref || !GITHUB_REF_PATTERN.test(ref))
-    throw Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name))
-    throw Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  return {
-    owner: match[1],
-    repo: match[2],
-    ref,
-    path: getRepositoryRulebookPath(name),
-    name
-  };
-}
-function isGitHubRepositorySource(source) {
-  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
-}
-function isGitHubRulebookSource(source) {
-  return GITHUB_SOURCE_RE.test(source);
-}
-function assertBareRulebookName(source) {
-  if (!NAME_PATTERN.test(source))
-    throw Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
-}
-function getRulebookLockEntrySourceIdentityError(entry) {
-  if (isGitHubRulebookSource(entry.spec))
-    return getGitHubLockEntrySourceIdentityError(entry);
-  return getLocalLockEntrySourceIdentityError(entry);
-}
-function getLocalLockEntrySourceIdentityError(entry) {
-  if (!NAME_PATTERN.test(entry.spec))
-    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
-  if (entry.kind !== "local-directory")
-    return `lock entry for ${entry.spec} must use local-directory kind`;
-  if (entry.path === entry.spec && entry.name === entry.spec)
-    return null;
-  return `lock entry for ${entry.spec} does not match local source identity`;
-}
-function getGitHubLockEntrySourceIdentityError(entry) {
-  let syntaxError = getRulebookSourceSyntaxError(entry.spec);
-  if (syntaxError)
-    return syntaxError;
-  let parsed = parseGitHubSource(entry.spec);
-  if (entry.kind !== "github")
-    return `lock entry for ${entry.spec} must use github kind`;
-  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name)
-    return null;
-  return `lock entry for ${entry.spec} does not match GitHub source identity`;
-}
-function getSelectedUpdateSpecs(config, lock, match) {
-  let exactMatches = getExactSpecMatches(config.rules, match);
-  if (exactMatches.length > 0)
-    return { ok: !0, specs: exactMatches };
-  if (!lock)
-    return {
-      ok: !1,
-      result: {
-        ok: !1,
-        errors: [
-          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
-        ],
-        warnings: [],
-        entries: []
-      }
-    };
-  let configuredSpecs = new Set(config.rules), nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
-  if (nameMatches.length === 1)
-    return { ok: !0, specs: nameMatches };
-  return noRulebookMatch(match, nameMatches);
-}
-function getRemoveMatches(rules, lock, match) {
-  let exactMatches = getExactSpecMatches(rules, match);
-  if (exactMatches.length > 0)
-    return { ok: !0, specs: exactMatches };
-  let githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
-  if (githubRefMatches.length > 0)
-    return { ok: !0, specs: githubRefMatches };
-  let githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
-  if (!githubRepositoryMatches.ok)
-    return githubRepositoryMatches;
-  if (githubRepositoryMatches.specs.length > 0)
-    return { ok: !0, specs: githubRepositoryMatches.specs };
-  let nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
-  if (nameMatches.length === 1)
-    return { ok: !0, specs: nameMatches };
-  return noRulebookMatch(match, nameMatches);
-}
-function noRulebookMatch(match, nameMatches) {
-  return {
-    ok: !1,
-    result: {
-      ok: !1,
-      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getExactSpecMatches(rules, match) {
-  return rules.filter((spec) => spec === match);
-}
-function getGitHubRepositoryRefMatches(rules, match) {
-  let parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE), owner = parsed?.[1], repo = parsed?.[2], ref = parsed?.[3];
-  if (!owner || !repo || !ref)
-    return [];
-  return getConfiguredGitHubSourceMatches(rules, (source) => {
-    return source.owner === owner && source.repo === repo && source.ref === ref;
-  });
-}
-function getGitHubRepositoryMatches(rules, match) {
-  if (!isGitHubRepositorySource(match))
-    return { ok: !0, specs: [] };
-  let [owner, repo] = match.split("/"), specs = getConfiguredGitHubSourceMatches(rules, (source) => {
-    return source.owner === owner && source.repo === repo;
-  });
-  if (new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref)).size < 2)
-    return { ok: !0, specs };
-  return {
-    ok: !1,
-    result: {
-      ok: !1,
-      errors: [
-        `Multiple refs are configured for ${match}. Use an explicit ref:`,
-        `  cc-safety-net rule remove ${match}#<ref>`
-      ],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getConfiguredGitHubSource(spec) {
-  try {
-    return parseGitHubSource(spec);
-  } catch {
-    return null;
-  }
-}
-function getConfiguredGitHubSourceMatches(rules, matches) {
-  return rules.filter((spec) => {
-    let source = getConfiguredGitHubSource(spec);
-    return source ? matches(source) : !1;
-  });
-}
-
 // src/core/secret-protection-rules.ts
 var SECRET_BASENAME_RULES = [
   {
@@ -4224,7 +4168,7 @@ function addUnknownFieldErrors(record, allowed, errors, prefix) {
 // src/core/rules/policy/config-file.ts
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname4 } from "node:path";
+import { dirname as dirname3 } from "node:path";
 
 // src/core/rules/policy/types.ts
 var DEFAULT_CONFIG = {
@@ -4308,7 +4252,7 @@ function createAtomicTempPath(path) {
   return `${path}.${randomBytes(8).toString("hex")}.tmp`;
 }
 function writeJsonAtomic(path, value, mode) {
-  mkdirSync2(dirname4(path), { recursive: !0 });
+  mkdirSync2(dirname3(path), { recursive: !0 });
   let tempPath = createAtomicTempPath(path);
   try {
     writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
@@ -4320,6 +4264,71 @@ function writeJsonAtomic(path, value, mode) {
   } catch (error) {
     throw rmSync(tempPath, { force: !0 }), error;
   }
+}
+
+// src/core/rules/policy/paths.ts
+import { homedir as homedir2 } from "node:os";
+import { dirname as dirname4, join as join3, resolve as resolve3 } from "node:path";
+var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
+function getProjectRulesDir(cwd) {
+  return resolve3(cwd ?? process.cwd(), RULES_DIR);
+}
+function getProjectRulesConfigPath(cwd) {
+  return join3(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+}
+function getUserRulesDir(options2) {
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname4(options2.userConfigPath) : join3(getUserSafetyNetHome(), RULES_SUBDIR));
+}
+function getUserSafetyNetHome() {
+  let home = process.env[CC_SAFETY_NET_HOME];
+  return home ? resolve3(home) : join3(homedir2(), SAFETY_NET_DIR);
+}
+function getUserRulesConfigPath(options2) {
+  return join3(getUserRulesDir(options2), RULES_CONFIG_FILE);
+}
+function getUserRulesLockPath(options2) {
+  return join3(getUserRulesDir(options2), RULES_LOCK_FILE);
+}
+function getRulesLockPathForConfigPath(configPath) {
+  return join3(dirname4(configPath), RULES_LOCK_FILE);
+}
+function getLegacyUserRulesConfigPath(options2 = {}) {
+  return join3(dirname4(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+}
+function getLegacyProjectRulesConfigPath(options2 = {}) {
+  return resolve3(options2.cwd ?? process.cwd(), ".safety-net.json");
+}
+function getPolicyPaths(options2) {
+  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  return {
+    userConfigPath,
+    projectConfigPath,
+    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
+    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
+  };
+}
+function getScopePaths(options2) {
+  let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  return {
+    configDir: dirname4(configPath),
+    configPath,
+    lockPath: getRulesLockPathForConfigPath(configPath)
+  };
+}
+function getRulebookDisplaySource(entry) {
+  if (entry.kind === "github" && entry.display_ref)
+    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
+  return entry.spec;
+}
+function getRulebookCachePath(entry, options2) {
+  let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
+  return join3(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+}
+function getRulebookCacheSlug(entry) {
+  return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
+}
+function getRulesCacheDir(options2) {
+  return join3(dirname4(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
 }
 
 // src/core/policy.ts
@@ -4858,6 +4867,130 @@ function assertValidRulebook(rulebook) {
 
 // src/core/rules/policy/lockfile.ts
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
+
+// src/core/rules/policy/sources.ts
+var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
+function getRulebookLockEntrySourceIdentityError(entry) {
+  if (isGitHubRulebookSource(entry.spec))
+    return getGitHubLockEntrySourceIdentityError(entry);
+  return getLocalLockEntrySourceIdentityError(entry);
+}
+function getLocalLockEntrySourceIdentityError(entry) {
+  if (!NAME_PATTERN.test(entry.spec))
+    return `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${entry.spec}`;
+  if (entry.kind !== "local-directory")
+    return `lock entry for ${entry.spec} must use local-directory kind`;
+  if (entry.path === entry.spec && entry.name === entry.spec)
+    return null;
+  return `lock entry for ${entry.spec} does not match local source identity`;
+}
+function getGitHubLockEntrySourceIdentityError(entry) {
+  let syntaxError = getRulebookSourceSyntaxError(entry.spec);
+  if (syntaxError)
+    return syntaxError;
+  let parsed = parseGitHubSource(entry.spec);
+  if (entry.kind !== "github")
+    return `lock entry for ${entry.spec} must use github kind`;
+  if (entry.owner === parsed.owner && entry.repo === parsed.repo && entry.ref === parsed.ref && entry.path === parsed.path && entry.name === parsed.name)
+    return null;
+  return `lock entry for ${entry.spec} does not match GitHub source identity`;
+}
+function getSelectedUpdateSpecs(config, lock, match) {
+  let exactMatches = getExactSpecMatches(config.rules, match);
+  if (exactMatches.length > 0)
+    return { ok: !0, specs: exactMatches };
+  if (!lock)
+    return {
+      ok: !1,
+      result: {
+        ok: !1,
+        errors: [
+          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
+        ],
+        warnings: [],
+        entries: []
+      }
+    };
+  let configuredSpecs = new Set(config.rules), nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
+  if (nameMatches.length === 1)
+    return { ok: !0, specs: nameMatches };
+  return noRulebookMatch(match, nameMatches);
+}
+function getRemoveMatches(rules, lock, match) {
+  let exactMatches = getExactSpecMatches(rules, match);
+  if (exactMatches.length > 0)
+    return { ok: !0, specs: exactMatches };
+  let githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
+  if (githubRefMatches.length > 0)
+    return { ok: !0, specs: githubRefMatches };
+  let githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
+  if (!githubRepositoryMatches.ok)
+    return githubRepositoryMatches;
+  if (githubRepositoryMatches.specs.length > 0)
+    return { ok: !0, specs: githubRepositoryMatches.specs };
+  let nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
+  if (nameMatches.length === 1)
+    return { ok: !0, specs: nameMatches };
+  return noRulebookMatch(match, nameMatches);
+}
+function noRulebookMatch(match, nameMatches) {
+  return {
+    ok: !1,
+    result: {
+      ok: !1,
+      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getExactSpecMatches(rules, match) {
+  return rules.filter((spec) => spec === match);
+}
+function getGitHubRepositoryRefMatches(rules, match) {
+  let parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE), owner = parsed?.[1], repo = parsed?.[2], ref = parsed?.[3];
+  if (!owner || !repo || !ref)
+    return [];
+  return getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo && source.ref === ref;
+  });
+}
+function getGitHubRepositoryMatches(rules, match) {
+  if (!isGitHubRepositorySource(match))
+    return { ok: !0, specs: [] };
+  let [owner, repo] = match.split("/"), specs = getConfiguredGitHubSourceMatches(rules, (source) => {
+    return source.owner === owner && source.repo === repo;
+  });
+  if (new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref)).size < 2)
+    return { ok: !0, specs };
+  return {
+    ok: !1,
+    result: {
+      ok: !1,
+      errors: [
+        `Multiple refs are configured for ${match}. Use an explicit ref:`,
+        `  cc-safety-net rule remove ${match}#<ref>`
+      ],
+      warnings: [],
+      entries: []
+    }
+  };
+}
+function getConfiguredGitHubSource(spec) {
+  try {
+    return parseGitHubSource(spec);
+  } catch {
+    return null;
+  }
+}
+function getConfiguredGitHubSourceMatches(rules, matches) {
+  return rules.filter((spec) => {
+    let source = getConfiguredGitHubSource(spec);
+    return source ? matches(source) : !1;
+  });
+}
+
+// src/core/rules/policy/lockfile.ts
 var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/, RULEBOOK_SOURCE_KINDS = /* @__PURE__ */ new Set(["local-directory", "github"]);
 function readLockfile(path) {
   if (!existsSync3(path))
@@ -4969,6 +5102,13 @@ function requiredString(candidate, field) {
 import { createHash } from "node:crypto";
 import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
 import { join as join5 } from "node:path";
+var GITHUB_FETCH_LIMITS = Object.freeze({
+  timeoutMs: 15000,
+  metadataBytes: 524288,
+  commitBytes: 262144,
+  treeBytes: 16777216,
+  rawBytes: 4194304
+});
 async function resolveRulebookSource(spec, configDir, options2) {
   if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec);
@@ -4986,16 +5126,16 @@ async function discoverGitHubRepositoryRulebooks(source) {
   let [owner, repo] = source.split("/");
   if (!owner || !repo)
     throw Error(`Invalid GitHub repository source: ${source}`);
-  let metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+  let metadataResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}`, "metadata"), metadataResponse = metadataResource.response;
   if (!metadataResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  let metadata2 = await metadataResponse.json();
+  let metadata2 = JSON.parse(metadataResource.content);
   if (!metadata2.default_branch)
     throw Error(`Failed to inspect ${source}: missing default branch`);
-  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source), treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
+  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source), treeResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`, "tree"), treeResponse = treeResource.response;
   if (!treeResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
-  let names = ((await treeResponse.json()).tree ?? []).flatMap((entry) => {
+  let names = (JSON.parse(treeResource.content).tree ?? []).flatMap((entry) => {
     if (entry.type !== "blob" || typeof entry.path !== "string")
       return [];
     let match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
@@ -5030,10 +5170,10 @@ function resolveLocalRulebook(spec, configDir, _options) {
   };
 }
 async function resolveGitHubRulebook(spec) {
-  let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec), rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
+  let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec), rawResource = await fetchGitHubResource(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`, "raw"), rawResponse = rawResource.response;
   if (!rawResponse.ok)
     throw Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
-  let content = await rawResponse.text(), rulebook = assertValidRulebook(JSON.parse(content));
+  let content = rawResource.content, rulebook = assertValidRulebook(JSON.parse(content));
   if (rulebook.name !== parsed.name)
     throw Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
   return {
@@ -5066,10 +5206,10 @@ async function readLockedGitHubRulebook(entry, configDir, options2) {
   return fetchLockedGitHubRulebook(entry);
 }
 async function fetchLockedGitHubRulebook(entry) {
-  let rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
+  let rawResource = await fetchGitHubResource(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`, "raw"), rawResponse = rawResource.response;
   if (!rawResponse.ok)
     throw Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
-  let content = await rawResponse.text();
+  let content = rawResource.content;
   if (sha256Digest(content) !== entry.digest)
     throw Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
   return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
@@ -5081,13 +5221,61 @@ function assertRulebookMatchesLockEntry(content, entry) {
   return rulebook;
 }
 async function resolveGitHubCommit(owner, repo, ref, source) {
-  let commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
+  let commitResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, "commit"), commitResponse = commitResource.response;
   if (!commitResponse.ok)
     throw Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
-  let commitJson = await commitResponse.json();
+  let commitJson = JSON.parse(commitResource.content);
   if (!commitJson.sha)
     throw Error(`Failed to resolve commit for ${source}`);
   return commitJson.sha;
+}
+async function fetchGitHubResource(url, kind, options2 = {}) {
+  let controller = new AbortController, timeout = setTimeout(() => controller.abort(), options2.timeoutMs ?? GITHUB_FETCH_LIMITS.timeoutMs);
+  try {
+    let response = await (options2.fetch ?? fetch)(url, { signal: controller.signal });
+    if (!response.ok)
+      return cancelGitHubResponseBody(response), { response, content: "" };
+    return {
+      response,
+      content: await readGitHubResponseText(response, kind)
+    };
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw Error("GitHub request timed out", { cause: error });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+async function readGitHubResponseText(response, kind) {
+  let limit = GITHUB_FETCH_LIMITS[`${kind}Bytes`], declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > limit)
+    throw cancelGitHubResponseBody(response), Error(`GitHub ${kind} response exceeds ${limit} bytes`);
+  if (!response.body)
+    return "";
+  let reader = response.body.getReader(), chunks = [], bytes = 0;
+  while (!0) {
+    let chunk = await reader.read();
+    if (chunk.done)
+      break;
+    if (bytes += chunk.value.byteLength, bytes > limit)
+      throw cancelGitHubResponseReader(reader), Error(`GitHub ${kind} response exceeds ${limit} bytes`);
+    chunks.push(Buffer.from(chunk.value));
+  }
+  return Buffer.concat(chunks, bytes).toString("utf-8");
+}
+function cancelGitHubResponseBody(response) {
+  if (!response.body)
+    return;
+  safelyCancelGitHubResponse(() => response.body?.cancel());
+}
+function cancelGitHubResponseReader(reader) {
+  safelyCancelGitHubResponse(() => reader.cancel());
+}
+function safelyCancelGitHubResponse(cancel) {
+  try {
+    Promise.resolve(cancel()).catch(() => {});
+  } catch {}
 }
 function getLocalRulebookPath(configDir, name) {
   return join5(configDir, name, RULEBOOK_FILE);
@@ -7760,9 +7948,6 @@ function extractXargsChildCommandWithInfo(tokens) {
   return { childTokens: [], replacementToken };
 }
 
-// src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
-
 // src/core/analyze/segment.ts
 var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "branch",
@@ -8850,7 +9035,7 @@ function isCCSafetyNetPackage(value) {
   return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? "");
 }
 
-// src/core/analyze/with-program.ts
+// src/core/analyze/index.ts
 function analyzeCommandWithProgram(command2, options2, program, factStore) {
   let modes = options2.strict !== void 0 && options2.paranoidRm !== void 0 && options2.paranoidInterpreters !== void 0 && options2.worktreeMode !== void 0 ? options2 : getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
@@ -8964,7 +9149,7 @@ function getCommandTokenText(token) {
   return null;
 }
 
-// src/engine/facts/index.ts
+// src/core/semantic-facts.ts
 var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   "absolutepath",
   "directorypath",
@@ -10277,7 +10462,7 @@ var DEFAULT_DEPENDENCIES = {
   getModes: getCCSafetyNetEnvModes
 };
 function evaluateGuard(invocation, options2 = {}) {
-  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getCommandFromToolInput(invocation.input), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, facts = callDependency("policy-protection", invocation, () => createSemanticFacts(invocation)), policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(facts));
+  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getInputCommandOrFail(invocation), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, facts = callDependency("policy-protection", command2, () => createSemanticFacts(invocation)), policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
   if (policyTarget) {
     let displayCommand = command2 ?? policyTarget.target;
     return {
@@ -10293,10 +10478,10 @@ function evaluateGuard(invocation, options2 = {}) {
       }
     };
   }
-  let snapshot = callDependency("config-load", invocation, () => dependencies.loadPolicySnapshot({
+  let snapshot = callDependency("config-load", command2, () => dependencies.loadPolicySnapshot({
     ...options2.policyOptions,
     cwd: invocation.context.configCwd
-  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(facts, policy.secretProtection));
+  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", command2, () => dependencies.findSensitiveTarget(facts, policy.secretProtection));
   if (secretTarget) {
     let displayCommand = command2 ?? secretTarget.target;
     return {
@@ -10336,8 +10521,8 @@ function evaluateGuard(invocation, options2 = {}) {
     return { stage: "non-command", decision: { kind: "allow" } };
   }
   if (!invocation.command || invocation.command.trim() === "")
-    return failedClosedEvaluation("command-validation", invocation);
-  let result = callDependency("command-analysis", invocation, () => {
+    return failedClosedEvaluation("command-validation", command2);
+  let result = callDependency("command-analysis", command2, () => {
     let modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(invocation.command, {
       cwd: invocation.context.executionCwd,
@@ -10368,15 +10553,22 @@ function evaluateGuard(invocation, options2 = {}) {
 function getDeclaredCommandProgram(facts) {
   return getCommandSyntaxFact(facts, "declared-command")?.program;
 }
-function callDependency(stage, invocation, call) {
+function getInputCommandOrFail(invocation) {
+  try {
+    return getCommandFromToolInput(invocation.input);
+  } catch (cause) {
+    let command2 = isCommandInvocation(invocation) ? invocation.command : void 0;
+    throw new GuardEvaluationError("policy-protection", failedClosedEvaluation("policy-protection", command2), cause);
+  }
+}
+function callDependency(stage, command2, call) {
   try {
     return call();
   } catch (cause) {
-    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, invocation), cause);
+    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, command2), cause);
   }
 }
-function failedClosedEvaluation(stage, invocation) {
-  let command2 = isCommandInvocation(invocation) ? invocation.command : getCommandFromToolInput(invocation.input);
+function failedClosedEvaluation(stage, command2) {
   return {
     stage,
     decision: {
@@ -10398,84 +10590,7 @@ function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
 }
 
-// src/core/format.ts
-function formatBlockedMessage(input) {
-  let { reason, command: command2, segment, toolName } = input, maxLen = input.maxLen ?? 200, redact = input.redact ?? ((t) => t), message = `BLOCKED by CC Safety Net
-
-Reason: ${redact(reason)}`;
-  if (input.ruleId)
-    message += `
-
-Rule: ${input.ruleId}`;
-  if (toolName)
-    message += `
-
-Tool: ${toolName}`;
-  if (command2) {
-    let safeCommand = redact(command2);
-    message += `
-
-Command: ${excerpt(safeCommand, maxLen)}`;
-  }
-  if (segment && segment !== command2) {
-    let safeSegment = redact(segment);
-    message += `
-
-Segment: ${excerpt(safeSegment, maxLen)}`;
-  }
-  return message += `
-
-${getFooter(input)}`, message;
-}
-function getFooter(input) {
-  switch (input.manualPermissionAdvice === !1 ? "hard_stop" : input.intent ?? "manual_only") {
-    case "hard_stop":
-      return "Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.";
-    case "use_alternative":
-      return "Do not retry the blocked form. Continue the task using the safer alternative described above.";
-    case "scope_down":
-      return "Retry with a narrower, explicit target as described above. Escalate to the user if the broad operation is truly required.";
-    case "manual_only":
-      return "If this operation is truly needed, ask the user for explicit permission and have them run the command manually.";
-    case "stop_and_explain":
-      return "Do not brute-force variants. Simplify or restructure the command so it can be analyzed, or report the block to the user.";
-  }
-}
-function excerpt(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-}
-
-// src/integrations/denial.ts
-function projectGuardDenial(evaluation, options2) {
-  if (evaluation.decision.kind !== "deny")
-    return;
-  let evidence = options2.includeEvidence ? evaluation.decision.evidence.find((item) => item.kind === "command") : void 0;
-  return {
-    reason: evaluation.decision.reason,
-    ruleId: evaluation.decision.ruleId,
-    intent: evaluation.decision.intent,
-    command: evidence?.command,
-    segment: evidence?.segment,
-    toolName: options2.toolName
-  };
-}
-function createFailedClosedDenial(options2 = {}) {
-  return {
-    reason: REASON_SAFETY_NET_FAILED_CLOSED,
-    intent: "stop_and_explain",
-    command: options2.command,
-    segment: options2.segment ?? options2.command,
-    toolName: options2.toolName
-  };
-}
-function formatDenial(denial) {
-  return formatBlockedMessage({ ...denial, redact: redactSecrets });
-}
-function formatIntegrationError(cause) {
-  return redactSecrets(cause instanceof Error ? cause.message : String(cause));
-}
-
-// src/engine/audit.ts
+// src/integrations/audit.ts
 function writeGuardAudit(audit, getSessionId, options2) {
   if (!audit)
     return;
@@ -10506,19 +10621,41 @@ function evaluateRuntimeGuard(invocation, options2) {
 }
 
 // src/bin/hook/common.ts
+var HOOK_INPUT_MAX_BYTES = 8388608;
 function outputHookDeny(createDenyOutput, denial) {
   console.log(JSON.stringify(createDenyOutput(formatDenial(denial))));
 }
 async function readHookInput(outputDeny) {
-  let chunks = [];
-  for await (let chunk of process.stdin)
-    chunks.push(chunk);
-  let inputText = Buffer.concat(chunks).toString("utf-8").trim();
+  let inputText;
+  try {
+    inputText = (await readBoundedHookInput(process.stdin)).trim();
+  } catch {
+    outputDeny({ reason: "Failed to parse hook input JSON." });
+    return;
+  }
   if (!inputText) {
     outputDeny({ reason: "Missing hook input JSON." });
     return;
   }
   return parseHookJson(inputText, outputDeny, "Failed to parse hook input JSON.");
+}
+async function readBoundedHookInput(input) {
+  let chunks = [], bytes = 0;
+  for await (let chunk of input) {
+    let buffer = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    if (bytes += buffer.byteLength, bytes > HOOK_INPUT_MAX_BYTES)
+      throw stopHookInput(input), Error("hook input byte limit exceeded");
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, bytes).toString("utf-8");
+}
+function stopHookInput(input) {
+  let stop = input.destroy ?? input.cancel;
+  if (!stop)
+    return;
+  try {
+    Promise.resolve(stop.call(input)).catch(() => {});
+  } catch {}
 }
 function parseHookJson(inputText, outputDeny, strictReason) {
   try {
@@ -12101,13 +12238,6 @@ function getAntigravityHooksPath(homeDir) {
 // src/integrations/self-test.ts
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join14 } from "node:path";
-
-// src/core/analyze/index.ts
-function analyzeCommand(command2, options2) {
-  return analyzeCommandWithProgram(command2, options2);
-}
-
-// src/integrations/self-test.ts
 var CASES = Object.freeze([
   { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
   { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
@@ -12147,8 +12277,7 @@ function runIntegrationSelfTest() {
       guard: {
         dependencies: {
           loadPolicySnapshot: () => SNAPSHOT,
-          getModes: () => STANDARD_MODES,
-          analyzeCommand
+          getModes: () => STANDARD_MODES
         }
       },
       audit: { agent: "self-test", getSessionId: () => {

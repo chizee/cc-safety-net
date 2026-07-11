@@ -1,17 +1,23 @@
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { RULEBOOK_FILE, RULES_DIR } from './source-syntax';
 import type { RulebookLockEntry, RulesPolicyOptions, SyncRulesConfigOptions } from './types';
+
+/** @internal Compatibility re-exports for existing direct module consumers. */
+export {
+  GITHUB_RULEBOOK_SOURCE_FORMAT,
+  getRepositoryRulebookPath,
+  RULEBOOK_FILE,
+  RULES_DIR,
+} from './source-syntax';
 
 const RULES_CONFIG_FILE = 'rule.json';
 const RULES_LOCK_FILE = 'rule.lock';
-export const RULEBOOK_FILE = 'rulebook.json';
 const LEGACY_RULES_CONFIG_FILE = 'config.json';
 const SAFETY_NET_DIR = '.cc-safety-net';
 const RULES_SUBDIR = 'rules';
 const CACHE_SUBDIR = 'cache';
-export const RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`;
 const CC_SAFETY_NET_HOME = 'CC_SAFETY_NET_HOME';
-export const GITHUB_RULEBOOK_SOURCE_FORMAT = 'owner/repo#ref/<rulebook-name>';
 export const RULE_SYNC_COMMAND = '`cc-safety-net rule sync`';
 export const RULE_MIGRATE_COMMAND = '`npx -y cc-safety-net rule migrate`';
 
@@ -128,10 +134,6 @@ function getRulebookCacheSlug(entry: RulebookLockEntry): string {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'rulebook'
   );
-}
-
-export function getRepositoryRulebookPath(name: string): string {
-  return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
 }
 
 function getRulesCacheDir(options?: RulesPolicyOptions): string {

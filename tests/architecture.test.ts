@@ -1,0 +1,101 @@
+import { describe, expect, test } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+
+const SOURCE_ROOT = join(process.cwd(), 'src');
+
+function sourceFiles(dir = SOURCE_ROOT): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return entry.name.endsWith('.ts') ? [path] : [];
+  });
+}
+
+function imports(path: string): string[] {
+  return [
+    ...readFileSync(path, 'utf-8').matchAll(/(?:from\s+|import\s*)['"]([^'"]+)['"]/g),
+  ].flatMap((match) => (match[1] ? [match[1]] : []));
+}
+
+function layer(path: string): string {
+  return relative(SOURCE_ROOT, path).split('/')[0] ?? '';
+}
+
+function importedLayer(specifier: string): string | null {
+  return specifier.startsWith('@/') ? (specifier.slice(2).split('/')[0] ?? null) : null;
+}
+
+describe('source architecture', () => {
+  test('keeps dependency direction between domain, parser, core, engine, integrations, and bin', () => {
+    const violations = sourceFiles().flatMap((path) => {
+      const owner = layer(path);
+      return imports(path).flatMap((specifier) => {
+        const target = importedLayer(specifier);
+        const invalid =
+          (owner === 'domain' && target !== null && target !== 'domain') ||
+          (owner === 'parser' && target !== null && !['domain', 'parser'].includes(target)) ||
+          (owner === 'core' &&
+            target !== null &&
+            ['engine', 'integrations', 'bin'].includes(target)) ||
+          (owner === 'engine' && target !== null && ['integrations', 'bin'].includes(target)) ||
+          (owner === 'integrations' && target === 'bin');
+        return invalid ? [`${relative(SOURCE_ROOT, path)} -> ${specifier}`] : [];
+      });
+    });
+    expect(violations).toEqual([]);
+  });
+
+  test('routes guard access through the runtime integration boundary', () => {
+    const violations = sourceFiles()
+      .filter((path) => relative(SOURCE_ROOT, path) !== 'integrations/runtime.ts')
+      .flatMap((path) =>
+        imports(path).includes('@/engine/guard') ? [relative(SOURCE_ROOT, path)] : [],
+      );
+    expect(violations).toEqual([]);
+  });
+
+  test('contains no source import cycles', () => {
+    const files = sourceFiles();
+    const byModule = new Map(
+      files.map((path) => [relative(SOURCE_ROOT, path).replace(/\.ts$/, ''), path]),
+    );
+    const edges = new Map(
+      files.map((path) => [
+        path,
+        imports(path).flatMap((specifier) => {
+          const unresolvedModule = specifier.startsWith('@/')
+            ? specifier.slice(2)
+            : specifier.startsWith('.')
+              ? relative(SOURCE_ROOT, resolve(dirname(path), specifier))
+              : null;
+          if (unresolvedModule === null) return [];
+          const module = unresolvedModule.replace(/\.(?:js|ts)$/, '');
+          return [byModule.get(module), byModule.get(`${module}/index`)]
+            .filter((candidate): candidate is string => candidate !== undefined)
+            .slice(0, 1);
+        }),
+      ]),
+    );
+    const cycles = new Set<string>();
+    const visit = (path: string, active: string[], done: Set<string>) => {
+      const cycleAt = active.indexOf(path);
+      if (cycleAt !== -1) {
+        cycles.add(
+          active
+            .slice(cycleAt)
+            .map((item) => relative(SOURCE_ROOT, item))
+            .concat(relative(SOURCE_ROOT, path))
+            .join(' -> '),
+        );
+        return;
+      }
+      if (done.has(path)) return;
+      for (const target of edges.get(path) ?? []) visit(target, [...active, path], done);
+      done.add(path);
+    };
+    const done = new Set<string>();
+    for (const path of files) visit(path, [], done);
+    expect([...cycles]).toEqual([]);
+  });
+});

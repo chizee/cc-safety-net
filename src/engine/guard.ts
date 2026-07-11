@@ -1,5 +1,5 @@
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
-import { analyzeCommandWithProgram } from '@/core/analyze/with-program';
+import { analyzeCommandWithProgram } from '@/core/analyze';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
   findPolicyConfigMutationTargetInSemanticFacts,
@@ -11,11 +11,11 @@ import {
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
-import { createSemanticFacts, getCommandSyntaxFact } from '@/engine/facts';
 import type { AnalyzeOptions, AnalyzeResult, BlockIntent } from '@/types';
 
 /** @internal */
@@ -96,13 +96,11 @@ export function evaluateGuard(
   options: GuardOptions = {},
 ): GuardEvaluation {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...options.dependencies };
-  const inputCommand = getCommandFromToolInput(invocation.input);
+  const inputCommand = getInputCommandOrFail(invocation);
   const command = isCommandInvocation(invocation) ? invocation.command : inputCommand;
 
-  const facts = callDependency('policy-protection', invocation, () =>
-    createSemanticFacts(invocation),
-  );
-  const policyTarget = callDependency('policy-protection', invocation, () =>
+  const facts = callDependency('policy-protection', command, () => createSemanticFacts(invocation));
+  const policyTarget = callDependency('policy-protection', command, () =>
     dependencies.findPolicyMutation(facts),
   );
   if (policyTarget) {
@@ -121,7 +119,7 @@ export function evaluateGuard(
     };
   }
 
-  const snapshot = callDependency('config-load', invocation, () =>
+  const snapshot = callDependency('config-load', command, () =>
     dependencies.loadPolicySnapshot({
       ...options.policyOptions,
       cwd: invocation.context.configCwd,
@@ -131,7 +129,7 @@ export function evaluateGuard(
   const secretTarget =
     policy.secretProtection.enabled === false
       ? null
-      : callDependency('secret-protection', invocation, () =>
+      : callDependency('secret-protection', command, () =>
           dependencies.findSensitiveTarget(facts, policy.secretProtection),
         );
   if (secretTarget) {
@@ -178,10 +176,10 @@ export function evaluateGuard(
   }
 
   if (!invocation.command || invocation.command.trim() === '') {
-    return failedClosedEvaluation('command-validation', invocation);
+    return failedClosedEvaluation('command-validation', command);
   }
 
-  const result = callDependency('command-analysis', invocation, () => {
+  const result = callDependency('command-analysis', command, () => {
     const modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(
       invocation.command as string,
@@ -219,18 +217,35 @@ function getDeclaredCommandProgram(facts: SemanticFacts) {
   return getCommandSyntaxFact(facts, 'declared-command')?.program;
 }
 
-function callDependency<T>(stage: GuardStage, invocation: ToolInvocation, call: () => T): T {
+function getInputCommandOrFail(invocation: ToolInvocation): string | undefined {
   try {
-    return call();
+    return getCommandFromToolInput(invocation.input);
   } catch (cause) {
-    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, invocation), cause);
+    const command = isCommandInvocation(invocation) ? invocation.command : undefined;
+    throw new GuardEvaluationError(
+      'policy-protection',
+      failedClosedEvaluation('policy-protection', command),
+      cause,
+    );
   }
 }
 
-function failedClosedEvaluation(stage: GuardStage, invocation: ToolInvocation): GuardEvaluation {
-  const command = isCommandInvocation(invocation)
-    ? invocation.command
-    : getCommandFromToolInput(invocation.input);
+function callDependency<T>(
+  stage: GuardStage,
+  command: string | null | undefined,
+  call: () => T,
+): T {
+  try {
+    return call();
+  } catch (cause) {
+    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, command), cause);
+  }
+}
+
+function failedClosedEvaluation(
+  stage: GuardStage,
+  command: string | null | undefined,
+): GuardEvaluation {
   return {
     stage,
     decision: {

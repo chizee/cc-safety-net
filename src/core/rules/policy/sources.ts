@@ -1,11 +1,23 @@
-import { NAME_PATTERN } from '@/types';
+import { RULE_SYNC_COMMAND } from './paths';
 import {
-  GITHUB_RULEBOOK_SOURCE_FORMAT,
-  getRepositoryRulebookPath,
-  RULE_SYNC_COMMAND,
-  RULEBOOK_FILE,
-  RULES_DIR,
-} from './paths';
+  getRulebookSourceSyntaxError,
+  isGitHubRepositorySource,
+  isGitHubRulebookSource,
+  NAME_PATTERN,
+  parseGitHubSource,
+} from './source-syntax';
+
+/** @internal Compatibility re-exports for existing direct module consumers. */
+export {
+  assertBareRulebookName,
+  GITHUB_RULEBOOK_PATH_RE,
+  getRulebookSourceSyntaxError,
+  isGitHubRepositorySource,
+  isGitHubRulebookSource,
+  type ParsedGitHubSource,
+  parseGitHubSource,
+} from './source-syntax';
+
 import type { RulebookLockEntry, RulesConfig, RulesLockfile, SyncRulesConfigResult } from './types';
 
 type RulebookMatchResult =
@@ -13,77 +25,7 @@ type RulebookMatchResult =
   | { ok: false; result: SyncRulesConfigResult };
 type ConfiguredGitHubSource = { owner: string; repo: string; ref: string };
 
-const GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
-const GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
 const GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
-const GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
-const RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-export const GITHUB_RULEBOOK_PATH_RE = new RegExp(
-  `^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`,
-);
-
-export interface ParsedGitHubSource {
-  owner: string;
-  repo: string;
-  ref: string;
-  path: string;
-  name: string;
-}
-
-export function getRulebookSourceSyntaxError(source: string): string | null {
-  if (isGitHubRulebookSource(source)) {
-    try {
-      parseGitHubSource(source);
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  }
-  return NAME_PATTERN.test(source)
-    ? null
-    : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
-}
-
-export function parseGitHubSource(spec: string): ParsedGitHubSource {
-  if (spec.startsWith('github:')) {
-    throw new Error(`Invalid rulebook source: ${spec}`);
-  }
-  const match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
-  }
-  const [ref, name, ...extraParts] = match[3].split('/');
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
-    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  }
-  return {
-    owner: match[1],
-    repo: match[2],
-    ref,
-    path: getRepositoryRulebookPath(name),
-    name,
-  };
-}
-
-export function isGitHubRepositorySource(source: string): boolean {
-  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
-}
-
-export function isGitHubRulebookSource(source: string): boolean {
-  return GITHUB_SOURCE_RE.test(source);
-}
-
-export function assertBareRulebookName(source: string): void {
-  if (!NAME_PATTERN.test(source)) {
-    throw new Error(
-      `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`,
-    );
-  }
-}
 
 export function getRulebookLockEntrySourceIdentityError(entry: RulebookLockEntry): string | null {
   if (isGitHubRulebookSource(entry.spec)) {

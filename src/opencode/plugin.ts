@@ -3,14 +3,13 @@ import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
 import * as toolRouting from '@/core/tool-input';
 import * as invocationDomain from '@/domain/invocation';
-import * as guardEngine from '@/engine/guard';
 import {
   createFailedClosedDenial,
   formatDenial,
   type IntegrationDenial,
   projectGuardDenial,
 } from '@/integrations/denial';
-import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import * as guardEngine from '@/integrations/runtime';
 import { loadBuiltinCommands } from '@/opencode/builtin-commands/index';
 
 type CCSafetyNetPluginInput = PluginInput & {
@@ -61,7 +60,7 @@ export function createCCSafetyNetPlugin(
           toolRouting.getCommandFromToolInput(toolInput) ?? null,
         );
         try {
-          const evaluation = evaluateRuntimeGuard(invocation, {
+          const evaluation = guardEngine.evaluateRuntimeGuard(invocation, {
             guard: { dependencies: guardDependencies },
             audit: {
               agent: 'opencode',

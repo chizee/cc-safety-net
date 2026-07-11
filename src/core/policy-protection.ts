@@ -9,11 +9,11 @@ import { readRulesConfig } from '@/core/rules/policy/config-file';
 import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
 import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
 import { getBasename, stripWrappers } from '@/core/shell';
 import { normalizeToolName } from '@/core/tool-input';
 import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
-import { createSemanticFacts, getCommandSyntaxFact } from '@/engine/facts';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'Policy config is protected and you must not modify it.';
