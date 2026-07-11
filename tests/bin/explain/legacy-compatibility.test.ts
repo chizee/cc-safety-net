@@ -3,7 +3,7 @@ import { explainCommand, formatTraceHuman } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import type { ExplainResult, TraceStep } from '@/types';
-import { getTraceSteps, withEnv } from '../../helpers';
+import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
 import { policySnapshot } from '../../helpers/policy';
 
 const OPTIONS = {
@@ -415,10 +415,9 @@ describe('legacy explain compatibility', () => {
         reason,
       ),
     );
-    expect(formatTraceHuman(result)).toContain('Remove-Item C:\\Windows -Recurse -Force');
-    expect(formatTraceHuman(result)).toContain(
-      'Segment 1: ["Remove-Item","C:Windows","-Recurse","-Force"]',
-    );
+    const human = withStdoutColor(false, () => formatTraceHuman(result));
+    expect(human).toContain('Remove-Item C:\\Windows -Recurse -Force');
+    expect(human).toContain('Segment 1: ["Remove-Item","C:Windows","-Recurse","-Force"]');
 
     const nearby = explainCommand(String.raw`Remove-Item .\cache -Recurse -Force`, {
       ...OPTIONS,
