@@ -1,7 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type ParseEntry, parse } from 'shell-quote';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
@@ -20,19 +19,14 @@ import {
   SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_VARIANT_SEPARATOR_RULES,
 } from '@/core/secret-protection-rules';
+import { advanceQuoteScanState } from '@/core/shell/shared';
+import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
+import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 import {
-  advanceQuoteScanState,
-  ENV_PROXY,
-  getCommandTokenText,
-  hasUnclosedQuotes,
-} from '@/core/shell/shared';
-import {
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  getCommandFromToolInput,
-} from '@/core/tool-input';
-import type { ToolRoute } from '@/domain/invocation';
-import type { EffectivePolicy } from '@/domain/policy';
+  createSemanticFacts,
+  getCommandSyntaxFact,
+  projectSensitiveShellText,
+} from '@/engine/facts';
 import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';
@@ -137,25 +131,6 @@ const PATTERN_ARG_LONG = new Set([
   'max-count',
 ]);
 
-const PATH_TARGET_KEYS = new Set([
-  'absolutepath',
-  'directorypath',
-  'directory_path',
-  'file',
-  'file_path',
-  'filepath',
-  'notebook_path',
-  'path',
-  'searchdirectory',
-  'search_directory',
-  'searchpath',
-  'targetfile',
-  'target_file',
-]);
-const GREP_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, 'glob']);
-const GLOB_TARGET_KEYS = new Set([...PATH_TARGET_KEYS, 'glob', 'pattern']);
-
-const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
 const PIPE_OPERATORS = new Set(['|', '|&']);
 const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
 const SHELL_STDIN_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
@@ -215,7 +190,22 @@ export function findSensitiveTargetInCommand(
   cwd = process.cwd(),
   config?: SecretProtectionConfig,
 ): SecretTarget | null {
-  return findSensitivePolicyPathTarget(extractCommandPathTargets(command), cwd, config, cwd);
+  const facts = createSemanticFacts(
+    createToolInvocation(
+      '',
+      { command },
+      { kind: 'command', shell: 'posix' },
+      { executionCwd: cwd, configCwd: cwd },
+      command,
+    ),
+  );
+  const syntax = getCommandSyntaxFact(facts, 'declared-command');
+  return findSensitivePolicyPathTarget(
+    syntax ? extractCommandPathTargets(syntax.shell, facts.store) : [],
+    cwd,
+    config,
+    cwd,
+  );
 }
 
 /** @internal */
@@ -226,73 +216,59 @@ export function findSensitiveTargetInToolInput(
   config?: SecretProtectionConfig,
   configCwd = executionCwd,
 ): SecretTarget | null {
-  return findSensitivePolicyPathTarget(
-    extractToolPathTargets(input, route),
-    executionCwd,
+  return findSensitiveTargetInSemanticFacts(
+    createSemanticFacts(createToolInvocation('', input, route, { executionCwd, configCwd }, null)),
     config,
-    configCwd,
   );
 }
 
 /** @internal */
-export function findSensitiveTargetInPolicyToolInput(
-  input: unknown,
-  route: ToolRoute,
-  executionCwd: string,
-  config: EffectivePolicy['secretProtection'],
-  configCwd: string,
+export function findSensitiveTargetInSemanticFacts(
+  facts: SemanticFacts,
+  config: SecretProtectionPolicy | undefined,
 ): SecretTarget | null {
   return findSensitivePolicyPathTarget(
-    extractToolPathTargets(input, route),
-    executionCwd,
+    extractToolPathTargets(facts),
+    facts.invocation.context.executionCwd,
     config,
-    configCwd,
+    facts.invocation.context.configCwd,
   );
 }
 
-function extractToolPathTargets(input: unknown, route: ToolRoute): string[] {
-  if (route.kind === 'command') {
-    const command = getCommandFromToolInput(input);
-    return command ? extractCommandPathTargets(command) : [];
+function extractToolPathTargets(facts: SemanticFacts): string[] {
+  if (facts.invocation.route.kind === 'command') {
+    const command = getCommandSyntaxFact(facts, 'input-candidate');
+    return command ? extractCommandPathTargets(command.shell, facts.store) : [];
   }
-  if (route.kind === 'grep') return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
-  if (route.kind === 'glob') return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (route.kind === 'patch') {
-    return [
-      ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
-      ...extractPatchTargetsFromToolInput(input),
-    ];
-  }
-  if (route.kind === 'path') return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
+  if (facts.invocation.route.kind !== 'unknown') return facts.paths.map((path) => path.raw);
 
-  const command = getCommandFromToolInput(input);
+  const command = getCommandSyntaxFact(facts, 'input-candidate');
   return [
-    ...(command ? extractCommandPathTargets(command) : []),
-    ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
+    ...(command ? extractCommandPathTargets(command.shell, facts.store) : []),
+    ...facts.paths.map((path) => path.raw),
   ];
 }
 
-function extractCommandPathTargets(command: string): string[] {
-  if (hasUnclosedQuotes(command)) {
-    return [];
-  }
+function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFactStore): string[] {
+  if (syntax.status === 'unclosed-quote') return [];
+  if (syntax.status === 'invalid') throw new Error('Unable to parse command for secret protection');
 
-  const expandedCommand = expandSupportedPathEnvironmentVariables(command);
-  const targets = extractCommandSubstitutionPathTargets(expandedCommand);
-  const tokens = parse(expandedCommand.replace(/\n/g, ' ; '), ENV_PROXY);
+  const targets = extractCommandSubstitutionPathTargets(
+    projectSensitiveShellText(syntax.source),
+    store,
+  );
   let segment: string[] = [];
   let pipeProducer: string[] | null = null;
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i] as ParseEntry;
-
-    if (isOperator(token)) {
+  for (const entry of syntax.entries) {
+    if (entry.kind === 'operator') {
+      if (!entry.boundary) continue;
       if (segment.length > 0) {
-        targets.push(...extractSegmentPathTargets(segment));
+        targets.push(...extractSegmentPathTargets(segment, store));
         if (pipeProducer !== null) {
-          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
         }
-        pipeProducer = isPipeOperator(token) ? segment : null;
+        pipeProducer = PIPE_OPERATORS.has(entry.operator) ? segment : null;
         segment = [];
       } else {
         pipeProducer = null;
@@ -300,30 +276,26 @@ function extractCommandPathTargets(command: string): string[] {
       continue;
     }
 
-    if (isRedirectOp(token)) {
-      const target = getCommandTokenText(tokens[i + 1] as ParseEntry | undefined);
-      if (target) targets.push(target);
-      i++;
+    if (entry.kind === 'redirection') {
+      const target = entry.target ? projectSensitiveShellText(entry.target) : undefined;
+      if (target && entry.targetOrder === 'legacy-segment') segment.push(target);
+      else if (target) targets.push(target);
       continue;
     }
-
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null) {
-      segment.push(tokenText);
-    }
+    segment.push(projectSensitiveShellText(entry.text));
   }
 
   if (segment.length > 0) {
-    targets.push(...extractSegmentPathTargets(segment));
+    targets.push(...extractSegmentPathTargets(segment, store));
     if (pipeProducer !== null) {
-      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
     }
   }
 
   return targets;
 }
 
-function extractSegmentPathTargets(tokens: readonly string[]): string[] {
+function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
   // Capture the value bound by `VAR=value` assignments as a candidate path so
   // that later variable indirection (e.g. `f=.env; cat "$f"` or
   // `f=.env; python3 -c "open('$f')"`) is caught at the assignment site,
@@ -345,10 +317,10 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   }
   if (PATH_ROOT_COMMANDS.has(command)) {
-    return [...assignmentValues, ...extractFindCommandTargets(post)];
+    return [...assignmentValues, ...extractFindCommandTargets(post, store)];
   }
   if (AWK_INTERPRETERS.has(command)) {
-    return [...assignmentValues, ...extractAwkPathTargets(post)];
+    return [...assignmentValues, ...extractAwkPathTargets(post, store)];
   }
   if (isCodeInterpreter(command)) {
     return [...assignmentValues, ...extractInterpreterPathTargets(command, post)];
@@ -362,8 +334,9 @@ function extractSegmentPathTargets(tokens: readonly string[]): string[] {
 function extractPipeCarrierPathTargets(
   producer: readonly string[],
   consumer: readonly string[],
+  store: SemanticFactStore,
 ): string[] {
-  if (xargsReadsPipeInputAsPath(consumer)) {
+  if (xargsReadsPipeInputAsPath(consumer, store)) {
     return extractDisplayCommandOperands(producer);
   }
 
@@ -374,7 +347,7 @@ function extractPipeCarrierPathTargets(
 
   return extractDisplayCommandBodies(producer).flatMap((body) =>
     SHELL_STDIN_INTERPRETERS.has(stdinInterpreter)
-      ? extractCommandPathTargets(body)
+      ? extractCommandPathTargets(store.getShellSyntax(body), store)
       : extractPathLiteralsFromCode(body),
   );
 }
@@ -459,7 +432,7 @@ function decodePrintfEscapes(value: string): string {
   return value.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
 }
 
-function xargsReadsPipeInputAsPath(tokens: readonly string[]): boolean {
+function xargsReadsPipeInputAsPath(tokens: readonly string[], store: SemanticFactStore): boolean {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
   const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1 || basename(stripped[commandIndex] ?? '').toLowerCase() !== 'xargs') {
@@ -481,7 +454,7 @@ function xargsReadsPipeInputAsPath(tokens: readonly string[]): boolean {
       : xargs.childTokens.map((token) =>
           token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER),
         );
-  return extractSegmentPathTargets(childTokens).some((target) =>
+  return extractSegmentPathTargets(childTokens, store).some((target) =>
     target.includes(PIPE_INPUT_PATH_MARKER),
   );
 }
@@ -587,13 +560,15 @@ function extractPathRootTargets(tokens: readonly string[]): string[] {
   return roots;
 }
 
-function extractFindCommandTargets(tokens: readonly string[]): string[] {
+function extractFindCommandTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
   const targets = extractPathRootTargets(tokens);
   for (let i = 0; i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? '')) continue;
     const execCommand = getFindExecCommand(tokens, i);
-    targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== '{}'));
-    if (findExecConsumesPlaceholder(execCommand)) {
+    targets.push(
+      ...extractSegmentPathTargets(execCommand, store).filter((target) => target !== '{}'),
+    );
+    if (findExecConsumesPlaceholder(execCommand, store)) {
       targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
     }
   }
@@ -606,8 +581,8 @@ function getFindExecCommand(tokens: readonly string[], execIndex: number): strin
   return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
 }
 
-function findExecConsumesPlaceholder(tokens: readonly string[]): boolean {
-  return extractSegmentPathTargets(tokens).includes('{}');
+function findExecConsumesPlaceholder(tokens: readonly string[], store: SemanticFactStore): boolean {
+  return extractSegmentPathTargets(tokens, store).includes('{}');
 }
 
 function extractFindMatchedPathTargets(tokens: readonly string[]): string[] {
@@ -667,17 +642,21 @@ function isClusteredCodeEvalFlag(command: string, token: string): boolean {
   return evalFlags?.has(token[token.length - 1] ?? '') ?? false;
 }
 
-function extractAwkPathTargets(tokens: readonly string[]): string[] {
+function extractAwkPathTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
   return [
     ...tokens.flatMap((token) => extractOperandPathCandidates('awk', token)),
-    ...tokens.flatMap(extractAwkSystemCommandTargets),
+    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store)),
     ...tokens.flatMap(extractAwkGetlineRedirectTargets),
   ];
 }
 
-function extractAwkSystemCommandTargets(code: string): string[] {
+function extractAwkSystemCommandTargets(code: string, store: SemanticFactStore): string[] {
   if (!code.includes('system')) return [];
-  return extractAwkSystemCommands(code)?.commands.flatMap(extractCommandPathTargets) ?? [];
+  return (
+    extractAwkSystemCommands(code)?.commands.flatMap((command) =>
+      extractCommandPathTargets(store.getShellSyntax(command), store),
+    ) ?? []
+  );
 }
 
 function extractAwkGetlineRedirectTargets(code: string): string[] {
@@ -701,37 +680,54 @@ function extractPathLiteralsFromCode(code: string): string[] {
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 
-function extractCommandSubstitutionPathTargets(command: string): string[] {
-  return extractCommandSubstitutionBodies(command).flatMap((body) => [
-    ...extractCommandPathTargets(body),
-    ...(commandSubstitutionDecodesBase64(body)
-      ? extractBase64DecodedPathCandidates(parse(body.replace(/\n/g, ' ; '), ENV_PROXY))
-      : []),
-  ]);
+function extractCommandSubstitutionPathTargets(
+  command: string,
+  store: SemanticFactStore,
+): string[] {
+  return extractCommandSubstitutionBodies(command).flatMap((body) => {
+    const syntax = store.getShellSyntax(body);
+    return [
+      ...extractCommandPathTargets(syntax, store),
+      ...(commandSubstitutionDecodesBase64(syntax)
+        ? extractBase64DecodedPathCandidates(syntax)
+        : []),
+    ];
+  });
 }
 
-function commandSubstitutionDecodesBase64(command: string): boolean {
-  const tokens = parse(command.replace(/\n/g, ' ; '), ENV_PROXY);
-  for (let i = 0; i < tokens.length; i++) {
-    const token = getCommandTokenText(tokens[i] as ParseEntry | undefined);
-    if (token === null || basename(token).toLowerCase() !== 'base64') {
+function commandSubstitutionDecodesBase64(syntax: ShellSyntaxFacts): boolean {
+  const entries = syntax.entries;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (
+      entry?.kind !== 'word' ||
+      basename(projectSensitiveShellText(entry.text)).toLowerCase() !== 'base64'
+    ) {
       continue;
     }
-    for (let j = i + 1; j < tokens.length; j++) {
-      if (isOperator(tokens[j] as ParseEntry)) break;
-      const flag = getCommandTokenText(tokens[j] as ParseEntry | undefined);
-      if (flag && isBase64DecodeFlag(flag)) return true;
+    for (let j = i + 1; j < entries.length; j++) {
+      const candidate = entries[j];
+      if (candidate?.kind === 'operator') break;
+      if (
+        candidate?.kind === 'word' &&
+        isBase64DecodeFlag(projectSensitiveShellText(candidate.text))
+      ) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-function extractBase64DecodedPathCandidates(tokens: readonly ParseEntry[]): string[] {
-  return tokens
-    .flatMap((token) => {
-      const tokenText = getCommandTokenText(token);
-      return tokenText === null ? [] : [tokenText];
-    })
+function extractBase64DecodedPathCandidates(syntax: ShellSyntaxFacts): string[] {
+  return syntax.entries
+    .flatMap((entry) =>
+      entry.kind === 'word'
+        ? [projectSensitiveShellText(entry.text)]
+        : entry.kind === 'redirection' && entry.target
+          ? [projectSensitiveShellText(entry.target)]
+          : [],
+    )
     .flatMap(decodeBase64PathCandidate);
 }
 
@@ -1361,26 +1357,5 @@ function basename(token: string): string {
       .split(/[\\/]/)
       .pop()
       ?.replace(/\.exe$/i, '') ?? token
-  );
-}
-
-function isOperator(token: ParseEntry): boolean {
-  return (
-    typeof token === 'object' && token !== null && 'op' in token && SHELL_OPERATORS.has(token.op)
-  );
-}
-
-function isPipeOperator(token: ParseEntry): boolean {
-  return (
-    typeof token === 'object' && token !== null && 'op' in token && PIPE_OPERATORS.has(token.op)
-  );
-}
-
-function isRedirectOp(token: ParseEntry): boolean {
-  return (
-    typeof token === 'object' &&
-    token !== null &&
-    'op' in token &&
-    /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op)
   );
 }

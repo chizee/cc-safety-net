@@ -1,5 +1,4 @@
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
-import type { analyzeCommand } from '@/core/analyze';
 import { redactSecrets } from '@/core/audit';
 import { resolveContainedCwd } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
@@ -28,8 +27,6 @@ type PiToolCallContext = {
   sessionManager: {
     getSessionFile: () => string | undefined;
   };
-  safetyNetAnalyzeCommand?: typeof analyzeCommand;
-  safetyNetPolicyOptions?: PolicySnapshotOptions;
 };
 
 type PiToolCallResult = { block: true; reason: string } | undefined;
@@ -71,15 +68,21 @@ export const handlePiToolCall = createPiToolCallHandler();
 
 /** @internal */
 export function createPiToolCallHandler(
-  guardDependencies: Partial<GuardDependencies> = {},
+  options: {
+    guardDependencies?: Partial<GuardDependencies>;
+    policyOptions?: PolicySnapshotOptions;
+  } = {},
 ): (event: unknown, ctx: PiToolCallContext) => PiToolCallResult {
-  return (event, ctx) => handlePiToolCallWithDependencies(event, ctx, guardDependencies);
+  return (event, ctx) => handlePiToolCallWithDependencies(event, ctx, options);
 }
 
 function handlePiToolCallWithDependencies(
   event: unknown,
   ctx: PiToolCallContext,
-  guardDependencies: Partial<GuardDependencies>,
+  options: {
+    guardDependencies?: Partial<GuardDependencies>;
+    policyOptions?: PolicySnapshotOptions;
+  },
 ): PiToolCallResult {
   const toolCall = getPiToolCall(event, ctx);
   if (!toolCall) return undefined;
@@ -99,11 +102,8 @@ function handlePiToolCallWithDependencies(
   try {
     evaluation = evaluateGuard(toolCall, {
       auditAllowed: envTruthy(ENV_FLAGS.debug),
-      policyOptions: ctx.safetyNetPolicyOptions,
-      dependencies: {
-        ...guardDependencies,
-        ...(ctx.safetyNetAnalyzeCommand ? { analyzeCommand: ctx.safetyNetAnalyzeCommand } : {}),
-      },
+      policyOptions: options.policyOptions,
+      dependencies: options.guardDependencies,
     });
   } catch (error) {
     if (!(error instanceof GuardEvaluationError)) throw error;

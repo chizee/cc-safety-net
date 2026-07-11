@@ -1,12 +1,5 @@
 import type { ParseEntry } from 'shell-quote';
 
-export const ENV_PROXY = new Proxy(
-  {},
-  {
-    get: (_, name) => `$${String(name)}`,
-  },
-);
-
 export interface QuoteScanState {
   inSingle: boolean;
   inDouble: boolean;
@@ -37,6 +30,7 @@ export function advanceQuoteScanState(char: string, state: QuoteScanState): bool
   return false;
 }
 
+/** @internal */
 export function hasUnclosedQuotes(command: string): boolean {
   const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
 
@@ -81,6 +75,7 @@ function startsShellComment(command: string, index: number): boolean {
   return index === 0 || /\s/.test(command[index - 1] ?? '');
 }
 
+/** @internal */
 export function getCommandTokenText(token: ParseEntry | undefined): string | null {
   if (typeof token === 'string') {
     return token;

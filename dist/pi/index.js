@@ -8303,10 +8303,10 @@ function getSetOptionChanges(tokens, commandIndex) {
 }
 
 // src/core/analyze/analyze-command.ts
-function analyzeCommandInternal(command2, depth, options2) {
+function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
   if (depth >= MAX_RECURSION_DEPTH)
     return { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
-  let program = parseCommand(command2, options2.shell);
+  let program = parsedProgram ?? options2.factStore?.getCommandProgram(command2, options2.shell ?? "auto") ?? parseCommand(command2, options2.shell);
   if (depth === 0 && options2.invalidReason && isFailClosedRepairCommand(program))
     return null;
   if (program.status === "limited")
@@ -8473,8 +8473,8 @@ function isCCSafetyNetPackage(value) {
   return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? "");
 }
 
-// src/core/analyze/index.ts
-function analyzeCommand(command2, options2) {
+// src/core/analyze/with-program.ts
+function analyzeCommandWithProgram(command2, options2, program, factStore) {
   let modes = getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
@@ -8483,16 +8483,14 @@ function analyzeCommand(command2, options2) {
     strict: options2.strict ?? modes.strict,
     paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
     paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
-    worktreeMode: options2.worktreeMode ?? modes.worktreeMode
-  });
+    worktreeMode: options2.worktreeMode ?? modes.worktreeMode,
+    factStore
+  }, program);
 }
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
 import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, normalize as normalize4, resolve as resolve7 } from "node:path";
-
-// node_modules/shell-quote/index.js
-var $quote = require_quote(), $parse = require_parse();
 
 // src/core/path-canonicalization.ts
 import { realpathSync as realpathSync9 } from "node:fs";
@@ -8537,10 +8535,17 @@ function getSupportedPathEnvironmentValue(name) {
   return process.env[name] ?? null;
 }
 
+// src/domain/invocation.ts
+function createToolInvocation(toolName, input, route, context, command2) {
+  if (route.kind !== "command")
+    return { toolName, input, route, context };
+  return { toolName, input, route, context, command: command2 };
+}
+
+// node_modules/shell-quote/index.js
+var $quote = require_quote(), $parse = require_parse();
+
 // src/core/shell/shared.ts
-var ENV_PROXY = new Proxy({}, {
-  get: (_, name) => `$${String(name)}`
-});
 function advanceQuoteScanState(char, state) {
   if (state.escaped)
     return state.escaped = !1, !0;
@@ -8589,6 +8594,177 @@ function getCommandTokenText(token) {
   return null;
 }
 
+// src/engine/facts/index.ts
+var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
+  "file",
+  "file_path",
+  "filepath",
+  "notebook_path",
+  "path",
+  "searchdirectory",
+  "search_directory",
+  "searchpath",
+  "targetfile",
+  "target_file"
+]), GREP_KEYS = /* @__PURE__ */ new Set([...PATH_LIKE_KEYS, "glob"]), GLOB_KEYS = /* @__PURE__ */ new Set([...GREP_KEYS, "pattern"]), REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<", "<<", "<<<", "<>", ">&", "<&", "&>", "&>>"]), LEGACY_BOUNDARIES = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), NEUTRAL_ENV_PROXY = new Proxy({}, { get: (_, name) => ["$", "{", String(name), "}"].join("") }), DEFAULT_PARSERS = {
+  parseCommand,
+  parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
+};
+function createSemanticFacts(invocation, parserDependencies = {}) {
+  let store = createFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
+  if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
+    candidates.push({ usage: "input-candidate", source: inputCommand });
+  if (invocation.route.kind === "command" && "command" in invocation && invocation.command)
+    candidates.push({ usage: "declared-command", source: invocation.command });
+  let commands2 = candidates.reduce((facts, candidate) => {
+    let existingIndex = facts.findIndex((fact) => fact.source === candidate.source);
+    if (existingIndex !== -1) {
+      let existing = facts[existingIndex];
+      if (!existing)
+        return facts;
+      return facts[existingIndex] = freezeCommandFact({
+        ...existing,
+        usages: [...existing.usages, candidate.usage]
+      }), facts;
+    }
+    let dialect = invocation.route.kind === "command" ? invocation.route.shell : "posix", program = store.getCommandProgram(candidate.source, dialect);
+    return facts.push(freezeCommandFact({
+      usages: [candidate.usage],
+      source: candidate.source,
+      program,
+      views: projectAnalysisOrder(program),
+      uncertainties: program.issues,
+      shell: store.getShellSyntax(candidate.source)
+    })), facts;
+  }, []);
+  return Object.freeze({
+    invocation: Object.freeze({
+      toolName: invocation.toolName,
+      route: Object.freeze({ ...invocation.route }),
+      context: Object.freeze({
+        ...invocation.context,
+        ...invocation.context.policyConfigCwds ? { policyConfigCwds: Object.freeze([...invocation.context.policyConfigCwds]) } : {}
+      })
+    }),
+    commands: Object.freeze(commands2),
+    paths: Object.freeze(extractDirectPathFacts(invocation)),
+    store
+  });
+}
+function getCommandSyntaxFact(facts, usage) {
+  return facts.commands.find((fact) => fact.usages.includes(usage));
+}
+function projectSensitiveShellText(source) {
+  return expandSupportedPathEnvironmentVariables(source);
+}
+function createFactStore(parsers) {
+  let shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
+  return Object.freeze({
+    getShellSyntax: (source) => {
+      let existing = shellFacts.get(source);
+      if (existing)
+        return existing;
+      let syntax = parseShellSyntax(source, parsers.parseShell);
+      return shellFacts.set(source, syntax), syntax;
+    },
+    getCommandProgram: (source, dialect) => {
+      let key = `${dialect}\x00${source}`, existing = commandPrograms.get(key);
+      if (existing)
+        return existing;
+      let program = parsers.parseCommand(source, dialect);
+      return commandPrograms.set(key, program), program;
+    }
+  });
+}
+function freezeCommandFact(fact) {
+  return Object.freeze({
+    ...fact,
+    usages: Object.freeze([...fact.usages]),
+    views: Object.freeze([...fact.views]),
+    uncertainties: Object.freeze([...fact.uncertainties])
+  });
+}
+function projectAnalysisOrder(program) {
+  return Object.freeze(program.nodes.flatMap((node) => {
+    if (node.kind === "group")
+      return [...projectAnalysisOrder(node.body)];
+    if (node.kind !== "command")
+      return [];
+    return [...node.nested.flatMap((nested) => [...projectAnalysisOrder(nested)]), node];
+  }));
+}
+function parseShellSyntax(source, parseShell) {
+  if (hasUnclosedQuotes(source))
+    return Object.freeze({
+      status: "unclosed-quote",
+      source,
+      entries: Object.freeze([])
+    });
+  try {
+    let parsed = parseShell(source, NEUTRAL_ENV_PROXY), entries = [];
+    for (let index = 0;index < parsed.length; index++) {
+      let token = parsed[index], operator = getOperator(token);
+      if (operator === "<" && getOperator(parsed[index + 1]) === "<") {
+        let targetIndex = index + 2, target = getCommandTokenText(parsed[targetIndex]);
+        entries.push(Object.freeze({
+          kind: "redirection",
+          operator: "<<",
+          role: "here-data",
+          targetOrder: "legacy-segment",
+          ...target === null ? {} : { target }
+        })), index = target === null ? index + 1 : targetIndex;
+        continue;
+      }
+      if (operator && REDIRECTS.has(operator)) {
+        let pipeAdjusted = operator === ">" && getOperator(parsed[index + 1]) === "|", targetIndex = index + (pipeAdjusted ? 2 : 1), target = getCommandTokenText(parsed[targetIndex]);
+        if (entries.push(Object.freeze({
+          kind: "redirection",
+          operator: pipeAdjusted ? ">|" : operator,
+          role: getRedirectionRole(pipeAdjusted ? ">|" : operator),
+          targetOrder: pipeAdjusted || operator === "<<" || operator === "<<<" ? "legacy-segment" : "immediate",
+          ...target === null ? {} : { target }
+        })), target !== null || operator !== "<<" && operator !== "<<<")
+          index = targetIndex;
+        continue;
+      }
+      if (operator) {
+        entries.push(Object.freeze({
+          kind: "operator",
+          operator,
+          boundary: LEGACY_BOUNDARIES.has(operator)
+        }));
+        continue;
+      }
+      let text = getCommandTokenText(token);
+      if (text !== null)
+        entries.push(Object.freeze({ kind: "word", text }));
+    }
+    return Object.freeze({ status: "complete", source, entries: Object.freeze(entries) });
+  } catch {
+    return Object.freeze({ status: "invalid", source, entries: Object.freeze([]) });
+  }
+}
+function getRedirectionRole(operator) {
+  if (operator === "<<" || operator === "<<<")
+    return "here-data";
+  if (operator === "<" || operator === "<&")
+    return "file-read";
+  return "file-write";
+}
+function extractDirectPathFacts(invocation) {
+  let keys = invocation.route.kind === "grep" ? GREP_KEYS : invocation.route.kind === "glob" ? GLOB_KEYS : PATH_LIKE_KEYS, access = invocation.route.kind === "grep" || invocation.route.kind === "glob" ? "read" : invocation.route.kind === "patch" ? "write" : "unknown";
+  return [
+    ...extractPathLikeToolValues(invocation.input, keys).map((raw) => Object.freeze({ raw, role: "tool-path", access })),
+    ...invocation.route.kind === "patch" ? extractPatchTargetsFromToolInput(invocation.input).map((raw) => Object.freeze({ raw, role: "patch-target", access: "write" })) : []
+  ];
+}
+function getOperator(token) {
+  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
+}
+
 // src/core/policy-protection.ts
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
@@ -8604,20 +8780,6 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "searchweb",
   "view",
   "viewfile"
-]), PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
-  "absolutepath",
-  "directorypath",
-  "directory_path",
-  "file",
-  "file_path",
-  "filepath",
-  "notebook_path",
-  "path",
-  "searchdirectory",
-  "search_directory",
-  "searchpath",
-  "targetfile",
-  "target_file"
 ]), READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
   "cat",
   "file",
@@ -8631,7 +8793,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "stat",
   "tail",
   "wc"
-]), SHELL_OPERATORS = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), WRITE_REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<>", ">&", "&>", "&>>"]), SHELL_SCRIPT_COMMANDS = /* @__PURE__ */ new Set(["bash", "dash", "ksh", "sh", "zsh"]), SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
+]), SHELL_SCRIPT_COMMANDS = /* @__PURE__ */ new Set(["bash", "dash", "ksh", "sh", "zsh"]), SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
   ["bash", /* @__PURE__ */ new Set(["-c"])],
   ["dash", /* @__PURE__ */ new Set(["-c"])],
   ["ksh", /* @__PURE__ */ new Set(["-c"])],
@@ -8649,35 +8811,33 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   ["zsh", /* @__PURE__ */ new Set(["c"])],
   ["node", /* @__PURE__ */ new Set(["e"])],
   ["perl", /* @__PURE__ */ new Set(["e"])]
-]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]), SHELL_ENV_PROXY = new Proxy({}, {
-  get: (_, name) => ["$", "{", String(name), "}"].join("")
-});
-function findPolicyConfigMutationTargetInToolInput(toolName, input, route, context) {
-  for (let configCwd of /* @__PURE__ */ new Set([context.configCwd, ...context.policyConfigCwds ?? []])) {
-    let target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
+]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]);
+function findPolicyConfigMutationTargetInSemanticFacts(facts) {
+  for (let configCwd of /* @__PURE__ */ new Set([
+    facts.invocation.context.configCwd,
+    ...facts.invocation.context.policyConfigCwds ?? []
+  ])) {
+    let target = findPolicyConfigMutationTargetForContext(facts, {
       configCwd,
-      executionCwd: context.executionCwd
+      executionCwd: facts.invocation.context.executionCwd
     });
     if (target)
       return target;
   }
   return null;
 }
-function findPolicyConfigMutationTargetForContext(toolName, input, route, context) {
-  if (route.kind === "patch")
-    return findPolicyConfigMutationTargetInPaths([
-      ...extractPathLikeToolValues(input, PATH_LIKE_KEYS),
-      ...extractPatchTargetsFromToolInput(input)
-    ], !1, context);
-  let command2 = getCommandFromToolInput(input);
-  if (route.kind === "command")
-    return command2 ? findPolicyConfigMutationTargetInCommand(command2, context) : null;
-  if (route.kind === "unknown" && command2) {
-    let commandTarget = findPolicyConfigMutationTargetInCommand(command2, context);
+function findPolicyConfigMutationTargetForContext(facts, context) {
+  if (facts.invocation.route.kind === "patch")
+    return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), !1, context);
+  let command2 = getCommandSyntaxFact(facts, "input-candidate");
+  if (facts.invocation.route.kind === "command")
+    return command2 ? findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store) : null;
+  if (facts.invocation.route.kind === "unknown" && command2) {
+    let commandTarget = findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store);
     if (commandTarget)
       return commandTarget;
   }
-  return findPolicyConfigMutationTargetInPaths(extractPathLikeToolValues(input, PATH_LIKE_KEYS), route.kind === "grep" || route.kind === "glob" || isReadOnlyTool(toolName), context);
+  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), context);
 }
 function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
   let target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
@@ -8685,42 +8845,39 @@ function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
     return null;
   return readOnly ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(command2, context, variables = /* @__PURE__ */ new Map) {
-  if (hasUnclosedQuotes(command2))
-    return findPolicyConfigTargetInText(command2, context);
-  let tokens;
-  try {
-    tokens = $parse(command2.replace(/\n/g, " ; "), SHELL_ENV_PROXY);
-  } catch {
-    return findPolicyConfigTargetInText(command2, context);
-  }
+function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /* @__PURE__ */ new Map, store) {
+  if (syntax.status !== "complete")
+    return findPolicyConfigTargetInText(syntax.source, context);
   let state = { cwd: context.executionCwd, variables }, segment = [];
-  for (let i = 0;i < tokens.length; i++) {
-    let token = tokens[i];
-    if (isOperator(token)) {
-      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
+  for (let entry of syntax.entries) {
+    if (entry.kind === "operator") {
+      if (!entry.boundary)
+        continue;
+      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
       if (target)
         return target;
       state = applyShellState(segment, state), segment = [];
       continue;
     }
-    if (isRedirectOp(token)) {
-      let targetIndex = getWriteRedirectTargetIndex(tokens, i), target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
-      if (targetIndex !== null && target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd))
+    if (entry.kind === "redirection") {
+      if (entry.role === "here-data") {
+        if (entry.target)
+          segment.push(entry.target);
+        continue;
+      }
+      let target = entry.role === "file-write" ? entry.target : void 0;
+      if (target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd))
         return { target: formatShellPolicyTarget(target) };
-      i = targetIndex ?? i + 1;
       continue;
     }
-    let tokenText = getCommandTokenText(token);
-    if (tokenText !== null)
-      segment.push(tokenText);
+    segment.push(entry.text);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
 }
-function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd) {
+function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd, store) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
+  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store);
   if (scriptTarget)
     return scriptTarget;
   let sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
@@ -8731,7 +8888,7 @@ function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd) {
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
-function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
+function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store) {
   let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
@@ -8745,7 +8902,7 @@ function findScriptArgumentPolicyConfigTarget(segment, state, configCwd) {
   if (!script)
     return null;
   if (SHELL_SCRIPT_COMMANDS.has(command2))
-    return findPolicyConfigMutationTargetInCommand(script, { configCwd, executionCwd: state.cwd }, state.variables);
+    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script), { configCwd, executionCwd: state.cwd }, state.variables, store);
   let target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
@@ -8908,23 +9065,6 @@ function normalizeCandidatePath(target, cwd) {
   let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve7(homedir5(), unix.slice(2)) : unix;
   return resolveExistingPath(normalize4(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded))).replace(/\\/g, "/");
 }
-function isOperator(token) {
-  let op = getParseOp(token);
-  return op !== null && SHELL_OPERATORS.has(op);
-}
-function isRedirectOp(token) {
-  let op = getParseOp(token);
-  return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
-}
-function getWriteRedirectTargetIndex(tokens, index) {
-  let op = getParseOp(tokens[index]);
-  if (op === ">" && getParseOp(tokens[index + 1]) === "|")
-    return index + 2;
-  return op !== null && WRITE_REDIRECTS.has(op) ? index + 1 : null;
-}
-function getParseOp(token) {
-  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
-}
 
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
@@ -8979,21 +9119,7 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   "before-context",
   "context",
   "max-count"
-]), PATH_TARGET_KEYS = /* @__PURE__ */ new Set([
-  "absolutepath",
-  "directorypath",
-  "directory_path",
-  "file",
-  "file_path",
-  "filepath",
-  "notebook_path",
-  "path",
-  "searchdirectory",
-  "search_directory",
-  "searchpath",
-  "targetfile",
-  "target_file"
-]), GREP_TARGET_KEYS = /* @__PURE__ */ new Set([...PATH_TARGET_KEYS, "glob"]), GLOB_TARGET_KEYS = /* @__PURE__ */ new Set([...PATH_TARGET_KEYS, "glob", "pattern"]), SHELL_OPERATORS2 = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), PIPE_OPERATORS = /* @__PURE__ */ new Set(["|", "|&"]), PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__", SHELL_STDIN_INTERPRETERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh"]), PROGRAM_SELECTING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([["python", /* @__PURE__ */ new Set(["-m"])]]), VALUE_CONSUMING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([
+]), PIPE_OPERATORS = /* @__PURE__ */ new Set(["|", "|&"]), PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__", SHELL_STDIN_INTERPRETERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh"]), PROGRAM_SELECTING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([["python", /* @__PURE__ */ new Set(["-m"])]]), VALUE_CONSUMING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([
   ["bash", /* @__PURE__ */ new Set(["-O"])],
   ["sh", /* @__PURE__ */ new Set(["-O"])],
   ["zsh", /* @__PURE__ */ new Set(["-o"])],
@@ -9012,64 +9138,57 @@ function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
   }
   return null;
 }
-function findSensitiveTargetInPolicyToolInput(input, route, executionCwd, config, configCwd) {
-  return findSensitivePolicyPathTarget(extractToolPathTargets(input, route), executionCwd, config, configCwd);
+function findSensitiveTargetInSemanticFacts(facts, config) {
+  return findSensitivePolicyPathTarget(extractToolPathTargets(facts), facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd);
 }
-function extractToolPathTargets(input, route) {
-  if (route.kind === "command") {
-    let command3 = getCommandFromToolInput(input);
-    return command3 ? extractCommandPathTargets(command3) : [];
+function extractToolPathTargets(facts) {
+  if (facts.invocation.route.kind === "command") {
+    let command3 = getCommandSyntaxFact(facts, "input-candidate");
+    return command3 ? extractCommandPathTargets(command3.shell, facts.store) : [];
   }
-  if (route.kind === "grep")
-    return extractPathLikeToolValues(input, GREP_TARGET_KEYS);
-  if (route.kind === "glob")
-    return extractPathLikeToolValues(input, GLOB_TARGET_KEYS);
-  if (route.kind === "patch")
-    return [
-      ...extractPathLikeToolValues(input, PATH_TARGET_KEYS),
-      ...extractPatchTargetsFromToolInput(input)
-    ];
-  if (route.kind === "path")
-    return extractPathLikeToolValues(input, PATH_TARGET_KEYS);
-  let command2 = getCommandFromToolInput(input);
+  if (facts.invocation.route.kind !== "unknown")
+    return facts.paths.map((path) => path.raw);
+  let command2 = getCommandSyntaxFact(facts, "input-candidate");
   return [
-    ...command2 ? extractCommandPathTargets(command2) : [],
-    ...extractPathLikeToolValues(input, PATH_TARGET_KEYS)
+    ...command2 ? extractCommandPathTargets(command2.shell, facts.store) : [],
+    ...facts.paths.map((path) => path.raw)
   ];
 }
-function extractCommandPathTargets(command2) {
-  if (hasUnclosedQuotes(command2))
+function extractCommandPathTargets(syntax, store) {
+  if (syntax.status === "unclosed-quote")
     return [];
-  let expandedCommand = expandSupportedPathEnvironmentVariables(command2), targets = extractCommandSubstitutionPathTargets(expandedCommand), tokens = $parse(expandedCommand.replace(/\n/g, " ; "), ENV_PROXY), segment = [], pipeProducer = null;
-  for (let i = 0;i < tokens.length; i++) {
-    let token = tokens[i];
-    if (isOperator2(token)) {
+  if (syntax.status === "invalid")
+    throw Error("Unable to parse command for secret protection");
+  let targets = extractCommandSubstitutionPathTargets(projectSensitiveShellText(syntax.source), store), segment = [], pipeProducer = null;
+  for (let entry of syntax.entries) {
+    if (entry.kind === "operator") {
+      if (!entry.boundary)
+        continue;
       if (segment.length > 0) {
-        if (targets.push(...extractSegmentPathTargets(segment)), pipeProducer !== null)
-          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
-        pipeProducer = isPipeOperator(token) ? segment : null, segment = [];
+        if (targets.push(...extractSegmentPathTargets(segment, store)), pipeProducer !== null)
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
+        pipeProducer = PIPE_OPERATORS.has(entry.operator) ? segment : null, segment = [];
       } else
         pipeProducer = null;
       continue;
     }
-    if (isRedirectOp2(token)) {
-      let target = getCommandTokenText(tokens[i + 1]);
-      if (target)
+    if (entry.kind === "redirection") {
+      let target = entry.target ? projectSensitiveShellText(entry.target) : void 0;
+      if (target && entry.targetOrder === "legacy-segment")
+        segment.push(target);
+      else if (target)
         targets.push(target);
-      i++;
       continue;
     }
-    let tokenText = getCommandTokenText(token);
-    if (tokenText !== null)
-      segment.push(tokenText);
+    segment.push(projectSensitiveShellText(entry.text));
   }
   if (segment.length > 0) {
-    if (targets.push(...extractSegmentPathTargets(segment)), pipeProducer !== null)
-      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment));
+    if (targets.push(...extractSegmentPathTargets(segment, store)), pipeProducer !== null)
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
   }
   return targets;
 }
-function extractSegmentPathTargets(tokens) {
+function extractSegmentPathTargets(tokens, store) {
   let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1)
     return assignmentValues;
@@ -9079,9 +9198,9 @@ function extractSegmentPathTargets(tokens) {
   if (PATTERN_FIRST_COMMANDS.has(command2))
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   if (PATH_ROOT_COMMANDS.has(command2))
-    return [...assignmentValues, ...extractFindCommandTargets(post)];
+    return [...assignmentValues, ...extractFindCommandTargets(post, store)];
   if (AWK_INTERPRETERS.has(command2))
-    return [...assignmentValues, ...extractAwkPathTargets(post)];
+    return [...assignmentValues, ...extractAwkPathTargets(post, store)];
   if (isCodeInterpreter(command2))
     return [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
   return [
@@ -9089,13 +9208,13 @@ function extractSegmentPathTargets(tokens) {
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
   ];
 }
-function extractPipeCarrierPathTargets(producer, consumer) {
-  if (xargsReadsPipeInputAsPath(consumer))
+function extractPipeCarrierPathTargets(producer, consumer, store) {
+  if (xargsReadsPipeInputAsPath(consumer, store))
     return extractDisplayCommandOperands(producer);
   let stdinInterpreter = getStdinScriptInterpreter(consumer);
   if (stdinInterpreter === null)
     return [];
-  return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(body) : extractPathLiteralsFromCode(body));
+  return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(store.getShellSyntax(body), store) : extractPathLiteralsFromCode(body));
 }
 function extractDisplayCommandOperands(tokens) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
@@ -9147,7 +9266,7 @@ function decodePrintfEscapes(value) {
   return value.replace(/\\n/g, `
 `).replace(/\\t/g, "\t").replace(/\\r/g, "\r");
 }
-function xargsReadsPipeInputAsPath(tokens) {
+function xargsReadsPipeInputAsPath(tokens, store) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1 || basename2(stripped[commandIndex] ?? "").toLowerCase() !== "xargs")
     return !1;
@@ -9157,7 +9276,7 @@ function xargsReadsPipeInputAsPath(tokens) {
   if (xargs.replacementToken === "")
     return !1;
   let replacementToken = xargs.replacementToken, childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
-  return extractSegmentPathTargets(childTokens).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
+  return extractSegmentPathTargets(childTokens, store).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
 }
 function getStdinScriptInterpreter(tokens) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
@@ -9229,13 +9348,13 @@ function extractPathRootTargets(tokens) {
   }
   return roots;
 }
-function extractFindCommandTargets(tokens) {
+function extractFindCommandTargets(tokens, store) {
   let targets = extractPathRootTargets(tokens);
   for (let i = 0;i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES2.has(tokens[i] ?? ""))
       continue;
     let execCommand = getFindExecCommand2(tokens, i);
-    if (targets.push(...extractSegmentPathTargets(execCommand).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand))
+    if (targets.push(...extractSegmentPathTargets(execCommand, store).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand, store))
       targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
   }
   return targets;
@@ -9244,8 +9363,8 @@ function getFindExecCommand2(tokens, execIndex) {
   let execTokens = tokens.slice(execIndex + 1), terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
   return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
 }
-function findExecConsumesPlaceholder(tokens) {
-  return extractSegmentPathTargets(tokens).includes("{}");
+function findExecConsumesPlaceholder(tokens, store) {
+  return extractSegmentPathTargets(tokens, store).includes("{}");
 }
 function extractFindMatchedPathTargets(tokens) {
   return tokens.flatMap((token, index) => {
@@ -9288,17 +9407,17 @@ function isClusteredCodeEvalFlag(command2, token) {
     return !1;
   return (/^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2))?.has(token[token.length - 1] ?? "") ?? !1;
 }
-function extractAwkPathTargets(tokens) {
+function extractAwkPathTargets(tokens, store) {
   return [
     ...tokens.flatMap((token) => extractOperandPathCandidates("awk", token)),
-    ...tokens.flatMap(extractAwkSystemCommandTargets),
+    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store)),
     ...tokens.flatMap(extractAwkGetlineRedirectTargets)
   ];
 }
-function extractAwkSystemCommandTargets(code) {
+function extractAwkSystemCommandTargets(code, store) {
   if (!code.includes("system"))
     return [];
-  return extractAwkSystemCommands(code)?.commands.flatMap(extractCommandPathTargets) ?? [];
+  return extractAwkSystemCommands(code)?.commands.flatMap((command2) => extractCommandPathTargets(store.getShellSyntax(command2), store)) ?? [];
 }
 function extractAwkGetlineRedirectTargets(code) {
   return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== void 0 && value !== "");
@@ -9307,33 +9426,33 @@ function extractPathLiteralsFromCode(code) {
   let quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== void 0 && value !== ""), bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
-function extractCommandSubstitutionPathTargets(command2) {
-  return extractCommandSubstitutionBodies(command2).flatMap((body) => [
-    ...extractCommandPathTargets(body),
-    ...commandSubstitutionDecodesBase64(body) ? extractBase64DecodedPathCandidates($parse(body.replace(/\n/g, " ; "), ENV_PROXY)) : []
-  ]);
+function extractCommandSubstitutionPathTargets(command2, store) {
+  return extractCommandSubstitutionBodies(command2).flatMap((body) => {
+    let syntax = store.getShellSyntax(body);
+    return [
+      ...extractCommandPathTargets(syntax, store),
+      ...commandSubstitutionDecodesBase64(syntax) ? extractBase64DecodedPathCandidates(syntax) : []
+    ];
+  });
 }
-function commandSubstitutionDecodesBase64(command2) {
-  let tokens = $parse(command2.replace(/\n/g, " ; "), ENV_PROXY);
-  for (let i = 0;i < tokens.length; i++) {
-    let token = getCommandTokenText(tokens[i]);
-    if (token === null || basename2(token).toLowerCase() !== "base64")
+function commandSubstitutionDecodesBase64(syntax) {
+  let entries = syntax.entries;
+  for (let i = 0;i < entries.length; i++) {
+    let entry = entries[i];
+    if (entry?.kind !== "word" || basename2(projectSensitiveShellText(entry.text)).toLowerCase() !== "base64")
       continue;
-    for (let j = i + 1;j < tokens.length; j++) {
-      if (isOperator2(tokens[j]))
+    for (let j = i + 1;j < entries.length; j++) {
+      let candidate = entries[j];
+      if (candidate?.kind === "operator")
         break;
-      let flag = getCommandTokenText(tokens[j]);
-      if (flag && isBase64DecodeFlag(flag))
+      if (candidate?.kind === "word" && isBase64DecodeFlag(projectSensitiveShellText(candidate.text)))
         return !0;
     }
   }
   return !1;
 }
-function extractBase64DecodedPathCandidates(tokens) {
-  return tokens.flatMap((token) => {
-    let tokenText = getCommandTokenText(token);
-    return tokenText === null ? [] : [tokenText];
-  }).flatMap(decodeBase64PathCandidate);
+function extractBase64DecodedPathCandidates(syntax) {
+  return syntax.entries.flatMap((entry) => entry.kind === "word" ? [projectSensitiveShellText(entry.text)] : entry.kind === "redirection" && entry.target ? [projectSensitiveShellText(entry.target)] : []).flatMap(decodeBase64PathCandidate);
 }
 function decodeBase64PathCandidate(token) {
   let normalized = normalizeBase64Token(token);
@@ -9746,14 +9865,27 @@ function isSameOrChildPath(path, parent) {
 function basename2(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
 }
-function isOperator2(token) {
-  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS2.has(token.op);
-}
-function isPipeOperator(token) {
-  return typeof token === "object" && token !== null && "op" in token && PIPE_OPERATORS.has(token.op);
-}
-function isRedirectOp2(token) {
-  return typeof token === "object" && token !== null && "op" in token && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(token.op);
+
+// src/engine/decision-compatibility.ts
+function mapLegacyCommandBlock(command2, cwd, result) {
+  return {
+    decision: {
+      kind: "deny",
+      reason: result.reason,
+      intent: result.manualPermissionAdvice === !1 ? "hard_stop" : result.intent ?? "manual_only",
+      ...result.ruleId ? { ruleId: result.ruleId } : {},
+      evidence: [{ kind: "command", command: command2, segment: result.segment }]
+    },
+    audit: {
+      decision: "deny",
+      command: command2,
+      segment: result.segment,
+      reason: result.reason,
+      cwd,
+      ...result.ruleId ? { ruleId: result.ruleId } : {},
+      ...result.intent ? { intent: result.intent } : {}
+    }
+  };
 }
 
 // src/engine/guard.ts
@@ -9768,14 +9900,14 @@ class GuardEvaluationError extends Error {
   }
 }
 var DEFAULT_DEPENDENCIES = {
-  findPolicyMutation: findPolicyConfigMutationTargetInToolInput,
+  findPolicyMutation: findPolicyConfigMutationTargetInSemanticFacts,
   loadPolicySnapshot,
-  findSensitiveTarget: findSensitiveTargetInPolicyToolInput,
-  analyzeCommand,
+  findSensitiveTarget: findSensitiveTargetInSemanticFacts,
+  analyzeCommand: analyzeCommandWithProgram,
   getModes: getCCSafetyNetEnvModes
 };
 function evaluateGuard(invocation, options2 = {}) {
-  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getCommandFromToolInput(invocation.input), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(invocation.toolName, invocation.input, invocation.route, invocation.context));
+  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getCommandFromToolInput(invocation.input), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, facts = callDependency("policy-protection", invocation, () => createSemanticFacts(invocation)), policyTarget = callDependency("policy-protection", invocation, () => dependencies.findPolicyMutation(facts));
   if (policyTarget) {
     let displayCommand = command2 ?? policyTarget.target;
     return {
@@ -9794,7 +9926,7 @@ function evaluateGuard(invocation, options2 = {}) {
   let snapshot = callDependency("config-load", invocation, () => dependencies.loadPolicySnapshot({
     ...options2.policyOptions,
     cwd: invocation.context.configCwd
-  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(invocation.input, invocation.route, invocation.context.executionCwd, policy.secretProtection, invocation.context.configCwd));
+  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", invocation, () => dependencies.findSensitiveTarget(facts, policy.secretProtection));
   if (secretTarget) {
     let displayCommand = command2 ?? secretTarget.target;
     return {
@@ -9845,7 +9977,7 @@ function evaluateGuard(invocation, options2 = {}) {
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
       worktreeMode: modes.worktreeMode
-    });
+    }, getDeclaredCommandProgram(facts), facts.store);
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
@@ -9862,6 +9994,9 @@ function evaluateGuard(invocation, options2 = {}) {
       cwd: invocation.context.executionCwd
     }
   };
+}
+function getDeclaredCommandProgram(facts) {
+  return getCommandSyntaxFact(facts, "declared-command")?.program;
 }
 function callDependency(stage, invocation, call) {
   try {
@@ -9883,31 +10018,11 @@ function failedClosedEvaluation(stage, invocation) {
   };
 }
 function blockedCommandEvaluation(invocation, result) {
-  let command2 = invocation.command, intent = getLegacyIntent(result);
+  let command2 = invocation.command;
   return {
     stage: "command-analysis",
-    decision: {
-      kind: "deny",
-      reason: result.reason,
-      intent,
-      ...result.ruleId ? { ruleId: result.ruleId } : {},
-      evidence: [{ kind: "command", command: command2, segment: result.segment }]
-    },
-    audit: {
-      decision: "deny",
-      command: command2,
-      segment: result.segment,
-      reason: result.reason,
-      cwd: invocation.context.executionCwd,
-      ...result.ruleId ? { ruleId: result.ruleId } : {},
-      ...result.intent ? { intent: result.intent } : {}
-    }
+    ...mapLegacyCommandBlock(command2, invocation.context.executionCwd, result)
   };
-}
-function getLegacyIntent(result) {
-  if (result.manualPermissionAdvice === !1)
-    return "hard_stop";
-  return result.intent ?? "manual_only";
 }
 function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
@@ -9929,10 +10044,10 @@ function registerToolCallEvent(pi) {
   pi.on("tool_call", handlePiToolCall);
 }
 var handlePiToolCall = createPiToolCallHandler();
-function createPiToolCallHandler(guardDependencies = {}) {
-  return (event, ctx) => handlePiToolCallWithDependencies(event, ctx, guardDependencies);
+function createPiToolCallHandler(options2 = {}) {
+  return (event, ctx) => handlePiToolCallWithDependencies(event, ctx, options2);
 }
-function handlePiToolCallWithDependencies(event, ctx, guardDependencies) {
+function handlePiToolCallWithDependencies(event, ctx, options2) {
   let toolCall = getPiToolCall(event, ctx);
   if (!toolCall)
     return;
@@ -9942,11 +10057,8 @@ function handlePiToolCallWithDependencies(event, ctx, guardDependencies) {
   try {
     evaluation = evaluateGuard(toolCall, {
       auditAllowed: envTruthy(ENV_FLAGS.debug),
-      policyOptions: ctx.safetyNetPolicyOptions,
-      dependencies: {
-        ...guardDependencies,
-        ...ctx.safetyNetAnalyzeCommand ? { analyzeCommand: ctx.safetyNetAnalyzeCommand } : {}
-      }
+      policyOptions: options2.policyOptions,
+      dependencies: options2.guardDependencies
     });
   } catch (error) {
     if (!(error instanceof GuardEvaluationError))

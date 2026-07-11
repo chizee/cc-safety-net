@@ -26,12 +26,9 @@ describe('Pi tool_call event', () => {
     const cwd = process.cwd();
 
     expect(
-      handlePiToolCall(
-        bashToolCall('git status'),
-        piContext(cwd, {
-          safetyNetAnalyzeCommand: captureAnalyzeCalls(calls),
-        }),
-      ),
+      createPiToolCallHandler({
+        guardDependencies: { analyzeCommand: captureAnalyzeCalls(calls) },
+      })(bashToolCall('git status'), piContext(cwd)),
     ).toBeUndefined();
     expect(calls).toEqual([{ command: 'git status', cwd, shell: 'posix' }]);
   });
@@ -159,12 +156,9 @@ describe('Pi tool_call event', () => {
       const calls: AnalyzeCall[] = [];
 
       expect(
-        handlePiToolCall(
-          shellToolCall({ command: 'git status', working_directory: 'app' }),
-          piContext(dir, {
-            safetyNetAnalyzeCommand: captureAnalyzeCalls(calls),
-          }),
-        ),
+        createPiToolCallHandler({
+          guardDependencies: { analyzeCommand: captureAnalyzeCalls(calls) },
+        })(shellToolCall({ command: 'git status', working_directory: 'app' }), piContext(dir)),
       ).toBeUndefined();
       expect(calls).toEqual([
         { command: 'git status', cwd: realpathSync(join(dir, 'app')), shell: 'auto' },
@@ -423,15 +417,14 @@ describe('Pi tool_call event', () => {
     let analyzed = false;
 
     expect(
-      handlePiToolCall(
-        toolCall(toolName, { command: 'git reset --hard' }),
-        piContext(process.cwd(), {
-          safetyNetAnalyzeCommand: () => {
+      createPiToolCallHandler({
+        guardDependencies: {
+          analyzeCommand: () => {
             analyzed = true;
             return null;
           },
-        }),
-      ),
+        },
+      })(toolCall(toolName, { command: 'git reset --hard' }), piContext(process.cwd())),
     ).toBeUndefined();
     expect(analyzed).toBeFalse();
   });
@@ -462,7 +455,14 @@ describe('Pi tool_call event', () => {
 
   test('keeps safe patch command text inert', () => {
     let analyzed = false;
-    const result = handlePiToolCall(
+    const result = createPiToolCallHandler({
+      guardDependencies: {
+        analyzeCommand: () => {
+          analyzed = true;
+          return null;
+        },
+      },
+    })(
       toolCall('apply_patch', {
         command: [
           '*** Begin Patch',
@@ -473,12 +473,7 @@ describe('Pi tool_call event', () => {
           '*** End Patch',
         ].join('\n'),
       }),
-      piContext(process.cwd(), {
-        safetyNetAnalyzeCommand: () => {
-          analyzed = true;
-          return null;
-        },
-      }),
+      piContext(process.cwd()),
     );
 
     expect(result).toBeUndefined();
@@ -527,16 +522,10 @@ describe('Pi tool_call event', () => {
   test('honors user secret protection policy for non-shell Pi tools', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-read-policy-'));
     try {
-      const userConfigDir = join(dir, 'home', '.cc-safety-net', 'rules');
-      writeUserPolicy(userConfigDir, {
-        version: 1,
-        secret_protection: { enabled: false },
-      });
-
       expect(
-        handlePiToolCall(
+        createHandlerWithSecretProtectionDisabled(dir)(
           toolCall('read', { path: '.env' }),
-          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
+          piContext(dir),
         ),
       ).toBeUndefined();
     } finally {
@@ -546,9 +535,9 @@ describe('Pi tool_call event', () => {
 
   test('fails closed for non-shell Pi tools when policy config is invalid', () => {
     withInvalidSecretPolicy('safety-net-pi-read-invalid-policy-', (dir, userConfigDir) => {
-      const result = handlePiToolCall(
+      const result = createPiToolCallHandler({ policyOptions: { userConfigDir } })(
         toolCall('read', { path: 'README.md' }),
-        piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
+        piContext(dir),
       );
 
       expectInvalidPolicyBlock(result);
@@ -558,24 +547,12 @@ describe('Pi tool_call event', () => {
   test('honors user secret protection policy without weakening destructive command blocking', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-secret-policy-'));
     try {
-      const userConfigDir = join(dir, 'home', '.cc-safety-net', 'rules');
-      writeUserPolicy(userConfigDir, {
-        version: 1,
-        secret_protection: { enabled: false },
-      });
+      const handler = createHandlerWithSecretProtectionDisabled(dir);
 
-      expect(
-        handlePiToolCall(
-          bashToolCall('cat .env'),
-          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
-        ),
-      ).toBeUndefined();
-      expect(
-        handlePiToolCall(
-          bashToolCall('rm -rf /'),
-          piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
-        )?.reason,
-      ).toContain('root or home directory');
+      expect(handler(bashToolCall('cat .env'), piContext(dir))).toBeUndefined();
+      expect(handler(bashToolCall('rm -rf /'), piContext(dir))?.reason).toContain(
+        'root or home directory',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -592,13 +569,14 @@ describe('Pi tool_call event', () => {
           deny_paths: ['private-note.txt'],
         },
       });
-      const ctx = piContext(dir, { safetyNetPolicyOptions: { userConfigDir } });
+      const handler = createPiToolCallHandler({ policyOptions: { userConfigDir } });
+      const ctx = piContext(dir);
 
-      expect(handlePiToolCall(bashToolCall('cat server.pem'), ctx)).toBeUndefined();
-      expect(handlePiToolCall(bashToolCall('cat id_rsa.pem'), ctx)?.reason).toContain(
+      expect(handler(bashToolCall('cat server.pem'), ctx)).toBeUndefined();
+      expect(handler(bashToolCall('cat id_rsa.pem'), ctx)?.reason).toContain(
         'Access to a sensitive path is not allowed.',
       );
-      const deniedByPolicyResult = handlePiToolCall(bashToolCall('cat private-note.txt'), ctx);
+      const deniedByPolicyResult = handler(bashToolCall('cat private-note.txt'), ctx);
 
       expect(deniedByPolicyResult?.reason).toContain('Access to a sensitive path is not allowed.');
       expect(deniedByPolicyResult?.reason).toContain('Rule: secret.deny-path');
@@ -609,9 +587,9 @@ describe('Pi tool_call event', () => {
 
   test('fails closed when policy config is invalid', () => {
     withInvalidSecretPolicy('safety-net-pi-invalid-policy-', (dir, userConfigDir) => {
-      const result = handlePiToolCall(
+      const result = createPiToolCallHandler({ policyOptions: { userConfigDir } })(
         bashToolCall('git status'),
-        piContext(dir, { safetyNetPolicyOptions: { userConfigDir } }),
+        piContext(dir),
       );
 
       expectInvalidPolicyBlock(result);
@@ -666,12 +644,13 @@ describe('Pi tool_call event', () => {
   test('fails closed when command analysis throws unexpectedly', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-tool-call-fail-'));
     try {
-      const result = handlePiToolCall(bashToolCall('git status'), {
-        ...piContext(dir),
-        safetyNetAnalyzeCommand: () => {
-          throw new Error('unexpected analysis failure');
+      const result = createPiToolCallHandler({
+        guardDependencies: {
+          analyzeCommand: () => {
+            throw new Error('unexpected analysis failure');
+          },
         },
-      });
+      })(bashToolCall('git status'), piContext(dir));
 
       expect(result).toEqual({
         block: true,
@@ -690,8 +669,10 @@ describe('Pi tool_call event', () => {
     'analyzeCommand',
   ] as const)('renders %s dependency failures as generic denials', (dependency) => {
     const result = createPiToolCallHandler({
-      [dependency]: () => {
-        throw new Error(`${dependency} raw failure`);
+      guardDependencies: {
+        [dependency]: () => {
+          throw new Error(`${dependency} raw failure`);
+        },
       },
     })(bashToolCall('git status'), piContext(process.cwd()));
 
@@ -713,14 +694,18 @@ describe('Pi tool_call event', () => {
       },
     };
     const policyHandler = createPiToolCallHandler({
-      findPolicyMutation: () => ({ target: 'policy.json' }),
+      guardDependencies: { findPolicyMutation: () => ({ target: 'policy.json' }) },
     });
     const invalidConfigHandler = createPiToolCallHandler({
-      loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid config' }),
+      guardDependencies: {
+        loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid config' }),
+      },
     });
     const evaluatorErrorHandler = createPiToolCallHandler({
-      analyzeCommand: () => {
-        throw new Error('analysis failed');
+      guardDependencies: {
+        analyzeCommand: () => {
+          throw new Error('analysis failed');
+        },
       },
     });
 
@@ -789,9 +774,11 @@ describe('Pi tool_call event', () => {
   ])('rejects malformed recognized command %p before guard evaluation', (command) => {
     const calls: string[] = [];
     const handler = createPiToolCallHandler({
-      findPolicyMutation: () => {
-        calls.push('guard');
-        return null;
+      guardDependencies: {
+        findPolicyMutation: () => {
+          calls.push('guard');
+          return null;
+        },
       },
     });
     const result = handler(toolCall('bash', { command }), {
@@ -902,6 +889,15 @@ function piContext(cwd: string, options: Partial<Parameters<typeof handlePiToolC
 function writeUserPolicy(userConfigDir: string, policy: unknown): void {
   mkdirSync(dirname(userConfigDir), { recursive: true });
   writeFileSync(join(dirname(userConfigDir), 'policy.json'), JSON.stringify(policy), 'utf-8');
+}
+
+function createHandlerWithSecretProtectionDisabled(dir: string) {
+  const userConfigDir = join(dir, 'home', '.cc-safety-net', 'rules');
+  writeUserPolicy(userConfigDir, {
+    version: 1,
+    secret_protection: { enabled: false },
+  });
+  return createPiToolCallHandler({ policyOptions: { userConfigDir } });
 }
 
 function withInvalidSecretPolicy(

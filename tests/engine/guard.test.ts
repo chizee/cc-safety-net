@@ -3,6 +3,7 @@ import { writeGuardAudit } from '@/engine/audit';
 import {
   evaluateGuard,
   type GuardDependencies,
+  type GuardEvaluation,
   GuardEvaluationError,
   type GuardStage,
 } from '@/engine/guard';
@@ -359,6 +360,134 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('preserves secret target ordering across here-data and legacy redirects', async () => {
+    await withTempDir('cc-safety-net-guard-redirection-order-', (cwd) => {
+      expect(evaluateGuard(commandInvocation(cwd, 'echo <<< .env'))).toEqual({
+        stage: 'command-analysis',
+        decision: { kind: 'allow' },
+      });
+
+      for (const command of [
+        'echo < .env',
+        'echo<.env',
+        'echo > .env',
+        'cat foo < .env',
+        'cat .env < input',
+        'cat foo > .env',
+        'cat .env > output',
+        'cat foo >> .env',
+        'cat .env >> output',
+        'cat foo <> .env',
+        'cat .env <> file',
+        'cat foo <& .env',
+        'cat .env <& 0',
+        'cat foo >& .env',
+        'cat .env >& output',
+        'cat foo &> .env',
+        'cat .env &> output',
+        'cat foo &>> .env',
+        'cat .env &>> output',
+        'rm foo < .env',
+        'cat <<< .env',
+        'cat<<<.env',
+        'cat << .env',
+        'cat<<.env',
+        'cat foo <<< .env',
+        'cat .env <<< ~/.ssh/id_rsa',
+        'cat .env >| ~/.ssh/id_rsa',
+      ]) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
+          expectedSecretBlock(command, cwd),
+        );
+      }
+    });
+  });
+
+  test('preserves policy protection for legacy here-data segment targets', async () => {
+    await withTempDir('cc-safety-net-guard-policy-here-data-', (cwd) => {
+      const target = '.cc-safety-net/rules/rule.json';
+      const command = `rm <<< ${target}`;
+
+      expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+        stage: 'policy-protection',
+        decision: {
+          kind: 'deny',
+          reason: 'Policy config is protected and you must not modify it.',
+          intent: 'hard_stop',
+          evidence: [
+            { kind: 'command', command, segment: target },
+            { kind: 'path', target },
+          ],
+        },
+      });
+    });
+  });
+
+  test('leaves boundaries after missing here-data targets for later policy evaluation', async () => {
+    await withTempDir('cc-safety-net-guard-missing-here-policy-', (cwd) => {
+      const target = '.cc-safety-net/rules/rule.json';
+      const commands = [
+        `cat <<< ; rm ${target}`,
+        `cat << ; rm ${target}`,
+        `cat < < ; rm ${target}`,
+        `cat <<<\nrm ${target}`,
+        `cat <<\r\nrm ${target}`,
+      ];
+
+      for (const command of commands) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
+          expectedPolicyBlock(command, target),
+        );
+        expect(evaluateGuard(unknownInvocation(cwd, command))).toEqual(
+          expectedPolicyBlock(command, target),
+        );
+      }
+    });
+  });
+
+  test('leaves boundaries after missing here-data targets for later secret evaluation', async () => {
+    await withTempDir('cc-safety-net-guard-missing-here-secret-', (cwd) => {
+      for (const command of [
+        'echo <<< ; cat .env',
+        'echo << ; cat .env',
+        'echo <<<\ncat .env',
+        'echo <<\r\ncat .env',
+      ]) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
+          expectedSecretBlock(command, cwd),
+        );
+      }
+    });
+  });
+
+  test('preserves missing end-of-input here-data parity without crashing', async () => {
+    await withTempDir('cc-safety-net-guard-missing-here-eof-', (cwd) => {
+      for (const command of ['cat <<<', 'cat <<', 'cat < <']) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+          stage: 'command-analysis',
+          decision: { kind: 'allow' },
+        });
+      }
+    });
+  });
+
+  test('keeps process-substitution operators out of the legacy boundary set', async () => {
+    await withTempDir('cc-safety-net-guard-process-substitution-', (cwd) => {
+      for (const command of ['echo ok <(cat .env)', 'echo ok >(cat .env)']) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+          stage: 'command-analysis',
+          decision: { kind: 'allow' },
+        });
+      }
+
+      for (const command of ['cat README.md <(cat .env)', 'cat README.md >(cat .env)']) {
+        expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
+          expectedSecretBlock(command, cwd),
+        );
+      }
+    });
+  });
+
   test('passes explicit policy paths without runtime repair', async () => {
     await withTempDir('cc-safety-net-guard-config-options-', (cwd) => {
       let received: unknown;
@@ -380,3 +509,52 @@ describe('guard evaluation', () => {
     });
   });
 });
+
+function expectedSecretBlock(command: string, cwd: string): GuardEvaluation {
+  return {
+    stage: 'secret-protection',
+    decision: {
+      kind: 'deny',
+      reason: 'Access to a sensitive path is not allowed.',
+      intent: 'hard_stop',
+      ruleId: 'secret.basename.env',
+      evidence: [
+        { kind: 'command', command, segment: '.env' },
+        { kind: 'path', target: '.env' },
+      ],
+    },
+    audit: {
+      decision: 'deny',
+      command,
+      segment: '.env',
+      reason: 'Access to a sensitive path is not allowed.',
+      cwd,
+      ruleId: 'secret.basename.env',
+      intent: 'hard_stop',
+    },
+  };
+}
+
+function expectedPolicyBlock(command: string, target: string): GuardEvaluation {
+  return {
+    stage: 'policy-protection',
+    decision: {
+      kind: 'deny',
+      reason: 'Policy config is protected and you must not modify it.',
+      intent: 'hard_stop',
+      evidence: [
+        { kind: 'command', command, segment: target },
+        { kind: 'path', target },
+      ],
+    },
+  };
+}
+
+function unknownInvocation(cwd: string, command: string) {
+  return {
+    toolName: 'custom_runner',
+    input: { command },
+    context: { configCwd: cwd, executionCwd: cwd },
+    route: { kind: 'unknown' as const },
+  };
+}

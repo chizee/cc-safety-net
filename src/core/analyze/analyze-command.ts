@@ -12,6 +12,7 @@ import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules'
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import type { CommandProgram, CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
+import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import {
   type AnalyzeNestedOverrides,
@@ -24,18 +25,23 @@ import {
 export type InternalOptions = AnalyzeOptions & {
   policy: EffectivePolicy;
   invalidReason: string | undefined;
+  factStore?: SemanticFactStore;
 };
 
 export function analyzeCommandInternal(
   command: string,
   depth: number,
   options: InternalOptions,
+  parsedProgram?: CommandProgram,
 ): AnalyzeResult | null {
   if (depth >= MAX_RECURSION_DEPTH) {
     return { reason: REASON_RECURSION_LIMIT, segment: command, intent: 'stop_and_explain' };
   }
 
-  const program = parseCommand(command, options.shell);
+  const program =
+    parsedProgram ??
+    options.factStore?.getCommandProgram(command, options.shell ?? 'auto') ??
+    parseCommand(command, options.shell);
   if (depth === 0 && options.invalidReason && isFailClosedRepairCommand(program)) {
     return null;
   }

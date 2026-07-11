@@ -1,19 +1,22 @@
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
-import { analyzeCommand } from '@/core/analyze';
+import { analyzeCommandWithProgram } from '@/core/analyze/with-program';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
-  findPolicyConfigMutationTargetInToolInput,
+  findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import {
-  findSensitiveTargetInPolicyToolInput,
+  findSensitiveTargetInSemanticFacts,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
-import type { AnalyzeResult, BlockIntent } from '@/types';
+import type { SemanticFacts } from '@/domain/semantic-facts';
+import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/engine/facts';
+import type { AnalyzeOptions, AnalyzeResult, BlockIntent } from '@/types';
 
 /** @internal */
 export type GuardStage =
@@ -47,10 +50,15 @@ export type GuardEvaluation = {
 
 /** @internal */
 export type GuardDependencies = {
-  findPolicyMutation: typeof findPolicyConfigMutationTargetInToolInput;
+  findPolicyMutation: typeof findPolicyConfigMutationTargetInSemanticFacts;
   loadPolicySnapshot: typeof loadPolicySnapshot;
-  findSensitiveTarget: typeof findSensitiveTargetInPolicyToolInput;
-  analyzeCommand: typeof analyzeCommand;
+  findSensitiveTarget: typeof findSensitiveTargetInSemanticFacts;
+  analyzeCommand: (
+    command: string,
+    options: AnalyzeOptions,
+    program?: ReturnType<typeof getDeclaredCommandProgram>,
+    factStore?: SemanticFacts['store'],
+  ) => AnalyzeResult | null;
   getModes: typeof getCCSafetyNetEnvModes;
 };
 
@@ -75,10 +83,10 @@ export class GuardEvaluationError extends Error {
 }
 
 const DEFAULT_DEPENDENCIES: GuardDependencies = {
-  findPolicyMutation: findPolicyConfigMutationTargetInToolInput,
+  findPolicyMutation: findPolicyConfigMutationTargetInSemanticFacts,
   loadPolicySnapshot,
-  findSensitiveTarget: findSensitiveTargetInPolicyToolInput,
-  analyzeCommand,
+  findSensitiveTarget: findSensitiveTargetInSemanticFacts,
+  analyzeCommand: analyzeCommandWithProgram,
   getModes: getCCSafetyNetEnvModes,
 };
 
@@ -91,13 +99,11 @@ export function evaluateGuard(
   const inputCommand = getCommandFromToolInput(invocation.input);
   const command = isCommandInvocation(invocation) ? invocation.command : inputCommand;
 
+  const facts = callDependency('policy-protection', invocation, () =>
+    createSemanticFacts(invocation),
+  );
   const policyTarget = callDependency('policy-protection', invocation, () =>
-    dependencies.findPolicyMutation(
-      invocation.toolName,
-      invocation.input,
-      invocation.route,
-      invocation.context,
-    ),
+    dependencies.findPolicyMutation(facts),
   );
   if (policyTarget) {
     const displayCommand = command ?? policyTarget.target;
@@ -126,13 +132,7 @@ export function evaluateGuard(
     policy.secretProtection.enabled === false
       ? null
       : callDependency('secret-protection', invocation, () =>
-          dependencies.findSensitiveTarget(
-            invocation.input,
-            invocation.route,
-            invocation.context.executionCwd,
-            policy.secretProtection,
-            invocation.context.configCwd,
-          ),
+          dependencies.findSensitiveTarget(facts, policy.secretProtection),
         );
   if (secretTarget) {
     const displayCommand = command ?? secretTarget.target;
@@ -183,15 +183,20 @@ export function evaluateGuard(
 
   const result = callDependency('command-analysis', invocation, () => {
     const modes = dependencies.getModes(policy);
-    return dependencies.analyzeCommand(invocation.command as string, {
-      cwd: invocation.context.executionCwd,
-      shell: invocation.route.shell,
-      policySnapshot: snapshot,
-      strict: modes.strict,
-      paranoidRm: modes.paranoidRm,
-      paranoidInterpreters: modes.paranoidInterpreters,
-      worktreeMode: modes.worktreeMode,
-    });
+    return dependencies.analyzeCommand(
+      invocation.command as string,
+      {
+        cwd: invocation.context.executionCwd,
+        shell: invocation.route.shell,
+        policySnapshot: snapshot,
+        strict: modes.strict,
+        paranoidRm: modes.paranoidRm,
+        paranoidInterpreters: modes.paranoidInterpreters,
+        worktreeMode: modes.worktreeMode,
+      },
+      getDeclaredCommandProgram(facts),
+      facts.store,
+    );
   });
   if (result) return blockedCommandEvaluation(invocation, result);
   if (!options.auditAllowed) {
@@ -208,6 +213,10 @@ export function evaluateGuard(
       cwd: invocation.context.executionCwd,
     },
   };
+}
+
+function getDeclaredCommandProgram(facts: SemanticFacts) {
+  return getCommandSyntaxFact(facts, 'declared-command')?.program;
 }
 
 function callDependency<T>(stage: GuardStage, invocation: ToolInvocation, call: () => T): T {
@@ -238,31 +247,10 @@ function blockedCommandEvaluation(
   result: AnalyzeResult,
 ): GuardEvaluation {
   const command = invocation.command as string;
-  const intent = getLegacyIntent(result);
   return {
     stage: 'command-analysis',
-    decision: {
-      kind: 'deny',
-      reason: result.reason,
-      intent,
-      ...(result.ruleId ? { ruleId: result.ruleId } : {}),
-      evidence: [{ kind: 'command', command, segment: result.segment }],
-    },
-    audit: {
-      decision: 'deny',
-      command,
-      segment: result.segment,
-      reason: result.reason,
-      cwd: invocation.context.executionCwd,
-      ...(result.ruleId ? { ruleId: result.ruleId } : {}),
-      ...(result.intent ? { intent: result.intent } : {}),
-    },
+    ...mapLegacyCommandBlock(command, invocation.context.executionCwd, result),
   };
-}
-
-function getLegacyIntent(result: AnalyzeResult): BlockIntent {
-  if (result.manualPermissionAdvice === false) return 'hard_stop';
-  return result.intent ?? 'manual_only';
 }
 
 function isCommandInvocation(

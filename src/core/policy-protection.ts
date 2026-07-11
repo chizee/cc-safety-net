@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
-import { type ParseEntry, parse } from 'shell-quote';
 import {
   expandSupportedPathEnvironmentVariables,
   resolveExistingPath,
@@ -11,14 +10,10 @@ import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
 import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
 import { getBasename, stripWrappers } from '@/core/shell';
-import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
-import {
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  getCommandFromToolInput,
-  normalizeToolName,
-} from '@/core/tool-input';
-import type { ToolCallContext, ToolRoute } from '@/domain/invocation';
+import { normalizeToolName } from '@/core/tool-input';
+import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
+import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/engine/facts';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'Policy config is protected and you must not modify it.';
@@ -38,21 +33,6 @@ const READ_ONLY_TOOLS = new Set([
   'view',
   'viewfile',
 ]);
-const PATH_LIKE_KEYS = new Set([
-  'absolutepath',
-  'directorypath',
-  'directory_path',
-  'file',
-  'file_path',
-  'filepath',
-  'notebook_path',
-  'path',
-  'searchdirectory',
-  'search_directory',
-  'searchpath',
-  'targetfile',
-  'target_file',
-]);
 const READ_ONLY_COMMANDS = new Set([
   'cat',
   'file',
@@ -67,8 +47,6 @@ const READ_ONLY_COMMANDS = new Set([
   'tail',
   'wc',
 ]);
-const SHELL_OPERATORS = new Set(['&&', '||', '|&', '|', '&', ';']);
-const WRITE_REDIRECTS = new Set(['>', '>>', '<>', '>&', '&>', '&>>']);
 const SHELL_SCRIPT_COMMANDS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
 const SCRIPT_ARGUMENT_OPTIONS = new Map([
   ['bash', new Set(['-c'])],
@@ -91,12 +69,6 @@ const CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = new Map([
   ['perl', new Set(['e'])],
 ]);
 const POLICY_ENV_PATH_NAMES = new Set(['CC_SAFETY_NET_HOME']);
-const SHELL_ENV_PROXY = new Proxy(
-  {},
-  {
-    get: (_, name) => ['$', '{', String(name), '}'].join(''),
-  },
-);
 
 type PolicyConfigTarget = {
   target: string;
@@ -107,16 +79,29 @@ type ShellState = {
   variables: ReadonlyMap<string, string>;
 };
 
+/** @internal */
 export function findPolicyConfigMutationTargetInToolInput(
   toolName: string,
   input: unknown,
   route: ToolRoute,
   context: ToolCallContext,
 ): PolicyConfigTarget | null {
-  for (const configCwd of new Set([context.configCwd, ...(context.policyConfigCwds ?? [])])) {
-    const target = findPolicyConfigMutationTargetForContext(toolName, input, route, {
+  return findPolicyConfigMutationTargetInSemanticFacts(
+    createSemanticFacts(createToolInvocation(toolName, input, route, context, null)),
+  );
+}
+
+/** @internal */
+export function findPolicyConfigMutationTargetInSemanticFacts(
+  facts: SemanticFacts,
+): PolicyConfigTarget | null {
+  for (const configCwd of new Set([
+    facts.invocation.context.configCwd,
+    ...(facts.invocation.context.policyConfigCwds ?? []),
+  ])) {
+    const target = findPolicyConfigMutationTargetForContext(facts, {
       configCwd,
-      executionCwd: context.executionCwd,
+      executionCwd: facts.invocation.context.executionCwd,
     });
     if (target) return target;
   }
@@ -124,34 +109,38 @@ export function findPolicyConfigMutationTargetInToolInput(
 }
 
 function findPolicyConfigMutationTargetForContext(
-  toolName: string,
-  input: unknown,
-  route: ToolRoute,
+  facts: SemanticFacts,
   context: ToolCallContext,
 ): PolicyConfigTarget | null {
-  if (route.kind === 'patch') {
+  if (facts.invocation.route.kind === 'patch') {
     return findPolicyConfigMutationTargetInPaths(
-      [
-        ...extractPathLikeToolValues(input, PATH_LIKE_KEYS),
-        ...extractPatchTargetsFromToolInput(input),
-      ],
+      facts.paths.map((path) => path.raw),
       false,
       context,
     );
   }
 
-  const command = getCommandFromToolInput(input);
-  if (route.kind === 'command') {
-    return command ? findPolicyConfigMutationTargetInCommand(command, context) : null;
+  const command = getCommandSyntaxFact(facts, 'input-candidate');
+  if (facts.invocation.route.kind === 'command') {
+    return command
+      ? findPolicyConfigMutationTargetInCommand(command.shell, context, new Map(), facts.store)
+      : null;
   }
-  if (route.kind === 'unknown' && command) {
-    const commandTarget = findPolicyConfigMutationTargetInCommand(command, context);
+  if (facts.invocation.route.kind === 'unknown' && command) {
+    const commandTarget = findPolicyConfigMutationTargetInCommand(
+      command.shell,
+      context,
+      new Map(),
+      facts.store,
+    );
     if (commandTarget) return commandTarget;
   }
 
   return findPolicyConfigMutationTargetInPaths(
-    extractPathLikeToolValues(input, PATH_LIKE_KEYS),
-    route.kind === 'grep' || route.kind === 'glob' || isReadOnlyTool(toolName),
+    facts.paths.map((path) => path.raw),
+    facts.invocation.route.kind === 'grep' ||
+      facts.invocation.route.kind === 'glob' ||
+      isReadOnlyTool(facts.invocation.toolName),
     context,
   );
 }
@@ -169,36 +158,32 @@ function findPolicyConfigMutationTargetInPaths(
 }
 
 function findPolicyConfigMutationTargetInCommand(
-  command: string,
+  syntax: ShellSyntaxFacts,
   context: ToolCallContext,
   variables: ReadonlyMap<string, string> = new Map(),
+  store: SemanticFactStore,
 ): PolicyConfigTarget | null {
-  if (hasUnclosedQuotes(command)) {
-    return findPolicyConfigTargetInText(command, context);
-  }
-
-  let tokens: ParseEntry[];
-  try {
-    tokens = parse(command.replace(/\n/g, ' ; '), SHELL_ENV_PROXY) as ParseEntry[];
-  } catch {
-    return findPolicyConfigTargetInText(command, context);
+  if (syntax.status !== 'complete') {
+    return findPolicyConfigTargetInText(syntax.source, context);
   }
   let state: ShellState = { cwd: context.executionCwd, variables };
   let segment: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i] as ParseEntry;
-    if (isOperator(token)) {
-      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
+  for (const entry of syntax.entries) {
+    if (entry.kind === 'operator') {
+      if (!entry.boundary) continue;
+      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
       if (target) return target;
       state = applyShellState(segment, state);
       segment = [];
       continue;
     }
-    if (isRedirectOp(token)) {
-      const targetIndex = getWriteRedirectTargetIndex(tokens, i);
-      const target = getCommandTokenText(tokens[targetIndex ?? i + 1]);
+    if (entry.kind === 'redirection') {
+      if (entry.role === 'here-data') {
+        if (entry.target) segment.push(entry.target);
+        continue;
+      }
+      const target = entry.role === 'file-write' ? entry.target : undefined;
       if (
-        targetIndex !== null &&
         target &&
         isPolicyConfigPath(
           expandShellVariables(target, state.variables),
@@ -208,23 +193,22 @@ function findPolicyConfigMutationTargetInCommand(
       ) {
         return { target: formatShellPolicyTarget(target) };
       }
-      i = targetIndex ?? i + 1;
       continue;
     }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null) segment.push(tokenText);
+    segment.push(entry.text);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
 }
 
 function findUnsafePolicyConfigSegmentTarget(
   segment: readonly string[],
   state: ShellState,
   configCwd: string,
+  store: SemanticFactStore,
 ): PolicyConfigTarget | null {
   if (isAssignmentOnlySegment(segment)) return null;
 
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd);
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store);
   if (scriptTarget) return scriptTarget;
 
   const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
@@ -245,6 +229,7 @@ function findScriptArgumentPolicyConfigTarget(
   segment: readonly string[],
   state: ShellState,
   configCwd: string,
+  store: SemanticFactStore,
 ): PolicyConfigTarget | null {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3) return null;
@@ -260,9 +245,10 @@ function findScriptArgumentPolicyConfigTarget(
 
   if (SHELL_SCRIPT_COMMANDS.has(command)) {
     return findPolicyConfigMutationTargetInCommand(
-      script,
+      store.getShellSyntax(script),
       { configCwd, executionCwd: state.cwd },
       state.variables,
+      store,
     );
   }
 
@@ -501,24 +487,4 @@ function normalizeCandidatePath(target: string, cwd: string): string {
   return resolveExistingPath(
     normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
   ).replace(/\\/g, '/');
-}
-
-function isOperator(token: ParseEntry): boolean {
-  const op = getParseOp(token);
-  return op !== null && SHELL_OPERATORS.has(op);
-}
-
-function isRedirectOp(token: ParseEntry | undefined): token is Extract<ParseEntry, { op: string }> {
-  const op = getParseOp(token);
-  return op !== null && /^(?:<|>|>>|<>|<&|>&|&>|&>>)$/.test(op);
-}
-
-function getWriteRedirectTargetIndex(tokens: readonly ParseEntry[], index: number): number | null {
-  const op = getParseOp(tokens[index]);
-  if (op === '>' && getParseOp(tokens[index + 1]) === '|') return index + 2;
-  return op !== null && WRITE_REDIRECTS.has(op) ? index + 1 : null;
-}
-
-function getParseOp(token: ParseEntry | undefined): string | null {
-  return typeof token === 'object' && token !== null && 'op' in token ? token.op : null;
 }
