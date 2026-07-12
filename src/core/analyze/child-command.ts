@@ -1,3 +1,4 @@
+import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
@@ -15,6 +16,7 @@ export interface ChildCommandContext {
 }
 
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
+  derivedCommandWorkBudget: DerivedCommandWorkBudget;
   originalCwd: string | undefined;
   paranoidRm: boolean | undefined;
   paranoidInterpreters?: boolean;

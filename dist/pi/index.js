@@ -5586,6 +5586,26 @@ function dangerousInTextMatch(text) {
   return null;
 }
 
+// src/core/analyze/derived-command-budget.ts
+var DERIVED_COMMAND_WORK_LIMITS = Object.freeze({
+  maxDerivedTokens: 16384
+}), REASON_DERIVED_COMMAND_WORK_LIMIT = "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.";
+
+class DerivedCommandWorkLimitError extends Error {
+  constructor() {
+    super("Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.");
+    this.name = "DerivedCommandWorkLimitError";
+  }
+}
+function createDerivedCommandWorkBudget() {
+  return { derivedTokens: 0 };
+}
+function reserveDerivedCommandTokens(budget, derivedTokens) {
+  if (!Number.isSafeInteger(derivedTokens) || derivedTokens < 0 || derivedTokens > DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens - budget.derivedTokens)
+    throw new DerivedCommandWorkLimitError;
+  budget.derivedTokens += derivedTokens;
+}
+
 // src/core/analyze/parallel-budget.ts
 var PARALLEL_ANALYSIS_LIMITS = Object.freeze({
   maxChildAnalyses: 1024,
@@ -6105,11 +6125,13 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ["-fprintf", 2]
 ]);
 function analyzeFindMatch(tokens, context = {}) {
-  if (findHasDelete(tokens.slice(1)))
+  if (findHasDelete(tokens, 1))
     return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
+  let derivedCommandWorkBudget = context.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget();
   for (let i = 0;i < tokens.length; i++) {
     let token = tokens[i];
     if (isFindExecPrimary(token)) {
+      reserveDerivedCommandTokens(derivedCommandWorkBudget, tokens.length - i - 1);
       let execCommand = getFindExecCommand(tokens, i), directoryRelative = token === "-execdir" || token === "-okdir", directReason = analyzeFindExecCommand(execCommand);
       if (directReason)
         return directReason;
@@ -6150,8 +6172,8 @@ function getFindExecCommand(tokens, execIndex) {
   let execTokens = tokens.slice(execIndex + 1), semicolonIdx = execTokens.indexOf(";"), plusIdx = execTokens.indexOf("+"), endIdx = semicolonIdx !== -1 && plusIdx !== -1 ? Math.min(semicolonIdx, plusIdx) : semicolonIdx !== -1 ? semicolonIdx : plusIdx !== -1 ? plusIdx : execTokens.length;
   return execTokens.slice(0, endIdx);
 }
-function findHasDelete(tokens) {
-  let i = 0, insideExec = !1, execDepth = 0;
+function findHasDelete(tokens, start) {
+  let i = start, insideExec = !1, execDepth = 0;
   while (i < tokens.length) {
     let token = tokens[i];
     if (!token) {
@@ -7365,7 +7387,12 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
   if (normalizedHead === "find")
     return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
       ...context,
-      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? void 0 }, options2)
+      derivedCommandWorkBudget: context.derivedCommandWorkBudget,
+      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, {
+        ...context,
+        cwd: cwd ?? void 0,
+        derivedCommandWorkBudget: context.derivedCommandWorkBudget
+      }, options2)
     }), context.policy);
   if (normalizedHead === "git")
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
@@ -7509,6 +7536,7 @@ function analyzeParallel(tokens, context) {
   for (let arg of childArgs) {
     let tokens2 = arg === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelPlaceholder(token, arg)) : [...childTokens, arg], result = analyzeChildCommandMatch(tokens2, {
       cwd: childCommand.cwd,
+      derivedCommandWorkBudget: context.derivedCommandWorkBudget,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
       paranoidInterpreters: context.paranoidInterpreters,
@@ -7970,6 +7998,7 @@ var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explici
 function analyzeXargs(tokens, context) {
   let { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens), childCommand = normalizeChildCommand(rawChildTokens, context), childTokens = childCommand.tokens, childResult = analyzeChildCommandMatch(childTokens, {
     cwd: childCommand.cwd,
+    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
     paranoidInterpreters: context.paranoidInterpreters,
@@ -7990,6 +8019,7 @@ function analyzeXargs(tokens, context) {
   let gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens, hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
   return analyzeChildCommandMatch(gitTokens, {
     cwd: childCommand.cwd,
+    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
     paranoidInterpreters: context.paranoidInterpreters,
@@ -8454,6 +8484,7 @@ function analyzeEmbeddedCommand(context, index) {
     return null;
   let cmd = normalizeCommandToken(token);
   if (isShellWrapperCommand(token, cmd)) {
+    reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
     let dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
     if (!dashCArg)
       return null;
@@ -8466,6 +8497,7 @@ function analyzeEmbeddedCommand(context, index) {
   let analyzer = COMMAND_ANALYZERS.get(cmd);
   if (!analyzer || cmd === "xargs" || cmd === "parallel")
     return null;
+  reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
   let embeddedContext = {
     ...context,
     tokens: [cmd, ...context.tokens.slice(index + 1)],
@@ -8501,9 +8533,11 @@ function analyzeRmCommand(context) {
 function analyzeFindCommand(context) {
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
+    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     analyzeTokens: (tokens, cwd) => matchFromBlockResult(analyzeSegment([...tokens], context.depth + 1, {
       ...context.options,
+      derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
       effectiveCwd: cwd,
       envAssignments: context.envAssignments
     })),
@@ -8537,6 +8571,7 @@ function getNestedCommandAnalyzeContext(context) {
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
+    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
     policy: context.options.policy
@@ -8937,21 +8972,23 @@ function getSetOptionChanges(tokens, commandIndex) {
 
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
-  let ownsParallelBudget = options2.parallelBudget === void 0;
+  let ownsDerivedCommandWorkBudget = options2.derivedCommandWorkBudget === void 0, ownsParallelBudget = options2.parallelBudget === void 0;
   try {
     return analyzeCommandWithBudget(command2, depth, {
       ...options2,
+      derivedCommandWorkBudget: options2.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget(),
       parallelBudget: options2.parallelBudget ?? createParallelAnalysisBudget()
     }, parsedProgram);
   } catch (error) {
-    if (!(error instanceof ParallelAnalysisLimitError) || !ownsParallelBudget)
+    let reason = error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget ? REASON_DERIVED_COMMAND_WORK_LIMIT : error instanceof ParallelAnalysisLimitError && ownsParallelBudget ? REASON_PARALLEL_ANALYSIS_LIMIT : void 0;
+    if (!reason)
       throw error;
     if (options2.trace?.currentSegmentIndex !== void 0)
-      options2.trace.recordSegment({ type: "error", message: REASON_PARALLEL_ANALYSIS_LIMIT });
+      options2.trace.recordSegment({ type: "error", message: reason });
     else
-      options2.trace?.recordGlobal({ type: "error", message: REASON_PARALLEL_ANALYSIS_LIMIT });
+      options2.trace?.recordGlobal({ type: "error", message: reason });
     return {
-      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      reason,
       segment: command2,
       intent: "stop_and_explain"
     };
@@ -9060,6 +9097,7 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
     analyzeNested: (nestedCommand, overrides) => {
       let nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : state.effectiveCwd, nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
         ...options2,
+        derivedCommandWorkBudget: options2.derivedCommandWorkBudget,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
         worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode,

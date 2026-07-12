@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { explainCommand } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
+import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/analyze/derived-command-budget';
 import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/core/analyze/parallel-budget';
 import * as gitAnalysis from '@/core/git';
 import { createSemanticFactStore } from '@/core/semantic-facts';
@@ -331,5 +332,37 @@ describe('command trace recorder', () => {
     } finally {
       detailed.mockRestore();
     }
+  });
+
+  test('records a fixed derived-work limit reason without reflecting the attacker suffix', () => {
+    const attackerSuffix = 'ATTACKER';
+    const tokens = Array.from({ length: 10_000 }, () => attackerSuffix);
+    tokens[0] = 'tool';
+    tokens[1] = 'git';
+    tokens[2] = 'status';
+    tokens[3_614] = 'git';
+    tokens[3_615] = 'status';
+    const command = tokens.join(' ');
+    const evaluation = evaluateCommandWithTrace(command, {
+      policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
+    });
+
+    expect(evaluation.analysis).toEqual({
+      reason: REASON_DERIVED_COMMAND_WORK_LIMIT,
+      segment: command,
+      intent: 'stop_and_explain',
+    });
+    expect(evaluation.analysis?.reason).not.toContain(attackerSuffix);
+    expect(evaluation.trace.terminal.result).toBe('blocked');
+    if (evaluation.trace.terminal.result !== 'blocked') {
+      throw new Error('expected a blocked trace terminal');
+    }
+    expect(evaluation.trace.terminal.reason).toBe(REASON_DERIVED_COMMAND_WORK_LIMIT);
+    expect(evaluation.trace.terminal.segment).toContain(attackerSuffix);
+    expect(
+      evaluation.trace.events
+        .filter((event) => event.step.type === 'error')
+        .map((event) => event.step),
+    ).toEqual([{ type: 'error', message: REASON_DERIVED_COMMAND_WORK_LIMIT }]);
   });
 });

@@ -1,5 +1,11 @@
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import {
+  createDerivedCommandWorkBudget,
+  type DerivedCommandWorkBudget,
+  DerivedCommandWorkLimitError,
+  REASON_DERIVED_COMMAND_WORK_LIMIT,
+} from '@/core/analyze/derived-command-budget';
+import {
   createParallelAnalysisBudget,
   type ParallelAnalysisBudget,
   ParallelAnalysisLimitError,
@@ -36,10 +42,12 @@ export type InternalOptions = AnalyzeOptions & {
   trace?: CommandTraceContext;
   analyzePartialProgram?: boolean;
   compatibility?: 'explain-legacy';
+  derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   parallelBudget?: ParallelAnalysisBudget;
 };
 
 type ActiveInternalOptions = InternalOptions & {
+  derivedCommandWorkBudget: DerivedCommandWorkBudget;
   parallelBudget: ParallelAnalysisBudget;
 };
 
@@ -49,6 +57,7 @@ export function analyzeCommandInternal(
   options: InternalOptions,
   parsedProgram?: CommandProgram,
 ): AnalyzeResult | null {
+  const ownsDerivedCommandWorkBudget = options.derivedCommandWorkBudget === undefined;
   const ownsParallelBudget = options.parallelBudget === undefined;
   try {
     return analyzeCommandWithBudget(
@@ -56,21 +65,29 @@ export function analyzeCommandInternal(
       depth,
       {
         ...options,
+        derivedCommandWorkBudget:
+          options.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget(),
         parallelBudget: options.parallelBudget ?? createParallelAnalysisBudget(),
       },
       parsedProgram,
     );
   } catch (error) {
-    if (!(error instanceof ParallelAnalysisLimitError) || !ownsParallelBudget) {
+    const reason =
+      error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget
+        ? REASON_DERIVED_COMMAND_WORK_LIMIT
+        : error instanceof ParallelAnalysisLimitError && ownsParallelBudget
+          ? REASON_PARALLEL_ANALYSIS_LIMIT
+          : undefined;
+    if (!reason) {
       throw error;
     }
     if (options.trace?.currentSegmentIndex !== undefined) {
-      options.trace.recordSegment({ type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT });
+      options.trace.recordSegment({ type: 'error', message: reason });
     } else {
-      options.trace?.recordGlobal({ type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT });
+      options.trace?.recordGlobal({ type: 'error', message: reason });
     }
     return {
-      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      reason,
       segment: command,
       intent: 'stop_and_explain',
     };
@@ -296,6 +313,7 @@ function analyzeCommandView(
           : state.effectiveCwd;
       const nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
         ...options,
+        derivedCommandWorkBudget: options.derivedCommandWorkBudget,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
         worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,

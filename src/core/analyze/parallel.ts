@@ -215,6 +215,7 @@ export function analyzeParallel(
       tokens,
       {
         cwd: childCommand.cwd,
+        derivedCommandWorkBudget: context.derivedCommandWorkBudget,
         originalCwd: context.originalCwd,
         paranoidRm: context.paranoidRm,
         paranoidInterpreters: context.paranoidInterpreters,

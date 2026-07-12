@@ -1,3 +1,8 @@
+import {
+  createDerivedCommandWorkBudget,
+  type DerivedCommandWorkBudget,
+  reserveDerivedCommandTokens,
+} from '@/core/analyze/derived-command-budget';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { getBasename, stripWrappers } from '@/core/shell';
@@ -55,6 +60,7 @@ const FIND_PRIMARY_ARITY = new Map<string, number>([
 
 export interface AnalyzeFindContext {
   cwd?: string;
+  derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   envAssignments?: ReadonlyMap<string, string>;
   analyzeTokens?: (
     tokens: readonly string[],
@@ -79,14 +85,17 @@ export function analyzeFindMatch(
   context: AnalyzeFindContext = {},
 ): DestructiveCommandRuleMatch | null {
   // Check for -delete outside of -exec/-execdir blocks
-  if (findHasDelete(tokens.slice(1))) {
+  if (findHasDelete(tokens, 1)) {
     return destructiveCommandMatch('find.delete', REASON_FIND_DELETE);
   }
 
+  const derivedCommandWorkBudget =
+    context.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget();
   // Check all executable child primaries for dangerous commands
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (isFindExecPrimary(token)) {
+      reserveDerivedCommandTokens(derivedCommandWorkBudget, tokens.length - i - 1);
       const execCommand = getFindExecCommand(tokens, i);
       const directoryRelative = token === '-execdir' || token === '-okdir';
       const directReason = analyzeFindExecCommand(execCommand);
@@ -162,8 +171,8 @@ function getFindExecCommand(tokens: readonly string[], execIndex: number): strin
  * Check if find command has -delete action (not as argument to another option).
  * Handles cases like "find -name -delete" where -delete is a filename pattern.
  */
-function findHasDelete(tokens: readonly string[]): boolean {
-  let i = 0;
+function findHasDelete(tokens: readonly string[], start: number): boolean {
+  let i = start;
   let insideExec = false;
   let execDepth = 0;
 

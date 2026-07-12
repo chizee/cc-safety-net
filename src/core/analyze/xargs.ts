@@ -35,6 +35,7 @@ export function analyzeXargs(
     childTokens,
     {
       cwd: childCommand.cwd,
+      derivedCommandWorkBudget: context.derivedCommandWorkBudget,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
       paranoidInterpreters: context.paranoidInterpreters,
@@ -68,6 +69,7 @@ export function analyzeXargs(
       ));
   return analyzeChildCommandMatch(gitTokens, {
     cwd: childCommand.cwd,
+    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
     originalCwd: context.originalCwd,
     paranoidRm: context.paranoidRm,
     paranoidInterpreters: context.paranoidInterpreters,

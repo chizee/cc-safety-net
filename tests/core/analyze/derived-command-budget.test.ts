@@ -1,0 +1,156 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  DERIVED_COMMAND_WORK_LIMITS,
+  REASON_DERIVED_COMMAND_WORK_LIMIT,
+} from '@/core/analyze/derived-command-budget';
+import { analyzeTestCommand } from '../../helpers/policy';
+
+const repeatedArgs = (value: string, count: number) =>
+  Array.from({ length: count }, () => value).join(' ');
+
+const embeddedGit = (derivedTokens: number) =>
+  `tool git status ${repeatedArgs('value', derivedTokens - 2)}`;
+
+const REPEATED_GIT_TOKENS = 10_000;
+const EXACT_SECOND_GIT_INDEX =
+  2 * REPEATED_GIT_TOKENS - 1 - DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens;
+
+const repeatedGit = (secondGitIndex: number, head = 'tool') => {
+  const tokens = Array.from({ length: REPEATED_GIT_TOKENS }, () => 'value');
+  tokens[0] = head;
+  tokens[1] = 'git';
+  tokens[2] = 'status';
+  tokens[secondGitIndex] = 'git';
+  tokens[secondGitIndex + 1] = 'status';
+  return tokens.join(' ');
+};
+
+const exactRepeatedGit = () => repeatedGit(EXACT_SECOND_GIT_INDEX);
+const overLimitRepeatedGit = () => repeatedGit(EXACT_SECOND_GIT_INDEX - 1);
+
+const halfBudgetRepeatedGit = (overLimit = false) => {
+  const tokenCount = 5_000;
+  const exactSecondGitIndex = 2 * tokenCount - 1 - DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens / 2;
+  const tokens = Array.from({ length: tokenCount }, () => 'value');
+  tokens[0] = 'tool';
+  tokens[1] = 'git';
+  tokens[2] = 'status';
+  tokens[overLimit ? exactSecondGitIndex - 1 : exactSecondGitIndex] = 'git';
+  tokens[overLimit ? exactSecondGitIndex : exactSecondGitIndex + 1] = 'status';
+  return tokens.join(' ');
+};
+
+const repeatedFindExec = (count: number) =>
+  Array.from({ length: count }, () => String.raw`-exec echo \;`).join(' ');
+
+const limitedResult = (command: string) => ({
+  reason: REASON_DERIVED_COMMAND_WORK_LIMIT,
+  segment: command,
+  intent: 'stop_and_explain' as const,
+});
+
+describe('derived command work budget', () => {
+  test('accepts the exact embedded Git suffix limit and denies the first token over it', () => {
+    const accepted = exactRepeatedGit();
+    const denied = overLimitRepeatedGit();
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('is unfilterable when destructive-command protection is disabled', () => {
+    const command = overLimitRepeatedGit();
+
+    expect(
+      analyzeTestCommand(command, {
+        config: { destructiveCommandProtectionEnabled: false },
+      }),
+    ).toEqual(limitedResult(command));
+  });
+
+  test('continues charging after an earlier ordinary match is disabled', () => {
+    const command = `tool git reset --hard ${repeatedArgs('before', 3_996)} git status ${repeatedArgs(
+      'after',
+      7_998,
+    )}`;
+
+    expect(
+      analyzeTestCommand(command, {
+        config: { disabledDestructiveCommandRules: ['git.reset-hard'] },
+      }),
+    ).toEqual(limitedResult(command));
+  });
+
+  test('shares the budget across sequential programs', () => {
+    const accepted = `${halfBudgetRepeatedGit()} ; ${halfBudgetRepeatedGit()}`;
+    const denied = `${halfBudgetRepeatedGit()} ; ${halfBudgetRepeatedGit(true)}`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('shares the budget through shell recursion', () => {
+    const innerAccepted = halfBudgetRepeatedGit();
+    const innerDenied = halfBudgetRepeatedGit(true);
+    const accepted = `${halfBudgetRepeatedGit()} ; sh -c '${innerAccepted}'`;
+    const denied = `${halfBudgetRepeatedGit()} ; sh -c '${innerDenied}'`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('shares the budget across parsed command substitutions', () => {
+    const accepted = `echo "$(${halfBudgetRepeatedGit()})" "$(${halfBudgetRepeatedGit()})"`;
+    const denied = `echo "$(${halfBudgetRepeatedGit()})" "$(${halfBudgetRepeatedGit(true)})"`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('bounds repeated exec suffix work in known find commands', () => {
+    const accepted = `find . ${repeatedFindExec(104)}`;
+    const denied = `find . ${repeatedFindExec(105)}`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('bounds fallback and repeated exec suffix work together for embedded find', () => {
+    const accepted = `tool find . ${repeatedFindExec(103)}`;
+    const denied = `tool find . ${repeatedFindExec(104)}`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('shares the budget through find exec segment recursion', () => {
+    const inner = exactRepeatedGit();
+    const command = `find . -exec sh -c '${inner}' \\;`;
+
+    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
+  });
+
+  test('propagates the budget into xargs find children', () => {
+    const command = `${embeddedGit(10_000)} ; xargs find . ${repeatedFindExec(70)}`;
+
+    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
+  });
+
+  test('propagates the budget into parallel find children', () => {
+    const command = `${embeddedGit(10_000)} ; parallel find . ${repeatedFindExec(70)}`;
+
+    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
+  });
+
+  test('preserves under-limit fallback detection order and display bypasses', () => {
+    expect(analyzeTestCommand('tool git reset --hard')?.reason).toContain('git reset --hard');
+    expect(analyzeTestCommand('tool rm -rf / git reset --hard')?.reason).toContain(
+      'extremely dangerous',
+    );
+    expect(analyzeTestCommand('tool find . -delete')?.reason).toContain('find -delete');
+    expect(analyzeTestCommand("tool sh -c 'git reset --hard'")?.reason).toContain(
+      'git reset --hard',
+    );
+    expect(analyzeTestCommand(overLimitRepeatedGit().replace(/^tool /, 'echo '))).toBeNull();
+  });
+});

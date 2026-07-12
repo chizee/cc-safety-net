@@ -3,6 +3,10 @@ import { normalize } from 'node:path';
 import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
 import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
+import {
+  type DerivedCommandWorkBudget,
+  reserveDerivedCommandTokens,
+} from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
   containsDangerousCode,
@@ -65,6 +69,7 @@ export type InternalOptions = AnalyzeOptions & {
   commandView?: CommandView;
   trace?: CommandTraceContext;
   compatibility?: 'explain-legacy';
+  derivedCommandWorkBudget: DerivedCommandWorkBudget;
   parallelBudget: ParallelAnalysisBudget;
 };
 
@@ -719,6 +724,10 @@ function analyzeEmbeddedCommand(
 
   const cmd = normalizeCommandToken(token);
   if (isShellWrapperCommand(token, cmd)) {
+    reserveDerivedCommandTokens(
+      context.options.derivedCommandWorkBudget,
+      context.tokens.length - index,
+    );
     const dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
     if (!dashCArg) {
       return null;
@@ -735,6 +744,10 @@ function analyzeEmbeddedCommand(
     return null;
   }
 
+  reserveDerivedCommandTokens(
+    context.options.derivedCommandWorkBudget,
+    context.tokens.length - index,
+  );
   const embeddedContext: CommandAnalysisContext = {
     ...context,
     tokens: [cmd, ...context.tokens.slice(index + 1)],
@@ -777,11 +790,13 @@ function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRu
 function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
+    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     analyzeTokens: (tokens, cwd) =>
       matchFromBlockResult(
         analyzeSegment([...tokens], context.depth + 1, {
           ...context.options,
+          derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
           effectiveCwd: cwd,
           envAssignments: context.envAssignments,
         }),
@@ -831,6 +846,7 @@ function getNestedCommandAnalyzeContext(
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
+    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
     policy: context.options.policy,

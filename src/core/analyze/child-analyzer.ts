@@ -1,4 +1,5 @@
 import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
+import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
 import {
   containsDangerousCode,
@@ -25,6 +26,7 @@ import {
 
 export interface ChildCommandAnalysisContext {
   cwd: string | undefined;
+  derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   originalCwd: string | undefined;
   paranoidRm: boolean | undefined;
   paranoidInterpreters?: boolean;
@@ -155,8 +157,17 @@ export function analyzeChildCommandMatch(
     return filterDestructiveCommandMatch(
       analyzeFindMatch(tokens, {
         ...context,
+        derivedCommandWorkBudget: context.derivedCommandWorkBudget,
         analyzeTokens: (nestedTokens, cwd) =>
-          analyzeChildCommandMatch(nestedTokens, { ...context, cwd: cwd ?? undefined }, options),
+          analyzeChildCommandMatch(
+            nestedTokens,
+            {
+              ...context,
+              cwd: cwd ?? undefined,
+              derivedCommandWorkBudget: context.derivedCommandWorkBudget,
+            },
+            options,
+          ),
       }),
       context.policy,
     );
