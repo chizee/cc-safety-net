@@ -1,11 +1,18 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/core/rules/rulebook';
 import type { CustomRule } from '@/types';
 import { readRulesConfig } from './config-file';
+import {
+  bindPolicyFilesystemScope,
+  getPolicyFilesystemTargetForPath,
+  isSamePolicyFilesystemTarget,
+  PolicyFilesystemError,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+} from './filesystem';
 import { readLockfile } from './lockfile';
 import {
-  getLegacyProjectRulesConfigPath,
   getLegacyUserRulesConfigPath,
   getPolicyPaths,
   getRulebookCachePath,
@@ -36,15 +43,35 @@ interface ScopePolicy {
 
 export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPolicy {
   const paths = getPolicyPaths(options);
-  const sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath);
-  const user = readRulesConfig(paths.userConfigPath);
+  let sameConfigPath = false;
+  try {
+    sameConfigPath = isSamePolicyFilesystemTarget(
+      paths.userConfigTarget,
+      paths.projectConfigTarget,
+    );
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return invalidLoadedRulesPolicy(paths, error.message);
+    }
+    throw error;
+  }
+  const user = readRulesConfig(paths.userConfigTarget);
   const project = sameConfigPath
     ? { config: null, errors: [] }
-    : readRulesConfig(paths.projectConfigPath);
+    : readRulesConfig(paths.projectConfigTarget);
+  let legacyErrors: string[];
+  try {
+    legacyErrors = getLegacyRulesConfigErrors(paths, options);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return invalidLoadedRulesPolicy(paths, error.message);
+    }
+    throw error;
+  }
   const errors = [
-    ...getLegacyRulesConfigErrors(paths, options),
-    ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
-    ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`),
+    ...legacyErrors,
+    ...formatPolicyReadErrors(paths.userConfigPath, user.errors),
+    ...formatPolicyReadErrors(paths.projectConfigPath, project.errors),
   ];
 
   const userPolicy = user.config
@@ -54,6 +81,7 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
         dirname(paths.userConfigPath),
         options,
         'user',
+        paths.userScope,
       )
     : emptyScopePolicy();
   const projectPolicy = project.config
@@ -63,12 +91,13 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
         dirname(paths.projectConfigPath),
         options,
         'project',
+        paths.projectScope,
       )
     : emptyScopePolicy();
 
   const duplicateNames = getDuplicateRulebookNames([
-    ...(user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : []),
-    ...(project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []),
+    ...(user.config ? getConfiguredLockEntries(user.config, paths.userLockTarget) : []),
+    ...(project.config ? getConfiguredLockEntries(project.config, paths.projectLockTarget) : []),
   ]);
   const userOverrides = user.config?.overrides ?? {};
   const projectOverrides = project.config?.overrides ?? {};
@@ -101,9 +130,16 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   };
 }
 
-export function getRulesConfigSourceDisplayMap(configPath: string): Map<string, string> {
-  const config = readRulesConfig(configPath).config;
-  const lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
+export function getRulesConfigSourceDisplayMap(
+  configPath: string,
+  filesystemScope?: PolicyFilesystemScope,
+): Map<string, string> {
+  const scope =
+    filesystemScope ?? bindPolicyFilesystemScope(dirname(dirname(configPath)), 'rules policy');
+  const config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
+  const lock = readLockfile(
+    getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath)),
+  ).lock;
   if (!config || !lock) return new Map();
 
   const configuredSources = new Set(config.rules);
@@ -118,8 +154,9 @@ export function getRulesConfigRuntimeErrorsForConfig(
   configPath: string,
   lockPath: string,
   options: RulesPolicyOptions,
+  filesystemScope?: PolicyFilesystemScope,
 ): string[] {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options);
+  const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
   if (!loaded) return [];
   return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
 }
@@ -129,8 +166,9 @@ export function getUnknownOverrideErrorsForConfig(
   configPath: string,
   lockPath: string,
   options: RulesPolicyOptions,
+  filesystemScope?: PolicyFilesystemScope,
 ): string[] {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options);
+  const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
   if (!loaded) return [];
   return getUnknownOverrideErrorsForScope(loaded.config, loaded.scope);
 }
@@ -139,14 +177,17 @@ function loadScopePolicyForConfig(
   configPath: string,
   lockPath: string,
   options: RulesPolicyOptions,
+  filesystemScope?: PolicyFilesystemScope,
 ): { config: RulesConfig; scope: ScopePolicy } | null {
-  const config = readRulesConfig(configPath).config;
+  const scope =
+    filesystemScope ?? bindPolicyFilesystemScope(dirname(dirname(configPath)), 'rules policy');
+  const config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
   if (!config) {
     return null;
   }
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname(configPath), options, 'project'),
+    scope: loadScopePolicy(config, lockPath, dirname(configPath), options, 'project', scope),
   };
 }
 
@@ -162,8 +203,21 @@ export function loadScopePolicy(
   configDir: string,
   options: RulesPolicyOptions,
   source: 'user' | 'project',
+  filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
+    dirname(dirname(configDir)),
+    source === 'user' ? 'user policy' : 'project policy',
+  ),
 ): ScopePolicy {
-  const lockResult = readLockfile(lockPath);
+  let lockTarget: PolicyFilesystemTarget;
+  try {
+    lockTarget = getPolicyFilesystemTargetForPath(filesystemScope, lockPath);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { ...emptyScopePolicy(), errors: [error.message], canValidateOverrides: false };
+    }
+    throw error;
+  }
+  const lockResult = readLockfile(lockTarget);
   if (lockResult.errors.length > 0) {
     return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
   }
@@ -184,7 +238,7 @@ export function loadScopePolicy(
       errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
       return [];
     }
-    const loadedRulebook = loadLockedRulebook(entry, configDir, options);
+    const loadedRulebook = loadLockedRulebook(entry, configDir, options, filesystemScope);
     if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
       errors.push(...loadedRulebook.errors);
       return [];
@@ -219,38 +273,44 @@ function loadLockedRulebook(
   entry: RulebookLockEntry,
   configDir: string,
   options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope,
 ): { rulebook: Rulebook | null; errors: string[] } {
   const errors: string[] = [];
   const cachePath = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
-  if (!existsSync(cachePath)) {
+  let cacheContent: string | null;
+  try {
+    cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { rulebook: null, errors: [error.message] };
+    }
+    throw error;
+  }
+  if (cacheContent === null) {
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
     };
   }
 
-  let cacheContent: string;
-  try {
-    cacheContent = readFileSync(cachePath, 'utf-8');
-  } catch (error) {
-    return {
-      rulebook: null,
-      errors: [
-        `failed to read cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`,
-      ],
-    };
-  }
   if (sha256Digest(cacheContent) !== entry.digest) {
     errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
+    return { rulebook: null, errors };
   }
   let rulebook: Rulebook | null = null;
   try {
-    const parsed = JSON.parse(cacheContent) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cacheContent) as unknown;
+    } catch {
+      errors.push(`invalid cached rulebook for ${entry.spec}`);
+      return { rulebook: null, errors };
+    }
     assertValidRulebook(parsed);
     rulebook = parsed as Rulebook;
   } catch (error) {
     errors.push(
-      `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`,
+      `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : 'invalid rulebook'}`,
     );
   }
   if (entry.kind === 'local-directory') {
@@ -267,18 +327,20 @@ function loadLockedRulebook(
       return { rulebook: null, errors };
     }
     const localPath = join(sourcePath, RULEBOOK_FILE);
-    if (!existsSync(localPath)) {
+    let localContent: string | null;
+    try {
+      localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
+    } catch (error) {
+      if (error instanceof PolicyFilesystemError) {
+        return { rulebook: null, errors: [error.message] };
+      }
+      throw error;
+    }
+    if (localContent === null) {
       errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
     } else {
-      try {
-        const localContent = readFileSync(localPath, 'utf-8');
-        if (sha256Digest(localContent) !== entry.digest) {
-          errors.push(getLocalSourceDriftError(entry.spec, localContent));
-        }
-      } catch (error) {
-        errors.push(
-          `failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      if (sha256Digest(localContent) !== entry.digest) {
+        errors.push(getLocalSourceDriftError(entry.spec, localContent));
       }
     }
   }
@@ -297,20 +359,6 @@ function mergeTransparentWrappers(
   ];
 }
 
-function isSameConfigPath(userConfigPath: string, projectConfigPath: string): boolean {
-  if (resolve(userConfigPath) === resolve(projectConfigPath)) {
-    return true;
-  }
-  if (!existsSync(userConfigPath) || !existsSync(projectConfigPath)) {
-    return false;
-  }
-  try {
-    return realpathSync(userConfigPath) === realpathSync(projectConfigPath);
-  } catch {
-    return false;
-  }
-}
-
 function getLegacyRulesConfigErrors(
   paths: ReturnType<typeof getPolicyPaths>,
   options: RulesPolicyOptions,
@@ -321,11 +369,17 @@ function getLegacyRulesConfigErrors(
         getLegacyUserRulesConfigPath(options),
         paths.userConfigPath,
         '~/.cc-safety-net/config.json',
+        paths.userScope,
+        paths.userConfigTarget,
+        paths.userScope,
       ),
       ...getLegacyRulesConfigError(
-        getLegacyProjectRulesConfigPath(options),
+        paths.projectLegacyPath,
         paths.projectConfigPath,
         '.safety-net.json',
+        paths.projectLegacyScope,
+        paths.projectConfigTarget,
+        paths.projectScope,
       ),
     ]),
   );
@@ -335,18 +389,25 @@ function getLegacyRulesConfigError(
   legacyPath: string,
   configPath: string,
   migratedFrom: string,
+  filesystemScope: PolicyFilesystemScope,
+  configTarget: PolicyFilesystemTarget,
+  configFilesystemScope: PolicyFilesystemScope,
 ): string[] {
-  if (!existsSync(legacyPath)) return [];
-  if (hasMigrationEvidence(configPath, migratedFrom)) return [];
-  if (!legacyRulesConfigNeedsMigration(legacyPath)) return [];
+  const legacyContent = readPolicyFile(
+    getPolicyFilesystemTargetForPath(filesystemScope, legacyPath),
+  );
+  if (legacyContent === null) return [];
+  if (hasMigrationEvidence(configTarget, dirname(configPath), migratedFrom, configFilesystemScope))
+    return [];
+  if (!legacyRulesConfigNeedsMigration(legacyContent)) return [];
   return [
     `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`,
   ];
 }
 
-function legacyRulesConfigNeedsMigration(legacyPath: string): boolean {
+function legacyRulesConfigNeedsMigration(content: string): boolean {
   try {
-    const parsed = JSON.parse(readFileSync(legacyPath, 'utf-8')) as unknown;
+    const parsed = JSON.parse(content) as unknown;
     if (!parsed || typeof parsed !== 'object') return true;
     const config = parsed as Record<string, unknown>;
     if (config.version !== 1) return true;
@@ -358,20 +419,39 @@ function legacyRulesConfigNeedsMigration(legacyPath: string): boolean {
   }
 }
 
-function hasMigrationEvidence(configPath: string, migratedFrom: string): boolean {
-  const config = readRulesConfig(configPath).config;
+function hasMigrationEvidence(
+  configTarget: PolicyFilesystemTarget,
+  configDir: string,
+  migratedFrom: string,
+  filesystemScope: PolicyFilesystemScope,
+): boolean {
+  const config = readRulesConfig(configTarget).config;
   if (!config) return false;
   return config.rules.some(
-    (source) => getRulebookMigratedFrom(dirname(configPath), source) === migratedFrom,
+    (source) => getRulebookMigratedFromTarget(configDir, source, filesystemScope) === migratedFrom,
   );
 }
 
+/** @internal */
 export function getRulebookMigratedFrom(configDir: string, source: string): string | null {
+  return getRulebookMigratedFromTarget(
+    configDir,
+    source,
+    bindPolicyFilesystemScope(dirname(configDir), 'rules policy'),
+  );
+}
+
+function getRulebookMigratedFromTarget(
+  configDir: string,
+  source: string,
+  filesystemScope: PolicyFilesystemScope,
+): string | null {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source)) return null;
   const path = join(configDir, source, RULEBOOK_FILE);
-  if (!existsSync(path)) return null;
   try {
-    const rulebook = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+    const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
+    if (content === null) return null;
+    const rulebook = JSON.parse(content) as Record<string, unknown>;
     return typeof rulebook.migrated_from === 'string' ? rulebook.migrated_from : null;
   } catch {
     return null;
@@ -380,7 +460,13 @@ export function getRulebookMigratedFrom(configDir: string, source: string): stri
 
 function getLocalSourceDriftError(spec: string, content: string): string {
   try {
-    assertValidRulebook(JSON.parse(content));
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content) as unknown;
+    } catch {
+      return `invalid local rulebook for ${spec}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
+    }
+    assertValidRulebook(parsed);
   } catch (error) {
     return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
   }
@@ -434,10 +520,35 @@ function getDuplicateRulebookNames(entries: RulebookLockEntry[]): string[] {
   return [...duplicates];
 }
 
-function getConfiguredLockEntries(config: RulesConfig, path: string): RulebookLockEntry[] {
+function getConfiguredLockEntries(
+  config: RulesConfig,
+  path: string | PolicyFilesystemTarget,
+): RulebookLockEntry[] {
   return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) =>
     config.rules.includes(entry.spec),
   );
+}
+
+function formatPolicyReadErrors(path: string, errors: string[]): string[] {
+  return errors.map((error) =>
+    error.startsWith('Unable to access ') ? error : `${path}: ${error}`,
+  );
+}
+
+function invalidLoadedRulesPolicy(
+  paths: ReturnType<typeof getPolicyPaths>,
+  error: string,
+): LoadedRulesPolicy {
+  return {
+    rules: [],
+    transparent_wrappers: [],
+    rulebooks: [],
+    errors: [error],
+    userConfigPath: paths.userConfigPath,
+    projectConfigPath: paths.projectConfigPath,
+    userLockPath: paths.userLockPath,
+    projectLockPath: paths.projectLockPath,
+  };
 }
 
 function emptyScopePolicy(): ScopePolicy {

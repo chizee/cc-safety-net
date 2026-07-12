@@ -1,4 +1,3 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { colors } from '@/bin/utils/colors';
 import {
@@ -17,6 +16,16 @@ import {
   getUserRulesLockPath,
   RULES_DIR,
 } from '@/core/rules/policy';
+import {
+  bindDelegatedPolicyFilesystemTarget,
+  getPolicyFilesystemTargetForPath,
+  PolicyFilesystemError,
+  type PolicyFilesystemTarget,
+  readPolicyDirectoryEntries,
+  readPolicyFile,
+  writePolicyFileAtomic,
+} from '@/core/rules/policy/filesystem';
+import { getPolicyPaths } from '@/core/rules/policy/paths';
 import { assertValidRulebook } from '@/core/rules/rulebook';
 import { NAME_PATTERN } from '@/types';
 
@@ -37,6 +46,18 @@ interface RulesVerifyOptions {
 }
 
 export function runRulesVerify(options: RulesVerifyOptions = {}): number {
+  try {
+    return runRulesVerifyInternal(options);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      console.error(error.message);
+      return 1;
+    }
+    throw error;
+  }
+}
+
+function runRulesVerifyInternal(options: RulesVerifyOptions): number {
   const cwd = options.cwd ?? process.cwd();
   const userConfig = options.userConfigPath ?? getUserRulesConfigPath();
   const projectConfig = options.projectConfigPath ?? getProjectRulesConfigPath(cwd);
@@ -44,6 +65,20 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
   const legacyProjectConfig = options.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
   const githubSourceRulesDir = resolve(cwd, RULES_DIR);
   const userConfigDir = dirname(userConfig);
+  const paths = getPolicyPaths({
+    cwd,
+    userConfigPath: userConfig,
+    projectConfigPath: projectConfig,
+  });
+  const defaultPaths = getPolicyPaths({ cwd });
+  const userConfigTarget = getPolicyFilesystemTargetForPath(paths.userScope, userConfig);
+  const projectConfigTarget = getPolicyFilesystemTargetForPath(paths.projectScope, projectConfig);
+  const legacyUserTarget = options.legacyUserConfigPath
+    ? bindDelegatedPolicyFilesystemTarget(options.legacyUserConfigPath, 'user policy')
+    : getPolicyFilesystemTargetForPath(defaultPaths.userScope, legacyUserConfig);
+  const legacyProjectTarget = options.legacyProjectConfigPath
+    ? bindDelegatedPolicyFilesystemTarget(options.legacyProjectConfigPath, 'project policy')
+    : getPolicyFilesystemTargetForPath(defaultPaths.projectScope, legacyProjectConfig);
 
   let hasErrors = false;
   let hasWarnings = false;
@@ -53,36 +88,43 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
     result: ValidationResult;
     schema: RulesConfigSchemaKind;
     sourceDisplayMap: Map<string, string>;
+    target: PolicyFilesystemTarget;
     inactive?: boolean;
   }> = [];
   const warnings: string[] = [];
-  const githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
+  const githubSourceRules = getGitHubSourceRulesValidation(
+    getPolicyFilesystemTargetForPath(defaultPaths.projectScope, githubSourceRulesDir),
+  );
 
   printRulesVerifyHeader();
 
-  if (existsSync(userConfig)) {
-    const result = validateRulesConfigFile(userConfig);
+  if (readPolicyFile(userConfigTarget) !== null) {
+    const result = validateRulesConfigFile(userConfigTarget);
     result.errors.push(
-      ...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
-        userConfigDir,
-      }),
+      ...getRulesConfigRuntimeErrorsForConfig(
+        userConfig,
+        getUserRulesLockPath({ userConfigDir }),
+        { userConfigDir },
+        paths.userScope,
+      ),
     );
     configsChecked.push({
       scope: 'User',
       path: userConfig,
       result,
       schema: 'rules',
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(userConfig),
+      sourceDisplayMap: getRulesConfigSourceDisplayMap(userConfig, paths.userScope),
+      target: userConfigTarget,
     });
     if (result.errors.length > 0) hasErrors = true;
   }
 
-  if (existsSync(legacyUserConfig)) {
+  if (readPolicyFile(legacyUserTarget) !== null) {
     hasWarnings = true;
-    if (existsSync(userConfig)) {
+    if (readPolicyFile(userConfigTarget) !== null) {
       warnings.push(getLegacyRulesConfigWarning('user', 'cleanup'));
     } else {
-      const result = validateConfigFile(legacyUserConfig);
+      const result = validateConfigFile(legacyUserTarget);
       configsChecked.push({
         scope: 'User',
         path: legacyUserConfig,
@@ -90,6 +132,7 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
         schema: 'legacy',
         sourceDisplayMap: new Map(),
         inactive: true,
+        target: legacyUserTarget,
       });
       warnings.push(
         getLegacyRulesConfigWarning('user', result.errors.length > 0 ? 'fix-or-delete' : 'migrate'),
@@ -98,8 +141,8 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
     }
   }
 
-  if (existsSync(projectConfig)) {
-    const result = validateRulesConfigFile(projectConfig);
+  if (readPolicyFile(projectConfigTarget) !== null) {
+    const result = validateRulesConfigFile(projectConfigTarget);
     result.errors.push(
       ...getRulesConfigRuntimeErrorsForConfig(
         projectConfig,
@@ -107,6 +150,7 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
         {
           userConfigDir,
         },
+        paths.projectScope,
       ),
     );
     configsChecked.push({
@@ -114,17 +158,18 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
       path: resolve(projectConfig),
       result,
       schema: 'rules',
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig),
+      sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig, paths.projectScope),
+      target: projectConfigTarget,
     });
     if (result.errors.length > 0) hasErrors = true;
-    if (existsSync(legacyProjectConfig)) {
+    if (readPolicyFile(legacyProjectTarget) !== null) {
       hasWarnings = true;
       warnings.push(getLegacyRulesConfigWarning('project', 'cleanup'));
     }
-  } else if (existsSync(legacyProjectConfig)) {
+  } else if (readPolicyFile(legacyProjectTarget) !== null) {
     hasWarnings = true;
     hasErrors = true;
-    const result = validateConfigFile(legacyProjectConfig);
+    const result = validateConfigFile(legacyProjectTarget);
     configsChecked.push({
       scope: 'Project',
       path: resolve(legacyProjectConfig),
@@ -132,6 +177,7 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
       schema: 'legacy',
       sourceDisplayMap: new Map(),
       inactive: true,
+      target: legacyProjectTarget,
     });
     warnings.push(
       getLegacyRulesConfigWarning(
@@ -159,7 +205,7 @@ export function runRulesVerify(options: RulesVerifyOptions = {}): number {
     } else if (config.result.errors.length > 0) {
       printInvalidRulesConfig(config.scope, config.path, config.result.errors);
     } else {
-      if (config.schema === 'rules' && addRulesSchemaIfMissing(config.path)) {
+      if (config.schema === 'rules' && addRulesSchemaIfMissing(config.target)) {
         console.log(`\nAdded $schema to ${config.scope.toLowerCase()} config.`);
       }
       printValidRulesConfig(
@@ -206,34 +252,18 @@ function getLegacyRulesConfigWarning(
 }
 
 function getGitHubSourceRulesValidation(
-  path: string,
+  target: PolicyFilesystemTarget,
 ): { path: string; result: ValidationResult } | null {
-  if (!existsSync(path)) return null;
-  const result = validateGitHubSourceRules(path);
+  if (readPolicyDirectoryEntries(target) === null) return null;
+  const result = validateGitHubSourceRules(target);
   if (result.ruleNames.size === 0 && result.errors.length === 0) return null;
-  return { path, result };
+  return { path: target.path, result };
 }
 
-function validateGitHubSourceRules(path: string): ValidationResult {
+function validateGitHubSourceRules(target: PolicyFilesystemTarget): ValidationResult {
   const errors: string[] = [];
   const ruleNames = new Set<string>();
-
-  try {
-    if (!statSync(path).isDirectory()) {
-      return { errors: [`${RULES_DIR} must be a directory`], ruleNames };
-    }
-  } catch (error) {
-    return {
-      errors: [
-        error instanceof Error
-          ? `Failed to inspect ${RULES_DIR}: ${error.message}`
-          : `Failed to inspect ${RULES_DIR}: ${String(error)}`,
-      ],
-      ruleNames,
-    };
-  }
-
-  const entries = readdirSync(path, { withFileTypes: true })
+  const entries = (readPolicyDirectoryEntries(target) ?? [])
     .filter((entry) => !RULES_DIR_RESERVED_ENTRIES.has(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   if (entries.length === 0) {
@@ -245,19 +275,30 @@ function validateGitHubSourceRules(path: string): ValidationResult {
       errors.push(`rulebook directory names must match ${NAME_PATTERN}: ${entry.name}`);
       continue;
     }
-    if (!entry.isDirectory()) {
+    if (entry.kind !== 'directory') {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
 
-    const rulebookPath = join(path, entry.name, 'rulebook.json');
-    if (!existsSync(rulebookPath)) {
+    const rulebookTarget = getPolicyFilesystemTargetForPath(
+      target.scope,
+      join(target.path, entry.name, 'rulebook.json'),
+    );
+    const content = readPolicyFile(rulebookTarget);
+    if (content === null) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
     }
 
     try {
-      const rulebook = assertValidRulebook(JSON.parse(readFileSync(rulebookPath, 'utf-8')));
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content) as unknown;
+      } catch {
+        errors.push(`${entry.name}/rulebook.json: invalid JSON`);
+        continue;
+      }
+      const rulebook = assertValidRulebook(parsed);
       if (rulebook.name !== entry.name) {
         errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
         continue;
@@ -363,15 +404,20 @@ function printInvalidVerifyTarget(label: string, path: string, errors: string[])
   }
 }
 
-function addRulesSchemaIfMissing(path: string): boolean {
+function addRulesSchemaIfMissing(target: PolicyFilesystemTarget): boolean {
   try {
-    const content = readFileSync(path, 'utf-8');
+    const content = readPolicyFile(target);
+    if (content === null) return false;
     const parsed = JSON.parse(content) as Record<string, unknown>;
     if (parsed.$schema) return false;
 
-    writeFileSync(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), 'utf-8');
+    writePolicyFileAtomic(
+      target,
+      JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2),
+    );
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) throw error;
     return false;
   }
 }

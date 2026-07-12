@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   addRulebookSource,
   getProjectRulesConfigPath,
@@ -63,6 +65,19 @@ type RemoveRulebookSourceTestOptions = NonNullable<Parameters<typeof removeRuleb
 type SyncRulesConfigTestOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
   _testPruneRulebookCacheDir: (dir: string) => void;
 };
+type PolicyRenameFaultOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
+  _testAfterPolicyRename: (path: string) => void;
+};
+
+const CASE_INSENSITIVE_TEMP_FILESYSTEM = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'rules-policy-case-probe-'));
+  try {
+    writeFileSync(join(dir, 'probe'), 'probe');
+    return existsSync(join(dir, 'PROBE'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 function loadedRulesTestPolicy(policy: LoadedRulesPolicy): TestPolicyInput {
   if (policy.errors.length === 0) {
@@ -191,6 +206,381 @@ function mockGitHubRepoRulebooksFetch(
 }
 
 describe('rules policy recovery coverage', () => {
+  test('binds cwd legacy inspection independently from an outside project config override', () => {
+    const tempDir = makeTempDir('rules-policy-outside-project-config');
+    const cwd = join(tempDir, 'project');
+    const projectConfigPath = join(tempDir, 'delegated', 'rules', 'rule.json');
+    mkdirSync(cwd);
+    try {
+      const policy = loadRulesPolicy({
+        cwd,
+        projectConfigPath,
+        userConfigDir: join(tempDir, 'user', 'rules'),
+      });
+
+      expect(policy.errors).toEqual([]);
+      expect(policy.rules).toEqual([]);
+      expect(existsSync(join(cwd, '.safety-net.json'))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('linked cwd legacy config returns a fixed invalid policy without throwing', () => {
+    const tempDir = makeTempDir('rules-policy-linked-legacy-project');
+    const outside = join(tempDir, 'TOPSECRET-legacy');
+    try {
+      writeFileSync(outside, 'TOPSECRET unexpected parser payload');
+      symlinkSync(outside, join(tempDir, '.safety-net.json'));
+
+      const policy = loadRulesPolicy({
+        cwd: tempDir,
+        userConfigDir: join(tempDir, 'user', 'rules'),
+      });
+
+      expect(policy.rules).toEqual([]);
+      expect(policy.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(JSON.stringify(policy)).not.toContain('TOPSECRET');
+      expect(JSON.stringify(policy)).not.toContain('unexpected parser');
+      expect(readFileSync(outside, 'utf-8')).toBe('TOPSECRET unexpected parser payload');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('direct sync APIs reject linked project parents without escaping writes', async () => {
+    const tempDir = makeTempDir('rules-policy-linked-parent-write');
+    const outside = makeTempDir('rules-policy-linked-parent-outside');
+    const sentinel = join(outside, 'sentinel');
+    try {
+      mkdirSync(join(outside, 'rules', 'project-rules'), { recursive: true });
+      writeRulebook(join(outside, 'rules', 'project-rules', 'rulebook.json'));
+      writeFileSync(sentinel, 'TOPSECRET', 'utf-8');
+      symlinkSync(outside, join(tempDir, '.cc-safety-net'), 'dir');
+
+      const added = await addRulebookSource('project-rules', {
+        cwd: tempDir,
+        userConfigDir: join(tempDir, 'user', 'rules'),
+      });
+
+      expect(added).toEqual({
+        ok: false,
+        errors: ['Unable to access project policy filesystem safely.'],
+        warnings: [],
+        entries: [],
+      });
+      expect(readFileSync(sentinel, 'utf-8')).toBe('TOPSECRET');
+      expect(existsSync(join(outside, 'rules', 'rule.json'))).toBe(false);
+      expect(existsSync(join(outside, 'rules', 'rule.lock'))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('first-time add removes its new config when source resolution fails', async () => {
+    const tempDir = makeTempDir('rules-policy-first-add-rollback');
+    const configPath = getProjectRulesConfigPath(tempDir);
+    try {
+      mkdirSync(join(getProjectRulesDir(tempDir), 'broken'), { recursive: true });
+      writeFileSync(
+        join(getProjectRulesDir(tempDir), 'broken', 'rulebook.json'),
+        'TOPSECRET invalid rulebook',
+      );
+
+      const result = await addRulebookSource('broken', {
+        cwd: tempDir,
+        userConfigDir: join(tempDir, 'user', 'rules'),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toContain('TOPSECRET');
+      expect(existsSync(configPath)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync rejects linked lock and cache targets without changing sentinels', async () => {
+    const tempDir = makeTempDir('rules-policy-linked-sync-write');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const outsideLock = join(tempDir, 'TOPSECRET-lock');
+    const outsideCache = makeTempDir('rules-policy-linked-cache-outside');
+    try {
+      writeProjectRulebookConfig(tempDir);
+      writeFileSync(outsideLock, 'TOPSECRET lock sentinel', 'utf-8');
+      symlinkSync(outsideLock, getProjectRulesLockPath(tempDir));
+
+      const linkedLock = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(linkedLock.ok).toBe(false);
+      expect(linkedLock.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(outsideLock, 'utf-8')).toBe('TOPSECRET lock sentinel');
+
+      rmSync(getProjectRulesLockPath(tempDir));
+      rmSync(join(tempDir, '.cc-safety-net', 'cache'), { recursive: true, force: true });
+      mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
+      writeFileSync(join(outsideCache, 'sentinel'), 'TOPSECRET cache sentinel', 'utf-8');
+      symlinkSync(outsideCache, join(tempDir, '.cc-safety-net', 'cache'), 'dir');
+
+      const linkedCache = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(linkedCache.ok).toBe(false);
+      expect(linkedCache.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(join(outsideCache, 'sentinel'), 'utf-8')).toBe(
+        'TOPSECRET cache sentinel',
+      );
+      expect(readdirSync(outsideCache)).toEqual(['sentinel']);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(outsideCache, { recursive: true, force: true });
+    }
+  });
+
+  test('sync rejects linked local sources and linked cache children with fixed failures', async () => {
+    const tempDir = makeTempDir('rules-policy-linked-source-sync');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const outside = join(tempDir, 'TOPSECRET-source');
+    try {
+      writeProjectConfigOnly(tempDir);
+      writeFileSync(outside, 'TOPSECRET unexpected parser payload', 'utf-8');
+      mkdirSync(join(getProjectRulesDir(tempDir), 'project-rules'));
+      symlinkSync(outside, join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'));
+
+      const linkedSource = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(linkedSource.ok).toBe(false);
+      expect(linkedSource.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(JSON.stringify(linkedSource)).not.toContain('TOPSECRET');
+
+      rmSync(getProjectRulesDir(tempDir), { recursive: true, force: true });
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir));
+      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
+      mkdirSync(stale, { recursive: true });
+      symlinkSync(outside, join(stale, 'linked'));
+
+      const linkedCacheChild = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(linkedCacheChild.ok).toBe(false);
+      expect(linkedCacheChild.errors).toEqual([
+        'Unable to access project policy filesystem safely.',
+      ]);
+      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
+      expect(existsSync(join(stale, 'linked'))).toBe(true);
+      expect(readFileSync(outside, 'utf-8')).toBe('TOPSECRET unexpected parser payload');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('runtime rejects a linked local-source ancestor after validating a regular cache', async () => {
+    const tempDir = makeTempDir('rules-policy-linked-local-runtime');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const sourceDir = join(getProjectRulesDir(tempDir), 'project-rules');
+    const outside = makeTempDir('rules-policy-linked-local-runtime-outside');
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      rmSync(sourceDir, { recursive: true });
+      writeRulebook(join(outside, 'rulebook.json'));
+      writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
+      symlinkSync(outside, sourceDir, 'dir');
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect(policy.rules).toEqual([]);
+      expect(policy.errors).toContain('Unable to access project policy filesystem safely.');
+      expect(JSON.stringify(policy.errors)).not.toContain('TOPSECRET');
+      expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('remove restores exact config and lock bytes when cache pruning fails after publication', async () => {
+    const tempDir = makeTempDir('rules-policy-remove-lock-rollback');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const configPath = getProjectRulesConfigPath(tempDir);
+    const lockPath = getProjectRulesLockPath(tempDir);
+    const outside = makeTempDir('rules-policy-remove-lock-rollback-outside');
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      const originalConfig = readFileSync(configPath, 'utf-8');
+      const originalLock = readFileSync(lockPath, 'utf-8');
+      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
+      mkdirSync(stale, { recursive: true });
+      writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
+      symlinkSync(outside, join(stale, 'linked'), 'dir');
+
+      const result = await removeRulebookSource('project-rules', {
+        cwd: tempDir,
+        userConfigDir,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
+      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
+      expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('post-rename lock failure restores exact prior lock bytes', async () => {
+    const tempDir = makeTempDir('rules-policy-lock-post-rename');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const configPath = getProjectRulesConfigPath(tempDir);
+    const lockPath = getProjectRulesLockPath(tempDir);
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      const originalConfig = readFileSync(configPath, 'utf-8');
+      const originalLock = readFileSync(lockPath, 'utf-8');
+      writeRulebook(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'));
+      const options = {
+        cwd: tempDir,
+        userConfigDir,
+        _testAfterPolicyRename: (path: string) => {
+          if (path === lockPath) throw new Error('post-rename lock fault');
+        },
+      } satisfies PolicyRenameFaultOptions;
+
+      const result = await syncRulesConfig(options);
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
+      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('post-rename add and remove config failures restore their exact snapshots', async () => {
+    const tempDir = makeTempDir('rules-policy-config-post-rename');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const configPath = getProjectRulesConfigPath(tempDir);
+    const lockPath = getProjectRulesLockPath(tempDir);
+    try {
+      writeProjectRulebook(tempDir);
+      const fault = {
+        cwd: tempDir,
+        userConfigDir,
+        _testAfterPolicyRename: (path: string) => {
+          if (path === configPath) throw new Error('post-rename config fault');
+        },
+      } satisfies PolicyRenameFaultOptions;
+
+      const add = await addRulebookSource('project-rules', fault);
+      expect(add.ok).toBe(false);
+      expect(add.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(existsSync(configPath)).toBe(false);
+      expect(existsSync(lockPath)).toBe(false);
+
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      const originalConfig = readFileSync(configPath, 'utf-8');
+      const originalLock = readFileSync(lockPath, 'utf-8');
+
+      const remove = await removeRulebookSource('project-rules', fault);
+      expect(remove.ok).toBe(false);
+      expect(remove.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
+      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'keeps the new config and lock active when stale cache removal partially fails',
+    async () => {
+      const tempDir = makeTempDir('rules-policy-partial-prune');
+      const userConfigDir = join(tempDir, 'user', 'rules');
+      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
+      try {
+        writeProjectRulebookConfig(tempDir);
+        expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+        mkdirSync(join(stale, 'child'), { recursive: true });
+        writeFileSync(join(stale, 'child', 'entry'), 'stale');
+        chmodSync(stale, 0o500);
+
+        const result = await removeRulebookSource('project-rules', {
+          cwd: tempDir,
+          userConfigDir,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.warnings).toEqual(['Unable to prune rules policy cache safely.']);
+        expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([]);
+        expect(readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks).toEqual([]);
+        expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+      } finally {
+        chmodSync(stale, 0o700);
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.skipIf(!CASE_INSENSITIVE_TEMP_FILESYSTEM)(
+    'keeps an active cache whose directory spelling differs only by case',
+    async () => {
+      const tempDir = makeTempDir('rules-policy-cache-case');
+      const userConfigDir = join(tempDir, 'user', 'rules');
+      try {
+        writeProjectRulebookConfig(tempDir);
+        expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+        const entry = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
+        if (!entry) throw new Error('missing lock entry');
+        const cacheDir = dirname(
+          getRulebookCachePath(entry, { cacheConfigDir: getProjectRulesDir(tempDir) }),
+        );
+        const caseVariant = join(dirname(cacheDir), basename(cacheDir).toUpperCase());
+        const intermediate = `${cacheDir}-rename`;
+        renameSync(cacheDir, intermediate);
+        renameSync(intermediate, caseVariant);
+
+        const result = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+
+        expect(result.ok).toBe(true);
+        expect(existsSync(caseVariant)).toBe(true);
+        expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test('global check uses the user filesystem capability and attribution', async () => {
+    const tempDir = makeTempDir('rules-policy-global-check-scope');
+    const userConfigDir = join(tempDir, 'user', 'rules');
+    const outside = join(tempDir, 'TOPSECRET-user-rulebook');
+    try {
+      writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
+      writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+      expect(
+        (await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true, check: true })).ok,
+      ).toBe(true);
+      writeFileSync(outside, 'TOPSECRET');
+      rmSync(join(userConfigDir, 'user-rules', 'rulebook.json'));
+      symlinkSync(outside, join(userConfigDir, 'user-rules', 'rulebook.json'));
+
+      const linked = await syncRulesConfig({
+        cwd: tempDir,
+        userConfigDir,
+        global: true,
+        check: true,
+      });
+      expect(linked.ok).toBe(false);
+      expect(linked.errors).toEqual(['Unable to access user policy filesystem safely.']);
+      expect(JSON.stringify(linked)).not.toContain('TOPSECRET');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
   test('validates and reads rules config files', () => {
     const tempDir = makeTempDir('rules-policy-config');
     const configPath = join(tempDir, 'rule.json');
@@ -849,7 +1239,7 @@ describe('rules policy recovery coverage', () => {
         writeProjectConfigOnly(tempDir);
         writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules'), 'not a directory');
       },
-      'not a directory',
+      'Unable to access project policy filesystem safely.',
     );
     await expectProjectRulesDeleteSourcePreflightError(
       'rules-policy-remove-delete-source-missing-rulebook',
@@ -867,7 +1257,7 @@ describe('rules policy recovery coverage', () => {
           recursive: true,
         });
       },
-      'rulebook.json is not a file',
+      'Unable to access project policy filesystem safely.',
     );
     await expectProjectRulesDeleteSourcePreflightError(
       'rules-policy-remove-delete-source-outside',
@@ -911,7 +1301,7 @@ describe('rules policy recovery coverage', () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.errors[0]).toContain('not a directory');
+      expect(result.errors[0]).toBe('Unable to access project policy filesystem safely.');
       expect(existsSync(join(targetDir, 'rulebook.json'))).toBe(true);
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
         'project-rules',
@@ -938,7 +1328,7 @@ describe('rules policy recovery coverage', () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.errors[0]).toContain('rulebook.json is not a file');
+      expect(result.errors[0]).toBe('Unable to access project policy filesystem safely.');
       expect(existsSync(targetPath)).toBe(true);
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
         'project-rules',

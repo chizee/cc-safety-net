@@ -2,9 +2,9 @@
  * Tests for the explainCommand function.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
@@ -1022,6 +1022,35 @@ describe('getConfigSource validation paths', () => {
 });
 
 describe('getConfigSource user config paths', () => {
+  test('attributes linked project and user config failures to their own paths', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'explain-linked-config-'));
+    const outside = join(tempDir, 'TOPSECRET-config');
+    try {
+      writeFileSync(outside, 'TOPSECRET unexpected parser payload');
+      const projectPath = join(tempDir, '.cc-safety-net', 'rules', 'rule.json');
+      mkdirSync(dirname(projectPath), { recursive: true });
+      symlinkSync(outside, projectPath);
+
+      expect(getConfigSource({ cwd: tempDir, userConfigPath: join(tempDir, 'user.json') })).toEqual(
+        {
+          configSource: projectPath,
+          configValid: false,
+        },
+      );
+
+      rmSync(join(tempDir, '.cc-safety-net'), { recursive: true, force: true });
+      const userConfigPath = join(tempDir, 'user', 'rule.json');
+      mkdirSync(dirname(userConfigPath), { recursive: true });
+      symlinkSync(outside, userConfigPath);
+
+      expect(getConfigSource({ cwd: tempDir, userConfigPath })).toEqual({
+        configSource: userConfigPath,
+        configValid: false,
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
   test('valid user config with no project config returns user config as valid', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'explain-test-'));
     try {

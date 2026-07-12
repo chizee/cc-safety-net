@@ -1,5 +1,11 @@
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+  bindPolicyFilesystemScope,
+  getPolicyFilesystemTargetForPath,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+} from './filesystem';
 import { RULEBOOK_FILE, RULES_DIR } from './source-syntax';
 import type { RulebookLockEntry, RulesPolicyOptions, SyncRulesConfigOptions } from './types';
 
@@ -26,14 +32,27 @@ export interface PolicyPaths {
   projectConfigPath: string;
   userLockPath: string;
   projectLockPath: string;
+  projectLegacyPath: string;
+  userScope: PolicyFilesystemScope;
+  projectScope: PolicyFilesystemScope;
+  projectLegacyScope: PolicyFilesystemScope;
+  userConfigTarget: PolicyFilesystemTarget;
+  projectConfigTarget: PolicyFilesystemTarget;
+  userLockTarget: PolicyFilesystemTarget;
+  projectLockTarget: PolicyFilesystemTarget;
+  projectLegacyTarget: PolicyFilesystemTarget;
 }
 
 export interface ScopePaths {
   configDir: string;
   configPath: string;
   lockPath: string;
+  filesystemScope: PolicyFilesystemScope;
+  configTarget: PolicyFilesystemTarget;
+  lockTarget: PolicyFilesystemTarget;
 }
 
+/** @internal */
 export function getProjectRulesDir(cwd?: string): string {
   return resolve(cwd ?? process.cwd(), RULES_DIR);
 }
@@ -47,6 +66,7 @@ export function getProjectRulesLockPath(cwd?: string): string {
   return join(getProjectRulesDir(cwd), RULES_LOCK_FILE);
 }
 
+/** @internal */
 export function getUserRulesDir(options?: RulesPolicyOptions): string {
   return (
     options?.userConfigDir ??
@@ -84,11 +104,33 @@ export function getLegacyProjectRulesConfigPath(options: RulesPolicyOptions = {}
 export function getPolicyPaths(options: RulesPolicyOptions): PolicyPaths {
   const userConfigPath = options.userConfigPath ?? getUserRulesConfigPath(options);
   const projectConfigPath = options.projectConfigPath ?? getProjectRulesConfigPath(options.cwd);
+  const userScope = getUserPolicyFilesystemScope(userConfigPath, options);
+  const projectScope = getProjectPolicyFilesystemScope(projectConfigPath, options);
+  const projectLegacyPath = getLegacyProjectRulesConfigPath(options);
+  const projectLegacyScope = bindPolicyFilesystemScope(
+    resolve(options.cwd ?? process.cwd()),
+    'project policy',
+  );
   return {
     userConfigPath,
     projectConfigPath,
     userLockPath: getRulesLockPathForConfigPath(userConfigPath),
     projectLockPath: getRulesLockPathForConfigPath(projectConfigPath),
+    projectLegacyPath,
+    userScope,
+    projectScope,
+    projectLegacyScope,
+    userConfigTarget: getPolicyFilesystemTargetForPath(userScope, userConfigPath),
+    projectConfigTarget: getPolicyFilesystemTargetForPath(projectScope, projectConfigPath),
+    userLockTarget: getPolicyFilesystemTargetForPath(
+      userScope,
+      getRulesLockPathForConfigPath(userConfigPath),
+    ),
+    projectLockTarget: getPolicyFilesystemTargetForPath(
+      projectScope,
+      getRulesLockPathForConfigPath(projectConfigPath),
+    ),
+    projectLegacyTarget: getPolicyFilesystemTargetForPath(projectLegacyScope, projectLegacyPath),
   };
 }
 
@@ -96,11 +138,41 @@ export function getScopePaths(options: SyncRulesConfigOptions): ScopePaths {
   const configPath = options.global
     ? (options.userConfigPath ?? getUserRulesConfigPath(options))
     : (options.projectConfigPath ?? getProjectRulesConfigPath(options.cwd));
+  const filesystemScope = options.global
+    ? getUserPolicyFilesystemScope(configPath, options)
+    : getProjectPolicyFilesystemScope(configPath, options);
+  const lockPath = getRulesLockPathForConfigPath(configPath);
   return {
     configDir: dirname(configPath),
     configPath,
-    lockPath: getRulesLockPathForConfigPath(configPath),
+    lockPath,
+    filesystemScope,
+    configTarget: getPolicyFilesystemTargetForPath(filesystemScope, configPath),
+    lockTarget: getPolicyFilesystemTargetForPath(filesystemScope, lockPath),
   };
+}
+
+function getUserPolicyFilesystemScope(
+  _configPath: string,
+  options: RulesPolicyOptions,
+): PolicyFilesystemScope {
+  const root = options.userConfigPath
+    ? dirname(dirname(resolve(options.userConfigPath)))
+    : dirname(resolve(options.userConfigDir ?? getUserRulesDir(options)));
+  return bindPolicyFilesystemScope(root, 'user policy');
+}
+
+function getProjectPolicyFilesystemScope(
+  configPath: string,
+  options: RulesPolicyOptions,
+): PolicyFilesystemScope {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const absoluteConfigPath = resolve(configPath);
+  const fromCwd = relative(cwd, absoluteConfigPath);
+  if (fromCwd !== '..' && !fromCwd.startsWith(`..${sep}`) && !isAbsolute(fromCwd)) {
+    return bindPolicyFilesystemScope(cwd, 'project policy');
+  }
+  return bindPolicyFilesystemScope(dirname(dirname(absoluteConfigPath)), 'project policy');
 }
 
 export function getRulebookDisplaySource(entry: RulebookLockEntry): string {
@@ -123,6 +195,10 @@ export function getRulebookCachePath(
   );
 }
 
+export function getRulebookCacheRoot(options?: RulesPolicyOptions): string {
+  return join(getRulesCacheDir(options), 'rulebooks');
+}
+
 function getRulebookCacheSlug(entry: RulebookLockEntry): string {
   const source =
     entry.kind === 'github' && entry.display_ref
@@ -137,5 +213,15 @@ function getRulebookCacheSlug(entry: RulebookLockEntry): string {
 }
 
 function getRulesCacheDir(options?: RulesPolicyOptions): string {
-  return join(dirname(options?.cacheConfigDir ?? getUserRulesDir(options)), CACHE_SUBDIR);
+  const configDir = options?.cacheConfigDir ?? getUserRulesDir(options);
+  const syncOptions = options as SyncRulesConfigOptions | undefined;
+  if (
+    syncOptions &&
+    !syncOptions.global &&
+    syncOptions.cwd &&
+    resolve(configDir) === resolve(syncOptions.cwd)
+  ) {
+    return join(resolve(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
+  }
+  return join(dirname(configDir), CACHE_SUBDIR);
 }

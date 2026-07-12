@@ -1,20 +1,29 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmdirSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { runRulebookFixtures } from '@/core/rules/rulebook';
 import { NAME_PATTERN } from '@/types';
 import { readRulesConfig, readScopeRulesConfig, writeJsonAtomic } from './config-file';
+import {
+  getPolicyFilesystemTargetForPath,
+  isSamePolicyFilesystemTarget,
+  PolicyFilesystemError,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+  readPolicyDirectoryEntries,
+  readPolicyFile,
+  removePolicyDirectory,
+  removePolicyFile,
+  validatePolicyDirectoryRemoval,
+  writePolicyFileAtomic,
+} from './filesystem';
 import { readLockfile } from './lockfile';
-import { getRulebookCachePath, getScopePaths, RULE_SYNC_COMMAND } from './paths';
+import {
+  getRulebookCachePath,
+  getRulebookCacheRoot,
+  getScopePaths,
+  RULE_SYNC_COMMAND,
+  RULEBOOK_FILE,
+  type ScopePaths,
+} from './paths';
 import {
   type DiscoveredRulebookSource,
   discoverGitHubRepositoryRulebooks,
@@ -38,6 +47,7 @@ interface InternalSyncRulesConfigOptions extends SyncRulesConfigOptions {
   discoveredDisplayRefs?: Map<string, string>;
   _testDeleteLocalSourceDir?: (dir: string) => void;
   _testPruneRulebookCacheDir?: (dir: string) => void;
+  _testAfterPolicyRename?: (path: string) => void;
 }
 
 interface RemoveRulebookSourceOptions extends SyncRulesConfigOptions {
@@ -47,18 +57,30 @@ interface RemoveRulebookSourceOptions extends SyncRulesConfigOptions {
 export async function syncRulesConfig(
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
-  const internalOptions = options as InternalSyncRulesConfigOptions;
-  const scope = getScopePaths(options);
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok) return scopeConfig.result;
-  const config = scopeConfig.config;
-
-  if (options.check) {
-    return checkRulesConfig(config, scope.configDir, scope.lockPath, options);
-  }
-
+  let lockSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
+  let lockPublished = false;
   try {
-    const existingLockResult = readLockfile(scope.lockPath);
+    const internalOptions = options as InternalSyncRulesConfigOptions;
+    const scope = getScopePaths(options);
+    const scopeConfig = readScopeRulesConfig(scope.configTarget);
+    if (!scopeConfig.ok) return scopeConfig.result;
+    const config = scopeConfig.config;
+
+    if (options.check) {
+      return checkRulesConfig(config, scope, options);
+    }
+
+    lockSnapshot = { target: scope.lockTarget, content: readPolicyFile(scope.lockTarget) };
+
+    const existingLockResult = readLockfile(scope.lockTarget);
+    if (existingLockResult.errors.some((error) => error.startsWith('Unable to access '))) {
+      return {
+        ok: false,
+        errors: existingLockResult.errors,
+        warnings: [],
+        entries: [],
+      };
+    }
     if (options.only && existingLockResult.errors.length > 0) {
       return { ok: false, errors: existingLockResult.errors, warnings: [], entries: [] };
     }
@@ -80,21 +102,38 @@ export async function syncRulesConfig(
     const resolved = (
       await Promise.all(
         selectedSpecs.specs.map((spec) =>
-          resolveRulebookSourceForSync(spec, scope.configDir, options, previousLock),
+          resolveRulebookSourceForSync(
+            spec,
+            scope.configDir,
+            options,
+            previousLock,
+            scope.filesystemScope,
+          ),
         ),
       )
     ).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
     for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options);
+      writeCache(item.content, item.entry, scope.configDir, options, scope.filesystemScope);
     }
     const entries = options.only
       ? mergeSelectedLockEntries(config, previousLock, resolved)
       : resolved.map((item) => item.entry);
-    writeJsonAtomic(scope.lockPath, { version: 1, rulebooks: entries });
+    lockPublished = true;
+    writeJsonAtomic(
+      scope.lockTarget,
+      { version: 1, rulebooks: entries },
+      undefined,
+      internalOptions._testAfterPolicyRename,
+    );
     const ruleCountsBySpec = new Map(
       resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
     );
-    const warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options);
+    const warnings = pruneUnreferencedRulebookCaches(
+      entries,
+      scope.configDir,
+      options,
+      scope.filesystemScope,
+    );
     return {
       ok: true,
       errors: [],
@@ -102,6 +141,13 @@ export async function syncRulesConfig(
       entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec)),
     };
   } catch (error) {
+    if (lockPublished && lockSnapshot) {
+      try {
+        restoreConfig(lockSnapshot.target, lockSnapshot.content);
+      } catch (rollbackError) {
+        return failWithError(rollbackError);
+      }
+    }
     return failWithError(error);
   }
 }
@@ -113,7 +159,9 @@ export async function testRulebookSources(
   const scope = getScopePaths(options);
   try {
     const resolved = await Promise.all(
-      sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options)),
+      sources.map((spec) =>
+        resolveRulebookSource(spec, scope.configDir, options, scope.filesystemScope),
+      ),
     );
     const ruleCountsBySpec = new Map(
       resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
@@ -147,56 +195,74 @@ export async function addRulebookSource(
   source: string,
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
-  const scope = getScopePaths(options);
-  mkdirSync(scope.configDir, { recursive: true });
-  const before = existsSync(scope.configPath) ? readFileSync(scope.configPath, 'utf-8') : null;
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok) return scopeConfig.result;
-  const config = scopeConfig.config;
-  let discoveredSources: DiscoveredRulebookSource[];
+  let configSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
+  let configWriteArmed = false;
   try {
-    discoveredSources = isGitHubRepositorySource(source)
+    const scope = getScopePaths(options);
+    const before = readPolicyFile(scope.configTarget);
+    configSnapshot = { target: scope.configTarget, content: before };
+    const scopeConfig = readScopeRulesConfig(scope.configTarget);
+    if (!scopeConfig.ok) return scopeConfig.result;
+    const config = scopeConfig.config;
+    const discoveredSources: DiscoveredRulebookSource[] = isGitHubRepositorySource(source)
       ? await discoverGitHubRepositoryRulebooks(source)
       : [{ spec: source }];
+    const sources = discoveredSources.map((item) => item.spec);
+    const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
+    if (nextRules.length !== config.rules.length) {
+      configWriteArmed = true;
+      writeJsonAtomic(
+        scope.configTarget,
+        {
+          version: 1,
+          rules: nextRules,
+          overrides: config.overrides ?? {},
+          transparent_wrappers: config.transparent_wrappers ?? [],
+        },
+        undefined,
+        (options as InternalSyncRulesConfigOptions)._testAfterPolicyRename,
+      );
+    }
+    const result = await syncRulesConfig({
+      ...options,
+      discoveredDisplayRefs: new Map(
+        discoveredSources
+          .filter((item): item is Required<DiscoveredRulebookSource> => !!item.display_ref)
+          .map((item) => [item.spec, item.display_ref]),
+      ),
+    } as InternalSyncRulesConfigOptions);
+    if (!result.ok) restoreConfig(scope.configTarget, before);
+    return result;
   } catch (error) {
-    return {
-      ok: false,
-      errors: [error instanceof Error ? error.message : String(error)],
-      warnings: [],
-      entries: [],
-    };
+    if (configWriteArmed && configSnapshot) {
+      try {
+        restoreConfig(configSnapshot.target, configSnapshot.content);
+      } catch (rollbackError) {
+        return failWithError(rollbackError);
+      }
+    }
+    return failWithError(error);
   }
-  const sources = discoveredSources.map((item) => item.spec);
-  const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
-  if (nextRules.length !== config.rules.length) {
-    writeJsonAtomic(scope.configPath, {
-      version: 1,
-      rules: nextRules,
-      overrides: config.overrides ?? {},
-      transparent_wrappers: config.transparent_wrappers ?? [],
-    });
-  }
-  const result = await syncRulesConfig({
-    ...options,
-    discoveredDisplayRefs: new Map(
-      discoveredSources
-        .filter((item): item is Required<DiscoveredRulebookSource> => !!item.display_ref)
-        .map((item) => [item.spec, item.display_ref]),
-    ),
-  } as InternalSyncRulesConfigOptions);
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-  }
-  return result;
 }
 
 export async function removeRulebookSource(
   match: string,
   options: RemoveRulebookSourceOptions = {},
 ): Promise<SyncRulesConfigResult> {
+  try {
+    return await removeRulebookSourceInternal(match, options);
+  } catch (error) {
+    return failWithError(error);
+  }
+}
+
+async function removeRulebookSourceInternal(
+  match: string,
+  options: RemoveRulebookSourceOptions,
+): Promise<SyncRulesConfigResult> {
   const internalOptions = options as InternalSyncRulesConfigOptions;
   const scope = getScopePaths(options);
-  const loaded = readRulesConfig(scope.configPath);
+  const loaded = readRulesConfig(scope.configTarget);
   if (loaded.errors.length > 0) {
     return { ok: false, errors: loaded.errors, warnings: [], entries: [] };
   }
@@ -208,31 +274,51 @@ export async function removeRulebookSource(
       entries: [],
     };
   }
-  const lockResult = readLockfile(scope.lockPath);
+  const lockResult = readLockfile(scope.lockTarget);
   if (lockResult.errors.length > 0) {
     return { ok: false, errors: lockResult.errors, warnings: [], entries: [] };
   }
   const matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
   if (!matches.ok) return matches.result;
   const sourceDirs = options.deleteSource
-    ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock)
+    ? getLocalSourceDirsForDelete(
+        scope.configDir,
+        matches.specs,
+        lockResult.lock,
+        scope.filesystemScope,
+      )
     : { ok: true as const, dirs: [] };
   if (!sourceDirs.ok) return sourceDirs.result;
-  const before = readFileSync(scope.configPath, 'utf-8');
-  writeJsonAtomic(scope.configPath, {
-    version: 1,
-    rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
-    overrides: loaded.config.overrides ?? {},
-    transparent_wrappers: loaded.config.transparent_wrappers ?? [],
-  });
+  const before = readPolicyFile(scope.configTarget);
+  if (before === null) return failWithError(new Error('Rules config is unavailable.'));
+  try {
+    writeJsonAtomic(
+      scope.configTarget,
+      {
+        version: 1,
+        rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
+        overrides: loaded.config.overrides ?? {},
+        transparent_wrappers: loaded.config.transparent_wrappers ?? [],
+      },
+      undefined,
+      internalOptions._testAfterPolicyRename,
+    );
+  } catch (error) {
+    restoreConfig(scope.configTarget, before);
+    throw error;
+  }
   const result = await syncRulesConfig(options);
   if (!result.ok) {
-    restoreConfig(scope.configPath, before);
+    restoreConfig(scope.configTarget, before);
     return result;
   }
-  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions);
+  const deleteResult = deleteLocalSourceDirs(
+    sourceDirs.dirs,
+    internalOptions,
+    scope.filesystemScope,
+  );
   if (!deleteResult.ok) {
-    restoreConfig(scope.configPath, before);
+    restoreConfig(scope.configTarget, before);
     const rollback = await syncRulesConfig(options);
     if (!rollback.ok) {
       return {
@@ -249,11 +335,17 @@ export async function removeRulebookSource(
 
 async function checkRulesConfig(
   config: RulesConfig,
-  configDir: string,
-  lockPath: string,
-  options: RulesPolicyOptions,
+  scope: ScopePaths,
+  options: SyncRulesConfigOptions,
 ): Promise<SyncRulesConfigResult> {
-  const result = loadScopePolicy(config, lockPath, configDir, options, 'project');
+  const result = loadScopePolicy(
+    config,
+    scope.lockPath,
+    scope.configDir,
+    options,
+    options.global ? 'user' : 'project',
+    scope.filesystemScope,
+  );
   return {
     ok: result.errors.length === 0,
     errors: result.errors,
@@ -308,47 +400,62 @@ function writeCache(
   entry: RulebookLockEntry,
   configDir: string,
   options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope,
 ): void {
   const path = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content, 'utf-8');
+  writePolicyFileAtomic(getPolicyFilesystemTargetForPath(filesystemScope, path), content);
 }
 
 function pruneUnreferencedRulebookCaches(
   entries: RulebookLockEntry[],
   configDir: string,
   options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope,
 ): string[] {
   const internalOptions = options as InternalSyncRulesConfigOptions;
-  const cacheRoot = join(dirname(configDir), 'cache', 'rulebooks');
-  if (!existsSync(cacheRoot)) return [];
+  const cacheRoot = getRulebookCacheRoot({ ...options, cacheConfigDir: configDir });
+  const cacheRootTarget = getPolicyFilesystemTargetForPath(filesystemScope, cacheRoot);
+  const cacheEntries = readPolicyDirectoryEntries(cacheRootTarget);
+  if (!cacheEntries) return [];
 
-  const keep = new Set(
-    entries.map((entry) =>
-      dirname(getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir })),
+  const keepTargets = entries.map((entry) =>
+    getPolicyFilesystemTargetForPath(
+      filesystemScope,
+      getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir }),
     ),
   );
 
-  return readdirSync(cacheRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .flatMap((entry) => {
-      const path = join(cacheRoot, entry.name);
-      if (keep.has(path)) return [];
-      try {
-        pruneRulebookCacheDir(path, internalOptions);
-        return [];
-      } catch (error) {
-        return [
-          `Failed to prune rulebook cache entry ${path}: ${error instanceof Error ? error.message : String(error)}`,
-        ];
-      }
-    });
+  const pruneTargets = cacheEntries
+    .filter((entry) => entry.kind === 'directory')
+    .map((entry) => ({
+      directory: getPolicyFilesystemTargetForPath(filesystemScope, join(cacheRoot, entry.name)),
+      identity: getPolicyFilesystemTargetForPath(
+        filesystemScope,
+        join(cacheRoot, entry.name, RULEBOOK_FILE),
+      ),
+    }))
+    .filter(
+      (candidate) =>
+        !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target)),
+    )
+    .map((candidate) => candidate.directory);
+  for (const target of pruneTargets) validatePolicyDirectoryRemoval(target);
+
+  return pruneTargets.flatMap((target) => {
+    try {
+      pruneRulebookCacheDir(target, internalOptions);
+      return [];
+    } catch {
+      return ['Unable to prune rules policy cache safely.'];
+    }
+  });
 }
 
 function getLocalSourceDirsForDelete(
   configDir: string,
   specs: string[],
   lock: RulesLockfile | null,
+  filesystemScope: PolicyFilesystemScope,
 ): { ok: true; dirs: string[] } | { ok: false; result: SyncRulesConfigResult } {
   const entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
   const errors = specs.flatMap((spec) => {
@@ -367,14 +474,20 @@ function getLocalSourceDirsForDelete(
     return join(configDir, entry?.kind === 'local-directory' ? entry.path : spec);
   });
   const dirErrors =
-    errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir));
+    errors.length > 0
+      ? []
+      : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir, filesystemScope));
   const allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0
     ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } }
     : { ok: true, dirs };
 }
 
-function getLocalSourceDirDeleteError(configDir: string, dir: string): string[] {
+function getLocalSourceDirDeleteError(
+  configDir: string,
+  dir: string,
+  filesystemScope: PolicyFilesystemScope,
+): string[] {
   const resolvedConfigDir = resolve(configDir);
   const resolvedDir = resolve(dir);
   const relativeDir = relative(resolvedConfigDir, resolvedDir);
@@ -386,17 +499,17 @@ function getLocalSourceDirDeleteError(configDir: string, dir: string): string[] 
   ) {
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   }
-  if (!existsSync(resolvedDir)) return [`Local rulebook source directory not found: ${dir}`];
-  if (!lstatSync(resolvedDir).isDirectory()) {
-    return [`Local rulebook source is not a directory: ${dir}`];
-  }
-  const entries = readdirSync(resolvedDir);
-  if (!entries.includes('rulebook.json')) {
+  const target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir);
+  const entries = readPolicyDirectoryEntries(target);
+  if (!entries) return [`Local rulebook source directory not found: ${dir}`];
+  const rulebookEntry = entries.find((entry) => entry.name === 'rulebook.json');
+  if (!rulebookEntry) {
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
   }
-  if (!lstatSync(join(resolvedDir, 'rulebook.json')).isFile()) {
-    return [`Local rulebook source rulebook.json is not a file: ${dir}`];
-  }
+  if (rulebookEntry.kind !== 'file') throw new PolicyFilesystemError(filesystemScope.label);
+  readPolicyFile(
+    getPolicyFilesystemTargetForPath(filesystemScope, join(resolvedDir, 'rulebook.json')),
+  );
   if (entries.length > 1) {
     return [
       `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`,
@@ -408,10 +521,11 @@ function getLocalSourceDirDeleteError(configDir: string, dir: string): string[] 
 function deleteLocalSourceDirs(
   dirs: string[],
   options: InternalSyncRulesConfigOptions,
+  filesystemScope: PolicyFilesystemScope,
 ): { ok: true } | { ok: false; result: SyncRulesConfigResult } {
   const errors = dirs.flatMap((dir) => {
     try {
-      deleteLocalSourceDir(dir, options);
+      deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), options);
       return [];
     } catch (error) {
       return [
@@ -424,29 +538,34 @@ function deleteLocalSourceDirs(
     : { ok: true };
 }
 
-function pruneRulebookCacheDir(path: string, options: InternalSyncRulesConfigOptions): void {
+function pruneRulebookCacheDir(
+  target: PolicyFilesystemTarget,
+  options: InternalSyncRulesConfigOptions,
+): void {
   if (options._testPruneRulebookCacheDir) {
-    options._testPruneRulebookCacheDir(path);
+    options._testPruneRulebookCacheDir(target.path);
     return;
   }
-  rmSync(path, { recursive: true, force: true });
+  removePolicyDirectory(target);
 }
 
-function deleteLocalSourceDir(dir: string, options: InternalSyncRulesConfigOptions): void {
+function deleteLocalSourceDir(
+  target: PolicyFilesystemTarget,
+  options: InternalSyncRulesConfigOptions,
+): void {
   if (options._testDeleteLocalSourceDir) {
-    options._testDeleteLocalSourceDir(dir);
+    options._testDeleteLocalSourceDir(target.path);
     return;
   }
-  unlinkSync(join(dir, 'rulebook.json'));
-  rmdirSync(dir);
+  removePolicyDirectory(target);
 }
 
-function restoreConfig(path: string, content: string | null): void {
+function restoreConfig(path: PolicyFilesystemTarget, content: string | null): void {
   if (content === null) {
-    rmSync(path, { force: true });
+    removePolicyFile(path);
     return;
   }
-  writeFileSync(path, content, 'utf-8');
+  writePolicyFileAtomic(path, content);
 }
 
 function failWithError(error: unknown): SyncRulesConfigResult {

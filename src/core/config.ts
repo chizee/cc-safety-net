@@ -1,8 +1,13 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ValidationResult } from '@/types';
 import { validateCustomRule } from './rules/custom-rule-validation';
 import { validateRulesConfig } from './rules/policy/config-file';
+import {
+  bindDelegatedPolicyFilesystemTarget,
+  PolicyFilesystemError,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+} from './rules/policy/filesystem';
 
 /** @internal Exported for testing */
 export function validateConfig(config: unknown): ValidationResult {
@@ -33,31 +38,31 @@ export function validateConfig(config: unknown): ValidationResult {
   return { errors, ruleNames };
 }
 
-export function validateConfigFile(path: string): ValidationResult {
+export function validateConfigFile(path: string | PolicyFilesystemTarget): ValidationResult {
   return validateParsedConfigFile(path, validateConfig);
 }
 
 type ConfigFileInput = { ok: true; parsed: unknown } | { ok: false; result: ValidationResult };
 
-function readConfigFileInput(path: string): ConfigFileInput {
+function readConfigFileInput(path: string | PolicyFilesystemTarget): ConfigFileInput {
   const errors: string[] = [];
   const ruleNames = new Set<string>();
 
-  if (!existsSync(path)) {
-    errors.push(`File not found: ${path}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
-
   try {
-    const content = readFileSync(path, 'utf-8');
+    const target = typeof path === 'string' ? bindDelegatedPolicyFilesystemTarget(path) : path;
+    const content = readPolicyFile(target);
+    if (content === null) {
+      errors.push(`File not found: ${target.path}`);
+      return { ok: false, result: { errors, ruleNames } };
+    }
     if (!content.trim()) {
       errors.push('Config file is empty');
       return { ok: false, result: { errors, ruleNames } };
     }
 
     return { ok: true, parsed: JSON.parse(content) as unknown };
-  } catch (e) {
-    errors.push(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  } catch (error) {
+    errors.push(error instanceof PolicyFilesystemError ? error.message : 'Invalid JSON');
     return { ok: false, result: { errors, ruleNames } };
   }
 }
@@ -66,7 +71,7 @@ export function getLegacyProjectConfigPath(cwd?: string): string {
   return resolve(cwd ?? process.cwd(), '.safety-net.json');
 }
 
-export function validateRulesConfigFile(path: string): ValidationResult {
+export function validateRulesConfigFile(path: string | PolicyFilesystemTarget): ValidationResult {
   const loaded = readConfigFileInput(path);
   if (!loaded.ok) return loaded.result;
   const result = validateRulesConfig(loaded.parsed);
@@ -74,7 +79,7 @@ export function validateRulesConfigFile(path: string): ValidationResult {
 }
 
 function validateParsedConfigFile(
-  path: string,
+  path: string | PolicyFilesystemTarget,
   validate: (config: unknown) => ValidationResult,
 ): ValidationResult {
   const loaded = readConfigFileInput(path);

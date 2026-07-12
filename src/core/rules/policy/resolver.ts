@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/core/rules/rulebook';
+import {
+  bindPolicyFilesystemScope,
+  getPolicyFilesystemTargetForPath,
+  type PolicyFilesystemScope,
+  readPolicyFile,
+} from './filesystem';
 import { getRulebookCachePath, RULE_SYNC_COMMAND, RULEBOOK_FILE, RULES_DIR } from './paths';
 import {
   assertBareRulebookName,
@@ -44,11 +49,15 @@ export async function resolveRulebookSource(
   spec: string,
   configDir: string,
   options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
+    dirname(dirname(configDir)),
+    'rules policy',
+  ),
 ): Promise<ResolvedRulebook> {
   if (isGitHubRulebookSource(spec)) {
     return resolveGitHubRulebook(spec);
   }
-  return resolveLocalRulebook(spec, configDir, options);
+  return resolveLocalRulebook(spec, configDir, options, filesystemScope);
 }
 
 export async function resolveRulebookSourceForSync(
@@ -56,15 +65,16 @@ export async function resolveRulebookSourceForSync(
   configDir: string,
   options: SyncRulesConfigOptions,
   previousLock: RulesLockfile | null,
+  filesystemScope?: PolicyFilesystemScope,
 ): Promise<ResolvedRulebook> {
   if (!isGitHubRulebookSource(spec) || options.refresh) {
-    return resolveRulebookSource(spec, configDir, options);
+    return resolveRulebookSource(spec, configDir, options, filesystemScope);
   }
   const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
   if (!locked || locked.kind !== 'github') {
-    return resolveRulebookSource(spec, configDir, options);
+    return resolveRulebookSource(spec, configDir, options, filesystemScope);
   }
-  return readLockedGitHubRulebook(locked, configDir, options);
+  return readLockedGitHubRulebook(locked, configDir, options, filesystemScope);
 }
 
 export async function discoverGitHubRepositoryRulebooks(
@@ -120,14 +130,15 @@ function resolveLocalRulebook(
   spec: string,
   configDir: string,
   _options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope,
 ): ResolvedRulebook {
   assertBareRulebookName(spec);
   const path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync(path)) {
-    throw new Error(`Rulebook source not found: ${spec}`);
-  }
-  const content = readFileSync(path, 'utf-8');
-  const rulebook = assertValidRulebook(JSON.parse(content));
+  const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
+  if (content === null) throw new Error(`Rulebook source not found: ${spec}`);
+  const rulebook = assertValidRulebook(
+    parseRulebookJson(content, 'Invalid local rulebook source.'),
+  );
   if (rulebook.name !== spec) {
     throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
   }
@@ -157,7 +168,9 @@ async function resolveGitHubRulebook(spec: string): Promise<ResolvedRulebook> {
     throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
   }
   const content = rawResource.content;
-  const rulebook = assertValidRulebook(JSON.parse(content));
+  const rulebook = assertValidRulebook(
+    parseRulebookJson(content, 'Invalid GitHub rulebook response.'),
+  );
   if (rulebook.name !== parsed.name) {
     throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
   }
@@ -183,14 +196,18 @@ async function readLockedGitHubRulebook(
   entry: GitHubRulebookLockEntry,
   configDir: string,
   options: RulesPolicyOptions,
+  filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
+    dirname(dirname(configDir)),
+    'rules policy',
+  ),
 ): Promise<ResolvedRulebook> {
   const identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError) {
     throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
   }
   const cachePath = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
-  if (existsSync(cachePath)) {
-    const content = readFileSync(cachePath, 'utf-8');
+  const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
+  if (content !== null) {
     if (sha256Digest(content) === entry.digest) {
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
     }
@@ -217,11 +234,19 @@ async function fetchLockedGitHubRulebook(
 }
 
 function assertRulebookMatchesLockEntry(content: string, entry: GitHubRulebookLockEntry): Rulebook {
-  const rulebook = assertValidRulebook(JSON.parse(content));
+  const rulebook = assertValidRulebook(parseRulebookJson(content, 'Invalid cached rulebook.'));
   if (rulebook.name !== entry.name) {
     throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
   }
   return rulebook;
+}
+
+function parseRulebookJson(content: string, errorMessage: string): unknown {
+  try {
+    return JSON.parse(content) as unknown;
+  } catch {
+    throw new Error(errorMessage);
+  }
 }
 
 async function resolveGitHubCommit(

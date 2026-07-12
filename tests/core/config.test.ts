@@ -595,7 +595,7 @@ describe('runtime config loading', () => {
   test('unreadable rulebook cache entries fail closed', () => {
     writeLockedGitHubRulebookPolicy(tempDir, '{}', { cacheAsDirectory: true });
 
-    expectPolicyFailClosed('failed to read cached rulebook');
+    expectPolicyFailClosed('Unable to access project policy filesystem safely.');
   });
 
   test('invalid rulebook cache JSON fails closed', () => {

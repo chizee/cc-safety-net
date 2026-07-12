@@ -452,14 +452,29 @@ function getPolicyConfigProtectedPaths(cwd: string): string[] {
   const paths = getPolicyPaths({ cwd });
   return [
     getUserPolicyPath(),
-    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
-    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath),
+    ...getScopePolicyConfigProtectedPaths(
+      paths.userConfigPath,
+      paths.userLockPath,
+      paths.userConfigTarget,
+      paths.userLockTarget,
+    ),
+    ...getScopePolicyConfigProtectedPaths(
+      paths.projectConfigPath,
+      paths.projectLockPath,
+      paths.projectConfigTarget,
+      paths.projectLockTarget,
+    ),
   ];
 }
 
-function getScopePolicyConfigProtectedPaths(configPath: string, lockPath: string): string[] {
+function getScopePolicyConfigProtectedPaths(
+  configPath: string,
+  lockPath: string,
+  configTarget: ReturnType<typeof getPolicyPaths>['userConfigTarget'],
+  lockTarget: ReturnType<typeof getPolicyPaths>['userLockTarget'],
+): string[] {
   const configDir = dirname(configPath);
-  const loaded = readRulesConfig(configPath);
+  const loaded = readRulesConfig(configTarget);
   if (!loaded.config) return [dirname(configDir), configDir, configPath, lockPath];
 
   const configuredSources = new Set(loaded.config.rules);
@@ -471,7 +486,7 @@ function getScopePolicyConfigProtectedPaths(configPath: string, lockPath: string
     ...loaded.config.rules
       .filter((source) => !isGitHubRulebookSource(source))
       .flatMap((source) => [join(configDir, source), join(configDir, source, RULEBOOK_FILE)]),
-    ...(readLockfile(lockPath).lock?.rulebooks ?? [])
+    ...(readLockfile(lockTarget).lock?.rulebooks ?? [])
       .filter((entry) => configuredSources.has(entry.spec))
       .flatMap((entry) => {
         const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });

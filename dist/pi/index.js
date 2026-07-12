@@ -1049,8 +1049,8 @@ function getPolicyRuleMetadata(snapshot, id) {
 }
 
 // src/core/policy.ts
-import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname4, join as join3 } from "node:path";
+import { chmodSync, existsSync, mkdirSync as mkdirSync3, readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname3, join as join4 } from "node:path";
 
 // src/config/schema.ts
 import { createRequire } from "node:module";
@@ -4167,10 +4167,307 @@ function addUnknownFieldErrors(record, allowed, errors, prefix) {
     if (!allowed.has(key))
       errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
 }
-// src/core/rules/policy/config-file.ts
+// src/core/rules/policy/filesystem.ts
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync as mkdirSync2, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname2 } from "node:path";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  fsyncSync,
+  lstatSync as lstatSync2,
+  mkdirSync as mkdirSync2,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync as realpathSync4,
+  renameSync,
+  rmdirSync,
+  statSync as statSync2,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
+import { isAbsolute as isAbsolute5, join as join2, normalize, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+var POLICY_FILESYSTEM_SCOPE = Symbol("PolicyFilesystemScope"), POLICY_FILESYSTEM_TARGET = Symbol("PolicyFilesystemTarget"), NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
+
+class PolicyFilesystemError extends Error {
+  constructor(label) {
+    super(`Unable to access ${label} filesystem safely.`);
+    this.name = "PolicyFilesystemError";
+  }
+}
+function bindPolicyFilesystemScope(root, label) {
+  return { [POLICY_FILESYSTEM_SCOPE]: !0, root: resolve2(root), label };
+}
+function getPolicyFilesystemTarget(scope, relativePath) {
+  let normalized = normalize(relativePath);
+  if (relativePath === "" || isAbsolute5(relativePath) || normalized === ".." || normalized.startsWith(`..${sep2}`))
+    throw new PolicyFilesystemError(scope.label);
+  return {
+    [POLICY_FILESYSTEM_TARGET]: !0,
+    scope,
+    relativePath: normalized,
+    path: join2(scope.root, normalized)
+  };
+}
+function getPolicyFilesystemTargetForPath(scope, path) {
+  let relativePath = relative2(scope.root, resolve2(path));
+  return getPolicyFilesystemTarget(scope, relativePath);
+}
+function bindDelegatedPolicyFilesystemTarget(path, label = "rules policy") {
+  let absolutePath = resolve2(path), root = parse(absolutePath).dir;
+  return getPolicyFilesystemTarget(bindPolicyFilesystemScope(root, label), relative2(root, absolutePath));
+}
+function readPolicyFile(target) {
+  try {
+    if (!validateTarget(target, !1).exists)
+      return null;
+    let descriptor = openSync(target.path, constants.O_RDONLY | NO_FOLLOW);
+    try {
+      let before = fstatSync(descriptor);
+      if (!before.isFile())
+        throw new PolicyFilesystemError(target.scope.label);
+      let content = readFileSync(descriptor, "utf-8"), after = lstatSync2(target.path);
+      if (!after.isFile() || after.isSymbolicLink() || before.dev !== after.dev || before.ino !== after.ino)
+        throw new PolicyFilesystemError(target.scope.label);
+      return validateTarget(target, !1), content;
+    } finally {
+      closeSync(descriptor);
+    }
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function writePolicyFileAtomic(target, content, mode = 384, afterRename) {
+  let tempPath = `${target.path}.${randomBytes(8).toString("hex")}.tmp`, descriptor = null;
+  try {
+    ensureTargetParents(target), validateTarget(target, !0), descriptor = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | NO_FOLLOW, mode);
+    let tempBefore = fstatSync(descriptor);
+    if (!tempBefore.isFile())
+      throw new PolicyFilesystemError(target.scope.label);
+    writeFileSync(descriptor, content, "utf-8"), fsyncSync(descriptor);
+    let tempAfter = fstatSync(descriptor);
+    if (!tempAfter.isFile() || tempAfter.dev !== tempBefore.dev || tempAfter.ino !== tempBefore.ino)
+      throw new PolicyFilesystemError(target.scope.label);
+    closeSync(descriptor), descriptor = null, validateTarget(target, !0), validateAdjacentTemp(target, tempPath, tempAfter.dev, tempAfter.ino), renameSync(tempPath, target.path), afterRename?.(target.path), validateTarget(target, !1);
+  } catch (error) {
+    if (descriptor !== null)
+      closeSafely(descriptor);
+    unlinkSafely(tempPath), throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function isSamePolicyFilesystemTarget(first, second) {
+  if (first.path === second.path)
+    return !0;
+  try {
+    if (!validateTarget(first, !1).exists || !validateTarget(second, !1).exists)
+      return !1;
+    return realpathSync4(first.path) === realpathSync4(second.path);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      throw error;
+    throw new PolicyFilesystemError(first.scope.label);
+  }
+}
+function readPolicyDirectory(target) {
+  try {
+    if (!validateTarget(target, !1, "directory").exists)
+      return null;
+    let entries = readdirSync(target.path);
+    return validateTarget(target, !1, "directory"), entries;
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function readPolicyDirectoryEntries(target) {
+  let names = readPolicyDirectory(target);
+  if (!names)
+    return null;
+  try {
+    let entries = names.map((name) => {
+      let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+      if (stat.isSymbolicLink() || !stat.isFile() && !stat.isDirectory())
+        throw new PolicyFilesystemError(target.scope.label);
+      return assertCanonicalContainment(getCanonicalRootOrThrow(target.scope), realpathSync4(child.path), target.scope.label), { name, kind: stat.isDirectory() ? "directory" : "file" };
+    });
+    return validateTarget(target, !1, "directory"), entries;
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function removePolicyFile(target) {
+  try {
+    if (!validateTarget(target, !0).exists)
+      return;
+    unlinkSync(target.path), validateTarget(target, !0);
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function ensurePolicyDirectory(target) {
+  try {
+    ensureDirectoryComponents(target, target.relativePath.split(sep2));
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function removePolicyDirectory(target) {
+  try {
+    if (!validatePolicyDirectoryRemoval(target))
+      return;
+    removeValidatedTree(target), validateTarget(target, !0, "directory");
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function validatePolicyDirectoryRemoval(target) {
+  try {
+    if (!validateTarget(target, !0, "directory").exists)
+      return !1;
+    return validateRemovalTree(target), !0;
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+function validateTarget(target, allowMissingLeaf, leafType = "file") {
+  let canonicalRoot = getCanonicalRoot(target.scope);
+  if (!canonicalRoot)
+    return { exists: !1 };
+  let parts = target.relativePath.split(sep2);
+  for (let index of parts.keys()) {
+    let path = join2(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
+    if (!stat) {
+      if (index === parts.length - 1 && allowMissingLeaf)
+        return { exists: !1 };
+      return { exists: !1 };
+    }
+    if (stat.isSymbolicLink())
+      throw new PolicyFilesystemError(target.scope.label);
+    if (index < parts.length - 1 && !stat.isDirectory())
+      throw new PolicyFilesystemError(target.scope.label);
+    if (index === parts.length - 1 && (leafType === "file" ? !stat.isFile() : !stat.isDirectory()))
+      throw new PolicyFilesystemError(target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync4(path), target.scope.label);
+  }
+  return { exists: !0 };
+}
+function validateRemovalTree(target) {
+  for (let name of readdirSync(target.path)) {
+    let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+    if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile())
+      throw new PolicyFilesystemError(target.scope.label);
+    if (stat.isDirectory())
+      validateRemovalTree(child);
+  }
+  validateTarget(target, !1, "directory");
+}
+function removeValidatedTree(target) {
+  for (let name of readdirSync(target.path)) {
+    let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+    if (stat.isSymbolicLink())
+      throw new PolicyFilesystemError(target.scope.label);
+    if (stat.isDirectory()) {
+      removeValidatedTree(child);
+      continue;
+    }
+    if (!stat.isFile())
+      throw new PolicyFilesystemError(target.scope.label);
+    unlinkSync(child.path);
+  }
+  rmdirSync(target.path);
+}
+function ensureTargetParents(target) {
+  ensureDirectoryComponents(target, target.relativePath.split(sep2).slice(0, -1));
+}
+function ensureDirectoryComponents(target, parts) {
+  ensureRoot(target.scope);
+  let canonicalRoot = getCanonicalRootOrThrow(target.scope);
+  for (let index of parts.keys()) {
+    let path = join2(target.scope.root, ...parts.slice(0, index + 1));
+    if (!lstatOrMissing(path))
+      mkdirSync2(path, { mode: 448 });
+    let after = lstatSync2(path);
+    if (!after.isDirectory() || after.isSymbolicLink())
+      throw new PolicyFilesystemError(target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync4(path), target.scope.label);
+  }
+}
+function ensureRoot(scope) {
+  if (lstatOrMissing(scope.root)) {
+    if (!statSync2(scope.root).isDirectory())
+      throw new PolicyFilesystemError(scope.label);
+    return;
+  }
+  let missing = [], current = scope.root;
+  while (!lstatOrMissing(current)) {
+    missing.unshift(current);
+    let parent = parse(current).dir;
+    if (parent === current)
+      throw new PolicyFilesystemError(scope.label);
+    current = parent;
+  }
+  if (!statSync2(current).isDirectory())
+    throw new PolicyFilesystemError(scope.label);
+  for (let path of missing) {
+    mkdirSync2(path, { mode: 448 });
+    let stat = lstatSync2(path);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new PolicyFilesystemError(scope.label);
+  }
+}
+function getCanonicalRoot(scope) {
+  if (!lstatOrMissing(scope.root))
+    return null;
+  if (!statSync2(scope.root).isDirectory())
+    throw new PolicyFilesystemError(scope.label);
+  return realpathSync4(scope.root);
+}
+function getCanonicalRootOrThrow(scope) {
+  let root = getCanonicalRoot(scope);
+  if (!root)
+    throw new PolicyFilesystemError(scope.label);
+  return root;
+}
+function validateAdjacentTemp(target, tempPath, device, inode) {
+  let stat = lstatSync2(tempPath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.dev !== device || stat.ino !== inode)
+    throw new PolicyFilesystemError(target.scope.label);
+  let canonicalRoot = getCanonicalRoot(target.scope);
+  if (!canonicalRoot)
+    throw new PolicyFilesystemError(target.scope.label);
+  assertCanonicalContainment(canonicalRoot, realpathSync4(tempPath), target.scope.label);
+}
+function assertCanonicalContainment(canonicalRoot, canonicalPath, label) {
+  let remainder = relative2(canonicalRoot, canonicalPath);
+  if (remainder === ".." || remainder.startsWith(`..${sep2}`) || isAbsolute5(remainder))
+    throw new PolicyFilesystemError(label);
+}
+function lstatOrMissing(path) {
+  try {
+    return lstatSync2(path);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+function throwPolicyFilesystemError(label, error) {
+  if (error instanceof PolicyFilesystemError)
+    throw error;
+  throw new PolicyFilesystemError(label);
+}
+function isNodeError(error) {
+  return error instanceof Error && "code" in error;
+}
+function closeSafely(descriptor) {
+  try {
+    closeSync(descriptor);
+  } catch {}
+}
+function unlinkSafely(path) {
+  try {
+    unlinkSync(path);
+  } catch {}
+}
 
 // src/core/rules/policy/types.ts
 var DEFAULT_CONFIG = {
@@ -4189,10 +4486,10 @@ function validateRulesConfig(config) {
   };
 }
 function readRulesConfig(path) {
-  if (!existsSync(path))
-    return { config: null, errors: [] };
   try {
-    let content = readFileSync(path, "utf-8");
+    let content = readPolicyFile(toTarget(path));
+    if (content === null)
+      return { config: null, errors: [] };
     if (!content.trim())
       return { config: null, errors: ["Config file is empty"] };
     let parsed = JSON.parse(content), validation = validateRulesConfig(parsed);
@@ -4209,9 +4506,11 @@ function readRulesConfig(path) {
       errors: []
     };
   } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return { config: null, errors: [error.message] };
     return {
       config: null,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+      errors: ["Invalid JSON"]
     };
   }
 }
@@ -4250,72 +4549,84 @@ function writeStarterRulebook(path, name = "project-rules") {
     ]
   });
 }
-function createAtomicTempPath(path) {
-  return `${path}.${randomBytes(8).toString("hex")}.tmp`;
+function writeJsonAtomic(path, value, mode, afterRename) {
+  writePolicyFileAtomic(toTarget(path), `${JSON.stringify(value, null, 2)}
+`, mode, afterRename);
 }
-function writeJsonAtomic(path, value, mode) {
-  mkdirSync2(dirname2(path), { recursive: !0 });
-  let tempPath = createAtomicTempPath(path);
-  try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
-`, {
-      encoding: "utf-8",
-      flag: "wx",
-      mode
-    }), renameSync(tempPath, path);
-  } catch (error) {
-    throw rmSync(tempPath, { force: !0 }), error;
-  }
+function toTarget(path) {
+  return typeof path === "string" ? bindDelegatedPolicyFilesystemTarget(path) : path;
 }
 
 // src/core/rules/policy/paths.ts
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname3, join as join2, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, isAbsolute as isAbsolute6, join as join3, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
-  return resolve2(cwd ?? process.cwd(), RULES_DIR);
+  return resolve3(cwd ?? process.cwd(), RULES_DIR);
 }
 function getProjectRulesConfigPath(cwd) {
-  return join2(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+  return join3(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
 }
 function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname3(options2.userConfigPath) : join2(getUserSafetyNetHome(), RULES_SUBDIR));
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname2(options2.userConfigPath) : join3(getUserSafetyNetHome(), RULES_SUBDIR));
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve2(home) : join2(homedir2(), SAFETY_NET_DIR);
+  return home ? resolve3(home) : join3(homedir2(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
-  return join2(getUserRulesDir(options2), RULES_CONFIG_FILE);
+  return join3(getUserRulesDir(options2), RULES_CONFIG_FILE);
 }
 function getUserRulesLockPath(options2) {
-  return join2(getUserRulesDir(options2), RULES_LOCK_FILE);
+  return join3(getUserRulesDir(options2), RULES_LOCK_FILE);
 }
 function getRulesLockPathForConfigPath(configPath) {
-  return join2(dirname3(configPath), RULES_LOCK_FILE);
+  return join3(dirname2(configPath), RULES_LOCK_FILE);
 }
 function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join2(dirname3(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+  return join3(dirname2(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
 }
 function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve2(options2.cwd ?? process.cwd(), ".safety-net.json");
+  return resolve3(options2.cwd ?? process.cwd(), ".safety-net.json");
 }
 function getPolicyPaths(options2) {
-  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), userScope = getUserPolicyFilesystemScope(userConfigPath, options2), projectScope = getProjectPolicyFilesystemScope(projectConfigPath, options2), projectLegacyPath = getLegacyProjectRulesConfigPath(options2), projectLegacyScope = bindPolicyFilesystemScope(resolve3(options2.cwd ?? process.cwd()), "project policy");
   return {
     userConfigPath,
     projectConfigPath,
     userLockPath: getRulesLockPathForConfigPath(userConfigPath),
-    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
+    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath),
+    projectLegacyPath,
+    userScope,
+    projectScope,
+    projectLegacyScope,
+    userConfigTarget: getPolicyFilesystemTargetForPath(userScope, userConfigPath),
+    projectConfigTarget: getPolicyFilesystemTargetForPath(projectScope, projectConfigPath),
+    userLockTarget: getPolicyFilesystemTargetForPath(userScope, getRulesLockPathForConfigPath(userConfigPath)),
+    projectLockTarget: getPolicyFilesystemTargetForPath(projectScope, getRulesLockPathForConfigPath(projectConfigPath)),
+    projectLegacyTarget: getPolicyFilesystemTargetForPath(projectLegacyScope, projectLegacyPath)
   };
 }
 function getScopePaths(options2) {
-  let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
+  let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), filesystemScope = options2.global ? getUserPolicyFilesystemScope(configPath, options2) : getProjectPolicyFilesystemScope(configPath, options2), lockPath = getRulesLockPathForConfigPath(configPath);
   return {
-    configDir: dirname3(configPath),
+    configDir: dirname2(configPath),
     configPath,
-    lockPath: getRulesLockPathForConfigPath(configPath)
+    lockPath,
+    filesystemScope,
+    configTarget: getPolicyFilesystemTargetForPath(filesystemScope, configPath),
+    lockTarget: getPolicyFilesystemTargetForPath(filesystemScope, lockPath)
   };
+}
+function getUserPolicyFilesystemScope(_configPath, options2) {
+  let root = options2.userConfigPath ? dirname2(dirname2(resolve3(options2.userConfigPath))) : dirname2(resolve3(options2.userConfigDir ?? getUserRulesDir(options2)));
+  return bindPolicyFilesystemScope(root, "user policy");
+}
+function getProjectPolicyFilesystemScope(configPath, options2) {
+  let cwd = resolve3(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve3(configPath), fromCwd = relative3(cwd, absoluteConfigPath);
+  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep3}`) && !isAbsolute6(fromCwd))
+    return bindPolicyFilesystemScope(cwd, "project policy");
+  return bindPolicyFilesystemScope(dirname2(dirname2(absoluteConfigPath)), "project policy");
 }
 function getRulebookDisplaySource(entry) {
   if (entry.kind === "github" && entry.display_ref)
@@ -4324,13 +4635,19 @@ function getRulebookDisplaySource(entry) {
 }
 function getRulebookCachePath(entry, options2) {
   let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join2(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+  return join3(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+}
+function getRulebookCacheRoot(options2) {
+  return join3(getRulesCacheDir(options2), "rulebooks");
 }
 function getRulebookCacheSlug(entry) {
   return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
 }
 function getRulesCacheDir(options2) {
-  return join2(dirname3(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
+  let configDir = options2?.cacheConfigDir ?? getUserRulesDir(options2), syncOptions = options2;
+  if (syncOptions && !syncOptions.global && syncOptions.cwd && resolve3(configDir) === resolve3(syncOptions.cwd))
+    return join3(resolve3(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
+  return join3(dirname2(configDir), CACHE_SUBDIR);
 }
 
 // src/core/policy.ts
@@ -4354,11 +4671,11 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS2 = /* @__PURE__ */ new Set(["stan
   }
 };
 function getUserPolicyPath(options2) {
-  return join3(dirname4(getUserRulesDir(options2)), POLICY_FILE);
+  return join4(dirname3(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
-  if (!existsSync2(path))
+  if (!existsSync(path))
     return {
       path,
       exists: !1,
@@ -4398,11 +4715,11 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   let path = getUserPolicyPath(options2), errors = getUserPolicyDiagnostics(policy), normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0)
     return { path, policy: normalizedPolicy, errors };
-  return mkdirSync3(dirname4(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
+  return mkdirSync3(dirname3(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
-  if (!existsSync2(path))
+  if (!existsSync(path))
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
   let raw = readFileSync2(path, "utf-8");
   if (!raw.trim())
@@ -4512,7 +4829,7 @@ function normalizeGuiPolicy(policy) {
 }
 function readPolicyConfig(path) {
   let empty = createEmptyPolicy();
-  if (!existsSync2(path))
+  if (!existsSync(path))
     return { policy: empty, errors: [] };
   try {
     let content = readFileSync2(path, "utf-8");
@@ -4567,8 +4884,7 @@ function normalizeSafety(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { existsSync as existsSync5, readFileSync as readFileSync5, realpathSync as realpathSync4 } from "node:fs";
-import { dirname as dirname5, isAbsolute as isAbsolute5, join as join5, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute7, join as join6, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
 
 // src/core/rules/custom.ts
 function checkCustomRules(tokens, rules) {
@@ -4867,9 +5183,6 @@ function assertValidRulebook(rulebook) {
   return parsed;
 }
 
-// src/core/rules/policy/lockfile.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-
 // src/core/rules/policy/sources.ts
 var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
 function getRulebookLockEntrySourceIdentityError(entry) {
@@ -4995,18 +5308,20 @@ function getConfiguredGitHubSourceMatches(rules, matches) {
 // src/core/rules/policy/lockfile.ts
 var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/, RULEBOOK_SOURCE_KINDS = /* @__PURE__ */ new Set(["local-directory", "github"]);
 function readLockfile(path) {
-  if (!existsSync3(path))
-    return { lock: null, errors: [] };
+  let displayPath = typeof path === "string" ? path : path.path;
   try {
-    let parsed = JSON.parse(readFileSync3(path, "utf-8"));
+    let content = readPolicyFile(typeof path === "string" ? bindDelegatedPolicyFilesystemTarget(path) : path);
+    if (content === null)
+      return { lock: null, errors: [] };
+    let parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object")
-      return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
+      return { lock: null, errors: [`malformed lockfile ${displayPath}: must be an object`] };
     let lock = parsed;
     if (lock.version !== 1 || !Array.isArray(lock.rulebooks))
-      return { lock: null, errors: [`malformed lockfile ${path}`] };
-    let parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`)), entryErrors = parsedEntries.flatMap((entry) => entry.errors);
+      return { lock: null, errors: [`malformed lockfile ${displayPath}`] };
+    let parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${displayPath}: rulebooks[${index}]`)), entryErrors = parsedEntries.flatMap((entry) => entry.errors);
     if (entryErrors.length > 0)
-      return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
+      return { lock: null, errors: [`malformed lockfile ${displayPath}`, ...entryErrors] };
     return {
       lock: {
         version: 1,
@@ -5015,11 +5330,11 @@ function readLockfile(path) {
       errors: []
     };
   } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return { lock: null, errors: [error.message] };
     return {
       lock: null,
-      errors: [
-        `malformed lockfile ${path}: ${error instanceof Error ? error.message : String(error)}`
-      ]
+      errors: ["malformed lockfile"]
     };
   }
 }
@@ -5102,8 +5417,7 @@ function requiredString(candidate, field) {
 
 // src/core/rules/policy/resolver.ts
 import { createHash } from "node:crypto";
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
-import { join as join4 } from "node:path";
+import { dirname as dirname4, join as join5 } from "node:path";
 var GITHUB_FETCH_LIMITS = Object.freeze({
   timeoutMs: 15000,
   metadataBytes: 524288,
@@ -5111,18 +5425,18 @@ var GITHUB_FETCH_LIMITS = Object.freeze({
   treeBytes: 16777216,
   rawBytes: 4194304
 });
-async function resolveRulebookSource(spec, configDir, options2) {
+async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname4(dirname4(configDir)), "rules policy")) {
   if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec);
-  return resolveLocalRulebook(spec, configDir, options2);
+  return resolveLocalRulebook(spec, configDir, options2, filesystemScope);
 }
-async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock) {
+async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock, filesystemScope) {
   if (!isGitHubRulebookSource(spec) || options2.refresh)
-    return resolveRulebookSource(spec, configDir, options2);
+    return resolveRulebookSource(spec, configDir, options2, filesystemScope);
   let locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
   if (!locked || locked.kind !== "github")
-    return resolveRulebookSource(spec, configDir, options2);
-  return readLockedGitHubRulebook(locked, configDir, options2);
+    return resolveRulebookSource(spec, configDir, options2, filesystemScope);
+  return readLockedGitHubRulebook(locked, configDir, options2, filesystemScope);
 }
 async function discoverGitHubRepositoryRulebooks(source) {
   let [owner, repo] = source.split("/");
@@ -5150,12 +5464,12 @@ async function discoverGitHubRepositoryRulebooks(source) {
     display_ref: metadata2.default_branch
   }));
 }
-function resolveLocalRulebook(spec, configDir, _options) {
+function resolveLocalRulebook(spec, configDir, _options, filesystemScope) {
   assertBareRulebookName(spec);
-  let path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync4(path))
+  let path = getLocalRulebookPath(configDir, spec), content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
+  if (content === null)
     throw Error(`Rulebook source not found: ${spec}`);
-  let content = readFileSync4(path, "utf-8"), rulebook = assertValidRulebook(JSON.parse(content));
+  let rulebook = assertValidRulebook(parseRulebookJson(content, "Invalid local rulebook source."));
   if (rulebook.name !== spec)
     throw Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
   return {
@@ -5175,7 +5489,7 @@ async function resolveGitHubRulebook(spec) {
   let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec), rawResource = await fetchGitHubResource(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`, "raw"), rawResponse = rawResource.response;
   if (!rawResponse.ok)
     throw Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
-  let content = rawResource.content, rulebook = assertValidRulebook(JSON.parse(content));
+  let content = rawResource.content, rulebook = assertValidRulebook(parseRulebookJson(content, "Invalid GitHub rulebook response."));
   if (rulebook.name !== parsed.name)
     throw Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
   return {
@@ -5195,13 +5509,12 @@ async function resolveGitHubRulebook(spec) {
     }
   };
 }
-async function readLockedGitHubRulebook(entry, configDir, options2) {
+async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname4(dirname4(configDir)), "rules policy")) {
   let identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError)
     throw Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
-  let cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (existsSync4(cachePath)) {
-    let content = readFileSync4(cachePath, "utf-8");
+  let cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }), content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
+  if (content !== null) {
     if (sha256Digest(content) === entry.digest)
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
   }
@@ -5217,10 +5530,17 @@ async function fetchLockedGitHubRulebook(entry) {
   return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
 }
 function assertRulebookMatchesLockEntry(content, entry) {
-  let rulebook = assertValidRulebook(JSON.parse(content));
+  let rulebook = assertValidRulebook(parseRulebookJson(content, "Invalid cached rulebook."));
   if (rulebook.name !== entry.name)
     throw Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
   return rulebook;
+}
+function parseRulebookJson(content, errorMessage) {
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw Error(errorMessage);
+  }
 }
 async function resolveGitHubCommit(owner, repo, ref, source) {
   let commitResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, "commit"), commitResponse = commitResource.response;
@@ -5280,7 +5600,7 @@ function safelyCancelGitHubResponse(cancel) {
   } catch {}
 }
 function getLocalRulebookPath(configDir, name) {
-  return join4(configDir, name, RULEBOOK_FILE);
+  return join5(configDir, name, RULEBOOK_FILE);
 }
 function sha256Digest(content) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -5288,13 +5608,29 @@ function sha256Digest(content) {
 
 // src/core/rules/policy/scope-policy.ts
 function loadRulesPolicy(options2 = {}) {
-  let paths = getPolicyPaths(options2), sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath), user = readRulesConfig(paths.userConfigPath), project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath), errors = [
-    ...getLegacyRulesConfigErrors(paths, options2),
-    ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
-    ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
-  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname5(paths.userConfigPath), options2, "user") : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname5(paths.projectConfigPath), options2, "project") : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
-    ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
-    ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
+  let paths = getPolicyPaths(options2), sameConfigPath = !1;
+  try {
+    sameConfigPath = isSamePolicyFilesystemTarget(paths.userConfigTarget, paths.projectConfigTarget);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return invalidLoadedRulesPolicy(paths, error.message);
+    throw error;
+  }
+  let user = readRulesConfig(paths.userConfigTarget), project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigTarget), legacyErrors;
+  try {
+    legacyErrors = getLegacyRulesConfigErrors(paths, options2);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return invalidLoadedRulesPolicy(paths, error.message);
+    throw error;
+  }
+  let errors = [
+    ...legacyErrors,
+    ...formatPolicyReadErrors(paths.userConfigPath, user.errors),
+    ...formatPolicyReadErrors(paths.projectConfigPath, project.errors)
+  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname5(paths.userConfigPath), options2, "user", paths.userScope) : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname5(paths.projectConfigPath), options2, "project", paths.projectScope) : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
+    ...user.config ? getConfiguredLockEntries(user.config, paths.userLockTarget) : [],
+    ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockTarget) : []
   ]), userOverrides = user.config?.overrides ?? {}, projectOverrides = project.config?.overrides ?? {};
   return {
     rules: [
@@ -5317,33 +5653,41 @@ function loadRulesPolicy(options2 = {}) {
     ...paths
   };
 }
-function getRulesConfigSourceDisplayMap(configPath) {
-  let config = readRulesConfig(configPath).config, lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
+function getRulesConfigSourceDisplayMap(configPath, filesystemScope) {
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname5(dirname5(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config, lock = readLockfile(getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath))).lock;
   if (!config || !lock)
     return /* @__PURE__ */ new Map;
   let configuredSources = new Set(config.rules);
   return new Map(lock.rulebooks.filter((entry) => configuredSources.has(entry.spec)).map((entry) => [entry.spec, getRulebookDisplaySource(entry)]));
 }
-function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2) {
-  let loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
+function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2, filesystemScope) {
+  let loaded = loadScopePolicyForConfig(configPath, lockPath, options2, filesystemScope);
   if (!loaded)
     return [];
   return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
 }
-function loadScopePolicyForConfig(configPath, lockPath, options2) {
-  let config = readRulesConfig(configPath).config;
+function loadScopePolicyForConfig(configPath, lockPath, options2, filesystemScope) {
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname5(dirname5(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
   if (!config)
     return null;
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname5(configPath), options2, "project")
+    scope: loadScopePolicy(config, lockPath, dirname5(configPath), options2, "project", scope)
   };
 }
 function getUnknownOverrideErrorsForScope(config, scope) {
   return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
 }
-function loadScopePolicy(config, lockPath, configDir, options2, source) {
-  let lockResult = readLockfile(lockPath);
+function loadScopePolicy(config, lockPath, configDir, options2, source, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), source === "user" ? "user policy" : "project policy")) {
+  let lockTarget;
+  try {
+    lockTarget = getPolicyFilesystemTargetForPath(filesystemScope, lockPath);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return { ...emptyScopePolicy(), errors: [error.message], canValidateOverrides: !1 };
+    throw error;
+  }
+  let lockResult = readLockfile(lockTarget);
   if (lockResult.errors.length > 0)
     return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: !1 };
   let lock = lockResult.lock;
@@ -5357,7 +5701,7 @@ function loadScopePolicy(config, lockPath, configDir, options2, source) {
     let entry = entriesBySpec.get(spec);
     if (!entry)
       return errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`), [];
-    let loadedRulebook = loadLockedRulebook(entry, configDir, options2);
+    let loadedRulebook = loadLockedRulebook(entry, configDir, options2, filesystemScope);
     if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook)
       return errors.push(...loadedRulebook.errors), [];
     let rulebook = loadedRulebook.rulebook;
@@ -5383,48 +5727,50 @@ function loadScopePolicy(config, lockPath, configDir, options2, source) {
     canValidateOverrides: errors.length === 0
   };
 }
-function loadLockedRulebook(entry, configDir, options2) {
-  let errors = [], cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (!existsSync5(cachePath))
+function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
+  let errors = [], cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }), cacheContent;
+  try {
+    cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError)
+      return { rulebook: null, errors: [error.message] };
+    throw error;
+  }
+  if (cacheContent === null)
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
     };
-  let cacheContent;
-  try {
-    cacheContent = readFileSync5(cachePath, "utf-8");
-  } catch (error) {
-    return {
-      rulebook: null,
-      errors: [
-        `failed to read cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`
-      ]
-    };
-  }
   if (sha256Digest(cacheContent) !== entry.digest)
-    errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
+    return errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
   let rulebook = null;
   try {
-    let parsed = JSON.parse(cacheContent);
+    let parsed;
+    try {
+      parsed = JSON.parse(cacheContent);
+    } catch {
+      return errors.push(`invalid cached rulebook for ${entry.spec}`), { rulebook: null, errors };
+    }
     assertValidRulebook(parsed), rulebook = parsed;
   } catch (error) {
-    errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
+    errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : "invalid rulebook"}`);
   }
   if (entry.kind === "local-directory") {
-    let sourcePath = resolve3(configDir, entry.path), sourceRelative = relative2(resolve3(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep2}`) || isAbsolute5(sourceRelative))
+    let sourcePath = resolve4(configDir, entry.path), sourceRelative = relative4(resolve4(configDir), sourcePath);
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute7(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
-    let localPath = join5(sourcePath, RULEBOOK_FILE);
-    if (!existsSync5(localPath))
+    let localPath = join6(sourcePath, RULEBOOK_FILE), localContent;
+    try {
+      localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
+    } catch (error) {
+      if (error instanceof PolicyFilesystemError)
+        return { rulebook: null, errors: [error.message] };
+      throw error;
+    }
+    if (localContent === null)
       errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    else
-      try {
-        let localContent = readFileSync5(localPath, "utf-8");
-        if (sha256Digest(localContent) !== entry.digest)
-          errors.push(getLocalSourceDriftError(entry.spec, localContent));
-      } catch (error) {
-        errors.push(`failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
-      }
+    else if (sha256Digest(localContent) !== entry.digest)
+      errors.push(getLocalSourceDriftError(entry.spec, localContent));
   }
   return { rulebook: errors.length === 0 ? rulebook : null, errors };
 }
@@ -5436,37 +5782,27 @@ function mergeTransparentWrappers(userConfig, projectConfig) {
     ])
   ];
 }
-function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve3(userConfigPath) === resolve3(projectConfigPath))
-    return !0;
-  if (!existsSync5(userConfigPath) || !existsSync5(projectConfigPath))
-    return !1;
-  try {
-    return realpathSync4(userConfigPath) === realpathSync4(projectConfigPath);
-  } catch {
-    return !1;
-  }
-}
 function getLegacyRulesConfigErrors(paths, options2) {
   return Array.from(/* @__PURE__ */ new Set([
-    ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json"),
-    ...getLegacyRulesConfigError(getLegacyProjectRulesConfigPath(options2), paths.projectConfigPath, ".safety-net.json")
+    ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json", paths.userScope, paths.userConfigTarget, paths.userScope),
+    ...getLegacyRulesConfigError(paths.projectLegacyPath, paths.projectConfigPath, ".safety-net.json", paths.projectLegacyScope, paths.projectConfigTarget, paths.projectScope)
   ]));
 }
-function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
-  if (!existsSync5(legacyPath))
+function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom, filesystemScope, configTarget, configFilesystemScope) {
+  let legacyContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, legacyPath));
+  if (legacyContent === null)
     return [];
-  if (hasMigrationEvidence(configPath, migratedFrom))
+  if (hasMigrationEvidence(configTarget, dirname5(configPath), migratedFrom, configFilesystemScope))
     return [];
-  if (!legacyRulesConfigNeedsMigration(legacyPath))
+  if (!legacyRulesConfigNeedsMigration(legacyContent))
     return [];
   return [
     `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`
   ];
 }
-function legacyRulesConfigNeedsMigration(legacyPath) {
+function legacyRulesConfigNeedsMigration(content) {
   try {
-    let parsed = JSON.parse(readFileSync5(legacyPath, "utf-8"));
+    let parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object")
       return !0;
     let config = parsed;
@@ -5481,20 +5817,21 @@ function legacyRulesConfigNeedsMigration(legacyPath) {
     return !0;
   }
 }
-function hasMigrationEvidence(configPath, migratedFrom) {
-  let config = readRulesConfig(configPath).config;
+function hasMigrationEvidence(configTarget, configDir, migratedFrom, filesystemScope) {
+  let config = readRulesConfig(configTarget).config;
   if (!config)
     return !1;
-  return config.rules.some((source) => getRulebookMigratedFrom(dirname5(configPath), source) === migratedFrom);
+  return config.rules.some((source) => getRulebookMigratedFromTarget(configDir, source, filesystemScope) === migratedFrom);
 }
-function getRulebookMigratedFrom(configDir, source) {
+function getRulebookMigratedFromTarget(configDir, source, filesystemScope) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  let path = join5(configDir, source, RULEBOOK_FILE);
-  if (!existsSync5(path))
-    return null;
+  let path = join6(configDir, source, RULEBOOK_FILE);
   try {
-    let rulebook = JSON.parse(readFileSync5(path, "utf-8"));
+    let content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
+    if (content === null)
+      return null;
+    let rulebook = JSON.parse(content);
     return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
   } catch {
     return null;
@@ -5502,7 +5839,13 @@ function getRulebookMigratedFrom(configDir, source) {
 }
 function getLocalSourceDriftError(spec, content) {
   try {
-    assertValidRulebook(JSON.parse(content));
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return `invalid local rulebook for ${spec}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
+    }
+    assertValidRulebook(parsed);
   } catch (error) {
     return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
   }
@@ -5537,6 +5880,21 @@ function getDuplicateRulebookNames(entries) {
 }
 function getConfiguredLockEntries(config, path) {
   return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) => config.rules.includes(entry.spec));
+}
+function formatPolicyReadErrors(path, errors) {
+  return errors.map((error) => error.startsWith("Unable to access ") ? error : `${path}: ${error}`);
+}
+function invalidLoadedRulesPolicy(paths, error) {
+  return {
+    rules: [],
+    transparent_wrappers: [],
+    rulebooks: [],
+    errors: [error],
+    userConfigPath: paths.userConfigPath,
+    projectConfigPath: paths.projectConfigPath,
+    userLockPath: paths.userLockPath,
+    projectLockPath: paths.projectLockPath
+  };
 }
 function emptyScopePolicy() {
   return {
@@ -5768,7 +6126,7 @@ function exceedsLimit(current, amount, limit) {
 // src/core/analyze/recursive-delete-targets.ts
 import { realpathSync as realpathSync5 } from "node:fs";
 import { homedir as homedir3, tmpdir } from "node:os";
-import { normalize, resolve as resolve4, sep as sep3 } from "node:path";
+import { normalize as normalize2, resolve as resolve5, sep as sep5 } from "node:path";
 var IS_WINDOWS = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
   return {
@@ -5812,7 +6170,7 @@ function isDangerousRootOrHomeTarget(path) {
   return !1;
 }
 function normalizePathForComparison(p) {
-  let normalized = normalize(p);
+  let normalized = normalize2(p);
   if (IS_WINDOWS) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
@@ -5831,7 +6189,7 @@ function isTempTarget(path, allowTmpdirVar) {
   if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/"))
     return !0;
   let normalizedTmpdir = normalizePathForComparison(tmpdir()), pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep3}`) || pathToCompare === normalizedTmpdir)
+  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep5}`) || pathToCompare === normalizedTmpdir)
     return !0;
   if (allowTmpdirVar) {
     if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/"))
@@ -5881,10 +6239,10 @@ function isCwdSelfTarget(target, cwd) {
   if (target === "." || target === "./" || target === ".\\")
     return !0;
   try {
-    return normalizePathForComparison(realpathSync5(resolve4(cwd, target))) === normalizePathForComparison(realpathSync5(cwd));
+    return normalizePathForComparison(realpathSync5(resolve5(cwd, target))) === normalizePathForComparison(realpathSync5(cwd));
   } catch {
     try {
-      return normalizePathForComparison(resolve4(cwd, target)) === normalizePathForComparison(cwd);
+      return normalizePathForComparison(resolve5(cwd, target)) === normalizePathForComparison(cwd);
     } catch {
       return !1;
     }
@@ -5904,14 +6262,14 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
     }
   if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\"))
     try {
-      return isResolvedPathWithinCwd(resolve4(resolveCwd, target), originalCwd);
+      return isResolvedPathWithinCwd(resolve5(resolveCwd, target), originalCwd);
     } catch {
       return !1;
     }
   if (target.startsWith("../"))
     return !1;
   try {
-    return isResolvedPathWithinCwd(resolve4(resolveCwd, target), originalCwd);
+    return isResolvedPathWithinCwd(resolve5(resolveCwd, target), originalCwd);
   } catch {
     return !1;
   }
@@ -5925,7 +6283,7 @@ function isResolvedPathWithinCwd(resolvedTarget, cwd) {
 }
 function isNormalizedPathWithin(target, cwd) {
   let normalizedTarget = normalizePathForComparison(target), normalizedCwd = normalizePathForComparison(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep3}`) || normalizedTarget === normalizedCwd;
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep5}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/powershell/remove-item.ts
@@ -6082,7 +6440,7 @@ function matchForClassification(classification, ctx) {
 
 // src/core/analyze/segment.ts
 import { realpathSync as realpathSync8 } from "node:fs";
-import { normalize as normalize3 } from "node:path";
+import { normalize as normalize4 } from "node:path";
 
 // src/core/analyze/constants.ts
 var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
@@ -6416,8 +6774,8 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
 }
 
 // src/core/git/worktree.ts
-import { existsSync as existsSync6, lstatSync as lstatSync2, readFileSync as readFileSync6, realpathSync as realpathSync6, statSync as statSync2 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join6, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync2, lstatSync as lstatSync3, readFileSync as readFileSync3, realpathSync as realpathSync6, statSync as statSync3 } from "node:fs";
+import { dirname as dirname6, isAbsolute as isAbsolute8, join as join7, resolve as resolve6 } from "node:path";
 var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-c",
   "-C",
@@ -6438,7 +6796,7 @@ function getGitExecutionContext(tokens, cwd) {
     return { gitCwd: null, hasExplicitGitContext: !1 };
   let gitCwd;
   try {
-    gitCwd = realpathSync6(resolve5(cwd));
+    gitCwd = realpathSync6(resolve6(cwd));
   } catch {
     return { gitCwd: null, hasExplicitGitContext: !1 };
   }
@@ -6492,17 +6850,17 @@ function isLinkedWorktree(cwd) {
   if (!dotGitPath)
     return !1;
   try {
-    let stat = lstatSync2(dotGitPath);
+    let stat = lstatSync3(dotGitPath);
     if (stat.isSymbolicLink() || !stat.isFile())
       return !1;
-    let firstLine = readFileSync6(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    let firstLine = readFileSync3(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (!firstLine.startsWith("gitdir:"))
       return !1;
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return !1;
-    let gitDir = isAbsolute6(rawGitDir) ? rawGitDir : resolve5(dirname6(dotGitPath), rawGitDir);
-    if (!existsSync6(join6(gitDir, "commondir")))
+    let gitDir = isAbsolute8(rawGitDir) ? rawGitDir : resolve6(dirname6(dotGitPath), rawGitDir);
+    if (!existsSync2(join7(gitDir, "commondir")))
       return !1;
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
       return !1;
@@ -6520,21 +6878,21 @@ function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
   return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
 function readWorktreeGitdirBacklink(gitDir) {
-  let backlinkPath = join6(gitDir, "gitdir");
-  if (!existsSync6(backlinkPath))
+  let backlinkPath = join7(gitDir, "gitdir");
+  if (!existsSync2(backlinkPath))
     return null;
-  let rawBacklink = readFileSync6(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  let rawBacklink = readFileSync3(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
   return rawBacklink === "" ? null : rawBacklink;
 }
 function readWorktreeConfigWorktree(gitDir) {
-  let configWorktreePath = join6(gitDir, "config.worktree");
-  return existsSync6(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
+  let configWorktreePath = join7(gitDir, "config.worktree");
+  return existsSync2(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
 function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute6(target) ? target : resolve5(gitDir, target);
+  return isAbsolute8(target) ? target : resolve6(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -6545,7 +6903,7 @@ function sameFilesystemPathOrFalse(left, right) {
 }
 function sameFilesystemPath(left, right) {
   try {
-    let leftStat = statSync2(left), rightStat = statSync2(right);
+    let leftStat = statSync3(left), rightStat = statSync3(right);
     if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
       return !0;
   } catch {}
@@ -6561,7 +6919,7 @@ function normalizePathForComparison2(path) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function readCoreWorktree(configPath) {
-  let content = readFileSync6(configPath, "utf-8"), inCore = !1, configuredWorktree = null;
+  let content = readFileSync3(configPath, "utf-8"), inCore = !1, configuredWorktree = null;
   for (let line of content.split(/\r?\n/)) {
     let trimmed = line.trim();
     if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";"))
@@ -6630,7 +6988,7 @@ function resolveGitCwd(baseCwd, target) {
 }
 function isDirectory(path) {
   try {
-    return statSync2(path).isDirectory();
+    return statSync3(path).isDirectory();
   } catch {
     return !1;
   }
@@ -6645,8 +7003,8 @@ function findDotGit(cwd) {
 function findDotGitInAncestors(cwd) {
   let current = cwd;
   while (!0) {
-    let dotGitPath = join6(current, ".git");
-    if (existsSync6(dotGitPath))
+    let dotGitPath = join7(current, ".git");
+    if (existsSync2(dotGitPath))
       return dotGitPath;
     let parent = dirname6(current);
     if (parent === current)
@@ -7120,8 +7478,8 @@ function analyzeGitWorktree(tokens) {
 
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync7 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join7, resolve as resolve6 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
+import { dirname as dirname7, isAbsolute as isAbsolute9, join as join8, resolve as resolve7 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -7230,7 +7588,7 @@ function localGitConfigEnablesRecursiveSubmodules(cwd) {
   if (configPaths === null)
     return null;
   for (let configPath of configPaths) {
-    if (!existsSync7(configPath))
+    if (!existsSync3(configPath))
       continue;
     if (gitConfigFileEnablesRecursiveSubmodules(configPath))
       return !0;
@@ -7239,7 +7597,7 @@ function localGitConfigEnablesRecursiveSubmodules(cwd) {
 }
 function getTrustedGitBinary() {
   for (let gitBinary of TRUSTED_GIT_BINARIES)
-    if (existsSync7(gitBinary))
+    if (existsSync3(gitBinary))
       return gitBinary;
   return null;
 }
@@ -7263,30 +7621,30 @@ function getLocalGitConfigPaths(cwd) {
   let commonDir = resolveCommonGitDir(gitDir);
   if (commonDir === null)
     return null;
-  return [join7(commonDir, "config"), join7(gitDir, "config.worktree")];
+  return [join8(commonDir, "config"), join8(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
-    let firstLine = readFileSync7(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    let firstLine = readFileSync4(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (!firstLine.startsWith("gitdir:"))
       return dotGitPath;
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute7(rawGitDir) ? rawGitDir : resolve6(dirname7(dotGitPath), rawGitDir);
+    return isAbsolute9(rawGitDir) ? rawGitDir : resolve7(dirname7(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join7(gitDir, "commondir");
-  if (!existsSync7(commonDirPath))
+  let commonDirPath = join8(gitDir, "commondir");
+  if (!existsSync3(commonDirPath))
     return gitDir;
   try {
-    let rawCommonDir = readFileSync7(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    let rawCommonDir = readFileSync4(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute7(rawCommonDir) ? rawCommonDir : resolve6(gitDir, rawCommonDir);
+    return isAbsolute9(rawCommonDir) ? rawCommonDir : resolve7(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -7294,7 +7652,7 @@ function resolveCommonGitDir(gitDir) {
 function gitConfigFileEnablesRecursiveSubmodules(configPath) {
   let content;
   try {
-    content = readFileSync7(configPath, "utf-8");
+    content = readFileSync4(configPath, "utf-8");
   } catch {
     return !0;
   }
@@ -8063,9 +8421,9 @@ function extractParallelChildCommand(tokens) {
 }
 
 // src/core/analyze/tmpdir.ts
-import { existsSync as existsSync8, lstatSync as lstatSync3, realpathSync as realpathSync7 } from "node:fs";
+import { existsSync as existsSync4, lstatSync as lstatSync4, realpathSync as realpathSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute8, join as join8, normalize as normalize2, parse as parsePath3, sep as sep4 } from "node:path";
+import { isAbsolute as isAbsolute10, join as join9, normalize as normalize3, parse as parsePath3, sep as sep6 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir2(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (!envAssignments.has("TMPDIR"))
@@ -8081,7 +8439,7 @@ function isTmpdirOverriddenToNonTemp(envAssignments) {
   return !0;
 }
 function getTrustedTempRoots() {
-  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize3(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
   if (!initialTmpdir)
     return roots;
   if (process.platform === "win32")
@@ -8101,22 +8459,22 @@ function tryResolveExistingPathComponents(path) {
   }
 }
 function resolveExistingPathComponents(path) {
-  let normalized = normalize2(path);
-  if (!isAbsolute8(normalized))
+  let normalized = normalize3(path);
+  if (!isAbsolute10(normalized))
     return normalized;
   let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
-    let candidate = join8(current, components[i] ?? "");
-    if (!existsSync8(candidate))
-      return join8(candidate, ...components.slice(i + 1));
-    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync7(candidate) : candidate;
+    let candidate = join9(current, components[i] ?? "");
+    if (!existsSync4(candidate))
+      return join9(candidate, ...components.slice(i + 1));
+    current = lstatSync4(candidate).isSymbolicLink() ? realpathSync7(candidate) : candidate;
   }
   return current;
 }
 function isPathOrSubpath(path, basePath) {
   if (path === basePath)
     return !0;
-  let baseWithSlash = basePath.endsWith(sep4) ? basePath : `${basePath}${sep4}`;
+  let baseWithSlash = basePath.endsWith(sep6) ? basePath : `${basePath}${sep6}`;
   return path.startsWith(baseWithSlash);
 }
 
@@ -8762,9 +9120,9 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize3(realpathSync8(a)) === normalize3(realpathSync8(b));
+    return normalize4(realpathSync8(a)) === normalize4(realpathSync8(b));
   } catch {
-    return normalize3(a) === normalize3(b);
+    return normalize4(a) === normalize4(b);
   }
 }
 function stripLeadingGrouping(tokens) {
@@ -9355,12 +9713,12 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, normalize as normalize4, resolve as resolve7 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute11, join as join11, normalize as normalize5, resolve as resolve8 } from "node:path";
 
 // src/core/path-canonicalization.ts
 import { realpathSync as realpathSync9 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname8, join as join9 } from "node:path";
+import { basename, dirname as dirname8, join as join10 } from "node:path";
 var PATH_CANONICALIZATION_LIMITS = Object.freeze({
   maxMissingSuffixComponents: 256,
   maxRealpathAttempts: 1024,
@@ -9404,11 +9762,11 @@ function resolveExistingPath(path, budget = createPathCanonicalizationBudget()) 
       throw new PathCanonicalizationLimitError;
     try {
       let existing = realpathSync9(candidate);
-      return suffixes.length === 0 ? existing : join9(existing, ...suffixes.reverse());
+      return suffixes.length === 0 ? existing : join10(existing, ...suffixes.reverse());
     } catch {
       let parent = dirname8(candidate);
       if (parent === candidate)
-        return suffixes.length === 0 ? candidate : join9(candidate, ...suffixes.reverse());
+        return suffixes.length === 0 ? candidate : join10(candidate, ...suffixes.reverse());
       if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents)
         throw new PathCanonicalizationLimitError;
       suffixes.push(basename(candidate)), candidate = parent;
@@ -9918,12 +10276,12 @@ function getPolicyConfigProtectedPaths(cwd) {
   let paths = getPolicyPaths({ cwd });
   return [
     getUserPolicyPath(),
-    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath),
-    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath)
+    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath, paths.userConfigTarget, paths.userLockTarget),
+    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath, paths.projectConfigTarget, paths.projectLockTarget)
   ];
 }
-function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
-  let configDir = dirname9(configPath), loaded = readRulesConfig(configPath);
+function getScopePolicyConfigProtectedPaths(configPath, lockPath, configTarget, lockTarget) {
+  let configDir = dirname9(configPath), loaded = readRulesConfig(configTarget);
   if (!loaded.config)
     return [dirname9(configDir), configDir, configPath, lockPath];
   let configuredSources = new Set(loaded.config.rules);
@@ -9932,8 +10290,8 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     configDir,
     configPath,
     lockPath,
-    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join10(configDir, source), join10(configDir, source, RULEBOOK_FILE)]),
-    ...(readLockfile(lockPath).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
+    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join11(configDir, source), join11(configDir, source, RULEBOOK_FILE)]),
+    ...(readLockfile(lockTarget).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
       let cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
       return [dirname9(cachePath), cachePath];
     })
@@ -9971,13 +10329,13 @@ function normalizeCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve7(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize4(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded)), budget).replace(/\\/g, "/");
+  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve8(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize5(isAbsolute11(expanded) ? expanded : resolve8(cwd, expanded)), budget).replace(/\\/g, "/");
 }
 
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute10, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute12, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_MATCH_PATH_PRIMARIES = /* @__PURE__ */ new Set([
   "-name",
@@ -10732,9 +11090,9 @@ function normalizeCandidatePath2(target, cwd, budget) {
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute10(expanded) ? expanded : normalizePathText(resolve8(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute12(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute10(expanded))
+    if (isAbsolute12(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -10746,7 +11104,7 @@ function normalizeAbsoluteCandidatePath(target, cwd, budget) {
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute10(expanded) ? expanded : resolve8(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute12(expanded) ? expanded : resolve9(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))

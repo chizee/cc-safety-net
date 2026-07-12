@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { RULE_DOC } from '@/bin/rule/doc';
+import { runRulesVerify } from '@/bin/rule/verify';
 import { runCCSafetyNetCli, withTempDir } from '../helpers';
 
 describe('rule command docs', () => {
@@ -60,6 +68,27 @@ describe('rule command docs', () => {
 
       expectSuccessfulCli(result);
       expectInertRulesLayout(tempDir);
+    });
+  });
+
+  test('source CLI init and wrapper reject linked project parents with fixed diagnostics', async () => {
+    await withTempDir('safety-net-rule-linked-cli-', async (tempDir) => {
+      const outside = join(tempDir, 'outside');
+      mkdirSync(outside);
+      writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
+      symlinkSync(outside, join(tempDir, '.cc-safety-net'), 'dir');
+
+      for (const args of [
+        ['rule', 'init'],
+        ['rule', 'wrapper', 'add', 'rtk'],
+      ]) {
+        const result = await runCCSafetyNetCli(args, { HOME: join(tempDir, 'home') }, tempDir);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain('Unable to access project policy filesystem safely.');
+        expect(result.stderr).not.toContain('TOPSECRET');
+      }
+      expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
+      expect(readdirSync(outside)).toEqual(['sentinel']);
     });
   });
 
@@ -598,6 +627,23 @@ function runRuleList(tempDir: string, env = ruleListEnv(tempDir)) {
 }
 
 describe('rule migrate', () => {
+  test('source CLI migrate rejects linked project policy parents without escaping writes', async () => {
+    await withTempDir('safety-net-rule-migrate-linked-', async (tempDir) => {
+      const outside = join(tempDir, 'outside');
+      mkdirSync(outside);
+      writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
+      symlinkSync(outside, join(tempDir, '.cc-safety-net'), 'dir');
+      writeLegacyConfig(join(tempDir, '.safety-net.json'), 'legacy-rule', 'rm');
+
+      const result = await runProjectRuleCli(['rule', 'migrate'], tempDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unable to access project policy filesystem safely.');
+      expect(result.stderr).not.toContain('TOPSECRET');
+      expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
+      expect(readdirSync(outside)).toEqual(['sentinel']);
+    });
+  });
   test('accepts cleanup before migrate subcommand', async () => {
     await withTempDir('safety-net-rule-migrate-cleanup-first-', async (tempDir) => {
       writeLegacyConfig(join(tempDir, '.safety-net.json'), 'block-project-rm', 'rm');
@@ -764,6 +810,38 @@ describe('rule migrate', () => {
 });
 
 describe('rule verify', () => {
+  test('verifies cwd rule sources independently from an outside project config override', async () => {
+    await withTempDir('safety-net-rule-verify-outside-config-', (tempDir) => {
+      const cwd = join(tempDir, 'project');
+      const outsideConfig = join(tempDir, 'delegated', 'rules', 'rule.json');
+      const userConfig = join(tempDir, 'user', 'rules', 'rule.json');
+      writeLocalRulebook(
+        join(cwd, '.cc-safety-net', 'rules', 'cwd-rules', 'rulebook.json'),
+        'cwd-rules',
+      );
+
+      expect(
+        runRulesVerify({ cwd, projectConfigPath: outsideConfig, userConfigPath: userConfig }),
+      ).toBe(0);
+    });
+  });
+  test('source CLI verify rejects linked rule sources with fixed diagnostics', async () => {
+    await withTempDir('safety-net-rule-verify-linked-source-', async (tempDir) => {
+      const sourceDir = join(tempDir, '.cc-safety-net', 'rules', 'linked');
+      const outside = join(tempDir, 'TOPSECRET-rulebook');
+      mkdirSync(sourceDir, { recursive: true });
+      writeFileSync(outside, 'TOPSECRET unexpected parser payload');
+      symlinkSync(outside, join(sourceDir, 'rulebook.json'));
+
+      const result = await runProjectRuleCli(['rule', 'verify'], tempDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unable to access project policy filesystem safely.');
+      expect(result.stderr).not.toContain('TOPSECRET');
+      expect(result.stderr).not.toContain('unexpected parser');
+      expect(readFileSync(outside, 'utf-8')).toBe('TOPSECRET unexpected parser payload');
+    });
+  });
   test('returns success with warnings for valid legacy-only user config', async () => {
     await withTempDir('safety-net-rule-verify-legacy-user-', async (tempDir) => {
       writeLegacyConfig(join(tempDir, '.cc-safety-net', 'config.json'), 'block-user-git', 'git');
@@ -822,6 +900,10 @@ function expectProjectRulesConfig(
 
 function runProjectRuleWrapper(dir: string, action: 'add' | 'remove') {
   return runCCSafetyNetCli(['rule', 'wrapper', action, 'rtk'], { HOME: join(dir, 'home') }, dir);
+}
+
+function runProjectRuleCli(args: string[], dir: string) {
+  return runCCSafetyNetCli(args, { HOME: join(dir, 'home') }, dir);
 }
 
 function writeLegacyConfig(path: string, name: string, command: string): void {

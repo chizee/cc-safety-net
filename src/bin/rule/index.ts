@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { ruleCommand } from '@/bin/commands/rule';
 import { printCommandHelp } from '@/bin/help';
 import { RULE_DOC } from '@/bin/rule/doc';
@@ -13,11 +12,7 @@ import { runRulesVerify } from '@/bin/rule/verify';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import {
   addRulebookSource,
-  getProjectRulesConfigPath,
-  getProjectRulesDir,
   getRulesConfigSourceDisplayMap,
-  getUserRulesConfigPath,
-  getUserRulesDir,
   loadRulesPolicy,
   readRulesConfig,
   removeRulebookSource,
@@ -27,6 +22,14 @@ import {
   writeStarterRulebook,
 } from '@/core/rules/policy';
 import { writeJsonAtomic } from '@/core/rules/policy/config-file';
+import {
+  ensurePolicyDirectory,
+  getPolicyFilesystemTargetForPath,
+  PolicyFilesystemError,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+} from '@/core/rules/policy/filesystem';
+import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/core/rules/policy/paths';
 import { COMMAND_PATTERN } from '@/types';
 
 interface RuleFlags {
@@ -56,6 +59,18 @@ const RULE_SUBCOMMANDS = new Set([
 const RULE_WRAPPER_ACTIONS = new Set(['add', 'remove', 'list']);
 
 export async function runRuleCommand(args: readonly string[]): Promise<number> {
+  try {
+    return await runRuleCommandInternal(args);
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      console.error(error.message);
+      return 1;
+    }
+    throw error;
+  }
+}
+
+async function runRuleCommandInternal(args: readonly string[]): Promise<number> {
   const flags = parseRuleFlags(args);
   if (flags.errors.length > 0) {
     for (const error of flags.errors) console.error(error);
@@ -75,13 +90,19 @@ export async function runRuleCommand(args: readonly string[]): Promise<number> {
   const options = { global: flags.global, check: flags.check };
 
   if (subcommand === 'init') {
-    const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
-    const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    ensureRulesConfig(configPath);
-    mkdirSync(join(dirname(dir), 'cache', 'rulebooks'), { recursive: true });
+    const scope = getScopePaths(options);
+    const dir = scope.configDir;
+    ensureRulesConfig(scope.configTarget);
+    ensurePolicyDirectory(
+      getPolicyFilesystemTargetForPath(
+        scope.filesystemScope,
+        getRulebookCacheRoot({ ...options, cacheConfigDir: dir }),
+      ),
+    );
     const rulebookPath = join(dir, 'example-rules', 'rulebook.json');
-    if (flags.example && !existsSync(rulebookPath))
-      writeStarterRulebook(rulebookPath, 'example-rules');
+    const rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
+    if (flags.example && readPolicyFile(rulebookTarget) === null)
+      writeStarterRulebook(rulebookTarget, 'example-rules');
     const result = await syncRulesConfig(options);
     printRuleChangeResult(result, 'Rule config initialized.');
     return result.ok ? 0 : 1;
@@ -121,9 +142,10 @@ export async function runRuleCommand(args: readonly string[]): Promise<number> {
 
   if (subcommand === 'list') {
     const policy = loadRulesPolicy();
+    const paths = getPolicyPaths({});
     printRulesListReport(policy, {
-      user: getRulesConfigSourceDisplayMap(policy.userConfigPath),
-      project: getRulesConfigSourceDisplayMap(policy.projectConfigPath),
+      user: getRulesConfigSourceDisplayMap(policy.userConfigPath, paths.userScope),
+      project: getRulesConfigSourceDisplayMap(policy.projectConfigPath, paths.projectScope),
     });
     return policy.errors.length > 0 ? 1 : 0;
   }
@@ -254,8 +276,8 @@ function validateRuleWrapperFlags(flags: RuleFlags): void {
   }
 }
 
-function ensureRulesConfig(configPath: string): void {
-  if (!existsSync(configPath)) {
+function ensureRulesConfig(configPath: PolicyFilesystemTarget): void {
+  if (readPolicyFile(configPath) === null) {
     writeDefaultRulesConfig(configPath);
     return;
   }
@@ -274,7 +296,7 @@ function ensureRulesConfig(configPath: string): void {
 async function runRuleWrapperCommand(flags: RuleFlags): Promise<number> {
   const action = flags.positionals[1];
   const command = flags.positionals[2];
-  const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
+  const configPath = getScopePaths({ global: flags.global }).configTarget;
 
   if (action === 'list') {
     const loaded = readRulesConfig(configPath);

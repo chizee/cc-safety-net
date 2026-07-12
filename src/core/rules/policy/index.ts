@@ -6,15 +6,18 @@ export {
 export {
   getLegacyUserRulesConfigPath,
   getProjectRulesConfigPath,
+  /** @internal */
   getProjectRulesDir,
   getRulebookDisplaySource,
   getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
+  /** @internal */
   getUserRulesDir,
   getUserRulesLockPath,
   RULES_DIR,
 } from './paths';
 export {
+  /** @internal */
   getRulebookMigratedFrom,
   getRulesConfigRuntimeErrorsForConfig,
   getRulesConfigSourceDisplayMap,

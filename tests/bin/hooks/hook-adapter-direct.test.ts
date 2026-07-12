@@ -178,7 +178,9 @@ describe('hook adapter direct integration', () => {
       const output = JSON.parse(result.stdout);
 
       expect(output.permissionDecision).toBe('deny');
-      expect(output.permissionDecisionReason).toContain('failed to read cached rulebook');
+      expect(output.permissionDecisionReason).toContain(
+        'Unable to access project policy filesystem safely.',
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

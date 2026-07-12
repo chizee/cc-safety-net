@@ -1,29 +1,39 @@
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  bindDelegatedPolicyFilesystemTarget,
+  PolicyFilesystemError,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+} from './filesystem';
 import { getRulebookLockEntrySourceIdentityError } from './sources';
 import type { GitHubRulebookLockEntry, RulebookLockEntry, RulesLockfile } from './types';
 
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const RULEBOOK_SOURCE_KINDS = new Set(['local-directory', 'github']);
 
-export function readLockfile(path: string): { lock: RulesLockfile | null; errors: string[] } {
-  if (!existsSync(path)) {
-    return { lock: null, errors: [] };
-  }
+export function readLockfile(path: string | PolicyFilesystemTarget): {
+  lock: RulesLockfile | null;
+  errors: string[];
+} {
+  const displayPath = typeof path === 'string' ? path : path.path;
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    const content = readPolicyFile(
+      typeof path === 'string' ? bindDelegatedPolicyFilesystemTarget(path) : path,
+    );
+    if (content === null) return { lock: null, errors: [] };
+    const parsed = JSON.parse(content) as unknown;
     if (!parsed || typeof parsed !== 'object') {
-      return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
+      return { lock: null, errors: [`malformed lockfile ${displayPath}: must be an object`] };
     }
     const lock = parsed as Record<string, unknown>;
     if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
-      return { lock: null, errors: [`malformed lockfile ${path}`] };
+      return { lock: null, errors: [`malformed lockfile ${displayPath}`] };
     }
     const parsedEntries = lock.rulebooks.map((entry, index) =>
-      parseLockEntry(entry, `${path}: rulebooks[${index}]`),
+      parseLockEntry(entry, `${displayPath}: rulebooks[${index}]`),
     );
     const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
     if (entryErrors.length > 0) {
-      return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
+      return { lock: null, errors: [`malformed lockfile ${displayPath}`, ...entryErrors] };
     }
     return {
       lock: {
@@ -33,11 +43,12 @@ export function readLockfile(path: string): { lock: RulesLockfile | null; errors
       errors: [],
     };
   } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { lock: null, errors: [error.message] };
+    }
     return {
       lock: null,
-      errors: [
-        `malformed lockfile ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      ],
+      errors: ['malformed lockfile'],
     };
   }
 }

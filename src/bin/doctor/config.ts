@@ -2,10 +2,9 @@
  * Rulebook-backed configuration display with source tracking.
  */
 
-import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ConfigSourceInfo, EffectiveRule, ShadowedRule } from '@/bin/doctor/types';
-import { validateRulesConfigFile } from '@/core/config';
+import { type ValidationResult, validateRulesConfigFile } from '@/core/config';
 import {
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
@@ -14,6 +13,13 @@ import {
   getUserRulesLockPath,
   loadRulesPolicy,
 } from '@/core/rules/policy';
+import {
+  PolicyFilesystemError,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+} from '@/core/rules/policy/filesystem';
+import { getPolicyPaths } from '@/core/rules/policy/paths';
 import type { CustomRule } from '@/types';
 
 export interface ConfigInfo {
@@ -32,15 +38,22 @@ function getConfigSourceInfo(
   path: string,
   lockPath: string,
   userConfigDir: string,
+  target: PolicyFilesystemTarget,
+  filesystemScope: PolicyFilesystemScope,
 ): ConfigSourceInfo {
-  if (!existsSync(path)) {
-    return { path, exists: false, valid: false, ruleCount: 0 };
+  let validation: ValidationResult;
+  try {
+    if (readPolicyFile(target) === null) {
+      return { path, exists: false, valid: false, ruleCount: 0 };
+    }
+    validation = validateRulesConfigFile(target);
+    validation.errors.push(
+      ...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }, filesystemScope),
+    );
+  } catch (error) {
+    if (!(error instanceof PolicyFilesystemError)) throw error;
+    validation = { errors: [error.message], ruleNames: new Set<string>() };
   }
-
-  const validation = validateRulesConfigFile(path);
-  validation.errors.push(
-    ...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }),
-  );
 
   return {
     path,
@@ -72,6 +85,12 @@ export function getConfigInfo(cwd: string, options?: ConfigInfoOptions): ConfigI
     projectConfigPath: projectPath,
     userConfigDir,
   });
+  const paths = getPolicyPaths({
+    cwd,
+    userConfigPath: userPath,
+    projectConfigPath: projectPath,
+    userConfigDir,
+  });
   const rulebookSources = new Map(
     policy.rulebooks.flatMap((rulebook) =>
       rulebook.rules.map((rule) => [rule, rulebook.source] as const),
@@ -83,11 +102,15 @@ export function getConfigInfo(cwd: string, options?: ConfigInfoOptions): ConfigI
       userPath,
       getUserRulesLockPath({ userConfigPath: userPath }),
       userConfigDir,
+      paths.userConfigTarget,
+      paths.userScope,
     ),
     projectConfig: getConfigSourceInfo(
       projectPath,
       getRulesLockPathForConfigPath(projectPath),
       userConfigDir,
+      paths.projectConfigTarget,
+      paths.projectScope,
     ),
     effectiveRules: policy.rules.map((rule) =>
       toEffectiveRule(rule, rulebookSources.get(rule.name) ?? 'project'),

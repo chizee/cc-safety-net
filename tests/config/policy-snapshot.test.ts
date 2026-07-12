@@ -1,9 +1,25 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
-import { getProjectRulesConfigPath } from '@/core/rules/policy';
+import {
+  getProjectRulesConfigPath,
+  getProjectRulesDir,
+  getRulesLockPathForConfigPath,
+  loadRulesPolicy,
+  writeDefaultRulesConfig,
+} from '@/core/rules/policy';
+import { getRulebookCachePath } from '@/core/rules/policy/paths';
+import { sha256Digest } from '@/core/rules/policy/resolver';
 import { withTempDir, writeLockedGitHubRulebookPolicy } from '../helpers';
 
 const originalFetch = globalThis.fetch;
@@ -50,6 +66,71 @@ function treeState(root: string) {
 }
 
 describe('policy snapshots', () => {
+  test('fails closed with fixed diagnostics for linked project config and lock files', async () => {
+    await withTempDir('cc-safety-net-snapshot-linked-control-', (cwd) => {
+      const userConfigDir = join(cwd, 'user', 'rules');
+      for (const target of ['config', 'lock'] as const) {
+        const outside = join(cwd, `${target}-TOPSECRET`);
+        writeFileSync(outside, 'TOPSECRET unexpected token payload');
+        mkdirSync(getProjectRulesDir(cwd), { recursive: true });
+        const configPath = getProjectRulesConfigPath(cwd);
+        const lockPath = getRulesLockPathForConfigPath(configPath);
+        if (target === 'config') {
+          symlinkSync(outside, configPath);
+        } else {
+          writeDefaultRulesConfig(configPath, ['missing-rules']);
+          symlinkSync(outside, lockPath);
+        }
+
+        const snapshot = loadPolicySnapshot({ cwd, userConfigDir });
+        expect(snapshot.state).toBe('invalid');
+        expect(snapshot.policy.rules).toEqual([]);
+        expect(JSON.stringify(snapshot)).not.toContain('TOPSECRET');
+        expect(JSON.stringify(snapshot)).not.toContain('unexpected token');
+        expect(snapshot.diagnostics).toContain(
+          'Unable to access project policy filesystem safely.',
+        );
+
+        rmSync(getProjectRulesDir(cwd), { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('fails closed before parsing linked cache or local rulebook bytes', async () => {
+    await withTempDir('cc-safety-net-snapshot-linked-rulebook-', (cwd) => {
+      const userConfigDir = join(cwd, 'user', 'rules');
+      const configDir = getProjectRulesDir(cwd);
+      const configPath = getProjectRulesConfigPath(cwd);
+      const outside = join(cwd, 'TOPSECRET-rulebook');
+      const externalBytes = 'TOPSECRET unexpected parser payload';
+      writeFileSync(outside, externalBytes);
+      mkdirSync(configDir, { recursive: true });
+      writeDefaultRulesConfig(configPath, ['linked']);
+      const entry = {
+        spec: 'linked',
+        kind: 'local-directory' as const,
+        path: 'linked',
+        name: 'linked',
+        version: '1.0.0',
+        digest: sha256Digest(externalBytes),
+      };
+      writeFileSync(
+        getRulesLockPathForConfigPath(configPath),
+        `${JSON.stringify({ version: 1, rulebooks: [entry] })}\n`,
+      );
+      const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
+      mkdirSync(join(configDir, 'linked'), { recursive: true });
+      mkdirSync(dirname(cachePath), { recursive: true });
+      symlinkSync(outside, cachePath);
+      symlinkSync(outside, join(configDir, 'linked', 'rulebook.json'));
+
+      const rules = loadRulesPolicy({ cwd, userConfigDir });
+      expect(rules.rules).toEqual([]);
+      expect(rules.errors).toContain('Unable to access project policy filesystem safely.');
+      expect(JSON.stringify(rules.errors)).not.toContain('TOPSECRET');
+      expect(JSON.stringify(rules.errors)).not.toContain('unexpected parser');
+    });
+  });
   test('loads deeply immutable plain data', async () => {
     await withTempDir('cc-safety-net-snapshot-ready-', (cwd) => {
       const snapshot = loadPolicySnapshot({ cwd, userConfigDir: join(cwd, 'user', 'rules') });

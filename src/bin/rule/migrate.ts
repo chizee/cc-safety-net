@@ -1,18 +1,20 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { validateConfig } from '@/core/config';
-import {
-  getRulebookMigratedFrom,
-  readRulesConfig,
-  type SyncRulesConfigOptions,
-  syncRulesConfig,
-} from '@/core/rules/policy';
+import { readRulesConfig, type SyncRulesConfigOptions, syncRulesConfig } from '@/core/rules/policy';
 import { writeJsonAtomic } from '@/core/rules/policy/config-file';
+import {
+  getPolicyFilesystemTargetForPath,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+  removePolicyFile,
+  writePolicyFileAtomic,
+} from '@/core/rules/policy/filesystem';
 import {
   getLegacyProjectRulesConfigPath,
   getLegacyUserRulesConfigPath,
   getProjectRulesConfigPath,
-  getRulesLockPathForConfigPath,
+  getScopePaths,
   getUserRulesConfigPath,
 } from '@/core/rules/policy/paths';
 import type { CustomRule } from '@/types';
@@ -39,7 +41,7 @@ interface LegacyRulesConfig {
   rules: CustomRule[];
 }
 
-type FileSnapshot = { path: string; content: string | null };
+type FileSnapshot = { target: PolicyFilesystemTarget; content: string | null };
 
 export async function runRulesMigrate(options: RulesMigrateOptions): Promise<number> {
   const results = [
@@ -64,18 +66,21 @@ export async function runRulesMigrate(options: RulesMigrateOptions): Promise<num
 }
 
 async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boolean> {
-  if (!existsSync(options.legacyPath)) {
+  const scope = getScopePaths(options.syncOptions);
+  const legacyTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, options.legacyPath);
+  const legacyContent = readPolicyFile(legacyTarget);
+  if (legacyContent === null) {
     console.log(`No legacy config found at ${options.legacyPath}`);
     return true;
   }
 
-  const legacy = readLegacyRulesConfig(options.legacyPath);
+  const legacy = readLegacyRulesConfig(legacyContent);
   if (!legacy.ok) {
     for (const error of legacy.errors) console.error(error);
     return false;
   }
 
-  const loaded = readRulesConfig(options.configPath);
+  const loaded = readRulesConfig(scope.configTarget);
   if (loaded.errors.length > 0) {
     for (const error of loaded.errors) console.error(error);
     return false;
@@ -92,17 +97,20 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
     config.rules,
     options.defaultRulebookName,
     options.migratedFrom,
+    scope.filesystemScope,
   );
   const rulebookPath = join(dirname(options.configPath), rulebookName, 'rulebook.json');
+  const rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
   const snapshots = [
-    snapshotFile(options.configPath),
-    snapshotFile(rulebookPath),
-    snapshotFile(getRulesLockPathForConfigPath(options.configPath)),
+    snapshotFile(scope.configTarget),
+    snapshotFile(rulebookTarget),
+    snapshotFile(scope.lockTarget),
   ];
 
   const result = await writeAndSyncMigratedRulebook(
     options,
-    rulebookPath,
+    scope.configTarget,
+    rulebookTarget,
     rulebookName,
     legacy.config.rules,
     config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName],
@@ -122,8 +130,8 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
 
   if (
     !isCleanupVerified(
-      options.configPath,
-      rulebookPath,
+      scope.configTarget,
+      rulebookTarget,
       rulebookName,
       options.migratedFrom,
       legacy.config.rules,
@@ -133,14 +141,15 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
     return false;
   }
 
-  rmSync(options.legacyPath, { force: true });
+  removePolicyFile(legacyTarget);
   console.log(`Deleted legacy config at ${options.legacyPath}`);
   return true;
 }
 
 async function writeAndSyncMigratedRulebook(
   options: MigrateRulesScopeOptions,
-  rulebookPath: string,
+  configTarget: PolicyFilesystemTarget,
+  rulebookTarget: PolicyFilesystemTarget,
   rulebookName: string,
   rules: CustomRule[],
   configRules: string[],
@@ -148,13 +157,13 @@ async function writeAndSyncMigratedRulebook(
   transparentWrappers: string[],
 ): Promise<{ ok: boolean; errors: string[] }> {
   try {
-    writeJsonAtomic(options.configPath, {
+    writeJsonAtomic(configTarget, {
       version: 1,
       rules: configRules,
       overrides,
       transparent_wrappers: transparentWrappers,
     });
-    writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options.migratedFrom, rules));
+    writeJsonAtomic(rulebookTarget, getMigratedRulebook(rulebookName, options.migratedFrom, rules));
     return await syncRulesConfig(options.syncOptions);
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
@@ -162,10 +171,10 @@ async function writeAndSyncMigratedRulebook(
 }
 
 function readLegacyRulesConfig(
-  path: string,
+  content: string,
 ): { ok: true; config: LegacyRulesConfig } | { ok: false; errors: string[] } {
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    const parsed = JSON.parse(content) as unknown;
     const validation = validateConfig(parsed);
     if (validation.errors.length > 0) return { ok: false, errors: validation.errors };
     return {
@@ -175,10 +184,10 @@ function readLegacyRulesConfig(
         rules: ((parsed as Record<string, unknown>).rules as CustomRule[] | undefined) ?? [],
       },
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`],
+      errors: ['Invalid JSON'],
     };
   }
 }
@@ -188,17 +197,33 @@ function getMigratedRulebookName(
   sources: string[],
   defaultRulebookName: string,
   migratedFrom: string,
+  filesystemScope: PolicyFilesystemScope,
 ): string {
   const existing = sources.find(
-    (source) => getRulebookMigratedFrom(configDir, source) === migratedFrom,
+    (source) =>
+      getMigratedFrom(
+        getPolicyFilesystemTargetForPath(filesystemScope, join(configDir, source, 'rulebook.json')),
+      ) === migratedFrom,
   );
   if (existing) return existing;
-  if (!existsSync(join(configDir, defaultRulebookName, 'rulebook.json')))
+  if (
+    readPolicyFile(
+      getPolicyFilesystemTargetForPath(
+        filesystemScope,
+        join(configDir, defaultRulebookName, 'rulebook.json'),
+      ),
+    ) === null
+  )
     return defaultRulebookName;
 
   for (let i = 2; ; i++) {
     const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync(join(configDir, name, 'rulebook.json'))) return name;
+    if (
+      readPolicyFile(
+        getPolicyFilesystemTargetForPath(filesystemScope, join(configDir, name, 'rulebook.json')),
+      ) === null
+    )
+      return name;
   }
 }
 
@@ -221,17 +246,19 @@ function getMigratedRulebook(name: string, migratedFrom: string, rules: CustomRu
 }
 
 function isCleanupVerified(
-  configPath: string,
-  rulebookPath: string,
+  configTarget: PolicyFilesystemTarget,
+  rulebookTarget: PolicyFilesystemTarget,
   rulebookName: string,
   migratedFrom: string,
   legacyRules: CustomRule[],
 ): boolean {
-  const config = readRulesConfig(configPath).config;
-  if (!config?.rules.includes(rulebookName) || !existsSync(rulebookPath)) return false;
+  const config = readRulesConfig(configTarget).config;
+  if (!config?.rules.includes(rulebookName)) return false;
 
   try {
-    const rulebook = JSON.parse(readFileSync(rulebookPath, 'utf-8')) as Record<string, unknown>;
+    const content = readPolicyFile(rulebookTarget);
+    if (content === null) return false;
+    const rulebook = JSON.parse(content) as Record<string, unknown>;
     return (
       rulebook.migrated_from === migratedFrom &&
       JSON.stringify(rulebook.rules) === JSON.stringify(legacyRules)
@@ -241,16 +268,27 @@ function isCleanupVerified(
   }
 }
 
-function snapshotFile(path: string): FileSnapshot {
-  return { path, content: existsSync(path) ? readFileSync(path, 'utf-8') : null };
+function snapshotFile(target: PolicyFilesystemTarget): FileSnapshot {
+  return { target, content: readPolicyFile(target) };
 }
 
 function restoreFiles(snapshots: FileSnapshot[]): void {
   for (const snapshot of snapshots) {
     if (snapshot.content === null) {
-      rmSync(snapshot.path, { force: true });
+      removePolicyFile(snapshot.target);
       continue;
     }
-    writeFileSync(snapshot.path, snapshot.content, 'utf-8');
+    writePolicyFileAtomic(snapshot.target, snapshot.content);
+  }
+}
+
+function getMigratedFrom(target: PolicyFilesystemTarget): string | null {
+  const content = readPolicyFile(target);
+  if (content === null) return null;
+  try {
+    const rulebook = JSON.parse(content) as Record<string, unknown>;
+    return typeof rulebook.migrated_from === 'string' ? rulebook.migrated_from : null;
+  } catch {
+    return null;
   }
 }

@@ -316,7 +316,7 @@ describe('hook command routing', () => {
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'failed to read cached rulebook',
+        'Unable to access project policy filesystem safely.',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });

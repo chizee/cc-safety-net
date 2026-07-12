@@ -3,12 +3,13 @@
  * Handles config source detection and analysis options building.
  */
 
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { validateRulesConfigFile } from '@/core/config';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
+import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
+import { getPolicyPaths } from '@/core/rules/policy/paths';
 import type { AnalyzeOptions, ExplainOptions } from '@/types';
 
 export interface GetConfigSourceOptions {
@@ -28,22 +29,41 @@ export function getConfigSource(options?: GetConfigSourceOptions): {
   configValid: boolean;
 } {
   const projectPath = getProjectRulesConfigPath(options?.cwd);
-
-  if (existsSync(projectPath)) {
-    const validation = validateRulesConfigFile(projectPath);
-    if (validation.errors.length === 0) {
-      return { configSource: projectPath, configValid: true };
-    }
-    return { configSource: projectPath, configValid: false };
-  }
-
   const userPath = options?.userConfigPath ?? getUserRulesConfigPath(options);
-  if (existsSync(userPath)) {
-    const validation = validateRulesConfigFile(userPath);
-    return { configSource: userPath, configValid: validation.errors.length === 0 };
+  const paths = getPolicyPaths({
+    cwd: options?.cwd,
+    userConfigDir: options?.userConfigDir,
+    userConfigPath: options?.userConfigPath,
+  });
+
+  try {
+    if (readPolicyFile(paths.projectConfigTarget) !== null) {
+      const validation = validateRulesConfigFile(paths.projectConfigTarget);
+      if (validation.errors.length === 0) {
+        return { configSource: projectPath, configValid: true };
+      }
+      return { configSource: projectPath, configValid: false };
+    }
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { configSource: projectPath, configValid: false };
+    }
+    throw error;
   }
 
-  return { configSource: null, configValid: true };
+  try {
+    if (readPolicyFile(paths.userConfigTarget) !== null) {
+      const validation = validateRulesConfigFile(paths.userConfigTarget);
+      return { configSource: userPath, configValid: validation.errors.length === 0 };
+    }
+
+    return { configSource: null, configValid: true };
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { configSource: userPath, configValid: false };
+    }
+    throw error;
+  }
 }
 
 /**

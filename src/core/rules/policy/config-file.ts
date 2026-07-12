@@ -1,7 +1,11 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { getRulesConfigSchema, getRulesConfigValidation } from '@/config/schema';
+import {
+  bindDelegatedPolicyFilesystemTarget,
+  PolicyFilesystemError,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+  writePolicyFileAtomic,
+} from './filesystem';
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
 
 export function validateRulesConfig(config: unknown): { errors: string[]; sources: Set<string> } {
@@ -13,13 +17,13 @@ export function validateRulesConfig(config: unknown): { errors: string[]; source
   };
 }
 
-export function readRulesConfig(path: string): { config: RulesConfig | null; errors: string[] } {
-  if (!existsSync(path)) {
-    return { config: null, errors: [] };
-  }
-
+export function readRulesConfig(path: string | PolicyFilesystemTarget): {
+  config: RulesConfig | null;
+  errors: string[];
+} {
   try {
-    const content = readFileSync(path, 'utf-8');
+    const content = readPolicyFile(toTarget(path));
+    if (content === null) return { config: null, errors: [] };
     if (!content.trim()) {
       return { config: null, errors: ['Config file is empty'] };
     }
@@ -40,15 +44,18 @@ export function readRulesConfig(path: string): { config: RulesConfig | null; err
       errors: [],
     };
   } catch (error) {
+    if (error instanceof PolicyFilesystemError) {
+      return { config: null, errors: [error.message] };
+    }
     return {
       config: null,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`],
+      errors: ['Invalid JSON'],
     };
   }
 }
 
 export function readScopeRulesConfig(
-  path: string,
+  path: string | PolicyFilesystemTarget,
 ): { ok: true; config: RulesConfig } | { ok: false; result: SyncRulesConfigResult } {
   const loaded = readRulesConfig(path);
   if (loaded.errors.length > 0) {
@@ -57,11 +64,17 @@ export function readScopeRulesConfig(
   return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
 }
 
-export function writeDefaultRulesConfig(path: string, rules: string[] = []): void {
+export function writeDefaultRulesConfig(
+  path: string | PolicyFilesystemTarget,
+  rules: string[] = [],
+): void {
   writeJsonAtomic(path, { version: 1, rules, overrides: {}, transparent_wrappers: [] });
 }
 
-export function writeStarterRulebook(path: string, name = 'project-rules'): void {
+export function writeStarterRulebook(
+  path: string | PolicyFilesystemTarget,
+  name = 'project-rules',
+): void {
   writeJsonAtomic(path, {
     rulebook_version: 1,
     name,
@@ -96,18 +109,17 @@ export function createAtomicTempPath(path: string): string {
   return `${path}.${randomBytes(8).toString('hex')}.tmp`;
 }
 
-export function writeJsonAtomic(path: string, value: unknown, mode?: number): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tempPath = createAtomicTempPath(path);
-  try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: 'utf-8',
-      flag: 'wx',
-      mode,
-    });
-    renameSync(tempPath, path);
-  } catch (error) {
-    rmSync(tempPath, { force: true });
-    throw error;
-  }
+export function writeJsonAtomic(
+  path: string | PolicyFilesystemTarget,
+  value: unknown,
+  mode?: number,
+  afterRename?: (path: string) => void,
+): void {
+  writePolicyFileAtomic(toTarget(path), `${JSON.stringify(value, null, 2)}\n`, mode, afterRename);
 }
+
+function toTarget(path: string | PolicyFilesystemTarget): PolicyFilesystemTarget {
+  return typeof path === 'string' ? bindDelegatedPolicyFilesystemTarget(path) : path;
+}
+
+import { randomBytes } from 'node:crypto';
