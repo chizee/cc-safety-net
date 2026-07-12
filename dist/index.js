@@ -5407,6 +5407,38 @@ function dangerousInTextMatch(text) {
   return null;
 }
 
+// src/core/analyze/parallel-budget.ts
+var PARALLEL_ANALYSIS_LIMITS = Object.freeze({
+  maxChildAnalyses: 1024,
+  maxDerivedTokens: 16384,
+  maxDerivedBytes: 1048576,
+  maxPlaceholderReplacements: 16384
+}), REASON_PARALLEL_ANALYSIS_LIMIT = "Parallel command expands beyond CC Safety Net's analysis limits. Reduce the template or explicit argument list and retry.";
+
+class ParallelAnalysisLimitError extends Error {
+  constructor() {
+    super("Parallel command expands beyond CC Safety Net's analysis limits. Reduce the template or explicit argument list and retry.");
+    this.name = "ParallelAnalysisLimitError";
+  }
+}
+function createParallelAnalysisBudget() {
+  return {
+    childAnalyses: 0,
+    derivedTokens: 0,
+    derivedBytes: 0,
+    placeholderReplacements: 0
+  };
+}
+function reserveParallelAnalysis(budget, reservation) {
+  let childAnalyses = reservation.childAnalyses ?? 0, derivedTokens = reservation.derivedTokens ?? 0, derivedBytes = reservation.derivedBytes ?? 0, placeholderReplacements = reservation.placeholderReplacements ?? 0;
+  if (exceedsLimit(budget.childAnalyses, childAnalyses, PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses) || exceedsLimit(budget.derivedTokens, derivedTokens, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens) || exceedsLimit(budget.derivedBytes, derivedBytes, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) || exceedsLimit(budget.placeholderReplacements, placeholderReplacements, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements))
+    throw new ParallelAnalysisLimitError;
+  budget.childAnalyses += childAnalyses, budget.derivedTokens += derivedTokens, budget.derivedBytes += derivedBytes, budget.placeholderReplacements += placeholderReplacements;
+}
+function exceedsLimit(current, amount, limit) {
+  return !Number.isSafeInteger(amount) || amount < 0 || amount > limit - current;
+}
+
 // src/core/analyze/recursive-delete-targets.ts
 import { realpathSync as realpathSync4 } from "node:fs";
 import { homedir as homedir3, tmpdir } from "node:os";
@@ -7303,7 +7335,7 @@ function collectCommandTemplate(tokens, start) {
 }
 
 // src/core/analyze/parallel.ts
-var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.", PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
+var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.", PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/, UTF8_ENCODER2 = /* @__PURE__ */ new TextEncoder, MAX_EXPANDED_BYTE_OVERCOUNT = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements;
 function analyzeParallel(tokens, context) {
   let parseResult = parseParallelCommand(tokens);
   if (!parseResult)
@@ -7320,6 +7352,7 @@ function analyzeParallel(tokens, context) {
   if (readsCommandsFromInput)
     return parallelCommandStreamDynamicReason(context);
   if (template.length === 0) {
+    reserveParallelAnalysis(context.budget, commandsModeWork(args));
     let nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
     for (let arg of args) {
       let reason = context.analyzeNested(arg, nestedOverrides2);
@@ -7328,7 +7361,7 @@ function analyzeParallel(tokens, context) {
     }
     return null;
   }
-  let childCommand = normalizeChildCommand(template, context), childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments), envHasPlaceholder = dynamicEnvValues.some(hasParallelPlaceholder), hasPlaceholder = templateHasPlaceholder || envHasPlaceholder, hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder, nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
+  let childCommand = normalizeChildCommand(template, context), childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments), envHasPlaceholder = dynamicEnvValues.entries.some((entry) => entry.hasPlaceholder), hasPlaceholder = templateHasPlaceholder || envHasPlaceholder, hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder, nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
   if (SHELL_WRAPPERS.has(childCommand.head)) {
     let dashCArg = extractDashCArg(childTokens);
     if (dashCArg) {
@@ -7336,6 +7369,7 @@ function analyzeParallel(tokens, context) {
         return parallelShellDynamicReason(context);
       if (hasParallelPlaceholder(dashCArg)) {
         if (args.length > 0) {
+          reserveParallelAnalysis(context.budget, expandedStringWork(dashCArg, args, "generic"));
           for (let arg of args) {
             let expandedScript = replaceParallelPlaceholder(dashCArg, arg), reason3 = context.analyzeNested(expandedScript, nestedOverrides);
             if (reason3)
@@ -7343,11 +7377,13 @@ function analyzeParallel(tokens, context) {
           }
           return null;
         }
+        reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
         let reason2 = context.analyzeNested(dashCArg, nestedOverrides);
         if (reason2)
           return reason2;
         return null;
       }
+      reserveParallelAnalysis(context.budget, combineParallelWork(staticStringWork(dashCArg), dynamicEnvWork(dynamicEnvValues.entries, args)));
       let reason = context.analyzeNested(dashCArg, nestedOverrides);
       if (reason)
         return reason;
@@ -7365,15 +7401,30 @@ function analyzeParallel(tokens, context) {
     return null;
   }
   if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
-    if (templateHasPlaceholder && args.length > 0)
-      return analyzeParallelRmExpansions(args.map((arg) => childTokens.map((t) => t.replace(/{}/g, arg))), childCommand.cwd, context);
-    if (args.length > 0)
-      return analyzeParallelRmExpansions(args.map((arg) => [...childTokens, arg]), childCommand.cwd, context);
+    if (templateHasPlaceholder && args.length > 0) {
+      reserveParallelAnalysis(context.budget, expandedTokenWork(childTokens, args, "rm"));
+      for (let arg of args) {
+        let result = analyzeParallelRmExpansion(childTokens.map((token) => replaceParallelRmPlaceholder(token, arg)), childCommand.cwd, context);
+        if (result)
+          return result;
+      }
+      return null;
+    }
+    if (args.length > 0) {
+      reserveParallelAnalysis(context.budget, appendedTokenWork(childTokens, args));
+      for (let arg of args) {
+        let result = analyzeParallelRmExpansion([...childTokens, arg], childCommand.cwd, context);
+        if (result)
+          return result;
+      }
+      return null;
+    }
     return parallelRmDynamicReason(context);
   }
-  let tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
-  for (let tokens2 of tokenSets) {
-    let result = analyzeChildCommandMatch(tokens2, {
+  reserveParallelAnalysis(context.budget, templateHasPlaceholder && args.length > 0 ? expandedTokenWork(childTokens, args, "generic") : args.length > 0 ? appendedTokenWork(childTokens, args) : staticTokenWork(childTokens));
+  let childArgs = args.length > 0 ? args : [void 0];
+  for (let arg of childArgs) {
+    let tokens2 = arg === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelPlaceholder(token, arg)) : [...childTokens, arg], result = analyzeChildCommandMatch(tokens2, {
       cwd: childCommand.cwd,
       originalCwd: context.originalCwd,
       paranoidRm: context.paranoidRm,
@@ -7402,42 +7453,229 @@ function parallelCommandStreamDynamicReason(context) {
 function parallelRmDynamicReason(context) {
   return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
 }
-function analyzeParallelRmExpansions(tokenSets, cwd, context) {
-  for (let tokens of tokenSets) {
-    let rmResult = filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
-      cwd,
-      originalCwd: context.originalCwd,
-      paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar
-    }), context.policy);
-    if (rmResult)
-      return rmResult;
-  }
-  return null;
+function analyzeParallelRmExpansion(tokens, cwd, context) {
+  return filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
+    cwd,
+    originalCwd: context.originalCwd,
+    paranoid: context.paranoidRm,
+    allowTmpdirVar: context.allowTmpdirVar
+  }), context.policy);
 }
-function getParallelChildTokenSets(childTokens, hasPlaceholder, args) {
-  if (hasPlaceholder && args.length > 0)
-    return args.map((arg) => childTokens.map((token) => replaceParallelPlaceholder(token, arg)));
-  if (!hasPlaceholder && args.length > 0)
-    return args.map((arg) => [...childTokens, arg]);
-  return [[...childTokens]];
+function commandsModeWork(args) {
+  return {
+    childAnalyses: args.length,
+    derivedTokens: args.length,
+    derivedBytes: sumUtf8Bytes(args)
+  };
+}
+function staticStringWork(value) {
+  return {
+    childAnalyses: 1,
+    derivedTokens: 1,
+    derivedBytes: limitedValue(utf8ByteLength(value), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+  };
+}
+function staticTokenWork(tokens) {
+  return {
+    childAnalyses: 1,
+    derivedTokens: tokens.length,
+    derivedBytes: sumUtf8Bytes(tokens)
+  };
+}
+function appendedTokenWork(tokens, args) {
+  return {
+    childAnalyses: args.length,
+    derivedTokens: limitedMultiply(tokens.length + 1, args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
+    derivedBytes: limitedAdd([
+      limitedMultiply(sumUtf8Bytes(tokens), args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
+      sumUtf8Bytes(args)
+    ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+  };
+}
+function expandedStringWork(value, args, placeholderKind) {
+  let stats = getReplacementStats(value, placeholderKind), placeholderReplacements = limitedMultiply(stats.occurrences, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  return {
+    childAnalyses: args.length,
+    derivedTokens: args.length,
+    derivedBytes: expandedUtf8Bytes(stats, args, placeholderReplacements),
+    placeholderReplacements
+  };
+}
+function expandedTokenWork(tokens, args, placeholderKind) {
+  let stats = combineReplacementStats(tokens.map((token) => getReplacementStats(token, placeholderKind))), placeholderReplacements = limitedMultiply(stats.occurrences, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  return {
+    childAnalyses: args.length,
+    derivedTokens: limitedMultiply(tokens.length, args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
+    derivedBytes: expandedUtf8Bytes(stats, args, placeholderReplacements),
+    placeholderReplacements
+  };
+}
+function dynamicEnvWork(entries, args) {
+  let dynamicEntries = entries.filter((entry) => entry.hasPlaceholder), dynamicValueCount = limitedAdd(dynamicEntries.map((entry) => entry.frequency), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), childAnalyses = limitedMultiply(dynamicValueCount, Math.max(args.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), derivedTokens = limitedMultiply(dynamicValueCount, Math.max(args.length, 1), PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
+  if (childAnalyses > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses || derivedTokens > PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
+    return { childAnalyses, derivedTokens };
+  if (args.length === 0)
+    return {
+      childAnalyses,
+      derivedTokens,
+      derivedBytes: limitedAdd(dynamicEntries.map((entry) => limitedMultiply(utf8ByteLength(entry.value), entry.frequency, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+    };
+  let stats = [], placeholderReplacements = 0;
+  for (let entry of dynamicEntries) {
+    let multiplicity = limitedMultiply(entry.frequency, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+    if (multiplicity > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements || multiplicity > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements - placeholderReplacements)
+      return {
+        childAnalyses,
+        derivedTokens,
+        placeholderReplacements: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1
+      };
+    let maxOccurrences = Math.floor((PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements - placeholderReplacements) / multiplicity), valueStats = getReplacementStats(entry.value, "generic", maxOccurrences);
+    if (valueStats.occurrences > maxOccurrences)
+      return {
+        childAnalyses,
+        derivedTokens,
+        placeholderReplacements: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1
+      };
+    placeholderReplacements += valueStats.occurrences * multiplicity, stats.push(scaleReplacementStats(valueStats, entry.frequency));
+  }
+  let combinedStats = combineReplacementStats(stats);
+  return {
+    childAnalyses,
+    derivedTokens,
+    derivedBytes: expandedUtf8Bytes(combinedStats, args, placeholderReplacements),
+    placeholderReplacements
+  };
+}
+function combineParallelWork(first, second) {
+  return {
+    childAnalyses: limitedAdd([first.childAnalyses ?? 0, second.childAnalyses ?? 0], PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses),
+    derivedTokens: limitedAdd([first.derivedTokens ?? 0, second.derivedTokens ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
+    derivedBytes: limitedAdd([first.derivedBytes ?? 0, second.derivedBytes ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
+    placeholderReplacements: limitedAdd([first.placeholderReplacements ?? 0, second.placeholderReplacements ?? 0], PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+  };
+}
+function getReplacementStats(value, placeholderKind, maxOccurrences = PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
+  let matches = placeholderKind === "generic" ? value.matchAll(/\{[^{}\s]*\}/g) : value.matchAll(/\{\}/g), parts = [], lastIndex = 0;
+  for (let match of matches) {
+    if (parts.length >= maxOccurrences)
+      return { occurrences: maxOccurrences + 1, fixedBytes: 0, templates: [] };
+    parts.push(value.slice(lastIndex, match.index)), lastIndex = match.index + match[0].length;
+  }
+  return parts.push(value.slice(lastIndex)), {
+    occurrences: parts.length - 1,
+    fixedBytes: parts.length === 1 ? utf8ByteLength(value) : limitedAdd(parts.map(utf8ByteLength), MAX_EXPANDED_BYTE_OVERCOUNT),
+    templates: parts.length === 1 ? [] : [{ parts, frequency: 1 }]
+  };
+}
+function scaleReplacementStats(stats, frequency) {
+  return {
+    occurrences: limitedMultiply(stats.occurrences, frequency, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
+    fixedBytes: limitedMultiply(stats.fixedBytes, frequency, MAX_EXPANDED_BYTE_OVERCOUNT),
+    templates: stats.templates.map((template) => ({
+      ...template,
+      frequency: limitedMultiply(template.frequency, frequency, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    }))
+  };
+}
+function combineReplacementStats(stats) {
+  return {
+    occurrences: limitedAdd(stats.map((value) => value.occurrences), PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
+    fixedBytes: limitedAdd(stats.map((value) => value.fixedBytes), MAX_EXPANDED_BYTE_OVERCOUNT),
+    templates: stats.flatMap((value) => value.templates)
+  };
+}
+function expandedUtf8Bytes(stats, args, placeholderReplacements) {
+  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    return PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1;
+  let overcountedBytes = limitedAdd([
+    limitedMultiply(stats.fixedBytes, args.length, MAX_EXPANDED_BYTE_OVERCOUNT),
+    limitedMultiply(stats.occurrences, sumUtf8Bytes(args, MAX_EXPANDED_BYTE_OVERCOUNT), MAX_EXPANDED_BYTE_OVERCOUNT)
+  ], MAX_EXPANDED_BYTE_OVERCOUNT);
+  if (overcountedBytes > MAX_EXPANDED_BYTE_OVERCOUNT)
+    return PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1;
+  return limitedValue(overcountedBytes - 2 * countSurrogateBoundaryPairs(stats.templates, args), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes);
+}
+function countSurrogateBoundaryPairs(templates, args) {
+  let pairs = 0;
+  for (let template of templates)
+    for (let arg of args) {
+      let previousLastCodeUnit;
+      for (let index = 0;index < template.parts.length; index++) {
+        let part = template.parts[index] ?? "";
+        if (part.length > 0) {
+          if (isHighSurrogate(previousLastCodeUnit) && isLowSurrogate(part.charCodeAt(0)))
+            pairs += template.frequency;
+          previousLastCodeUnit = part.charCodeAt(part.length - 1);
+        }
+        if (index === template.parts.length - 1 || arg.length === 0)
+          continue;
+        if (isHighSurrogate(previousLastCodeUnit) && isLowSurrogate(arg.charCodeAt(0)))
+          pairs += template.frequency;
+        previousLastCodeUnit = arg.charCodeAt(arg.length - 1);
+      }
+    }
+  return pairs;
+}
+function isHighSurrogate(value) {
+  return value !== void 0 && value >= 55296 && value <= 56319;
+}
+function isLowSurrogate(value) {
+  return value !== void 0 && value >= 56320 && value <= 57343;
+}
+function sumUtf8Bytes(values, limit = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) {
+  return limitedAdd(values.map(utf8ByteLength), limit);
+}
+function utf8ByteLength(value) {
+  return UTF8_ENCODER2.encode(value).byteLength;
+}
+function limitedAdd(values, limit) {
+  let total = 0;
+  for (let value of values) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > limit - total)
+      return limit + 1;
+    total += value;
+  }
+  return total;
+}
+function limitedMultiply(left, right, limit) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0 || left !== 0 && right > Math.floor(limit / left))
+    return limit + 1;
+  return left * right;
+}
+function limitedValue(value, limit) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= limit ? value : limit + 1;
 }
 function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
-  return [
-    ...envNames.flatMap((name) => {
-      let value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
-      return value === void 0 ? [] : [value];
-    }),
-    ...childEnvAssignments.values()
-  ];
+  let values = [];
+  for (let name of envNames) {
+    let value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
+    if (value !== void 0)
+      values.push(value);
+  }
+  return values.push(...childEnvAssignments.values()), prepareDynamicEnvValues(values);
+}
+function prepareDynamicEnvValues(values) {
+  let frequencies = /* @__PURE__ */ new Map;
+  for (let value of values)
+    frequencies.set(value, (frequencies.get(value) ?? 0) + 1);
+  let entries = [...frequencies].map(([value, frequency]) => ({
+    value,
+    frequency,
+    hasPlaceholder: hasParallelPlaceholder(value)
+  }));
+  return {
+    values,
+    entries,
+    byValue: new Map(entries.map((entry) => [entry.value, entry]))
+  };
 }
 function analyzeParallelDynamicEnvValues(values, args, context) {
-  for (let value of values) {
-    if (!hasParallelPlaceholder(value))
+  for (let value of values.values) {
+    if (!values.byValue.get(value)?.hasPlaceholder)
       continue;
-    let commands = args.length > 0 ? args.map((arg) => replaceParallelPlaceholder(value, arg)) : [value];
-    for (let command2 of commands) {
-      let reason = context.analyzeNested(command2, {
+    let valueArgs = args.length > 0 ? args : [void 0];
+    for (let arg of valueArgs) {
+      let command2 = arg === void 0 ? value : replaceParallelPlaceholder(value, arg), reason = context.analyzeNested(command2, {
         envAssignments: context.envAssignments,
         effectiveCwd: context.cwd
       });
@@ -7466,7 +7704,10 @@ function buildCommandsModeOverrides(context, runsRemotely) {
   return Object.keys(overrides).length > 0 ? overrides : void 0;
 }
 function replaceParallelPlaceholder(token, arg) {
-  return token.replace(/\{[^{}\s]*\}/g, arg);
+  return token.replace(/\{[^{}\s]*\}/g, () => arg);
+}
+function replaceParallelRmPlaceholder(token, arg) {
+  return token.replace(/\{\}/g, () => arg);
 }
 function hasParallelPlaceholder(token) {
   return PARALLEL_PLACEHOLDER_RE.test(token);
@@ -8195,6 +8436,7 @@ function analyzeXargsCommand(context) {
 function analyzeParallelCommand(context) {
   return analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
+    budget: context.options.parallelBudget,
     analyzeNested: (command2, overrides) => matchFromBlockResult(context.options.analyzeNested(command2, overrides))
   });
 }
@@ -8612,6 +8854,27 @@ function getSetOptionChanges(tokens, commandIndex) {
 
 // src/core/analyze/analyze-command.ts
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
+  let ownsParallelBudget = options2.parallelBudget === void 0;
+  try {
+    return analyzeCommandWithBudget(command2, depth, {
+      ...options2,
+      parallelBudget: options2.parallelBudget ?? createParallelAnalysisBudget()
+    }, parsedProgram);
+  } catch (error) {
+    if (!(error instanceof ParallelAnalysisLimitError) || !ownsParallelBudget)
+      throw error;
+    if (options2.trace?.currentSegmentIndex !== void 0)
+      options2.trace.recordSegment({ type: "error", message: REASON_PARALLEL_ANALYSIS_LIMIT });
+    else
+      options2.trace?.recordGlobal({ type: "error", message: REASON_PARALLEL_ANALYSIS_LIMIT });
+    return {
+      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      segment: command2,
+      intent: "stop_and_explain"
+    };
+  }
+}
+function analyzeCommandWithBudget(command2, depth, options2, parsedProgram) {
   if (depth >= MAX_RECURSION_DEPTH)
     return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
   let program = parsedProgram ?? options2.factStore?.getCommandProgram(command2, options2.shell ?? "auto") ?? parseCommand(command2, options2.shell);

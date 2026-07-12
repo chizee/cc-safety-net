@@ -1,4 +1,10 @@
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
+import {
+  createParallelAnalysisBudget,
+  type ParallelAnalysisBudget,
+  ParallelAnalysisLimitError,
+  REASON_PARALLEL_ANALYSIS_LIMIT,
+} from '@/core/analyze/parallel-budget';
 import { analyzePowerShellCommandViewMatch } from '@/core/analyze/powershell/remove-item';
 import { analyzeSegment, resolveCwdAfterSegment } from '@/core/analyze/segment';
 import {
@@ -30,12 +36,51 @@ export type InternalOptions = AnalyzeOptions & {
   trace?: CommandTraceContext;
   analyzePartialProgram?: boolean;
   compatibility?: 'explain-legacy';
+  parallelBudget?: ParallelAnalysisBudget;
+};
+
+type ActiveInternalOptions = InternalOptions & {
+  parallelBudget: ParallelAnalysisBudget;
 };
 
 export function analyzeCommandInternal(
   command: string,
   depth: number,
   options: InternalOptions,
+  parsedProgram?: CommandProgram,
+): AnalyzeResult | null {
+  const ownsParallelBudget = options.parallelBudget === undefined;
+  try {
+    return analyzeCommandWithBudget(
+      command,
+      depth,
+      {
+        ...options,
+        parallelBudget: options.parallelBudget ?? createParallelAnalysisBudget(),
+      },
+      parsedProgram,
+    );
+  } catch (error) {
+    if (!(error instanceof ParallelAnalysisLimitError) || !ownsParallelBudget) {
+      throw error;
+    }
+    if (options.trace?.currentSegmentIndex !== undefined) {
+      options.trace.recordSegment({ type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT });
+    } else {
+      options.trace?.recordGlobal({ type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT });
+    }
+    return {
+      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      segment: command,
+      intent: 'stop_and_explain',
+    };
+  }
+}
+
+function analyzeCommandWithBudget(
+  command: string,
+  depth: number,
+  options: ActiveInternalOptions,
   parsedProgram?: CommandProgram,
 ): AnalyzeResult | null {
   if (depth >= MAX_RECURSION_DEPTH) {
@@ -90,7 +135,7 @@ type AnalysisState = {
 function analyzeProgram(
   program: CommandProgram,
   depth: number,
-  options: InternalOptions,
+  options: ActiveInternalOptions,
   originalCwd: string | undefined,
   state: AnalysisState,
 ): AnalyzeResult | null {
@@ -161,7 +206,7 @@ function withTraceSegment(
 function analyzeNestedPrograms(
   programs: readonly CommandProgram[],
   depth: number,
-  options: InternalOptions,
+  options: ActiveInternalOptions,
   originalCwd: string | undefined,
   state: AnalysisState,
 ): AnalyzeResult | null {
@@ -175,7 +220,7 @@ function analyzeNestedPrograms(
 function analyzeCommandView(
   commandView: CommandView,
   depth: number,
-  options: InternalOptions,
+  options: ActiveInternalOptions,
   originalCwd: string | undefined,
   state: AnalysisState,
   hasPipelineInput: boolean,
@@ -326,7 +371,7 @@ function getPowerShellRemoveItemOptions(
 
 function analyzeUnparseableCommand(
   command: string,
-  options: InternalOptions,
+  options: ActiveInternalOptions,
 ): AnalyzeResult | null {
   const dangerousTextMatch = dangerousInTextMatch(command);
   const textMatch =

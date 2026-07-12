@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { explainCommand } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
+import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/core/analyze/parallel-budget';
 import * as gitAnalysis from '@/core/git';
 import { createSemanticFactStore } from '@/core/semantic-facts';
 import type { CommandTraceTerminal } from '@/domain/command-trace';
@@ -282,6 +283,41 @@ describe('command trace recorder', () => {
 
     expect(evaluation.analysis).not.toBeNull();
     expect(parsedDialects).toEqual(['auto', 'posix']);
+  });
+
+  test('records one global parallel-limit error without a phantom or skipped segment', () => {
+    const command = `parallel ${Array.from({ length: 128 }, () => 'x').join(
+      ' ',
+    )} ::: ${Array.from({ length: 129 }, () => 'y').join(' ')}`;
+    const evaluation = evaluateCommandWithTrace(command, {
+      policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
+    });
+
+    expect(evaluation.analysis).toEqual({
+      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      segment: command,
+      intent: 'stop_and_explain',
+    });
+    expect(evaluation.trace.terminal).toEqual({
+      result: 'blocked',
+      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      segment: command,
+    });
+    expect(evaluation.trace.events.filter((event) => event.step.type === 'error')).toEqual([
+      {
+        kind: 'step',
+        scope: 'global',
+        step: { type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT },
+      },
+    ]);
+    expect(evaluation.trace.events.some((event) => event.step.type === 'segment-skipped')).toBe(
+      false,
+    );
+    expect(
+      evaluation.trace.events
+        .filter((event) => event.scope === 'segment')
+        .map((event) => event.segmentIndex),
+    ).toEqual([0]);
   });
 
   test('ordinary enforcement does not compute trace-only Git detail', () => {

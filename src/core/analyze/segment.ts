@@ -17,6 +17,7 @@ import {
   REASON_PARALLEL_RM,
   REASON_PARALLEL_SHELL,
 } from '@/core/analyze/parallel';
+import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { extractDashCArg } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
@@ -64,6 +65,7 @@ export type InternalOptions = AnalyzeOptions & {
   commandView?: CommandView;
   trace?: CommandTraceContext;
   compatibility?: 'explain-legacy';
+  parallelBudget: ParallelAnalysisBudget;
 };
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
@@ -802,6 +804,7 @@ function analyzeParallelCommand(
 ): DestructiveCommandRuleMatch | null {
   return analyzeParallel(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
+    budget: context.options.parallelBudget,
     analyzeNested: (command, overrides) =>
       matchFromBlockResult(context.options.analyzeNested(command, overrides)),
   });
