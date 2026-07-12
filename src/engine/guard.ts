@@ -12,6 +12,7 @@ import {
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
+import { ToolInputLimitError } from '@/core/tool-input';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { SemanticFacts } from '@/domain/semantic-facts';
@@ -224,7 +225,10 @@ function getInputCommandOrFail(invocation: ToolInvocation): string | undefined {
     const command = isCommandInvocation(invocation) ? invocation.command : undefined;
     throw new GuardEvaluationError(
       'policy-protection',
-      failedClosedEvaluation('policy-protection', command),
+      failedClosedEvaluation(
+        'policy-protection',
+        cause instanceof ToolInputLimitError ? undefined : command,
+      ),
       cause,
     );
   }
@@ -238,7 +242,11 @@ function callDependency<T>(
   try {
     return call();
   } catch (cause) {
-    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, command), cause);
+    throw new GuardEvaluationError(
+      stage,
+      failedClosedEvaluation(stage, cause instanceof ToolInputLimitError ? undefined : command),
+      cause,
+    );
   }
 }
 

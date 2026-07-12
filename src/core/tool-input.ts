@@ -28,6 +28,17 @@ const GLOB_TOOL_NAMES = new Set(['findbyname', 'glob']);
 const PATCH_TEXT_KEYS = new Set(['command', 'diff', 'input', 'patch', 'patchtext']);
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
+const JS_WHITESPACE = /\s/;
+const MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
+
+/** @internal */
+export class ToolInputLimitError extends Error {
+  override readonly name = 'ToolInputLimitError';
+
+  constructor() {
+    super('tool input traversal limit exceeded');
+  }
+}
 
 /** @internal Generous fail-closed bounds for untrusted recursive tool input. */
 export const TOOL_INPUT_LIMITS = Object.freeze({
@@ -195,7 +206,7 @@ function assertSafeToolInputObject(input: object): boolean {
 }
 
 function throwToolInputLimit(): never {
-  throw new Error('tool input traversal limit exceeded');
+  throw new ToolInputLimitError();
 }
 
 function extractPatchTargetsFromText(text: string): string[] {
@@ -305,35 +316,27 @@ function extractGitDiffTargets(header: string): string[] {
     return cleanGitTargetPair(fields[0], fields[1]);
   }
 
-  const matchingPair = [...header.matchAll(/\s+/g)]
-    .map(
-      (separator) =>
-        [
-          header.slice(0, separator.index).trim(),
-          header.slice((separator.index ?? 0) + separator[0].length).trim(),
-        ] as const,
-    )
-    .find(
-      ([oldTarget, newTarget]) =>
-        oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null,
-    );
-  return matchingPair?.[0] && matchingPair[1]
-    ? cleanGitTargetPair(matchingPair[0], matchingPair[1])
+  const matchingPair = findGitDiffFallbackPair(header);
+  return matchingPair
+    ? cleanGitTargetPair(
+        header.slice(matchingPair.oldStart, matchingPair.oldEnd),
+        header.slice(matchingPair.newStart, matchingPair.newEnd),
+      )
     : [];
 }
 
 function parseGitDiffFields(header: string): string[] {
   const fields: string[] = [];
   let index = 0;
-  while (index < header.length) {
-    while (/\s/.test(header[index] ?? '')) index++;
+  while (index < header.length && fields.length < 2) {
+    while (isJsWhitespace(header[index])) index++;
     if (index >= header.length) break;
 
     const quote = header[index] === '"' || header[index] === "'" ? header[index] : undefined;
     if (!quote) {
-      const end = header.slice(index).search(/\s/);
-      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end));
-      index = end === -1 ? header.length : index + end;
+      const start = index;
+      while (index < header.length && !isJsWhitespace(header[index])) index++;
+      fields.push(header.slice(start, index));
       continue;
     }
 
@@ -342,7 +345,79 @@ function parseGitDiffFields(header: string): string[] {
     fields.push(field.value);
     index = field.end;
   }
-  return fields;
+  while (isJsWhitespace(header[index])) index++;
+  return index === header.length ? fields : [];
+}
+
+function findGitDiffFallbackPair(header: string) {
+  let start = 0;
+  while (start < header.length && isJsWhitespace(header[start])) start++;
+  let end = header.length;
+  while (end > start && isJsWhitespace(header[end - 1])) end--;
+
+  let candidates = 0;
+  let index = start;
+  while (index < end) {
+    if (!isJsWhitespace(header[index])) {
+      index++;
+      continue;
+    }
+
+    const oldEnd = index;
+    while (index < end && isJsWhitespace(header[index])) index++;
+    if (oldEnd === start || index === end) continue;
+    candidates++;
+    if (candidates > MAX_GIT_DIFF_FALLBACK_CANDIDATES) throwToolInputLimit();
+    if (gitDiffFallbackRangesMatch(header, start, oldEnd, index, end)) {
+      return { oldStart: start, oldEnd, newStart: index, newEnd: end };
+    }
+  }
+  return null;
+}
+
+function gitDiffFallbackRangesMatch(
+  header: string,
+  oldStart: number,
+  oldEnd: number,
+  newStart: number,
+  newEnd: number,
+): boolean {
+  if (rangesEqual(header, oldStart, oldEnd, newStart, newEnd)) return true;
+  const oldSlash = findCharacterInRange(header, '/', oldStart, oldEnd);
+  const newSlash = findCharacterInRange(header, '/', newStart, newEnd);
+  if (oldSlash <= oldStart || newSlash <= newStart) return false;
+  if (rangesEqual(header, oldStart, oldSlash, newStart, newSlash)) return false;
+  return rangesEqual(header, oldSlash + 1, oldEnd, newSlash + 1, newEnd);
+}
+
+function rangesEqual(
+  value: string,
+  leftStart: number,
+  leftEnd: number,
+  rightStart: number,
+  rightEnd: number,
+): boolean {
+  if (leftEnd - leftStart !== rightEnd - rightStart) return false;
+  for (let offset = 0; offset < leftEnd - leftStart; offset++) {
+    if (value[leftStart + offset] !== value[rightStart + offset]) return false;
+  }
+  return true;
+}
+
+function findCharacterInRange(
+  value: string,
+  character: string,
+  start: number,
+  end: number,
+): number {
+  for (let index = start; index < end; index++) {
+    if (value[index] === character) return index;
+  }
+  return -1;
+}
+
+function isJsWhitespace(character: string | undefined): boolean {
+  return character !== undefined && JS_WHITESPACE.test(character);
 }
 
 function parseQuotedGitDiffField(header: string, start: number, quote: string) {

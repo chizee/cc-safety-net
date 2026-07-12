@@ -80,6 +80,25 @@ describe('OpenCode plugin', () => {
     });
   });
 
+  test('rejects Git fallback exhaustion with only the fixed underlying cause', async () => {
+    await withSafetyNetHomeDir('safety-net-opencode-git-fallback-', async (dir) => {
+      const plugin = await loadToolPlugin(dir);
+      const marker = 'private-opencode-fallback-marker';
+      const target = Array.from({ length: 65 }, (_, index) => `${marker}-${index}`).join(' ');
+      const attackerPatch = `diff --git ${target} ${target}`;
+
+      const errorMessage = await capturePluginErrorMessage(() =>
+        plugin['tool.execute.before'](
+          { tool: 'apply_patch' },
+          { args: { command: attackerPatch } },
+        ),
+      );
+
+      expect(errorMessage).toBe('tool input traversal limit exceeded');
+      expect(errorMessage).not.toContain(marker);
+    });
+  });
+
   test('keeps guard dependencies out of the public plugin input', () => {
     expect(publicInputExposesGuardDependencies).toBeFalse();
     expect(publicInputAcceptsHomeDir).toBeFalse();

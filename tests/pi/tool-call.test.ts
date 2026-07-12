@@ -83,6 +83,19 @@ describe('Pi tool_call event', () => {
     }
   });
 
+  test('fails closed without reflecting over-budget Git fallback patch input', () => {
+    const marker = 'private-pi-fallback-marker';
+    const target = Array.from({ length: 65 }, (_, index) => `${marker}-${index}`).join(' ');
+    const attackerPatch = `diff --git ${target} ${target}`;
+    const result = handlePiToolCall(
+      toolCall('apply_patch', { command: attackerPatch }),
+      piContext(process.cwd()),
+    );
+
+    expect(result?.reason).toContain('CC Safety Net failed closed');
+    expect(result?.reason).not.toContain(marker);
+  });
+
   test('allows non-sensitive Pi read tool path inputs', () => {
     expect(
       handlePiToolCall(toolCall('read', { path: 'README.md' }), piContext(process.cwd())),

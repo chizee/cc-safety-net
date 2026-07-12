@@ -8,6 +8,20 @@ import {
   TOOL_INPUT_LIMITS,
 } from '@/core/tool-input';
 
+function gitFallbackTarget(comparison: number, marker: string): string {
+  return Array.from({ length: comparison }, (_, index) => `${marker}-${index}`).join(' ');
+}
+
+function captureToolInputError(run: () => unknown): Error {
+  try {
+    run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    return error as Error;
+  }
+  throw new Error('Expected tool input parsing to fail');
+}
+
 describe('tool input routing', () => {
   test('reads only safe own data command fields', () => {
     expect(getCommandFromToolInput({ command: 'git status' })).toBe('git status');
@@ -208,6 +222,61 @@ describe('bounded tool input traversal', () => {
       'tool input traversal limit exceeded',
     );
     expect(getterCalls).toBe(0);
+  });
+});
+
+describe('bounded Git diff fallback parsing', () => {
+  test('accepts fallback comparison 64 and rejects comparison 65 with a typed fixed error', () => {
+    const acceptedTarget = gitFallbackTarget(64, 'accepted');
+    expect(
+      extractPatchTargetsFromToolInput({ patch: `diff --git ${acceptedTarget} ${acceptedTarget}` }),
+    ).toEqual([acceptedTarget, acceptedTarget]);
+
+    const rejectedTarget = gitFallbackTarget(65, 'private-fallback-marker');
+    const error = captureToolInputError(() =>
+      extractPatchTargetsFromToolInput({ patch: `diff --git ${rejectedTarget} ${rejectedTarget}` }),
+    );
+    expect(error.constructor.name).toBe('ToolInputLimitError');
+    expect(error.message).toBe('tool input traversal limit exceeded');
+    expect(error.message).not.toContain('private-fallback-marker');
+  });
+
+  test('rejects the exact one-mebibyte slash-free fallback payload deterministically', () => {
+    const prefix = 'diff --git ';
+    const payload = `${prefix}${'x '.repeat(
+      Math.floor((TOOL_INPUT_LIMITS.maxStringBytes - prefix.length) / 2),
+    )}${(TOOL_INPUT_LIMITS.maxStringBytes - prefix.length) % 2 === 0 ? '' : 'x'}`;
+    expect(Buffer.byteLength(payload)).toBe(1_048_576);
+
+    const error = captureToolInputError(() =>
+      extractPatchTargetsFromToolInput({ command: payload }),
+    );
+    expect(error.constructor.name).toBe('ToolInputLimitError');
+    expect(error.message).toBe('tool input traversal limit exceeded');
+  });
+
+  test('keeps canonical quoted paths with more than 64 internal whitespace runs off fallback', () => {
+    const target = `nested/${gitFallbackTarget(66, 'quoted')}`;
+    expect(
+      extractPatchTargetsFromToolInput({
+        patch: `diff --git "a/${target}" "b/${target}"`,
+      }),
+    ).toEqual([target, target]);
+  });
+
+  test('accepts an exact-max canonical patch in order and rejects max plus one at traversal', () => {
+    const prefix = 'diff --git /dev/null "b/';
+    const suffix = '"';
+    const target = 'x'.repeat(TOOL_INPUT_LIMITS.maxStringBytes - prefix.length - suffix.length);
+    const exact = `${prefix}${target}${suffix}`;
+    expect(Buffer.byteLength(exact)).toBe(TOOL_INPUT_LIMITS.maxStringBytes);
+    expect(extractPatchTargetsFromToolInput({ patch: exact })).toEqual([`b/${target}`, target]);
+
+    const error = captureToolInputError(() =>
+      extractPatchTargetsFromToolInput({ patch: `${exact}x` }),
+    );
+    expect(error.constructor.name).toBe('ToolInputLimitError');
+    expect(error.message).toBe('tool input traversal limit exceeded');
   });
 });
 

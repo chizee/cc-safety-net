@@ -6,7 +6,11 @@ import {
   PathCanonicalizationLimitError,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
-import { extractPatchTargetsFromToolInput, extractPathLikeToolValues } from '@/core/tool-input';
+import {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  ToolInputLimitError,
+} from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
 import type { AntigravityCliHookInput, AntigravityCliHookOutput } from '@/types';
@@ -86,6 +90,10 @@ function resolveAntigravityContext(
     try {
       targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
     } catch (error) {
+      if (error instanceof ToolInputLimitError) {
+        outputAntigravityCwdDeny(outputDeny, undefined, toolName);
+        return null;
+      }
       if (!(error instanceof PathCanonicalizationLimitError)) throw error;
       outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
       return null;

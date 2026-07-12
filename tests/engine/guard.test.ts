@@ -84,6 +84,21 @@ function captureNonCommandGuardError(cwd: string, input: unknown): GuardEvaluati
   return captureGuardError(() => evaluateGuard(nonCommandInvocation(cwd, input)));
 }
 
+function fallbackLimitPatch(marker: string): string {
+  const target = Array.from({ length: 65 }, (_, index) => `${marker}-${index}`).join(' ');
+  return `diff --git ${target} ${target}`;
+}
+
+function expectNonReflectiveToolInputLimit(error: GuardEvaluationError, marker: string): void {
+  expect(error.stage).toBe('policy-protection');
+  expect((error.cause as Error).constructor.name).toBe('ToolInputLimitError');
+  expect((error.cause as Error).message).toBe('tool input traversal limit exceeded');
+  expect(error.evaluation.decision).toEqual(
+    expect.objectContaining({ kind: 'deny', intent: 'stop_and_explain', evidence: [] }),
+  );
+  expect(JSON.stringify(error.evaluation)).not.toContain(marker);
+}
+
 describe('guard evaluation', () => {
   test('fails closed when policy protection exhausts one budget across multiple real targets', async () => {
     await withTempDir('cc-safety-net-guard-policy-path-budget-', (cwd) => {
@@ -113,6 +128,36 @@ describe('guard evaluation', () => {
       expect(error.evaluation.decision).toEqual(
         expect.objectContaining({ kind: 'deny', intent: 'stop_and_explain' }),
       );
+    });
+  });
+
+  test('fails closed without reflecting patch input when Git fallback work exceeds its limit', async () => {
+    await withTempDir('cc-safety-net-guard-git-fallback-', (cwd) => {
+      const marker = 'private-guard-fallback-marker';
+      const attackerPatch = fallbackLimitPatch(marker);
+      const error = captureGuardError(() =>
+        evaluateGuard({
+          ...nonCommandInvocation(cwd, { command: attackerPatch }),
+          toolName: 'apply_patch',
+          route: { kind: 'patch' as const },
+        }),
+      );
+
+      expectNonReflectiveToolInputLimit(error, marker);
+    });
+  });
+
+  test('does not reflect a declared command when command input shape exceeds its limit', async () => {
+    await withTempDir('cc-safety-net-guard-command-shape-limit-', (cwd) => {
+      const marker = 'private-declared-command-marker';
+      const error = captureGuardError(() =>
+        evaluateGuard({
+          ...commandInvocation(cwd, marker),
+          input: Object.create({ command: marker }),
+        }),
+      );
+
+      expectNonReflectiveToolInputLimit(error, marker);
     });
   });
 

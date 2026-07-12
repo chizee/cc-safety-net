@@ -443,7 +443,15 @@ var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TO
   "write",
   "writefile",
   "writetofile"
-]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, TOOL_INPUT_LIMITS = Object.freeze({
+]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, JS_WHITESPACE = /\s/, MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
+
+class ToolInputLimitError extends Error {
+  name = "ToolInputLimitError";
+  constructor() {
+    super("tool input traversal limit exceeded");
+  }
+}
+var TOOL_INPUT_LIMITS = Object.freeze({
   maxDepth: 64,
   maxNodes: 1e4,
   maxKeys: 1e4,
@@ -543,7 +551,7 @@ function assertSafeToolInputObject(input) {
   return array;
 }
 function throwToolInputLimit() {
-  throw Error("tool input traversal limit exceeded");
+  throw new ToolInputLimitError;
 }
 function extractPatchTargetsFromText(text) {
   let targets = [], lines = text.split(/\r?\n/), inApplyPatch = !1, inHunk = !1, oldHunkLinesRemaining = null, newHunkLinesRemaining = null, resetHunk = () => {
@@ -626,23 +634,22 @@ function extractGitDiffTargets(header) {
   let fields = parseGitDiffFields(header);
   if (fields.length === 2 && fields[0] && fields[1])
     return cleanGitTargetPair(fields[0], fields[1]);
-  let matchingPair = [...header.matchAll(/\s+/g)].map((separator) => [
-    header.slice(0, separator.index).trim(),
-    header.slice((separator.index ?? 0) + separator[0].length).trim()
-  ]).find(([oldTarget, newTarget]) => oldTarget === newTarget || getCommonGitPrefixRemainder(oldTarget, newTarget) !== null);
-  return matchingPair?.[0] && matchingPair[1] ? cleanGitTargetPair(matchingPair[0], matchingPair[1]) : [];
+  let matchingPair = findGitDiffFallbackPair(header);
+  return matchingPair ? cleanGitTargetPair(header.slice(matchingPair.oldStart, matchingPair.oldEnd), header.slice(matchingPair.newStart, matchingPair.newEnd)) : [];
 }
 function parseGitDiffFields(header) {
   let fields = [], index = 0;
-  while (index < header.length) {
-    while (/\s/.test(header[index] ?? ""))
+  while (index < header.length && fields.length < 2) {
+    while (isJsWhitespace(header[index]))
       index++;
     if (index >= header.length)
       break;
     let quote = header[index] === '"' || header[index] === "'" ? header[index] : void 0;
     if (!quote) {
-      let end = header.slice(index).search(/\s/);
-      fields.push(end === -1 ? header.slice(index) : header.slice(index, index + end)), index = end === -1 ? header.length : index + end;
+      let start = index;
+      while (index < header.length && !isJsWhitespace(header[index]))
+        index++;
+      fields.push(header.slice(start, index));
       continue;
     }
     let field = parseQuotedGitDiffField(header, index, quote);
@@ -650,7 +657,61 @@ function parseGitDiffFields(header) {
       return [];
     fields.push(field.value), index = field.end;
   }
-  return fields;
+  while (isJsWhitespace(header[index]))
+    index++;
+  return index === header.length ? fields : [];
+}
+function findGitDiffFallbackPair(header) {
+  let start = 0;
+  while (start < header.length && isJsWhitespace(header[start]))
+    start++;
+  let end = header.length;
+  while (end > start && isJsWhitespace(header[end - 1]))
+    end--;
+  let candidates = 0, index = start;
+  while (index < end) {
+    if (!isJsWhitespace(header[index])) {
+      index++;
+      continue;
+    }
+    let oldEnd = index;
+    while (index < end && isJsWhitespace(header[index]))
+      index++;
+    if (oldEnd === start || index === end)
+      continue;
+    if (candidates++, candidates > MAX_GIT_DIFF_FALLBACK_CANDIDATES)
+      throwToolInputLimit();
+    if (gitDiffFallbackRangesMatch(header, start, oldEnd, index, end))
+      return { oldStart: start, oldEnd, newStart: index, newEnd: end };
+  }
+  return null;
+}
+function gitDiffFallbackRangesMatch(header, oldStart, oldEnd, newStart, newEnd) {
+  if (rangesEqual(header, oldStart, oldEnd, newStart, newEnd))
+    return !0;
+  let oldSlash = findCharacterInRange(header, "/", oldStart, oldEnd), newSlash = findCharacterInRange(header, "/", newStart, newEnd);
+  if (oldSlash <= oldStart || newSlash <= newStart)
+    return !1;
+  if (rangesEqual(header, oldStart, oldSlash, newStart, newSlash))
+    return !1;
+  return rangesEqual(header, oldSlash + 1, oldEnd, newSlash + 1, newEnd);
+}
+function rangesEqual(value, leftStart, leftEnd, rightStart, rightEnd) {
+  if (leftEnd - leftStart !== rightEnd - rightStart)
+    return !1;
+  for (let offset = 0;offset < leftEnd - leftStart; offset++)
+    if (value[leftStart + offset] !== value[rightStart + offset])
+      return !1;
+  return !0;
+}
+function findCharacterInRange(value, character, start, end) {
+  for (let index = start;index < end; index++)
+    if (value[index] === character)
+      return index;
+  return -1;
+}
+function isJsWhitespace(character) {
+  return character !== void 0 && JS_WHITESPACE.test(character);
 }
 function parseQuotedGitDiffField(header, start, quote) {
   let bytes = [], index = start + 1;
@@ -10751,14 +10812,14 @@ function getInputCommandOrFail(invocation) {
     return getCommandFromToolInput(invocation.input);
   } catch (cause) {
     let command2 = isCommandInvocation(invocation) ? invocation.command : void 0;
-    throw new GuardEvaluationError("policy-protection", failedClosedEvaluation("policy-protection", command2), cause);
+    throw new GuardEvaluationError("policy-protection", failedClosedEvaluation("policy-protection", cause instanceof ToolInputLimitError ? void 0 : command2), cause);
   }
 }
 function callDependency(stage, command2, call) {
   try {
     return call();
   } catch (cause) {
-    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, command2), cause);
+    throw new GuardEvaluationError(stage, failedClosedEvaluation(stage, cause instanceof ToolInputLimitError ? void 0 : command2), cause);
   }
 }
 function failedClosedEvaluation(stage, command2) {

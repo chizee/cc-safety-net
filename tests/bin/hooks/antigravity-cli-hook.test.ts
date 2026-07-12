@@ -10,6 +10,7 @@ import {
   expectNoHookOutput,
   expectSecretProtectionDeny,
   getHookDenyReason,
+  type HookResult,
   type HookTestContext,
   runAntigravityHook,
   withHookTestContext,
@@ -317,13 +318,24 @@ describe('Antigravity CLI hook', () => {
           workspacePaths: [context.cwd],
         });
 
-        expect(result.exitCode).toBe(0);
-        expect(result.stderr).toBe('');
-        expect(result.stdout.split('\n')).toHaveLength(1);
-        expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
-          'CC Safety Net failed closed',
-        );
-        expect(result.stdout).not.toContain(context.cwd);
+        expectSingleNonReflectiveFailure(result, context.cwd);
+      });
+    });
+
+    test('source CLI denies Git fallback exhaustion once without reflecting patch input', async () => {
+      await withHookTestContext(async (context) => {
+        const marker = 'private-antigravity-fallback-marker';
+        const target = Array.from({ length: 65 }, (_, index) => `${marker}-${index}`).join(' ');
+        const attackerPatch = `diff --git ${target} ${target}`;
+        const result = await context.runAntigravityHook({
+          toolCall: {
+            name: 'apply_patch',
+            args: { command: attackerPatch },
+          },
+          workspacePaths: [context.cwd],
+        });
+
+        expectSingleNonReflectiveFailure(result, marker);
       });
     });
   });
@@ -561,6 +573,14 @@ async function expectAntigravityCwdFail(context: HookTestContext, cwd: string): 
   });
 
   expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+}
+
+function expectSingleNonReflectiveFailure(result: HookResult, privateValue: string): void {
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe('');
+  expect(result.stdout.split('\n')).toHaveLength(1);
+  expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+  expect(result.stdout).not.toContain(privateValue);
 }
 
 async function withSecondWorkspace(run: (workspace: string) => Promise<void>): Promise<void> {

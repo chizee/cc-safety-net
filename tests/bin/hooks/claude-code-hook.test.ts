@@ -149,6 +149,23 @@ describe('Claude Code hook', () => {
     });
   });
 
+  test('fails closed without reflecting over-budget Git fallback patch input', async () => {
+    await withHookTestContext(async (context) => {
+      const marker = 'private-claude-fallback-marker';
+      const target = Array.from({ length: 65 }, (_, index) => `${marker}-${index}`).join(' ');
+      const attackerPatch = `diff --git ${target} ${target}`;
+      const result = await context.runClaudeCodeHook({
+        hook_event_name: 'PreToolUse',
+        cwd: context.cwd,
+        tool_name: 'apply_patch',
+        tool_input: { command: attackerPatch },
+      });
+
+      expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
+      expect(result.stdout).not.toContain(marker);
+    });
+  });
+
   describe('allowed commands', () => {
     test('allowed command produces no output', async () => {
       await expectNoHookOutput(runClaudeCodeHook, claudeCodeBashInput('git status'));
