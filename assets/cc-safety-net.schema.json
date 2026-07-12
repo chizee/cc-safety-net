@@ -16,6 +16,7 @@
     "rules": {
       "default": [],
       "description": "Rulebook source strings such as project-rules or owner/repo#main/team-rules",
+      "maxItems": 64,
       "type": "array",
       "items": {
         "type": "string",

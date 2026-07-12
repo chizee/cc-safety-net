@@ -3,6 +3,7 @@
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,7 +22,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 369_000;
+const MAX_TARBALL_BYTES = 372_000;
 
 interface PackResult {
   filename: string;
@@ -94,6 +95,11 @@ export async function verifyPackage(): Promise<void> {
     );
     const packageRoot = join(directory, 'node_modules', 'cc-safety-net');
     const cli = join(packageRoot, 'dist', 'bin', 'cc-safety-net.js');
+    for (const bundle of ['dist/index.js', 'dist/bin/cc-safety-net.js', 'dist/pi/index.js']) {
+      if (readFileSync(join(packageRoot, bundle), 'utf8').includes('_operation')) {
+        throw new Error(`Packed ${bundle} exposes the internal rule synchronization operation`);
+      }
+    }
     const overLimitRulebook = join(
       directory,
       '.cc-safety-net',
@@ -129,6 +135,42 @@ export async function verifyPackage(): Promise<void> {
     ) {
       throw new Error('Packed CLI did not fail closed on an over-limit rulebook');
     }
+    const sourceLimitConfig = join(directory, '.cc-safety-net', 'rules', 'rule.json');
+    const sourceLimitSentinel = join(directory, 'source-limit-sentinel');
+    const sourceLimitNetworkSentinel = join(directory, 'source-limit-network-sentinel');
+    const sourceLimitNetworkGuard = join(directory, 'source-limit-network-guard.mjs');
+    writeFileSync(
+      sourceLimitConfig,
+      JSON.stringify({
+        version: 1,
+        rules: [
+          ...Array.from({ length: 64 }, (_, index) => `owner/repo#main/package-${index}`),
+          'owner/repo#main/TOPSECRET',
+        ],
+      }),
+    );
+    writeFileSync(sourceLimitSentinel, 'unchanged');
+    writeFileSync(
+      sourceLimitNetworkGuard,
+      `import { writeFileSync } from 'node:fs';\nglobalThis.fetch = () => { writeFileSync(${JSON.stringify(sourceLimitNetworkSentinel)}, 'unexpected'); throw new Error('unexpected package verification network'); };\n`,
+    );
+    const sourceLimitResult = run(
+      ['node', '--import', sourceLimitNetworkGuard, cli, 'rule', 'sync'],
+      directory,
+      [1],
+    );
+    if (
+      sourceLimitResult.stderr.toString() !==
+        "Rule config exceeds CC Safety Net's safe source limit.\n" ||
+      sourceLimitResult.stdout.length > 0 ||
+      readFileSync(sourceLimitSentinel, 'utf8') !== 'unchanged' ||
+      existsSync(sourceLimitNetworkSentinel) ||
+      existsSync(join(directory, '.cc-safety-net', 'rules', 'rule.lock')) ||
+      existsSync(join(directory, '.cc-safety-net', 'cache'))
+    ) {
+      throw new Error('Packed CLI did not fail closed before over-limit source synchronization');
+    }
+    rmSync(sourceLimitConfig);
     for (const args of [
       ['--version'],
       ['--help'],

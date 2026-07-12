@@ -199,6 +199,19 @@ export function getRulebookCacheRoot(options?: RulesPolicyOptions): string {
   return join(getRulesCacheDir(options), 'rulebooks');
 }
 
+/** @internal Builds cache lookup options without forwarding unknown caller fields. */
+export function getRulebookCacheOptions(
+  configDir: string,
+  options: RulesPolicyOptions,
+): SyncRulesConfigOptions {
+  const syncOptions = options as SyncRulesConfigOptions;
+  return {
+    cacheConfigDir: configDir,
+    cwd: options.cwd,
+    global: syncOptions.global,
+  };
+}
+
 function getRulebookCacheSlug(entry: RulebookLockEntry): string {
   const source =
     entry.kind === 'github' && entry.display_ref

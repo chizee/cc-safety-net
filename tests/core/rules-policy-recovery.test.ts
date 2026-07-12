@@ -51,6 +51,11 @@ import {
   isGitHubRulebookSource,
   parseGitHubSource,
 } from '@/core/rules/policy/sources';
+import {
+  addRulebookSourceWithHooks,
+  removeRulebookSourceWithHooks,
+  syncRulesConfigWithHooks,
+} from '@/core/rules/policy/sync';
 import type {
   LoadedRulesPolicy,
   RulebookLockEntry,
@@ -464,7 +469,7 @@ describe('rules policy recovery coverage', () => {
         },
       } satisfies PolicyRenameFaultOptions;
 
-      const result = await syncRulesConfig(options);
+      const result = await syncRulesConfigWithHooks(options, options);
 
       expect(result.ok).toBe(false);
       expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
@@ -491,7 +496,7 @@ describe('rules policy recovery coverage', () => {
         },
       } satisfies PolicyRenameFaultOptions;
 
-      const add = await addRulebookSource('project-rules', fault);
+      const add = await addRulebookSourceWithHooks('project-rules', fault, fault);
       expect(add.ok).toBe(false);
       expect(add.errors).toEqual(['Unable to access project policy filesystem safely.']);
       expect(existsSync(configPath)).toBe(false);
@@ -502,7 +507,7 @@ describe('rules policy recovery coverage', () => {
       const originalConfig = readFileSync(configPath, 'utf-8');
       const originalLock = readFileSync(lockPath, 'utf-8');
 
-      const remove = await removeRulebookSource('project-rules', fault);
+      const remove = await removeRulebookSourceWithHooks('project-rules', fault, fault);
       expect(remove.ok).toBe(false);
       expect(remove.errors).toEqual(['Unable to access project policy filesystem safely.']);
       expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
@@ -1233,7 +1238,7 @@ describe('rules policy recovery coverage', () => {
         },
       } satisfies RemoveRulebookSourceTestOptions;
 
-      const result = await removeRulebookSource('project-rules', options);
+      const result = await removeRulebookSourceWithHooks('project-rules', options, options);
 
       expect(result.ok).toBe(false);
       expect(result.errors[0]).toContain('Failed to delete local rulebook source');
@@ -1759,7 +1764,7 @@ describe('rules policy recovery coverage', () => {
           throw new Error('prune failed');
         },
       } satisfies SyncRulesConfigTestOptions;
-      const synced = await syncRulesConfig(options);
+      const synced = await syncRulesConfigWithHooks(options, options);
       expect(synced.ok).toBe(true);
       expect(synced.warnings.length).toBeGreaterThan(0);
     } finally {

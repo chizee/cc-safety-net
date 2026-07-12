@@ -15,6 +15,7 @@ import { readLockfile } from './lockfile';
 import {
   getLegacyUserRulesConfigPath,
   getPolicyPaths,
+  getRulebookCacheOptions,
   getRulebookCachePath,
   getRulebookDisplaySource,
   getRulesLockPathForConfigPath,
@@ -276,7 +277,7 @@ function loadLockedRulebook(
   filesystemScope: PolicyFilesystemScope,
 ): { rulebook: Rulebook | null; errors: string[] } {
   const errors: string[] = [];
-  const cachePath = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
+  const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
   let cacheContent: string | null;
   try {
     cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));

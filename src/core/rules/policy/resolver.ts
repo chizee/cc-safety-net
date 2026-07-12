@@ -7,7 +7,21 @@ import {
   type PolicyFilesystemScope,
   readPolicyFile,
 } from './filesystem';
-import { getRulebookCachePath, RULE_SYNC_COMMAND, RULEBOOK_FILE, RULES_DIR } from './paths';
+import {
+  getRulebookCacheOptions,
+  getRulebookCachePath,
+  RULE_SYNC_COMMAND,
+  RULEBOOK_FILE,
+  RULES_DIR,
+} from './paths';
+import {
+  createRuleSyncOperation,
+  createRuleSyncResourceBudget,
+  type RuleSyncOperation,
+  type RuleSyncResourceBudget,
+  reserveGitHubRequest,
+  reserveGitHubResponseBytes,
+} from './resource-limits';
 import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
@@ -53,9 +67,10 @@ export async function resolveRulebookSource(
     dirname(dirname(configDir)),
     'rules policy',
   ),
+  operation: RuleSyncOperation = createRuleSyncOperation(),
 ): Promise<ResolvedRulebook> {
   if (isGitHubRulebookSource(spec)) {
-    return resolveGitHubRulebook(spec);
+    return resolveGitHubRulebook(spec, operation);
   }
   return resolveLocalRulebook(spec, configDir, options, filesystemScope);
 }
@@ -66,27 +81,30 @@ export async function resolveRulebookSourceForSync(
   options: SyncRulesConfigOptions,
   previousLock: RulesLockfile | null,
   filesystemScope?: PolicyFilesystemScope,
+  operation: RuleSyncOperation = createRuleSyncOperation(),
 ): Promise<ResolvedRulebook> {
   if (!isGitHubRulebookSource(spec) || options.refresh) {
-    return resolveRulebookSource(spec, configDir, options, filesystemScope);
+    return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
   }
   const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
   if (!locked || locked.kind !== 'github') {
-    return resolveRulebookSource(spec, configDir, options, filesystemScope);
+    return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
   }
-  return readLockedGitHubRulebook(locked, configDir, options, filesystemScope);
+  return readLockedGitHubRulebook(locked, configDir, options, filesystemScope, operation);
 }
 
 export async function discoverGitHubRepositoryRulebooks(
   source: string,
+  operation: RuleSyncOperation = createRuleSyncOperation(),
 ): Promise<DiscoveredRulebookSource[]> {
   const [owner, repo] = source.split('/');
   if (!owner || !repo) {
     throw new Error(`Invalid GitHub repository source: ${source}`);
   }
-  const metadataResource = await fetchGitHubResource(
+  const metadataResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}`,
     'metadata',
+    operation,
   );
   const metadataResponse = metadataResource.response;
   if (!metadataResponse.ok) {
@@ -98,10 +116,11 @@ export async function discoverGitHubRepositoryRulebooks(
   if (!metadata.default_branch) {
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
-  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source);
-  const treeResource = await fetchGitHubResource(
+  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source, operation);
+  const treeResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
     'tree',
+    operation,
   );
   const treeResponse = treeResource.response;
   if (!treeResponse.ok) {
@@ -156,12 +175,16 @@ function resolveLocalRulebook(
   };
 }
 
-async function resolveGitHubRulebook(spec: string): Promise<ResolvedRulebook> {
+async function resolveGitHubRulebook(
+  spec: string,
+  operation: RuleSyncOperation,
+): Promise<ResolvedRulebook> {
   const parsed = parseGitHubSource(spec);
-  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec);
-  const rawResource = await fetchGitHubResource(
+  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec, operation);
+  const rawResource = await fetchRuleSyncResource(
     `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`,
     'raw',
+    operation,
   );
   const rawResponse = rawResource.response;
   if (!rawResponse.ok) {
@@ -200,27 +223,30 @@ async function readLockedGitHubRulebook(
     dirname(dirname(configDir)),
     'rules policy',
   ),
+  operation: RuleSyncOperation,
 ): Promise<ResolvedRulebook> {
   const identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError) {
     throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
   }
-  const cachePath = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
+  const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
   const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
   if (content !== null) {
     if (sha256Digest(content) === entry.digest) {
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
     }
   }
-  return fetchLockedGitHubRulebook(entry);
+  return fetchLockedGitHubRulebook(entry, operation);
 }
 
 async function fetchLockedGitHubRulebook(
   entry: GitHubRulebookLockEntry,
+  operation: RuleSyncOperation,
 ): Promise<ResolvedRulebook> {
-  const rawResource = await fetchGitHubResource(
+  const rawResource = await fetchRuleSyncResource(
     `https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`,
     'raw',
+    operation,
   );
   const rawResponse = rawResource.response;
   if (!rawResponse.ok) {
@@ -254,10 +280,12 @@ async function resolveGitHubCommit(
   repo: string,
   ref: string,
   source: string,
+  operation: RuleSyncOperation,
 ): Promise<string> {
-  const commitResource = await fetchGitHubResource(
+  const commitResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`,
     'commit',
+    operation,
   );
   const commitResponse = commitResource.response;
   if (!commitResponse.ok) {
@@ -276,35 +304,66 @@ async function resolveGitHubCommit(
 export async function fetchGitHubResource(
   url: string,
   kind: GitHubResourceKind,
-  options: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  options: {
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    budget?: RuleSyncResourceBudget;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<{ response: Response; content: string }> {
+  if (options.signal?.aborted) throw options.signal.reason;
+  const budget = options.budget ?? createRuleSyncResourceBudget();
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? GITHUB_FETCH_LIMITS.timeoutMs,
-  );
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort', forwardAbort, { once: true });
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? GITHUB_FETCH_LIMITS.timeoutMs);
   try {
-    const response = await (options.fetch ?? fetch)(url, { signal: controller.signal });
+    if (options.signal?.aborted) throw options.signal.reason;
+    reserveGitHubRequest(budget);
+    const response = await (options.fetch ?? fetch)(url, {
+      signal: controller.signal,
+      redirect: 'error',
+    });
     if (!response.ok) {
       cancelGitHubResponseBody(response);
       return { response, content: '' };
     }
     return {
       response,
-      content: await readGitHubResponseText(response, kind),
+      content: await readGitHubResponseText(response, kind, budget, () => controller.abort()),
     };
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('GitHub request timed out', { cause: error });
+    if (timedOut) throw new Error('GitHub request timed out', { cause: error });
+    if (options.signal?.aborted) throw options.signal.reason;
     throw error;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
+}
+
+function fetchRuleSyncResource(
+  url: string,
+  kind: GitHubResourceKind,
+  operation: RuleSyncOperation,
+): Promise<{ response: Response; content: string }> {
+  return fetchGitHubResource(operation.resolveUrl?.(url) ?? url, kind, {
+    budget: operation.budget,
+    signal: operation.controller.signal,
+  });
 }
 
 /** @internal Reads a response body without trusting Content-Length or buffering past its cap. */
 export async function readGitHubResponseText(
   response: Response,
   kind: GitHubResourceKind,
+  budget: RuleSyncResourceBudget = createRuleSyncResourceBudget(),
+  abortRequest?: () => void,
 ): Promise<string> {
   const limit = GITHUB_FETCH_LIMITS[`${kind}Bytes`];
   const declaredLength = Number(response.headers.get('content-length'));
@@ -320,8 +379,16 @@ export async function readGitHubResponseText(
   while (true) {
     const chunk = await reader.read();
     if (chunk.done) break;
+    try {
+      reserveGitHubResponseBytes(budget, chunk.value.byteLength);
+    } catch (error) {
+      abortRequest?.();
+      cancelGitHubResponseReader(reader);
+      throw error;
+    }
     bytes += chunk.value.byteLength;
     if (bytes > limit) {
+      abortRequest?.();
       cancelGitHubResponseReader(reader);
       throw new Error(`GitHub ${kind} response exceeds ${limit} bytes`);
     }

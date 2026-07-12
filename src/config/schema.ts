@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
+import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/core/rules/policy/resource-limits';
 import { getRulebookSourceSyntaxError } from '@/core/rules/policy/source-syntax';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 import { BLOCK_INTENTS } from '@/domain/decision';
@@ -9,6 +10,24 @@ import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
 
 const require = createRequire(import.meta.url);
 let schemas: ReturnType<typeof createSchemas> | undefined;
+const OVER_LIMIT_RULE_SOURCES = Array(RULE_SOURCE_LIMIT + 1).fill('over-limit');
+
+function preflightRulesConfig(config: unknown): unknown {
+  if (
+    !isRecord(config) ||
+    !Array.isArray(config.rules) ||
+    config.rules.length <= RULE_SOURCE_LIMIT
+  ) {
+    return config;
+  }
+  return {
+    $schema: config.$schema,
+    version: config.version,
+    rules: OVER_LIMIT_RULE_SOURCES,
+    overrides: config.overrides,
+    transparent_wrappers: config.transparent_wrappers,
+  };
+}
 
 function createSchemas() {
   const z = require('zod') as typeof Zod;
@@ -28,12 +47,13 @@ function createSchemas() {
     .string()
     .regex(COMMAND_PATTERN)
     .describe("Command name such as 'git', 'docker', or 'rtk'.");
-  const RulesConfigSchema = z
+  const RulesConfigObjectSchema = z
     .looseObject({
       $schema: z.unknown().optional().describe('JSON Schema reference for IDE support'),
       version: z.literal(1).describe('Schema version (must be 1)'),
       rules: z
         .array(RuleSourceSchema)
+        .max(RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR)
         .default([])
         .describe('Rulebook source strings such as project-rules or owner/repo#main/team-rules'),
       overrides: z
@@ -46,23 +66,25 @@ function createSchemas() {
         .describe('Commands that transparently execute a visible protected child command'),
     })
     .superRefine((config, context) => {
-      const sources = new Set<string>();
-      for (let index = 0; index < config.rules.length; index++) {
-        const source = config.rules[index] as string;
-        const sourceError = getRulebookSourceSyntaxError(source);
-        if (sourceError) {
-          context.addIssue({ code: 'custom', message: sourceError, path: ['rules', index] });
-          continue;
+      if (config.rules.length <= RULE_SOURCE_LIMIT) {
+        const sources = new Set<string>();
+        for (let index = 0; index < config.rules.length; index++) {
+          const source = config.rules[index] as string;
+          const sourceError = getRulebookSourceSyntaxError(source);
+          if (sourceError) {
+            context.addIssue({ code: 'custom', message: sourceError, path: ['rules', index] });
+            continue;
+          }
+          if (sources.has(source)) {
+            context.addIssue({
+              code: 'custom',
+              message: `duplicate rulebook source "${source}"`,
+              path: ['rules', index],
+            });
+            continue;
+          }
+          sources.add(source);
         }
-        if (sources.has(source)) {
-          context.addIssue({
-            code: 'custom',
-            message: `duplicate rulebook source "${source}"`,
-            path: ['rules', index],
-          });
-          continue;
-        }
-        sources.add(source);
       }
 
       const wrappers = new Set<string>();
@@ -87,6 +109,7 @@ function createSchemas() {
         wrappers.add(wrapper);
       }
     });
+  const RulesConfigSchema = z.preprocess(preflightRulesConfig, RulesConfigObjectSchema);
   const SafetyOverridesSchema = z.strictObject({
     fail_closed: z.boolean().optional(),
     paranoid_rm: z.boolean().optional(),
@@ -172,6 +195,8 @@ export function getRulesConfigValidation(config: unknown): {
   if (config.rules !== undefined) {
     if (!Array.isArray(config.rules)) {
       errors.push('rules must be an array of rulebook source strings');
+    } else if (config.rules.length > RULE_SOURCE_LIMIT) {
+      errors.push(RULE_SOURCE_LIMIT_ERROR);
     } else {
       for (let index = 0; index < config.rules.length; index++) {
         const source = config.rules[index];

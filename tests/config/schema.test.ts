@@ -12,6 +12,16 @@ import {
 import { readRulesConfig, validateRulesConfig } from '@/core/rules/policy/config-file';
 import { withTempDir } from '../helpers';
 
+const SOURCE_LIMIT_ERROR = "Rule config exceeds CC Safety Net's safe source limit.";
+
+function expectOnlyAuthoritativeSourceLimit(input: unknown): void {
+  const result = getRulesConfigSchema().safeParse(input);
+  expect(result.success).toBe(false);
+  if (result.success) throw new Error('expected authoritative source limit failure');
+  expect(result.error.issues.map((issue) => issue.message)).toEqual([SOURCE_LIMIT_ERROR]);
+  expect(JSON.stringify(result.error.issues)).not.toContain('TOPSECRET');
+}
+
 describe('configuration schemas', () => {
   test('accepts the existing permissive rule config surface', () => {
     const input = {
@@ -179,20 +189,74 @@ describe('configuration schemas', () => {
   test('generates a permissive rule schema with intent', () => {
     const schema = z.toJSONSchema(getRulesConfigSchema(), { io: 'input', target: 'draft-7' }) as {
       additionalProperties?: unknown;
+      required?: string[];
       properties?: {
         $schema?: { description?: string };
         overrides?: {
           propertyNames?: { pattern?: string };
         };
+        rules?: { default?: unknown; maxItems?: number };
       };
     };
     const serialized = JSON.stringify(schema);
 
     expect(schema.additionalProperties).toEqual({});
+    expect(schema.required).toEqual(['version']);
+    expect(getRulesConfigSchema().parse({ version: 1 }).rules).toEqual([]);
     expect(schema.properties?.$schema?.description).toBe('JSON Schema reference for IDE support');
     expect(schema.properties?.overrides?.propertyNames?.pattern).toBe('^[^/]+\\/[^/]+$');
+    expect(schema.properties?.rules?.default).toEqual([]);
+    expect(schema.properties?.rules?.maxItems).toBe(64);
     expect(serialized).toContain('intent');
     expect(serialized).toContain('scope_down');
+  });
+
+  test('bounds rulebook sources before inspecting their contents', () => {
+    const rules = [...Array.from({ length: 64 }, (_, index) => `rulebook-${index}`), 'TOPSECRET'];
+    const input = {
+      version: 2,
+      rules,
+      transparent_wrappers: ['git'],
+    };
+
+    expect(
+      getRulesConfigSchema().safeParse({ version: 1, rules: rules.slice(0, 64) }).success,
+    ).toBe(true);
+    expectOnlyAuthoritativeSourceLimit({ version: 1, rules });
+    const authoritativeWithUnrelatedError = getRulesConfigSchema().safeParse(input);
+    expect(authoritativeWithUnrelatedError.success).toBe(false);
+    if (authoritativeWithUnrelatedError.success) {
+      throw new Error('expected authoritative source and version failures');
+    }
+    expect(authoritativeWithUnrelatedError.error.issues.map((issue) => issue.message)).toEqual([
+      'Invalid input: expected 1',
+      SOURCE_LIMIT_ERROR,
+    ]);
+    expect(validateRulesConfig(input)).toEqual({
+      errors: [
+        'version must be 1',
+        SOURCE_LIMIT_ERROR,
+        'transparent_wrappers[0]: reserved command "git" cannot be a wrapper',
+      ],
+      sources: new Set(),
+    });
+    expect(JSON.stringify(validateRulesConfig(input))).not.toContain('TOPSECRET');
+  });
+
+  test.each([
+    { TOPSECRET: 'object tail' },
+    42,
+    null,
+  ])('short-circuits authoritative source validation before malformed tail %p', (tail) => {
+    const input = {
+      version: 1,
+      rules: [...Array.from({ length: 64 }, (_, index) => `rulebook-${index}`), tail],
+    };
+    expectOnlyAuthoritativeSourceLimit(input);
+    expect(validateRulesConfig(input)).toEqual({
+      errors: [SOURCE_LIMIT_ERROR],
+      sources: new Set(),
+    });
   });
 
   test('keeps authoritative Zod acceptance in parity with deterministic legacy diagnostics', () => {

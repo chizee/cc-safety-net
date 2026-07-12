@@ -17,6 +17,7 @@ import {
 } from './filesystem';
 import { readLockfile } from './lockfile';
 import {
+  getRulebookCacheOptions,
   getRulebookCachePath,
   getRulebookCacheRoot,
   getScopePaths,
@@ -31,6 +32,13 @@ import {
   resolveRulebookSource,
   resolveRulebookSourceForSync,
 } from './resolver';
+import {
+  createRuleSyncOperation,
+  RULE_SOURCE_LIMIT,
+  RULE_SOURCE_LIMIT_ERROR,
+  RULE_SYNC_RESOURCE_LIMITS,
+  type RuleSyncOperation,
+} from './resource-limits';
 import { loadScopePolicy } from './scope-policy';
 import { getRemoveMatches, getSelectedUpdateSpecs, isGitHubRepositorySource } from './sources';
 import type {
@@ -43,8 +51,8 @@ import type {
   SyncRulesConfigResult,
 } from './types';
 
-interface InternalSyncRulesConfigOptions extends SyncRulesConfigOptions {
-  discoveredDisplayRefs?: Map<string, string>;
+/** @internal */
+export interface RuleSyncTestHooks {
   _testDeleteLocalSourceDir?: (dir: string) => void;
   _testPruneRulebookCacheDir?: (dir: string) => void;
   _testAfterPolicyRename?: (path: string) => void;
@@ -57,10 +65,39 @@ interface RemoveRulebookSourceOptions extends SyncRulesConfigOptions {
 export async function syncRulesConfig(
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
+  return syncRulesConfigInternal(projectSyncOptions(options), createRuleSyncOperation());
+}
+
+/** @internal Runs synchronization with an explicit operation for deterministic transport tests. */
+export async function syncRulesConfigWithOperation(
+  options: SyncRulesConfigOptions,
+  operation: RuleSyncOperation,
+): Promise<SyncRulesConfigResult> {
+  return syncRulesConfigInternal(projectSyncOptions(options), operation);
+}
+
+/** @internal Runs synchronization with explicit fault hooks. */
+export async function syncRulesConfigWithHooks(
+  options: SyncRulesConfigOptions,
+  hooks: RuleSyncTestHooks,
+): Promise<SyncRulesConfigResult> {
+  return syncRulesConfigInternal(
+    projectSyncOptions(options),
+    createRuleSyncOperation(),
+    undefined,
+    hooks,
+  );
+}
+
+async function syncRulesConfigInternal(
+  options: SyncRulesConfigOptions,
+  operation: RuleSyncOperation,
+  discoveredDisplayRefs?: Map<string, string>,
+  hooks: RuleSyncTestHooks = {},
+): Promise<SyncRulesConfigResult> {
   let lockSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
   let lockPublished = false;
   try {
-    const internalOptions = options as InternalSyncRulesConfigOptions;
     const scope = getScopePaths(options);
     const scopeConfig = readScopeRulesConfig(scope.configTarget);
     if (!scopeConfig.ok) return scopeConfig.result;
@@ -69,7 +106,6 @@ export async function syncRulesConfig(
     if (options.check) {
       return checkRulesConfig(config, scope, options);
     }
-
     lockSnapshot = { target: scope.lockTarget, content: readPolicyFile(scope.lockTarget) };
 
     const existingLockResult = readLockfile(scope.lockTarget);
@@ -100,18 +136,20 @@ export async function syncRulesConfig(
       };
     }
     const resolved = (
-      await Promise.all(
-        selectedSpecs.specs.map((spec) =>
+      await mapRulebookSources(
+        selectedSpecs.specs,
+        (spec) =>
           resolveRulebookSourceForSync(
             spec,
             scope.configDir,
             options,
             previousLock,
             scope.filesystemScope,
+            operation,
           ),
-        ),
+        operation,
       )
-    ).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
+    ).map((item) => preserveDisplayRef(item, previousLock, discoveredDisplayRefs));
     for (const item of resolved) {
       writeCache(item.content, item.entry, scope.configDir, options, scope.filesystemScope);
     }
@@ -123,7 +161,7 @@ export async function syncRulesConfig(
       scope.lockTarget,
       { version: 1, rulebooks: entries },
       undefined,
-      internalOptions._testAfterPolicyRename,
+      hooks._testAfterPolicyRename,
     );
     const ruleCountsBySpec = new Map(
       resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
@@ -133,6 +171,7 @@ export async function syncRulesConfig(
       scope.configDir,
       options,
       scope.filesystemScope,
+      hooks,
     );
     return {
       ok: true,
@@ -156,12 +195,22 @@ export async function testRulebookSources(
   sources: string[],
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
-  const scope = getScopePaths(options);
+  if (sources.length > RULE_SOURCE_LIMIT) return sourceLimitResult();
+  const projectedOptions = projectSyncOptions(options);
+  const scope = getScopePaths(projectedOptions);
   try {
-    const resolved = await Promise.all(
-      sources.map((spec) =>
-        resolveRulebookSource(spec, scope.configDir, options, scope.filesystemScope),
-      ),
+    const operation = createRuleSyncOperation();
+    const resolved = await mapRulebookSources(
+      sources,
+      (spec) =>
+        resolveRulebookSource(
+          spec,
+          scope.configDir,
+          projectedOptions,
+          scope.filesystemScope,
+          operation,
+        ),
+      operation,
     );
     const ruleCountsBySpec = new Map(
       resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
@@ -195,6 +244,38 @@ export async function addRulebookSource(
   source: string,
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
+  return addRulebookSourceInternal(source, projectSyncOptions(options), createRuleSyncOperation());
+}
+
+/** @internal Adds a source with an explicit operation for deterministic transport tests. */
+export async function addRulebookSourceWithOperation(
+  source: string,
+  options: SyncRulesConfigOptions,
+  operation: RuleSyncOperation,
+): Promise<SyncRulesConfigResult> {
+  return addRulebookSourceInternal(source, projectSyncOptions(options), operation);
+}
+
+/** @internal Adds a source with explicit fault hooks. */
+export async function addRulebookSourceWithHooks(
+  source: string,
+  options: SyncRulesConfigOptions,
+  hooks: RuleSyncTestHooks,
+): Promise<SyncRulesConfigResult> {
+  return addRulebookSourceInternal(
+    source,
+    projectSyncOptions(options),
+    createRuleSyncOperation(),
+    hooks,
+  );
+}
+
+async function addRulebookSourceInternal(
+  source: string,
+  options: SyncRulesConfigOptions,
+  operation: RuleSyncOperation,
+  hooks: RuleSyncTestHooks = {},
+): Promise<SyncRulesConfigResult> {
   let configSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
   let configWriteArmed = false;
   try {
@@ -205,10 +286,11 @@ export async function addRulebookSource(
     if (!scopeConfig.ok) return scopeConfig.result;
     const config = scopeConfig.config;
     const discoveredSources: DiscoveredRulebookSource[] = isGitHubRepositorySource(source)
-      ? await discoverGitHubRepositoryRulebooks(source)
+      ? await discoverGitHubRepositoryRulebooks(source, operation)
       : [{ spec: source }];
     const sources = discoveredSources.map((item) => item.spec);
-    const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
+    const nextRules = [...new Set([...config.rules, ...sources])];
+    if (nextRules.length > RULE_SOURCE_LIMIT) return sourceLimitResult();
     if (nextRules.length !== config.rules.length) {
       configWriteArmed = true;
       writeJsonAtomic(
@@ -220,17 +302,19 @@ export async function addRulebookSource(
           transparent_wrappers: config.transparent_wrappers ?? [],
         },
         undefined,
-        (options as InternalSyncRulesConfigOptions)._testAfterPolicyRename,
+        hooks._testAfterPolicyRename,
       );
     }
-    const result = await syncRulesConfig({
-      ...options,
-      discoveredDisplayRefs: new Map(
+    const result = await syncRulesConfigInternal(
+      options,
+      operation,
+      new Map(
         discoveredSources
           .filter((item): item is Required<DiscoveredRulebookSource> => !!item.display_ref)
           .map((item) => [item.spec, item.display_ref]),
       ),
-    } as InternalSyncRulesConfigOptions);
+      hooks,
+    );
     if (!result.ok) restoreConfig(scope.configTarget, before);
     return result;
   } catch (error) {
@@ -245,12 +329,94 @@ export async function addRulebookSource(
   }
 }
 
+/** @internal Maps rulebook sources with bounded fanout and ordered results. */
+export async function mapRulebookSources<T, U>(
+  sources: readonly T[],
+  mapper: (source: T, index: number, signal: AbortSignal) => Promise<U>,
+  operation: RuleSyncOperation = createRuleSyncOperation(),
+): Promise<U[]> {
+  if (sources.length > RULE_SOURCE_LIMIT) throw new Error(RULE_SOURCE_LIMIT_ERROR);
+  const results = new Array<U>(sources.length);
+  let nextIndex = 0;
+  let firstError: { value: unknown } | undefined;
+  const workers = Array.from(
+    { length: Math.min(sources.length, RULE_SYNC_RESOURCE_LIMITS.concurrency) },
+    async () => {
+      while (!firstError) {
+        const index = nextIndex;
+        if (index >= sources.length) return;
+        nextIndex++;
+        try {
+          results[index] = await mapper(sources[index] as T, index, operation.controller.signal);
+        } catch (error) {
+          if (!firstError) {
+            firstError = { value: error };
+            nextIndex = sources.length;
+            operation.controller.abort(error);
+          }
+          return;
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
+  if (firstError) throw firstError.value;
+  return results;
+}
+
+function sourceLimitResult(): SyncRulesConfigResult {
+  return { ok: false, errors: [RULE_SOURCE_LIMIT_ERROR], warnings: [], entries: [] };
+}
+
+function projectSyncOptions(options: SyncRulesConfigOptions): SyncRulesConfigOptions {
+  return {
+    cwd: options.cwd,
+    cacheConfigDir: options.cacheConfigDir,
+    userConfigDir: options.userConfigDir,
+    userConfigPath: options.userConfigPath,
+    projectConfigPath: options.projectConfigPath,
+    global: options.global,
+    check: options.check,
+    only: options.only,
+    refresh: options.refresh,
+  };
+}
+
+function projectRemoveOptions(options: RemoveRulebookSourceOptions): RemoveRulebookSourceOptions {
+  const projected = projectSyncOptions(options);
+  return {
+    cwd: projected.cwd,
+    cacheConfigDir: projected.cacheConfigDir,
+    userConfigDir: projected.userConfigDir,
+    userConfigPath: projected.userConfigPath,
+    projectConfigPath: projected.projectConfigPath,
+    global: projected.global,
+    check: projected.check,
+    only: projected.only,
+    refresh: projected.refresh,
+    deleteSource: options.deleteSource,
+  };
+}
+
 export async function removeRulebookSource(
   match: string,
   options: RemoveRulebookSourceOptions = {},
 ): Promise<SyncRulesConfigResult> {
   try {
-    return await removeRulebookSourceInternal(match, options);
+    return await removeRulebookSourceInternal(match, projectRemoveOptions(options), {});
+  } catch (error) {
+    return failWithError(error);
+  }
+}
+
+/** @internal Removes a source with explicit fault hooks. */
+export async function removeRulebookSourceWithHooks(
+  match: string,
+  options: RemoveRulebookSourceOptions,
+  hooks: RuleSyncTestHooks,
+): Promise<SyncRulesConfigResult> {
+  try {
+    return await removeRulebookSourceInternal(match, projectRemoveOptions(options), hooks);
   } catch (error) {
     return failWithError(error);
   }
@@ -259,8 +425,8 @@ export async function removeRulebookSource(
 async function removeRulebookSourceInternal(
   match: string,
   options: RemoveRulebookSourceOptions,
+  hooks: RuleSyncTestHooks,
 ): Promise<SyncRulesConfigResult> {
-  const internalOptions = options as InternalSyncRulesConfigOptions;
   const scope = getScopePaths(options);
   const loaded = readRulesConfig(scope.configTarget);
   if (loaded.errors.length > 0) {
@@ -301,25 +467,31 @@ async function removeRulebookSourceInternal(
         transparent_wrappers: loaded.config.transparent_wrappers ?? [],
       },
       undefined,
-      internalOptions._testAfterPolicyRename,
+      hooks._testAfterPolicyRename,
     );
   } catch (error) {
     restoreConfig(scope.configTarget, before);
     throw error;
   }
-  const result = await syncRulesConfig(options);
+  const result = await syncRulesConfigInternal(
+    options,
+    createRuleSyncOperation(),
+    undefined,
+    hooks,
+  );
   if (!result.ok) {
     restoreConfig(scope.configTarget, before);
     return result;
   }
-  const deleteResult = deleteLocalSourceDirs(
-    sourceDirs.dirs,
-    internalOptions,
-    scope.filesystemScope,
-  );
+  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, hooks, scope.filesystemScope);
   if (!deleteResult.ok) {
     restoreConfig(scope.configTarget, before);
-    const rollback = await syncRulesConfig(options);
+    const rollback = await syncRulesConfigInternal(
+      options,
+      createRuleSyncOperation(),
+      undefined,
+      hooks,
+    );
     if (!rollback.ok) {
       return {
         ok: false,
@@ -402,7 +574,7 @@ function writeCache(
   options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
 ): void {
-  const path = getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir });
+  const path = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
   writePolicyFileAtomic(getPolicyFilesystemTargetForPath(filesystemScope, path), content);
 }
 
@@ -411,18 +583,16 @@ function pruneUnreferencedRulebookCaches(
   configDir: string,
   options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
+  hooks: RuleSyncTestHooks,
 ): string[] {
-  const internalOptions = options as InternalSyncRulesConfigOptions;
-  const cacheRoot = getRulebookCacheRoot({ ...options, cacheConfigDir: configDir });
+  const cacheOptions = getRulebookCacheOptions(configDir, options);
+  const cacheRoot = getRulebookCacheRoot(cacheOptions);
   const cacheRootTarget = getPolicyFilesystemTargetForPath(filesystemScope, cacheRoot);
   const cacheEntries = readPolicyDirectoryEntries(cacheRootTarget);
   if (!cacheEntries) return [];
 
   const keepTargets = entries.map((entry) =>
-    getPolicyFilesystemTargetForPath(
-      filesystemScope,
-      getRulebookCachePath(entry, { ...options, cacheConfigDir: configDir }),
-    ),
+    getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions)),
   );
 
   const pruneTargets = cacheEntries
@@ -443,7 +613,7 @@ function pruneUnreferencedRulebookCaches(
 
   return pruneTargets.flatMap((target) => {
     try {
-      pruneRulebookCacheDir(target, internalOptions);
+      pruneRulebookCacheDir(target, hooks);
       return [];
     } catch {
       return ['Unable to prune rules policy cache safely.'];
@@ -520,12 +690,12 @@ function getLocalSourceDirDeleteError(
 
 function deleteLocalSourceDirs(
   dirs: string[],
-  options: InternalSyncRulesConfigOptions,
+  hooks: RuleSyncTestHooks,
   filesystemScope: PolicyFilesystemScope,
 ): { ok: true } | { ok: false; result: SyncRulesConfigResult } {
   const errors = dirs.flatMap((dir) => {
     try {
-      deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), options);
+      deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), hooks);
       return [];
     } catch (error) {
       return [
@@ -538,23 +708,17 @@ function deleteLocalSourceDirs(
     : { ok: true };
 }
 
-function pruneRulebookCacheDir(
-  target: PolicyFilesystemTarget,
-  options: InternalSyncRulesConfigOptions,
-): void {
-  if (options._testPruneRulebookCacheDir) {
-    options._testPruneRulebookCacheDir(target.path);
+function pruneRulebookCacheDir(target: PolicyFilesystemTarget, hooks: RuleSyncTestHooks): void {
+  if (hooks._testPruneRulebookCacheDir) {
+    hooks._testPruneRulebookCacheDir(target.path);
     return;
   }
   removePolicyDirectory(target);
 }
 
-function deleteLocalSourceDir(
-  target: PolicyFilesystemTarget,
-  options: InternalSyncRulesConfigOptions,
-): void {
-  if (options._testDeleteLocalSourceDir) {
-    options._testDeleteLocalSourceDir(target.path);
+function deleteLocalSourceDir(target: PolicyFilesystemTarget, hooks: RuleSyncTestHooks): void {
+  if (hooks._testDeleteLocalSourceDir) {
+    hooks._testDeleteLocalSourceDir(target.path);
     return;
   }
   removePolicyDirectory(target);

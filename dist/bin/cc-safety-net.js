@@ -4217,6 +4217,40 @@ function isReservedTransparentWrapper(command2) {
   return RESERVED_TRANSPARENT_WRAPPERS.has(normalized) || isInterpreterCommand(normalized);
 }
 
+// src/core/rules/policy/resource-limits.ts
+var RULE_SOURCE_LIMIT = 64, RULE_SOURCE_LIMIT_ERROR = "Rule config exceeds CC Safety Net's safe source limit.";
+var RULE_SYNC_RESOURCE_LIMITS = Object.freeze({
+  maxSources: 64,
+  concurrency: 4,
+  maxRequests: 131,
+  maxResponseBytes: 67108864
+});
+function createRuleSyncResourceBudget(limits = {}) {
+  return {
+    requests: 0,
+    responseBytes: 0,
+    maxRequests: limits.maxRequests ?? RULE_SYNC_RESOURCE_LIMITS.maxRequests,
+    maxResponseBytes: limits.maxResponseBytes ?? RULE_SYNC_RESOURCE_LIMITS.maxResponseBytes
+  };
+}
+function createRuleSyncOperation(resolveUrl) {
+  return {
+    controller: new AbortController,
+    budget: createRuleSyncResourceBudget(),
+    resolveUrl
+  };
+}
+function reserveGitHubRequest(budget) {
+  if (budget.requests >= budget.maxRequests)
+    throw Error("Rule synchronization exceeds CC Safety Net's safe resource limits.");
+  budget.requests++;
+}
+function reserveGitHubResponseBytes(budget, bytes) {
+  if (bytes > budget.maxResponseBytes - budget.responseBytes)
+    throw budget.responseBytes += bytes, Error("Rule synchronization exceeds CC Safety Net's safe resource limits.");
+  budget.responseBytes += bytes;
+}
+
 // src/core/secret-protection-rules.ts
 var SECRET_BASENAME_RULES = [
   {
@@ -4536,7 +4570,18 @@ var SECRET_BASENAME_RULES = [
 })), SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id), SECRET_PROTECTION_RULE_ID_SET = new Set(SECRET_PROTECTION_RULE_IDS);
 
 // src/config/schema.ts
-var require2 = createRequire(import.meta.url), schemas;
+var require2 = createRequire(import.meta.url), schemas, OVER_LIMIT_RULE_SOURCES = Array(RULE_SOURCE_LIMIT + 1).fill("over-limit");
+function preflightRulesConfig(config) {
+  if (!isRecord(config) || !Array.isArray(config.rules) || config.rules.length <= RULE_SOURCE_LIMIT)
+    return config;
+  return {
+    $schema: config.$schema,
+    version: config.version,
+    rules: OVER_LIMIT_RULE_SOURCES,
+    overrides: config.overrides,
+    transparent_wrappers: config.transparent_wrappers
+  };
+}
 function createSchemas() {
   let z = require2("zod"), BlockIntentSchema = z.enum(BLOCK_INTENTS), RuleOverrideSchema = z.union([
     z.literal("off"),
@@ -4544,29 +4589,31 @@ function createSchemas() {
       reason: z.string().min(1).max(MAX_REASON_LENGTH).describe("Replacement block reason"),
       intent: BlockIntentSchema.optional()
     })
-  ]).describe("Disable a rule or replace its block reason and intent."), RuleSourceSchema = z.string().min(1), RuleOverrideKeySchema = z.string().regex(/^[^/]+\/[^/]+$/), TransparentWrapperSchema = z.string().regex(COMMAND_PATTERN).describe("Command name such as 'git', 'docker', or 'rtk'."), RulesConfigSchema = z.looseObject({
+  ]).describe("Disable a rule or replace its block reason and intent."), RuleSourceSchema = z.string().min(1), RuleOverrideKeySchema = z.string().regex(/^[^/]+\/[^/]+$/), TransparentWrapperSchema = z.string().regex(COMMAND_PATTERN).describe("Command name such as 'git', 'docker', or 'rtk'."), RulesConfigObjectSchema = z.looseObject({
     $schema: z.unknown().optional().describe("JSON Schema reference for IDE support"),
     version: z.literal(1).describe("Schema version (must be 1)"),
-    rules: z.array(RuleSourceSchema).default([]).describe("Rulebook source strings such as project-rules or owner/repo#main/team-rules"),
+    rules: z.array(RuleSourceSchema).max(RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR).default([]).describe("Rulebook source strings such as project-rules or owner/repo#main/team-rules"),
     overrides: z.record(RuleOverrideKeySchema, RuleOverrideSchema).default({}).describe("Rule overrides by id"),
     transparent_wrappers: z.array(TransparentWrapperSchema).default([]).describe("Commands that transparently execute a visible protected child command")
   }).superRefine((config, context) => {
-    let sources = /* @__PURE__ */ new Set;
-    for (let index = 0;index < config.rules.length; index++) {
-      let source = config.rules[index], sourceError = getRulebookSourceSyntaxError(source);
-      if (sourceError) {
-        context.addIssue({ code: "custom", message: sourceError, path: ["rules", index] });
-        continue;
+    if (config.rules.length <= RULE_SOURCE_LIMIT) {
+      let sources = /* @__PURE__ */ new Set;
+      for (let index = 0;index < config.rules.length; index++) {
+        let source = config.rules[index], sourceError = getRulebookSourceSyntaxError(source);
+        if (sourceError) {
+          context.addIssue({ code: "custom", message: sourceError, path: ["rules", index] });
+          continue;
+        }
+        if (sources.has(source)) {
+          context.addIssue({
+            code: "custom",
+            message: `duplicate rulebook source "${source}"`,
+            path: ["rules", index]
+          });
+          continue;
+        }
+        sources.add(source);
       }
-      if (sources.has(source)) {
-        context.addIssue({
-          code: "custom",
-          message: `duplicate rulebook source "${source}"`,
-          path: ["rules", index]
-        });
-        continue;
-      }
-      sources.add(source);
     }
     let wrappers2 = /* @__PURE__ */ new Set;
     for (let index = 0;index < config.transparent_wrappers.length; index++) {
@@ -4589,7 +4636,7 @@ function createSchemas() {
       }
       wrappers2.add(wrapper);
     }
-  }), SafetyOverridesSchema = z.strictObject({
+  }), RulesConfigSchema = z.preprocess(preflightRulesConfig, RulesConfigObjectSchema), SafetyOverridesSchema = z.strictObject({
     fail_closed: z.boolean().optional(),
     paranoid_rm: z.boolean().optional(),
     paranoid_interpreters: z.boolean().optional()
@@ -4642,6 +4689,8 @@ function getRulesConfigValidation(config) {
   if (config.rules !== void 0)
     if (!Array.isArray(config.rules))
       errors.push("rules must be an array of rulebook source strings");
+    else if (config.rules.length > RULE_SOURCE_LIMIT)
+      errors.push(RULE_SOURCE_LIMIT_ERROR);
     else
       for (let index = 0;index < config.rules.length; index++) {
         let source = config.rules[index];
@@ -5131,9 +5180,11 @@ var DEFAULT_CONFIG = {
 
 // src/core/rules/policy/config-file.ts
 function validateRulesConfig(config) {
-  let parsed = getRulesConfigSchema().safeParse(config), validation = getRulesConfigValidation(config);
+  let validation = getRulesConfigValidation(config);
+  if (validation.errors.length > 0)
+    return validation;
   return {
-    errors: parsed.success ? [] : validation.errors,
+    errors: getRulesConfigSchema().safeParse(config).success ? [] : validation.errors,
     sources: validation.sources
   };
 }
@@ -5291,6 +5342,14 @@ function getRulebookCachePath(entry, options2) {
 }
 function getRulebookCacheRoot(options2) {
   return join4(getRulesCacheDir(options2), "rulebooks");
+}
+function getRulebookCacheOptions(configDir, options2) {
+  let syncOptions = options2;
+  return {
+    cacheConfigDir: configDir,
+    cwd: options2.cwd,
+    global: syncOptions.global
+  };
 }
 function getRulebookCacheSlug(entry) {
   return (entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
@@ -6277,30 +6336,30 @@ var GITHUB_FETCH_LIMITS = Object.freeze({
   treeBytes: 16777216,
   rawBytes: 4194304
 });
-async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy")) {
+async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy"), operation = createRuleSyncOperation()) {
   if (isGitHubRulebookSource(spec))
-    return resolveGitHubRulebook(spec);
+    return resolveGitHubRulebook(spec, operation);
   return resolveLocalRulebook(spec, configDir, options2, filesystemScope);
 }
-async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock, filesystemScope) {
+async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock, filesystemScope, operation = createRuleSyncOperation()) {
   if (!isGitHubRulebookSource(spec) || options2.refresh)
-    return resolveRulebookSource(spec, configDir, options2, filesystemScope);
+    return resolveRulebookSource(spec, configDir, options2, filesystemScope, operation);
   let locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
   if (!locked || locked.kind !== "github")
-    return resolveRulebookSource(spec, configDir, options2, filesystemScope);
-  return readLockedGitHubRulebook(locked, configDir, options2, filesystemScope);
+    return resolveRulebookSource(spec, configDir, options2, filesystemScope, operation);
+  return readLockedGitHubRulebook(locked, configDir, options2, filesystemScope, operation);
 }
-async function discoverGitHubRepositoryRulebooks(source) {
+async function discoverGitHubRepositoryRulebooks(source, operation = createRuleSyncOperation()) {
   let [owner, repo] = source.split("/");
   if (!owner || !repo)
     throw Error(`Invalid GitHub repository source: ${source}`);
-  let metadataResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}`, "metadata"), metadataResponse = metadataResource.response;
+  let metadataResource = await fetchRuleSyncResource(`https://api.github.com/repos/${owner}/${repo}`, "metadata", operation), metadataResponse = metadataResource.response;
   if (!metadataResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
   let metadata2 = JSON.parse(metadataResource.content);
   if (!metadata2.default_branch)
     throw Error(`Failed to inspect ${source}: missing default branch`);
-  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source), treeResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`, "tree"), treeResponse = treeResource.response;
+  let commit = await resolveGitHubCommit(owner, repo, metadata2.default_branch, source, operation), treeResource = await fetchRuleSyncResource(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`, "tree", operation), treeResponse = treeResource.response;
   if (!treeResponse.ok)
     throw Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
   let names = (JSON.parse(treeResource.content).tree ?? []).flatMap((entry) => {
@@ -6337,8 +6396,8 @@ function resolveLocalRulebook(spec, configDir, _options, filesystemScope) {
     }
   };
 }
-async function resolveGitHubRulebook(spec) {
-  let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec), rawResource = await fetchGitHubResource(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`, "raw"), rawResponse = rawResource.response;
+async function resolveGitHubRulebook(spec, operation) {
+  let parsed = parseGitHubSource(spec), commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec, operation), rawResource = await fetchRuleSyncResource(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`, "raw", operation), rawResponse = rawResource.response;
   if (!rawResponse.ok)
     throw Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
   let content = rawResource.content, rulebook = assertValidRulebook(parseRulebookJson(content, "Invalid GitHub rulebook response."));
@@ -6361,19 +6420,19 @@ async function resolveGitHubRulebook(spec) {
     }
   };
 }
-async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy")) {
+async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy"), operation) {
   let identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError)
     throw Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
-  let cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }), content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
+  let cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options2)), content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
   if (content !== null) {
     if (sha256Digest(content) === entry.digest)
       return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
   }
-  return fetchLockedGitHubRulebook(entry);
+  return fetchLockedGitHubRulebook(entry, operation);
 }
-async function fetchLockedGitHubRulebook(entry) {
-  let rawResource = await fetchGitHubResource(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`, "raw"), rawResponse = rawResource.response;
+async function fetchLockedGitHubRulebook(entry, operation) {
+  let rawResource = await fetchRuleSyncResource(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`, "raw", operation), rawResponse = rawResource.response;
   if (!rawResponse.ok)
     throw Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
   let content = rawResource.content;
@@ -6394,8 +6453,8 @@ function parseRulebookJson(content, errorMessage) {
     throw Error(errorMessage);
   }
 }
-async function resolveGitHubCommit(owner, repo, ref, source) {
-  let commitResource = await fetchGitHubResource(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, "commit"), commitResponse = commitResource.response;
+async function resolveGitHubCommit(owner, repo, ref, source, operation) {
+  let commitResource = await fetchRuleSyncResource(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, "commit", operation), commitResponse = commitResource.response;
   if (!commitResponse.ok)
     throw Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
   let commitJson = JSON.parse(commitResource.content);
@@ -6404,24 +6463,46 @@ async function resolveGitHubCommit(owner, repo, ref, source) {
   return commitJson.sha;
 }
 async function fetchGitHubResource(url, kind, options2 = {}) {
-  let controller = new AbortController, timeout = setTimeout(() => controller.abort(), options2.timeoutMs ?? GITHUB_FETCH_LIMITS.timeoutMs);
+  if (options2.signal?.aborted)
+    throw options2.signal.reason;
+  let budget = options2.budget ?? createRuleSyncResourceBudget(), controller = new AbortController, forwardAbort = () => controller.abort(options2.signal?.reason);
+  options2.signal?.addEventListener("abort", forwardAbort, { once: !0 });
+  let timedOut = !1, timeout = setTimeout(() => {
+    if (controller.signal.aborted)
+      return;
+    timedOut = !0, controller.abort();
+  }, options2.timeoutMs ?? GITHUB_FETCH_LIMITS.timeoutMs);
   try {
-    let response = await (options2.fetch ?? fetch)(url, { signal: controller.signal });
+    if (options2.signal?.aborted)
+      throw options2.signal.reason;
+    reserveGitHubRequest(budget);
+    let response = await (options2.fetch ?? fetch)(url, {
+      signal: controller.signal,
+      redirect: "error"
+    });
     if (!response.ok)
       return cancelGitHubResponseBody(response), { response, content: "" };
     return {
       response,
-      content: await readGitHubResponseText(response, kind)
+      content: await readGitHubResponseText(response, kind, budget, () => controller.abort())
     };
   } catch (error) {
-    if (controller.signal.aborted)
+    if (timedOut)
       throw Error("GitHub request timed out", { cause: error });
+    if (options2.signal?.aborted)
+      throw options2.signal.reason;
     throw error;
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout), options2.signal?.removeEventListener("abort", forwardAbort);
   }
 }
-async function readGitHubResponseText(response, kind) {
+function fetchRuleSyncResource(url, kind, operation) {
+  return fetchGitHubResource(operation.resolveUrl?.(url) ?? url, kind, {
+    budget: operation.budget,
+    signal: operation.controller.signal
+  });
+}
+async function readGitHubResponseText(response, kind, budget = createRuleSyncResourceBudget(), abortRequest) {
   let limit = GITHUB_FETCH_LIMITS[`${kind}Bytes`], declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > limit)
     throw cancelGitHubResponseBody(response), Error(`GitHub ${kind} response exceeds ${limit} bytes`);
@@ -6432,8 +6513,13 @@ async function readGitHubResponseText(response, kind) {
     let chunk = await reader.read();
     if (chunk.done)
       break;
+    try {
+      reserveGitHubResponseBytes(budget, chunk.value.byteLength);
+    } catch (error) {
+      throw abortRequest?.(), cancelGitHubResponseReader(reader), error;
+    }
     if (bytes += chunk.value.byteLength, bytes > limit)
-      throw cancelGitHubResponseReader(reader), Error(`GitHub ${kind} response exceeds ${limit} bytes`);
+      throw abortRequest?.(), cancelGitHubResponseReader(reader), Error(`GitHub ${kind} response exceeds ${limit} bytes`);
     chunks.push(Buffer.from(chunk.value));
   }
   return Buffer.concat(chunks, bytes).toString("utf-8");
@@ -6580,7 +6666,7 @@ function loadScopePolicy(config, lockPath, configDir, options2, source, filesyst
   };
 }
 function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
-  let errors = [], cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }), cacheContent;
+  let errors = [], cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options2)), cacheContent;
   try {
     cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
   } catch (error) {
@@ -13018,9 +13104,12 @@ function validateParsedConfigFile(path, validate) {
 // src/core/rules/policy/sync.ts
 import { isAbsolute as isAbsolute14, join as join13, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
+  return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
+}
+async function syncRulesConfigInternal(options2, operation, discoveredDisplayRefs, hooks = {}) {
   let lockSnapshot = null, lockPublished = !1;
   try {
-    let internalOptions = options2, scope = getScopePaths(options2), scopeConfig = readScopeRulesConfig(scope.configTarget);
+    let scope = getScopePaths(options2), scopeConfig = readScopeRulesConfig(scope.configTarget);
     if (!scopeConfig.ok)
       return scopeConfig.result;
     let config = scopeConfig.config;
@@ -13047,12 +13136,12 @@ async function syncRulesConfig(options2 = {}) {
         warnings: [],
         entries: []
       };
-    let resolved = (await Promise.all(selectedSpecs.specs.map((spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock, scope.filesystemScope)))).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
+    let resolved = (await mapRulebookSources(selectedSpecs.specs, (spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock, scope.filesystemScope, operation), operation)).map((item) => preserveDisplayRef(item, previousLock, discoveredDisplayRefs));
     for (let item of resolved)
       writeCache(item.content, item.entry, scope.configDir, options2, scope.filesystemScope);
     let entries = options2.only ? mergeSelectedLockEntries(config, previousLock, resolved) : resolved.map((item) => item.entry);
-    lockPublished = !0, writeJsonAtomic(scope.lockTarget, { version: 1, rulebooks: entries }, void 0, internalOptions._testAfterPolicyRename);
-    let ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2, scope.filesystemScope);
+    lockPublished = !0, writeJsonAtomic(scope.lockTarget, { version: 1, rulebooks: entries }, void 0, hooks._testAfterPolicyRename);
+    let ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2, scope.filesystemScope, hooks);
     return {
       ok: !0,
       errors: [],
@@ -13070,9 +13159,11 @@ async function syncRulesConfig(options2 = {}) {
   }
 }
 async function testRulebookSources(sources, options2 = {}) {
-  let scope = getScopePaths(options2);
+  if (sources.length > RULE_SOURCE_LIMIT)
+    return sourceLimitResult();
+  let projectedOptions = projectSyncOptions(options2), scope = getScopePaths(projectedOptions);
   try {
-    let resolved = await Promise.all(sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options2, scope.filesystemScope))), ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length])), fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
+    let operation = createRuleSyncOperation(), resolved = await mapRulebookSources(sources, (spec) => resolveRulebookSource(spec, scope.configDir, projectedOptions, scope.filesystemScope, operation), operation), ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length])), testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length])), fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
       `${item.entry.spec}: ${failure.command}: ${failure.message}`,
       ...failure.trace.map((line) => `  ${line}`)
     ].join(`
@@ -13091,6 +13182,9 @@ async function testRulebookSources(sources, options2 = {}) {
   }
 }
 async function addRulebookSource(source, options2 = {}) {
+  return addRulebookSourceInternal(source, projectSyncOptions(options2), createRuleSyncOperation());
+}
+async function addRulebookSourceInternal(source, options2, operation, hooks = {}) {
   let configSnapshot = null, configWriteArmed = !1;
   try {
     let scope = getScopePaths(options2), before = readPolicyFile(scope.configTarget);
@@ -13098,18 +13192,17 @@ async function addRulebookSource(source, options2 = {}) {
     let scopeConfig = readScopeRulesConfig(scope.configTarget);
     if (!scopeConfig.ok)
       return scopeConfig.result;
-    let config = scopeConfig.config, discoveredSources = isGitHubRepositorySource(source) ? await discoverGitHubRepositoryRulebooks(source) : [{ spec: source }], sources = discoveredSources.map((item) => item.spec), nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
+    let config = scopeConfig.config, discoveredSources = isGitHubRepositorySource(source) ? await discoverGitHubRepositoryRulebooks(source, operation) : [{ spec: source }], sources = discoveredSources.map((item) => item.spec), nextRules = [.../* @__PURE__ */ new Set([...config.rules, ...sources])];
+    if (nextRules.length > RULE_SOURCE_LIMIT)
+      return sourceLimitResult();
     if (nextRules.length !== config.rules.length)
       configWriteArmed = !0, writeJsonAtomic(scope.configTarget, {
         version: 1,
         rules: nextRules,
         overrides: config.overrides ?? {},
         transparent_wrappers: config.transparent_wrappers ?? []
-      }, void 0, options2._testAfterPolicyRename);
-    let result = await syncRulesConfig({
-      ...options2,
-      discoveredDisplayRefs: new Map(discoveredSources.filter((item) => !!item.display_ref).map((item) => [item.spec, item.display_ref]))
-    });
+      }, void 0, hooks._testAfterPolicyRename);
+    let result = await syncRulesConfigInternal(options2, operation, new Map(discoveredSources.filter((item) => !!item.display_ref).map((item) => [item.spec, item.display_ref])), hooks);
     if (!result.ok)
       restoreConfig(scope.configTarget, before);
     return result;
@@ -13123,15 +13216,68 @@ async function addRulebookSource(source, options2 = {}) {
     return failWithError(error);
   }
 }
+async function mapRulebookSources(sources, mapper, operation = createRuleSyncOperation()) {
+  if (sources.length > RULE_SOURCE_LIMIT)
+    throw Error(RULE_SOURCE_LIMIT_ERROR);
+  let results = Array(sources.length), nextIndex = 0, firstError, workers = Array.from({ length: Math.min(sources.length, RULE_SYNC_RESOURCE_LIMITS.concurrency) }, async () => {
+    while (!firstError) {
+      let index = nextIndex;
+      if (index >= sources.length)
+        return;
+      nextIndex++;
+      try {
+        results[index] = await mapper(sources[index], index, operation.controller.signal);
+      } catch (error) {
+        if (!firstError)
+          firstError = { value: error }, nextIndex = sources.length, operation.controller.abort(error);
+        return;
+      }
+    }
+  });
+  if (await Promise.all(workers), firstError)
+    throw firstError.value;
+  return results;
+}
+function sourceLimitResult() {
+  return { ok: !1, errors: [RULE_SOURCE_LIMIT_ERROR], warnings: [], entries: [] };
+}
+function projectSyncOptions(options2) {
+  return {
+    cwd: options2.cwd,
+    cacheConfigDir: options2.cacheConfigDir,
+    userConfigDir: options2.userConfigDir,
+    userConfigPath: options2.userConfigPath,
+    projectConfigPath: options2.projectConfigPath,
+    global: options2.global,
+    check: options2.check,
+    only: options2.only,
+    refresh: options2.refresh
+  };
+}
+function projectRemoveOptions(options2) {
+  let projected = projectSyncOptions(options2);
+  return {
+    cwd: projected.cwd,
+    cacheConfigDir: projected.cacheConfigDir,
+    userConfigDir: projected.userConfigDir,
+    userConfigPath: projected.userConfigPath,
+    projectConfigPath: projected.projectConfigPath,
+    global: projected.global,
+    check: projected.check,
+    only: projected.only,
+    refresh: projected.refresh,
+    deleteSource: options2.deleteSource
+  };
+}
 async function removeRulebookSource(match, options2 = {}) {
   try {
-    return await removeRulebookSourceInternal(match, options2);
+    return await removeRulebookSourceInternal(match, projectRemoveOptions(options2), {});
   } catch (error) {
     return failWithError(error);
   }
 }
-async function removeRulebookSourceInternal(match, options2) {
-  let internalOptions = options2, scope = getScopePaths(options2), loaded = readRulesConfig(scope.configTarget);
+async function removeRulebookSourceInternal(match, options2, hooks) {
+  let scope = getScopePaths(options2), loaded = readRulesConfig(scope.configTarget);
   if (loaded.errors.length > 0)
     return { ok: !1, errors: loaded.errors, warnings: [], entries: [] };
   if (!loaded.config)
@@ -13159,17 +13305,17 @@ async function removeRulebookSourceInternal(match, options2) {
       rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
       overrides: loaded.config.overrides ?? {},
       transparent_wrappers: loaded.config.transparent_wrappers ?? []
-    }, void 0, internalOptions._testAfterPolicyRename);
+    }, void 0, hooks._testAfterPolicyRename);
   } catch (error) {
     throw restoreConfig(scope.configTarget, before), error;
   }
-  let result = await syncRulesConfig(options2);
+  let result = await syncRulesConfigInternal(options2, createRuleSyncOperation(), void 0, hooks);
   if (!result.ok)
     return restoreConfig(scope.configTarget, before), result;
-  let deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions, scope.filesystemScope);
+  let deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, hooks, scope.filesystemScope);
   if (!deleteResult.ok) {
     restoreConfig(scope.configTarget, before);
-    let rollback = await syncRulesConfig(options2);
+    let rollback = await syncRulesConfigInternal(options2, createRuleSyncOperation(), void 0, hooks);
     if (!rollback.ok)
       return {
         ok: !1,
@@ -13210,14 +13356,14 @@ function addRuleCount(entry, ruleCountsBySpec) {
   };
 }
 function writeCache(content, entry, configDir, options2, filesystemScope) {
-  let path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
+  let path = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options2));
   writePolicyFileAtomic(getPolicyFilesystemTargetForPath(filesystemScope, path), content);
 }
-function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesystemScope) {
-  let internalOptions = options2, cacheRoot = getRulebookCacheRoot({ ...options2, cacheConfigDir: configDir }), cacheRootTarget = getPolicyFilesystemTargetForPath(filesystemScope, cacheRoot), cacheEntries = readPolicyDirectoryEntries(cacheRootTarget);
+function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesystemScope, hooks) {
+  let cacheOptions = getRulebookCacheOptions(configDir, options2), cacheRoot = getRulebookCacheRoot(cacheOptions), cacheRootTarget = getPolicyFilesystemTargetForPath(filesystemScope, cacheRoot), cacheEntries = readPolicyDirectoryEntries(cacheRootTarget);
   if (!cacheEntries)
     return [];
-  let keepTargets = entries.map((entry) => getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))), pruneTargets = cacheEntries.filter((entry) => entry.kind === "directory").map((entry) => ({
+  let keepTargets = entries.map((entry) => getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions))), pruneTargets = cacheEntries.filter((entry) => entry.kind === "directory").map((entry) => ({
     directory: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name)),
     identity: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name, RULEBOOK_FILE))
   })).filter((candidate) => !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target))).map((candidate) => candidate.directory);
@@ -13225,7 +13371,7 @@ function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesyste
     validatePolicyDirectoryRemoval(target);
   return pruneTargets.flatMap((target) => {
     try {
-      return pruneRulebookCacheDir(target, internalOptions), [];
+      return pruneRulebookCacheDir(target, hooks), [];
     } catch {
       return ["Unable to prune rules policy cache safely."];
     }
@@ -13261,10 +13407,10 @@ function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
     ];
   return [];
 }
-function deleteLocalSourceDirs(dirs, options2, filesystemScope) {
+function deleteLocalSourceDirs(dirs, hooks, filesystemScope) {
   let errors = dirs.flatMap((dir) => {
     try {
-      return deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), options2), [];
+      return deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), hooks), [];
     } catch (error) {
       return [
         `Failed to delete local rulebook source ${dir}: ${error instanceof Error ? error.message : String(error)}`
@@ -13273,16 +13419,16 @@ function deleteLocalSourceDirs(dirs, options2, filesystemScope) {
   });
   return errors.length > 0 ? { ok: !1, result: { ok: !1, errors, warnings: [], entries: [] } } : { ok: !0 };
 }
-function pruneRulebookCacheDir(target, options2) {
-  if (options2._testPruneRulebookCacheDir) {
-    options2._testPruneRulebookCacheDir(target.path);
+function pruneRulebookCacheDir(target, hooks) {
+  if (hooks._testPruneRulebookCacheDir) {
+    hooks._testPruneRulebookCacheDir(target.path);
     return;
   }
   removePolicyDirectory(target);
 }
-function deleteLocalSourceDir(target, options2) {
-  if (options2._testDeleteLocalSourceDir) {
-    options2._testDeleteLocalSourceDir(target.path);
+function deleteLocalSourceDir(target, hooks) {
+  if (hooks._testDeleteLocalSourceDir) {
+    hooks._testDeleteLocalSourceDir(target.path);
     return;
   }
   removePolicyDirectory(target);
