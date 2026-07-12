@@ -21,7 +21,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 364_000;
+const MAX_TARBALL_BYTES = 369_000;
 
 interface PackResult {
   filename: string;
@@ -94,6 +94,41 @@ export async function verifyPackage(): Promise<void> {
     );
     const packageRoot = join(directory, 'node_modules', 'cc-safety-net');
     const cli = join(packageRoot, 'dist', 'bin', 'cc-safety-net.js');
+    const overLimitRulebook = join(
+      directory,
+      '.cc-safety-net',
+      'rules',
+      'package-limits',
+      'rulebook.json',
+    );
+    mkdirSync(resolve(overLimitRulebook, '..'), { recursive: true });
+    writeFileSync(
+      overLimitRulebook,
+      JSON.stringify({
+        rulebook_version: 1,
+        name: 'package-limits',
+        version: '1.0.0',
+        allowed_commands: ['echo'],
+        rules: [
+          {
+            name: 'oversized',
+            command: 'echo',
+            block_args: Array(1_025).fill('TOPSECRET'),
+            reason: 'TOPSECRET',
+          },
+        ],
+        tests: [{ command: 'echo TOPSECRET', expect: 'blocked', rule: 'oversized' }],
+      }),
+    );
+    const ruleLimitResult = run(['node', cli, 'rule', 'test', 'package-limits'], directory, [1]);
+    if (
+      !ruleLimitResult.stderr.includes(
+        "Rulebook exceeds CC Safety Net's safe validation limits.",
+      ) ||
+      ruleLimitResult.stderr.includes('TOPSECRET')
+    ) {
+      throw new Error('Packed CLI did not fail closed on an over-limit rulebook');
+    }
     for (const args of [
       ['--version'],
       ['--help'],

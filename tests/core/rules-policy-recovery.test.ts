@@ -56,6 +56,7 @@ import type {
   RulebookLockEntry,
   RulesLockfile,
 } from '@/core/rules/policy/types';
+import { RULEBOOK_LIMIT_ERROR, RULEBOOK_LIMITS } from '@/core/rules/rulebook-limits';
 import type { TestPolicyInput } from '../helpers/policy';
 import { analyzeTestCommand as analyzeCommand } from '../helpers/policy';
 
@@ -116,6 +117,24 @@ function rulebookJson(name = 'project-rules') {
       },
     ],
     tests: [{ command: 'docker system prune', expect: 'blocked', rule: 'block-docker-prune' }],
+  });
+}
+
+function overLimitRulebookJson(name = 'project-rules') {
+  return JSON.stringify({
+    rulebook_version: 1,
+    name,
+    version: '1.0.0',
+    allowed_commands: ['echo'],
+    rules: [
+      {
+        name: 'oversized',
+        command: 'echo',
+        block_args: Array(RULEBOOK_LIMITS.maxBlockArgsPerRule + 1).fill('TOPSECRET'),
+        reason: 'TOPSECRET',
+      },
+    ],
+    tests: [{ command: 'echo TOPSECRET', expect: 'blocked', rule: 'oversized' }],
   });
 }
 
@@ -1366,6 +1385,112 @@ describe('rules policy recovery coverage', () => {
       );
     } finally {
       globalThis.fetch = originalFetch;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects over-limit local rulebooks before cache or lock publication', async () => {
+    const tempDir = makeTempDir('rules-policy-rulebook-limits');
+    const source = join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json');
+    try {
+      writeProjectConfigOnly(tempDir);
+      mkdirSync(dirname(source), { recursive: true });
+      writeFileSync(source, overLimitRulebookJson());
+
+      for (const result of [
+        await testRulebookSources(['project-rules'], { cwd: tempDir }),
+        await syncRulesConfig({ cwd: tempDir }),
+      ]) {
+        expect(result.ok).toBe(false);
+        expect(result.errors.join('\n')).toContain(RULEBOOK_LIMIT_ERROR);
+        expect(result.errors.join('\n')).not.toContain('TOPSECRET');
+      }
+      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
+      const cacheRoot = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks');
+      expect(existsSync(cacheRoot) ? readdirSync(cacheRoot) : []).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on a digest-valid over-limit cached rulebook', async () => {
+    const tempDir = makeTempDir('rules-policy-cached-rulebook-limits');
+    const userConfigDir = join(tempDir, 'user');
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      const originalEntry = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
+      if (!originalEntry) throw new Error('missing local lock entry');
+
+      const content = overLimitRulebookJson();
+      const entry = { ...originalEntry, digest: sha256Digest(content) };
+      const cachePath = getRulebookCachePath(entry, {
+        cacheConfigDir: getProjectRulesDir(tempDir),
+        userConfigDir,
+      });
+      mkdirSync(dirname(cachePath), { recursive: true });
+      writeFileSync(cachePath, content);
+      writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'), content);
+      writeFileSync(
+        getProjectRulesLockPath(tempDir),
+        JSON.stringify({ version: 1, rulebooks: [entry] }),
+      );
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect(policy.rules).toEqual([]);
+      expect(policy.rulebooks).toEqual([]);
+      expect(policy.errors.join('\n')).toContain(RULEBOOK_LIMIT_ERROR);
+      expect(policy.errors.join('\n')).not.toContain('TOPSECRET');
+      const config = loadedRulesTestPolicy(policy);
+      const result = analyzeCommand('echo ok', {
+        cwd: tempDir,
+        config,
+      });
+      expect(result?.reason).toBe(config.failClosedReason);
+      expect(result?.reason).not.toContain('TOPSECRET');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('syncs and loads a fixture that matches before a long token tail', async () => {
+    const tempDir = makeTempDir('rules-policy-early-fixture-match');
+    const userConfigDir = join(tempDir, 'user');
+    try {
+      writeProjectConfigOnly(tempDir);
+      const source = join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json');
+      mkdirSync(dirname(source), { recursive: true });
+      writeFileSync(
+        source,
+        JSON.stringify({
+          rulebook_version: 1,
+          name: 'project-rules',
+          version: '1.0.0',
+          allowed_commands: ['tool'],
+          rules: [
+            {
+              name: 'early-match',
+              command: 'tool',
+              subcommand: 'run',
+              block_args: ['--admin'],
+              reason: 'Blocked.',
+            },
+          ],
+          tests: [
+            {
+              command: `tool run --admin ${Array(60).fill('x'.repeat(100)).join(' ')}`,
+              expect: 'blocked',
+              rule: 'early-match',
+            },
+          ],
+        }),
+      );
+
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect(policy.errors).toEqual([]);
+      expect(policy.rules.map((rule) => rule.name)).toEqual(['project-rules/early-match']);
+    } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });

@@ -10,122 +10,137 @@ export function validateCustomRule(
   ruleNames: Set<string>,
   options: ValidateCustomRuleOptions = {},
 ): string[] {
-  const errors: string[] = [];
+  return [...iterateCustomRuleErrors(rule, index, ruleNames, options)];
+}
+
+/** @internal */
+export function* iterateCustomRuleErrors(
+  rule: unknown,
+  index: number,
+  ruleNames: Set<string>,
+  options: ValidateCustomRuleOptions = {},
+): Generator<string> {
   const prefix = `rules[${index}]`;
 
   if (!rule || typeof rule !== 'object') {
-    errors.push(`${prefix}: must be an object`);
-    return errors;
+    yield `${prefix}: must be an object`;
+    return;
   }
 
   const r = rule as Record<string, unknown>;
   const messageStyle = options.messageStyle ?? 'legacy';
 
   if (typeof r.name !== 'string') {
-    errors.push(`${prefix}.name: required string`);
+    yield `${prefix}.name: required string`;
   } else {
     if (!NAME_PATTERN.test(r.name)) {
-      errors.push(
-        messageStyle === 'rulebook'
-          ? `${prefix}.name: must match rule name pattern`
-          : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`,
+      yield validationMessage(
+        messageStyle,
+        `${prefix}.name: must match rule name pattern`,
+        `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`,
       );
     }
     const lowerName = r.name.toLowerCase();
     if (ruleNames.has(lowerName)) {
-      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
+      yield `${prefix}.name: duplicate rule name "${r.name}"`;
     } else {
       ruleNames.add(lowerName);
     }
   }
 
   if (typeof r.command !== 'string') {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.command: required string matching command pattern`
-        : `${prefix}.command: required string`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.command: required string matching command pattern`,
+      `${prefix}.command: required string`,
     );
   } else if (!COMMAND_PATTERN.test(r.command)) {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.command: required string matching command pattern`
-        : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.command: required string matching command pattern`,
+      `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`,
     );
   }
 
   if (r.subcommand !== undefined) {
     if (typeof r.subcommand !== 'string') {
-      errors.push(
-        messageStyle === 'rulebook'
-          ? `${prefix}.subcommand: must match command pattern`
-          : `${prefix}.subcommand: must be a string if provided`,
+      yield validationMessage(
+        messageStyle,
+        `${prefix}.subcommand: must match command pattern`,
+        `${prefix}.subcommand: must be a string if provided`,
       );
     } else if (!COMMAND_PATTERN.test(r.subcommand)) {
-      errors.push(
-        messageStyle === 'rulebook'
-          ? `${prefix}.subcommand: must match command pattern`
-          : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`,
+      yield validationMessage(
+        messageStyle,
+        `${prefix}.subcommand: must match command pattern`,
+        `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`,
       );
     }
   }
 
   if (!Array.isArray(r.block_args)) {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.block_args: required non-empty array`
-        : `${prefix}.block_args: required array`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.block_args: required non-empty array`,
+      `${prefix}.block_args: required array`,
     );
   } else {
     if (r.block_args.length === 0) {
-      errors.push(
-        messageStyle === 'rulebook'
-          ? `${prefix}.block_args: required non-empty array`
-          : `${prefix}.block_args: must have at least one element`,
+      yield validationMessage(
+        messageStyle,
+        `${prefix}.block_args: required non-empty array`,
+        `${prefix}.block_args: must have at least one element`,
       );
     }
     for (let i = 0; i < r.block_args.length; i++) {
       const arg = r.block_args[i];
       if (typeof arg !== 'string') {
-        errors.push(
-          messageStyle === 'rulebook'
-            ? `${prefix}.block_args[${i}]: must be a non-empty string`
-            : `${prefix}.block_args[${i}]: must be a string`,
+        yield validationMessage(
+          messageStyle,
+          `${prefix}.block_args[${i}]: must be a non-empty string`,
+          `${prefix}.block_args[${i}]: must be a string`,
         );
       } else if (arg === '') {
-        errors.push(
-          messageStyle === 'rulebook'
-            ? `${prefix}.block_args[${i}]: must be a non-empty string`
-            : `${prefix}.block_args[${i}]: must not be empty`,
+        yield validationMessage(
+          messageStyle,
+          `${prefix}.block_args[${i}]: must be a non-empty string`,
+          `${prefix}.block_args[${i}]: must not be empty`,
         );
       }
     }
   }
 
   if (typeof r.reason !== 'string') {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`
-        : `${prefix}.reason: required string`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`,
+      `${prefix}.reason: required string`,
     );
   } else if (r.reason === '') {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`
-        : `${prefix}.reason: must not be empty`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`,
+      `${prefix}.reason: must not be empty`,
     );
   } else if (r.reason.length > MAX_REASON_LENGTH) {
-    errors.push(
-      messageStyle === 'rulebook'
-        ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`
-        : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`,
+    yield validationMessage(
+      messageStyle,
+      `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`,
+      `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`,
     );
   }
 
   if (r.intent !== undefined && !isBlockIntent(r.intent)) {
-    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(', ')}`);
+    yield `${prefix}.intent: must be one of ${BLOCK_INTENTS.join(', ')}`;
   }
+}
 
-  return errors;
+function validationMessage(
+  messageStyle: ValidateCustomRuleOptions['messageStyle'],
+  rulebook: string,
+  legacy: string,
+): string {
+  return messageStyle === 'rulebook' ? rulebook : legacy;
 }
 
 function isBlockIntent(value: unknown): boolean {

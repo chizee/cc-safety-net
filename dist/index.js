@@ -5179,42 +5179,129 @@ function normalizeSafety(value) {
 // src/core/rules/policy/scope-policy.ts
 import { dirname as dirname5, isAbsolute as isAbsolute6, join as join6, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
 
-// src/core/rules/custom.ts
-function checkCustomRules(tokens, rules) {
-  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
+// src/core/rules/custom-rule-validation.ts
+function validateCustomRule(rule, index, ruleNames, options2 = {}) {
+  return [...iterateCustomRuleErrors(rule, index, ruleNames, options2)];
 }
-function checkCustomRuleMatch(tokens, rules) {
-  return checkRuleMatch(tokens, rules);
-}
-function checkPolicyRuleMatch(tokens, rules) {
-  return checkRuleMatch(tokens, rules);
-}
-function checkRuleMatch(tokens, rules) {
-  if (tokens.length === 0 || rules.length === 0)
-    return null;
-  let command2 = normalizeCommandToken(tokens[0] ?? ""), shortOpts = extractShortOpts(tokens);
-  for (let rule of rules) {
-    if (!matchesCommand(command2, rule.command))
-      continue;
-    if (!matchesSubcommand(command2, tokens, rule.subcommand))
-      continue;
-    if (matchesBlockArgs(tokens, rule.block_args, shortOpts))
-      return {
-        id: `custom.${rule.name}`,
-        reason: `[${rule.name}] ${rule.reason}`,
-        intent: rule.intent ?? "manual_only"
-      };
+function* iterateCustomRuleErrors(rule, index, ruleNames, options2 = {}) {
+  let prefix = `rules[${index}]`;
+  if (!rule || typeof rule !== "object") {
+    yield `${prefix}: must be an object`;
+    return;
   }
-  return null;
+  let r = rule, messageStyle = options2.messageStyle ?? "legacy";
+  if (typeof r.name !== "string")
+    yield `${prefix}.name: required string`;
+  else {
+    if (!NAME_PATTERN.test(r.name))
+      yield validationMessage(messageStyle, `${prefix}.name: must match rule name pattern`, `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
+    let lowerName = r.name.toLowerCase();
+    if (ruleNames.has(lowerName))
+      yield `${prefix}.name: duplicate rule name "${r.name}"`;
+    else
+      ruleNames.add(lowerName);
+  }
+  if (typeof r.command !== "string")
+    yield validationMessage(messageStyle, `${prefix}.command: required string matching command pattern`, `${prefix}.command: required string`);
+  else if (!COMMAND_PATTERN.test(r.command))
+    yield validationMessage(messageStyle, `${prefix}.command: required string matching command pattern`, `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
+  if (r.subcommand !== void 0) {
+    if (typeof r.subcommand !== "string")
+      yield validationMessage(messageStyle, `${prefix}.subcommand: must match command pattern`, `${prefix}.subcommand: must be a string if provided`);
+    else if (!COMMAND_PATTERN.test(r.subcommand))
+      yield validationMessage(messageStyle, `${prefix}.subcommand: must match command pattern`, `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
+  }
+  if (!Array.isArray(r.block_args))
+    yield validationMessage(messageStyle, `${prefix}.block_args: required non-empty array`, `${prefix}.block_args: required array`);
+  else {
+    if (r.block_args.length === 0)
+      yield validationMessage(messageStyle, `${prefix}.block_args: required non-empty array`, `${prefix}.block_args: must have at least one element`);
+    for (let i = 0;i < r.block_args.length; i++) {
+      let arg = r.block_args[i];
+      if (typeof arg !== "string")
+        yield validationMessage(messageStyle, `${prefix}.block_args[${i}]: must be a non-empty string`, `${prefix}.block_args[${i}]: must be a string`);
+      else if (arg === "")
+        yield validationMessage(messageStyle, `${prefix}.block_args[${i}]: must be a non-empty string`, `${prefix}.block_args[${i}]: must not be empty`);
+    }
+  }
+  if (typeof r.reason !== "string")
+    yield validationMessage(messageStyle, `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`, `${prefix}.reason: required string`);
+  else if (r.reason === "")
+    yield validationMessage(messageStyle, `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`, `${prefix}.reason: must not be empty`);
+  else if (r.reason.length > MAX_REASON_LENGTH)
+    yield validationMessage(messageStyle, `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters`, `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
+  if (r.intent !== void 0 && !isBlockIntent(r.intent))
+    yield `${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`;
 }
-function matchesCommand(command2, ruleCommand) {
-  return command2 === normalizeCommandToken(ruleCommand);
+function validationMessage(messageStyle, rulebook, legacy) {
+  return messageStyle === "rulebook" ? rulebook : legacy;
 }
-function matchesSubcommand(command2, tokens, ruleSubcommand) {
-  if (!ruleSubcommand)
-    return !0;
-  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command2));
+function isBlockIntent(value) {
+  return typeof value === "string" && BLOCK_INTENTS.includes(value);
 }
+
+// src/core/rules/rulebook-limits.ts
+var RULEBOOK_LIMIT_ERROR = "Rulebook exceeds CC Safety Net's safe validation limits.", RULEBOOK_VALIDATION_TRUNCATED = "Additional rulebook validation errors were omitted.", RULEBOOK_LIMITS = Object.freeze({
+  maxAllowedCommands: 1024,
+  maxRules: 1024,
+  maxTests: 2048,
+  maxBlockArgsPerRule: 1024,
+  maxTotalBlockArgs: 16384,
+  maxStringCodeUnits: 1048576,
+  maxAggregateStringCodeUnits: 4194304,
+  maxFixtureCommandCodeUnits: 131072,
+  maxValidationErrors: 64,
+  maxFixtureSegments: 16384,
+  maxFixtureMatchWork: 1048576
+});
+function isRulebookWithinAcceptanceLimits(rulebook) {
+  if (exceedsArrayLimit(rulebook.allowed_commands, RULEBOOK_LIMITS.maxAllowedCommands) || exceedsArrayLimit(rulebook.rules, RULEBOOK_LIMITS.maxRules) || exceedsArrayLimit(rulebook.tests, RULEBOOK_LIMITS.maxTests))
+    return !1;
+  let { maxAggregateStringCodeUnits: remainingStringCodeUnits, maxTotalBlockArgs: remainingBlockArgs } = RULEBOOK_LIMITS, acceptString = (value, fixtureCommand = !1) => {
+    if (typeof value !== "string")
+      return !0;
+    if (value.length > RULEBOOK_LIMITS.maxStringCodeUnits || fixtureCommand && value.length > RULEBOOK_LIMITS.maxFixtureCommandCodeUnits || value.length > remainingStringCodeUnits)
+      return !1;
+    return remainingStringCodeUnits -= value.length, !0;
+  };
+  if (!acceptString(rulebook.name) || !acceptString(rulebook.version) || !acceptString(rulebook.description) || !acceptString(rulebook.author) || !acceptString(rulebook.migrated_from))
+    return !1;
+  if (Array.isArray(rulebook.allowed_commands)) {
+    for (let command2 of rulebook.allowed_commands)
+      if (!acceptString(command2))
+        return !1;
+  }
+  if (Array.isArray(rulebook.rules))
+    for (let rule of rulebook.rules) {
+      if (!rule || typeof rule !== "object")
+        continue;
+      let candidate = rule;
+      if (!acceptString(candidate.name) || !acceptString(candidate.command) || !acceptString(candidate.subcommand) || !acceptString(candidate.reason) || !acceptString(candidate.intent))
+        return !1;
+      if (!Array.isArray(candidate.block_args))
+        continue;
+      if (candidate.block_args.length > RULEBOOK_LIMITS.maxBlockArgsPerRule || candidate.block_args.length > remainingBlockArgs)
+        return !1;
+      remainingBlockArgs -= candidate.block_args.length;
+      for (let blockArg of candidate.block_args)
+        if (!acceptString(blockArg))
+          return !1;
+    }
+  if (Array.isArray(rulebook.tests))
+    for (let fixture of rulebook.tests) {
+      if (!fixture || typeof fixture !== "object")
+        continue;
+      let candidate = fixture;
+      if (!acceptString(candidate.command, !0) || !acceptString(candidate.expect) || !acceptString(candidate.rule))
+        return !1;
+    }
+  return !0;
+}
+function exceedsArrayLimit(value, limit) {
+  return Array.isArray(value) && value.length > limit;
+}
+
+// src/core/rules/custom-subcommand.ts
 var GIT_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set([
   "-c",
   "-C",
@@ -5234,18 +5321,49 @@ var GIT_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set([
   "--tlscert",
   "--tlskey"
 ]), EMPTY_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set;
-function getOptionsWithValues(command2) {
+function getCustomRuleOptionsWithValues(command2) {
   if (command2 === "git")
     return GIT_OPTIONS_WITH_VALUES;
   if (command2 === "docker")
     return DOCKER_OPTIONS_WITH_VALUES;
   return EMPTY_OPTIONS_WITH_VALUES;
 }
-function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues) {
+
+// src/core/rules/custom.ts
+function checkPolicyRuleMatch(tokens, rules) {
+  return checkRuleMatch(tokens, rules);
+}
+function checkRuleMatch(tokens, rules) {
+  if (tokens.length === 0 || rules.length === 0)
+    return null;
+  let command2 = normalizeCommandToken(tokens[0] ?? ""), shortOpts = extractShortOpts(tokens);
+  for (let rule of rules) {
+    if (!matchesCommand(command2, rule.command))
+      continue;
+    if (!matchesCustomRuleSubcommand(command2, tokens, rule.subcommand))
+      continue;
+    if (matchesCustomRuleBlockArgs(tokens, new Set(rule.block_args), shortOpts))
+      return {
+        id: `custom.${rule.name}`,
+        reason: `[${rule.name}] ${rule.reason}`,
+        intent: rule.intent ?? "manual_only"
+      };
+  }
+  return null;
+}
+function matchesCommand(command2, ruleCommand) {
+  return command2 === normalizeCommandToken(ruleCommand);
+}
+function matchesCustomRuleSubcommand(command2, tokens, ruleSubcommand, chargeString) {
+  if (!ruleSubcommand)
+    return !0;
+  return chargeString?.(ruleSubcommand), matchesSubcommandFrom(tokens, 1, ruleSubcommand, getCustomRuleOptionsWithValues(command2), chargeString);
+}
+function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWithValues, chargeString) {
   let skipNext = !1;
   for (let i = startIndex;i < tokens.length; i++) {
     let token = tokens[i];
-    if (!token)
+    if (chargeString?.(token ?? ""), !token)
       continue;
     if (skipNext) {
       skipNext = !1;
@@ -5253,16 +5371,16 @@ function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWi
     }
     if (token === "--") {
       let nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-"))
+      if (chargeString?.(nextToken ?? ""), nextToken && !nextToken.startsWith("-"))
         return nextToken === expectedSubcommand;
       return !1;
     }
-    if (optionsWithValues.has(token)) {
+    if (chargeString?.(token), optionsWithValues.has(token)) {
       skipNext = !0;
       continue;
     }
     if (token.startsWith("-")) {
-      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues))
+      if (!token.includes("=") && shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues, chargeString))
         return !0;
       continue;
     }
@@ -5270,173 +5388,74 @@ function matchesSubcommandFrom(tokens, startIndex, expectedSubcommand, optionsWi
   }
   return !1;
 }
-function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues) {
+function shouldSkipPossibleOptionValue(tokens, optionIndex, expectedSubcommand, optionsWithValues, chargeString) {
   let value = tokens[optionIndex + 1];
-  if (!value || value.startsWith("-"))
+  if (chargeString?.(value ?? ""), !value || value.startsWith("-"))
     return !1;
-  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
+  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues, chargeString);
 }
-function matchesBlockArgs(tokens, blockArgs, shortOpts) {
-  let blockArgsSet = new Set(blockArgs);
+function matchesCustomRuleBlockArgs(tokens, blockArgs, shortOpts, chargeString) {
   for (let token of tokens)
-    if (blockArgsSet.has(token))
+    if (chargeString?.(token), chargeString?.(token), blockArgs.has(token))
       return !0;
   for (let opt of shortOpts)
-    if (blockArgsSet.has(opt))
+    if (chargeString?.(opt), chargeString?.(opt), blockArgs.has(opt))
       return !0;
   return !1;
 }
 
-// src/core/rules/custom-rule-validation.ts
-function validateCustomRule(rule, index, ruleNames, options2 = {}) {
-  let errors = [], prefix = `rules[${index}]`;
-  if (!rule || typeof rule !== "object")
-    return errors.push(`${prefix}: must be an object`), errors;
-  let r = rule, messageStyle = options2.messageStyle ?? "legacy";
-  if (typeof r.name !== "string")
-    errors.push(`${prefix}.name: required string`);
-  else {
-    if (!NAME_PATTERN.test(r.name))
-      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
-    let lowerName = r.name.toLowerCase();
-    if (ruleNames.has(lowerName))
-      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
-    else
-      ruleNames.add(lowerName);
-  }
-  if (typeof r.command !== "string")
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
-  else if (!COMMAND_PATTERN.test(r.command))
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
-  if (r.subcommand !== void 0) {
-    if (typeof r.subcommand !== "string")
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
-    else if (!COMMAND_PATTERN.test(r.subcommand))
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
-  }
-  if (!Array.isArray(r.block_args))
-    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
-  else {
-    if (r.block_args.length === 0)
-      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
-    for (let i = 0;i < r.block_args.length; i++) {
-      let arg = r.block_args[i];
-      if (typeof arg !== "string")
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
-      else if (arg === "")
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
-    }
-  }
-  if (typeof r.reason !== "string")
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
-  else if (r.reason === "")
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
-  else if (r.reason.length > MAX_REASON_LENGTH)
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-  if (r.intent !== void 0 && !isBlockIntent(r.intent))
-    errors.push(`${prefix}.intent: must be one of ${BLOCK_INTENTS.join(", ")}`);
-  return errors;
-}
-function isBlockIntent(value) {
-  return typeof value === "string" && BLOCK_INTENTS.includes(value);
+// src/core/rules/rulebook-fixtures.ts
+class FixtureWorkLimitError extends Error {
 }
 
-// src/core/rules/rulebook.ts
-function validateRulebook(rulebook) {
-  let errors = [], ruleNames = /* @__PURE__ */ new Set;
-  if (!rulebook || typeof rulebook !== "object")
-    return { errors: ["Rulebook must be an object"], ruleNames };
-  let rb = rulebook;
-  if (rb.rulebook_version !== 1)
-    errors.push("rulebook_version must be 1");
-  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name))
-    errors.push("name: required string matching rule name pattern");
-  if (typeof rb.version !== "string" || rb.version === "")
-    errors.push("version: required non-empty string");
-  if (!Array.isArray(rb.allowed_commands))
-    errors.push("allowed_commands: required array");
-  else
-    validateAllowedCommands(rb.allowed_commands, errors);
-  if (!Array.isArray(rb.rules))
-    errors.push("rules: required array");
-  else
-    for (let i = 0;i < rb.rules.length; i++)
-      errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: "rulebook" }));
-  if (!Array.isArray(rb.tests))
-    errors.push("tests: required array");
-  else
-    validateFixtures(rb.tests, rb.rules, errors);
-  if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
-    let allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
-    for (let i = 0;i < rb.rules.length; i++) {
-      let rule = rb.rules[i];
-      if (typeof rule.command === "string" && !allowed.has(rule.command))
-        errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
-    }
+class FixtureWorkMeter {
+  remaining = RULEBOOK_LIMITS.maxFixtureMatchWork;
+  spend(units) {
+    if (units > this.remaining)
+      throw new FixtureWorkLimitError;
+    this.remaining -= units;
   }
-  return { errors, ruleNames };
-}
-function validateAllowedCommands(commands, errors) {
-  let seen = /* @__PURE__ */ new Set;
-  for (let i = 0;i < commands.length; i++) {
-    let command2 = commands[i];
-    if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
-      errors.push(`allowed_commands[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command2)) {
-      errors.push(`allowed_commands[${i}]: duplicate command "${command2}"`);
-      continue;
-    }
-    seen.add(command2);
+  spendString(value) {
+    this.spend(value.length + 1);
   }
 }
-function validateFixtures(tests, rules, errors) {
-  let blockedFixtures = /* @__PURE__ */ new Set, ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
-  for (let i = 0;i < tests.length; i++) {
-    let fixture = tests[i];
-    if (!fixture || typeof fixture !== "object") {
-      errors.push(`tests[${i}]: must be an object`);
-      continue;
-    }
-    let f = fixture;
-    if (typeof f.command !== "string" || f.command.trim() === "")
-      errors.push(`tests[${i}].command: required non-empty string`);
-    if (f.expect !== "blocked" && f.expect !== "allowed")
-      errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
-    if (f.rule !== void 0 && typeof f.rule !== "string")
-      errors.push(`tests[${i}].rule: must be a string if provided`);
-    if (f.expect === "blocked" && typeof f.rule !== "string")
-      errors.push(`tests[${i}].rule: required string for blocked fixtures`);
-    if (f.expect === "blocked" && typeof f.rule === "string")
-      blockedFixtures.add(f.rule);
+function evaluateRulebookFixtures(rulebook) {
+  if (!isRulebookWithinAcceptanceLimits(rulebook))
+    return fixtureLimitResult();
+  try {
+    return evaluateRulebookFixturesWithinLimits(rulebook, new FixtureWorkMeter);
+  } catch (error) {
+    if (error instanceof FixtureWorkLimitError)
+      return fixtureLimitResult();
+    throw error;
   }
-  for (let i = 0;i < (Array.isArray(rules) ? rules.length : 0); i++) {
-    let rule = rules[i];
-    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name))
-      errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
-  }
-  for (let rule of blockedFixtures)
-    if (!ruleNames.has(rule))
-      errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
 }
-function runRulebookFixtures(rulebook) {
-  let failures = rulebook.tests.flatMap((fixture) => {
-    let segments = projectLegacySegments(fixture.command).map((tokens) => {
-      let mutableTokens = [...tokens], result = checkCustomRuleMatch(mutableTokens, rulebook.rules);
+function evaluateRulebookFixturesWithinLimits(rulebook, meter) {
+  let rules = compileRules(rulebook.rules, meter), remainingSegments = RULEBOOK_LIMITS.maxFixtureSegments, failures = rulebook.tests.flatMap((fixture) => {
+    meter.spendString(fixture.command);
+    let projected = projectLegacySegments(fixture.command);
+    if (projected.length > remainingSegments)
+      throw new FixtureWorkLimitError;
+    remainingSegments -= projected.length;
+    let segments = projected.map((tokens) => {
+      let prepared = prepareSegment(tokens, meter), result = matchPreparedSegment(prepared, rules, meter);
       return {
-        tokens: mutableTokens,
+        prepared,
         result,
         matchedRule: result?.id.replace(/^custom\./, "") ?? null
       };
-    }), firstSegment = segments[0] ?? { tokens: [], result: null, matchedRule: null };
+    }), firstSegment = segments[0] ?? {
+      prepared: prepareSegment([], meter),
+      result: null,
+      matchedRule: null
+    };
     if (fixture.expect === "allowed") {
       let blockedSegment = segments.find((segment) => segment.result);
       return blockedSegment ? [
         {
           command: fixture.command,
           message: `expected allowed but matched ${blockedSegment.matchedRule ?? "a rule"}`,
-          trace: traceRulebookFixture(blockedSegment.tokens, rulebook.rules)
+          trace: traceFixture(blockedSegment.prepared, rules, meter)
         }
       ] : [];
     }
@@ -5446,7 +5465,7 @@ function runRulebookFixtures(rulebook) {
         {
           command: fixture.command,
           message: `expected blocked by ${fixture.rule ?? "a rule"} but command was allowed`,
-          trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules)
+          trace: traceFixture(firstSegment.prepared, rules, meter)
         }
       ];
     if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule)
@@ -5455,24 +5474,205 @@ function runRulebookFixtures(rulebook) {
       {
         command: fixture.command,
         message: `expected blocked by ${fixture.rule} but matched ${firstBlockedSegment.matchedRule}`,
-        trace: traceRulebookFixture(firstBlockedSegment.tokens, rulebook.rules)
+        trace: traceFixture(firstBlockedSegment.prepared, rules, meter)
       }
     ];
   });
   return { ok: failures.length === 0, failures };
 }
-function traceRulebookFixture(tokens, rules) {
+function compileRules(rules, meter) {
   return rules.map((rule) => {
-    return `${checkCustomRules([...tokens], [rule]) ? "matched" : "skipped"} ${rule.name}`;
+    meter.spend(1), meter.spendString(rule.command);
+    let command2 = normalizeCommandToken(rule.command);
+    if (meter.spendString(command2), rule.subcommand)
+      meter.spendString(rule.subcommand);
+    let blockArgs = /* @__PURE__ */ new Set;
+    for (let blockArg of rule.block_args)
+      meter.spendString(blockArg), blockArgs.add(blockArg);
+    return { rule, command: command2, blockArgs };
   });
+}
+function prepareSegment(tokens, meter) {
+  meter.spend(1);
+  for (let token of tokens)
+    meter.spendString(token);
+  let commandToken = tokens[0] ?? "";
+  meter.spendString(commandToken);
+  let command2 = normalizeCommandToken(commandToken);
+  meter.spendString(command2);
+  let shortOpts = extractShortOpts(tokens);
+  for (let shortOpt of shortOpts)
+    meter.spendString(shortOpt);
+  return { tokens, command: command2, shortOpts };
+}
+function matchPreparedSegment(segment, rules, meter) {
+  if (segment.tokens.length === 0 || rules.length === 0)
+    return null;
+  for (let compiled of rules) {
+    if (meter.spendString(segment.command), meter.spendString(compiled.command), segment.command !== compiled.command)
+      continue;
+    if (compiled.rule.subcommand && !matchesMeteredSubcommand(segment, compiled.rule.subcommand, meter))
+      continue;
+    if (!matchesMeteredBlockArgs(segment, compiled.blockArgs, meter))
+      continue;
+    return meter.spendString(compiled.rule.name), meter.spendString(compiled.rule.reason), {
+      id: `custom.${compiled.rule.name}`,
+      reason: `[${compiled.rule.name}] ${compiled.rule.reason}`,
+      intent: compiled.rule.intent ?? "manual_only"
+    };
+  }
+  return null;
+}
+function matchesMeteredSubcommand(segment, expectedSubcommand, meter) {
+  return matchesCustomRuleSubcommand(segment.command, segment.tokens, expectedSubcommand, (value) => meter.spendString(value));
+}
+function matchesMeteredBlockArgs(segment, blockArgs, meter) {
+  return matchesCustomRuleBlockArgs(segment.tokens, blockArgs, segment.shortOpts, (value) => meter.spendString(value));
+}
+function traceFixture(segment, rules, meter) {
+  return rules.map((rule) => {
+    let result = matchPreparedSegment(segment, [rule], meter);
+    return meter.spendString(rule.rule.name), `${result ? "matched" : "skipped"} ${rule.rule.name}`;
+  });
+}
+function fixtureLimitResult() {
+  return {
+    ok: !1,
+    failures: [{ command: "", message: RULEBOOK_LIMIT_ERROR, trace: [] }]
+  };
+}
+
+// src/core/rules/rulebook.ts
+function validateRulebook(rulebook) {
+  let ruleNames = /* @__PURE__ */ new Set;
+  if (!rulebook || typeof rulebook !== "object")
+    return { errors: ["Rulebook must be an object"], ruleNames };
+  let rb = rulebook;
+  if (!isRulebookWithinAcceptanceLimits(rb))
+    return { errors: [RULEBOOK_LIMIT_ERROR], ruleNames };
+  let diagnostics = createValidationDiagnostics();
+  if (rb.rulebook_version !== 1)
+    diagnostics.add("rulebook_version must be 1");
+  if (!diagnostics.stopped && (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name)))
+    diagnostics.add("name: required string matching rule name pattern");
+  if (!diagnostics.stopped && (typeof rb.version !== "string" || rb.version === ""))
+    diagnostics.add("version: required non-empty string");
+  if (!diagnostics.stopped)
+    if (!Array.isArray(rb.allowed_commands))
+      diagnostics.add("allowed_commands: required array");
+    else
+      validateAllowedCommands(rb.allowed_commands, diagnostics);
+  if (!diagnostics.stopped) {
+    if (!Array.isArray(rb.rules))
+      diagnostics.add("rules: required array");
+    else
+      for (let i = 0;!diagnostics.stopped && i < rb.rules.length; i++)
+        for (let error of iterateCustomRuleErrors(rb.rules[i], i, ruleNames, {
+          messageStyle: "rulebook"
+        }))
+          if (!diagnostics.add(error))
+            break;
+  }
+  if (!diagnostics.stopped)
+    if (!Array.isArray(rb.tests))
+      diagnostics.add("tests: required array");
+    else
+      validateFixtures(rb.tests, rb.rules, diagnostics);
+  if (!diagnostics.stopped && Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
+    let allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
+    for (let i = 0;!diagnostics.stopped && i < rb.rules.length; i++) {
+      let rule = rb.rules[i];
+      if (typeof rule.command === "string" && !allowed.has(rule.command))
+        diagnostics.add(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
+    }
+  }
+  return { errors: diagnostics.errors, ruleNames };
+}
+function createValidationDiagnostics() {
+  return {
+    errors: [],
+    stopped: !1,
+    add(error) {
+      if (this.stopped)
+        return !1;
+      if (this.errors.length < RULEBOOK_LIMITS.maxValidationErrors)
+        return this.errors.push(error), !0;
+      return this.errors.push(RULEBOOK_VALIDATION_TRUNCATED), this.stopped = !0, !1;
+    }
+  };
+}
+function validateAllowedCommands(commands, diagnostics) {
+  if (!Array.isArray(commands))
+    return;
+  let seen = /* @__PURE__ */ new Set;
+  for (let i = 0;!diagnostics.stopped && i < commands.length; i++) {
+    let command2 = commands[i];
+    if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
+      diagnostics.add(`allowed_commands[${i}]: must match command pattern`);
+      continue;
+    }
+    if (seen.has(command2)) {
+      diagnostics.add(`allowed_commands[${i}]: duplicate command "${command2}"`);
+      continue;
+    }
+    seen.add(command2);
+  }
+}
+function validateFixtures(tests, rules, diagnostics) {
+  if (!Array.isArray(tests) || diagnostics.stopped)
+    return;
+  let blockedFixtures = /* @__PURE__ */ new Set, ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
+  for (let i = 0;!diagnostics.stopped && i < tests.length; i++) {
+    let fixture = tests[i];
+    if (!fixture || typeof fixture !== "object") {
+      diagnostics.add(`tests[${i}]: must be an object`);
+      continue;
+    }
+    let f = fixture;
+    if (typeof f.command !== "string" || f.command.trim() === "") {
+      if (!diagnostics.add(`tests[${i}].command: required non-empty string`))
+        return;
+    }
+    if (f.expect !== "blocked" && f.expect !== "allowed") {
+      if (!diagnostics.add(`tests[${i}].expect: must be "blocked" or "allowed"`))
+        return;
+    }
+    if (f.rule !== void 0 && typeof f.rule !== "string") {
+      if (!diagnostics.add(`tests[${i}].rule: must be a string if provided`))
+        return;
+    }
+    if (f.expect === "blocked" && typeof f.rule !== "string") {
+      if (!diagnostics.add(`tests[${i}].rule: required string for blocked fixtures`))
+        return;
+    }
+    if (f.expect === "blocked" && typeof f.rule === "string")
+      blockedFixtures.add(f.rule);
+  }
+  for (let i = 0;!diagnostics.stopped && i < (Array.isArray(rules) ? rules.length : 0); i++) {
+    let rule = rules[i];
+    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name))
+      diagnostics.add(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
+  }
+  for (let rule of blockedFixtures) {
+    if (diagnostics.stopped)
+      break;
+    if (!ruleNames.has(rule))
+      diagnostics.add(`tests: blocked fixture references unknown rule "${rule}"`);
+  }
+}
+function runRulebookFixtures(rulebook) {
+  return evaluateRulebookFixtures(rulebook);
 }
 function assertValidRulebook(rulebook) {
   let result = validateRulebook(rulebook);
   if (result.errors.length > 0)
     throw Error(result.errors.join("; "));
   let parsed = rulebook, fixtures = runRulebookFixtures(parsed);
-  if (!fixtures.ok)
+  if (!fixtures.ok) {
+    if (fixtures.failures.length === 1 && fixtures.failures[0]?.command === "" && fixtures.failures[0].message === RULEBOOK_LIMIT_ERROR)
+      throw Error(RULEBOOK_LIMIT_ERROR);
     throw Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
+  }
   return parsed;
 }
 

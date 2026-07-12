@@ -1,11 +1,14 @@
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
 import type { PolicyRule } from '@/domain/policy';
 import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
+import { getCustomRuleOptionsWithValues } from './custom-subcommand';
 
+/** @internal */
 export function checkCustomRules(tokens: string[], rules: CustomRule[]): string | null {
   return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
 }
 
+/** @internal */
 export function checkCustomRuleMatch(
   tokens: string[],
   rules: CustomRule[],
@@ -37,11 +40,11 @@ function checkRuleMatch(
       continue;
     }
 
-    if (!matchesSubcommand(command, tokens, rule.subcommand)) {
+    if (!matchesCustomRuleSubcommand(command, tokens, rule.subcommand)) {
       continue;
     }
 
-    if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
+    if (matchesCustomRuleBlockArgs(tokens, new Set(rule.block_args), shortOpts)) {
       return {
         id: `custom.${rule.name}`,
         reason: `[${rule.name}] ${rule.reason}`,
@@ -57,57 +60,37 @@ function matchesCommand(command: string, ruleCommand: string): boolean {
   return command === normalizeCommandToken(ruleCommand);
 }
 
-function matchesSubcommand(
+export function matchesCustomRuleSubcommand(
   command: string,
-  tokens: string[],
+  tokens: readonly string[],
   ruleSubcommand: string | undefined,
+  chargeString?: (value: string) => void,
 ): boolean {
   if (!ruleSubcommand) {
     return true;
   }
 
-  return matchesSubcommandFrom(tokens, 1, ruleSubcommand, getOptionsWithValues(command));
-}
-
-const GIT_OPTIONS_WITH_VALUES = new Set([
-  '-c',
-  '-C',
-  '--git-dir',
-  '--work-tree',
-  '--namespace',
-  '--config-env',
-]);
-
-const DOCKER_OPTIONS_WITH_VALUES = new Set([
-  '-c',
-  '-H',
-  '-l',
-  '--config',
-  '--context',
-  '--host',
-  '--log-level',
-  '--tlscacert',
-  '--tlscert',
-  '--tlskey',
-]);
-
-const EMPTY_OPTIONS_WITH_VALUES = new Set<string>();
-
-function getOptionsWithValues(command: string): ReadonlySet<string> {
-  if (command === 'git') return GIT_OPTIONS_WITH_VALUES;
-  if (command === 'docker') return DOCKER_OPTIONS_WITH_VALUES;
-  return EMPTY_OPTIONS_WITH_VALUES;
+  chargeString?.(ruleSubcommand);
+  return matchesSubcommandFrom(
+    tokens,
+    1,
+    ruleSubcommand,
+    getCustomRuleOptionsWithValues(command),
+    chargeString,
+  );
 }
 
 function matchesSubcommandFrom(
-  tokens: string[],
+  tokens: readonly string[],
   startIndex: number,
   expectedSubcommand: string,
   optionsWithValues: ReadonlySet<string>,
+  chargeString?: (value: string) => void,
 ): boolean {
   let skipNext = false;
   for (let i = startIndex; i < tokens.length; i++) {
     const token = tokens[i];
+    chargeString?.(token ?? '');
     if (!token) continue;
 
     if (skipNext) {
@@ -117,12 +100,14 @@ function matchesSubcommandFrom(
 
     if (token === '--') {
       const nextToken = tokens[i + 1];
+      chargeString?.(nextToken ?? '');
       if (nextToken && !nextToken.startsWith('-')) {
         return nextToken === expectedSubcommand;
       }
       return false;
     }
 
+    chargeString?.(token);
     if (optionsWithValues.has(token)) {
       skipNext = true;
       continue;
@@ -131,7 +116,13 @@ function matchesSubcommandFrom(
     if (token.startsWith('-')) {
       if (
         !token.includes('=') &&
-        shouldSkipPossibleOptionValue(tokens, i, expectedSubcommand, optionsWithValues)
+        shouldSkipPossibleOptionValue(
+          tokens,
+          i,
+          expectedSubcommand,
+          optionsWithValues,
+          chargeString,
+        )
       ) {
         return true;
       }
@@ -145,34 +136,45 @@ function matchesSubcommandFrom(
 }
 
 function shouldSkipPossibleOptionValue(
-  tokens: string[],
+  tokens: readonly string[],
   optionIndex: number,
   expectedSubcommand: string,
   optionsWithValues: ReadonlySet<string>,
+  chargeString?: (value: string) => void,
 ): boolean {
   const value = tokens[optionIndex + 1];
+  chargeString?.(value ?? '');
   if (!value || value.startsWith('-')) {
     return false;
   }
 
-  return matchesSubcommandFrom(tokens, optionIndex + 2, expectedSubcommand, optionsWithValues);
+  return matchesSubcommandFrom(
+    tokens,
+    optionIndex + 2,
+    expectedSubcommand,
+    optionsWithValues,
+    chargeString,
+  );
 }
 
-function matchesBlockArgs(
-  tokens: string[],
-  blockArgs: readonly string[],
-  shortOpts: Set<string>,
+export function matchesCustomRuleBlockArgs(
+  tokens: readonly string[],
+  blockArgs: ReadonlySet<string>,
+  shortOpts: ReadonlySet<string>,
+  chargeString?: (value: string) => void,
 ): boolean {
-  const blockArgsSet = new Set(blockArgs);
-
   for (const token of tokens) {
-    if (blockArgsSet.has(token)) {
+    chargeString?.(token);
+    chargeString?.(token);
+    if (blockArgs.has(token)) {
       return true;
     }
   }
 
   for (const opt of shortOpts) {
-    if (blockArgsSet.has(opt)) {
+    chargeString?.(opt);
+    chargeString?.(opt);
+    if (blockArgs.has(opt)) {
       return true;
     }
   }

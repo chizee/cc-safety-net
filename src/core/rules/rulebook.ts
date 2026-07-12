@@ -1,40 +1,18 @@
-import { checkCustomRuleMatch, checkCustomRules } from '@/core/rules/custom';
-import { validateCustomRule } from '@/core/rules/custom-rule-validation';
-import { projectLegacySegments } from '@/parser/projection';
-import { COMMAND_PATTERN, type CustomRule, NAME_PATTERN, type ValidationResult } from '@/types';
+import { iterateCustomRuleErrors } from '@/core/rules/custom-rule-validation';
+import { evaluateRulebookFixtures } from '@/core/rules/rulebook-fixtures';
+import {
+  isRulebookWithinAcceptanceLimits,
+  RULEBOOK_LIMIT_ERROR,
+  RULEBOOK_LIMITS,
+  RULEBOOK_VALIDATION_TRUNCATED,
+} from '@/core/rules/rulebook-limits';
+import type { Rulebook, RulebookFixtureResult } from '@/core/rules/rulebook-types';
+import { COMMAND_PATTERN, NAME_PATTERN, type ValidationResult } from '@/types';
 
-export interface RulebookFixture {
-  command: string;
-  expect: 'blocked' | 'allowed';
-  rule?: string;
-}
-
-export interface Rulebook {
-  rulebook_version: 1;
-  name: string;
-  version: string;
-  description?: string;
-  author?: string;
-  allowed_commands: string[];
-  rules: CustomRule[];
-  tests: RulebookFixture[];
-}
-
-/** @internal - exported for test coverage */
-export interface RulebookFixtureFailure {
-  command: string;
-  message: string;
-  trace: string[];
-}
-
-export interface RulebookFixtureResult {
-  ok: boolean;
-  failures: RulebookFixtureFailure[];
-}
+export type { Rulebook } from '@/core/rules/rulebook-types';
 
 /** @internal - exported for test coverage */
 export function validateRulebook(rulebook: unknown): ValidationResult {
-  const errors: string[] = [];
   const ruleNames = new Set<string>();
 
   if (!rulebook || typeof rulebook !== 'object') {
@@ -42,64 +20,109 @@ export function validateRulebook(rulebook: unknown): ValidationResult {
   }
 
   const rb = rulebook as Record<string, unknown>;
+  if (!isRulebookWithinAcceptanceLimits(rb)) {
+    return { errors: [RULEBOOK_LIMIT_ERROR], ruleNames };
+  }
+  const diagnostics = createValidationDiagnostics();
 
   if (rb.rulebook_version !== 1) {
-    errors.push('rulebook_version must be 1');
+    diagnostics.add('rulebook_version must be 1');
   }
-  if (typeof rb.name !== 'string' || !NAME_PATTERN.test(rb.name)) {
-    errors.push('name: required string matching rule name pattern');
+  if (!diagnostics.stopped && (typeof rb.name !== 'string' || !NAME_PATTERN.test(rb.name))) {
+    diagnostics.add('name: required string matching rule name pattern');
   }
-  if (typeof rb.version !== 'string' || rb.version === '') {
-    errors.push('version: required non-empty string');
+  if (!diagnostics.stopped && (typeof rb.version !== 'string' || rb.version === '')) {
+    diagnostics.add('version: required non-empty string');
   }
-  if (!Array.isArray(rb.allowed_commands)) {
-    errors.push('allowed_commands: required array');
-  } else {
-    validateAllowedCommands(rb.allowed_commands, errors);
-  }
-  if (!Array.isArray(rb.rules)) {
-    errors.push('rules: required array');
-  } else {
-    for (let i = 0; i < rb.rules.length; i++) {
-      errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: 'rulebook' }));
+  if (!diagnostics.stopped) {
+    if (!Array.isArray(rb.allowed_commands)) {
+      diagnostics.add('allowed_commands: required array');
+    } else {
+      validateAllowedCommands(rb.allowed_commands, diagnostics);
     }
   }
-  if (!Array.isArray(rb.tests)) {
-    errors.push('tests: required array');
-  } else {
-    validateFixtures(rb.tests, rb.rules, errors);
+  if (!diagnostics.stopped) {
+    if (!Array.isArray(rb.rules)) {
+      diagnostics.add('rules: required array');
+    } else {
+      for (let i = 0; !diagnostics.stopped && i < rb.rules.length; i++) {
+        for (const error of iterateCustomRuleErrors(rb.rules[i], i, ruleNames, {
+          messageStyle: 'rulebook',
+        })) {
+          if (!diagnostics.add(error)) break;
+        }
+      }
+    }
+  }
+  if (!diagnostics.stopped) {
+    if (!Array.isArray(rb.tests)) {
+      diagnostics.add('tests: required array');
+    } else {
+      validateFixtures(rb.tests, rb.rules, diagnostics);
+    }
   }
 
-  if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
+  if (!diagnostics.stopped && Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
     const allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === 'string'));
-    for (let i = 0; i < rb.rules.length; i++) {
+    for (let i = 0; !diagnostics.stopped && i < rb.rules.length; i++) {
       const rule = rb.rules[i] as Record<string, unknown>;
       if (typeof rule.command === 'string' && !allowed.has(rule.command)) {
-        errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
+        diagnostics.add(
+          `rules[${i}].command: "${rule.command}" must be listed in allowed_commands`,
+        );
       }
     }
   }
 
-  return { errors, ruleNames };
+  return { errors: diagnostics.errors, ruleNames };
 }
 
-function validateAllowedCommands(commands: unknown[], errors: string[]): void {
+interface ValidationDiagnostics {
+  errors: string[];
+  stopped: boolean;
+  add(error: string): boolean;
+}
+
+function createValidationDiagnostics(): ValidationDiagnostics {
+  return {
+    errors: [],
+    stopped: false,
+    add(error) {
+      if (this.stopped) return false;
+      if (this.errors.length < RULEBOOK_LIMITS.maxValidationErrors) {
+        this.errors.push(error);
+        return true;
+      }
+      this.errors.push(RULEBOOK_VALIDATION_TRUNCATED);
+      this.stopped = true;
+      return false;
+    },
+  };
+}
+
+function validateAllowedCommands(commands: unknown, diagnostics: ValidationDiagnostics): void {
+  if (!Array.isArray(commands)) return;
   const seen = new Set<string>();
-  for (let i = 0; i < commands.length; i++) {
+  for (let i = 0; !diagnostics.stopped && i < commands.length; i++) {
     const command = commands[i];
     if (typeof command !== 'string' || !COMMAND_PATTERN.test(command)) {
-      errors.push(`allowed_commands[${i}]: must match command pattern`);
+      diagnostics.add(`allowed_commands[${i}]: must match command pattern`);
       continue;
     }
     if (seen.has(command)) {
-      errors.push(`allowed_commands[${i}]: duplicate command "${command}"`);
+      diagnostics.add(`allowed_commands[${i}]: duplicate command "${command}"`);
       continue;
     }
     seen.add(command);
   }
 }
 
-function validateFixtures(tests: unknown[], rules: unknown, errors: string[]): void {
+function validateFixtures(
+  tests: unknown,
+  rules: unknown,
+  diagnostics: ValidationDiagnostics,
+): void {
+  if (!Array.isArray(tests) || diagnostics.stopped) return;
   const blockedFixtures = new Set<string>();
   const ruleNames = new Set(
     Array.isArray(rules)
@@ -111,99 +134,47 @@ function validateFixtures(tests: unknown[], rules: unknown, errors: string[]): v
       : [],
   );
 
-  for (let i = 0; i < tests.length; i++) {
+  for (let i = 0; !diagnostics.stopped && i < tests.length; i++) {
     const fixture = tests[i];
     if (!fixture || typeof fixture !== 'object') {
-      errors.push(`tests[${i}]: must be an object`);
+      diagnostics.add(`tests[${i}]: must be an object`);
       continue;
     }
     const f = fixture as Record<string, unknown>;
     if (typeof f.command !== 'string' || f.command.trim() === '') {
-      errors.push(`tests[${i}].command: required non-empty string`);
+      if (!diagnostics.add(`tests[${i}].command: required non-empty string`)) return;
     }
     if (f.expect !== 'blocked' && f.expect !== 'allowed') {
-      errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
+      if (!diagnostics.add(`tests[${i}].expect: must be "blocked" or "allowed"`)) return;
     }
     if (f.rule !== undefined && typeof f.rule !== 'string') {
-      errors.push(`tests[${i}].rule: must be a string if provided`);
+      if (!diagnostics.add(`tests[${i}].rule: must be a string if provided`)) return;
     }
     if (f.expect === 'blocked' && typeof f.rule !== 'string') {
-      errors.push(`tests[${i}].rule: required string for blocked fixtures`);
+      if (!diagnostics.add(`tests[${i}].rule: required string for blocked fixtures`)) return;
     }
     if (f.expect === 'blocked' && typeof f.rule === 'string') {
       blockedFixtures.add(f.rule);
     }
   }
 
-  for (let i = 0; i < (Array.isArray(rules) ? rules.length : 0); i++) {
+  for (let i = 0; !diagnostics.stopped && i < (Array.isArray(rules) ? rules.length : 0); i++) {
     const rule = (rules as unknown[])[i] as Record<string, unknown>;
     if (typeof rule.name === 'string' && !blockedFixtures.has(rule.name)) {
-      errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
+      diagnostics.add(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
     }
   }
 
   for (const rule of blockedFixtures) {
+    if (diagnostics.stopped) break;
     if (!ruleNames.has(rule)) {
-      errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
+      diagnostics.add(`tests: blocked fixture references unknown rule "${rule}"`);
     }
   }
 }
 
 export function runRulebookFixtures(rulebook: Rulebook): RulebookFixtureResult {
-  const failures = rulebook.tests.flatMap((fixture) => {
-    const segments = projectLegacySegments(fixture.command).map((tokens) => {
-      const mutableTokens = [...tokens];
-      const result = checkCustomRuleMatch(mutableTokens, rulebook.rules);
-      return {
-        tokens: mutableTokens,
-        result,
-        matchedRule: result?.id.replace(/^custom\./, '') ?? null,
-      };
-    });
-    const firstSegment = segments[0] ?? { tokens: [], result: null, matchedRule: null };
-
-    if (fixture.expect === 'allowed') {
-      const blockedSegment = segments.find((segment) => segment.result);
-      return blockedSegment
-        ? [
-            {
-              command: fixture.command,
-              message: `expected allowed but matched ${blockedSegment.matchedRule ?? 'a rule'}`,
-              trace: traceRulebookFixture(blockedSegment.tokens, rulebook.rules),
-            },
-          ]
-        : [];
-    }
-
-    const firstBlockedSegment = segments.find((segment) => segment.result);
-    if (!firstBlockedSegment) {
-      return [
-        {
-          command: fixture.command,
-          message: `expected blocked by ${fixture.rule ?? 'a rule'} but command was allowed`,
-          trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules),
-        },
-      ];
-    }
-    if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule) return [];
-
-    return [
-      {
-        command: fixture.command,
-        message: `expected blocked by ${fixture.rule} but matched ${firstBlockedSegment.matchedRule}`,
-        trace: traceRulebookFixture(firstBlockedSegment.tokens, rulebook.rules),
-      },
-    ];
-  });
-
-  return { ok: failures.length === 0, failures };
-}
-
-function traceRulebookFixture(tokens: readonly string[], rules: readonly CustomRule[]): string[] {
-  return rules.map((rule) => {
-    const result = checkCustomRules([...tokens], [rule]);
-    return `${result ? 'matched' : 'skipped'} ${rule.name}`;
-  });
+  return evaluateRulebookFixtures(rulebook);
 }
 
 export function assertValidRulebook(rulebook: unknown): Rulebook {
@@ -214,6 +185,13 @@ export function assertValidRulebook(rulebook: unknown): Rulebook {
   const parsed = rulebook as Rulebook;
   const fixtures = runRulebookFixtures(parsed);
   if (!fixtures.ok) {
+    if (
+      fixtures.failures.length === 1 &&
+      fixtures.failures[0]?.command === '' &&
+      fixtures.failures[0].message === RULEBOOK_LIMIT_ERROR
+    ) {
+      throw new Error(RULEBOOK_LIMIT_ERROR);
+    }
     throw new Error(
       fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join('; '),
     );
