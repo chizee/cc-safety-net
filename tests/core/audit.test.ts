@@ -180,6 +180,65 @@ describe('redactSecrets', () => {
     expect(result).toContain('<redacted>');
   });
 
+  test('redacts paired quoted header values in structured text', () => {
+    const cases = [
+      {
+        input: '{"Authorization":"Bearer compact-canary"}',
+        expected: '{"Authorization":"<redacted>"}',
+      },
+      {
+        input: '{  "Authorization" :  "Bearer whitespace-canary"  }',
+        expected: '{  "Authorization" :  "<redacted>"  }',
+      },
+      {
+        input: "{'Authorization':'Bearer single-canary'}",
+        expected: "{'Authorization':'<redacted>'}",
+      },
+      {
+        input: '{"aUtHoRiZaTiOn"   :   "Bearer case-canary"}',
+        expected: '{"aUtHoRiZaTiOn"   :   "<redacted>"}',
+      },
+      {
+        input: 'Authorization: "Bearer unquoted-canary"',
+        expected: 'Authorization: "<redacted>"',
+      },
+      {
+        input: String.raw`{"Authorization":"Bearer before\"after\\tail escaped-canary"}`,
+        expected: '{"Authorization":"<redacted>"}',
+      },
+      {
+        input: '{"Cookie":"session=cookie-canary"}',
+        expected: '{"Cookie":"<redacted>"}',
+      },
+      {
+        input: '{"X-API-Key":"x-api-key-canary"}',
+        expected: '{"X-API-Key":"<redacted>"}',
+      },
+      {
+        input: '{"API-Key":"api-key-canary"}',
+        expected: '{"API-Key":"<redacted>"}',
+      },
+    ];
+
+    for (const testCase of cases) {
+      expect(redactSecrets(testCase.input)).toBe(testCase.expected);
+    }
+  });
+
+  test('preserves existing plain and shell header redaction', () => {
+    const cases = [
+      'Authorization: Bearer plain-canary',
+      'curl -H "Authorization: Bearer double-shell-canary" https://example.com',
+      "curl -H 'Authorization: Basic single-shell-canary' https://example.com",
+    ];
+
+    for (const input of cases) {
+      const result = redactSecrets(input);
+      expect(result).toContain('<redacted>');
+      expect(result).not.toContain('canary');
+    }
+  });
+
   test('redacts PEM private key blocks', () => {
     const result = redactSecrets(
       '-----BEGIN PRIVATE KEY-----\nsuper-secret-key\n-----END PRIVATE KEY-----',
@@ -542,6 +601,27 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.command).toContain('<redacted>');
   });
 
+  test('redacts structured quoted headers in raw and parsed JSONL fields', () => {
+    const sessionId = 'test-session-structured-redact';
+    writeAuditLog(
+      sessionId,
+      '{"Authorization":"Bearer command-jsonl-canary"}',
+      '{"X-API-Key":"segment-jsonl-canary"}',
+      'reason',
+      null,
+      { homeDir: testDir },
+    );
+
+    const raw = readFileSync(getLogFile(sessionId), 'utf-8');
+    const entries = readLogEntries(sessionId);
+    expect(raw).not.toContain('jsonl-canary');
+    expect(raw.match(/<redacted>/g)).toHaveLength(2);
+    expect(raw).toContain(String.raw`{\"Authorization\":\"<redacted>\"}`);
+    expect(raw).toContain(String.raw`{\"X-API-Key\":\"<redacted>\"}`);
+    expect(entries[0]?.command).toBe('{"Authorization":"<redacted>"}');
+    expect(entries[0]?.segment).toBe('{"X-API-Key":"<redacted>"}');
+  });
+
   test('missing session id creates no log', () => {
     // Empty session ID
     writeAuditLog('', 'git reset --hard', 'git reset --hard', 'reason', null, {
@@ -615,6 +695,21 @@ describe('writeAuditLog', () => {
     const entries = readLogEntries(sessionId);
     expect(entries.length).toBe(1);
     expect(entries[0]?.command.length).toBeLessThanOrEqual(300);
+  });
+
+  test('redacts structured quoted headers before truncating persisted fields', () => {
+    const sessionId = 'test-session-redact-before-truncate';
+    const value = `Bearer truncation-canary-${'x'.repeat(320)}`;
+    const structuredHeader = `{"Authorization":"${value}"}`;
+    writeAuditLog(sessionId, structuredHeader, structuredHeader, 'reason', null, {
+      homeDir: testDir,
+    });
+
+    const entries = readLogEntries(sessionId);
+    expect(entries[0]?.command).toBe('{"Authorization":"<redacted>"}');
+    expect(entries[0]?.segment).toBe('{"Authorization":"<redacted>"}');
+    expect(entries[0]?.command).not.toContain('truncation-canary');
+    expect(entries[0]?.segment).not.toContain('truncation-canary');
   });
 
   test('can write allowed debug log entry', () => {

@@ -48,7 +48,11 @@ export function redactNonAssignmentSecrets(text: string): string {
       '<redacted>',
     )
     .replace(
-      /(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi,
+      /((?:(['"])(?:authorization|cookie|x-api-key|api-key)\2|(?:authorization|cookie|x-api-key|api-key))\s*:\s*)(['"])(?:\\[^\r\n]|(?!\3)[^\\\r\n])*\3/gi,
+      '$1$3<redacted>$3',
+    )
+    .replace(
+      /(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:(?!\s*(?:"<redacted>"|'<redacted>'))\s*)([^'"\r\n]+)(['"]?)/gi,
       '$1<redacted>$3',
     )
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, '$1<redacted>:<redacted>@')

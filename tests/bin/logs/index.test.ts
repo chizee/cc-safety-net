@@ -298,6 +298,31 @@ describe('runLogsCommand', () => {
     }
   });
 
+  test('prints writer-redacted structured headers in human and JSON output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-redaction-'));
+    const logsDir = join(root, '.cc-safety-net', 'logs');
+    const command = 'curl -H \'{"Authorization":"Bearer command-output-canary"}\'';
+    const segment = '{"Cookie":"session=segment-output-canary"}';
+
+    try {
+      writeAuditLog('structured-redaction', command, segment, 'blocked', root, { homeDir: root });
+
+      const human = await captureLogsCommand([], logsDir);
+      expect(human.exitCode).toBe(0);
+      expect(human.stdout).toContain('curl -H \'{"Authorization":"<redacted>"}\'');
+      expect(human.stdout).not.toContain('output-canary');
+
+      const json = await captureLogsCommand(['--json'], logsDir);
+      const entries = JSON.parse(json.stdout) as AuditLogEntry[];
+      expect(json.exitCode).toBe(0);
+      expect(json.stdout).not.toContain('output-canary');
+      expect(entries[0]?.command).toBe('curl -H \'{"Authorization":"<redacted>"}\'');
+      expect(entries[0]?.segment).toBe('{"Cookie":"<redacted>"}');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('escapes terminal control bytes in human output', async () => {
     const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-controls-'));
     const logsDir = join(root, 'logs');
