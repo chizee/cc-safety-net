@@ -40,9 +40,10 @@ describe('path canonicalization', () => {
   test('preserves lexical suffixes across ordinary permission failures', () => {
     const root = mkdtempSync(join(tmpdir(), 'path-canonicalization-permission-'));
     const target = join(root, 'missing');
+    const expected = join(realpathSync(root), basename(target));
     try {
       chmodSync(root, 0);
-      expect(resolveExistingPath(target)).toBe(target);
+      expect(resolveExistingPath(target)).toBe(expected);
     } finally {
       chmodSync(root, 0o700);
       rmSync(root, { recursive: true, force: true });
