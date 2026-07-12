@@ -2,6 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  PATH_CANONICALIZATION_LIMITS,
+  PathCanonicalizationLimitError,
+} from '@/core/path-canonicalization';
 import { getUserPolicyPath } from '@/core/policy';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import type { GuardDependencies } from '@/engine/guard';
@@ -51,6 +55,31 @@ const publicToolHookIsRequired: object extends Pick<PublicPluginHooks, 'tool.exe
   : true = false;
 
 describe('OpenCode plugin', () => {
+  test('rejects over-budget path sets with only the fixed canonicalization cause', async () => {
+    await withSafetyNetHomeDir('safety-net-opencode-path-budget-', async (dir) => {
+      const plugin = await loadToolPlugin(dir);
+      const marker = 'private-opencode-path-marker';
+      const path = join(dir, marker);
+
+      const errorMessage = await capturePluginErrorMessage(() =>
+        plugin['tool.execute.before'](
+          { tool: 'Read' },
+          {
+            args: {
+              targets: Array.from(
+                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts },
+                () => ({ path }),
+              ),
+            },
+          },
+        ),
+      );
+
+      expect(errorMessage).toBe(new PathCanonicalizationLimitError().message);
+      expect(errorMessage).not.toContain(marker);
+    });
+  });
+
   test('keeps guard dependencies out of the public plugin input', () => {
     expect(publicInputExposesGuardDependencies).toBeFalse();
     expect(publicInputAcceptsHomeDir).toBeFalse();

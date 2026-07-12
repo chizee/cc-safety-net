@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
+  createPathCanonicalizationBudget,
   expandSupportedPathEnvironmentVariables,
+  type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
 import {
@@ -172,11 +174,12 @@ function findSensitivePolicyPathTarget(
   config: SecretProtectionPolicy | undefined,
   configCwd: string,
 ): SecretTarget | null {
+  const budget = createPathCanonicalizationBudget();
   for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config, configCwd)) {
+    if (isDeniedByPolicy(target, cwd, config, configCwd, budget)) {
       return { target, ruleId: 'secret.deny-path' };
     }
-    const ruleId = isSensitivePath(target, cwd, config);
+    const ruleId = isSensitivePath(target, cwd, config, budget);
     if (ruleId) {
       return { target, ruleId };
     }
@@ -971,8 +974,9 @@ function isSensitivePath(
   target: string,
   cwd: string,
   config: SecretProtectionPolicy | undefined,
+  budget: PathCanonicalizationBudget,
 ): string | null {
-  const normalized = normalizeCandidatePath(target, cwd);
+  const normalized = normalizeCandidatePath(target, cwd, budget);
   if (!normalized) {
     return null;
   }
@@ -995,7 +999,7 @@ function isSensitivePath(
       return rule.id;
     }
   }
-  const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
+  const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config, budget);
   if (codingCliRuleId) return codingCliRuleId;
   for (const rule of SECRET_DIRECTORY_RULES) {
     if (
@@ -1058,49 +1062,72 @@ function matchesCodingCliPath(
   normalized: string,
   cwd: string,
   config: SecretProtectionPolicy | undefined,
+  budget: PathCanonicalizationBudget,
 ): string | null {
   return (
     SECRET_CODING_CLI_RULES.find((rule) => {
       if (!isSecretRuleEnabled(rule.id, config)) return false;
-      if (rule.id === 'secret.cli.claude-code') return matchesClaudeCodePath(normalized, cwd);
-      if (rule.id === 'secret.cli.antigravity') return matchesAntigravityPath(normalized, cwd);
-      if (rule.id === 'secret.cli.codex') return matchesCodexPath(normalized, cwd);
-      if (rule.id === 'secret.cli.gemini') return matchesGeminiPath(normalized, cwd);
-      if (rule.id === 'secret.cli.copilot-cli') return matchesCopilotCliPath(normalized, cwd);
-      if (rule.id === 'secret.cli.kimi-code') return matchesKimiCodePath(normalized, cwd);
-      if (rule.id === 'secret.cli.opencode') return matchesOpenCodePath(normalized, cwd);
-      if (rule.id === 'secret.cli.pi') return matchesPiPath(normalized, cwd);
+      if (rule.id === 'secret.cli.claude-code') {
+        return matchesClaudeCodePath(normalized, cwd, budget);
+      }
+      if (rule.id === 'secret.cli.antigravity') {
+        return matchesAntigravityPath(normalized, cwd, budget);
+      }
+      if (rule.id === 'secret.cli.codex') return matchesCodexPath(normalized, cwd, budget);
+      if (rule.id === 'secret.cli.gemini') return matchesGeminiPath(normalized, cwd, budget);
+      if (rule.id === 'secret.cli.copilot-cli') {
+        return matchesCopilotCliPath(normalized, cwd, budget);
+      }
+      if (rule.id === 'secret.cli.kimi-code') return matchesKimiCodePath(normalized, cwd, budget);
+      if (rule.id === 'secret.cli.opencode') return matchesOpenCodePath(normalized, cwd, budget);
+      if (rule.id === 'secret.cli.pi') return matchesPiPath(normalized, cwd, budget);
       return false;
     })?.id ?? null
   );
 }
 
-function matchesClaudeCodePath(normalized: string, cwd: string): boolean {
+function matchesClaudeCodePath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   return (
-    matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd), [
-      'settings.json',
-      'settings.local.json',
-      '.credentials.json',
-    ]) || matchesExactPath(normalized, '~/.claude.json', cwd)
+    matchesFileInRoot(
+      normalized,
+      codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
+      ['settings.json', 'settings.local.json', '.credentials.json'],
+    ) || matchesExactPath(normalized, '~/.claude.json', cwd, budget)
   );
 }
 
-function matchesAntigravityPath(normalized: string, cwd: string): boolean {
-  return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd);
+function matchesAntigravityPath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
 }
 
-function matchesCodexPath(normalized: string, cwd: string): boolean {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd), [
-    'config.toml',
-    'auth.json',
-    '.credentials.json',
-  ]);
-}
-
-function matchesGeminiPath(normalized: string, cwd: string): boolean {
+function matchesCodexPath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   return matchesFileInRoot(
     normalized,
-    appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd), '.gemini'),
+    codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
+    ['config.toml', 'auth.json', '.credentials.json'],
+  );
+}
+
+function matchesGeminiPath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  return matchesFileInRoot(
+    normalized,
+    appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
     [
       'oauth_creds.json',
       'mcp-oauth-tokens.json',
@@ -1112,17 +1139,25 @@ function matchesGeminiPath(normalized: string, cwd: string): boolean {
   );
 }
 
-function matchesCopilotCliPath(normalized: string, cwd: string): boolean {
-  const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd);
+function matchesCopilotCliPath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
   return (
     matchesFileInRoot(normalized, root, ['config.json']) ||
     matchesDirInRoot(normalized, root, ['mcp-oauth-config'])
   );
 }
 
-function matchesKimiCodePath(normalized: string, cwd: string): boolean {
-  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, '~/.kimi-code', cwd);
-  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd);
+function matchesKimiCodePath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, '~/.kimi-code', cwd, budget);
+  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd, budget);
   return (
     matchesFileInRoot(normalized, currentRoot, ['config.toml', 'mcp.json', 'server.token']) ||
     matchesDirInRoot(normalized, currentRoot, ['credentials']) ||
@@ -1131,24 +1166,28 @@ function matchesKimiCodePath(normalized: string, cwd: string): boolean {
   );
 }
 
-function matchesOpenCodePath(normalized: string, cwd: string): boolean {
+function matchesOpenCodePath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   const dataRoot = appendPath(
-    codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd),
+    codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd, budget),
     'opencode',
   );
   const configRoot = process.env.OPENCODE_CONFIG_DIR
-    ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd)
-    : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd), 'opencode');
+    ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd, budget)
+    : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget), 'opencode');
   const programDataConfig = process.env.ProgramData
-    ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd), 'opencode')]
+    ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
     : [];
 
   return (
     matchesFileInRoot(normalized, dataRoot, ['auth.json', 'mcp-auth.json']) ||
     matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
-    matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) ||
+    matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) ||
     ['/Library/Application Support/opencode', '/etc/opencode', ...programDataConfig].some((root) =>
-      matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd), [
+      matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
         'opencode.json',
         'opencode.jsonc',
       ]),
@@ -1156,16 +1195,25 @@ function matchesOpenCodePath(normalized: string, cwd: string): boolean {
   );
 }
 
-function matchesPiPath(normalized: string, cwd: string): boolean {
+function matchesPiPath(
+  normalized: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   return matchesFileInRoot(
     normalized,
-    codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd),
+    codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
     ['auth.json'],
   );
 }
 
-function codingCliRoot(envValue: string | undefined, fallback: string, cwd: string): string {
-  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd);
+function codingCliRoot(
+  envValue: string | undefined,
+  fallback: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): string {
+  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd, budget);
 }
 
 function matchesFileInRoot(normalized: string, root: string, files: readonly string[]): boolean {
@@ -1178,16 +1226,22 @@ function matchesDirInRoot(normalized: string, root: string, dirs: readonly strin
   );
 }
 
-function matchesExactPath(normalized: string, path: string, cwd: string): boolean {
-  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd));
+function matchesExactPath(
+  normalized: string,
+  path: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd, budget));
 }
 
 function matchesOptionalExactPath(
   normalized: string,
   path: string | undefined,
   cwd: string,
+  budget: PathCanonicalizationBudget,
 ): boolean {
-  return path?.trim() ? matchesExactPath(normalized, path, cwd) : false;
+  return path?.trim() ? matchesExactPath(normalized, path, cwd, budget) : false;
 }
 
 function sameComparablePath(a: string, b: string): boolean {
@@ -1219,8 +1273,9 @@ function isDeniedByPolicy(
   cwd: string,
   config: SecretProtectionPolicy | undefined,
   configCwd: string,
+  budget: PathCanonicalizationBudget,
 ): boolean {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget);
 }
 
 function matchesPolicyPath(
@@ -1228,11 +1283,12 @@ function matchesPolicyPath(
   cwd: string,
   paths: readonly string[],
   configCwd: string,
+  budget: PathCanonicalizationBudget,
 ): boolean {
   if (paths.length === 0) return false;
-  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
+  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
   return paths.some(
-    (path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized,
+    (path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)) === normalized,
   );
 }
 
@@ -1282,9 +1338,13 @@ function isSecretRuleEnabled(id: string, config: SecretProtectionPolicy | undefi
   return !(config.disabledRules as ReadonlySet<string>).has(id);
 }
 
-function normalizeCandidatePath(target: string, cwd: string): string {
+function normalizeCandidatePath(
+  target: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): string {
   const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : '';
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : '';
   const normalized = normalizePathText(
     normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
   );
@@ -1297,7 +1357,7 @@ function normalizeCandidatePath(target: string, cwd: string): string {
 
   const expanded = expandHomePath(normalized, home);
   const absolute = isAbsolute(expanded) ? expanded : normalizePathText(resolve(cwd, expanded));
-  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
     if (isAbsolute(expanded)) return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
@@ -1307,16 +1367,20 @@ function normalizeCandidatePath(target: string, cwd: string): string {
   return relativeHomePath ? `~${relativeHomePath}` : '~';
 }
 
-function normalizeAbsoluteCandidatePath(target: string, cwd: string): string {
+function normalizeAbsoluteCandidatePath(
+  target: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): string {
   const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : '';
+  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : '';
   const normalized = normalizePathText(
     normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
   );
   if (!normalized) return '';
   const expanded = home ? expandHomePath(normalized, home) : normalized;
   return normalizePathText(
-    resolveExistingPath(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
+    resolveExistingPath(isAbsolute(expanded) ? expanded : resolve(cwd, expanded), budget),
   );
 }
 

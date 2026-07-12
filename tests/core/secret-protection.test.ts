@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  PATH_CANONICALIZATION_LIMITS,
+  PathCanonicalizationLimitError,
+} from '@/core/path-canonicalization';
+import {
   findSensitivePathTarget,
   findSensitiveTargetInCommand,
   findSensitiveTargetInToolInput as findSensitiveTargetWithRoute,
@@ -71,6 +75,26 @@ describe('secret protection rule metadata', () => {
 });
 
 describe('secret protection path matching', () => {
+  test('shares one canonicalization budget across the complete target set', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-path-budget-'));
+    const config: SecretProtectionConfig = {
+      disabledRules: new Set(
+        SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
+      ),
+      denyPaths: [],
+    };
+    try {
+      const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
+      expect(findSensitivePathTarget(Array(boundaryTargetCount).fill(cwd), cwd, config)).toBeNull();
+
+      expect(() =>
+        findSensitivePathTarget(Array(boundaryTargetCount + 1).fill(cwd), cwd, config),
+      ).toThrow(PathCanonicalizationLimitError);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('matches project env files without substring matching', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

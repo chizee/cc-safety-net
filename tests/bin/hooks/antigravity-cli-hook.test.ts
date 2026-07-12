@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
+import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
 import {
   antigravityShellInput,
@@ -264,6 +265,65 @@ describe('Antigravity CLI hook', () => {
             () => {},
           ),
         ).toBe(realpathSync(nestedWorkspace));
+      });
+    });
+  });
+
+  describe('target canonicalization limits', () => {
+    test('shares one target-root budget and keeps the exact attempt boundary', async () => {
+      await withHookTestContext((context) => {
+        const inputForCount = (count: number) => ({
+          toolCall: {
+            name: 'view_file',
+            args: {
+              targets: Array.from({ length: count }, () => ({ AbsolutePath: context.cwd })),
+            },
+          },
+          workspacePaths: [context.cwd],
+        });
+
+        expect(
+          resolveAntigravityCwd(
+            inputForCount(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts),
+            () => {},
+          ),
+        ).toBe(realpathSync(context.cwd));
+
+        const denyReasons: string[] = [];
+        expect(
+          resolveAntigravityCwd(
+            inputForCount(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1),
+            (denial) => denyReasons.push(denial.reason),
+          ),
+        ).toBeNull();
+        expect(denyReasons).toHaveLength(1);
+        expect(denyReasons[0]).toContain('CC Safety Net failed closed');
+        expect(denyReasons[0]).not.toContain(context.cwd);
+      });
+    });
+
+    test('source CLI denies multi-target exhaustion once without echoing paths or crashing', async () => {
+      await withHookTestContext(async (context) => {
+        const result = await context.runAntigravityHook({
+          toolCall: {
+            name: 'view_file',
+            args: {
+              targets: Array.from(
+                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1 },
+                () => ({ AbsolutePath: context.cwd }),
+              ),
+            },
+          },
+          workspacePaths: [context.cwd],
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(result.stdout.split('\n')).toHaveLength(1);
+        expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+          'CC Safety Net failed closed',
+        );
+        expect(result.stdout).not.toContain(context.cwd);
       });
     });
   });

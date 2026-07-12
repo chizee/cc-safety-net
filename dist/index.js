@@ -8850,6 +8850,21 @@ import { dirname as dirname9, isAbsolute as isAbsolute8, join as join10, normali
 import { realpathSync as realpathSync8 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { basename, dirname as dirname8, join as join9 } from "node:path";
+var PATH_CANONICALIZATION_LIMITS = Object.freeze({
+  maxMissingSuffixComponents: 256,
+  maxRealpathAttempts: 1024,
+  maxProcessedCandidateBytes: 4194304
+});
+
+class PathCanonicalizationLimitError extends Error {
+  name = "PathCanonicalizationLimitError";
+  constructor() {
+    super("Path canonicalization work limit exceeded.");
+  }
+}
+function createPathCanonicalizationBudget() {
+  return { realpathAttempts: 0, processedCandidateBytes: 0 };
+}
 var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
   "CC_SAFETY_NET_HOME",
   "CLAUDE_CONFIG_DIR",
@@ -8869,16 +8884,24 @@ var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
 function expandSupportedPathEnvironmentVariables(value) {
   return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
 }
-function resolveExistingPath(path) {
+function resolveExistingPath(path, budget = createPathCanonicalizationBudget()) {
   if (!path)
     return path;
-  try {
-    return realpathSync8(path);
-  } catch {
-    let parent = dirname8(path);
-    if (parent === path)
-      return path;
-    return join9(resolveExistingPath(parent), basename(path));
+  let suffixes = [], candidate = path;
+  while (!0) {
+    if (budget.realpathAttempts++, budget.processedCandidateBytes += Buffer.byteLength(candidate), budget.realpathAttempts > PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts || budget.processedCandidateBytes > PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes)
+      throw new PathCanonicalizationLimitError;
+    try {
+      let existing = realpathSync8(candidate);
+      return suffixes.length === 0 ? existing : join9(existing, ...suffixes.reverse());
+    } catch {
+      let parent = dirname8(candidate);
+      if (parent === candidate)
+        return suffixes.length === 0 ? candidate : join9(candidate, ...suffixes.reverse());
+      if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents)
+        throw new PathCanonicalizationLimitError;
+      suffixes.push(basename(candidate)), candidate = parent;
+    }
   }
 }
 function getSupportedPathEnvironmentValue(name) {
@@ -9160,6 +9183,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   ["perl", /* @__PURE__ */ new Set(["e"])]
 ]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]);
 function findPolicyConfigMutationTargetInSemanticFacts(facts) {
+  let budget = createPathCanonicalizationBudget();
   for (let configCwd of /* @__PURE__ */ new Set([
     facts.invocation.context.configCwd,
     ...facts.invocation.context.policyConfigCwds ?? []
@@ -9167,43 +9191,43 @@ function findPolicyConfigMutationTargetInSemanticFacts(facts) {
     let target = findPolicyConfigMutationTargetForContext(facts, {
       configCwd,
       executionCwd: facts.invocation.context.executionCwd
-    });
+    }, budget);
     if (target)
       return target;
   }
   return null;
 }
-function findPolicyConfigMutationTargetForContext(facts, context) {
+function findPolicyConfigMutationTargetForContext(facts, context, budget) {
   if (facts.invocation.route.kind === "patch")
-    return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), !1, context);
+    return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), !1, context, budget);
   let command2 = getCommandSyntaxFact(facts, "input-candidate");
   if (facts.invocation.route.kind === "command")
-    return command2 ? findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store) : null;
+    return command2 ? findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store, budget) : null;
   if (facts.invocation.route.kind === "unknown" && command2) {
-    let commandTarget = findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store);
+    let commandTarget = findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store, budget);
     if (commandTarget)
       return commandTarget;
   }
-  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), context);
+  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), context, budget);
 }
-function findPolicyConfigMutationTargetInPaths(paths, readOnly, context) {
-  let target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd));
+function findPolicyConfigMutationTargetInPaths(paths, readOnly, context, budget) {
+  let target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd, budget));
   if (!target)
     return null;
   return readOnly ? null : { target };
 }
-function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /* @__PURE__ */ new Map, store) {
+function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /* @__PURE__ */ new Map, store, budget) {
   if (syntax.status !== "complete")
-    return findPolicyConfigTargetInText(syntax.source, context);
+    return findPolicyConfigTargetInText(syntax.source, context, budget);
   let state = { cwd: context.executionCwd, variables }, segment = [];
   for (let entry of syntax.entries) {
     if (entry.kind === "operator") {
       if (!entry.boundary)
         continue;
-      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
+      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store, budget);
       if (target)
         return target;
-      state = applyShellState(segment, state), segment = [];
+      state = applyShellState(segment, state, budget), segment = [];
       continue;
     }
     if (entry.kind === "redirection") {
@@ -9213,29 +9237,29 @@ function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /*
         continue;
       }
       let target = entry.role === "file-write" ? entry.target : void 0;
-      if (target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd))
+      if (target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd, budget))
         return { target: formatShellPolicyTarget(target) };
       continue;
     }
     segment.push(entry.text);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store, budget);
 }
-function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd, store) {
+function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd, store, budget) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store);
+  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store, budget);
   if (scriptTarget)
     return scriptTarget;
-  let sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
+  let sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd, budget);
   if (sedWriteTarget)
     return sedWriteTarget;
-  let target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
+  let target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd, budget));
   if (!target)
     return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
-function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store) {
+function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store, budget) {
   let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3)
     return null;
@@ -9249,25 +9273,25 @@ function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store) 
   if (!script)
     return null;
   if (SHELL_SCRIPT_COMMANDS.has(command2))
-    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script), { configCwd, executionCwd: state.cwd }, state.variables, store);
+    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script), { configCwd, executionCwd: state.cwd }, state.variables, store, budget);
   let target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
     ...extractConstructedPolicyPathCandidates(script)
-  ]).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
+  ]).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
   return target ? { target } : null;
 }
-function findSedScriptWritePolicyConfigTarget(segment, state, configCwd) {
+function findSedScriptWritePolicyConfigTarget(segment, state, configCwd, budget) {
   let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
     return null;
-  let target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
+  let target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
   return target ? { target } : null;
 }
-function applyShellState(segment, state) {
+function applyShellState(segment, state, budget) {
   let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables;
   return {
-    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }),
+    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }, budget),
     variables
   };
 }
@@ -9277,14 +9301,14 @@ function extractShellAssignments(segment, variables) {
     return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
   });
 }
-function getSegmentCwd(segment, state) {
+function getSegmentCwd(segment, state, budget) {
   let stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? "").toLowerCase() !== "cd")
     return state.cwd;
   let target = stripped[1];
   if (!target || target === "-")
     return state.cwd;
-  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd);
+  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd, budget);
 }
 function extractSedScriptArguments(tokens) {
   let scripts = [];
@@ -9348,9 +9372,9 @@ function isScriptArgumentOption(command2, token) {
 function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
-function isPolicyConfigPath(target, configCwd, executionCwd) {
-  let normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
-  return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd).toLowerCase());
+function isPolicyConfigPath(target, configCwd, executionCwd, budget) {
+  let normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase();
+  return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd, budget).toLowerCase());
 }
 function getPolicyConfigProtectedPaths(cwd) {
   let paths = getPolicyPaths({ cwd });
@@ -9377,8 +9401,8 @@ function getScopePolicyConfigProtectedPaths(configPath, lockPath) {
     })
   ];
 }
-function findPolicyConfigTargetInText(text, context) {
-  let target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd));
+function findPolicyConfigTargetInText(text, context, budget) {
+  let target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd, budget));
   return target ? { target } : null;
 }
 function formatShellPolicyTarget(target) {
@@ -9405,12 +9429,12 @@ function expandShellVariables(text, variables) {
     return isUsable ? expandShellVariables(word, variables) : "";
   }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
 }
-function normalizeCandidatePath(target, cwd) {
+function normalizeCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
   let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve6(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize4(isAbsolute8(expanded) ? expanded : resolve6(cwd, expanded))).replace(/\\/g, "/");
+  return resolveExistingPath(normalize4(isAbsolute8(expanded) ? expanded : resolve6(cwd, expanded)), budget).replace(/\\/g, "/");
 }
 
 // src/core/secret-protection.ts
@@ -9476,10 +9500,11 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   ["node", /* @__PURE__ */ new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
 function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
+  let budget = createPathCanonicalizationBudget();
   for (let target of targets) {
-    if (isDeniedByPolicy(target, cwd, config, configCwd))
+    if (isDeniedByPolicy(target, cwd, config, configCwd, budget))
       return { target, ruleId: "secret.deny-path" };
-    let ruleId = isSensitivePath(target, cwd, config);
+    let ruleId = isSensitivePath(target, cwd, config, budget);
     if (ruleId)
       return { target, ruleId };
   }
@@ -9979,8 +10004,8 @@ var PUBLIC_KEY_BASENAMES = /* @__PURE__ */ new Set(["id_rsa.pub", "id_ed25519.pu
   ["vendor", "bundle"],
   ["vendor", "cache"]
 ];
-function isSensitivePath(target, cwd, config) {
-  let normalized = normalizeCandidatePath2(target, cwd);
+function isSensitivePath(target, cwd, config, budget) {
+  let normalized = normalizeCandidatePath2(target, cwd, budget);
   if (!normalized)
     return null;
   let comparableName = comparable(normalized.split("/").pop() ?? ""), comparablePath = comparable(normalized);
@@ -9989,7 +10014,7 @@ function isSensitivePath(target, cwd, config) {
   for (let rule of SECRET_HOME_PATH_RULES)
     if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
-  let codingCliRuleId = matchesCodingCliPath(normalized, cwd, config);
+  let codingCliRuleId = matchesCodingCliPath(normalized, cwd, config, budget);
   if (codingCliRuleId)
     return codingCliRuleId;
   for (let rule of SECRET_DIRECTORY_RULES)
@@ -10025,48 +10050,40 @@ function isSensitivePath(target, cwd, config) {
 function matchesHomePathSuffix(comparablePath, suffix) {
   return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
-function matchesCodingCliPath(normalized, cwd, config) {
+function matchesCodingCliPath(normalized, cwd, config, budget) {
   return SECRET_CODING_CLI_RULES.find((rule) => {
     if (!isSecretRuleEnabled(rule.id, config))
       return !1;
     if (rule.id === "secret.cli.claude-code")
-      return matchesClaudeCodePath(normalized, cwd);
+      return matchesClaudeCodePath(normalized, cwd, budget);
     if (rule.id === "secret.cli.antigravity")
-      return matchesAntigravityPath(normalized, cwd);
+      return matchesAntigravityPath(normalized, cwd, budget);
     if (rule.id === "secret.cli.codex")
-      return matchesCodexPath(normalized, cwd);
+      return matchesCodexPath(normalized, cwd, budget);
     if (rule.id === "secret.cli.gemini")
-      return matchesGeminiPath(normalized, cwd);
+      return matchesGeminiPath(normalized, cwd, budget);
     if (rule.id === "secret.cli.copilot-cli")
-      return matchesCopilotCliPath(normalized, cwd);
+      return matchesCopilotCliPath(normalized, cwd, budget);
     if (rule.id === "secret.cli.kimi-code")
-      return matchesKimiCodePath(normalized, cwd);
+      return matchesKimiCodePath(normalized, cwd, budget);
     if (rule.id === "secret.cli.opencode")
-      return matchesOpenCodePath(normalized, cwd);
+      return matchesOpenCodePath(normalized, cwd, budget);
     if (rule.id === "secret.cli.pi")
-      return matchesPiPath(normalized, cwd);
+      return matchesPiPath(normalized, cwd, budget);
     return !1;
   })?.id ?? null;
 }
-function matchesClaudeCodePath(normalized, cwd) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd), [
-    "settings.json",
-    "settings.local.json",
-    ".credentials.json"
-  ]) || matchesExactPath(normalized, "~/.claude.json", cwd);
+function matchesClaudeCodePath(normalized, cwd, budget) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd, budget), ["settings.json", "settings.local.json", ".credentials.json"]) || matchesExactPath(normalized, "~/.claude.json", cwd, budget);
 }
-function matchesAntigravityPath(normalized, cwd) {
-  return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd);
+function matchesAntigravityPath(normalized, cwd, budget) {
+  return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd, budget);
 }
-function matchesCodexPath(normalized, cwd) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd), [
-    "config.toml",
-    "auth.json",
-    ".credentials.json"
-  ]);
+function matchesCodexPath(normalized, cwd, budget) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd, budget), ["config.toml", "auth.json", ".credentials.json"]);
 }
-function matchesGeminiPath(normalized, cwd) {
-  return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd), ".gemini"), [
+function matchesGeminiPath(normalized, cwd, budget) {
+  return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd, budget), ".gemini"), [
     "oauth_creds.json",
     "mcp-oauth-tokens.json",
     "a2a-oauth-tokens.json",
@@ -10075,26 +10092,26 @@ function matchesGeminiPath(normalized, cwd) {
     "gemini-credentials.json"
   ]);
 }
-function matchesCopilotCliPath(normalized, cwd) {
-  let root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd);
+function matchesCopilotCliPath(normalized, cwd, budget) {
+  let root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd, budget);
   return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
 }
-function matchesKimiCodePath(normalized, cwd) {
-  let currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd), legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd);
+function matchesKimiCodePath(normalized, cwd, budget) {
+  let currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd, budget), legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd, budget);
   return matchesFileInRoot(normalized, currentRoot, ["config.toml", "mcp.json", "server.token"]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
 }
-function matchesOpenCodePath(normalized, cwd) {
-  let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd), "opencode")] : [];
-  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath2(root, cwd), [
+function matchesOpenCodePath(normalized, cwd, budget) {
+  let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd, budget), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd, budget) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd, budget), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd, budget), "opencode")] : [];
+  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath2(root, cwd, budget), [
     "opencode.json",
     "opencode.jsonc"
   ]));
 }
-function matchesPiPath(normalized, cwd) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd), ["auth.json"]);
+function matchesPiPath(normalized, cwd, budget) {
+  return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd, budget), ["auth.json"]);
 }
-function codingCliRoot(envValue, fallback, cwd) {
-  return normalizeCandidatePath2(envValue?.trim() ? envValue : fallback, cwd);
+function codingCliRoot(envValue, fallback, cwd, budget) {
+  return normalizeCandidatePath2(envValue?.trim() ? envValue : fallback, cwd, budget);
 }
 function matchesFileInRoot(normalized, root, files) {
   return files.some((file) => sameComparablePath(normalized, appendPath(root, file)));
@@ -10102,11 +10119,11 @@ function matchesFileInRoot(normalized, root, files) {
 function matchesDirInRoot(normalized, root, dirs) {
   return dirs.some((dir) => isSameOrChildPath(comparable(normalized), comparable(appendPath(root, dir))));
 }
-function matchesExactPath(normalized, path, cwd) {
-  return sameComparablePath(normalized, normalizeCandidatePath2(path, cwd));
+function matchesExactPath(normalized, path, cwd, budget) {
+  return sameComparablePath(normalized, normalizeCandidatePath2(path, cwd, budget));
 }
-function matchesOptionalExactPath(normalized, path, cwd) {
-  return path?.trim() ? matchesExactPath(normalized, path, cwd) : !1;
+function matchesOptionalExactPath(normalized, path, cwd, budget) {
+  return path?.trim() ? matchesExactPath(normalized, path, cwd, budget) : !1;
 }
 function sameComparablePath(a, b) {
   return comparable(a) === comparable(b);
@@ -10120,14 +10137,14 @@ function isSensitiveDirSegment(comparablePath, dirName) {
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
-function isDeniedByPolicy(target, cwd, config, configCwd) {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd);
+function isDeniedByPolicy(target, cwd, config, configCwd, budget) {
+  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget);
 }
-function matchesPolicyPath(target, cwd, paths, configCwd) {
+function matchesPolicyPath(target, cwd, paths, configCwd, budget) {
   if (paths.length === 0)
     return !1;
-  let normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd));
-  return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd)) === normalized);
+  let normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
+  return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)) === normalized);
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
   let parts = comparablePath.split("/");
@@ -10162,13 +10179,13 @@ function isSecretRuleEnabled(id, config) {
     return !config.disabledRules.includes(id);
   return !config.disabledRules.has(id);
 }
-function normalizeCandidatePath2(target, cwd) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+function normalizeCandidatePath2(target, cwd, budget) {
+  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute9(expanded) ? expanded : normalizePathText(resolve7(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute9(expanded) ? expanded : normalizePathText(resolve7(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
     if (isAbsolute9(expanded))
       return canonicalAbsolute;
@@ -10177,12 +10194,12 @@ function normalizeCandidatePath2(target, cwd) {
   let relativeHomePath = canonicalAbsolute.slice(home.length);
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
-function normalizeAbsoluteCandidatePath(target, cwd) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+function normalizeAbsoluteCandidatePath(target, cwd, budget) {
+  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded)));
+  return normalizePathText(resolveExistingPath(isAbsolute9(expanded) ? expanded : resolve7(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))

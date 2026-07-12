@@ -2,6 +2,33 @@ import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
+/** @internal */
+export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
+  maxMissingSuffixComponents: 256,
+  maxRealpathAttempts: 1024,
+  maxProcessedCandidateBytes: 4 * 1024 * 1024,
+});
+
+/** @internal */
+export type PathCanonicalizationBudget = {
+  realpathAttempts: number;
+  processedCandidateBytes: number;
+};
+
+/** @internal */
+export class PathCanonicalizationLimitError extends Error {
+  override readonly name = 'PathCanonicalizationLimitError';
+
+  constructor() {
+    super('Path canonicalization work limit exceeded.');
+  }
+}
+
+/** @internal */
+export function createPathCanonicalizationBudget(): PathCanonicalizationBudget {
+  return { realpathAttempts: 0, processedCandidateBytes: 0 };
+}
+
 const SUPPORTED_PATH_ENV_NAMES = new Set([
   'CC_SAFETY_NET_HOME',
   'CLAUDE_CONFIG_DIR',
@@ -35,15 +62,38 @@ export function expandSupportedPathEnvironmentVariables(value: string): string {
     );
 }
 
-export function resolveExistingPath(path: string): string {
+export function resolveExistingPath(
+  path: string,
+  budget = createPathCanonicalizationBudget(),
+): string {
   if (!path) return path;
 
-  try {
-    return realpathSync(path);
-  } catch {
-    const parent = dirname(path);
-    if (parent === path) return path;
-    return join(resolveExistingPath(parent), basename(path));
+  const suffixes: string[] = [];
+  let candidate = path;
+  while (true) {
+    budget.realpathAttempts++;
+    budget.processedCandidateBytes += Buffer.byteLength(candidate);
+    if (
+      budget.realpathAttempts > PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts ||
+      budget.processedCandidateBytes > PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes
+    ) {
+      throw new PathCanonicalizationLimitError();
+    }
+
+    try {
+      const existing = realpathSync(candidate);
+      return suffixes.length === 0 ? existing : join(existing, ...suffixes.reverse());
+    } catch {
+      const parent = dirname(candidate);
+      if (parent === candidate) {
+        return suffixes.length === 0 ? candidate : join(candidate, ...suffixes.reverse());
+      }
+      if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents) {
+        throw new PathCanonicalizationLimitError();
+      }
+      suffixes.push(basename(candidate));
+      candidate = parent;
+    }
   }
 }
 

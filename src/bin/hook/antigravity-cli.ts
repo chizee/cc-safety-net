@@ -1,7 +1,11 @@
 import { isAbsolute, relative } from 'node:path';
 import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
-import { resolveExistingPath } from '@/core/path-canonicalization';
+import {
+  createPathCanonicalizationBudget,
+  PathCanonicalizationLimitError,
+  resolveExistingPath,
+} from '@/core/path-canonicalization';
 import { extractPatchTargetsFromToolInput, extractPathLikeToolValues } from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
@@ -78,7 +82,14 @@ function resolveAntigravityContext(
     return null;
   }
   if (toolName !== 'run_command') {
-    const targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
+    let targetRoot: string | null;
+    try {
+      targetRoot = resolveAntigravityTargetRoot(toolInput, toolName, configRoots);
+    } catch (error) {
+      if (!(error instanceof PathCanonicalizationLimitError)) throw error;
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+      return null;
+    }
     if (!targetRoot) {
       outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
       return null;
@@ -128,9 +139,10 @@ function resolveAntigravityTargetRoot(
     ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
     ...(route.kind === 'patch' ? extractPatchTargetsFromToolInput(toolInput) : []),
   ].filter(isAbsolute);
+  const budget = createPathCanonicalizationBudget();
   const targetRoots = new Set(
     targets.flatMap((target) => {
-      const root = mostSpecificContainingRoot(resolveExistingPath(target), configRoots);
+      const root = mostSpecificContainingRoot(resolveExistingPath(target, budget), configRoots);
       return root ? [root] : [];
     }),
   );

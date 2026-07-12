@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
+import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
 import {
   evaluateGuard,
   type GuardDependencies,
@@ -83,6 +85,24 @@ function captureNonCommandGuardError(cwd: string, input: unknown): GuardEvaluati
 }
 
 describe('guard evaluation', () => {
+  test('fails closed when policy protection exhausts one budget across multiple real targets', async () => {
+    await withTempDir('cc-safety-net-guard-policy-path-budget-', (cwd) => {
+      expect(evaluateGuard(nonCommandInvocation(cwd, { path: cwd })).decision.kind).toBe('allow');
+
+      const marker = 'private-policy-path-marker';
+      const error = captureNonCommandGuardError(cwd, {
+        targets: Array.from({ length: 200 }, (_, index) => ({
+          file_path: join(cwd, `${marker}-${index}`),
+        })),
+      });
+
+      expect(error.stage).toBe('policy-protection');
+      expect(error.cause).toBeInstanceOf(PathCanonicalizationLimitError);
+      expect((error.cause as Error).message).toBe('Path canonicalization work limit exceeded.');
+      expect((error.cause as Error).message).not.toContain(marker);
+    });
+  });
+
   test('fails closed before policy evaluation when recursive tool input exceeds traversal bounds', async () => {
     await withTempDir('cc-safety-net-guard-input-bounds-', (cwd) => {
       const input: Record<string, unknown> = {};

@@ -1,7 +1,9 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import {
+  createPathCanonicalizationBudget,
   expandSupportedPathEnvironmentVariables,
+  type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
 import { getUserPolicyPath } from '@/core/policy';
@@ -95,14 +97,19 @@ export function findPolicyConfigMutationTargetInToolInput(
 export function findPolicyConfigMutationTargetInSemanticFacts(
   facts: SemanticFacts,
 ): PolicyConfigTarget | null {
+  const budget = createPathCanonicalizationBudget();
   for (const configCwd of new Set([
     facts.invocation.context.configCwd,
     ...(facts.invocation.context.policyConfigCwds ?? []),
   ])) {
-    const target = findPolicyConfigMutationTargetForContext(facts, {
-      configCwd,
-      executionCwd: facts.invocation.context.executionCwd,
-    });
+    const target = findPolicyConfigMutationTargetForContext(
+      facts,
+      {
+        configCwd,
+        executionCwd: facts.invocation.context.executionCwd,
+      },
+      budget,
+    );
     if (target) return target;
   }
   return null;
@@ -111,19 +118,27 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
 function findPolicyConfigMutationTargetForContext(
   facts: SemanticFacts,
   context: ToolCallContext,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   if (facts.invocation.route.kind === 'patch') {
     return findPolicyConfigMutationTargetInPaths(
       facts.paths.map((path) => path.raw),
       false,
       context,
+      budget,
     );
   }
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   if (facts.invocation.route.kind === 'command') {
     return command
-      ? findPolicyConfigMutationTargetInCommand(command.shell, context, new Map(), facts.store)
+      ? findPolicyConfigMutationTargetInCommand(
+          command.shell,
+          context,
+          new Map(),
+          facts.store,
+          budget,
+        )
       : null;
   }
   if (facts.invocation.route.kind === 'unknown' && command) {
@@ -132,6 +147,7 @@ function findPolicyConfigMutationTargetForContext(
       context,
       new Map(),
       facts.store,
+      budget,
     );
     if (commandTarget) return commandTarget;
   }
@@ -142,6 +158,7 @@ function findPolicyConfigMutationTargetForContext(
       facts.invocation.route.kind === 'glob' ||
       isReadOnlyTool(facts.invocation.toolName),
     context,
+    budget,
   );
 }
 
@@ -149,9 +166,10 @@ function findPolicyConfigMutationTargetInPaths(
   paths: readonly string[],
   readOnly: boolean,
   context: ToolCallContext,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   const target = paths.find((value) =>
-    isPolicyConfigPath(value, context.configCwd, context.executionCwd),
+    isPolicyConfigPath(value, context.configCwd, context.executionCwd, budget),
   );
   if (!target) return null;
   return readOnly ? null : { target };
@@ -162,18 +180,25 @@ function findPolicyConfigMutationTargetInCommand(
   context: ToolCallContext,
   variables: ReadonlyMap<string, string> = new Map(),
   store: SemanticFactStore,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   if (syntax.status !== 'complete') {
-    return findPolicyConfigTargetInText(syntax.source, context);
+    return findPolicyConfigTargetInText(syntax.source, context, budget);
   }
   let state: ShellState = { cwd: context.executionCwd, variables };
   let segment: string[] = [];
   for (const entry of syntax.entries) {
     if (entry.kind === 'operator') {
       if (!entry.boundary) continue;
-      const target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
+      const target = findUnsafePolicyConfigSegmentTarget(
+        segment,
+        state,
+        context.configCwd,
+        store,
+        budget,
+      );
       if (target) return target;
-      state = applyShellState(segment, state);
+      state = applyShellState(segment, state, budget);
       segment = [];
       continue;
     }
@@ -189,6 +214,7 @@ function findPolicyConfigMutationTargetInCommand(
           expandShellVariables(target, state.variables),
           context.configCwd,
           state.cwd,
+          budget,
         )
       ) {
         return { target: formatShellPolicyTarget(target) };
@@ -197,7 +223,7 @@ function findPolicyConfigMutationTargetInCommand(
     }
     segment.push(entry.text);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store);
+  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store, budget);
 }
 
 function findUnsafePolicyConfigSegmentTarget(
@@ -205,13 +231,20 @@ function findUnsafePolicyConfigSegmentTarget(
   state: ShellState,
   configCwd: string,
   store: SemanticFactStore,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   if (isAssignmentOnlySegment(segment)) return null;
 
-  const scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store);
+  const scriptTarget = findScriptArgumentPolicyConfigTarget(
+    segment,
+    state,
+    configCwd,
+    store,
+    budget,
+  );
   if (scriptTarget) return scriptTarget;
 
-  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd);
+  const sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd, budget);
   if (sedWriteTarget) return sedWriteTarget;
 
   const target = segment
@@ -220,7 +253,7 @@ function findUnsafePolicyConfigSegmentTarget(
         expandShellVariables(candidate, state.variables),
       ),
     )
-    .find((token) => isPolicyConfigPath(token, configCwd, state.cwd));
+    .find((token) => isPolicyConfigPath(token, configCwd, state.cwd, budget));
   if (!target) return null;
   return isReadOnlySegment(segment) ? null : { target };
 }
@@ -230,6 +263,7 @@ function findScriptArgumentPolicyConfigTarget(
   state: ShellState,
   configCwd: string,
   store: SemanticFactStore,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (stripped.length < 3) return null;
@@ -249,6 +283,7 @@ function findScriptArgumentPolicyConfigTarget(
       { configCwd, executionCwd: state.cwd },
       state.variables,
       store,
+      budget,
     );
   }
 
@@ -258,7 +293,7 @@ function findScriptArgumentPolicyConfigTarget(
       expandShellVariables(candidate, state.variables),
       ...extractConstructedPolicyPathCandidates(script),
     ])
-    .find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
+    .find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
   return target ? { target } : null;
 }
 
@@ -266,6 +301,7 @@ function findSedScriptWritePolicyConfigTarget(
   segment: readonly string[],
   state: ShellState,
   configCwd: string,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'sed') return null;
@@ -273,16 +309,20 @@ function findSedScriptWritePolicyConfigTarget(
   const target = extractSedScriptArguments(stripped.slice(1))
     .flatMap((script) => extractSedWritePathCandidates(script))
     .map((candidate) => expandShellVariables(candidate, state.variables))
-    .find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd));
+    .find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
   return target ? { target } : null;
 }
 
-function applyShellState(segment: readonly string[], state: ShellState): ShellState {
+function applyShellState(
+  segment: readonly string[],
+  state: ShellState,
+  budget: PathCanonicalizationBudget,
+): ShellState {
   const variables = isAssignmentOnlySegment(segment)
     ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)])
     : state.variables;
   return {
-    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }),
+    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }, budget),
     variables,
   };
 }
@@ -299,13 +339,17 @@ function extractShellAssignments(
   });
 }
 
-function getSegmentCwd(segment: readonly string[], state: ShellState): string {
+function getSegmentCwd(
+  segment: readonly string[],
+  state: ShellState,
+  budget: PathCanonicalizationBudget,
+): string {
   const stripped = stripEnvAssignments(stripWrappers([...segment]));
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'cd') return state.cwd;
 
   const target = stripped[1];
   if (!target || target === '-') return state.cwd;
-  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd);
+  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd, budget);
 }
 
 function extractSedScriptArguments(tokens: readonly string[]): string[] {
@@ -385,10 +429,15 @@ function isReadOnlyTool(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
 
-function isPolicyConfigPath(target: string, configCwd: string, executionCwd: string): boolean {
-  const normalized = normalizeCandidatePath(target, executionCwd).toLowerCase();
+function isPolicyConfigPath(
+  target: string,
+  configCwd: string,
+  executionCwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  const normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase();
   return getPolicyConfigProtectedPaths(configCwd).some(
-    (path) => normalized === normalizeCandidatePath(path, configCwd).toLowerCase(),
+    (path) => normalized === normalizeCandidatePath(path, configCwd, budget).toLowerCase(),
   );
 }
 
@@ -427,9 +476,10 @@ function getScopePolicyConfigProtectedPaths(configPath: string, lockPath: string
 function findPolicyConfigTargetInText(
   text: string,
   context: ToolCallContext,
+  budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   const target = extractPolicyConfigPathCandidates(text).find((candidate) =>
-    isPolicyConfigPath(candidate, context.configCwd, context.executionCwd),
+    isPolicyConfigPath(candidate, context.configCwd, context.executionCwd, budget),
   );
   return target ? { target } : null;
 }
@@ -479,12 +529,17 @@ function expandShellVariables(text: string, variables: ReadonlyMap<string, strin
     .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name: string) => variables.get(name) ?? match);
 }
 
-function normalizeCandidatePath(target: string, cwd: string): string {
+function normalizeCandidatePath(
+  target: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): string {
   const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, '/');
   if (!unix) return '';
   const expanded =
     unix === '~' ? homedir() : unix.startsWith('~/') ? resolve(homedir(), unix.slice(2)) : unix;
   return resolveExistingPath(
     normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
+    budget,
   ).replace(/\\/g, '/');
 }
