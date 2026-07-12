@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
+import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import {
   evaluateGuard,
   type GuardDependencies,
@@ -8,10 +9,24 @@ import {
   GuardEvaluationError,
   type GuardStage,
 } from '@/engine/guard';
+import { parseCommand } from '@/parser/command';
 import { withTempDir } from '../helpers';
 import { policySnapshot } from '../helpers/policy';
 
 const SNAPSHOT = policySnapshot();
+const REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT =
+  'CC Safety Net could not validate the command because its structure exceeds safe analysis limits.';
+
+function structurallyLimitedFactParsers() {
+  return {
+    parseCommand: (source: string, dialect: Parameters<typeof parseCommand>[1]) =>
+      parseCommand(source, dialect, {
+        maxInputLength: 20,
+        maxWords: 2,
+        maxDepth: 10,
+      }),
+  };
+}
 
 function commandInvocation(cwd: string, command: string | null = 'git status') {
   return {
@@ -100,6 +115,129 @@ function expectNonReflectiveToolInputLimit(error: GuardEvaluationError, marker: 
 }
 
 describe('guard evaluation', () => {
+  test('denies an authoritative structurally limited command before guard dependencies', async () => {
+    await withTempDir('cc-safety-net-guard-structural-command-', (cwd) => {
+      const calls: string[] = [];
+      const command = 'a a a';
+
+      expect(
+        evaluateGuard(commandInvocation(cwd, command), {
+          dependencies: dependencies({}, calls),
+          factParserDependencies: structurallyLimitedFactParsers(),
+        }),
+      ).toEqual({
+        stage: 'command-analysis',
+        decision: {
+          kind: 'deny',
+          reason: REASON_RECURSION_LIMIT,
+          intent: 'stop_and_explain',
+          evidence: [{ kind: 'command', command, segment: command }],
+        },
+      });
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test.each([
+    ['missing declared command', null, { command: 'a a a' }, 'command'],
+    ['blank declared command', '   ', { command: 'a a a' }, 'command'],
+    ['declared/input mismatch', 'git status', { command: 'a a a' }, 'command'],
+    ['unknown route', undefined, { command: 'a a a' }, 'unknown'],
+  ] as const)('denies a structurally limited input candidate during validation: %s', async (_label, declaredCommand, input, routeKind) => {
+    await withTempDir('cc-safety-net-guard-structural-input-', (cwd) => {
+      const calls: string[] = [];
+      const invocation =
+        routeKind === 'unknown'
+          ? {
+              toolName: 'custom_runner',
+              input,
+              context: { configCwd: cwd, executionCwd: cwd },
+              route: { kind: 'unknown' as const },
+            }
+          : {
+              ...commandInvocation(cwd, declaredCommand),
+              input,
+            };
+
+      expect(
+        evaluateGuard(invocation, {
+          dependencies: dependencies({}, calls),
+          factParserDependencies: structurallyLimitedFactParsers(),
+        }),
+      ).toEqual({
+        stage: 'command-validation',
+        decision: {
+          kind: 'deny',
+          reason: REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
+          intent: 'stop_and_explain',
+          evidence: [],
+        },
+      });
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test('preserves unsafe tool-input validation ahead of structural command checks', async () => {
+    await withTempDir('cc-safety-net-guard-structural-input-precedence-', (cwd) => {
+      const input = Object.create({ command: 'a a a' });
+      const error = captureGuardError(() =>
+        evaluateGuard(
+          {
+            ...commandInvocation(cwd, 'a a a'),
+            input,
+          },
+          {
+            factParserDependencies: structurallyLimitedFactParsers(),
+          },
+        ),
+      );
+
+      expect(error.stage).toBe('policy-protection');
+      expect(error.evaluation.decision).toEqual(
+        expect.objectContaining({ kind: 'deny', evidence: [] }),
+      );
+    });
+  });
+
+  test('keeps ordinary guard validation and configuration precedence', async () => {
+    await withTempDir('cc-safety-net-guard-ordinary-precedence-', (cwd) => {
+      const calls: string[] = [];
+      const result = evaluateGuard(commandInvocation(cwd, null), {
+        dependencies: dependencies({}, calls),
+        factParserDependencies: {
+          parseCommand: (source, dialect) =>
+            parseCommand(source, dialect, {
+              maxInputLength: 20,
+              maxWords: 20,
+              maxDepth: 10,
+            }),
+        },
+      });
+
+      expect(result.stage).toBe('command-validation');
+      if (result.decision.kind !== 'deny') throw new Error('Expected guard denial');
+      expect(result.decision.reason).not.toBe(REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT);
+      expect(calls).toEqual(['policy', 'config', 'secret']);
+    });
+  });
+
+  test('deterministically denies the exact one-MiB structurally limited command', async () => {
+    await withTempDir('cc-safety-net-guard-exact-structural-limit-', (cwd) => {
+      const command = 'a '.repeat(524_288);
+      const result = evaluateGuard(commandInvocation(cwd, command));
+
+      expect(Buffer.byteLength(command)).toBe(1_048_576);
+      expect(result.stage).toBe('command-analysis');
+      expect(result.decision).toEqual(
+        expect.objectContaining({
+          kind: 'deny',
+          reason: REASON_RECURSION_LIMIT,
+          intent: 'stop_and_explain',
+        }),
+      );
+    });
+  });
+
   test('fails closed when policy protection exhausts one budget across multiple real targets', async () => {
     await withTempDir('cc-safety-net-guard-policy-path-budget-', (cwd) => {
       expect(evaluateGuard(nonCommandInvocation(cwd, { path: cwd })).decision.kind).toBe('allow');

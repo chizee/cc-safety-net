@@ -5,13 +5,21 @@ import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
+import {
+  REASON_RECURSION_LIMIT,
+  REASON_SAFETY_NET_FAILED_CLOSED,
+  REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
+} from '@/core/reasons';
 import {
   findSensitiveTargetInSemanticFacts,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
-import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
+import {
+  createSemanticFacts,
+  type FactParserDependencies,
+  getCommandSyntaxFact,
+} from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
@@ -68,6 +76,7 @@ export type GuardOptions = {
   auditAllowed?: boolean;
   policyOptions?: PolicySnapshotOptions;
   dependencies?: Partial<GuardDependencies>;
+  factParserDependencies?: Partial<FactParserDependencies>;
 };
 
 /** @internal */
@@ -100,7 +109,36 @@ export function evaluateGuard(
   const inputCommand = getInputCommandOrFail(invocation);
   const command = isCommandInvocation(invocation) ? invocation.command : inputCommand;
 
-  const facts = callDependency('policy-protection', command, () => createSemanticFacts(invocation));
+  const facts = callDependency('policy-protection', command, () =>
+    createSemanticFacts(invocation, options.factParserDependencies),
+  );
+  const declaredCommand = getCommandSyntaxFact(facts, 'declared-command');
+  if (
+    isCommandInvocation(invocation) &&
+    invocation.command?.trim() &&
+    declaredCommand?.program.status === 'limited'
+  ) {
+    return {
+      stage: 'command-analysis',
+      decision: {
+        kind: 'deny',
+        reason: REASON_RECURSION_LIMIT,
+        intent: 'stop_and_explain',
+        evidence: [{ kind: 'command', command: invocation.command, segment: invocation.command }],
+      },
+    };
+  }
+  if (getCommandSyntaxFact(facts, 'input-candidate')?.program.status === 'limited') {
+    return {
+      stage: 'command-validation',
+      decision: {
+        kind: 'deny',
+        reason: REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
+        intent: 'stop_and_explain',
+        evidence: [],
+      },
+    };
+  }
   const policyTarget = callDependency('policy-protection', command, () =>
     dependencies.findPolicyMutation(facts),
   );

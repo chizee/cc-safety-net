@@ -18,7 +18,7 @@ export type ShellSyntaxEntry =
 
 /** @internal */
 export type ShellSyntaxFacts = {
-  readonly status: 'complete' | 'unclosed-quote' | 'invalid';
+  readonly status: 'complete' | 'unclosed-quote' | 'invalid' | 'structural-limit';
   readonly source: string;
   readonly entries: readonly ShellSyntaxEntry[];
 };
@@ -35,7 +35,7 @@ export type CommandSyntaxFacts = {
 
 /** @internal */
 export type SemanticFactStore = {
-  readonly getShellSyntax: (source: string) => ShellSyntaxFacts;
+  readonly getShellSyntax: (source: string, program?: CommandProgram) => ShellSyntaxFacts;
   readonly getCommandProgram: (source: string, dialect: ShellKind) => CommandProgram;
 };
 

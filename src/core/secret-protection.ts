@@ -25,7 +25,9 @@ import {
   createSemanticFacts,
   getCommandSyntaxFact,
   projectSensitiveShellText,
+  StructuralShellSyntaxLimitError,
 } from '@/core/semantic-facts';
+import { getShellCommandString } from '@/core/shell';
 import { advanceQuoteScanState } from '@/core/shell/shared';
 import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
@@ -253,6 +255,7 @@ function extractToolPathTargets(facts: SemanticFacts): string[] {
 }
 
 function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFactStore): string[] {
+  if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
   if (syntax.status === 'unclosed-quote') return [];
   if (syntax.status === 'invalid') throw new Error('Unable to parse command for secret protection');
 
@@ -326,12 +329,25 @@ function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFac
     return [...assignmentValues, ...extractAwkPathTargets(post, store)];
   }
   if (isCodeInterpreter(command)) {
+    assertShellInterpreterBodiesWithinStructuralLimits(command, post, store);
     return [...assignmentValues, ...extractInterpreterPathTargets(command, post)];
   }
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
   ];
+}
+
+function assertShellInterpreterBodiesWithinStructuralLimits(
+  command: string,
+  tokens: readonly string[],
+  store: SemanticFactStore,
+): void {
+  if (!SHELL_STDIN_INTERPRETERS.has(command)) return;
+  const body = getShellCommandString(command, tokens);
+  if (body !== null && store.getShellSyntax(body).status === 'structural-limit') {
+    throw new StructuralShellSyntaxLimitError();
+  }
 }
 
 function extractPipeCarrierPathTargets(

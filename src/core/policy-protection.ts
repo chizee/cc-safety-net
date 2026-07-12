@@ -11,8 +11,12 @@ import { readRulesConfig } from '@/core/rules/policy/config-file';
 import { readLockfile } from '@/core/rules/policy/lockfile';
 import { getPolicyPaths, getRulebookCachePath, RULEBOOK_FILE } from '@/core/rules/policy/paths';
 import { isGitHubRulebookSource } from '@/core/rules/policy/sources';
-import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
-import { getBasename, stripWrappers } from '@/core/shell';
+import {
+  createSemanticFacts,
+  getCommandSyntaxFact,
+  StructuralShellSyntaxLimitError,
+} from '@/core/semantic-facts';
+import { getBasename, getShellCommandString, stripWrappers } from '@/core/shell';
 import { normalizeToolName } from '@/core/tool-input';
 import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
@@ -182,6 +186,7 @@ function findPolicyConfigMutationTargetInCommand(
   store: SemanticFactStore,
   budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
+  if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
   if (syntax.status !== 'complete') {
     return findPolicyConfigTargetInText(syntax.source, context, budget);
   }
@@ -271,13 +276,9 @@ function findScriptArgumentPolicyConfigTarget(
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   if (!SCRIPT_ARGUMENT_OPTIONS.has(command)) return null;
 
-  const optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command, token));
-  if (optionIndex === -1) return null;
-
-  const script = stripped[optionIndex + 1];
-  if (!script) return null;
-
   if (SHELL_SCRIPT_COMMANDS.has(command)) {
+    const script = getShellCommandString(command, stripped.slice(1));
+    if (script === null) return null;
     return findPolicyConfigMutationTargetInCommand(
       store.getShellSyntax(script),
       { configCwd, executionCwd: state.cwd },
@@ -286,6 +287,12 @@ function findScriptArgumentPolicyConfigTarget(
       budget,
     );
   }
+
+  const optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command, token));
+  if (optionIndex === -1) return null;
+
+  const script = stripped[optionIndex + 1];
+  if (!script) return null;
 
   const target = extractPolicyConfigPathCandidates(script)
     .flatMap((candidate) => [

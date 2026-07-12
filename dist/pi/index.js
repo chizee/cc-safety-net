@@ -1007,7 +1007,7 @@ function excerpt(text, maxLen) {
 }
 
 // src/core/reasons.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
+var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.", REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed. Flatten the nesting and retry.", REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT = "CC Safety Net could not validate the command because its structure exceeds safe analysis limits.", REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.";
 
 // src/integrations/denial.ts
 function projectGuardDenial(evaluation, options) {
@@ -1882,6 +1882,72 @@ function extractShortOpts(tokens, options) {
       }
   }
   return opts;
+}
+// src/core/shell/script-command.ts
+var SHORT_VALUE_OPTIONS = /* @__PURE__ */ new Map([
+  ["bash", /* @__PURE__ */ new Set(["O", "o"])],
+  ["dash", /* @__PURE__ */ new Set(["o"])],
+  ["ksh", /* @__PURE__ */ new Set(["o"])],
+  ["sh", /* @__PURE__ */ new Set(["o"])],
+  ["zsh", /* @__PURE__ */ new Set(["o"])]
+]), ATTACHED_SHORT_VALUE_OPTIONS = /* @__PURE__ */ new Map([["zsh", /* @__PURE__ */ new Set(["o"])]]), LONG_VALUE_OPTIONS = /* @__PURE__ */ new Map([["bash", /* @__PURE__ */ new Set(["--init-file", "--rcfile"])]]);
+function getShellCommandString(command, args) {
+  for (let index = 0;index < args.length; index++) {
+    let token = args[index];
+    if (token === void 0 || token === "--" || token === "-" || token[0] !== "-" && token[0] !== "+")
+      return null;
+    if (token.startsWith("--")) {
+      let longValueOptions = LONG_VALUE_OPTIONS.get(command);
+      if (hasAttachedLongValue(token, longValueOptions))
+        continue;
+      if (!longValueOptions?.has(token))
+        continue;
+      if (args[index + 1] === void 0)
+        return null;
+      index++;
+      continue;
+    }
+    let shortOptions = parseShortOptions(command, token);
+    if (shortOptions.commandSelected)
+      return args[index + shortOptions.followingValues + 1] ?? null;
+    let next = args[index + 1];
+    if (command === "ksh" && (token === "-o" || token === "+o") && next !== void 0 && next[0] !== "-" && next[0] !== "+")
+      index++;
+    index += shortOptions.followingValues;
+  }
+  return null;
+}
+function parseShortOptions(command, token) {
+  let valueOptions = SHORT_VALUE_OPTIONS.get(command), attachedValueOptions = ATTACHED_SHORT_VALUE_OPTIONS.get(command), commandSelected = !1, followingValues = 0;
+  for (let index = 1;index < token.length; index++) {
+    let option = token[index];
+    if (option === void 0)
+      break;
+    if (token[0] === "-" && option === "c")
+      commandSelected = !0;
+    if (command === "ksh" && option === "o") {
+      if (index + 1 < token.length) {
+        let optionName = token.slice(index + 1);
+        if (!commandSelected && token[0] === "-" && optionName === "c")
+          continue;
+        if (!commandSelected && token[0] === "-" && optionName[0] === "-" && optionName.endsWith("c"))
+          commandSelected = !0;
+        break;
+      }
+      if (commandSelected)
+        followingValues++;
+      continue;
+    }
+    if (!valueOptions?.has(option))
+      continue;
+    if (attachedValueOptions?.has(option) && index + 1 < token.length)
+      break;
+    followingValues++;
+  }
+  return { commandSelected, followingValues };
+}
+function hasAttachedLongValue(token, options) {
+  return options !== void 0 && [...options].some((option) => token.startsWith(`${option}=`));
 }
 // src/core/shell/wrappers.ts
 import { realpathSync as realpathSync3 } from "node:fs";
@@ -9424,10 +9490,17 @@ var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   "searchpath",
   "targetfile",
   "target_file"
-]), GREP_KEYS = /* @__PURE__ */ new Set([...PATH_LIKE_KEYS, "glob"]), GLOB_KEYS = /* @__PURE__ */ new Set([...GREP_KEYS, "pattern"]), REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<", "<<", "<<<", "<>", ">&", "<&", "&>", "&>>"]), LEGACY_BOUNDARIES = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), NEUTRAL_ENV_PROXY = new Proxy({}, { get: (_, name) => ["$", "{", String(name), "}"].join("") }), DEFAULT_PARSERS = {
+]), GREP_KEYS = /* @__PURE__ */ new Set([...PATH_LIKE_KEYS, "glob"]), GLOB_KEYS = /* @__PURE__ */ new Set([...GREP_KEYS, "pattern"]), REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<", "<<", "<<<", "<>", ">&", "<&", "&>", "&>>"]), LEGACY_BOUNDARIES = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]), NEUTRAL_ENV_PROXY = new Proxy({}, { get: (_, name) => ["$", "{", String(name), "}"].join("") }), DEFAULT_PARSERS = {
   parseCommand,
   parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
 };
+
+class StructuralShellSyntaxLimitError extends Error {
+  name = "StructuralShellSyntaxLimitError";
+  constructor() {
+    super("Structural command analysis limit exceeded.");
+  }
+}
 function createSemanticFacts(invocation, parserDependencies = {}) {
   let store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
   if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
@@ -9452,7 +9525,7 @@ function createSemanticFacts(invocation, parserDependencies = {}) {
       program,
       views: projectAnalysisOrder(program),
       uncertainties: program.issues,
-      shell: store.getShellSyntax(candidate.source)
+      shell: store.getShellSyntax(candidate.source, program)
     })), facts;
   }, []);
   return Object.freeze({
@@ -9476,22 +9549,36 @@ function projectSensitiveShellText(source) {
   return expandSupportedPathEnvironmentVariables(source);
 }
 function createSemanticFactStore(parserDependencies = {}) {
-  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map;
+  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map, structuralLimitFacts = /* @__PURE__ */ new WeakMap, getCommandProgram = (source, dialect) => {
+    let key = `${dialect}\x00${source}`, existing = commandPrograms.get(key);
+    if (existing)
+      return existing;
+    let program = parsers.parseCommand(source, dialect);
+    return commandPrograms.set(key, program), program;
+  };
   return Object.freeze({
-    getShellSyntax: (source) => {
+    getShellSyntax: (source, suppliedProgram) => {
+      if (suppliedProgram && suppliedProgram.source !== source)
+        throw TypeError("Shell syntax source does not match command program source.");
+      let program = suppliedProgram ?? getCommandProgram(source, "posix");
+      if (program.status === "limited") {
+        let existing2 = structuralLimitFacts.get(program);
+        if (existing2)
+          return existing2;
+        let syntax2 = Object.freeze({
+          status: "structural-limit",
+          source,
+          entries: EMPTY_SHELL_SYNTAX_ENTRIES
+        });
+        return structuralLimitFacts.set(program, syntax2), syntax2;
+      }
       let existing = shellFacts.get(source);
       if (existing)
         return existing;
       let syntax = parseShellSyntax(source, parsers.parseShell);
       return shellFacts.set(source, syntax), syntax;
     },
-    getCommandProgram: (source, dialect) => {
-      let key = `${dialect}\x00${source}`, existing = commandPrograms.get(key);
-      if (existing)
-        return existing;
-      let program = parsers.parseCommand(source, dialect);
-      return commandPrograms.set(key, program), program;
-    }
+    getCommandProgram
   });
 }
 function freezeCommandFact(fact) {
@@ -9662,6 +9749,8 @@ function findPolicyConfigMutationTargetInPaths(paths, readOnly, context, budget)
   return readOnly ? null : { target };
 }
 function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /* @__PURE__ */ new Map, store, budget) {
+  if (syntax.status === "structural-limit")
+    throw new StructuralShellSyntaxLimitError;
   if (syntax.status !== "complete")
     return findPolicyConfigTargetInText(syntax.source, context, budget);
   let state = { cwd: context.executionCwd, variables }, segment = [];
@@ -9711,14 +9800,18 @@ function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store, 
   let command2 = getBasename(stripped[0] ?? "").toLowerCase();
   if (!SCRIPT_ARGUMENT_OPTIONS.has(command2))
     return null;
+  if (SHELL_SCRIPT_COMMANDS.has(command2)) {
+    let script2 = getShellCommandString(command2, stripped.slice(1));
+    if (script2 === null)
+      return null;
+    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script2), { configCwd, executionCwd: state.cwd }, state.variables, store, budget);
+  }
   let optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command2, token));
   if (optionIndex === -1)
     return null;
   let script = stripped[optionIndex + 1];
   if (!script)
     return null;
-  if (SHELL_SCRIPT_COMMANDS.has(command2))
-    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script), { configCwd, executionCwd: state.cwd }, state.variables, store, budget);
   let target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
     candidate,
     expandShellVariables(candidate, state.variables),
@@ -9972,6 +10065,8 @@ function extractToolPathTargets(facts) {
   ];
 }
 function extractCommandPathTargets(syntax, store) {
+  if (syntax.status === "structural-limit")
+    throw new StructuralShellSyntaxLimitError;
   if (syntax.status === "unclosed-quote")
     return [];
   if (syntax.status === "invalid")
@@ -10019,11 +10114,18 @@ function extractSegmentPathTargets(tokens, store) {
   if (AWK_INTERPRETERS.has(command2))
     return [...assignmentValues, ...extractAwkPathTargets(post, store)];
   if (isCodeInterpreter(command2))
-    return [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
+    return assertShellInterpreterBodiesWithinStructuralLimits(command2, post, store), [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
   ];
+}
+function assertShellInterpreterBodiesWithinStructuralLimits(command2, tokens, store) {
+  if (!SHELL_STDIN_INTERPRETERS.has(command2))
+    return;
+  let body = getShellCommandString(command2, tokens);
+  if (body !== null && store.getShellSyntax(body).status === "structural-limit")
+    throw new StructuralShellSyntaxLimitError;
 }
 function extractPipeCarrierPathTargets(producer, consumer, store) {
   if (xargsReadsPipeInputAsPath(consumer, store))
@@ -10716,7 +10818,28 @@ var DEFAULT_DEPENDENCIES = {
   getModes: getCCSafetyNetEnvModes
 };
 function evaluateGuard(invocation, options2 = {}) {
-  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getInputCommandOrFail(invocation), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, facts = callDependency("policy-protection", command2, () => createSemanticFacts(invocation)), policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
+  let dependencies = { ...DEFAULT_DEPENDENCIES, ...options2.dependencies }, inputCommand = getInputCommandOrFail(invocation), command2 = isCommandInvocation(invocation) ? invocation.command : inputCommand, facts = callDependency("policy-protection", command2, () => createSemanticFacts(invocation, options2.factParserDependencies)), declaredCommand = getCommandSyntaxFact(facts, "declared-command");
+  if (isCommandInvocation(invocation) && invocation.command?.trim() && declaredCommand?.program.status === "limited")
+    return {
+      stage: "command-analysis",
+      decision: {
+        kind: "deny",
+        reason: REASON_RECURSION_LIMIT,
+        intent: "stop_and_explain",
+        evidence: [{ kind: "command", command: invocation.command, segment: invocation.command }]
+      }
+    };
+  if (getCommandSyntaxFact(facts, "input-candidate")?.program.status === "limited")
+    return {
+      stage: "command-validation",
+      decision: {
+        kind: "deny",
+        reason: REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
+        intent: "stop_and_explain",
+        evidence: []
+      }
+    };
+  let policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
   if (policyTarget) {
     let displayCommand = command2 ?? policyTarget.target;
     return {

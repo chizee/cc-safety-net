@@ -38,6 +38,7 @@ const GREP_KEYS = new Set([...PATH_LIKE_KEYS, 'glob']);
 const GLOB_KEYS = new Set([...GREP_KEYS, 'pattern']);
 const REDIRECTS = new Set(['>', '>>', '<', '<<', '<<<', '<>', '>&', '<&', '&>', '&>>']);
 const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
+const EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
 const NEUTRAL_ENV_PROXY: Readonly<Record<string, string | undefined>> = new Proxy(
   {} as Record<string, string | undefined>,
   { get: (_, name) => ['$', '{', String(name), '}'].join('') },
@@ -56,6 +57,15 @@ const DEFAULT_PARSERS: FactParserDependencies = {
   parseCommand,
   parseShell: (source, environment) => parse(source.replace(/\n/g, ' ; '), environment),
 };
+
+/** @internal */
+export class StructuralShellSyntaxLimitError extends Error {
+  override readonly name = 'StructuralShellSyntaxLimitError';
+
+  constructor() {
+    super('Structural command analysis limit exceeded.');
+  }
+}
 
 /** @internal */
 export function createSemanticFacts(
@@ -95,7 +105,7 @@ export function createSemanticFacts(
         program,
         views: projectAnalysisOrder(program),
         uncertainties: program.issues,
-        shell: store.getShellSyntax(candidate.source),
+        shell: store.getShellSyntax(candidate.source, program),
       }),
     );
     return facts;
@@ -138,22 +148,40 @@ export function createSemanticFactStore(
   const parsers = { ...DEFAULT_PARSERS, ...parserDependencies };
   const shellFacts = new Map<string, ShellSyntaxFacts>();
   const commandPrograms = new Map<string, CommandProgram>();
-  return Object.freeze({
-    getShellSyntax: (source: string) => {
-      const existing = shellFacts.get(source);
+  const structuralLimitFacts = new WeakMap<CommandProgram, ShellSyntaxFacts>();
+  const getCommandProgram = (source: string, dialect: ShellKind) => {
+    const key = `${dialect}\u0000${source}`;
+    const existing = commandPrograms.get(key);
+    if (existing) return existing;
+    const program = parsers.parseCommand(source, dialect);
+    commandPrograms.set(key, program);
+    return program;
+  };
+  const getShellSyntax = (source: string, suppliedProgram?: CommandProgram) => {
+    if (suppliedProgram && suppliedProgram.source !== source) {
+      throw new TypeError('Shell syntax source does not match command program source.');
+    }
+    const program = suppliedProgram ?? getCommandProgram(source, 'posix');
+    if (program.status === 'limited') {
+      const existing = structuralLimitFacts.get(program);
       if (existing) return existing;
-      const syntax = parseShellSyntax(source, parsers.parseShell);
-      shellFacts.set(source, syntax);
+      const syntax = Object.freeze({
+        status: 'structural-limit' as const,
+        source,
+        entries: EMPTY_SHELL_SYNTAX_ENTRIES,
+      });
+      structuralLimitFacts.set(program, syntax);
       return syntax;
-    },
-    getCommandProgram: (source: string, dialect: ShellKind) => {
-      const key = `${dialect}\u0000${source}`;
-      const existing = commandPrograms.get(key);
-      if (existing) return existing;
-      const program = parsers.parseCommand(source, dialect);
-      commandPrograms.set(key, program);
-      return program;
-    },
+    }
+    const existing = shellFacts.get(source);
+    if (existing) return existing;
+    const syntax = parseShellSyntax(source, parsers.parseShell);
+    shellFacts.set(source, syntax);
+    return syntax;
+  };
+  return Object.freeze({
+    getShellSyntax,
+    getCommandProgram,
   });
 }
 
