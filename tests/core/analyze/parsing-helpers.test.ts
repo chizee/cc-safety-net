@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
+import { toNamespacedPath } from 'node:path';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
@@ -564,6 +565,23 @@ describe('shell parsing helpers', () => {
       expect(result.tokens).toEqual(['git', 'status']);
       expect(result.cwd).toBeNull();
     });
+
+    test.skipIf(process.platform !== 'win32')(
+      'keeps wrapper cwd unknown for Windows namespace operands',
+      () => {
+        const namespace = toNamespacedPath(process.cwd());
+        for (const tokens of [
+          ['env', '-C', namespace, 'rm', '-rf', 'dist'],
+          ['env', `--chdir=${namespace}`, 'rm', '-rf', 'dist'],
+          ['sudo', '-D', namespace, 'rm', '-rf', 'dist'],
+          ['sudo', `--chdir=${namespace}`, 'rm', '-rf', 'dist'],
+        ]) {
+          const result = stripWrappersWithInfo(tokens, process.cwd());
+          expect(result.tokens).toEqual(['rm', '-rf', 'dist']);
+          expect(result.cwd).toBeNull();
+        }
+      },
+    );
 
     test.skipIf(process.platform !== 'win32')(
       'resolves wrapper cwd with Windows separators',

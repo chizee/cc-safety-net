@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, toNamespacedPath } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
 import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
@@ -382,6 +382,38 @@ describe('Antigravity CLI hook', () => {
         }
       });
     });
+
+    test.skipIf(process.platform !== 'win32')(
+      'denies an untrusted namespaced Cwd while supporting a relative Cwd under a trusted root',
+      async () => {
+        await withHookTestContext(async (context) => {
+          const namespacedRoot = toNamespacedPath(context.cwd);
+          const result = await context.runAntigravityHook({
+            toolCall: {
+              name: 'run_command',
+              args: { CommandLine: 'git status', Cwd: namespacedRoot },
+            },
+            workspacePaths: [context.cwd],
+          });
+
+          expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+            'CC Safety Net failed closed',
+          );
+          expect(
+            resolveAntigravityCwd(
+              {
+                toolCall: {
+                  name: 'run_command',
+                  args: { CommandLine: 'git status', Cwd: '.' },
+                },
+                workspacePaths: [namespacedRoot],
+              },
+              () => {},
+            ),
+          ).toBe(realpathSync(namespacedRoot));
+        });
+      },
+    );
 
     test('resolver fails closed for uncontained Cwd', async () => {
       await withHookTestContext((context) => {

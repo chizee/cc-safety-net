@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, toNamespacedPath } from 'node:path';
 import { analyzeTestCommand as analyzeCommand } from '../../helpers/policy';
 import {
   assertAllowed,
@@ -1401,6 +1401,24 @@ describe('edge cases', () => {
         projectDir,
       );
     });
+
+    test.skipIf(process.platform !== 'win32')(
+      'blocks relative recursive deletion after a Windows namespace cwd operand',
+      () => {
+        const namespace = toShellPath(toNamespacedPath(tempDir));
+        for (const command of [
+          `cd ${namespace} && ${RM_RF_REASON} dist`,
+          `env -C ${namespace} ${RM_RF_REASON} dist`,
+          `env --chdir=${namespace} ${RM_RF_REASON} dist`,
+          `sudo -D ${namespace} ${RM_RF_REASON} dist`,
+          `sudo --chdir=${namespace} ${RM_RF_REASON} dist`,
+        ]) {
+          const result = analyzeCommand(command, { cwd: tempDir });
+          expect(result?.ruleId).toBe('rm.recursive-force-outside-cwd');
+          expect(result?.reason).toContain('outside cwd is blocked');
+        }
+      },
+    );
   });
 
   describe('recursive rm target expansion', () => {

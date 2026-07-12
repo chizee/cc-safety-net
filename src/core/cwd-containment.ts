@@ -1,10 +1,13 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 
 export function resolveContainedCwd(
   requestedCwd: string,
   trustedRoots: readonly string[],
 ): string | undefined {
+  if (isUnsupportedWindowsNamespacePath(requestedCwd)) return undefined;
+
   const roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
   if (!roots[0]) return undefined;
 

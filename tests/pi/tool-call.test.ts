@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, toNamespacedPath } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
@@ -372,6 +372,25 @@ describe('Pi tool_call event', () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    'fails closed for an untrusted namespaced working_directory and supports a trusted root',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-namespace-'));
+      try {
+        const namespacedRoot = toNamespacedPath(dir);
+        expectShellWorkingDirectoryFail(dir, namespacedRoot);
+        expect(
+          handlePiToolCall(
+            shellToolCall({ command: 'git status', working_directory: '.' }),
+            piContext(namespacedRoot),
+          ),
+        ).toBeUndefined();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   test('fails closed when Grok Shell working_directory is missing or a file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-invalid-cwd-'));

@@ -2275,7 +2275,14 @@ function hasAnyEnvAssignment(envAssignments, names) {
 // src/core/path.ts
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
+function isUnsupportedWindowsNamespacePath(target, platform = process.platform) {
+  if (platform !== "win32")
+    return !1;
+  return (target[0] === "/" || target[0] === "\\") && (target[1] === "/" || target[1] === "\\");
+}
 function resolveChdirTarget(baseCwd, target) {
+  if (isUnsupportedWindowsNamespacePath(target))
+    throw Error("Unsupported Windows namespace path");
   let root = isAbsolute2(target) ? getPathRoot(target) : "", current = root || baseCwd;
   for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
     if (component === "" || component === ".")
@@ -6368,6 +6375,8 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
   };
 }
 function classifyRecursiveDeleteTarget(target, ctx) {
+  if (isUnsupportedWindowsNamespacePath(target))
+    return { kind: "outside_anchored_cwd" };
   if (isDangerousRootOrHomeTarget(target))
     return { kind: "root_or_home_target" };
   if (isTempTarget(target, ctx.trustTmpdirVar))

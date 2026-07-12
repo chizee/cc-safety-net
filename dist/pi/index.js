@@ -298,13 +298,52 @@ function buildSafetyNetCommandPrompt(args) {
 ${args.trim() || DEFAULT_USER_REQUEST}`;
 }
 // src/core/cwd-containment.ts
-import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { realpathSync as realpathSync2, statSync } from "node:fs";
+import { isAbsolute as isAbsolute2, relative, resolve } from "node:path";
+
+// src/core/path.ts
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, parse as parsePath, sep } from "node:path";
+function isUnsupportedWindowsNamespacePath(target, platform = process.platform) {
+  if (platform !== "win32")
+    return !1;
+  return (target[0] === "/" || target[0] === "\\") && (target[1] === "/" || target[1] === "\\");
+}
+function resolveChdirTarget(baseCwd, target) {
+  if (isUnsupportedWindowsNamespacePath(target))
+    throw Error("Unsupported Windows namespace path");
+  let root = isAbsolute(target) ? getPathRoot(target) : "", current = root || baseCwd;
+  for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
+    if (component === "" || component === ".")
+      continue;
+    if (component === "..") {
+      current = dirname(current);
+      continue;
+    }
+    let candidate = appendPathWithoutNormalizing(current, component);
+    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
+  }
+  return current;
+}
+function appendPathWithoutNormalizing(base, target) {
+  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
+}
+function getPathRoot(target) {
+  return parsePath(target).root;
+}
+function getPathComponents(target) {
+  let separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
+  return target.split(separator);
+}
+
+// src/core/cwd-containment.ts
 function resolveContainedCwd(requestedCwd, trustedRoots) {
+  if (isUnsupportedWindowsNamespacePath(requestedCwd))
+    return;
   let roots = trustedRoots.flatMap((root) => canonicalDirectory(root));
   if (!roots[0])
     return;
-  let requested = canonicalDirectory(isAbsolute(requestedCwd) ? requestedCwd : resolve(roots[0], requestedCwd))[0];
+  let requested = canonicalDirectory(isAbsolute2(requestedCwd) ? requestedCwd : resolve(roots[0], requestedCwd))[0];
   if (!requested)
     return;
   return roots.some((root) => isSameOrInside(requested, root)) ? requested : void 0;
@@ -314,7 +353,7 @@ function firstTrustedRoot(trustedRoots) {
 }
 function canonicalDirectory(path) {
   try {
-    let realPath = realpathSync(path);
+    let realPath = realpathSync2(path);
     return statSync(realPath).isDirectory() ? [realPath] : [];
   } catch {
     return [];
@@ -322,7 +361,7 @@ function canonicalDirectory(path) {
 }
 function isSameOrInside(path, root) {
   let rel = relative(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute(rel);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
 }
 
 // src/core/env.ts
@@ -810,7 +849,7 @@ function createToolInvocation(toolName, input, route, context, command) {
 // src/core/audit.ts
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { isAbsolute as isAbsolute2, join } from "node:path";
+import { isAbsolute as isAbsolute3, join } from "node:path";
 
 // src/core/sanitize.ts
 var PROVIDER_TOKENS = [
@@ -953,7 +992,7 @@ function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
 }
 function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
   let home = homeFromEnv || homedir() || userInfo().homedir;
-  return home && isAbsolute2(home) ? home : null;
+  return home && isAbsolute3(home) ? home : null;
 }
 function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
   return homeDir ? join(homeDir, ".cc-safety-net", "logs") : null;
@@ -2449,34 +2488,6 @@ function hasAnyEnvAssignment(envAssignments, names) {
     if (names.has(key))
       return !0;
   return !1;
-}
-
-// src/core/path.ts
-import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
-import { dirname, isAbsolute as isAbsolute3, parse as parsePath, sep } from "node:path";
-function resolveChdirTarget(baseCwd, target) {
-  let root = isAbsolute3(target) ? getPathRoot(target) : "", current = root || baseCwd;
-  for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
-    if (component === "" || component === ".")
-      continue;
-    if (component === "..") {
-      current = dirname(current);
-      continue;
-    }
-    let candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
-  }
-  return current;
-}
-function appendPathWithoutNormalizing(base, target) {
-  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
-}
-function getPathRoot(target) {
-  return parsePath(target).root;
-}
-function getPathComponents(target) {
-  let separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
-  return target.split(separator);
 }
 
 // src/parser/immutable.ts
@@ -6547,6 +6558,8 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
   };
 }
 function classifyRecursiveDeleteTarget(target, ctx) {
+  if (isUnsupportedWindowsNamespacePath(target))
+    return { kind: "outside_anchored_cwd" };
   if (isDangerousRootOrHomeTarget(target))
     return { kind: "root_or_home_target" };
   if (isTempTarget(target, ctx.trustTmpdirVar))

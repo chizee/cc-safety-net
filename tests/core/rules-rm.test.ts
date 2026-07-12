@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { analyzeRm } from '@/core/analyze/rm';
+import { join, toNamespacedPath } from 'node:path';
+import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
 import {
   assertAllowed,
   assertBlocked,
@@ -679,4 +679,45 @@ describe('analyzeRm (unit)', () => {
     const badCwd = 1 as unknown as string;
     expect(analyzeRm(['rm', '-rf', 'foo/bar'], { cwd: badCwd })).toContain('rm -rf outside cwd');
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    'blocks Windows namespace targets before temp, home, cwd, or contained-path eligibility',
+    () => {
+      const cwd = mkdtempSync(join(tmpdir(), 'safety-net-rm-namespace-'));
+      const child = join(cwd, 'dist');
+      mkdirSync(child);
+      const localNamespace = toNamespacedPath(child);
+      try {
+        for (const target of [
+          localNamespace,
+          String.raw`\\server\share`,
+          String.raw`/\server\share`,
+          String.raw`\/server/share`,
+        ]) {
+          const match = analyzeRmMatch(['rm', '-rf', target], { cwd, originalCwd: cwd });
+          expect(match?.id).toBe('rm.recursive-force-outside-cwd');
+          expect(match?.reason).toContain('outside cwd is blocked');
+        }
+
+        expect(analyzeRmMatch(['rm', '-rf', child], { cwd, originalCwd: cwd })).toBeNull();
+        expect(
+          analyzeRmMatch(['rm', '-rf', child, localNamespace], {
+            cwd,
+            originalCwd: cwd,
+          })?.id,
+        ).toBe('rm.recursive-force-outside-cwd');
+
+        withEnv({ HOME: localNamespace, TEMP: localNamespace, TMP: localNamespace }, () => {
+          const match = analyzeRmMatch(['rm', '-rf', localNamespace], {
+            cwd: localNamespace,
+            originalCwd: localNamespace,
+          });
+          expect(match?.id).toBe('rm.recursive-force-outside-cwd');
+          expect(match?.reason).toContain('outside cwd is blocked');
+        });
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
 });

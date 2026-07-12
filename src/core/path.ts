@@ -1,7 +1,19 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, parse as parsePath, sep } from 'node:path';
 
+/** @internal */
+export function isUnsupportedWindowsNamespacePath(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'win32') return false;
+  return (target[0] === '/' || target[0] === '\\') && (target[1] === '/' || target[1] === '\\');
+}
+
 export function resolveChdirTarget(baseCwd: string, target: string): string {
+  if (isUnsupportedWindowsNamespacePath(target)) {
+    throw new Error('Unsupported Windows namespace path');
+  }
   const root = isAbsolute(target) ? getPathRoot(target) : '';
   let current = root || baseCwd;
   for (const component of getPathComponents(root ? target.slice(root.length) : target)) {

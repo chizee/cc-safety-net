@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, toNamespacedPath } from 'node:path';
 import {
   analyzeTestCommand as analyzeCommand,
   type TestPolicyInput as Config,
@@ -225,6 +225,28 @@ describe('PowerShell Remove-Item support', () => {
       );
     });
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    'blocks Windows namespace targets for Remove-Item, including target lists',
+    () => {
+      withTempProject((cwd) => {
+        const namespace = toNamespacedPath(join(cwd, 'dist'));
+        for (const target of [namespace, String.raw`\\server\share`, String.raw`/\server\share`]) {
+          const result = analyzePowerShell(`Remove-Item '${target}' -Recurse -Force`, cwd);
+          expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-outside-cwd');
+          expect(result?.reason).toContain('outside cwd is blocked');
+        }
+
+        expect(
+          analyzePowerShell(`Remove-Item -Path '.\\dist','${namespace}' -Recurse -Force`, cwd)
+            ?.ruleId,
+        ).toBe('powershell.remove-item-recursive-force-outside-cwd');
+        expect(
+          analyzePowerShell(`Remove-Item '${join(cwd, 'dist')}' -Recurse -Force`, cwd),
+        ).toBeNull();
+      });
+    },
+  );
 
   test('blocks relative targets when cwd is home', () => {
     withTempProject((cwd) => {

@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
 import {
   getGitExecutionContext,
   hasGitContextEnvOverride,
@@ -83,6 +83,29 @@ describe('worktree git execution context', () => {
           gitCwd: realpathSync(fixture.linkedWorktree),
           hasExplicitGitContext: false,
         });
+      } finally {
+        fixture.cleanup();
+      }
+    },
+  );
+
+  test.skipIf(process.platform !== 'win32')(
+    'fails closed for separate and attached Git cwd namespace operands',
+    () => {
+      const fixture = createLinkedWorktreeFixture();
+      try {
+        const localNamespace = toNamespacedPath(fixture.mainWorktree);
+        for (const args of [
+          ['git', '-C', localNamespace, 'status'],
+          ['git', `-C${localNamespace}`, 'status'],
+          ['git', '-C', String.raw`\\server\share`, 'status'],
+          ['git', String.raw`-C/\server\share`, 'status'],
+        ]) {
+          expect(getGitExecutionContext(args, fixture.rootDir)).toEqual({
+            gitCwd: null,
+            hasExplicitGitContext: false,
+          });
+        }
       } finally {
         fixture.cleanup();
       }

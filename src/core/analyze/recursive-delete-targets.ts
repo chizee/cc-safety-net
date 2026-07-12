@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { normalize, resolve, sep } from 'node:path';
+import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -44,6 +45,10 @@ export function classifyRecursiveDeleteTarget(
   target: string,
   ctx: RecursiveDeleteTargetContext,
 ): RecursiveDeleteTargetClassification {
+  if (isUnsupportedWindowsNamespacePath(target)) {
+    return { kind: 'outside_anchored_cwd' };
+  }
+
   if (isDangerousRootOrHomeTarget(target)) {
     return { kind: 'root_or_home_target' };
   }
