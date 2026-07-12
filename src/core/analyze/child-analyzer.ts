@@ -179,6 +179,7 @@ export function analyzeChildCommandMatch(
       analyzeGitMatch(tokens, {
         cwd: context.cwd,
         envAssignments: context.envAssignments,
+        policy: context.policy,
         worktreeMode: options.dynamicInput ? false : context.worktreeMode,
       }),
       context.policy,

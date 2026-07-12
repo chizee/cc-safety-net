@@ -1238,7 +1238,7 @@ describe('git linked worktree mode', () => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked(
           'GIT_CONFIG_COUNT=not-a-number git reset --hard',
-          'git reset --hard',
+          'Git aliases supplied through command-line or environment config',
           fixture.linkedWorktree,
         );
         assertBlocked(

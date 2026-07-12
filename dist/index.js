@@ -2230,7 +2230,8 @@ var GIT_CONTEXT_ENV_OVERRIDES = [
   "GIT_WORK_TREE",
   "GIT_COMMON_DIR",
   "GIT_INDEX_FILE"
-], GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES), GIT_CONFIG_AFFECTING_ENV_NAMES = /* @__PURE__ */ new Set([
+], GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES);
+var GIT_CONFIG_AFFECTING_ENV_NAMES = /* @__PURE__ */ new Set([
   "GIT_CONFIG_GLOBAL",
   "GIT_CONFIG_NOSYSTEM",
   "GIT_CONFIG_SYSTEM",
@@ -2249,6 +2250,20 @@ function isGitConfigEnvName(name) {
 }
 function isTrackedGitEnvName(name) {
   return isGitContextEnvOverrideName(name) || GIT_CONFIG_AFFECTING_ENV_NAMES.has(name) || GIT_SSH_ENV_NAMES.has(name) || isGitConfigEnvName(name);
+}
+function getGitEnvValue(name, envAssignments) {
+  return envAssignments?.has(name) ? envAssignments.get(name) : process.env[name];
+}
+function resolveGitConfigCount(envAssignments) {
+  let value = getGitEnvValue("GIT_CONFIG_COUNT", envAssignments);
+  if (value === void 0)
+    return { state: "absent" };
+  if (value === "")
+    return { state: "valid", count: 0 };
+  if (!/^\d+$/.test(value))
+    return { state: "invalid" };
+  let count = Number(value);
+  return Number.isSafeInteger(count) && count <= 1024 ? { state: "valid", count } : { state: "invalid" };
 }
 function parseGitContextAppendEnvAssignment(token) {
   let name = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE)?.[1];
@@ -7361,17 +7376,14 @@ function splitAtDoubleDash(tokens) {
   };
 }
 function resolveGitCommandLineAliases(tokens, envAssignments) {
-  let configEntries = getGitConfigEntries(tokens, envAssignments);
-  if (configEntries.blockedReason)
-    return { blockedReason: configEntries.blockedReason, expanded: !1, tokens };
-  let aliases = getGitConfigAliases(configEntries.entries);
+  let configEntries = getGitConfigEntries(tokens, envAssignments), aliases = getGitConfigAliases(configEntries.entries);
   if (aliases.size === 0)
-    return { blockedReason: null, expanded: !1, tokens };
+    return { blockedReason: configEntries.blockedReason, expanded: !1, tokens };
   let currentTokens = tokens, expanded = !1;
   for (let depth = 0;depth < MAX_GIT_ALIAS_EXPANSION_DEPTH; depth++) {
     let { subcommand, rest } = extractGitSubcommandAndRest(currentTokens), aliasName = subcommand?.toLowerCase();
     if (!aliasName || !aliases.has(aliasName))
-      return { blockedReason: null, expanded, tokens: currentTokens };
+      return { blockedReason: configEntries.blockedReason, expanded, tokens: currentTokens };
     let aliasValue = aliases.get(aliasName), aliasTokens = parseGitAliasValue(aliasValue);
     if (aliasTokens === null || aliasTokens.length === 0)
       return { blockedReason: REASON_GIT_ALIAS_CONFIG, expanded: !0, tokens: currentTokens };
@@ -7432,10 +7444,8 @@ function getGitConfigEntries(tokens, envAssignments) {
   if ((firstToken ? getBasename(firstToken).toLowerCase() : null) !== "git")
     return { blockedReason: null, entries: [] };
   let envEntries = getGitEnvConfigEntries(envAssignments);
-  if (envEntries.blockedReason)
-    return envEntries;
   return {
-    blockedReason: null,
+    blockedReason: envEntries.blockedReason,
     entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)]
   };
 }
@@ -7482,16 +7492,14 @@ function getGitCommandLineConfigEntries(tokens, envAssignments) {
   return entries;
 }
 function getGitEnvConfigEntries(envAssignments) {
-  let parameterEntries = getGitConfigParameterEntries(envAssignments);
-  if (parameterEntries === null)
-    return { blockedReason: REASON_GIT_ALIAS_CONFIG, entries: [] };
+  let parameterEntries = getGitConfigParameterEntries(envAssignments), countEntries = getGitConfigCountEntries(envAssignments);
   return {
-    blockedReason: null,
-    entries: [...parameterEntries, ...getGitConfigCountEntries(envAssignments)]
+    blockedReason: parameterEntries === null || countEntries === null ? REASON_GIT_ALIAS_CONFIG : null,
+    entries: [...parameterEntries ?? [], ...countEntries ?? []]
   };
 }
 function getGitConfigParameterEntries(envAssignments) {
-  let parameters = getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments);
+  let parameters = getGitEnvValue("GIT_CONFIG_PARAMETERS", envAssignments);
   if (parameters === void 0)
     return [];
   let entries = [], parsed = parseSimpleWords(parameters);
@@ -7506,19 +7514,16 @@ function getGitConfigParameterEntries(envAssignments) {
   return entries;
 }
 function getGitConfigCountEntries(envAssignments) {
-  let countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
-  if (countValue === void 0)
+  let resolution = resolveGitConfigCount(envAssignments);
+  if (resolution.state === "absent")
     return [];
-  if (!/^\d+$/.test(countValue))
-    return [];
-  let count = Number.parseInt(countValue, 10);
-  if (!Number.isSafeInteger(count))
-    return [];
+  if (resolution.state === "invalid")
+    return null;
   let entries = [];
-  for (let i = 0;i < count; i++) {
-    let key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim(), value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+  for (let i = 0;i < resolution.count; i++) {
+    let key = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim(), value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
     if (!key || value === void 0)
-      return [];
+      return null;
     entries.push({ key, value });
   }
   return entries;
@@ -7538,11 +7543,8 @@ function parseGitConfigEnvEntry(configEnv, envAssignments) {
     return null;
   return {
     key: configEnv.slice(0, eqIdx).trim(),
-    value: getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments)
+    value: getGitEnvValue(configEnv.slice(eqIdx + 1), envAssignments)
   };
-}
-function getEnvConfigValue(name, envAssignments) {
-  return envAssignments?.get(name) ?? process.env[name];
 }
 function parseGitAliasValue(value) {
   let trimmedValue = value?.trimStart();
@@ -7877,28 +7879,26 @@ function commandLineRecursiveSubmoduleConfig(tokens, envAssignments) {
   return recursiveSubmoduleConfig;
 }
 function envRecursiveSubmoduleConfig(envAssignments) {
-  if (getEnvConfigValue2("GIT_CONFIG_PARAMETERS", envAssignments) !== void 0)
+  if (getGitEnvValue("GIT_CONFIG_PARAMETERS", envAssignments) !== void 0)
     return !0;
-  let countValue = getEnvConfigValue2("GIT_CONFIG_COUNT", envAssignments);
-  if (countValue === void 0)
+  let resolution = resolveGitConfigCount(envAssignments);
+  if (resolution.state === "absent")
     return null;
-  let count = Number.parseInt(countValue, 10);
-  if (!Number.isInteger(count) || count < 0)
+  if (resolution.state === "invalid")
     return !0;
   let recursiveSubmoduleConfig = null;
-  for (let i = 0;i < count; i++) {
-    let key = getEnvConfigValue2(`GIT_CONFIG_KEY_${i}`, envAssignments)?.toLowerCase();
-    if (key && isIncludeConfigKey(key))
+  for (let i = 0;i < resolution.count; i++) {
+    let rawKey = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, envAssignments), value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    if (!rawKey?.trim() || value === void 0)
+      return !0;
+    let key = rawKey.trim().toLowerCase();
+    if (isIncludeConfigKey(key))
       return !0;
     if (key !== "submodule.recurse")
       continue;
-    let value = getEnvConfigValue2(`GIT_CONFIG_VALUE_${i}`, envAssignments);
-    recursiveSubmoduleConfig = value === void 0 || gitConfigValueEnablesRecursiveSubmodules(value);
+    recursiveSubmoduleConfig = gitConfigValueEnablesRecursiveSubmodules(value);
   }
   return recursiveSubmoduleConfig;
-}
-function getEnvConfigValue2(name, envAssignments) {
-  return envAssignments?.get(name) ?? process.env[name];
 }
 function effectiveGitConfigEnablesRecursiveSubmodules(cwd, gitBinary = getTrustedGitBinary()) {
   let localConfigResult = localGitConfigEnablesRecursiveSubmodules(cwd);
@@ -8036,7 +8036,7 @@ function recursiveSubmoduleConfigEnvValue(configEnv, envAssignments) {
     return !0;
   if (key !== "submodule.recurse")
     return null;
-  let value = getEnvConfigValue2(configEnv.slice(eqIdx + 1), envAssignments);
+  let value = getGitEnvValue(configEnv.slice(eqIdx + 1), envAssignments);
   return value === void 0 || gitConfigValueEnablesRecursiveSubmodules(value);
 }
 function isIncludeConfigKey(key) {
@@ -8119,8 +8119,8 @@ function analyzeGitMatch(tokens, options2 = {}) {
   return evaluateGit(tokens, options2);
 }
 function evaluateGit(tokens, options2, onRelaxation) {
-  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments);
-  if (aliasResolution.blockedReason)
+  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments), aliasConfigDisabled = options2.policy?.disabledDestructiveCommandRules.includes("git.alias-config");
+  if (aliasResolution.blockedReason && !aliasConfigDisabled)
     return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
   let analysisTokens = aliasResolution.tokens;
   if ((hasGitSshEnvAssignment(options2.envAssignments) || hasGitCommandLineSshCommandConfig(tokens, options2.envAssignments)) && isGitNetworkOperation(analysisTokens))
@@ -8128,7 +8128,7 @@ function evaluateGit(tokens, options2, onRelaxation) {
   let match = analyzeGitRule(analysisTokens);
   if (!match)
     return null;
-  if (aliasResolution.expanded)
+  if (aliasResolution.expanded || aliasResolution.blockedReason)
     return match;
   let relaxation = getGitWorktreeRelaxationForMatch(tokens, match, options2);
   if (!relaxation)
@@ -8218,6 +8218,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
+      policy: context.policy,
       worktreeMode: options2.dynamicInput ? !1 : context.worktreeMode
     }), context.policy);
   return null;
@@ -9342,6 +9343,7 @@ function getGitAnalyzeOptions(context) {
     cwd: context.cwdForRm,
     dynamicArguments: context.options.commandView?.words.some((word) => word.provenance === "command-substitution"),
     envAssignments: context.envAssignments,
+    policy: context.options.policy,
     worktreeMode: context.options.worktreeMode
   };
 }

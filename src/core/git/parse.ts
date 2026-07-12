@@ -1,5 +1,6 @@
 import { getBasename } from '@/core/shell';
 import { parseSimpleWords } from '@/parser/projection';
+import { getGitEnvValue, resolveGitConfigCount } from './env';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from './worktree';
 
 const MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
@@ -44,13 +45,9 @@ export function resolveGitCommandLineAliases(
   envAssignments?: ReadonlyMap<string, string>,
 ): GitAliasResolution {
   const configEntries = getGitConfigEntries(tokens, envAssignments);
-  if (configEntries.blockedReason) {
-    return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
-  }
-
   const aliases = getGitConfigAliases(configEntries.entries);
   if (aliases.size === 0) {
-    return { blockedReason: null, expanded: false, tokens };
+    return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
   }
 
   let currentTokens = tokens;
@@ -59,7 +56,7 @@ export function resolveGitCommandLineAliases(
     const { subcommand, rest } = extractGitSubcommandAndRest(currentTokens);
     const aliasName = subcommand?.toLowerCase();
     if (!aliasName || !aliases.has(aliasName)) {
-      return { blockedReason: null, expanded, tokens: currentTokens };
+      return { blockedReason: configEntries.blockedReason, expanded, tokens: currentTokens };
     }
 
     const aliasValue = aliases.get(aliasName);
@@ -160,12 +157,8 @@ function getGitConfigEntries(
   }
 
   const envEntries = getGitEnvConfigEntries(envAssignments);
-  if (envEntries.blockedReason) {
-    return envEntries;
-  }
-
   return {
-    blockedReason: null,
+    blockedReason: envEntries.blockedReason,
     entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)],
   };
 }
@@ -233,20 +226,18 @@ function getGitEnvConfigEntries(
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntriesResolution {
   const parameterEntries = getGitConfigParameterEntries(envAssignments);
-  if (parameterEntries === null) {
-    return { blockedReason: REASON_GIT_ALIAS_CONFIG, entries: [] };
-  }
-
+  const countEntries = getGitConfigCountEntries(envAssignments);
   return {
-    blockedReason: null,
-    entries: [...parameterEntries, ...getGitConfigCountEntries(envAssignments)],
+    blockedReason:
+      parameterEntries === null || countEntries === null ? REASON_GIT_ALIAS_CONFIG : null,
+    entries: [...(parameterEntries ?? []), ...(countEntries ?? [])],
   };
 }
 
 function getGitConfigParameterEntries(
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntry[] | null {
-  const parameters = getEnvConfigValue('GIT_CONFIG_PARAMETERS', envAssignments);
+  const parameters = getGitEnvValue('GIT_CONFIG_PARAMETERS', envAssignments);
   if (parameters === undefined) {
     return [];
   }
@@ -263,26 +254,23 @@ function getGitConfigParameterEntries(
   return entries;
 }
 
-function getGitConfigCountEntries(envAssignments?: ReadonlyMap<string, string>): GitConfigEntry[] {
-  const countValue = getEnvConfigValue('GIT_CONFIG_COUNT', envAssignments);
-  if (countValue === undefined) {
+function getGitConfigCountEntries(
+  envAssignments?: ReadonlyMap<string, string>,
+): GitConfigEntry[] | null {
+  const resolution = resolveGitConfigCount(envAssignments);
+  if (resolution.state === 'absent') {
     return [];
   }
-  if (!/^\d+$/.test(countValue)) {
-    return [];
-  }
-
-  const count = Number.parseInt(countValue, 10);
-  if (!Number.isSafeInteger(count)) {
-    return [];
+  if (resolution.state === 'invalid') {
+    return null;
   }
 
   const entries: GitConfigEntry[] = [];
-  for (let i = 0; i < count; i++) {
-    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
-    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+  for (let i = 0; i < resolution.count; i++) {
+    const key = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
+    const value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
     if (!key || value === undefined) {
-      return [];
+      return null;
     }
     entries.push({ key, value });
   }
@@ -310,15 +298,8 @@ function parseGitConfigEnvEntry(
   }
   return {
     key: configEnv.slice(0, eqIdx).trim(),
-    value: getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments),
+    value: getGitEnvValue(configEnv.slice(eqIdx + 1), envAssignments),
   };
-}
-
-function getEnvConfigValue(
-  name: string,
-  envAssignments?: ReadonlyMap<string, string>,
-): string | undefined {
-  return envAssignments?.get(name) ?? process.env[name];
 }
 
 function parseGitAliasValue(value: string | undefined): string[] | null {

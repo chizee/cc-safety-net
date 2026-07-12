@@ -21,7 +21,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 363_500;
+const MAX_TARBALL_BYTES = 364_000;
 
 interface PackResult {
   filename: string;
@@ -35,8 +35,13 @@ interface BuildPackageTarballOptions {
   npmCommand?: string[];
 }
 
-function run(command: string[], cwd = process.cwd(), allowedExitCodes = [0]) {
-  const result = Bun.spawnSync(command, { cwd, stdout: 'pipe', stderr: 'pipe' });
+function run(command: string[], cwd = process.cwd(), allowedExitCodes = [0], stdin?: string) {
+  const result = Bun.spawnSync(command, {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    ...(stdin === undefined ? {} : { stdin: Buffer.from(stdin) }),
+  });
   if (allowedExitCodes.includes(result.exitCode)) return result;
   throw new Error(
     `${command.join(' ')} failed (${result.exitCode})\n${result.stdout}${result.stderr}`,
@@ -108,6 +113,33 @@ export async function verifyPackage(): Promise<void> {
       )
     ) {
       throw new Error('Packed CLI did not block the destructive explain command');
+    }
+    const aliasConfigReason =
+      'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
+    for (const command of ['GIT_CONFIG_COUNT=1025 git status', 'GIT_CONFIG_COUNT=1 git status']) {
+      const output = JSON.parse(
+        run(
+          ['node', cli, 'hook', '--claude-code'],
+          directory,
+          [0],
+          JSON.stringify({
+            session_id: 'package-verification',
+            cwd: directory,
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Bash',
+            tool_input: { command },
+          }),
+        ).stdout.toString(),
+      ) as {
+        hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+      };
+      if (
+        output.hookSpecificOutput?.permissionDecision !== 'deny' ||
+        output.hookSpecificOutput.permissionDecisionReason !==
+          `BLOCKED by CC Safety Net\n\nReason: ${aliasConfigReason}\n\nRule: git.alias-config\n\nCommand: ${command}\n\nIf this operation is truly needed, ask the user for explicit permission and have them run the command manually.`
+      ) {
+        throw new Error(`Packed CLI did not fail closed on incomplete Git config: ${command}`);
+      }
     }
     const largeSafeCommand = `'git push ${'x '.repeat(45_000)}'`;
     if (

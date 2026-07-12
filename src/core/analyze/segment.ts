@@ -775,6 +775,7 @@ function getGitAnalyzeOptions(context: CommandAnalysisContext) {
       (word) => word.provenance === 'command-substitution',
     ),
     envAssignments: context.envAssignments,
+    policy: context.options.policy,
     worktreeMode: context.options.worktreeMode,
   };
 }

@@ -7,6 +7,13 @@ export const GIT_CONTEXT_ENV_OVERRIDES = [
 
 const GIT_CONTEXT_ENV_OVERRIDE_NAMES: ReadonlySet<string> = new Set(GIT_CONTEXT_ENV_OVERRIDES);
 
+const MAX_GIT_CONFIG_COUNT = 1024;
+
+export type GitConfigCountResolution =
+  | { state: 'absent' }
+  | { state: 'invalid' }
+  | { state: 'valid'; count: number };
+
 /** @internal - exported for test coverage */
 export const GIT_CONFIG_AFFECTING_ENV_NAMES: ReadonlySet<string> = new Set([
   'GIT_CONFIG_GLOBAL',
@@ -45,6 +52,32 @@ export function isTrackedGitEnvName(name: string): boolean {
     GIT_SSH_ENV_NAMES.has(name) ||
     isGitConfigEnvName(name)
   );
+}
+
+export function getGitEnvValue(
+  name: string,
+  envAssignments?: ReadonlyMap<string, string>,
+): string | undefined {
+  return envAssignments?.has(name) ? envAssignments.get(name) : process.env[name];
+}
+
+export function resolveGitConfigCount(
+  envAssignments?: ReadonlyMap<string, string>,
+): GitConfigCountResolution {
+  const value = getGitEnvValue('GIT_CONFIG_COUNT', envAssignments);
+  if (value === undefined) {
+    return { state: 'absent' };
+  }
+  if (value === '') {
+    return { state: 'valid', count: 0 };
+  }
+  if (!/^\d+$/.test(value)) {
+    return { state: 'invalid' };
+  }
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count <= MAX_GIT_CONFIG_COUNT
+    ? { state: 'valid', count }
+    : { state: 'invalid' };
 }
 
 export function parseGitContextAppendEnvAssignment(

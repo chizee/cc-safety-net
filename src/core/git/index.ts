@@ -46,7 +46,9 @@ function evaluateGit(
   onRelaxation?: (relaxation: GitWorktreeRelaxation) => void,
 ): DestructiveCommandRuleMatch | null {
   const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
-  if (aliasResolution.blockedReason) {
+  const aliasConfigDisabled =
+    options.policy?.disabledDestructiveCommandRules.includes('git.alias-config');
+  if (aliasResolution.blockedReason && !aliasConfigDisabled) {
     return destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason);
   }
 
@@ -65,7 +67,7 @@ function evaluateGit(
     return null;
   }
 
-  if (aliasResolution.expanded) {
+  if (aliasResolution.expanded || aliasResolution.blockedReason) {
     return match;
   }
 
