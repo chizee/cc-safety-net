@@ -71,6 +71,7 @@ export type InternalOptions = AnalyzeOptions & {
   compatibility?: 'explain-legacy';
   derivedCommandWorkBudget: DerivedCommandWorkBudget;
   parallelBudget: ParallelAnalysisBudget;
+  scanWork?: { units: number };
 };
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
@@ -319,7 +320,7 @@ export function analyzeSegment(
         return innerReason;
       }
 
-      if (containsDangerousCode(codeArg)) {
+      if (containsDangerousCode(codeArg, options.scanWork)) {
         const interpreterMatch = destructiveCommandMatch(
           'interpreter.dangerous-command',
           REASON_INTERPRETER_DANGEROUS,
@@ -850,6 +851,7 @@ function getNestedCommandAnalyzeContext(
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
     policy: context.options.policy,
+    scanWork: context.options.scanWork,
   };
 }
 

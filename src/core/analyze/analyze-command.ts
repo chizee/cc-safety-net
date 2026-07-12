@@ -44,6 +44,7 @@ export type InternalOptions = AnalyzeOptions & {
   compatibility?: 'explain-legacy';
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   parallelBudget?: ParallelAnalysisBudget;
+  scanWork?: { units: number };
 };
 
 type ActiveInternalOptions = InternalOptions & {
@@ -273,7 +274,7 @@ function analyzeCommandView(
   }
 
   if (segment.length === 1 && segment[0]?.includes(' ') && !commandView.dynamicExecutable) {
-    const dangerousTextMatch = dangerousInTextMatch(segment[0]);
+    const dangerousTextMatch = dangerousInTextMatch(segment[0], options.scanWork);
     const textMatch =
       options.compatibility === 'explain-legacy'
         ? dangerousTextMatch
@@ -391,7 +392,7 @@ function analyzeUnparseableCommand(
   command: string,
   options: ActiveInternalOptions,
 ): AnalyzeResult | null {
-  const dangerousTextMatch = dangerousInTextMatch(command);
+  const dangerousTextMatch = dangerousInTextMatch(command, options.scanWork);
   const textMatch =
     options.compatibility === 'explain-legacy'
       ? dangerousTextMatch

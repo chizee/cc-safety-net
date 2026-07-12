@@ -22,6 +22,7 @@ export interface NestedCommandAnalyzeContext extends ChildCommandContext {
   paranoidInterpreters?: boolean;
   allowTmpdirVar: boolean;
   worktreeMode?: boolean;
+  scanWork?: { units: number };
 }
 
 export function normalizeChildCommand(tokens: readonly string[], context: ChildCommandContext) {

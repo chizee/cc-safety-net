@@ -21,7 +21,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 359_411;
+const MAX_TARBALL_BYTES = 363_500;
 
 interface PackResult {
   filename: string;
@@ -108,6 +108,14 @@ export async function verifyPackage(): Promise<void> {
       )
     ) {
       throw new Error('Packed CLI did not block the destructive explain command');
+    }
+    const largeSafeCommand = `'git push ${'x '.repeat(45_000)}'`;
+    if (
+      !run(['node', cli, 'explain', '--json', largeSafeCommand], directory).stdout.includes(
+        'allowed',
+      )
+    ) {
+      throw new Error('Packed CLI did not allow the large safe explain command');
     }
 
     const evalModule = (source: string, expected = 0) =>

@@ -1,5 +1,7 @@
+import { hasLinearInterpreterDanger } from '@/core/analyze/linear-danger-scanner';
+import { chargeNativeLinearPass } from '@/core/analyze/text-scanner';
 import { getBasename } from '@/core/shell/command';
-import { DANGEROUS_PATTERNS, PYTHON_INTERPRETER_PATTERN } from '@/types';
+import { PYTHON_INTERPRETER_PATTERN } from '@/types';
 
 export const REASON_INTERPRETER_DANGEROUS =
   'Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.';
@@ -73,11 +75,23 @@ function extractShortCodeArg(
   return token.slice(codeFlagIndex + 2) || nextToken || null;
 }
 
-export function containsDangerousCode(code: string): boolean {
-  for (const pattern of DANGEROUS_PATTERNS) {
+export function containsDangerousCode(code: string, scanWork?: { units: number }): boolean {
+  if (hasLinearInterpreterDanger(code, 'rm', scanWork)) return true;
+  for (const pattern of [
+    /\bgit\s+reset\s+--hard\b/,
+    /\bgit\s+checkout\s+--\b/,
+    /\bgit\s+clean\s+-f\b/,
+    /\bgit\s+stash\s+(drop|clear)\b/,
+  ]) {
+    chargeNativeLinearPass(scanWork, code);
     if (pattern.test(code)) {
       return true;
     }
   }
-  return false;
+  if (hasLinearInterpreterDanger(code, 'dd', scanWork)) return true;
+  for (const pattern of [/\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/, /\bshred\b\s+/]) {
+    chargeNativeLinearPass(scanWork, code);
+    if (pattern.test(code)) return true;
+  }
+  return hasLinearInterpreterDanger(code, 'find', scanWork);
 }

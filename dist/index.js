@@ -1551,6 +1551,454 @@ function findAwkRegexEnd(code, index) {
   return null;
 }
 
+// src/core/analyze/text-scanner.ts
+function scannedText(value, work) {
+  return { value, work };
+}
+function scanChar(text, index) {
+  if (text.work)
+    text.work.units = Math.min(Number.MAX_SAFE_INTEGER, text.work.units + 1);
+  return text.value[index];
+}
+function scanLength(text) {
+  return text.value.length;
+}
+function chargeScan(work, text, passes = 1) {
+  if (work)
+    work.units = Math.min(Number.MAX_SAFE_INTEGER, work.units + text.length * passes);
+}
+function chargeNativeLinearPass(work, text) {
+  chargeScan(work, text);
+}
+function isAsciiWord(char) {
+  if (!char)
+    return !1;
+  let code = char.charCodeAt(0);
+  return code >= 48 && code <= 57 || code >= 65 && code <= 90 || code === 95 || code >= 97 && code <= 122;
+}
+function isEcmaWhitespace(char) {
+  if (!char)
+    return !1;
+  let code = char.charCodeAt(0);
+  return code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32 || code === 160 || code === 65279 || code === 5760 || code >= 8192 && code <= 8202 || code === 8232 || code === 8233 || code === 8239 || code === 8287 || code === 12288;
+}
+function isJsLineTerminator(char) {
+  return char === `
+` || char === "\r" || char === "\u2028" || char === "\u2029";
+}
+function fixedAt(text, index, expected) {
+  if (index + expected.length > scanLength(text))
+    return !1;
+  for (let offset = 0;offset < expected.length; offset++)
+    if (scanChar(text, index + offset) !== expected[offset])
+      return !1;
+  return !0;
+}
+function wordAt(text, index, word) {
+  return !isAsciiWord(scanChar(text, index - 1)) && fixedAt(text, index, word) && !isAsciiWord(scanChar(text, index + word.length));
+}
+function sequenceAt(text, index, first, second) {
+  if (!wordAt(text, index, first))
+    return -1;
+  let cursor = index + first.length;
+  if (!isEcmaWhitespace(scanChar(text, cursor)))
+    return -1;
+  while (isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  return wordAt(text, cursor, second) ? cursor + second.length : -1;
+}
+function hasWordBoundaryAfter(text, end) {
+  return isAsciiWord(scanChar(text, end - 1)) !== isAsciiWord(scanChar(text, end));
+}
+function isRawStop(char) {
+  return char === `
+` || char === ";" || char === "&" || char === "|";
+}
+function isPipeSemicolonStop(char) {
+  return char === "|" || char === ";";
+}
+
+// src/core/analyze/linear-danger-scanner.ts
+function hasLinearInterpreterDanger(code, kind, work) {
+  let text = scannedText(code, work);
+  if (kind === "rm")
+    return hasInterpreterRm(text);
+  if (kind === "dd")
+    return hasInterpreterDd(text);
+  return hasFindDelete(text, !0);
+}
+function hasLinearDangerousText(text, kind, work) {
+  let scanned = scannedText(text, work);
+  if (kind === "rm")
+    return hasRawRm(scanned);
+  if (kind === "checkout")
+    return hasCheckoutForce(scanned);
+  if (kind === "push-force")
+    return hasPushForce(scanned);
+  if (kind === "push-refspec")
+    return hasPushForcedRefspec(scanned);
+  if (kind === "push-delete")
+    return hasPushDelete(scanned);
+  if (kind === "branch")
+    return hasBranchDeleteForce(scanned);
+  if (kind === "tag")
+    return hasTagDelete(scanned);
+  if (kind === "restore")
+    return hasRestoreWithoutExclusion(scanned);
+  return hasFindDelete(scanned, !1);
+}
+function hasInterpreterRm(text) {
+  let active = !1, recursive = !1, force = !1, tokenStart = -1;
+  for (let i = 0;i <= scanLength(text); i++) {
+    let char = scanChar(text, i);
+    if (!active) {
+      let afterRm = scanChar(text, i + 2);
+      if (wordAt(text, i, "rm") && isEcmaWhitespace(afterRm) && afterRm !== `
+`)
+        active = !0, i++;
+      continue;
+    }
+    if (char === `
+`) {
+      active = !1, recursive = !1, force = !1, tokenStart = -1;
+      continue;
+    }
+    if (char === ";" || char === "&" || char === "|" || i === scanLength(text)) {
+      if (tokenStart >= 0) {
+        let flags = interpreterRmFlags(text, tokenStart, i);
+        recursive ||= flags.recursive, force ||= flags.force;
+      }
+      if (recursive && force)
+        return !0;
+      active = !1, recursive = !1, force = !1, tokenStart = -1;
+      continue;
+    }
+    if (isEcmaWhitespace(char)) {
+      if (tokenStart >= 0) {
+        if (fixedAt(text, tokenStart, "--") && i - tokenStart === 2)
+          active = !1, recursive = !1, force = !1;
+        else {
+          let flags = interpreterRmFlags(text, tokenStart, i);
+          if (recursive ||= flags.recursive, force ||= flags.force, recursive && force)
+            return !0;
+        }
+        tokenStart = -1;
+      }
+      continue;
+    }
+    if (tokenStart < 0)
+      tokenStart = i;
+  }
+  return !1;
+}
+function interpreterRmFlags(text, start, end) {
+  if (fixedAt(text, start, "--recursive") && end - start === 11)
+    return { recursive: !0, force: !1 };
+  if (fixedAt(text, start, "--force") && end - start === 7)
+    return { recursive: !1, force: !0 };
+  if (scanChar(text, start) !== "-" || scanChar(text, start + 1) === "-")
+    return { recursive: !1, force: !1 };
+  let recursive = !1, force = !1;
+  for (let i = start + 1;i < end; i++) {
+    let char = scanChar(text, i);
+    recursive ||= char === "r" || char === "R", force ||= char === "f" || char === "F";
+  }
+  return { recursive, force };
+}
+function hasInterpreterDd(text) {
+  let active = !1;
+  for (let i = 0;i < scanLength(text); i++) {
+    if (isRawStop(scanChar(text, i))) {
+      active = !1;
+      continue;
+    }
+    if (wordAt(text, i, "dd")) {
+      active = !0, i++;
+      continue;
+    }
+    if (!active || !wordAt(text, i, "of") || !fixedAt(text, i, "of=/dev/"))
+      continue;
+    let valueStart = i + 8;
+    if (valueStart < scanLength(text) && !isEcmaWhitespace(scanChar(text, valueStart)) && scanChar(text, valueStart) !== "'" && scanChar(text, valueStart) !== '"')
+      return !0;
+  }
+  return !1;
+}
+function hasRawRm(text) {
+  let active = !1, recursiveLong = !1, forceLong = !1;
+  for (let i = 0;i <= scanLength(text); ) {
+    let char = scanChar(text, i);
+    if (i === scanLength(text) || isRawStop(char)) {
+      active = !1, recursiveLong = !1, forceLong = !1, i++;
+      continue;
+    }
+    let start = rawRmAt(text, i);
+    if (start >= 0) {
+      if (rawRmShortMatch(text, start))
+        return !0;
+      let bodyStart = start, crossedLf = !1;
+      while (isEcmaWhitespace(scanChar(text, bodyStart)))
+        crossedLf ||= scanChar(text, bodyStart) === `
+`, bodyStart++;
+      if (crossedLf)
+        recursiveLong = !1, forceLong = !1;
+      active = !0, i = bodyStart;
+      continue;
+    }
+    if (!active) {
+      i++;
+      continue;
+    }
+    if (recursiveLong ||= fixedAt(text, i, "--recursive") && hasWordBoundaryAfter(text, i + 11), forceLong ||= fixedAt(text, i, "--force") && hasWordBoundaryAfter(text, i + 7), recursiveLong && forceLong)
+      return !0;
+    i++;
+  }
+  return !1;
+}
+function rawRmShortMatch(text, start) {
+  let cursor = start;
+  while (isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  let firstStart = cursor;
+  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  let first = summarizeRawShortToken(text, firstStart, cursor);
+  if (first.combined)
+    return !0;
+  while (isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  let secondStart = cursor;
+  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  let second = summarizeRawShortToken(text, secondStart, cursor);
+  return first.recursive && second.forceAtBoundary || first.force && second.recursiveAtBoundary;
+}
+function rawRmAt(text, index) {
+  if (index > 0 && isAsciiWord(scanChar(text, index - 1)))
+    return -1;
+  let cursor = index;
+  if (scanChar(text, cursor) === "\\")
+    cursor++;
+  if (scanChar(text, cursor) !== "r")
+    return -1;
+  if (cursor++, scanChar(text, cursor) === "\\")
+    cursor++;
+  if (scanChar(text, cursor) !== "m" || !isEcmaWhitespace(scanChar(text, cursor + 1)))
+    return -1;
+  return cursor + 1;
+}
+function summarizeRawShortToken(text, start, end) {
+  let recursive = !1, force = !1, recursiveAtBoundary = !1, forceAtBoundary = !1, combined = !1;
+  if (scanChar(text, start) !== "-")
+    return { recursive, force, recursiveAtBoundary, forceAtBoundary, combined };
+  let previous = "";
+  for (let i = start + 1;i < end; i++) {
+    let char = scanChar(text, i) ?? "", boundary = (char === "r" || char === "f") && hasWordBoundaryAfter(text, i + 1);
+    recursive ||= char === "r", force ||= char === "f", recursiveAtBoundary ||= char === "r" && boundary, forceAtBoundary ||= char === "f" && boundary, combined ||= (previous === "r" && char === "f" || previous === "f" && char === "r") && boundary, previous = char;
+  }
+  return { recursive, force, recursiveAtBoundary, forceAtBoundary, combined };
+}
+function hasCheckoutForce(text) {
+  return hasGitShortOption(text, {
+    command: "checkout",
+    longPrefix: "--fo",
+    longOptional: "rce",
+    shortFlag: "f",
+    excludedShortStarts: "bBU"
+  });
+}
+function hasPushForce(text) {
+  return scanGitSuffix(text, "push", isPipeSemicolonStop, !0, (i) => {
+    if (scanChar(text, i) !== "-")
+      return i;
+    if (scanChar(text, i + 1) === "f" && !isAsciiWord(scanChar(text, i + 2)) && !fixedAt(text, i + 2, "-with-lease"))
+      return !0;
+    let end = partialLongOptionEnd(text, i, "--fo", "rce");
+    if (end >= 0 && !fixedAt(text, end, "-with-lease"))
+      return !0;
+    return i;
+  });
+}
+function hasPushForcedRefspec(text) {
+  return scanGitSuffix(text, "push", isRawStop, !1, (i) => {
+    if (isEcmaWhitespace(scanChar(text, i)) && scanChar(text, i + 1) === "+" && i + 2 < scanLength(text) && !isRawStop(scanChar(text, i + 2)) && !isEcmaWhitespace(scanChar(text, i + 2)))
+      return !0;
+    if (scanChar(text, i) === ":" && scanChar(text, i + 1) === "+")
+      return !0;
+    return i;
+  });
+}
+function hasPushDelete(text) {
+  return scanGitSuffix(text, "push", isRawStop, !1, (i) => {
+    if (scanChar(text, i) === "-" && isPartialLongOption(text, i, "--de", "lete"))
+      return !0;
+    if (isEcmaWhitespace(scanChar(text, i)) && scanChar(text, i + 1) === ":" && i + 2 < scanLength(text) && !isEcmaWhitespace(scanChar(text, i + 2)) && !isRawStop(scanChar(text, i + 2)))
+      return !0;
+    return i;
+  });
+}
+function hasBranchDeleteForce(text) {
+  let active = !1, deletion = !1, force = !1;
+  for (let i = 0;i <= scanLength(text); i++) {
+    if (i === scanLength(text) || isRawStop(scanChar(text, i))) {
+      if (deletion && force)
+        return !0;
+      active = !1, deletion = !1, force = !1;
+      continue;
+    }
+    let after = sequenceAt(text, i, "git", "branch");
+    if (after >= 0) {
+      active = !0, i = after - 1;
+      continue;
+    }
+    if (!active || scanChar(text, i) !== "-")
+      continue;
+    let end = tokenEnd(text, i, isRawStop), flags = branchTokenFlags(text, i, end);
+    if (deletion ||= flags.deletion, force ||= flags.force, deletion && force)
+      return !0;
+    i = end - 1;
+  }
+  return !1;
+}
+function branchTokenFlags(text, start, end) {
+  let deletion = !1, force = !1;
+  for (let i = start;i < end; i++) {
+    if (scanChar(text, i) !== "-")
+      continue;
+    if (isPartialLongOption(text, i, "--de", "lete"))
+      deletion = !0;
+    if (isPartialLongOption(text, i, "--fo", "rce"))
+      force = !0;
+    if (scanChar(text, i + 1) === "-")
+      continue;
+    let cursor = i + 1, clusterDeletion = !1, clusterForce = !1, clusterUpperD = !1;
+    while (cursor < end && isAsciiLetter(scanChar(text, cursor))) {
+      let char = scanChar(text, cursor);
+      clusterDeletion ||= char === "d" || char === "D", clusterForce ||= char === "f", clusterUpperD ||= char === "D", cursor++;
+    }
+    if (!hasWordBoundaryAfter(text, cursor))
+      continue;
+    deletion ||= clusterDeletion, force ||= clusterForce || clusterUpperD;
+  }
+  return { deletion, force };
+}
+function isAsciiLetter(char) {
+  if (!char)
+    return !1;
+  let code = char.charCodeAt(0);
+  return code >= 65 && code <= 90 || code >= 97 && code <= 122;
+}
+function hasTagDelete(text) {
+  return hasGitShortOption(text, {
+    command: "tag",
+    longPrefix: "--de",
+    longOptional: "lete",
+    shortFlag: "d",
+    excludedShortStarts: ""
+  });
+}
+function hasGitShortOption(text, options) {
+  let outerActive = !1, shortActive = !1, hasShortFlag = !1;
+  for (let i = 0;i < scanLength(text); i++) {
+    let char = scanChar(text, i);
+    if (isEcmaWhitespace(char))
+      shortActive = !1, hasShortFlag = !1;
+    let after = sequenceAt(text, i, "git", options.command);
+    if (after >= 0 && isEcmaWhitespace(scanChar(text, after))) {
+      outerActive = !0, shortActive = !1, hasShortFlag = !1, i = after - 1;
+      continue;
+    }
+    if (outerActive && char === "-") {
+      if (isPartialLongOption(text, i, options.longPrefix, options.longOptional))
+        return !0;
+      shortActive ||= !options.excludedShortStarts.includes(scanChar(text, i + 1) ?? "");
+    }
+    if (hasShortFlag ||= shortActive && char === options.shortFlag, hasShortFlag && hasWordBoundaryAfter(text, i + 1))
+      return !0;
+    if (isPipeSemicolonStop(char))
+      outerActive = !1;
+  }
+  return !1;
+}
+function scanGitSuffix(text, command, stop, requireTrailingWhitespace, inspect) {
+  let active = !1;
+  for (let i = 0;i < scanLength(text); i++) {
+    let char = scanChar(text, i), stopped = stop(char);
+    if (!stopped) {
+      let after = sequenceAt(text, i, "git", command);
+      if (after >= 0 && (!requireTrailingWhitespace || isEcmaWhitespace(scanChar(text, after)))) {
+        active = !0, i = after - 1;
+        continue;
+      }
+    }
+    if (active) {
+      let result = inspect(i);
+      if (result === !0)
+        return !0;
+      for (let cursor = i;cursor <= result; cursor++)
+        if (stop(scanChar(text, cursor)))
+          active = !1;
+      i = result;
+    }
+    if (stopped)
+      active = !1;
+  }
+  return !1;
+}
+function hasRestoreWithoutExclusion(text) {
+  let candidate = !1;
+  for (let i = 0;i < scanLength(text); i++) {
+    if (isJsLineTerminator(scanChar(text, i))) {
+      if (candidate)
+        return !0;
+      candidate = !1;
+      continue;
+    }
+    if (wordAt(text, i, "git")) {
+      let after = sequenceAt(text, i, "git", "restore");
+      if (after >= 0) {
+        candidate = !0, i = after - 1;
+        continue;
+      }
+    }
+    if (candidate && scanChar(text, i) === "-" && scanChar(text, i + 1) === "-" && (fixedAt(text, i + 2, "staged") || fixedAt(text, i + 2, "help")))
+      candidate = !1;
+  }
+  return candidate;
+}
+function hasFindDelete(text, interpreter) {
+  let active = !1;
+  for (let i = 0;i < scanLength(text); i++) {
+    let char = scanChar(text, i), stopped = interpreter ? isJsLineTerminator(char) : isRawStop(char);
+    if (active && isEcmaWhitespace(char) && scanChar(text, i + 1) === "-" && wordAt(text, i + 2, "delete"))
+      return !0;
+    if (stopped) {
+      active = !1;
+      continue;
+    }
+    if (wordAt(text, i, "find"))
+      active = !0, i += 3;
+  }
+  return !1;
+}
+function tokenEnd(text, start, stop) {
+  let end = start;
+  while (end < scanLength(text) && !isEcmaWhitespace(scanChar(text, end)) && !stop(scanChar(text, end)))
+    end++;
+  return end;
+}
+function partialLongOptionEnd(text, start, prefix, optional) {
+  if (!fixedAt(text, start, prefix))
+    return -1;
+  let end = start + prefix.length;
+  for (let i = 0;i < optional.length && scanChar(text, end) === optional[i]; i++)
+    end++;
+  return hasWordBoundaryAfter(text, end) ? end : -1;
+}
+function isPartialLongOption(text, start, prefix, optional) {
+  return partialLongOptionEnd(text, start, prefix, optional) >= 0;
+}
+
 // src/core/shell/command.ts
 function normalizeCommandToken(token) {
   return getBasename(token).toLowerCase();
@@ -1614,17 +2062,7 @@ var BLOCK_INTENTS = [
 ];
 
 // src/types.ts
-var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/, RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/, DANGEROUS_PATTERNS = [
-  RM_RECURSIVE_FORCE_PATTERN,
-  /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+checkout\s+--\b/,
-  /\bgit\s+clean\s+-f\b/,
-  /\bgit\s+stash\s+(drop|clear)\b/,
-  /\bdd\b[^\n;&|]*\bof=\/dev\/[^\s'"]+/,
-  /\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/,
-  /\bshred\b\s+/,
-  /\bfind\b.*\s-delete\b/
-];
+var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 
 // src/core/analyze/interpreters.ts
 var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.", REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)", CODE_FLAGS = /* @__PURE__ */ new Map([
@@ -1676,11 +2114,23 @@ function extractShortCodeArg(interpreter, token, nextToken) {
     return null;
   return token.slice(codeFlagIndex + 2) || nextToken || null;
 }
-function containsDangerousCode(code) {
-  for (let pattern of DANGEROUS_PATTERNS)
-    if (pattern.test(code))
+function containsDangerousCode(code, scanWork) {
+  if (hasLinearInterpreterDanger(code, "rm", scanWork))
+    return !0;
+  for (let pattern of [
+    /\bgit\s+reset\s+--hard\b/,
+    /\bgit\s+checkout\s+--\b/,
+    /\bgit\s+clean\s+-f\b/,
+    /\bgit\s+stash\s+(drop|clear)\b/
+  ])
+    if (chargeNativeLinearPass(scanWork, code), pattern.test(code))
       return !0;
-  return !1;
+  if (hasLinearInterpreterDanger(code, "dd", scanWork))
+    return !0;
+  for (let pattern of [/\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/, /\bshred\b\s+/])
+    if (chargeNativeLinearPass(scanWork, code), pattern.test(code))
+      return !0;
+  return hasLinearInterpreterDanger(code, "find", scanWork);
 }
 // src/core/shell/options.ts
 function extractShortOpts(tokens, options) {
@@ -5821,73 +6271,32 @@ function withTerminalPeriod(value) {
 }
 
 // src/core/analyze/dangerous-text.ts
-function dangerousInTextMatch(text) {
-  let t = text.toLowerCase(), stripped = t.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
-    {
-      regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
-      label: "rm -rf"
-    },
-    {
-      regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/,
-      label: "git reset --hard"
-    },
-    {
-      regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/,
-      label: "git reset --merge"
-    },
-    {
-      regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
-      label: "git clean -f"
-    },
-    {
-      regex: /\bgit\s+checkout\s+[^|;]*(--fo(?:r(?:c(?:e)?)?)?\b|-(?![bBU])[^\s]*f[^\s]*\b)/,
-      label: "git checkout --force"
-    },
-    {
-      regex: /\bgit\s+push\s+[^|;]*(-f\b|--fo(?:r(?:c(?:e)?)?)?\b)(?!-with-lease)/,
-      label: "git push --force"
-    },
-    {
-      regex: /\bgit\s+push\b[^\n;|&]*(?:\s\+[^\s;|&]+|[^\s;|&]*:\+[^\s;|&]*)/,
-      label: "git push --force"
-    },
-    {
-      regex: /\bgit\s+push\b[^\n;|&]*(?:--de(?:l(?:e(?:t(?:e)?)?)?)?\b|\s:[^\s;|&]+)/,
-      label: "git push delete"
-    },
-    {
-      regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
-      label: "git branch -D",
-      caseSensitive: !0
-    },
-    {
-      regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
-      label: "git tag -d"
-    },
-    {
-      regex: /\bgit\s+stash\s+(drop|clear)\b/,
-      label: "git stash drop/clear"
-    },
-    {
-      regex: /\bgit\s+checkout\s+--\s/,
-      label: "git checkout --"
-    },
-    {
-      regex: /\bgit\s+restore\b(?!.*--(staged|help))/,
-      label: "git restore without --staged"
-    },
-    {
-      regex: /\bfind\b[^\n;|&]*\s-delete\b/,
-      label: "find -delete",
-      skipForEchoRg: !0
-    }
+function dangerousInTextMatch(text, scanWork) {
+  chargeScan(scanWork, text, 2);
+  let lower = text.toLowerCase(), stripped = lower.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
+    { scan: "rm", label: "rm -rf" },
+    { regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/, label: "git reset --hard" },
+    { regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/, label: "git reset --merge" },
+    { regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/, label: "git clean -f" },
+    { scan: "checkout", label: "git checkout --force" },
+    { scan: "push-force", label: "git push --force" },
+    { scan: "push-refspec", label: "git push --force" },
+    { scan: "push-delete", label: "git push delete" },
+    { scan: "branch", label: "git branch -D", caseSensitive: !0 },
+    { scan: "tag", label: "git tag -d" },
+    { regex: /\bgit\s+stash\s+(drop|clear)\b/, label: "git stash drop/clear" },
+    { regex: /\bgit\s+checkout\s+--\s/, label: "git checkout --" },
+    { scan: "restore", label: "git restore without --staged" },
+    { scan: "find", label: "find -delete", skipForEchoRg: !0 }
   ];
-  for (let { regex, label, skipForEchoRg, caseSensitive } of patterns) {
-    if (skipForEchoRg && isEchoOrRg)
+  for (let pattern of patterns) {
+    if (pattern.skipForEchoRg && isEchoOrRg)
       continue;
-    let target = caseSensitive ? text : t;
-    if (regex.test(target))
-      return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${label}). Rewrite as a plain, parseable command so it can be analyzed.`);
+    let target = pattern.caseSensitive ? text : lower;
+    if (pattern.regex)
+      chargeNativeLinearPass(scanWork, target);
+    if ((pattern.regex?.test(target) ?? !1) || pattern.scan && hasLinearDangerousText(target, pattern.scan, scanWork))
+      return destructiveCommandMatch("raw-text.dangerous-command", `Unparseable command text contains a destructive pattern (${pattern.label}). Rewrite as a plain, parseable command so it can be analyzed.`);
   }
   return null;
 }
@@ -7777,7 +8186,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     });
     if (nestedResult)
       return nestedResult;
-    return containsDangerousCode(codeArg) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) : null;
+    return containsDangerousCode(codeArg, context.scanWork) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) : null;
   }
   if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens))
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
@@ -7946,7 +8355,8 @@ function analyzeParallel(tokens, context) {
       envAssignments: childCommand.envAssignments,
       worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode,
       analyzeNested: context.analyzeNested,
-      policy: context.policy
+      policy: context.policy,
+      scanWork: context.scanWork
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
       shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
@@ -8408,7 +8818,8 @@ function analyzeXargs(tokens, context) {
     envAssignments: childCommand.envAssignments,
     worktreeMode: context.worktreeMode,
     analyzeNested: context.analyzeNested,
-    policy: context.policy
+    policy: context.policy,
+    scanWork: context.scanWork
   }, {
     dynamicInput: childCommand.head !== "git",
     shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
@@ -8429,7 +8840,8 @@ function analyzeXargs(tokens, context) {
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode,
     analyzeNested: context.analyzeNested,
-    policy: context.policy
+    policy: context.policy,
+    scanWork: context.scanWork
   });
 }
 function extractXargsChildCommandWithInfo(tokens) {
@@ -8641,7 +9053,7 @@ function analyzeSegment(tokens, depth, options2) {
       });
       if (innerReason)
         return innerReason;
-      if (containsDangerousCode(codeArg)) {
+      if (containsDangerousCode(codeArg, options2.scanWork)) {
         let interpreterMatch = destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
           return trace?.recordSegment({
@@ -8976,7 +9388,8 @@ function getNestedCommandAnalyzeContext(context) {
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
-    policy: context.options.policy
+    policy: context.options.policy,
+    scanWork: context.options.scanWork
   };
 }
 var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
@@ -9475,7 +9888,7 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
       return resultFromCommandMatch(segmentStr, match);
   }
   if (segment.length === 1 && segment[0]?.includes(" ") && !commandView.dynamicExecutable) {
-    let dangerousTextMatch = dangerousInTextMatch(segment[0]), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy);
+    let dangerousTextMatch = dangerousInTextMatch(segment[0], options2.scanWork), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy);
     if (textMatch)
       return options2.trace?.recordSegment({
         type: "dangerous-text",
@@ -9554,7 +9967,7 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
   };
 }
 function analyzeUnparseableCommand(command2, options2) {
-  let dangerousTextMatch = dangerousInTextMatch(command2), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy), segmentIndex = options2.trace?.currentSegmentIndex ?? options2.trace?.allocateSegment(), step = {
+  let dangerousTextMatch = dangerousInTextMatch(command2, options2.scanWork), textMatch = options2.compatibility === "explain-legacy" ? dangerousTextMatch : filterDestructiveCommandMatch(dangerousTextMatch, options2.policy), segmentIndex = options2.trace?.currentSegmentIndex ?? options2.trace?.allocateSegment(), step = {
     type: "dangerous-text",
     token: command2,
     matched: !!textMatch,

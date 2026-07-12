@@ -33,6 +33,7 @@ export interface ChildCommandAnalysisContext {
   allowTmpdirVar: boolean;
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
+  scanWork?: { units: number };
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
@@ -131,7 +132,7 @@ export function analyzeChildCommandMatch(
       return nestedResult;
     }
 
-    return containsDangerousCode(codeArg)
+    return containsDangerousCode(codeArg, context.scanWork)
       ? filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
           context.policy,

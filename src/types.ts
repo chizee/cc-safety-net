@@ -228,22 +228,6 @@ export const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'ksh', 'dash', 'fish
 export const INTERPRETERS = new Set(['python', 'python3', 'python2', 'node', 'ruby', 'perl']);
 export const PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 
-const RM_RECURSIVE_FORCE_PATTERN =
-  /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/;
-
-/** Dangerous commands to detect in interpreter code */
-export const DANGEROUS_PATTERNS = [
-  RM_RECURSIVE_FORCE_PATTERN,
-  /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+checkout\s+--\b/,
-  /\bgit\s+clean\s+-f\b/,
-  /\bgit\s+stash\s+(drop|clear)\b/,
-  /\bdd\b[^\n;&|]*\bof=\/dev\/[^\s'"]+/,
-  /\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/,
-  /\bshred\b\s+/,
-  /\bfind\b.*\s-delete\b/,
-];
-
 /** Trace data for explain command */
 export interface ExplainTrace {
   steps: TraceStep[];

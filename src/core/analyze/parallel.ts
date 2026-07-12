@@ -224,6 +224,7 @@ export function analyzeParallel(
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
         analyzeNested: context.analyzeNested,
         policy: context.policy,
+        scanWork: context.scanWork,
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
