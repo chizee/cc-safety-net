@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
 import * as toolRouting from '@/core/tool-input';
 import * as invocationDomain from '@/domain/invocation';
+import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -40,16 +41,39 @@ export function createCCSafetyNetPlugin(
       },
 
       'tool.execute.before': async (input, output) => {
+        const throwPreflightDenial = (
+          denial: IntegrationDenial,
+          toolName?: string,
+          cwd: string | null = configCwd,
+        ): never => {
+          writeIntegrationDenialAudit(denial, () => input.sessionID, {
+            agent: 'opencode',
+            toolName,
+            cwd,
+            homeDir,
+          });
+          throwBlocked(denial);
+        };
         if (typeof input.tool !== 'string' || input.tool.trim() === '') {
-          throwFailedClosed();
+          throwPreflightDenial(createFailedClosedDenial());
         }
 
         const toolInput = output.args;
+        let command: string | undefined;
+        try {
+          command = toolRouting.getCommandFromToolInput(toolInput);
+        } catch (error) {
+          if (!(error instanceof toolRouting.ToolInputLimitError)) throw error;
+          throwPreflightDenial(createFailedClosedDenial({ toolName: input.tool }), input.tool);
+        }
         const shellRoute = resolveOpenCodeShellRoute(currentConfig?.shell);
         const route = getOpenCodeToolRoute(input.tool, shellRoute);
         const executionCwd = resolveOpenCodeExecutionCwd(configCwd, toolInput);
         if (!isUsableDirectory(configCwd) || !executionCwd) {
-          throwFailedClosed(toolRouting.getCommandFromToolInput(toolInput));
+          return throwPreflightDenial(
+            createFailedClosedDenial({ command, toolName: input.tool }),
+            input.tool,
+          );
         }
         const context: invocationDomain.ToolCallContext = { configCwd, executionCwd };
         const invocation = invocationDomain.createToolInvocation(
@@ -57,7 +81,7 @@ export function createCCSafetyNetPlugin(
           toolInput,
           route,
           context,
-          toolRouting.getCommandFromToolInput(toolInput) ?? null,
+          command ?? null,
         );
         try {
           const evaluation = guardEngine.evaluateRuntimeGuard(invocation, {
@@ -143,10 +167,6 @@ function isUsableDirectory(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function throwFailedClosed(command?: string): never {
-  throwBlocked(createFailedClosedDenial({ command }));
 }
 
 function throwGuardDenial(evaluation: guardEngine.GuardEvaluation, includeEvidence: boolean): void {

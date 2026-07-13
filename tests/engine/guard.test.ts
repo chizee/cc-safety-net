@@ -394,15 +394,6 @@ describe('guard evaluation', () => {
           { kind: 'path', target: '.env' },
         ],
       });
-      expect(result.audit).toEqual({
-        decision: 'deny',
-        command: 'cat .env',
-        segment: '.env',
-        reason: 'Access to a sensitive path is not allowed.',
-        cwd,
-        ruleId: 'secret.basename.env',
-        intent: 'hard_stop',
-      });
     });
   });
 
@@ -532,7 +523,7 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('emits audit descriptors only for secret and command decisions', async () => {
+  test('keeps audit persistence concerns out of guard evaluations', async () => {
     await withTempDir('cc-safety-net-guard-audit-', (cwd) => {
       const blocked = evaluateGuard(commandInvocation(cwd, 'git reset --hard'), {
         dependencies: dependencies({
@@ -552,23 +543,10 @@ describe('guard evaluation', () => {
         dependencies: dependencies(),
       });
 
-      expect(blocked.audit).toEqual({
-        decision: 'deny',
-        command: 'git reset --hard',
-        segment: 'git reset --hard',
-        reason: 'reset blocked',
-        cwd,
-        ruleId: 'git.reset-hard',
-        intent: 'use_alternative',
-      });
-      expect(allowed.audit).toEqual({
-        decision: 'allow',
-        command: 'git status',
-        segment: 'git status',
-        reason: 'allowed',
-        cwd,
-      });
-      expect(ordinaryAllowed.audit).toBeUndefined();
+      expect(blocked).not.toHaveProperty('audit');
+      expect(allowed).not.toHaveProperty('audit');
+      expect(ordinaryAllowed).not.toHaveProperty('audit');
+      expect(allowed).toEqual(ordinaryAllowed);
     });
   });
 
@@ -639,7 +617,7 @@ describe('guard evaluation', () => {
         'cat .env >| ~/.ssh/id_rsa',
       ]) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
-          expectedSecretBlock(command, cwd),
+          expectedSecretBlock(command),
         );
       }
     });
@@ -696,7 +674,7 @@ describe('guard evaluation', () => {
         'echo <<\r\ncat .env',
       ]) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
-          expectedSecretBlock(command, cwd),
+          expectedSecretBlock(command),
         );
       }
     });
@@ -724,7 +702,7 @@ describe('guard evaluation', () => {
 
       for (const command of ['cat README.md <(cat .env)', 'cat README.md >(cat .env)']) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual(
-          expectedSecretBlock(command, cwd),
+          expectedSecretBlock(command),
         );
       }
     });
@@ -752,7 +730,7 @@ describe('guard evaluation', () => {
   });
 });
 
-function expectedSecretBlock(command: string, cwd: string): GuardEvaluation {
+function expectedSecretBlock(command: string): GuardEvaluation {
   return {
     stage: 'secret-protection',
     decision: {
@@ -764,15 +742,6 @@ function expectedSecretBlock(command: string, cwd: string): GuardEvaluation {
         { kind: 'command', command, segment: '.env' },
         { kind: 'path', target: '.env' },
       ],
-    },
-    audit: {
-      decision: 'deny',
-      command,
-      segment: '.env',
-      reason: 'Access to a sensitive path is not allowed.',
-      cwd,
-      ruleId: 'secret.basename.env',
-      intent: 'hard_stop',
     },
   };
 }

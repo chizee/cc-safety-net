@@ -15,7 +15,12 @@ import {
   normalizeOpenCodeWindowsWorkdir,
   resolveOpenCodeShellRoute,
 } from '@/opencode/plugin';
-import { createLinkedWorktreeFixture, readLatestAuditLogEntry, withEnv } from '../helpers';
+import {
+  createLinkedWorktreeFixture,
+  readAuditLogEntriesForSession,
+  readLatestAuditLogEntry,
+  withEnv,
+} from '../helpers';
 import {
   gitCommitRule,
   syncInitialGitRulebook,
@@ -611,6 +616,31 @@ describe('OpenCode plugin', () => {
         expect(entry.reason).toBe('Access to a sensitive path is not allowed.');
         expect(entry.ruleId).toBe('secret.basename.env');
         expect(entry.cwd).toBe(projectDir);
+      },
+    );
+  });
+
+  test.each([
+    ['invalid tool', { tool: '   ' }, { args: {} }],
+    ['invalid workdir', { tool: 'bash' }, { args: { command: 'git status', workdir: 'missing' } }],
+    [
+      'unsafe tool input',
+      { tool: 'bash' },
+      { args: Object.create({ command: 'git reset --hard' }) },
+    ],
+  ] as const)('audits %s preflight denials exactly once', async (label, input, output) => {
+    await withAuditDirs(
+      `safety-net-opencode-${label}-home-`,
+      `safety-net-opencode-${label}-project-`,
+      async (homeDir, projectDir) => {
+        const plugin = await loadToolPlugin(projectDir, homeDir);
+        const sessionID = `opencode-${label.replaceAll(' ', '-')}`;
+
+        await expect(
+          plugin['tool.execute.before']({ ...input, sessionID }, output as never),
+        ).rejects.toThrow('CC Safety Net failed closed');
+
+        expect(readAuditLogEntriesForSession(homeDir, sessionID)).toHaveLength(1);
       },
     );
   });

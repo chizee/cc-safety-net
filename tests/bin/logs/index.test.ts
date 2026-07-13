@@ -39,6 +39,7 @@ function createLogsFixture(): LogsFixture {
   mkdirSync(logsDir, { recursive: true });
   writeNestedAuditLogFixture(logsDir, '-project-a', {
     ts: now.toISOString(),
+    id: '1111111111111111',
     sessionId: 's1',
     decision: 'deny',
     agent: 'claude-code',
@@ -50,6 +51,7 @@ function createLogsFixture(): LogsFixture {
   });
   writeNestedAuditLogFixture(logsDir, '-project-a', {
     ts: new Date(now.getTime() - 100).toISOString(),
+    id: '2222222222222222',
     sessionId: 'allow-session',
     decision: 'allow',
     agent: 'claude-code',
@@ -60,6 +62,7 @@ function createLogsFixture(): LogsFixture {
   });
   writeNestedAuditLogFixture(logsDir, '-project-a', {
     ts: new Date(now.getTime() - 200).toISOString(),
+    id: '3333333333333333',
     sessionId: 's2',
     decision: 'deny',
     agent: 'gemini-cli',
@@ -83,6 +86,7 @@ function createLogsFixture(): LogsFixture {
   writeJsonlFixture(join(logsDir, 'old-sess.jsonl'), [
     {
       ts: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(),
+      id: '4444444444444444',
       decision: 'deny',
       sessionId: 'old-sess',
       command: 'old blocked',
@@ -295,6 +299,211 @@ describe('runLogsCommand', () => {
       expect(entries[0]?.command).toBe('cat .env');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test('renders ids in the table and preserves legacy entries without ids', async () => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--all'], fixture.logsDir);
+
+      expect(result.stdout).toContain('1111111111111111');
+      expect(result.stdout).toContain('2222222222222222');
+      expect(result.stdout).toContain('-                 ');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test.each([
+    ['1111111111111111', 'git reset --hard'],
+    ['2222222222222222', 'git status'],
+    ['4444444444444444', 'old blocked'],
+  ])('finds deny, allow, and historical entries by id', async (id, command) => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--id', id], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`id:        ${id}`);
+      expect(result.stdout).toContain(`command:   ${command}`);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('keeps the table command bounded while detail and JSON retain persisted content', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-long-command-'));
+    const logsDir = join(root, 'logs');
+    const command = `${'x'.repeat(320)}complete-tail`;
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'long.jsonl'), [
+        {
+          ts: new Date().toISOString(),
+          id: '5555555555555555',
+          decision: 'deny',
+          command,
+          segment: command,
+          reason: 'blocked',
+        },
+      ]);
+
+      const table = await captureLogsCommand([], logsDir);
+      const detail = await captureLogsCommand(['--id', '5555555555555555'], logsDir);
+      const json = await captureLogsCommand(['--id', '5555555555555555', '--json'], logsDir);
+
+      expect(table.stdout).toContain(`${'x'.repeat(300)}…`);
+      expect(table.stdout).not.toContain('complete-tail');
+      expect(detail.stdout).toContain(command);
+      expect((JSON.parse(json.stdout) as AuditLogEntry[])[0]?.command).toBe(command);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('returns zero-or-one JSON entries and a specific human miss message', async () => {
+    const fixture = createLogsFixture();
+    try {
+      const found = await captureLogsCommand(
+        ['--id', '1111111111111111', '--json'],
+        fixture.logsDir,
+      );
+      const missingJson = await captureLogsCommand(
+        ['--id', 'ffffffffffffffff', '--json'],
+        fixture.logsDir,
+      );
+      const missingHuman = await captureLogsCommand(['--id', 'ffffffffffffffff'], fixture.logsDir);
+
+      expect(JSON.parse(found.stdout)).toHaveLength(1);
+      expect(JSON.parse(missingJson.stdout)).toEqual([]);
+      expect(missingHuman.stdout).toBe('No audit log entry found for id ffffffffffffffff.');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('ignores the default browse limit during id lookup', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-id-limit-'));
+    const logsDir = join(root, 'logs');
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'many.jsonl'), [
+        {
+          ts: new Date(0).toISOString(),
+          id: '8888888888888888',
+          decision: 'deny',
+          command: 'target beyond browse limit',
+          segment: 'target beyond browse limit',
+          reason: 'blocked',
+        },
+        ...Array.from({ length: 25 }, (_, index) => ({
+          ts: new Date(Date.now() - index).toISOString(),
+          id: index.toString(16).padStart(16, '0'),
+          decision: 'deny',
+          command: `newer ${index}`,
+          segment: `newer ${index}`,
+          reason: 'blocked',
+        })),
+      ]);
+
+      const result = await captureLogsCommand(['--id', '8888888888888888'], logsDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('target beyond browse limit');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    '--agent',
+    '--rule',
+    '--session',
+    '--project',
+    '--since',
+    '--limit',
+  ])('rejects --id combined with %s', async (flag) => {
+    const fixture = createLogsFixture();
+    try {
+      const value = flag === '--since' || flag === '--limit' ? '1' : 'value';
+      const result = await captureLogsCommand(
+        ['--id', '1111111111111111', flag, value],
+        fixture.logsDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--id cannot be combined');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('rejects malformed and ambiguous ids', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-duplicate-id-'));
+    const logsDir = join(root, 'logs');
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      for (const name of ['first', 'second']) {
+        writeJsonlFixture(join(logsDir, `${name}.jsonl`), [
+          {
+            ts: new Date().toISOString(),
+            id: '6666666666666666',
+            decision: 'deny',
+            command: name,
+            segment: name,
+            reason: 'blocked',
+          },
+        ]);
+      }
+
+      const malformed = await captureLogsCommand(['--id', 'not-an-id'], logsDir);
+      const duplicate = await captureLogsCommand(['--id', '6666666666666666'], logsDir);
+      expect(malformed.exitCode).toBe(1);
+      expect(malformed.stderr).toContain('--id must be 16 hexadecimal characters');
+      expect(duplicate.exitCode).toBe(1);
+      expect(duplicate.stderr).toContain(
+        'Multiple audit log entries found for id 6666666666666666.',
+      );
+      expect(duplicate.stdout).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('escapes every detail value and renders empty values as dashes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-detail-controls-'));
+    const logsDir = join(root, 'logs');
+    const control = '\x1b]52;c;SGk=\x07';
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'controls.jsonl'), [
+        {
+          ts: `2026-07-13T00:00:00.000Z${control}`,
+          id: '7777777777777777',
+          v: control,
+          sessionId: control,
+          decision: `deny${control}`,
+          agent: control,
+          shape: control,
+          toolName: control,
+          command: '',
+          segment: '',
+          truncated: true,
+          reason: control,
+          ruleId: control,
+          intent: control,
+          cwd: control,
+        },
+      ]);
+
+      const result = await captureLogsCommand(['--id', '7777777777777777'], logsDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.split('\n').some(hasTerminalControlBytes)).toBe(false);
+      expect(result.stdout).toContain(String.raw`\x1b]52;c;SGk=\x07`);
+      expect(result.stdout).toContain('command:   -');
+      expect(result.stdout).toContain('segment:   -');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

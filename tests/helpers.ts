@@ -112,6 +112,17 @@ export function readLatestAuditLogEntry(homeDir: string, sessionId: string): Aud
   return JSON.parse(lines[lines.length - 1] ?? '{}') as AuditLogEntry;
 }
 
+export function readAuditLogEntriesForSession(homeDir: string, sessionId: string): AuditLogEntry[] {
+  return listAuditLogFiles(join(homeDir, '.cc-safety-net', 'logs'))
+    .flatMap((file) =>
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as AuditLogEntry),
+    )
+    .filter((entry) => entry.sessionId === sessionId);
+}
+
 export function writeJsonlFixture(
   filePath: string,
   entries: readonly Record<string, unknown>[],

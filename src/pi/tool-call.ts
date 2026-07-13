@@ -4,6 +4,7 @@ import { ENV_FLAGS, envTruthy } from '@/core/env';
 import { getNonCommandToolInputKind } from '@/core/tool-input';
 import type { CommandToolKind, ToolInvocation } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
+import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -59,6 +60,8 @@ const PI_COMMAND_TOOL_ADAPTERS = new Map<string, PiCommandToolAdapter>([
 
 type MalformedPiToolCall = {
   malformed: true;
+  denial: IntegrationDenial;
+  cwd: string | null;
 };
 
 export function registerToolCallEvent(pi: PiApi): void {
@@ -90,7 +93,12 @@ function handlePiToolCallWithDependencies(
   if (!toolCall) return undefined;
 
   if ('malformed' in toolCall) {
-    return blockPiToolCall(createFailedClosedDenial());
+    writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionFile(), {
+      agent: 'pi',
+      toolName: toolCall.denial.toolName,
+      cwd: toolCall.cwd,
+    });
+    return blockPiToolCall(toolCall.denial);
   }
 
   try {
@@ -125,18 +133,18 @@ function getPiToolCall(
   const toolCall = event as PiToolCallEvent;
   if (toolCall.type !== undefined && toolCall.type !== 'tool_call') return undefined;
   if (typeof toolCall.toolName !== 'string' || toolCall.toolName.trim() === '') {
-    return { malformed: true };
+    return malformedPiToolCall(ctx);
   }
 
   const validContextCwd =
     typeof ctx.cwd === 'string' && ctx.cwd.trim() !== ''
       ? resolveContainedCwd('.', [ctx.cwd])
       : undefined;
-  if (!validContextCwd) return { malformed: true };
+  if (!validContextCwd) return malformedPiToolCall(ctx, toolCall.toolName);
 
   const adapter = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
   if (!toolCall.input || typeof toolCall.input !== 'object') {
-    return adapter ? { malformed: true } : undefined;
+    return adapter ? malformedPiToolCall(ctx, toolCall.toolName) : undefined;
   }
 
   if (!adapter) {
@@ -150,16 +158,25 @@ function getPiToolCall(
   }
 
   const command = toolCall.input[adapter.commandField];
-  if (typeof command !== 'string' || command.trim() === '') return { malformed: true };
+  if (typeof command !== 'string' || command.trim() === '') {
+    return malformedPiToolCall(ctx, toolCall.toolName);
+  }
 
   const hasCwdInput = adapter.cwdField && Object.hasOwn(toolCall.input, adapter.cwdField);
   const cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : undefined;
   if (hasCwdInput && (typeof cwdInput !== 'string' || cwdInput.trim() === '')) {
-    return { malformed: true };
+    return malformedPiToolCall(ctx, toolCall.toolName, command);
   }
   const executionCwd =
     typeof cwdInput === 'string' ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
-  if (!executionCwd) return { malformed: true };
+  if (!executionCwd) {
+    return malformedPiToolCall(
+      ctx,
+      toolCall.toolName,
+      command,
+      typeof cwdInput === 'string' ? cwdInput : undefined,
+    );
+  }
 
   return createToolInvocation(
     toolCall.toolName,
@@ -168,6 +185,19 @@ function getPiToolCall(
     { configCwd: ctx.cwd, executionCwd },
     command,
   );
+}
+
+function malformedPiToolCall(
+  ctx: PiToolCallContext,
+  toolName?: string,
+  command?: string,
+  segment?: string,
+): MalformedPiToolCall {
+  return {
+    malformed: true,
+    denial: createFailedClosedDenial({ command, segment, toolName }),
+    cwd: typeof ctx.cwd === 'string' && ctx.cwd.trim() ? ctx.cwd : null,
+  };
 }
 
 function blockPiEvaluation(

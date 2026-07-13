@@ -41,6 +41,7 @@ export async function runCopilotCliHook(): Promise<void> {
     },
     getContext: (input, toolInput, toolName, outputDeny) =>
       resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
-    getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`,
+    getSessionId: (input) =>
+      typeof input.sessionId === 'string' && input.sessionId.trim() ? input.sessionId : undefined,
   });
 }

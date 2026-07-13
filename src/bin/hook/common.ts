@@ -1,8 +1,13 @@
 import { firstTrustedRoot } from '@/core/cwd-containment';
 import { ENV_FLAGS, envTruthy } from '@/core/env';
-import { getCommandFromToolInput, getNonCommandToolInputKind } from '@/core/tool-input';
+import {
+  getCommandFromToolInput,
+  getNonCommandToolInputKind,
+  ToolInputLimitError,
+} from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
+import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -21,6 +26,8 @@ type HookDenyOutput = (denial: IntegrationDenial) => void;
 
 type HookAdapter<T> = {
   agent: string;
+  getAgent?: (input: T) => string;
+  getAuditCwd?: (input: T) => string | null | undefined;
   outputDeny: HookDenyOutput;
   guardDependencies?: Partial<GuardDependencies>;
   isSupported: (input: T) => boolean;
@@ -144,7 +151,12 @@ function outputFailedClosed(
   toolName?: string,
   segment?: string,
 ): void {
-  const command = getCommandFromToolInput(toolInput);
+  let command: string | undefined;
+  try {
+    command = getCommandFromToolInput(toolInput);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError)) throw error;
+  }
   outputDeny(
     createFailedClosedDenial({
       command,
@@ -168,25 +180,61 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
     return;
   }
 
+  const agent = adapter.getAgent?.(input) ?? adapter.agent;
+  const shape = adapter.agent === agent ? undefined : adapter.agent;
+  const auditCwd = adapter.getAuditCwd?.(input) ?? getHookAuditCwd(input);
+
+  const outputPreflightDeny = (denial: IntegrationDenial, toolName?: string): void => {
+    writeIntegrationDenialAudit(denial, () => adapter.getSessionId(input), {
+      agent,
+      shape,
+      toolName,
+      cwd: auditCwd,
+    });
+    adapter.outputDeny(denial);
+  };
+
   const toolNameInput = adapter.getToolName(input);
   if (typeof toolNameInput !== 'string' || toolNameInput.trim() === '') {
-    outputFailedClosed(adapter.outputDeny);
+    outputFailedClosed((denial) => outputPreflightDeny(denial), getRawHookToolInput(input));
     return;
   }
   const toolName = toolNameInput;
+  const outputToolPreflightDeny = (denial: IntegrationDenial): void =>
+    outputPreflightDeny(denial, toolName);
 
-  const toolInputResult = adapter.getToolInput(input, toolName, adapter.outputDeny);
+  let toolInputResult: ToolInputResult;
+  try {
+    toolInputResult = adapter.getToolInput(input, toolName, outputToolPreflightDeny);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError)) throw error;
+    outputFailedClosed(outputToolPreflightDeny, undefined, toolName);
+    return;
+  }
   if (!toolInputResult.ok) return;
 
-  const context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
+  const context = adapter.getContext(
+    input,
+    toolInputResult.input,
+    toolName,
+    outputToolPreflightDeny,
+  );
   if (!context) return;
 
+  let command: string | undefined;
+  try {
+    command = getCommandFromToolInput(toolInputResult.input);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError)) throw error;
+    outputFailedClosed(outputToolPreflightDeny, undefined, toolName);
+    return;
+  }
   const invocation = createToolInvocation(
     toolName,
     toolInputResult.input,
     toolInputResult.route,
     context,
-    getCommandFromToolInput(toolInputResult.input) ?? null,
+    command ?? null,
   );
   try {
     const evaluation = evaluateRuntimeGuard(invocation, {
@@ -194,7 +242,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
         auditAllowed: envTruthy(ENV_FLAGS.debug),
         dependencies: adapter.guardDependencies,
       },
-      audit: { agent: adapter.agent, getSessionId: () => adapter.getSessionId(input) },
+      audit: { agent, shape, getSessionId: () => adapter.getSessionId(input) },
     });
     const denial = projectGuardDenial(evaluation, {
       includeEvidence: true,
@@ -233,6 +281,28 @@ function stringField(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function getRawHookToolInput(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  if (Object.hasOwn(input, 'tool_input')) return (input as Record<string, unknown>).tool_input;
+  const toolCall = (input as Record<string, unknown>).toolCall;
+  if (toolCall && typeof toolCall === 'object' && !Array.isArray(toolCall)) {
+    return (toolCall as Record<string, unknown>).args;
+  }
+  return undefined;
+}
+
+function getHookAuditCwd(input: unknown): string | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const cwd = (input as Record<string, unknown>).cwd;
+  if (typeof cwd === 'string') return cwd;
+  const toolCall = (input as Record<string, unknown>).toolCall;
+  if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) return null;
+  const args = (toolCall as Record<string, unknown>).args;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
+  const commandCwd = (args as Record<string, unknown>).Cwd;
+  return typeof commandCwd === 'string' ? commandCwd : null;
+}
+
 export async function runConfiguredHookAdapter<T>(
   adapter: ConfiguredHookAdapter<T>,
 ): Promise<void> {
@@ -240,6 +310,8 @@ export async function runConfiguredHookAdapter<T>(
 
   await runHookAdapter<T>({
     agent: adapter.agent,
+    getAgent: adapter.getAgent,
+    getAuditCwd: adapter.getAuditCwd,
     outputDeny,
     guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,

@@ -243,6 +243,7 @@ var require_parse = __commonJS((exports, module) => {
 import { basename, dirname, resolve } from "node:path";
 
 // src/core/audit.ts
+import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -345,6 +346,7 @@ function findBalancedCommandSubstitutionEnd(text, start) {
   return text.length;
 }
 // src/core/audit.ts
+var AUDIT_LOG_VERSION = "1.0.6", COMMAND_MAX_LENGTH = 1e4, SEGMENT_MAX_LENGTH = 2000, TOOL_NAME_MAX_LENGTH = 256, CWD_MAX_LENGTH = 32768;
 function sanitizeSessionIdForFilename(sessionId) {
   let raw = sessionId.trim();
   if (!raw)
@@ -368,23 +370,31 @@ function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
   if (!logsDir)
     return;
   try {
-    let ts = (/* @__PURE__ */ new Date()).toISOString(), sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    let ts = (options.now ?? (() => /* @__PURE__ */ new Date))().toISOString(), cappedCommand = capField(redactSecrets(command), COMMAND_MAX_LENGTH), cappedSegment = capField(redactSecrets(segment), SEGMENT_MAX_LENGTH), cappedToolName = options.toolName ? capField(redactSecrets(options.toolName), TOOL_NAME_MAX_LENGTH) : void 0, cappedCwd = cwd === null ? void 0 : capField(redactSecrets(cwd), CWD_MAX_LENGTH), sessionDir = join(logsDir, encodeCwdForLogDirname(cappedCwd?.value ?? null), ts.slice(0, 7));
     mkdirSync(sessionDir, { recursive: !0, mode: 448 });
     let logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`), entry = {
       ts,
+      id: (options.createId ?? (() => randomBytes(8).toString("hex")))(),
+      v: AUDIT_LOG_VERSION,
       sessionId: safeSessionId,
       decision: options.decision ?? "deny",
       agent: options.agent,
-      command: redactSecrets(command).slice(0, 300),
-      segment: redactSecrets(segment).slice(0, 300),
+      shape: options.shape,
+      toolName: cappedToolName?.value,
+      command: cappedCommand.value,
+      segment: cappedSegment.value,
+      ...cappedCommand.truncated || cappedSegment.truncated || cappedToolName?.truncated || cappedCwd?.truncated ? { truncated: !0 } : {},
       reason,
       ruleId: options.ruleId,
       intent: options.intent,
-      cwd
+      cwd: cappedCwd?.value ?? null
     };
     appendFileSync(logFile, `${JSON.stringify(entry)}
 `, { encoding: "utf-8", mode: 384 });
   } catch {}
+}
+function capField(value, maxLength) {
+  return { value: value.slice(0, maxLength), truncated: value.length > maxLength };
 }
 function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
   let home = homeFromEnv || homedir() || userInfo().homedir;
@@ -430,7 +440,9 @@ function readAuditLogEntries(filePath) {
 function parseLogsFlags(args) {
   let flags = {
     limit: 20,
+    limitExplicit: !1,
     since: 30,
+    sinceExplicit: !1,
     all: !1,
     json: !1
   };
@@ -444,18 +456,27 @@ function parseLogsFlags(args) {
       flags.json = !0;
       continue;
     }
+    if (arg === "--id") {
+      let value = parseStringValue(args[index + 1], "--id");
+      if (value === null)
+        return null;
+      if (!/^[a-f0-9]{16}$/.test(value))
+        return console.error("--id must be 16 hexadecimal characters"), null;
+      flags.id = value, index++;
+      continue;
+    }
     if (arg === "--limit") {
       let limit = parsePositiveNumber(args[index + 1]);
       if (limit === null)
         return console.error("--limit must be a positive number"), null;
-      flags.limit = limit, index++;
+      flags.limit = limit, flags.limitExplicit = !0, index++;
       continue;
     }
     if (arg === "--since") {
       let since = parsePositiveNumber(args[index + 1]);
       if (since === null)
         return console.error("--since must be a positive number"), null;
-      flags.since = since, index++;
+      flags.since = since, flags.sinceExplicit = !0, index++;
       continue;
     }
     if (arg === "--agent") {
@@ -488,6 +509,8 @@ function parseLogsFlags(args) {
     }
     return console.error(`Unknown option: ${arg}`), null;
   }
+  if (flags.id && (flags.agent !== void 0 || flags.rule !== void 0 || flags.session !== void 0 || flags.project !== void 0 || flags.sinceExplicit || flags.limitExplicit))
+    return console.error("--id cannot be combined with --agent, --rule, --session, --project, --since, or --limit"), null;
   return flags;
 }
 async function runLogsCommand(args, options = {}) {
@@ -496,8 +519,11 @@ async function runLogsCommand(args, options = {}) {
     return 1;
   let logsDir = options.logsDir ?? getAuditLogsDir();
   if (!logsDir)
-    return console.log(flags.json ? "[]" : "No audit log entries found."), 0;
-  let cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000, entries = listAuditLogFiles(logsDir).flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file }))).filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff)).sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts)).slice(0, flags.limit);
+    return console.log(flags.json ? "[]" : flags.id ? `No audit log entry found for id ${renderTerminalText(flags.id)}.` : "No audit log entries found."), 0;
+  let allEntries = listAuditLogFiles(logsDir).flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file })));
+  if (flags.id)
+    return outputIdLookup(allEntries, flags);
+  let cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000, entries = allEntries.filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff)).sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts)).slice(0, flags.limit);
   if (flags.json)
     return console.log(JSON.stringify(entries.map((item) => item.entry))), 0;
   if (entries.length === 0)
@@ -505,6 +531,17 @@ async function runLogsCommand(args, options = {}) {
   for (let item of entries)
     console.log(formatLogEntry(item.entry));
   return 0;
+}
+function outputIdLookup(entries, flags) {
+  let matches = entries.filter((item) => item.entry.id === flags.id);
+  if (matches.length > 1)
+    return console.error(`Multiple audit log entries found for id ${renderTerminalText(flags.id ?? "")}.`), 1;
+  if (flags.json)
+    return console.log(JSON.stringify(matches.map((item) => item.entry))), 0;
+  let match = matches[0];
+  if (!match)
+    return console.log(`No audit log entry found for id ${renderTerminalText(flags.id ?? "")}.`), 0;
+  return console.log(formatLogEntryDetail(match.entry)), 0;
 }
 function matchesLogsFlags(item, flags, logsDir, cutoff) {
   if (!flags.all && item.entry.decision === "allow")
@@ -532,8 +569,28 @@ function matchesProject(cwd, project) {
   return cwd === project || cwd.startsWith(`${project}/`);
 }
 function formatLogEntry(entry) {
-  let decision = renderTerminalText(entry.decision ?? "deny"), cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "";
-  return `${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(entry.command)}${cwd}`;
+  let id = renderTerminalText(entry.id ?? "-"), decision = renderTerminalText(entry.decision ?? "deny"), cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "", command = entry.command.length > 300 ? `${entry.command.slice(0, 300)}…` : entry.command;
+  return `${id.padEnd(16)}  ${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
+}
+function formatLogEntryDetail(entry) {
+  let value = (input) => renderTerminalText(input === void 0 || input === null || input === "" ? "-" : input), agent = entry.shape ? `${entry.agent ?? "-"} (shape: ${entry.shape})` : entry.agent ?? "-";
+  return [
+    `id:        ${value(entry.id)}`,
+    `ts:        ${value(entry.ts)}`,
+    `decision:  ${value(entry.decision)}`,
+    `agent:     ${value(agent)}`,
+    `tool:      ${value(entry.toolName)}`,
+    `rule:      ${value(entry.ruleId)}`,
+    `intent:    ${value(entry.intent)}`,
+    `session:   ${value(entry.sessionId)}`,
+    `cwd:       ${value(entry.cwd)}`,
+    `version:   ${value(entry.v)}`,
+    `truncated: ${value(entry.truncated === !0 ? "yes" : void 0)}`,
+    `reason:    ${value(entry.reason)}`,
+    `command:   ${value(entry.command)}`,
+    `segment:   ${value(entry.segment)}`
+  ].join(`
+`);
 }
 function renderTerminalText(value) {
   return Array.from(value, (character) => {
@@ -674,7 +731,7 @@ function resolveContainedCwd(requestedCwd, trustedRoots) {
   let requested = canonicalDirectory(isAbsolute3(requestedCwd) ? requestedCwd : resolve2(roots[0], requestedCwd))[0];
   if (!requested)
     return;
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : void 0;
+  return roots.some((root) => isSameOrInsidePath(requested, root)) ? requested : void 0;
 }
 function firstTrustedRoot(trustedRoots) {
   return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
@@ -687,7 +744,7 @@ function canonicalDirectory(path) {
     return [];
   }
 }
-function isSameOrInside(path, root) {
+function isSameOrInsidePath(path, root) {
   let rel = relative(root, path);
   return rel === "" || !rel.startsWith("..") && !isAbsolute3(rel);
 }
@@ -1172,6 +1229,77 @@ function createToolInvocation(toolName, input, route, context, command) {
   if (route.kind !== "command")
     return { toolName, input, route, context };
   return { toolName, input, route, context, command };
+}
+
+// src/integrations/audit.ts
+function projectGuardAudit(invocation, evaluation, auditAllowed, includeInvocationCommand = !0) {
+  if (evaluation.decision.kind === "allow") {
+    if (!auditAllowed || invocation.route.kind !== "command")
+      return;
+    let command2 = getInvocationCommand(invocation);
+    return {
+      decision: "allow",
+      command: command2,
+      segment: command2,
+      reason: "allowed",
+      cwd: invocation.context.executionCwd,
+      toolName: invocation.toolName
+    };
+  }
+  let evidence = evaluation.decision.evidence.find((item) => item.kind === "command"), command = evidence?.command ?? (includeInvocationCommand ? getInvocationCommand(invocation) : "");
+  return {
+    decision: "deny",
+    command,
+    segment: evidence?.segment ?? command,
+    reason: evaluation.decision.reason,
+    cwd: invocation.context.executionCwd,
+    toolName: invocation.toolName,
+    ruleId: evaluation.decision.ruleId,
+    intent: evaluation.decision.intent
+  };
+}
+function getInvocationCommand(invocation) {
+  return "command" in invocation ? invocation.command ?? "" : "";
+}
+function writeGuardAudit(audit, getSessionId, options) {
+  if (!audit)
+    return;
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (typeof sessionId !== "string" || !sessionId.trim())
+    return;
+  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
+    homeDir: options.homeDir,
+    decision: audit.decision,
+    agent: options.agent,
+    shape: options.shape,
+    toolName: audit.toolName,
+    ruleId: audit.ruleId,
+    intent: audit.intent
+  });
+}
+function writeIntegrationDenialAudit(denial, getSessionId, options) {
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (typeof sessionId !== "string" || !sessionId.trim())
+    return;
+  writeAuditLog(sessionId, denial.command ?? "", denial.segment ?? denial.command ?? "", denial.reason, options.cwd ?? null, {
+    homeDir: options.homeDir,
+    decision: "deny",
+    agent: options.agent,
+    shape: options.shape,
+    toolName: options.toolName ?? denial.toolName,
+    ruleId: denial.ruleId,
+    intent: denial.intent
+  });
 }
 
 // src/core/format.ts
@@ -4869,7 +4997,7 @@ function addUnknownFieldErrors(record, allowed, errors, prefix) {
       errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
 }
 // src/core/rules/policy/filesystem.ts
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import {
   closeSync,
   constants,
@@ -4939,7 +5067,7 @@ function readPolicyFile(target) {
   }
 }
 function writePolicyFileAtomic(target, content, mode = 384, afterRename) {
-  let tempPath = `${target.path}.${randomBytes(8).toString("hex")}.tmp`, descriptor = null;
+  let tempPath = `${target.path}.${randomBytes2(8).toString("hex")}.tmp`, descriptor = null;
   try {
     ensureTargetParents(target), validateTarget(target, !0), descriptor = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | NO_FOLLOW, mode);
     let tempBefore = fstatSync(descriptor);
@@ -12026,7 +12154,7 @@ function basename3(token) {
 }
 
 // src/engine/decision-compatibility.ts
-function mapLegacyCommandBlock(command2, cwd, result) {
+function mapLegacyCommandBlock(command2, result) {
   return {
     decision: {
       kind: "deny",
@@ -12034,15 +12162,6 @@ function mapLegacyCommandBlock(command2, cwd, result) {
       intent: result.manualPermissionAdvice === !1 ? "hard_stop" : result.intent ?? "manual_only",
       ...result.ruleId ? { ruleId: result.ruleId } : {},
       evidence: [{ kind: "command", command: command2, segment: result.segment }]
-    },
-    audit: {
-      decision: "deny",
-      command: command2,
-      segment: result.segment,
-      reason: result.reason,
-      cwd,
-      ...result.ruleId ? { ruleId: result.ruleId } : {},
-      ...result.intent ? { intent: result.intent } : {}
     }
   };
 }
@@ -12120,15 +12239,6 @@ function evaluateGuard(invocation, options2 = {}) {
           { kind: "command", command: displayCommand, segment: secretTarget.target },
           { kind: "path", target: secretTarget.target }
         ]
-      },
-      audit: {
-        decision: "deny",
-        command: displayCommand,
-        segment: secretTarget.target,
-        reason: REASON_SECRET_PROTECTION,
-        cwd: invocation.context.executionCwd,
-        ruleId: secretTarget.ruleId,
-        intent: "hard_stop"
       }
     };
   }
@@ -12161,19 +12271,7 @@ function evaluateGuard(invocation, options2 = {}) {
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
-  if (!options2.auditAllowed)
-    return { stage: "command-analysis", decision: { kind: "allow" } };
-  return {
-    stage: "command-analysis",
-    decision: { kind: "allow" },
-    audit: {
-      decision: "allow",
-      command: invocation.command,
-      segment: invocation.command,
-      reason: "allowed",
-      cwd: invocation.context.executionCwd
-    }
-  };
+  return { stage: "command-analysis", decision: { kind: "allow" } };
 }
 function getDeclaredCommandProgram(facts) {
   return getCommandSyntaxFact(facts, "declared-command")?.program;
@@ -12208,41 +12306,30 @@ function blockedCommandEvaluation(invocation, result) {
   let command2 = invocation.command;
   return {
     stage: "command-analysis",
-    ...mapLegacyCommandBlock(command2, invocation.context.executionCwd, result)
+    ...mapLegacyCommandBlock(command2, result)
   };
 }
 function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
 }
 
-// src/integrations/audit.ts
-function writeGuardAudit(audit, getSessionId, options2) {
-  if (!audit)
-    return;
-  let sessionId;
-  try {
-    sessionId = getSessionId();
-  } catch {
-    return;
-  }
-  if (!sessionId)
-    return;
-  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
-    homeDir: options2.homeDir,
-    decision: audit.decision,
-    agent: options2.agent,
-    ruleId: audit.ruleId,
-    intent: audit.intent
-  });
-}
-
 // src/integrations/runtime.ts
 function evaluateRuntimeGuard(invocation, options2) {
-  let evaluation = evaluateGuard(invocation, options2.guard);
-  return writeGuardAudit(evaluation.audit, options2.audit.getSessionId, {
+  try {
+    let evaluation = evaluateGuard(invocation, options2.guard);
+    return writeRuntimeAudit(invocation, evaluation, options2), evaluation;
+  } catch (error) {
+    if (!(error instanceof GuardEvaluationError))
+      throw error;
+    throw writeRuntimeAudit(invocation, error.evaluation, options2, !(error.cause instanceof ToolInputLimitError)), error;
+  }
+}
+function writeRuntimeAudit(invocation, evaluation, options2, includeInvocationCommand = !0) {
+  writeGuardAudit(projectGuardAudit(invocation, evaluation, options2.guard?.auditAllowed ?? !1, includeInvocationCommand), options2.audit.getSessionId, {
     agent: options2.audit.agent,
+    shape: options2.audit.shape,
     homeDir: options2.audit.homeDir
-  }), evaluation;
+  });
 }
 
 // src/bin/hook/common.ts
@@ -12301,7 +12388,13 @@ function resolveStandardHookContext(cwdInput, toolInput, toolName, outputDeny) {
   return outputFailedClosed(outputDeny, toolInput, toolName, stringField(requestedCwd)), null;
 }
 function outputFailedClosed(outputDeny, toolInput, toolName, segment) {
-  let command2 = getCommandFromToolInput(toolInput);
+  let command2;
+  try {
+    command2 = getCommandFromToolInput(toolInput);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError))
+      throw error;
+  }
   outputDeny(createFailedClosedDenial({
     command: command2,
     segment,
@@ -12318,25 +12411,49 @@ async function runHookAdapter(adapter) {
   }
   if (!adapter.isSupported(input))
     return;
-  let toolNameInput = adapter.getToolName(input);
+  let agent = adapter.getAgent?.(input) ?? adapter.agent, shape = adapter.agent === agent ? void 0 : adapter.agent, auditCwd = adapter.getAuditCwd?.(input) ?? getHookAuditCwd(input), outputPreflightDeny = (denial, toolName2) => {
+    writeIntegrationDenialAudit(denial, () => adapter.getSessionId(input), {
+      agent,
+      shape,
+      toolName: toolName2,
+      cwd: auditCwd
+    }), adapter.outputDeny(denial);
+  }, toolNameInput = adapter.getToolName(input);
   if (typeof toolNameInput !== "string" || toolNameInput.trim() === "") {
-    outputFailedClosed(adapter.outputDeny);
+    outputFailedClosed((denial) => outputPreflightDeny(denial), getRawHookToolInput(input));
     return;
   }
-  let toolName = toolNameInput, toolInputResult = adapter.getToolInput(input, toolName, adapter.outputDeny);
+  let toolName = toolNameInput, outputToolPreflightDeny = (denial) => outputPreflightDeny(denial, toolName), toolInputResult;
+  try {
+    toolInputResult = adapter.getToolInput(input, toolName, outputToolPreflightDeny);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError))
+      throw error;
+    outputFailedClosed(outputToolPreflightDeny, void 0, toolName);
+    return;
+  }
   if (!toolInputResult.ok)
     return;
-  let context = adapter.getContext(input, toolInputResult.input, toolName, adapter.outputDeny);
+  let context = adapter.getContext(input, toolInputResult.input, toolName, outputToolPreflightDeny);
   if (!context)
     return;
-  let invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, getCommandFromToolInput(toolInputResult.input) ?? null);
+  let command2;
+  try {
+    command2 = getCommandFromToolInput(toolInputResult.input);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError))
+      throw error;
+    outputFailedClosed(outputToolPreflightDeny, void 0, toolName);
+    return;
+  }
+  let invocation = createToolInvocation(toolName, toolInputResult.input, toolInputResult.route, context, command2 ?? null);
   try {
     let evaluation = evaluateRuntimeGuard(invocation, {
       guard: {
         auditAllowed: envTruthy(ENV_FLAGS.debug),
         dependencies: adapter.guardDependencies
       },
-      audit: { agent: adapter.agent, getSessionId: () => adapter.getSessionId(input) }
+      audit: { agent, shape, getSessionId: () => adapter.getSessionId(input) }
     }), denial = projectGuardDenial(evaluation, {
       includeEvidence: !0,
       toolName: evaluation.stage === "command-analysis" ? void 0 : toolName
@@ -12373,10 +12490,37 @@ function getHookGuardErrorLabel(stage) {
 function stringField(value) {
   return typeof value === "string" ? value : void 0;
 }
+function getRawHookToolInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    return;
+  if (Object.hasOwn(input, "tool_input"))
+    return input.tool_input;
+  let toolCall = input.toolCall;
+  if (toolCall && typeof toolCall === "object" && !Array.isArray(toolCall))
+    return toolCall.args;
+  return;
+}
+function getHookAuditCwd(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    return null;
+  let cwd = input.cwd;
+  if (typeof cwd === "string")
+    return cwd;
+  let toolCall = input.toolCall;
+  if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall))
+    return null;
+  let args = toolCall.args;
+  if (!args || typeof args !== "object" || Array.isArray(args))
+    return null;
+  let commandCwd = args.Cwd;
+  return typeof commandCwd === "string" ? commandCwd : null;
+}
 async function runConfiguredHookAdapter(adapter) {
   let outputDeny = (denial) => outputHookDeny(adapter.createDenyOutput, denial);
   await runHookAdapter({
     agent: adapter.agent,
+    getAgent: adapter.getAgent,
+    getAuditCwd: adapter.getAuditCwd,
     outputDeny,
     guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,
@@ -12478,9 +12622,9 @@ function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
   return [...targetRoots][0] ?? configRoots[0] ?? null;
 }
 function mostSpecificContainingRoot(path, roots) {
-  return roots.filter((root) => isSameOrInside2(path, root)).reduce((best, root) => root.length > best.length ? root : best, "") || null;
+  return roots.filter((root) => isSameOrInside(path, root)).reduce((best, root) => root.length > best.length ? root : best, "") || null;
 }
-function isSameOrInside2(path, root) {
+function isSameOrInside(path, root) {
   let rel = relative5(root, path);
   return rel === "" || !rel.startsWith("..") && !isAbsolute13(rel);
 }
@@ -12509,6 +12653,36 @@ function normalizeAntigravityToolArgs(args, toolName) {
   };
 }
 
+// src/bin/hook/agent-detection.ts
+import { homedir as homedir7 } from "node:os";
+import { isAbsolute as isAbsolute14, join as join13 } from "node:path";
+function detectClaudeShapeAgent(transcriptPath) {
+  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute14(transcriptPath))
+    return "unknown";
+  try {
+    let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir7(), roots = [
+      ["codex", process.env.CODEX_HOME || join13(home, ".codex")],
+      ["copilot-cli", process.env.COPILOT_HOME || join13(home, ".copilot")],
+      ["claude-code", process.env.CLAUDE_CONFIG_DIR || join13(home, ".claude")]
+    ], matches = transcript ? roots.flatMap(([agent, root]) => {
+      if (!isAbsolute14(root))
+        return [];
+      return isSameOrInsidePath(transcript, resolveExistingPath(root, budget)) ? [agent] : [];
+    }) : [];
+    if (matches.length === 1)
+      return matches[0] ?? "unknown";
+    if (matches.length > 1)
+      return "unknown";
+  } catch (error) {
+    if (error instanceof PathCanonicalizationLimitError)
+      return "unknown";
+    return "unknown";
+  }
+  if (process.env.CLAUDECODE === "1" || Boolean(process.env.CLAUDE_CODE_ENTRYPOINT))
+    return "claude-code";
+  return "unknown";
+}
+
 // src/bin/hook/constants.ts
 var CLAUDE_CODE_HOOK_EVENT = "PreToolUse", GEMINI_CLI_HOOK_EVENT = "BeforeTool", KIMI_CODE_HOOK_EVENT = "PreToolUse";
 
@@ -12523,6 +12697,7 @@ function getClaudeCodeToolRoute(toolName) {
 async function runClaudeCodeHook() {
   await runConfiguredHookAdapter({
     agent: "claude-code",
+    getAgent: (input) => detectClaudeShapeAgent(input.transcript_path),
     createDenyOutput: (message) => ({
       hookSpecificOutput: {
         hookEventName: CLAUDE_CODE_HOOK_EVENT,
@@ -12568,7 +12743,7 @@ async function runCopilotCliHook() {
       return { ok: !0, input: toolInput, route: getCopilotCliToolRoute(toolName) };
     },
     getContext: (input, toolInput, toolName, outputDeny) => resolveStandardHookContext(input.cwd, toolInput, toolName, outputDeny),
-    getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`
+    getSessionId: (input) => typeof input.sessionId === "string" && input.sessionId.trim() ? input.sessionId : void 0
   });
 }
 
@@ -12856,6 +13031,11 @@ var logsCommand = {
   usage: "logs [options]",
   options: [
     {
+      flags: "--id",
+      argument: "<id>",
+      description: "Show one audit entry by its 16-character id"
+    },
+    {
       flags: "--limit",
       argument: "<n>",
       description: "Maximum entries to print",
@@ -12901,6 +13081,7 @@ var logsCommand = {
     }
   ],
   examples: [
+    "cc-safety-net logs --id 3fa9c2d1a70e8b42",
     "cc-safety-net logs --agent claude-code",
     "cc-safety-net logs --project . --since 7",
     "cc-safety-net logs --json"
@@ -13102,7 +13283,7 @@ function validateParsedConfigFile(path, validate) {
   return validate(loaded.parsed);
 }
 // src/core/rules/policy/sync.ts
-import { isAbsolute as isAbsolute14, join as join13, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute15, join as join14, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
 }
@@ -13364,8 +13545,8 @@ function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesyste
   if (!cacheEntries)
     return [];
   let keepTargets = entries.map((entry) => getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions))), pruneTargets = cacheEntries.filter((entry) => entry.kind === "directory").map((entry) => ({
-    directory: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name)),
-    identity: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name, RULEBOOK_FILE))
+    directory: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name)),
+    identity: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name, RULEBOOK_FILE))
   })).filter((candidate) => !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target))).map((candidate) => candidate.directory);
   for (let target of pruneTargets)
     validatePolicyDirectoryRemoval(target);
@@ -13385,13 +13566,13 @@ function getLocalSourceDirsForDelete(configDir, specs, lock, filesystemScope) {
     return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
   }), dirs = specs.map((spec) => {
     let entry = entriesBySpec.get(spec);
-    return join13(configDir, entry?.kind === "local-directory" ? entry.path : spec);
+    return join14(configDir, entry?.kind === "local-directory" ? entry.path : spec);
   }), dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir, filesystemScope)), allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0 ? { ok: !1, result: { ok: !1, errors: allErrors, warnings: [], entries: [] } } : { ok: !0, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
   let resolvedConfigDir = resolve12(configDir), resolvedDir = resolve12(dir), relativeDir = relative6(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep7}`) || isAbsolute14(relativeDir))
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep7}`) || isAbsolute15(relativeDir))
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   let target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir), entries = readPolicyDirectoryEntries(target);
   if (!entries)
@@ -13401,7 +13582,7 @@ function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
   if (rulebookEntry.kind !== "file")
     throw new PolicyFilesystemError(filesystemScope.label);
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join13(resolvedDir, "rulebook.json"))), entries.length > 1)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join14(resolvedDir, "rulebook.json"))), entries.length > 1)
     return [
       `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
     ];
@@ -13884,8 +14065,8 @@ All checks passed.`);
 
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync5, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
-import { homedir as homedir7 } from "node:os";
-import { join as join16 } from "node:path";
+import { homedir as homedir8 } from "node:os";
+import { join as join17 } from "node:path";
 
 // src/bin/config/jsonc.ts
 function stripJsonComments(content) {
@@ -13950,14 +14131,14 @@ function stripJsonComments(content) {
 }
 
 // src/bin/hook/antigravity.ts
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function getAntigravityHooksPath(homeDir) {
-  return join14(homeDir, ".gemini", "config", "hooks.json");
+  return join15(homeDir, ".gemini", "config", "hooks.json");
 }
 
 // src/integrations/self-test.ts
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 var CASES = Object.freeze([
   { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
   { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
@@ -13992,7 +14173,7 @@ var CASES = Object.freeze([
   }
 };
 function runIntegrationSelfTest() {
-  let cwd = join15(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+  let cwd = join16(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
     let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
       guard: {
         dependencies: {
@@ -14065,9 +14246,9 @@ function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  let errors = [], configDir = join16(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  let errors = [], configDir = join17(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
-    let configPath = join16(configDir, filename);
+    let configPath = join17(configDir, filename);
     if (existsSync5(configPath))
       try {
         let content = readFileSync7(configPath, "utf-8"), json = stripJsonComments(content);
@@ -14116,7 +14297,7 @@ function detectGeminiCLI(extensionsListOutput) {
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join16(process.env.KIMI_CODE_HOME || join16(homeDir, ".kimi-code"), "config.toml");
+  return join17(process.env.KIMI_CODE_HOME || join17(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -14305,7 +14486,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join16(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join17(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   return (config.hooks?.preToolUse ?? []).some((hook) => {
@@ -14334,7 +14515,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
-    let configPath = join16(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    let configPath = join17(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
   }
@@ -14370,10 +14551,10 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join16(cwd, ".github", "hooks"), userHookDir = join16(configHome, "hooks"), repoConfigDir = join16(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join16(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.local.json"), inlineErrors)
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join17(cwd, ".github", "hooks"), userHookDir = join17(configHome, "hooks"), repoConfigDir = join17(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
+    userConfig: _collectCopilotInlineConfig(join17(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join17(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join17(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== !1) {
     let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -14385,7 +14566,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   }
   let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync5(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
-    let configPath = join16(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    let configPath = join17(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
   }
@@ -14419,7 +14600,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   };
 }
 function detectAllHooks(cwd, options2) {
-  let homeDir = options2?.homeDir ?? homedir7(), detectCopilotCLI = () => {
+  let homeDir = options2?.homeDir ?? homedir8(), detectCopilotCLI = () => {
     let errors = [], hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
     if (hooksCheck.disabledBy)
       return {
@@ -14476,7 +14657,7 @@ import { spawn } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
-import { delimiter, extname, join as join17 } from "node:path";
+import { delimiter, extname, join as join18 } from "node:path";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
   installedAndEnabled: !1,
@@ -14503,7 +14684,7 @@ function resolveWindowsCommand(command2, env) {
   ];
   if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync6(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync6(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join18(dir, candidate))).find((candidate) => existsSync6(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -14638,7 +14819,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join17(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join18(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join18(tempDir, "pi-extension-probe.ts"), resultPath = join18(tempDir, "result.json"), stdoutPath = join18(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -15706,7 +15887,7 @@ function formatTraceJson(result) {
 }
 // src/bin/gui/index.ts
 import { spawn as spawn2 } from "node:child_process";
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { createServer } from "node:http";
 
 // src/bin/gui/custom.css
@@ -17515,7 +17696,7 @@ async function runGuiCommand(args, options2 = {}) {
   return await waitForShutdown(server), 0;
 }
 async function createPolicyGuiServer(options2 = {}) {
-  let token = options2.token ?? randomBytes2(24).toString("base64url"), server = createServer((request, response) => {
+  let token = options2.token ?? randomBytes3(24).toString("base64url"), server = createServer((request, response) => {
     handleRequest(request, response, token, options2);
   });
   await new Promise((resolve14, reject) => {
@@ -17777,7 +17958,7 @@ function showCommandHelp(commandName) {
 }
 
 // src/bin/hook/install.ts
-import { homedir as homedir8 } from "node:os";
+import { homedir as homedir9 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
@@ -17885,7 +18066,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname13, join as join18 } from "node:path";
+import { dirname as dirname13, join as join19 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -17964,7 +18145,7 @@ var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code", KIMI_HOOK_BLOCK
 event = "PreToolUse"
 command = "${KIMI_HOOK_COMMAND}"`, KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join18(process.env.KIMI_CODE_HOME ?? join18(homeDir, ".kimi-code"), "config.toml");
+  return join19(process.env.KIMI_CODE_HOME ?? join19(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   return content.split(`
@@ -18090,16 +18271,16 @@ ${output}`.trim()));
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync9, readFileSync as readFileSync10, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
-  return join19(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+  return join20(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
 function getOpenCodeConfigPaths(homeDir) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join19(homeDir, ".config", "opencode", filename));
+  return OPENCODE_CONFIG_FILES.map((filename) => join20(homeDir, ".config", "opencode", filename));
 }
 function getOpenCodeCachePath(homeDir) {
-  return join19(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+  return join20(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
   rmSync(getOpenCodeCachePath(homeDir), { recursive: !0, force: !0 });
@@ -18505,7 +18686,7 @@ var NATIVE_INSTALLS = {
   }
 };
 function getHomeDir() {
-  return process.env.HOME ?? homedir8();
+  return process.env.HOME ?? homedir9();
 }
 function parseInstallTarget(args, action) {
   let unknownOption = args.find((arg) => arg.startsWith("-") && !TARGET_FLAGS.has(arg));
@@ -18682,7 +18863,7 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = "# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | Lower |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Higher |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- Override values are either `\"off\"` to disable a rule or `{ \"reason\": \"...\" }` to replace the rule reason.\n- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- Rulebook source names must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | String |\n| `author` | No | String |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | Yes | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook; same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nEvery rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.\n\n## Matching Behavior\n\n- **Command**: Normalized to basename (`/usr/bin/git` → `git`).\n- **Subcommand**: First non-option argument after command.\n- **Arguments**: Matched literally. Command blocked if **any** `block_args` item is present.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source.\n5. Run `cc-safety-net rule sync` after adding or changing rulebook sources.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.\n7. Run `cc-safety-net rule test` to execute rulebook fixtures.\n8. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nInvalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `cc-safety-net rule sync`.\n";
@@ -18779,7 +18960,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { dirname as dirname14, join as join20 } from "node:path";
+import { dirname as dirname14, join as join21 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
   return [
@@ -18822,7 +19003,7 @@ async function migrateRulesScope(options2) {
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  }, rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join20(dirname14(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join21(dirname14(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
     snapshotFile(scope.configTarget),
     snapshotFile(rulebookTarget),
     snapshotFile(scope.lockTarget)
@@ -18871,14 +19052,14 @@ function readLegacyRulesConfig(content) {
   }
 }
 function getMigratedRulebookName(configDir, sources, defaultRulebookName, migratedFrom, filesystemScope) {
-  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, source, "rulebook.json"))) === migratedFrom);
+  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, source, "rulebook.json"))) === migratedFrom);
   if (existing)
     return existing;
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, defaultRulebookName, "rulebook.json"))) === null)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, defaultRulebookName, "rulebook.json"))) === null)
     return defaultRulebookName;
   for (let i = 2;; i++) {
     let name = `${defaultRulebookName}-${i}`;
-    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, name, "rulebook.json"))) === null)
+    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, name, "rulebook.json"))) === null)
       return name;
   }
 }
@@ -18937,7 +19118,7 @@ function getMigratedFrom(target) {
 }
 
 // src/bin/rule/verify.ts
-import { dirname as dirname15, join as join21, resolve as resolve14 } from "node:path";
+import { dirname as dirname15, join as join22, resolve as resolve14 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   try {
@@ -19070,7 +19251,7 @@ function validateGitHubSourceRules(target) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join21(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
+    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join22(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
     if (content === null) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -19203,7 +19384,7 @@ async function runRuleCommandInternal(args) {
   if (subcommand === "init") {
     let scope = getScopePaths(options2), dir = scope.configDir;
     ensureRulesConfig(scope.configTarget), ensurePolicyDirectory(getPolicyFilesystemTargetForPath(scope.filesystemScope, getRulebookCacheRoot({ ...options2, cacheConfigDir: dir })));
-    let rulebookPath = join22(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
+    let rulebookPath = join23(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
     if (flags.example && readPolicyFile(rulebookTarget) === null)
       writeStarterRulebook(rulebookTarget, "example-rules");
     let result = await syncRulesConfig(options2);
@@ -19397,8 +19578,8 @@ function printTransparentWrappers(wrappers2) {
 
 // src/bin/statusline.ts
 import { existsSync as existsSync10, readFileSync as readFileSync11 } from "node:fs";
-import { homedir as homedir9 } from "node:os";
-import { join as join23 } from "node:path";
+import { homedir as homedir10 } from "node:os";
+import { join as join24 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
     return null;
@@ -19417,7 +19598,7 @@ async function readStdinAsync() {
 function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  return join23(homedir9(), ".claude", "settings.json");
+  return join24(homedir10(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();

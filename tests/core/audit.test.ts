@@ -537,6 +537,8 @@ describe('writeAuditLog', () => {
     expect(entries[0]).toHaveProperty('reason');
     expect(entries[0]).toHaveProperty('cwd');
     expect(entries[0]).toHaveProperty('decision');
+    expect(entries[0]?.id).toMatch(/^[a-f0-9]{16}$/);
+    expect(entries[0]?.v).toBe('dev');
 
     expect(entries[0]?.decision).toBe('deny');
     expect(entries[0]?.cwd).toBe('/home/user/project');
@@ -563,18 +565,22 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.intent).toBe('use_alternative');
   });
 
-  test('log entry can include agent', () => {
+  test('log entry can include integration metadata', () => {
     const sessionId = 'test-session-agent-metadata';
     writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
       homeDir: testDir,
       agent: 'claude-code',
+      shape: 'copilot-cli',
+      toolName: 'Bash',
     });
 
     const entries = readLogEntries(sessionId);
     expect(entries[0]?.agent).toBe('claude-code');
+    expect(entries[0]?.shape).toBe('copilot-cli');
+    expect(entries[0]?.toolName).toBe('Bash');
   });
 
-  test('omits agent when not provided', () => {
+  test('omits optional metadata when not provided', () => {
     const sessionId = 'test-session-no-agent-metadata';
     writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
       homeDir: testDir,
@@ -582,6 +588,9 @@ describe('writeAuditLog', () => {
 
     const entries = readLogEntries(sessionId);
     expect('agent' in (entries[0] ?? {})).toBe(false);
+    expect('shape' in (entries[0] ?? {})).toBe(false);
+    expect('toolName' in (entries[0] ?? {})).toBe(false);
+    expect('truncated' in (entries[0] ?? {})).toBe(false);
   });
 
   test('log redacts secrets', () => {
@@ -685,16 +694,56 @@ describe('writeAuditLog', () => {
     expect(getOnlyLogFile()).toContain(`${join('logs', 'no-cwd')}/`);
   });
 
-  test('truncates long commands', () => {
-    const sessionId = 'test-session-long';
-    const longCommand = `git reset --hard ${'x'.repeat(500)}`;
-    writeAuditLog(sessionId, longCommand, longCommand, 'reason', null, {
+  test.each([
+    ['command', 10_000],
+    ['segment', 2_000],
+    ['toolName', 256],
+    ['cwd', 32_768],
+  ] as const)('caps %s only when it exceeds its persistence limit', (field, limit) => {
+    const exact = 'x'.repeat(limit);
+    const over = 'y'.repeat(limit + 1);
+    const exactOptions = {
+      homeDir: testDir,
+      ...(field === 'toolName' ? { toolName: exact } : {}),
+    };
+    const overOptions = {
+      homeDir: testDir,
+      ...(field === 'toolName' ? { toolName: over } : {}),
+    };
+
+    writeAuditLog(
+      `exact-${field}`,
+      field === 'command' ? exact : '',
+      field === 'segment' ? exact : '',
+      'reason',
+      field === 'cwd' ? exact : null,
+      exactOptions,
+    );
+    writeAuditLog(
+      `over-${field}`,
+      field === 'command' ? over : '',
+      field === 'segment' ? over : '',
+      'reason',
+      field === 'cwd' ? over : null,
+      overOptions,
+    );
+
+    const exactEntry = readLogEntries(`exact-${field}`)[0];
+    const overEntry = readLogEntries(`over-${field}`)[0];
+    expect(exactEntry?.[field]?.length).toBe(limit);
+    expect(exactEntry?.truncated).toBeUndefined();
+    expect(overEntry?.[field]?.length).toBe(limit);
+    expect(overEntry?.truncated).toBe(true);
+  });
+
+  test('redacts cwd before deriving the log path', () => {
+    writeAuditLog('cwd-redaction', '', '', 'reason', '/tmp/API_TOKEN=cwd-redaction-canary', {
       homeDir: testDir,
     });
 
-    const entries = readLogEntries(sessionId);
-    expect(entries.length).toBe(1);
-    expect(entries[0]?.command.length).toBeLessThanOrEqual(300);
+    const entry = readLogEntries('cwd-redaction')[0];
+    expect(entry?.cwd).toBe('/tmp/API_TOKEN=<redacted>');
+    expect(getOnlyLogFile()).not.toContain('cwd-redaction-canary');
   });
 
   test('redacts structured quoted headers before truncating persisted fields', () => {
@@ -710,6 +759,49 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.segment).toBe('{"Authorization":"<redacted>"}');
     expect(entries[0]?.command).not.toContain('truncation-canary');
     expect(entries[0]?.segment).not.toContain('truncation-canary');
+  });
+
+  test('redacts tool names before applying the persistence cap', () => {
+    const toolName = `TOKEN=tool-name-canary ${'x'.repeat(300)}`;
+    writeAuditLog('tool-redaction', '', '', 'reason', null, {
+      homeDir: testDir,
+      toolName,
+    });
+
+    const entry = readLogEntries('tool-redaction')[0];
+    expect(entry?.toolName).not.toContain('tool-name-canary');
+    expect(entry?.toolName).toContain('<redacted>');
+    expect(entry?.toolName?.length).toBe(256);
+    expect(entry?.truncated).toBe(true);
+  });
+
+  test('persists injected time and id unchanged', () => {
+    writeAuditLog('deterministic-entry', '', '', 'reason', null, {
+      homeDir: testDir,
+      now: () => new Date('2026-07-13T00:00:00.000Z'),
+      createId: () => '0123456789abcdef',
+    });
+
+    expect(readLogEntries('deterministic-entry')[0]).toMatchObject({
+      ts: '2026-07-13T00:00:00.000Z',
+      id: '0123456789abcdef',
+      command: '',
+      segment: '',
+    });
+  });
+
+  test('generates distinct content-independent ids for identical events', () => {
+    writeAuditLog('random-ids', 'same command', 'same segment', 'same reason', null, {
+      homeDir: testDir,
+    });
+    writeAuditLog('random-ids', 'same command', 'same segment', 'same reason', null, {
+      homeDir: testDir,
+    });
+
+    const entries = readLogEntries('random-ids');
+    expect(entries[0]?.id).toMatch(/^[a-f0-9]{16}$/);
+    expect(entries[1]?.id).toMatch(/^[a-f0-9]{16}$/);
+    expect(entries[0]?.id).not.toBe(entries[1]?.id);
   });
 
   test('can write allowed debug log entry', () => {

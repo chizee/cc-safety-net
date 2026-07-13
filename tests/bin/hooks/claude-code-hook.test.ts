@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { listAuditLogFiles } from '@/core/audit-scan';
 import {
   syncRulesConfig,
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/core/rules/policy';
-import { readLatestAuditLogEntry } from '../../helpers';
+import { readAuditLogEntriesForSession, readLatestAuditLogEntry } from '../../helpers';
 import {
   claudeCodeBashInput,
   expectNoHookOutput,
@@ -24,6 +25,34 @@ describe('Claude Code hook', () => {
   }
 
   describe('blocked commands', () => {
+    test.each([
+      ['codex', '.codex', 'claude-code'],
+      ['claude-code', '.claude', undefined],
+      ['unknown', undefined, 'claude-code'],
+    ] as const)('audits Claude-shaped calls as %s', async (agent, root, shape) => {
+      await withHookTestContext(async (context) => {
+        const sessionId = `agent-${agent}`;
+        await context.runClaudeCodeHook(
+          {
+            ...context.claudeCodeBashInput('git reset --hard'),
+            session_id: sessionId,
+            ...(root
+              ? { transcript_path: join(context.home, root, 'sessions', 'transcript.jsonl') }
+              : {}),
+          },
+          { CLAUDECODE: '', CLAUDE_CODE_ENTRYPOINT: '' },
+        );
+
+        expect(readLatestAuditLogEntry(context.home, sessionId)).toMatchObject({
+          agent,
+          ...(shape ? { shape } : {}),
+        });
+        if (shape === undefined) {
+          expect(readLatestAuditLogEntry(context.home, sessionId)).not.toHaveProperty('shape');
+        }
+      });
+    });
+
     test('blocked command produces correct JSON structure', async () => {
       const { stdout, exitCode } = await runClaudeCodeHook(claudeCodeBashInput('git reset --hard'));
 
@@ -525,6 +554,73 @@ describe('Claude Code hook', () => {
       expect(getHookDenyReason(await runClaudeCodeHook(input), 'claude-code')).toContain(
         'CC Safety Net failed closed',
       );
+    });
+  });
+
+  describe('preflight audit', () => {
+    test('audits a missing tool name exactly once', async () => {
+      await withHookTestContext(async (context) => {
+        const sessionId = 'missing-tool-session';
+        await context.runClaudeCodeHook({
+          hook_event_name: 'PreToolUse',
+          session_id: sessionId,
+          cwd: context.cwd,
+          tool_input: { command: 'git reset --hard' },
+        });
+
+        expect(readAuditLogEntriesForSession(context.home, sessionId)).toMatchObject([
+          {
+            agent: 'unknown',
+            shape: 'claude-code',
+            command: 'git reset --hard',
+            reason:
+              'CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.',
+          },
+        ]);
+      });
+    });
+
+    test('audits an invalid cwd exactly once with available context', async () => {
+      await withHookTestContext(async (context) => {
+        const sessionId = 'invalid-cwd-session';
+        const invalidCwd = join(context.cwd, 'missing');
+        await context.runClaudeCodeHook({
+          ...context.claudeCodeBashInput('git reset --hard'),
+          session_id: sessionId,
+          cwd: invalidCwd,
+        });
+
+        expect(readAuditLogEntriesForSession(context.home, sessionId)).toMatchObject([
+          {
+            toolName: 'Bash',
+            command: 'git reset --hard',
+            segment: invalidCwd,
+            cwd: invalidCwd,
+          },
+        ]);
+      });
+    });
+
+    test('redacts an untrusted invalid cwd before persisting it', async () => {
+      await withHookTestContext(async (context) => {
+        const sessionId = 'invalid-secret-cwd-session';
+        const invalidCwd = join(context.cwd, 'API_TOKEN=cwd-preflight-canary');
+        await context.runClaudeCodeHook({
+          ...context.claudeCodeBashInput('git status'),
+          session_id: sessionId,
+          cwd: invalidCwd,
+        });
+
+        expect(readAuditLogEntriesForSession(context.home, sessionId)).toMatchObject([
+          {
+            segment: join(context.cwd, 'API_TOKEN=<redacted>'),
+            cwd: join(context.cwd, 'API_TOKEN=<redacted>'),
+          },
+        ]);
+        expect(
+          listAuditLogFiles(join(context.home, '.cc-safety-net', 'logs')).join('\n'),
+        ).not.toContain('cwd-preflight-canary');
+      });
     });
   });
 });

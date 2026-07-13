@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { readAuditLogEntriesForSession } from '../../helpers';
 import {
   copilotBashInput,
   copilotRawToolArgsInput,
@@ -24,6 +27,14 @@ describe('Copilot CLI hook', () => {
       const output = JSON.parse(stdout);
       expect(output.permissionDecision).toBe('deny');
       expect(output.permissionDecisionReason).toContain('rm -rf');
+    });
+
+    test('audits native guard denials exactly once with sessionId', async () => {
+      await withHookTestContext(async (context) => {
+        await context.runCopilotHook(context.copilotBashInput('git reset --hard'));
+
+        expect(readAuditLogEntriesForSession(context.home, 'copilot-test-session')).toHaveLength(1);
+      });
     });
   });
 
@@ -89,6 +100,41 @@ describe('Copilot CLI hook', () => {
   describe('invalid toolArgs', () => {
     test('non-strict mode blocks invalid toolArgs JSON', async () => {
       await expectDeny(copilotRawToolArgsInput('{invalid'), 'Failed to parse toolArgs JSON.');
+    });
+
+    test('audits malformed toolArgs exactly once when sessionId is usable', async () => {
+      await withHookTestContext(async (context) => {
+        await context.runCopilotHook(context.copilotRawToolArgsInput('{invalid'));
+
+        expect(readAuditLogEntriesForSession(context.home, 'copilot-test-session')).toMatchObject([
+          {
+            agent: 'copilot-cli',
+            toolName: 'bash',
+            reason: 'Failed to parse toolArgs JSON.',
+          },
+        ]);
+      });
+    });
+
+    test.each([
+      ['missing', undefined],
+      ['blank', '   '],
+      ['non-string', 42],
+    ] as const)('does not audit unsafe input with a %s sessionId', async (_label, sessionId) => {
+      await withHookTestContext(async (context) => {
+        const timestamp = 1_234_567_890;
+        const result = await context.runCopilotHook({
+          ...(sessionId === undefined ? {} : { sessionId }),
+          timestamp,
+          cwd: context.cwd,
+          toolName: 'bash',
+          toolArgs: JSON.stringify({ command: 'git reset --hard' }),
+        });
+
+        expect(getHookDenyReason(result, 'copilot-cli')).toContain('git reset --hard');
+        expect(existsSync(join(context.home, '.cc-safety-net', 'logs'))).toBe(false);
+        expect(readAuditLogEntriesForSession(context.home, `copilot-${timestamp}`)).toHaveLength(0);
+      });
     });
   });
 

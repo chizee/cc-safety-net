@@ -78,7 +78,7 @@ export interface AnalyzeResult {
 /** Claude Code hook input format */
 export interface HookInput {
   session_id?: string;
-  transcript_path?: string;
+  transcript_path?: string | null;
   cwd?: string;
   permission_mode?: string;
   hook_event_name: string;
@@ -139,6 +139,7 @@ export interface KimiCodeHookInput {
 
 /** GitHub Copilot CLI preToolUse hook input format */
 export interface CopilotCliHookInput {
+  sessionId: string;
   timestamp: number;
   cwd: string;
   toolName: string;
@@ -203,11 +204,16 @@ export interface AnalyzeNestedOverrides {
 /** Audit log entry */
 export interface AuditLogEntry {
   ts: string;
+  id?: string;
+  v?: string;
   sessionId?: string;
   decision?: 'allow' | 'deny';
   agent?: string;
+  shape?: string;
+  toolName?: string;
   command: string;
   segment: string;
+  truncated?: boolean;
   reason: string;
   ruleId?: string;
   intent?: BlockIntent;

@@ -16,7 +16,7 @@ export function resolveContainedCwd(
   )[0];
   if (!requested) return undefined;
 
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : undefined;
+  return roots.some((root) => isSameOrInsidePath(requested, root)) ? requested : undefined;
 }
 
 export function firstTrustedRoot(trustedRoots: readonly string[]): string | undefined {
@@ -32,7 +32,8 @@ function canonicalDirectory(path: string): string[] {
   }
 }
 
-function isSameOrInside(path: string, root: string): boolean {
+/** @internal */
+export function isSameOrInsidePath(path: string, root: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
 
-test('maps the legacy decision and audit intent asymmetry explicitly', () => {
+test('maps the legacy command block into a decision', () => {
   expect(
-    mapLegacyCommandBlock('danger', '/project', {
+    mapLegacyCommandBlock('danger', {
       reason: 'blocked',
       segment: 'dangerous segment',
       ruleId: 'custom.rule',
@@ -17,15 +17,6 @@ test('maps the legacy decision and audit intent asymmetry explicitly', () => {
       intent: 'hard_stop',
       ruleId: 'custom.rule',
       evidence: [{ kind: 'command', command: 'danger', segment: 'dangerous segment' }],
-    },
-    audit: {
-      decision: 'deny',
-      command: 'danger',
-      segment: 'dangerous segment',
-      reason: 'blocked',
-      cwd: '/project',
-      ruleId: 'custom.rule',
-      intent: 'scope_down',
     },
   });
 });

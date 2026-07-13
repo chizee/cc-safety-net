@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createToolInvocation } from '@/domain/invocation';
 import { GuardEvaluationError } from '@/engine/guard';
 import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import { readAuditLogEntriesForSession, withTempDir } from '../helpers';
 import { policySnapshot } from '../helpers/policy';
 
 function invocation(command = 'echo ok') {
@@ -58,7 +59,7 @@ describe('integration runtime', () => {
     expect(sessionCalls).toBe(0);
   });
 
-  test('resolves an audit session lazily after a successful evaluation with a descriptor', () => {
+  test('resolves an audit session lazily after a successful auditable evaluation', () => {
     let sessionCalls = 0;
     const evaluation = evaluateRuntimeGuard(invocation(), {
       guard: { auditAllowed: true, dependencies: dependencies() },
@@ -71,31 +72,69 @@ describe('integration runtime', () => {
       },
     });
 
-    expect(evaluation.audit?.decision).toBe('allow');
+    expect(evaluation.decision.kind).toBe('allow');
     expect(sessionCalls).toBe(1);
   });
 
-  test('does not catch evaluation errors or resolve an audit session', () => {
-    let sessionCalls = 0;
-
-    expect(() =>
-      evaluateRuntimeGuard(invocation(), {
-        guard: {
-          dependencies: dependencies({
-            loadPolicySnapshot: () => {
-              throw new Error('broken snapshot');
-            },
-          }),
-        },
-        audit: {
-          agent: 'test',
-          getSessionId: () => {
-            sessionCalls++;
-            return undefined;
+  test('audits evaluation errors before rethrowing them', async () => {
+    await withTempDir('cc-safety-net-runtime-error-', (homeDir) => {
+      expect(() =>
+        evaluateRuntimeGuard(invocation(), {
+          guard: {
+            dependencies: dependencies({
+              loadPolicySnapshot: () => {
+                throw new Error('broken snapshot');
+              },
+            }),
           },
+          audit: {
+            agent: 'test',
+            homeDir,
+            getSessionId: () => 'runtime-error-session',
+          },
+        }),
+      ).toThrow(GuardEvaluationError);
+      expect(readAuditLogEntriesForSession(homeDir, 'runtime-error-session')).toMatchObject([
+        {
+          decision: 'deny',
+          agent: 'test',
+          toolName: 'Bash',
+          command: 'echo ok',
         },
-      }),
-    ).toThrow(GuardEvaluationError);
-    expect(sessionCalls).toBe(0);
+      ]);
+    });
+  });
+
+  test('keeps tool-input-limit error audits non-reflective', async () => {
+    await withTempDir('cc-safety-net-runtime-limit-', (homeDir) => {
+      const marker = 'private-runtime-limit-marker';
+      const nested = Array.from({ length: 65 }).reduce<Record<string, unknown>>(
+        (value) => ({ nested: value }),
+        {},
+      );
+
+      expect(() =>
+        evaluateRuntimeGuard(
+          createToolInvocation(
+            'Bash',
+            { command: marker, nested },
+            { kind: 'command', shell: 'posix' },
+            { configCwd: '/tmp/project', executionCwd: '/tmp/project' },
+            marker,
+          ),
+          {
+            audit: {
+              agent: 'test',
+              homeDir,
+              getSessionId: () => 'runtime-limit-session',
+            },
+          },
+        ),
+      ).toThrow(GuardEvaluationError);
+
+      const entries = readAuditLogEntriesForSession(homeDir, 'runtime-limit-session');
+      expect(entries).toMatchObject([{ command: '', segment: '', toolName: 'Bash' }]);
+      expect(JSON.stringify(entries)).not.toContain(marker);
+    });
   });
 });

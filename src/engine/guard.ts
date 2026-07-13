@@ -25,7 +25,7 @@ import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
-import type { AnalyzeOptions, AnalyzeResult, BlockIntent } from '@/types';
+import type { AnalyzeOptions, AnalyzeResult } from '@/types';
 
 /** @internal */
 export type GuardStage =
@@ -40,21 +40,9 @@ export type GuardStage =
 type FinalDecision = Exclude<Decision, { kind: 'indeterminate' }>;
 
 /** @internal */
-export type GuardAuditDescriptor = {
-  decision: 'allow' | 'deny';
-  command: string;
-  segment: string;
-  reason: string;
-  cwd: string;
-  ruleId?: string;
-  intent?: BlockIntent;
-};
-
-/** @internal */
 export type GuardEvaluation = {
   stage: GuardStage;
   decision: FinalDecision;
-  audit?: GuardAuditDescriptor;
 };
 
 /** @internal */
@@ -185,15 +173,6 @@ export function evaluateGuard(
           { kind: 'path', target: secretTarget.target },
         ],
       },
-      audit: {
-        decision: 'deny',
-        command: displayCommand,
-        segment: secretTarget.target,
-        reason: REASON_SECRET_PROTECTION,
-        cwd: invocation.context.executionCwd,
-        ruleId: secretTarget.ruleId,
-        intent: 'hard_stop',
-      },
     };
   }
 
@@ -236,20 +215,7 @@ export function evaluateGuard(
     );
   });
   if (result) return blockedCommandEvaluation(invocation, result);
-  if (!options.auditAllowed) {
-    return { stage: 'command-analysis', decision: { kind: 'allow' } };
-  }
-  return {
-    stage: 'command-analysis',
-    decision: { kind: 'allow' },
-    audit: {
-      decision: 'allow',
-      command: invocation.command,
-      segment: invocation.command,
-      reason: 'allowed',
-      cwd: invocation.context.executionCwd,
-    },
-  };
+  return { stage: 'command-analysis', decision: { kind: 'allow' } };
 }
 
 function getDeclaredCommandProgram(facts: SemanticFacts) {
@@ -310,7 +276,7 @@ function blockedCommandEvaluation(
   const command = invocation.command as string;
   return {
     stage: 'command-analysis',
-    ...mapLegacyCommandBlock(command, invocation.context.executionCwd, result),
+    ...mapLegacyCommandBlock(command, result),
   };
 }
 

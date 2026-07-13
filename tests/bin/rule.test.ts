@@ -820,9 +820,14 @@ describe('rule verify', () => {
         'cwd-rules',
       );
 
-      expect(
+      const result = captureOutput(() =>
         runRulesVerify({ cwd, projectConfigPath: outsideConfig, userConfigPath: userConfig }),
-      ).toBe(0);
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('CC Safety Net Config');
+      expect(result.output).toContain('cwd-rules');
+      expect(result.output).toContain('All configs valid.');
     });
   });
   test('source CLI verify rejects linked rule sources with fixed diagnostics', async () => {
@@ -952,4 +957,15 @@ function readRulesConfig(path: string) {
 
 function readRulebook(path: string) {
   return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+}
+
+function captureOutput(fn: () => number) {
+  const originalLog = console.log;
+  const output: string[] = [];
+  console.log = (...parts: unknown[]) => output.push(parts.map(String).join(' '));
+  try {
+    return { exitCode: fn(), output: output.join('\n') };
+  } finally {
+    console.log = originalLog;
+  }
 }

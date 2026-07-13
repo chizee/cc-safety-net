@@ -346,7 +346,7 @@ function resolveContainedCwd(requestedCwd, trustedRoots) {
   let requested = canonicalDirectory(isAbsolute2(requestedCwd) ? requestedCwd : resolve(roots[0], requestedCwd))[0];
   if (!requested)
     return;
-  return roots.some((root) => isSameOrInside(requested, root)) ? requested : void 0;
+  return roots.some((root) => isSameOrInsidePath(requested, root)) ? requested : void 0;
 }
 function firstTrustedRoot(trustedRoots) {
   return trustedRoots.flatMap((root) => canonicalDirectory(root))[0];
@@ -359,7 +359,7 @@ function canonicalDirectory(path) {
     return [];
   }
 }
-function isSameOrInside(path, root) {
+function isSameOrInsidePath(path, root) {
   let rel = relative(root, path);
   return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
 }
@@ -847,6 +847,7 @@ function createToolInvocation(toolName, input, route, context, command) {
 }
 
 // src/core/audit.ts
+import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute as isAbsolute3, join } from "node:path";
@@ -949,6 +950,7 @@ function findBalancedCommandSubstitutionEnd(text, start) {
   return text.length;
 }
 // src/core/audit.ts
+var AUDIT_LOG_VERSION = "1.0.6", COMMAND_MAX_LENGTH = 1e4, SEGMENT_MAX_LENGTH = 2000, TOOL_NAME_MAX_LENGTH = 256, CWD_MAX_LENGTH = 32768;
 function sanitizeSessionIdForFilename(sessionId) {
   let raw = sessionId.trim();
   if (!raw)
@@ -972,23 +974,31 @@ function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
   if (!logsDir)
     return;
   try {
-    let ts = (/* @__PURE__ */ new Date()).toISOString(), sessionDir = join(logsDir, encodeCwdForLogDirname(cwd), ts.slice(0, 7));
+    let ts = (options.now ?? (() => /* @__PURE__ */ new Date))().toISOString(), cappedCommand = capField(redactSecrets(command), COMMAND_MAX_LENGTH), cappedSegment = capField(redactSecrets(segment), SEGMENT_MAX_LENGTH), cappedToolName = options.toolName ? capField(redactSecrets(options.toolName), TOOL_NAME_MAX_LENGTH) : void 0, cappedCwd = cwd === null ? void 0 : capField(redactSecrets(cwd), CWD_MAX_LENGTH), sessionDir = join(logsDir, encodeCwdForLogDirname(cappedCwd?.value ?? null), ts.slice(0, 7));
     mkdirSync(sessionDir, { recursive: !0, mode: 448 });
     let logFile = join(sessionDir, `${ts.slice(0, 10)}-${safeSessionId}.jsonl`), entry = {
       ts,
+      id: (options.createId ?? (() => randomBytes(8).toString("hex")))(),
+      v: AUDIT_LOG_VERSION,
       sessionId: safeSessionId,
       decision: options.decision ?? "deny",
       agent: options.agent,
-      command: redactSecrets(command).slice(0, 300),
-      segment: redactSecrets(segment).slice(0, 300),
+      shape: options.shape,
+      toolName: cappedToolName?.value,
+      command: cappedCommand.value,
+      segment: cappedSegment.value,
+      ...cappedCommand.truncated || cappedSegment.truncated || cappedToolName?.truncated || cappedCwd?.truncated ? { truncated: !0 } : {},
       reason,
       ruleId: options.ruleId,
       intent: options.intent,
-      cwd
+      cwd: cappedCwd?.value ?? null
     };
     appendFileSync(logFile, `${JSON.stringify(entry)}
 `, { encoding: "utf-8", mode: 384 });
   } catch {}
+}
+function capField(value, maxLength) {
+  return { value: value.slice(0, maxLength), truncated: value.length > maxLength };
 }
 function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME) {
   let home = homeFromEnv || homedir() || userInfo().homedir;
@@ -996,6 +1006,77 @@ function getAuditLogHomeDir(homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME |
 }
 function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
   return homeDir ? join(homeDir, ".cc-safety-net", "logs") : null;
+}
+
+// src/integrations/audit.ts
+function projectGuardAudit(invocation, evaluation, auditAllowed, includeInvocationCommand = !0) {
+  if (evaluation.decision.kind === "allow") {
+    if (!auditAllowed || invocation.route.kind !== "command")
+      return;
+    let command2 = getInvocationCommand(invocation);
+    return {
+      decision: "allow",
+      command: command2,
+      segment: command2,
+      reason: "allowed",
+      cwd: invocation.context.executionCwd,
+      toolName: invocation.toolName
+    };
+  }
+  let evidence = evaluation.decision.evidence.find((item) => item.kind === "command"), command = evidence?.command ?? (includeInvocationCommand ? getInvocationCommand(invocation) : "");
+  return {
+    decision: "deny",
+    command,
+    segment: evidence?.segment ?? command,
+    reason: evaluation.decision.reason,
+    cwd: invocation.context.executionCwd,
+    toolName: invocation.toolName,
+    ruleId: evaluation.decision.ruleId,
+    intent: evaluation.decision.intent
+  };
+}
+function getInvocationCommand(invocation) {
+  return "command" in invocation ? invocation.command ?? "" : "";
+}
+function writeGuardAudit(audit, getSessionId, options) {
+  if (!audit)
+    return;
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (typeof sessionId !== "string" || !sessionId.trim())
+    return;
+  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
+    homeDir: options.homeDir,
+    decision: audit.decision,
+    agent: options.agent,
+    shape: options.shape,
+    toolName: audit.toolName,
+    ruleId: audit.ruleId,
+    intent: audit.intent
+  });
+}
+function writeIntegrationDenialAudit(denial, getSessionId, options) {
+  let sessionId;
+  try {
+    sessionId = getSessionId();
+  } catch {
+    return;
+  }
+  if (typeof sessionId !== "string" || !sessionId.trim())
+    return;
+  writeAuditLog(sessionId, denial.command ?? "", denial.segment ?? denial.command ?? "", denial.reason, options.cwd ?? null, {
+    homeDir: options.homeDir,
+    decision: "deny",
+    agent: options.agent,
+    shape: options.shape,
+    toolName: options.toolName ?? denial.toolName,
+    ruleId: denial.ruleId,
+    intent: denial.intent
+  });
 }
 
 // src/core/format.ts
@@ -4693,7 +4774,7 @@ function addUnknownFieldErrors(record, allowed, errors, prefix) {
       errors.push(`${prefix ? `${prefix}.` : ""}unknown field "${key}"`);
 }
 // src/core/rules/policy/filesystem.ts
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import {
   closeSync,
   constants,
@@ -4763,7 +4844,7 @@ function readPolicyFile(target) {
   }
 }
 function writePolicyFileAtomic(target, content, mode = 384, afterRename) {
-  let tempPath = `${target.path}.${randomBytes(8).toString("hex")}.tmp`, descriptor = null;
+  let tempPath = `${target.path}.${randomBytes2(8).toString("hex")}.tmp`, descriptor = null;
   try {
     ensureTargetParents(target), validateTarget(target, !0), descriptor = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | NO_FOLLOW, mode);
     let tempBefore = fstatSync(descriptor);
@@ -11850,7 +11931,7 @@ function basename2(token) {
 }
 
 // src/engine/decision-compatibility.ts
-function mapLegacyCommandBlock(command2, cwd, result) {
+function mapLegacyCommandBlock(command2, result) {
   return {
     decision: {
       kind: "deny",
@@ -11858,15 +11939,6 @@ function mapLegacyCommandBlock(command2, cwd, result) {
       intent: result.manualPermissionAdvice === !1 ? "hard_stop" : result.intent ?? "manual_only",
       ...result.ruleId ? { ruleId: result.ruleId } : {},
       evidence: [{ kind: "command", command: command2, segment: result.segment }]
-    },
-    audit: {
-      decision: "deny",
-      command: command2,
-      segment: result.segment,
-      reason: result.reason,
-      cwd,
-      ...result.ruleId ? { ruleId: result.ruleId } : {},
-      ...result.intent ? { intent: result.intent } : {}
     }
   };
 }
@@ -11944,15 +12016,6 @@ function evaluateGuard(invocation, options2 = {}) {
           { kind: "command", command: displayCommand, segment: secretTarget.target },
           { kind: "path", target: secretTarget.target }
         ]
-      },
-      audit: {
-        decision: "deny",
-        command: displayCommand,
-        segment: secretTarget.target,
-        reason: REASON_SECRET_PROTECTION,
-        cwd: invocation.context.executionCwd,
-        ruleId: secretTarget.ruleId,
-        intent: "hard_stop"
       }
     };
   }
@@ -11985,19 +12048,7 @@ function evaluateGuard(invocation, options2 = {}) {
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
-  if (!options2.auditAllowed)
-    return { stage: "command-analysis", decision: { kind: "allow" } };
-  return {
-    stage: "command-analysis",
-    decision: { kind: "allow" },
-    audit: {
-      decision: "allow",
-      command: invocation.command,
-      segment: invocation.command,
-      reason: "allowed",
-      cwd: invocation.context.executionCwd
-    }
-  };
+  return { stage: "command-analysis", decision: { kind: "allow" } };
 }
 function getDeclaredCommandProgram(facts) {
   return getCommandSyntaxFact(facts, "declared-command")?.program;
@@ -12032,41 +12083,30 @@ function blockedCommandEvaluation(invocation, result) {
   let command2 = invocation.command;
   return {
     stage: "command-analysis",
-    ...mapLegacyCommandBlock(command2, invocation.context.executionCwd, result)
+    ...mapLegacyCommandBlock(command2, result)
   };
 }
 function isCommandInvocation(invocation) {
   return invocation.route.kind === "command";
 }
 
-// src/integrations/audit.ts
-function writeGuardAudit(audit, getSessionId, options2) {
-  if (!audit)
-    return;
-  let sessionId;
-  try {
-    sessionId = getSessionId();
-  } catch {
-    return;
-  }
-  if (!sessionId)
-    return;
-  writeAuditLog(sessionId, audit.command, audit.segment, audit.reason, audit.cwd, {
-    homeDir: options2.homeDir,
-    decision: audit.decision,
-    agent: options2.agent,
-    ruleId: audit.ruleId,
-    intent: audit.intent
-  });
-}
-
 // src/integrations/runtime.ts
 function evaluateRuntimeGuard(invocation, options2) {
-  let evaluation = evaluateGuard(invocation, options2.guard);
-  return writeGuardAudit(evaluation.audit, options2.audit.getSessionId, {
+  try {
+    let evaluation = evaluateGuard(invocation, options2.guard);
+    return writeRuntimeAudit(invocation, evaluation, options2), evaluation;
+  } catch (error) {
+    if (!(error instanceof GuardEvaluationError))
+      throw error;
+    throw writeRuntimeAudit(invocation, error.evaluation, options2, !(error.cause instanceof ToolInputLimitError)), error;
+  }
+}
+function writeRuntimeAudit(invocation, evaluation, options2, includeInvocationCommand = !0) {
+  writeGuardAudit(projectGuardAudit(invocation, evaluation, options2.guard?.auditAllowed ?? !1, includeInvocationCommand), options2.audit.getSessionId, {
     agent: options2.audit.agent,
+    shape: options2.audit.shape,
     homeDir: options2.audit.homeDir
-  }), evaluation;
+  });
 }
 
 // src/pi/tool-call.ts
@@ -12093,7 +12133,11 @@ function handlePiToolCallWithDependencies(event, ctx, options2) {
   if (!toolCall)
     return;
   if ("malformed" in toolCall)
-    return blockPiToolCall(createFailedClosedDenial());
+    return writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionFile(), {
+      agent: "pi",
+      toolName: toolCall.denial.toolName,
+      cwd: toolCall.cwd
+    }), blockPiToolCall(toolCall.denial);
   try {
     let evaluation = evaluateRuntimeGuard(toolCall, {
       guard: {
@@ -12122,24 +12166,31 @@ function getPiToolCall(event, ctx) {
   if (toolCall.type !== void 0 && toolCall.type !== "tool_call")
     return;
   if (typeof toolCall.toolName !== "string" || toolCall.toolName.trim() === "")
-    return { malformed: !0 };
+    return malformedPiToolCall(ctx);
   if (!(typeof ctx.cwd === "string" && ctx.cwd.trim() !== "" ? resolveContainedCwd(".", [ctx.cwd]) : void 0))
-    return { malformed: !0 };
+    return malformedPiToolCall(ctx, toolCall.toolName);
   let adapter = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
   if (!toolCall.input || typeof toolCall.input !== "object")
-    return adapter ? { malformed: !0 } : void 0;
+    return adapter ? malformedPiToolCall(ctx, toolCall.toolName) : void 0;
   if (!adapter)
     return createToolInvocation(toolCall.toolName, toolCall.input, { kind: getNonCommandToolInputKind(toolCall.toolName) }, { configCwd: ctx.cwd, executionCwd: ctx.cwd }, null);
   let command2 = toolCall.input[adapter.commandField];
   if (typeof command2 !== "string" || command2.trim() === "")
-    return { malformed: !0 };
+    return malformedPiToolCall(ctx, toolCall.toolName);
   let hasCwdInput = adapter.cwdField && Object.hasOwn(toolCall.input, adapter.cwdField), cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : void 0;
   if (hasCwdInput && (typeof cwdInput !== "string" || cwdInput.trim() === ""))
-    return { malformed: !0 };
+    return malformedPiToolCall(ctx, toolCall.toolName, command2);
   let executionCwd = typeof cwdInput === "string" ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;
   if (!executionCwd)
-    return { malformed: !0 };
+    return malformedPiToolCall(ctx, toolCall.toolName, command2, typeof cwdInput === "string" ? cwdInput : void 0);
   return createToolInvocation(toolCall.toolName, toolCall.input, { kind: "command", shell: adapter.shell }, { configCwd: ctx.cwd, executionCwd }, command2);
+}
+function malformedPiToolCall(ctx, toolName, command2, segment) {
+  return {
+    malformed: !0,
+    denial: createFailedClosedDenial({ command: command2, segment, toolName }),
+    cwd: typeof ctx.cwd === "string" && ctx.cwd.trim() ? ctx.cwd : null
+  };
 }
 function blockPiEvaluation(evaluation, includeEvidence) {
   let denial = projectGuardDenial(evaluation, { includeEvidence });

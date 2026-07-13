@@ -5,6 +5,7 @@ import { join, toNamespacedPath } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
 import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
 import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import { readAuditLogEntriesForSession } from '../../helpers';
 import {
   antigravityShellInput,
   expectNoHookOutput,
@@ -203,18 +204,7 @@ describe('Antigravity CLI hook', () => {
           const denyReasons: string[] = [];
           expect(
             resolveAntigravityCwd(
-              {
-                toolCall: {
-                  name: 'apply_patch',
-                  args: {
-                    patch: [
-                      `*** Update File: ${join(context.cwd, 'README.md')}`,
-                      `*** Update File: ${join(secondWorkspace, 'README.md')}`,
-                    ].join('\n'),
-                  },
-                },
-                workspacePaths: [context.cwd, secondWorkspace],
-              },
+              crossWorkspacePatchInput(context.cwd, secondWorkspace),
               (denial) => denyReasons.push(denial.reason),
             ),
           ).toBeNull();
@@ -538,6 +528,35 @@ describe('Antigravity CLI hook', () => {
         );
       }
     });
+
+    test('audits invalid workspace roots exactly once', async () => {
+      await withHookTestContext(async (context) => {
+        await context.runAntigravityHook({
+          toolCall: { name: 'run_command', args: { CommandLine: 'git status' } },
+          conversationId: 'invalid-roots-session',
+          workspacePaths: [join(context.cwd, 'missing')],
+        });
+
+        expect(readAuditLogEntriesForSession(context.home, 'invalid-roots-session')).toHaveLength(
+          1,
+        );
+      });
+    });
+
+    test('audits cross-workspace targets exactly once', async () => {
+      await withHookTestContext(async (context) => {
+        await withSecondWorkspace(async (secondWorkspace) => {
+          await context.runAntigravityHook({
+            ...crossWorkspacePatchInput(context.cwd, secondWorkspace),
+            conversationId: 'invalid-target-session',
+          });
+
+          expect(
+            readAuditLogEntriesForSession(context.home, 'invalid-target-session'),
+          ).toHaveLength(1);
+        });
+      });
+    });
   });
 
   describe('invalid JSON', () => {
@@ -605,6 +624,7 @@ async function expectAntigravityCwdFail(context: HookTestContext, cwd: string): 
   });
 
   expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
+  expect(readAuditLogEntriesForSession(context.home, 'antigravity-test-session')).toHaveLength(1);
 }
 
 function expectSingleNonReflectiveFailure(result: HookResult, privateValue: string): void {
@@ -622,4 +642,19 @@ async function withSecondWorkspace(run: (workspace: string) => Promise<void>): P
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
+}
+
+function crossWorkspacePatchInput(firstWorkspace: string, secondWorkspace: string) {
+  return {
+    toolCall: {
+      name: 'apply_patch',
+      args: {
+        patch: [
+          `*** Update File: ${join(firstWorkspace, 'README.md')}`,
+          `*** Update File: ${join(secondWorkspace, 'README.md')}`,
+        ].join('\n'),
+      },
+    },
+    workspacePaths: [firstWorkspace, secondWorkspace],
+  };
 }

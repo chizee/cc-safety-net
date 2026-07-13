@@ -98,6 +98,7 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
 
 export function copilotBashInput(command: string, cwd = TEST_HOOK_CWD) {
   return {
+    sessionId: 'copilot-test-session',
     timestamp: Date.now(),
     cwd,
     toolName: 'bash',
@@ -107,6 +108,7 @@ export function copilotBashInput(command: string, cwd = TEST_HOOK_CWD) {
 
 export function copilotRawToolArgsInput(toolArgs: string, cwd = TEST_HOOK_CWD) {
   return {
+    sessionId: 'copilot-test-session',
     timestamp: Date.now(),
     cwd,
     toolName: 'bash',

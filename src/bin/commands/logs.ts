@@ -6,6 +6,11 @@ export const logsCommand = {
   usage: 'logs [options]',
   options: [
     {
+      flags: '--id',
+      argument: '<id>',
+      description: 'Show one audit entry by its 16-character id',
+    },
+    {
       flags: '--limit',
       argument: '<n>',
       description: 'Maximum entries to print',
@@ -51,6 +56,7 @@ export const logsCommand = {
     },
   ],
   examples: [
+    'cc-safety-net logs --id 3fa9c2d1a70e8b42',
     'cc-safety-net logs --agent claude-code',
     'cc-safety-net logs --project . --since 7',
     'cc-safety-net logs --json',

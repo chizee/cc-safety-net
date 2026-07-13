@@ -1,3 +1,4 @@
+import { detectClaudeShapeAgent } from '@/bin/hook/agent-detection';
 import {
   getToolRoute,
   resolveStandardHookContext,
@@ -20,6 +21,7 @@ export function getClaudeCodeToolRoute(toolName: string) {
 export async function runClaudeCodeHook(): Promise<void> {
   await runConfiguredHookAdapter<HookInput>({
     agent: 'claude-code',
+    getAgent: (input) => detectClaudeShapeAgent(input.transcript_path),
     createDenyOutput: (message): HookOutput => ({
       hookSpecificOutput: {
         hookEventName: CLAUDE_CODE_HOOK_EVENT,

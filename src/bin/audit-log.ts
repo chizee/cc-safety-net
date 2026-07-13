@@ -5,9 +5,12 @@ import type { AuditLogEntry } from '@/types';
 
 type LogsFlags = {
   limit: number;
+  limitExplicit: boolean;
   since: number;
+  sinceExplicit: boolean;
   all: boolean;
   json: boolean;
+  id?: string;
   agent?: string;
   rule?: string;
   session?: string;
@@ -22,7 +25,9 @@ type SourcedAuditLogEntry = {
 function parseLogsFlags(args: string[]): LogsFlags | null {
   const flags: LogsFlags = {
     limit: 20,
+    limitExplicit: false,
     since: 30,
+    sinceExplicit: false,
     all: false,
     json: false,
   };
@@ -37,6 +42,17 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
       flags.json = true;
       continue;
     }
+    if (arg === '--id') {
+      const value = parseStringValue(args[index + 1], '--id');
+      if (value === null) return null;
+      if (!/^[a-f0-9]{16}$/.test(value)) {
+        console.error('--id must be 16 hexadecimal characters');
+        return null;
+      }
+      flags.id = value;
+      index++;
+      continue;
+    }
     if (arg === '--limit') {
       const limit = parsePositiveNumber(args[index + 1]);
       if (limit === null) {
@@ -44,6 +60,7 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
         return null;
       }
       flags.limit = limit;
+      flags.limitExplicit = true;
       index++;
       continue;
     }
@@ -54,6 +71,7 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
         return null;
       }
       flags.since = since;
+      flags.sinceExplicit = true;
       index++;
       continue;
     }
@@ -89,6 +107,21 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     return null;
   }
 
+  if (
+    flags.id &&
+    (flags.agent !== undefined ||
+      flags.rule !== undefined ||
+      flags.session !== undefined ||
+      flags.project !== undefined ||
+      flags.sinceExplicit ||
+      flags.limitExplicit)
+  ) {
+    console.error(
+      '--id cannot be combined with --agent, --rule, --session, --project, --since, or --limit',
+    );
+    return null;
+  }
+
   return flags;
 }
 
@@ -101,12 +134,22 @@ export async function runLogsCommand(
 
   const logsDir = options.logsDir ?? getAuditLogsDir();
   if (!logsDir) {
-    console.log(flags.json ? '[]' : 'No audit log entries found.');
+    console.log(
+      flags.json
+        ? '[]'
+        : flags.id
+          ? `No audit log entry found for id ${renderTerminalText(flags.id)}.`
+          : 'No audit log entries found.',
+    );
     return 0;
   }
+  const allEntries = listAuditLogFiles(logsDir).flatMap((file) =>
+    readAuditLogEntries(file).map((entry) => ({ entry, file })),
+  );
+  if (flags.id) return outputIdLookup(allEntries, flags);
+
   const cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000;
-  const entries = listAuditLogFiles(logsDir)
-    .flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file })))
+  const entries = allEntries
     .filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff))
     .sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts))
     .slice(0, flags.limit);
@@ -124,6 +167,25 @@ export async function runLogsCommand(
   for (const item of entries) {
     console.log(formatLogEntry(item.entry));
   }
+  return 0;
+}
+
+function outputIdLookup(entries: SourcedAuditLogEntry[], flags: LogsFlags): number {
+  const matches = entries.filter((item) => item.entry.id === flags.id);
+  if (matches.length > 1) {
+    console.error(`Multiple audit log entries found for id ${renderTerminalText(flags.id ?? '')}.`);
+    return 1;
+  }
+  if (flags.json) {
+    console.log(JSON.stringify(matches.map((item) => item.entry)));
+    return 0;
+  }
+  const match = matches[0];
+  if (!match) {
+    console.log(`No audit log entry found for id ${renderTerminalText(flags.id ?? '')}.`);
+    return 0;
+  }
+  console.log(formatLogEntryDetail(match.entry));
   return 0;
 }
 
@@ -153,9 +215,35 @@ function matchesProject(cwd: string | null | undefined, project: string): boolea
 }
 
 function formatLogEntry(entry: AuditLogEntry): string {
+  const id = renderTerminalText(entry.id ?? '-');
   const decision = renderTerminalText(entry.decision ?? 'deny');
   const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : '';
-  return `${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(entry.command)}${cwd}`;
+  const command = entry.command.length > 300 ? `${entry.command.slice(0, 300)}…` : entry.command;
+  return `${id.padEnd(16)}  ${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
+}
+
+function formatLogEntryDetail(entry: AuditLogEntry): string {
+  const value = (input: string | null | undefined): string =>
+    renderTerminalText(input === undefined || input === null || input === '' ? '-' : input);
+  const agent = entry.shape
+    ? `${entry.agent ?? '-'} (shape: ${entry.shape})`
+    : (entry.agent ?? '-');
+  return [
+    `id:        ${value(entry.id)}`,
+    `ts:        ${value(entry.ts)}`,
+    `decision:  ${value(entry.decision)}`,
+    `agent:     ${value(agent)}`,
+    `tool:      ${value(entry.toolName)}`,
+    `rule:      ${value(entry.ruleId)}`,
+    `intent:    ${value(entry.intent)}`,
+    `session:   ${value(entry.sessionId)}`,
+    `cwd:       ${value(entry.cwd)}`,
+    `version:   ${value(entry.v)}`,
+    `truncated: ${value(entry.truncated === true ? 'yes' : undefined)}`,
+    `reason:    ${value(entry.reason)}`,
+    `command:   ${value(entry.command)}`,
+    `segment:   ${value(entry.segment)}`,
+  ].join('\n');
 }
 
 function renderTerminalText(value: string): string {

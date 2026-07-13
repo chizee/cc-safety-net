@@ -6,7 +6,12 @@ import { getUserPolicyPath } from '@/core/policy';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
 import type { AnalyzeOptions } from '@/types';
-import { readLatestAuditLogEntry, withEnv, withLinkedWorktreeFixture } from '../helpers';
+import {
+  readAuditLogEntriesForSession,
+  readLatestAuditLogEntry,
+  withEnv,
+  withLinkedWorktreeFixture,
+} from '../helpers';
 import { policySnapshot } from '../helpers/policy';
 import {
   syncInitialGitRulebook,
@@ -655,6 +660,26 @@ describe('Pi tool_call event', () => {
     }
   });
 
+  test('audits malformed recognized tool calls exactly once', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-preflight-audit-'));
+    const home = join(dir, 'home');
+    try {
+      withEnv({ HOME: home }, () => {
+        const result = handlePiToolCall(toolCall('bash', {}), {
+          ...piContext(dir),
+          sessionManager: { getSessionFile: () => 'pi-preflight-session' },
+        });
+
+        expect(result?.reason).toContain('CC Safety Net failed closed');
+        expect(readAuditLogEntriesForSession(home, 'pi-preflight-session')).toMatchObject([
+          { agent: 'pi', toolName: 'bash', cwd: dir },
+        ]);
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('fails closed until explicit sync, then reloads local rules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-tool-call-'));
     try {
@@ -746,11 +771,18 @@ describe('Pi tool_call event', () => {
     expect(invalidConfigHandler(toolCall('Read', { path: 'README.md' }), ctx)?.block).toBeTrue();
     expect(evaluatorErrorHandler(bashToolCall('git status'), ctx)?.block).toBeTrue();
     expect(handlePiToolCall(toolCall('Read', { path: 'README.md' }), ctx)).toBeUndefined();
-    expect(sessionLookups).toEqual([]);
+    expect(sessionLookups).toEqual(['session', 'session', 'session', 'session']);
 
     expect(handlePiToolCall(bashToolCall('cat .env'), ctx)?.block).toBeTrue();
     expect(handlePiToolCall(bashToolCall('git reset --hard'), ctx)?.block).toBeTrue();
-    expect(sessionLookups).toEqual(['session', 'session']);
+    expect(sessionLookups).toEqual([
+      'session',
+      'session',
+      'session',
+      'session',
+      'session',
+      'session',
+    ]);
   });
 
   test.each([
@@ -824,7 +856,7 @@ describe('Pi tool_call event', () => {
     });
 
     expect(result?.reason).toContain('CC Safety Net failed closed');
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(['session']);
   });
 
   test('logs allowed commands when debug mode is enabled', () => {
