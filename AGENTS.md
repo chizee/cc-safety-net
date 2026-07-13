@@ -1,6 +1,6 @@
 - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
-- ALWAYS use `bun run check` to verify changes, except for doc changes. This runs typecheck, knip, biome lint, and tests together. Do not run these separately.
+- Use `bun run check` to verify when you finished all implementations at the end. This runs typecheck, knip, biome lint, and tests together. Do not run these separately.
 - Ignore the dist folder, it will get auto rebuilt by husky's precommit hook.
 - Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 
@@ -89,11 +89,6 @@ const table = sqliteTable("session", {
   createdAt: integer("created_at").notNull(),
 })
 ```
-
-## Testing
-
-- Avoid mocks as much as possible
-- Test actual implementation, do not duplicate logic into tests
 
 ## Knip
 
