@@ -6,12 +6,24 @@ const packageJson = JSON.parse(readFileSync('package.json', 'utf-8')) as {
 };
 
 describe('package scripts', () => {
-  test('check scripts use deterministic LCOV coverage verification', () => {
-    for (const script of [packageJson.scripts?.check, packageJson.scripts?.['check:ci']]) {
-      expect(script).toContain('bun test tests --coverage --coverage-reporter=lcov');
-      expect(script).toContain('bun run verify:coverage');
-    }
-    expect(packageJson.scripts?.['verify:coverage']).toBe('bun run scripts/verify-coverage.ts');
+  test('keeps tests serial and emits visible deterministic LCOV coverage', () => {
+    expect(packageJson.scripts?.test).toBe('bun test');
+    expect(packageJson.scripts?.['test:coverage']).toBe(
+      'AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov',
+    );
+    expect(packageJson.scripts?.['test:functional']).toBeUndefined();
+    expect(packageJson.scripts?.['test:performance']).toBeUndefined();
+    expect({
+      check: packageJson.scripts?.check,
+      checkCi: packageJson.scripts?.['check:ci'],
+      verifyCoverage: packageJson.scripts?.['verify:coverage'],
+    }).toEqual({
+      check:
+        'bun run lint && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && bun run test:coverage && bun run verify:coverage',
+      checkCi:
+        'bun run lint:ci && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && bun run test:coverage && bun run verify:coverage',
+      verifyCoverage: 'bun run scripts/verify-coverage.ts',
+    });
   });
 
   test('does not retain the flaky Bun built-in threshold', () => {

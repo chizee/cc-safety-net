@@ -13,7 +13,7 @@ import {
   expectNoHookOutput,
   expectSecretProtectionDeny,
   getHookDenyReason,
-  runClaudeCodeHook,
+  runClaudeCodeHookDirect as runClaudeCodeHook,
   withHookTestContext,
   writeUserPolicy,
 } from './hook-helpers';

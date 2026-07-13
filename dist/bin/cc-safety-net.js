@@ -14658,6 +14658,7 @@ import { existsSync as existsSync6 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
 import { delimiter, extname, join as join18 } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
   installedAndEnabled: !1,
@@ -14707,7 +14708,7 @@ function getSpawnCommand(args, env) {
     ]
   };
 }
-var defaultVersionFetcher = async (args) => {
+var defaultVersionFetcher = async (args, timeoutMs = VERSION_FETCH_TIMEOUT_MS) => {
   let [cmd, ...rest] = args;
   if (!cmd)
     return null;
@@ -14727,9 +14728,9 @@ var defaultVersionFetcher = async (args) => {
         isSettled = !0, clearTimeout(timeoutId), resolve13(value);
       }, timeoutId = setTimeout(() => {
         proc.kill(), finish(null);
-      }, VERSION_FETCH_TIMEOUT_MS);
+      }, timeoutMs);
       proc.on("close", (code) => {
-        finish(code === 0 ? output.trim() || errorOutput.trim() || null : null);
+        finish(code === 0 ? stripVTControlCharacters(output).trim() || stripVTControlCharacters(errorOutput).trim() || null : null);
       }), proc.on("error", () => {
         finish(null);
       });

@@ -13,7 +13,7 @@ import {
   getHookDenyReason,
   type HookResult,
   type HookTestContext,
-  runAntigravityHook,
+  runAntigravityHookDirect as runAntigravityHook,
   withHookTestContext,
   writeUserPolicy,
 } from './hook-helpers';

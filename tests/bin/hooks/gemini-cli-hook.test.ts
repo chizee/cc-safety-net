@@ -5,7 +5,7 @@ import {
   expectSecretProtectionDeny,
   geminiShellInput,
   getHookDenyReason,
-  runGeminiHook,
+  runGeminiHookDirect as runGeminiHook,
   withHookTestContext,
   writeUserPolicy,
 } from './hook-helpers';

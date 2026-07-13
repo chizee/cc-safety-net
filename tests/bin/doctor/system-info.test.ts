@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import {
+  defaultPiProbeRunner,
   defaultVersionFetcher,
   getPackageVersion,
   getSystemInfo,
@@ -231,10 +232,9 @@ describe('getSystemInfo', () => {
 
   test('runs the default Pi probe through the Pi CLI', async () => {
     await withFakePi('configured', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piCliVersion).toBe('0.4.0');
-      expect(sysInfo.piSafetyNetProbe).toEqual({
+      expect(probe).toEqual({
         status: 'configured',
         installedAndEnabled: true,
         matched: [
@@ -251,9 +251,9 @@ describe('getSystemInfo', () => {
 
   test('reports not-found from the default Pi probe when the sentinel is absent', async () => {
     await withFakePi('not-found', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piSafetyNetProbe).toEqual({
+      expect(probe).toEqual({
         status: 'not-found',
         installedAndEnabled: false,
         matched: [],
@@ -263,37 +263,37 @@ describe('getSystemInfo', () => {
 
   test('reports non-zero default Pi probe exits', async () => {
     await withFakePi('nonzero', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piSafetyNetProbe.status).toBe('error');
-      expect(sysInfo.piSafetyNetProbe.error).toContain('code 7');
-      expect(sysInfo.piSafetyNetProbe.error).toContain('extension failed');
+      expect(probe.status).toBe('error');
+      expect(probe.error).toContain('code 7');
+      expect(probe.error).toContain('extension failed');
     });
   });
 
   test('reports missing default Pi probe result files', async () => {
     await withFakePi('missing-result', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piSafetyNetProbe.status).toBe('error');
-      expect(sysInfo.piSafetyNetProbe.error).toContain('Pi probe failed');
+      expect(probe.status).toBe('error');
+      expect(probe.error).toContain('Pi probe failed');
     });
   });
 
   test('reports invalid default Pi probe JSON', async () => {
     await withFakePi('invalid-json', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piSafetyNetProbe.status).toBe('error');
-      expect(sysInfo.piSafetyNetProbe.error).toContain('Failed to parse Pi probe result');
+      expect(probe.status).toBe('error');
+      expect(probe.error).toContain('Failed to parse Pi probe result');
     });
   });
 
   test('reports non-object default Pi probe JSON', async () => {
     await withFakePi('non-object', async (cwd) => {
-      const sysInfo = await getSystemInfo(defaultVersionFetcher, { cwd });
+      const probe = await defaultPiProbeRunner(cwd);
 
-      expect(sysInfo.piSafetyNetProbe).toEqual({
+      expect(probe).toEqual({
         status: 'error',
         installedAndEnabled: false,
         matched: [],
@@ -482,23 +482,33 @@ describe('defaultVersionFetcher', () => {
     expect(result).toMatch(/^\d+\.\d+/);
   });
 
-  test('returns stderr output when a successful command writes no stdout', async () => {
-    const result = await defaultVersionFetcher([
-      'bun',
-      '-e',
-      'console.error("stderr-only output")',
+  test('strips terminal control sequences from successful command output', async () => {
+    const [stdoutResult, stderrResult] = await Promise.all([
+      defaultVersionFetcher([
+        'bun',
+        '-e',
+        'process.stdout.write("\\u001b[32mstdout output\\u001b[0m")',
+      ]),
+      defaultVersionFetcher([
+        'bun',
+        '-e',
+        'process.stderr.write("\\u001b[31mstderr-only output\\u001b[0m")',
+      ]),
     ]);
-    expect(result).toBe('stderr-only output');
+    expect({ stderrResult, stdoutResult }).toEqual({
+      stderrResult: 'stderr-only output',
+      stdoutResult: 'stdout output',
+    });
   });
 
   test('returns null for commands that time out', async () => {
     const startedAt = Date.now();
-    const result = await defaultVersionFetcher(['bun', '-e', 'setTimeout(() => {}, 30000)']);
+    const result = await defaultVersionFetcher(['bun', '-e', 'setTimeout(() => {}, 30000)'], 25);
     const durationMs = Date.now() - startedAt;
 
     expect(result).toBeNull();
-    expect(durationMs).toBeLessThan(10000);
-  }, 12000);
+    expect(durationMs).toBeLessThan(1000);
+  }, 1000);
 
   test('returns null for commands that exit with non-zero code', async () => {
     const result = await defaultVersionFetcher(['false']);

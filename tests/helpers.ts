@@ -323,19 +323,28 @@ function runGit(args: readonly string[], cwd: string): void {
   });
 }
 
+let linkedWorktreeSeed: { rootDir: string; repository: string } | undefined;
+
+function getLinkedWorktreeSeed(): string {
+  if (linkedWorktreeSeed) return linkedWorktreeSeed.repository;
+
+  const rootDir = mkdtempSync(join(tmpdir(), 'safety-net-worktree-seed-'));
+  const repository = join(rootDir, 'repository');
+  mkdirSync(repository);
+  runGit(['init'], repository);
+  writeFileSync(join(repository, 'file.txt'), 'initial\n');
+  runGit(['add', 'file.txt'], repository);
+  runGit(['-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'], repository);
+  linkedWorktreeSeed = { rootDir, repository };
+  return repository;
+}
+
 export function createLinkedWorktreeFixture(): LinkedWorktreeFixture {
   const rootDir = mkdtempSync(join(tmpdir(), 'safety-net-worktree-'));
   const mainWorktree = join(rootDir, 'main');
   const linkedWorktree = join(rootDir, 'linked');
 
-  mkdirSync(mainWorktree);
-  runGit(['init'], mainWorktree);
-  runGit(['config', 'user.email', 'safety-net@example.test'], mainWorktree);
-  runGit(['config', 'user.name', 'CC Safety Net Test'], mainWorktree);
-  runGit(['config', 'commit.gpgsign', 'false'], mainWorktree);
-  writeFileSync(join(mainWorktree, 'file.txt'), 'initial\n');
-  runGit(['add', 'file.txt'], mainWorktree);
-  runGit(['commit', '-m', 'initial'], mainWorktree);
+  runGit(['clone', '--local', getLinkedWorktreeSeed(), mainWorktree], rootDir);
   runGit(['worktree', 'add', '-b', 'feature/worktree-test', linkedWorktree], mainWorktree);
 
   return {
@@ -364,6 +373,7 @@ let readonlyLinkedWorktreeFixture: LinkedWorktreeFixture | undefined;
 
 process.on('exit', () => {
   readonlyLinkedWorktreeFixture?.cleanup();
+  if (linkedWorktreeSeed) rmSync(linkedWorktreeSeed.rootDir, { recursive: true, force: true });
 });
 
 export async function withReadonlyLinkedWorktreeFixture<T>(

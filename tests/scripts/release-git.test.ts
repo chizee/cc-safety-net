@@ -1,30 +1,67 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertRemoteMain, pushReleaseAtomically } from '../../scripts/release-git';
 import { withTempDir } from '../helpers';
 
 function git(cwd: string, ...args: string[]) {
-  const result = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync(['git', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Release Test',
+      GIT_AUTHOR_EMAIL: 'release@example.com',
+      GIT_COMMITTER_NAME: 'Release Test',
+      GIT_COMMITTER_EMAIL: 'release@example.com',
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.toString());
   }
   return result.stdout.toString().trim();
 }
 
+let repositorySeed: { root: string; bare: string } | undefined;
+
+function getRepositorySeed() {
+  if (repositorySeed) return repositorySeed.bare;
+
+  const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-release-seed-'));
+  const source = join(root, 'source');
+  const bare = join(root, 'seed.git');
+  mkdirSync(source);
+  git(source, 'init', '-b', 'main');
+  writeFileSync(join(source, 'file.txt'), 'base\n');
+  mkdirSync(join(source, '.claude-plugin'));
+  writeFileSync(
+    join(source, 'package.json'),
+    JSON.stringify({ name: 'cc-safety-net-release-test', version: '1.0.0' }),
+  );
+  writeFileSync(
+    join(source, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ version: '1.0.0' }),
+  );
+  git(source, 'add', 'file.txt', 'package.json', '.claude-plugin/plugin.json');
+  git(source, 'commit', '-m', 'base');
+  git(root, 'clone', '--bare', '--local', source, bare);
+  repositorySeed = { root, bare };
+  return bare;
+}
+
+process.on('exit', () => {
+  if (repositorySeed) rmSync(repositorySeed.root, { recursive: true, force: true });
+});
+
 function createRepository(root: string) {
   const remote = join(root, 'remote.git');
   const repo = join(root, 'repo');
-  mkdirSync(repo);
-  git(root, 'init', '--bare', remote);
-  git(repo, 'init', '-b', 'main');
+  git(root, 'clone', '--bare', '--local', getRepositorySeed(), remote);
+  git(root, 'clone', '--local', remote, repo);
   git(repo, 'config', 'user.name', 'Release Test');
   git(repo, 'config', 'user.email', 'release@example.com');
-  writeFileSync(join(repo, 'file.txt'), 'base\n');
-  git(repo, 'add', 'file.txt');
-  git(repo, 'commit', '-m', 'base');
-  git(repo, 'remote', 'add', 'origin', remote);
-  git(repo, 'push', '-u', 'origin', 'main');
   return { remote, repo };
 }
 
@@ -35,20 +72,7 @@ function createReleaseCommit(repo: string) {
 }
 
 function createReleaseRepository(root: string) {
-  const repository = createRepository(root);
-  mkdirSync(join(repository.repo, '.claude-plugin'));
-  writeFileSync(
-    join(repository.repo, 'package.json'),
-    JSON.stringify({ name: `cc-safety-net-release-test-${crypto.randomUUID()}`, version: '1.0.0' }),
-  );
-  writeFileSync(
-    join(repository.repo, '.claude-plugin', 'plugin.json'),
-    JSON.stringify({ version: '1.0.0' }),
-  );
-  git(repository.repo, 'add', 'package.json', '.claude-plugin/plugin.json');
-  git(repository.repo, 'commit', '-m', 'add manifests');
-  git(repository.repo, 'push', 'origin', 'main');
-  return repository;
+  return createRepository(root);
 }
 
 function prepareVersion(repo: string, version: string) {

@@ -2,6 +2,12 @@ import { expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
+import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/bin/hook/claude-code';
+import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
+import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
+import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 
 /**
  * Shared test helpers for CLI hook integration tests.
@@ -65,27 +71,31 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
       runCli: (args, input = '', env) =>
         runCli(args, input, { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) }, cwd),
       runClaudeCodeHook: (input, env) =>
-        runClaudeCodeHook(
+        runClaudeCodeHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
         ),
       runGeminiHook: (input, env) =>
-        runGeminiHook(
+        runGeminiHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
         ),
       runKimiHook: (input, env) =>
-        runKimiHook(input, { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) }, cwd),
+        runKimiHookDirect(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
       runCopilotHook: (input, env) =>
-        runCopilotHook(
+        runCopilotHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
         ),
       runAntigravityHook: (input, env) =>
-        runAntigravityHook(
+        runAntigravityHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
@@ -211,6 +221,107 @@ export async function runCli(
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
   const exitCode = await proc.exited;
   return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+}
+
+let directHookQueue = Promise.resolve();
+
+function runHookDirect(
+  run: () => Promise<void>,
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+): Promise<HookResult> {
+  const execute = async () => {
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalStdin = process.stdin;
+    const originalCwd = process.cwd();
+    const home = env?.HOME ?? join(cwd, 'home');
+    const effectiveEnv = {
+      HOME: home,
+      CC_SAFETY_NET_AUDIT_HOME: env?.CC_SAFETY_NET_AUDIT_HOME ?? home,
+      ...(env ?? {}),
+    };
+    const originalEnv = Object.fromEntries(
+      Object.keys(effectiveEnv).map((key) => [key, process.env[key]]),
+    );
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    console.log = (...args: unknown[]) => stdout.push(args.map(String).join(' '));
+    console.error = (...args: unknown[]) => stderr.push(args.map(String).join(' '));
+    Object.assign(process.env, effectiveEnv);
+    process.chdir(cwd);
+    Object.defineProperty(process, 'stdin', {
+      value: Readable.from([
+        Buffer.from(typeof input === 'string' ? input : JSON.stringify(input)),
+      ]),
+      configurable: true,
+    });
+
+    try {
+      await run();
+      return { stdout: stdout.join('\n').trim(), stderr: stderr.join('\n').trim(), exitCode: 0 };
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+      process.chdir(originalCwd);
+      Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  };
+  const result = directHookQueue.then(execute);
+  directHookQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+export function runClaudeCodeHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runClaudeCodeHookAdapter, input, env, cwd);
+}
+
+export function runGeminiHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runGeminiCLIHook, input, env, cwd);
+}
+
+export function runKimiHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runKimiCodeHook, input, env, cwd);
+}
+
+export function runCopilotHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runCopilotCliHook, input, env, cwd);
+}
+
+export function runAntigravityHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runAntigravityCliHook, input, env, cwd);
 }
 
 export async function expectNoHookOutput(

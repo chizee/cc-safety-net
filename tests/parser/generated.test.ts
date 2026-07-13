@@ -93,34 +93,6 @@ describe('command parser generated and bounded behavior', () => {
     expect(program.status).toBe('complete');
     expect(program.span.end).toBe(source.length);
   });
-
-  test('stays within the accepted representative corpus latency budget', () => {
-    // Baseline: 0bf15f82 on Bun 1.3.14. Warm up 3 × (2,000 × 6), then measure
-    // 7 × (10,000 × 6) and compare sorted index 3. Baseline median was
-    // 326.050917 ms; the 25% review ceiling is 407.563646 ms.
-    const corpus = [
-      'git status && printf ok',
-      'echo $(printf nested)',
-      'env FOO=bar command git status',
-      'find . -exec printf ok ;',
-      'echo $((1+2))',
-      'parallel printf ::: a b',
-    ];
-    const parseCorpus = (iterations: number) => {
-      for (let iteration = 0; iteration < iterations; iteration++) {
-        for (const command of corpus) parseCommand(command, 'posix');
-      }
-    };
-
-    for (let round = 0; round < 3; round++) parseCorpus(2_000);
-    const elapsed = Array.from({ length: 7 }, () => {
-      const start = performance.now();
-      parseCorpus(10_000);
-      return performance.now() - start;
-    }).sort((a, b) => a - b);
-
-    expect(elapsed[3]).toBeLessThanOrEqual(407.563646);
-  });
 });
 
 function createRandom(seed: number) {

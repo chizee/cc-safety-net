@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, extname, join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 
 import type { PiProbeInfo, PiProbeResource, SystemInfo } from '@/bin/doctor/types';
 
@@ -103,7 +104,10 @@ function getSpawnCommand(args: string[], env: NodeJS.ProcessEnv): { cmd: string;
  * Uses Node.js child_process.spawn for compatibility with both Node and Bun runtimes.
  * @internal Exported for testing
  */
-export const defaultVersionFetcher: VersionFetcher = async (args: string[]) => {
+export const defaultVersionFetcher = async (
+  args: string[],
+  timeoutMs = VERSION_FETCH_TIMEOUT_MS,
+): Promise<string | null> => {
   const [cmd, ...rest] = args;
   if (!cmd) return null;
 
@@ -134,10 +138,16 @@ export const defaultVersionFetcher: VersionFetcher = async (args: string[]) => {
       const timeoutId = setTimeout(() => {
         proc.kill();
         finish(null);
-      }, VERSION_FETCH_TIMEOUT_MS);
+      }, timeoutMs);
 
       proc.on('close', (code) => {
-        finish(code === 0 ? output.trim() || errorOutput.trim() || null : null);
+        finish(
+          code === 0
+            ? stripVTControlCharacters(output).trim() ||
+                stripVTControlCharacters(errorOutput).trim() ||
+                null
+            : null,
+        );
       });
 
       proc.on('error', () => {

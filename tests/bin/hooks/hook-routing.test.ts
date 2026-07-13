@@ -18,12 +18,12 @@ import {
   type HookFormat,
   type HookResult,
   kimiShellInput,
-  runAntigravityHook,
-  runClaudeCodeHook,
+  runAntigravityHookDirect as runAntigravityHook,
+  runClaudeCodeHookDirect as runClaudeCodeHook,
   runCli,
-  runCopilotHook,
-  runGeminiHook,
-  runKimiHook,
+  runCopilotHookDirect as runCopilotHook,
+  runGeminiHookDirect as runGeminiHook,
+  runKimiHookDirect as runKimiHook,
 } from './hook-helpers';
 
 const SHARED_HOOK_FORMATS = [
@@ -245,6 +245,29 @@ describe('hook command routing', () => {
         runAntigravityHook('null'),
       ]),
     );
+  });
+
+  test('each hook format keeps real subprocess transport coverage', async () => {
+    for (const hook of [
+      { flag: '--claude-code', format: 'claude-code' as const, input: claudeCodeBashInput },
+      { flag: '-gc', format: 'gemini-cli' as const, input: geminiShellInput },
+      { flag: '-kc', format: 'kimi-code' as const, input: kimiShellInput },
+      { flag: '-cp', format: 'copilot-cli' as const, input: copilotBashInput },
+      { flag: '-ac', format: 'antigravity-cli' as const, input: antigravityShellInput },
+    ]) {
+      const [allowed, denied, malformed] = await Promise.all([
+        runCli(['hook', hook.flag], JSON.stringify(hook.input('git status'))),
+        runCli(['hook', hook.flag], JSON.stringify(hook.input('git reset --hard'))),
+        runCli(['hook', hook.flag], '{'),
+      ]);
+
+      expect(allowed).toMatchObject({ exitCode: 0, stdout: '' });
+      expect(getHookDenyReason(denied, hook.format)).toContain('git reset --hard');
+      expect(malformed.stdout.split('\n')).toHaveLength(1);
+      expect(getHookDenyReason(malformed, hook.format)).toContain(
+        'Failed to parse hook input JSON.',
+      );
+    }
   });
 
   test('shared adapters fail closed once for unusable supplied working directories', async () => {

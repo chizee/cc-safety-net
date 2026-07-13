@@ -8,7 +8,7 @@ import {
   expectNoHookOutput,
   expectSecretProtectionDeny,
   getHookDenyReason,
-  runCopilotHook,
+  runCopilotHookDirect as runCopilotHook,
   withHookTestContext,
   writeUserPolicy,
 } from './hook-helpers';

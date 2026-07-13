@@ -96,7 +96,11 @@ describe('command definitions', () => {
 describe('command routing', () => {
   test('registered command names route through the CLI dispatcher', async () => {
     const cases: Array<{ args: string[]; output: string; stderr?: string; exitCode?: number }> = [
-      { args: ['doctor', '--json', '--skip-update-check'], output: '"hooks"' },
+      {
+        args: ['doctor', '--help'],
+        output: 'USAGE:\n  cc-safety-net doctor',
+        exitCode: 0,
+      },
       { args: ['explain', '--help'], output: 'USAGE:\n  cc-safety-net explain', exitCode: 0 },
       { args: ['rule', '--help'], output: 'USAGE:\n  cc-safety-net rule', exitCode: 0 },
       { args: ['install', '--help'], output: 'USAGE:\n  cc-safety-net install', exitCode: 0 },

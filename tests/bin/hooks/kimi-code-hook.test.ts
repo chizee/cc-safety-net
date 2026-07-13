@@ -4,7 +4,7 @@ import {
   expectSecretProtectionDeny,
   getHookDenyReason,
   kimiShellInput,
-  runKimiHook,
+  runKimiHookDirect as runKimiHook,
   withHookTestContext,
   writeUserPolicy,
 } from './hook-helpers';
