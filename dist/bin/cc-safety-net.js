@@ -522,17 +522,17 @@ async function runLogsCommand(args, options = {}) {
     return console.log(flags.json ? "[]" : flags.id ? `No audit log entry found for id ${renderTerminalText(flags.id)}.` : "No audit log entries found."), 0;
   let allEntries = listAuditLogFiles(logsDir).flatMap((file) => readAuditLogEntries(file).map((entry) => ({ entry, file })));
   if (flags.id)
-    return outputIdLookup(allEntries, flags);
+    return outputIdLookup(allEntries, flags, options.timeZone);
   let cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000, entries = allEntries.filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff)).sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts)).slice(0, flags.limit);
   if (flags.json)
     return console.log(JSON.stringify(entries.map((item) => item.entry))), 0;
   if (entries.length === 0)
     return console.log("No audit log entries found."), 0;
   for (let item of entries)
-    console.log(formatLogEntry(item.entry));
+    console.log(formatLogEntry(item.entry, options.timeZone));
   return 0;
 }
-function outputIdLookup(entries, flags) {
+function outputIdLookup(entries, flags, timeZone) {
   let matches = entries.filter((item) => item.entry.id === flags.id);
   if (matches.length > 1)
     return console.error(`Multiple audit log entries found for id ${renderTerminalText(flags.id ?? "")}.`), 1;
@@ -541,7 +541,7 @@ function outputIdLookup(entries, flags) {
   let match = matches[0];
   if (!match)
     return console.log(`No audit log entry found for id ${renderTerminalText(flags.id ?? "")}.`), 0;
-  return console.log(formatLogEntryDetail(match.entry)), 0;
+  return console.log(formatLogEntryDetail(match.entry, timeZone)), 0;
 }
 function matchesLogsFlags(item, flags, logsDir, cutoff) {
   if (!flags.all && item.entry.decision === "allow")
@@ -568,15 +568,15 @@ function matchesProject(cwd, project) {
     return !1;
   return cwd === project || cwd.startsWith(`${project}/`);
 }
-function formatLogEntry(entry) {
-  let id = renderTerminalText(entry.id ?? "-"), decision = renderTerminalText(entry.decision ?? "deny"), cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "", command = entry.command.length > 300 ? `${entry.command.slice(0, 300)}…` : entry.command;
-  return `${id.padEnd(16)}  ${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
+function formatLogEntry(entry, timeZone) {
+  let id = renderTerminalText(entry.id ?? "-"), decision = renderTerminalText(entry.decision ?? "deny"), cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : "", command = entry.command.length > 50 ? `${entry.command.slice(0, 50)}…` : entry.command;
+  return `${id.padEnd(16)}  ${renderTerminalText(formatHumanTimestamp(entry.ts, timeZone))}  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? "-").padEnd(15)}  ${renderTerminalText(entry.ruleId ?? "-").padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
 }
-function formatLogEntryDetail(entry) {
+function formatLogEntryDetail(entry, timeZone) {
   let value = (input) => renderTerminalText(input === void 0 || input === null || input === "" ? "-" : input), agent = entry.shape ? `${entry.agent ?? "-"} (shape: ${entry.shape})` : entry.agent ?? "-";
   return [
     `id:        ${value(entry.id)}`,
-    `ts:        ${value(entry.ts)}`,
+    `ts:        ${value(formatHumanTimestamp(entry.ts, timeZone))}`,
     `decision:  ${value(entry.decision)}`,
     `agent:     ${value(agent)}`,
     `tool:      ${value(entry.toolName)}`,
@@ -591,6 +591,20 @@ function formatLogEntryDetail(entry) {
     `segment:   ${value(entry.segment)}`
   ].join(`
 `);
+}
+function formatHumanTimestamp(timestamp, timeZone) {
+  let date = new Date(timestamp);
+  if (Number.isNaN(date.getTime()))
+    return timestamp;
+  return new Intl.DateTimeFormat("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone
+  }).format(date);
 }
 function renderTerminalText(value) {
   return Array.from(value, (character) => {

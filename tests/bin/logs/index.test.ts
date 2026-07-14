@@ -13,7 +13,7 @@ type LogsFixture = {
   projectA: string;
 };
 
-async function captureLogsCommand(args: string[], logsDir?: string) {
+async function captureLogsCommand(args: string[], logsDir?: string, timeZone?: string) {
   const originalLog = console.log;
   const originalError = console.error;
   const stdout: string[] = [];
@@ -22,7 +22,9 @@ async function captureLogsCommand(args: string[], logsDir?: string) {
   console.error = (...parts: unknown[]) => stderr.push(parts.map(String).join(' '));
   try {
     const exitCode =
-      logsDir === undefined ? await runLogsCommand(args) : await runLogsCommand(args, { logsDir });
+      logsDir === undefined
+        ? await runLogsCommand(args)
+        : await runLogsCommand(args, { logsDir, timeZone });
     return { exitCode, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
   } finally {
     console.log = originalLog;
@@ -163,6 +165,39 @@ describe('runLogsCommand', () => {
       expect(result.stdout).not.toContain('git status');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test('prints short timestamps in the user timezone for human output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-timezone-'));
+    const logsDir = join(root, 'logs');
+    const ts = '2026-07-14T01:42:31.582Z';
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'timezone.jsonl'), [
+        {
+          ts,
+          id: '9999999999999999',
+          decision: 'deny',
+          command: 'git reset --hard',
+          segment: 'git reset --hard',
+          reason: 'blocked',
+        },
+      ]);
+
+      const table = await captureLogsCommand([], logsDir, 'Asia/Tokyo');
+      const detail = await captureLogsCommand(['--id', '9999999999999999'], logsDir, 'Asia/Tokyo');
+      const json = await captureLogsCommand(
+        ['--id', '9999999999999999', '--json'],
+        logsDir,
+        'Asia/Tokyo',
+      );
+
+      expect(table.stdout).toContain('2026-07-14 10:42');
+      expect(detail.stdout).toContain('ts:        2026-07-14 10:42');
+      expect((JSON.parse(json.stdout) as AuditLogEntry[])[0]?.ts).toBe(ts);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -353,7 +388,8 @@ describe('runLogsCommand', () => {
       const detail = await captureLogsCommand(['--id', '5555555555555555'], logsDir);
       const json = await captureLogsCommand(['--id', '5555555555555555', '--json'], logsDir);
 
-      expect(table.stdout).toContain(`${'x'.repeat(300)}…`);
+      expect(table.stdout).toContain(`${'x'.repeat(50)}…`);
+      expect(table.stdout).not.toContain('x'.repeat(51));
       expect(table.stdout).not.toContain('complete-tail');
       expect(detail.stdout).toContain(command);
       expect((JSON.parse(json.stdout) as AuditLogEntry[])[0]?.command).toBe(command);

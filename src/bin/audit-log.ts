@@ -127,7 +127,7 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
 
 export async function runLogsCommand(
   args: string[],
-  options: { logsDir?: string } = {},
+  options: { logsDir?: string; timeZone?: string } = {},
 ): Promise<number> {
   const flags = parseLogsFlags(args);
   if (!flags) return 1;
@@ -146,7 +146,7 @@ export async function runLogsCommand(
   const allEntries = listAuditLogFiles(logsDir).flatMap((file) =>
     readAuditLogEntries(file).map((entry) => ({ entry, file })),
   );
-  if (flags.id) return outputIdLookup(allEntries, flags);
+  if (flags.id) return outputIdLookup(allEntries, flags, options.timeZone);
 
   const cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000;
   const entries = allEntries
@@ -165,12 +165,16 @@ export async function runLogsCommand(
   }
 
   for (const item of entries) {
-    console.log(formatLogEntry(item.entry));
+    console.log(formatLogEntry(item.entry, options.timeZone));
   }
   return 0;
 }
 
-function outputIdLookup(entries: SourcedAuditLogEntry[], flags: LogsFlags): number {
+function outputIdLookup(
+  entries: SourcedAuditLogEntry[],
+  flags: LogsFlags,
+  timeZone?: string,
+): number {
   const matches = entries.filter((item) => item.entry.id === flags.id);
   if (matches.length > 1) {
     console.error(`Multiple audit log entries found for id ${renderTerminalText(flags.id ?? '')}.`);
@@ -185,7 +189,7 @@ function outputIdLookup(entries: SourcedAuditLogEntry[], flags: LogsFlags): numb
     console.log(`No audit log entry found for id ${renderTerminalText(flags.id ?? '')}.`);
     return 0;
   }
-  console.log(formatLogEntryDetail(match.entry));
+  console.log(formatLogEntryDetail(match.entry, timeZone));
   return 0;
 }
 
@@ -214,15 +218,15 @@ function matchesProject(cwd: string | null | undefined, project: string): boolea
   return cwd === project || cwd.startsWith(`${project}/`);
 }
 
-function formatLogEntry(entry: AuditLogEntry): string {
+function formatLogEntry(entry: AuditLogEntry, timeZone?: string): string {
   const id = renderTerminalText(entry.id ?? '-');
   const decision = renderTerminalText(entry.decision ?? 'deny');
   const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : '';
-  const command = entry.command.length > 300 ? `${entry.command.slice(0, 300)}…` : entry.command;
-  return `${id.padEnd(16)}  ${renderTerminalText(entry.ts.slice(0, 19))}Z  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
+  const command = entry.command.length > 50 ? `${entry.command.slice(0, 50)}…` : entry.command;
+  return `${id.padEnd(16)}  ${renderTerminalText(formatHumanTimestamp(entry.ts, timeZone))}  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
 }
 
-function formatLogEntryDetail(entry: AuditLogEntry): string {
+function formatLogEntryDetail(entry: AuditLogEntry, timeZone?: string): string {
   const value = (input: string | null | undefined): string =>
     renderTerminalText(input === undefined || input === null || input === '' ? '-' : input);
   const agent = entry.shape
@@ -230,7 +234,7 @@ function formatLogEntryDetail(entry: AuditLogEntry): string {
     : (entry.agent ?? '-');
   return [
     `id:        ${value(entry.id)}`,
-    `ts:        ${value(entry.ts)}`,
+    `ts:        ${value(formatHumanTimestamp(entry.ts, timeZone))}`,
     `decision:  ${value(entry.decision)}`,
     `agent:     ${value(agent)}`,
     `tool:      ${value(entry.toolName)}`,
@@ -244,6 +248,20 @@ function formatLogEntryDetail(entry: AuditLogEntry): string {
     `command:   ${value(entry.command)}`,
     `segment:   ${value(entry.segment)}`,
   ].join('\n');
+}
+
+function formatHumanTimestamp(timestamp: string, timeZone?: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone,
+  }).format(date);
 }
 
 function renderTerminalText(value: string): string {
