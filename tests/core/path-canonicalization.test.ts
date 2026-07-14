@@ -69,29 +69,48 @@ describe('path canonicalization', () => {
     }
   });
 
-  test('shares realpath-attempt work across calls', () => {
+  test('caches repeated existing and missing path resolutions within one budget', () => {
     const budget = createPathCanonicalizationBudget();
+    const existing = resolveExistingPath(process.cwd(), budget);
+    const missing = join(process.cwd(), 'missing', 'leaf');
+    const resolvedMissing = resolveExistingPath(missing, budget);
+    const attempts = budget.realpathAttempts;
+    const processedBytes = budget.processedCandidateBytes;
 
-    for (let index = 0; index < PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts; index++) {
-      expect(resolveExistingPath(process.cwd(), budget)).toBe(realpathSync(process.cwd()));
+    for (let index = 0; index < PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1; index++) {
+      expect(resolveExistingPath(process.cwd(), budget)).toBe(existing);
+      expect(resolveExistingPath(missing, budget)).toBe(resolvedMissing);
     }
-    expect(() => resolveExistingPath(process.cwd(), budget)).toThrow(
-      PathCanonicalizationLimitError,
-    );
+
+    expect(budget.realpathAttempts).toBe(attempts);
+    expect(budget.processedCandidateBytes).toBe(processedBytes);
+  });
+
+  test('shares realpath-attempt work across distinct paths', () => {
+    const budget = createPathCanonicalizationBudget();
+    const distinctMissingPathCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
+
+    for (let index = 0; index < distinctMissingPathCount; index++) {
+      resolveExistingPath(join(process.cwd(), `missing-${index}`), budget);
+    }
+    expect(() =>
+      resolveExistingPath(join(process.cwd(), `missing-${distinctMissingPathCount}`), budget),
+    ).toThrow(PathCanonicalizationLimitError);
   });
 
   test('shares processed candidate bytes across calls', () => {
     const budget = createPathCanonicalizationBudget();
     const marker = 'private-candidate-marker';
-    const candidate = join(
-      process.cwd(),
-      `${marker}${'x'.repeat(Math.floor(PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes / 4))}`,
-    );
+    const candidate = `${marker}${'x'.repeat(
+      Math.floor(PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes / 4),
+    )}`;
 
-    resolveExistingPath(candidate, budget);
-    resolveExistingPath(candidate, budget);
-    resolveExistingPath(candidate, budget);
-    const error = capturePathLimit(() => resolveExistingPath(candidate, budget));
+    resolveExistingPath(join(process.cwd(), `${candidate}-0`), budget);
+    resolveExistingPath(join(process.cwd(), `${candidate}-1`), budget);
+    resolveExistingPath(join(process.cwd(), `${candidate}-2`), budget);
+    const error = capturePathLimit(() =>
+      resolveExistingPath(join(process.cwd(), `${candidate}-3`), budget),
+    );
 
     expect(error.message).toBe('Path canonicalization work limit exceeded.');
     expect(error.message).not.toContain(marker);

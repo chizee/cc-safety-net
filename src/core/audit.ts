@@ -7,7 +7,7 @@ export { redactSecrets } from '@/core/sanitize';
 
 import { redactSecrets } from '@/core/sanitize';
 
-import type { AuditLogEntry, BlockIntent } from '@/types';
+import type { AuditErrorCode, AuditFailureStage, AuditLogEntry, BlockIntent } from '@/types';
 
 type AuditLogDecision = 'allow' | 'deny';
 
@@ -67,6 +67,8 @@ export function writeAuditLog(
     toolName?: string;
     ruleId?: string;
     intent?: BlockIntent;
+    failureStage?: AuditFailureStage;
+    errorCode?: AuditErrorCode;
     now?: () => Date;
     createId?: () => string;
   } = {},
@@ -121,6 +123,8 @@ export function writeAuditLog(
       reason,
       ruleId: options.ruleId,
       intent: options.intent,
+      failureStage: options.failureStage,
+      errorCode: options.errorCode,
       cwd: cappedCwd?.value ?? null,
     };
 

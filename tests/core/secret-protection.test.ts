@@ -75,7 +75,7 @@ describe('secret protection rule metadata', () => {
 });
 
 describe('secret protection path matching', () => {
-  test('shares one canonicalization budget across the complete target set', () => {
+  test('reuses repeated canonicalization work across the complete target set', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-path-budget-'));
     const config: SecretProtectionConfig = {
       disabledRules: new Set(
@@ -84,11 +84,35 @@ describe('secret protection path matching', () => {
       denyPaths: [],
     };
     try {
-      const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
-      expect(findSensitivePathTarget(Array(boundaryTargetCount).fill(cwd), cwd, config)).toBeNull();
+      expect(
+        findSensitivePathTarget(
+          Array(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1).fill(cwd),
+          cwd,
+          config,
+        ),
+      ).toBeNull();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('shares one canonicalization budget across distinct targets', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-path-budget-'));
+    const config: SecretProtectionConfig = {
+      disabledRules: new Set(
+        SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
+      ),
+      denyPaths: [],
+    };
+    try {
+      const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 - 1;
+      const targets = Array.from({ length: boundaryTargetCount }, (_, index) =>
+        join(cwd, `ordinary-${index}.txt`),
+      );
+      expect(findSensitivePathTarget(targets, cwd, config)).toBeNull();
 
       expect(() =>
-        findSensitivePathTarget(Array(boundaryTargetCount + 1).fill(cwd), cwd, config),
+        findSensitivePathTarget([...targets, join(cwd, 'over-budget.txt')], cwd, config),
       ).toThrow(PathCanonicalizationLimitError);
     } finally {
       rmSync(cwd, { recursive: true, force: true });

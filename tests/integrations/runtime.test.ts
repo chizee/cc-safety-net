@@ -94,14 +94,18 @@ describe('integration runtime', () => {
           },
         }),
       ).toThrow(GuardEvaluationError);
-      expect(readAuditLogEntriesForSession(homeDir, 'runtime-error-session')).toMatchObject([
+      const entries = readAuditLogEntriesForSession(homeDir, 'runtime-error-session');
+      expect(entries).toMatchObject([
         {
           decision: 'deny',
           agent: 'test',
           toolName: 'Bash',
           command: 'echo ok',
+          failureStage: 'config-load',
+          errorCode: 'unexpected-error',
         },
       ]);
+      expect(JSON.stringify(entries)).not.toContain('broken snapshot');
     });
   });
 
@@ -133,7 +137,15 @@ describe('integration runtime', () => {
       ).toThrow(GuardEvaluationError);
 
       const entries = readAuditLogEntriesForSession(homeDir, 'runtime-limit-session');
-      expect(entries).toMatchObject([{ command: '', segment: '', toolName: 'Bash' }]);
+      expect(entries).toMatchObject([
+        {
+          command: '',
+          segment: '',
+          toolName: 'Bash',
+          failureStage: 'policy-protection',
+          errorCode: 'tool-input-limit',
+        },
+      ]);
       expect(JSON.stringify(entries)).not.toContain(marker);
     });
   });

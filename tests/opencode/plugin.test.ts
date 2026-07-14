@@ -64,7 +64,6 @@ describe('OpenCode plugin', () => {
     await withSafetyNetHomeDir('safety-net-opencode-path-budget-', async (dir) => {
       const plugin = await loadToolPlugin(dir);
       const marker = 'private-opencode-path-marker';
-      const path = join(dir, marker);
 
       const errorMessage = await capturePluginErrorMessage(() =>
         plugin['tool.execute.before'](
@@ -72,8 +71,8 @@ describe('OpenCode plugin', () => {
           {
             args: {
               targets: Array.from(
-                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts },
-                () => ({ path }),
+                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
+                (_, index) => ({ path: join(dir, `${marker}-${index}`) }),
               ),
             },
           },

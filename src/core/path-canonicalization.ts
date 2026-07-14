@@ -13,6 +13,7 @@ export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
 export type PathCanonicalizationBudget = {
   realpathAttempts: number;
   processedCandidateBytes: number;
+  resolvedPaths: Map<string, string>;
 };
 
 /** @internal */
@@ -26,7 +27,7 @@ export class PathCanonicalizationLimitError extends Error {
 
 /** @internal */
 export function createPathCanonicalizationBudget(): PathCanonicalizationBudget {
-  return { realpathAttempts: 0, processedCandidateBytes: 0 };
+  return { realpathAttempts: 0, processedCandidateBytes: 0, resolvedPaths: new Map() };
 }
 
 const SUPPORTED_PATH_ENV_NAMES = new Set([
@@ -67,6 +68,8 @@ export function resolveExistingPath(
   budget = createPathCanonicalizationBudget(),
 ): string {
   if (!path) return path;
+  const cached = budget.resolvedPaths.get(path);
+  if (cached !== undefined) return cached;
 
   const suffixes: string[] = [];
   let candidate = path;
@@ -82,11 +85,15 @@ export function resolveExistingPath(
 
     try {
       const existing = realpathSync(candidate);
-      return suffixes.length === 0 ? existing : join(existing, ...suffixes.reverse());
+      const resolved = suffixes.length === 0 ? existing : join(existing, ...suffixes.reverse());
+      budget.resolvedPaths.set(path, resolved);
+      return resolved;
     } catch {
       const parent = dirname(candidate);
       if (parent === candidate) {
-        return suffixes.length === 0 ? candidate : join(candidate, ...suffixes.reverse());
+        const resolved = suffixes.length === 0 ? candidate : join(candidate, ...suffixes.reverse());
+        budget.resolvedPaths.set(path, resolved);
+        return resolved;
       }
       if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents) {
         throw new PathCanonicalizationLimitError();

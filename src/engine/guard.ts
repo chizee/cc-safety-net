@@ -25,17 +25,10 @@ import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
-import type { AnalyzeOptions, AnalyzeResult } from '@/types';
+import type { AnalyzeOptions, AnalyzeResult, AuditFailureStage } from '@/types';
 
 /** @internal */
-export type GuardStage =
-  | 'policy-protection'
-  | 'config-load'
-  | 'config-state'
-  | 'secret-protection'
-  | 'non-command'
-  | 'command-validation'
-  | 'command-analysis';
+export type GuardStage = AuditFailureStage;
 
 type FinalDecision = Exclude<Decision, { kind: 'indeterminate' }>;
 

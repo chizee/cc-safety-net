@@ -240,6 +240,8 @@ function formatLogEntryDetail(entry: AuditLogEntry, timeZone?: string): string {
     `tool:      ${value(entry.toolName)}`,
     `rule:      ${value(entry.ruleId)}`,
     `intent:    ${value(entry.intent)}`,
+    `stage:     ${value(entry.failureStage)}`,
+    `error:     ${value(entry.errorCode)}`,
     `session:   ${value(entry.sessionId)}`,
     `cwd:       ${value(entry.cwd)}`,
     `version:   ${value(entry.v)}`,

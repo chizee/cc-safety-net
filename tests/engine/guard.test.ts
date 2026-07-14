@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
+import {
+  PATH_CANONICALIZATION_LIMITS,
+  PathCanonicalizationLimitError,
+} from '@/core/path-canonicalization';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import {
   evaluateGuard,
@@ -244,9 +247,12 @@ describe('guard evaluation', () => {
 
       const marker = 'private-policy-path-marker';
       const error = captureNonCommandGuardError(cwd, {
-        targets: Array.from({ length: 200 }, (_, index) => ({
-          file_path: join(cwd, `${marker}-${index}`),
-        })),
+        targets: Array.from(
+          { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
+          (_, index) => ({
+            file_path: join(cwd, `${marker}-${index}`),
+          }),
+        ),
       });
 
       expect(error.stage).toBe('policy-protection');

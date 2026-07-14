@@ -170,7 +170,8 @@ describe('runtime audit integration', () => {
         },
       );
 
-      expect(readLatestAuditLogEntry(home, 'preflight-session')).toMatchObject({
+      const entry = readLatestAuditLogEntry(home, 'preflight-session');
+      expect(entry).toMatchObject({
         decision: 'deny',
         agent: 'codex',
         shape: 'claude-code',
@@ -182,6 +183,8 @@ describe('runtime audit integration', () => {
         intent: 'stop_and_explain',
         cwd: '/project',
       });
+      expect(entry).not.toHaveProperty('failureStage');
+      expect(entry).not.toHaveProperty('errorCode');
     });
   });
 

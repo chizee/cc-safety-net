@@ -49,6 +49,8 @@ function createLogsFixture(): LogsFixture {
     segment: 'git reset --hard',
     reason: 'blocked',
     ruleId: 'git.reset-hard',
+    failureStage: 'policy-protection',
+    errorCode: 'path-canonicalization-limit',
     cwd: projectA,
   });
   writeNestedAuditLogFixture(logsDir, '-project-a', {
@@ -362,6 +364,20 @@ describe('runLogsCommand', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`id:        ${id}`);
       expect(result.stdout).toContain(`command:   ${command}`);
+      if (id === '1111111111111111') {
+        expect(result.stdout).toContain('stage:     policy-protection');
+        expect(result.stdout).toContain('error:     path-canonicalization-limit');
+        const json = await captureLogsCommand(['--id', id, '--json'], fixture.logsDir);
+        expect(JSON.parse(json.stdout)).toMatchObject([
+          {
+            failureStage: 'policy-protection',
+            errorCode: 'path-canonicalization-limit',
+          },
+        ]);
+      } else {
+        expect(result.stdout).toContain('stage:     -');
+        expect(result.stdout).toContain('error:     -');
+      }
     } finally {
       fixture.cleanup();
     }

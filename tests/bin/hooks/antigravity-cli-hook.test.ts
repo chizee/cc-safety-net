@@ -267,24 +267,23 @@ describe('Antigravity CLI hook', () => {
           toolCall: {
             name: 'view_file',
             args: {
-              targets: Array.from({ length: count }, () => ({ AbsolutePath: context.cwd })),
+              targets: Array.from({ length: count }, (_, index) => ({
+                AbsolutePath: join(context.cwd, `ordinary-${index}.txt`),
+              })),
             },
           },
           workspacePaths: [context.cwd],
         });
+        const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
 
-        expect(
-          resolveAntigravityCwd(
-            inputForCount(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts),
-            () => {},
-          ),
-        ).toBe(realpathSync(context.cwd));
+        expect(resolveAntigravityCwd(inputForCount(boundaryTargetCount), () => {})).toBe(
+          realpathSync(context.cwd),
+        );
 
         const denyReasons: string[] = [];
         expect(
-          resolveAntigravityCwd(
-            inputForCount(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1),
-            (denial) => denyReasons.push(denial.reason),
+          resolveAntigravityCwd(inputForCount(boundaryTargetCount + 1), (denial) =>
+            denyReasons.push(denial.reason),
           ),
         ).toBeNull();
         expect(denyReasons).toHaveLength(1);
@@ -300,8 +299,8 @@ describe('Antigravity CLI hook', () => {
             name: 'view_file',
             args: {
               targets: Array.from(
-                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1 },
-                () => ({ AbsolutePath: context.cwd }),
+                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
+                (_, index) => ({ AbsolutePath: join(context.cwd, `ordinary-${index}.txt`) }),
               ),
             },
           },

@@ -773,6 +773,8 @@ function writeAuditLog(sessionId, command, segment, reason, cwd, options = {}) {
       reason,
       ruleId: options.ruleId,
       intent: options.intent,
+      failureStage: options.failureStage,
+      errorCode: options.errorCode,
       cwd: cappedCwd?.value ?? null
     };
     appendFileSync(logFile, `${JSON.stringify(entry)}
@@ -791,7 +793,7 @@ function getAuditLogsDir(homeDir = getAuditLogHomeDir()) {
 }
 
 // src/integrations/audit.ts
-function projectGuardAudit(invocation, evaluation, auditAllowed, includeInvocationCommand = !0) {
+function projectGuardAudit(invocation, evaluation, auditAllowed, includeInvocationCommand = !0, failure) {
   if (evaluation.decision.kind === "allow") {
     if (!auditAllowed || invocation.route.kind !== "command")
       return;
@@ -814,7 +816,9 @@ function projectGuardAudit(invocation, evaluation, auditAllowed, includeInvocati
     cwd: invocation.context.executionCwd,
     toolName: invocation.toolName,
     ruleId: evaluation.decision.ruleId,
-    intent: evaluation.decision.intent
+    intent: evaluation.decision.intent,
+    failureStage: failure?.stage,
+    errorCode: failure?.errorCode
   };
 }
 function getInvocationCommand(invocation) {
@@ -838,7 +842,9 @@ function writeGuardAudit(audit, getSessionId, options) {
     shape: options.shape,
     toolName: audit.toolName,
     ruleId: audit.ruleId,
-    intent: audit.intent
+    intent: audit.intent,
+    failureStage: audit.failureStage,
+    errorCode: audit.errorCode
   });
 }
 function writeIntegrationDenialAudit(denial, getSessionId, options) {
@@ -941,6 +947,1508 @@ function formatIntegrationError(cause) {
   return redactSecrets(cause instanceof Error ? cause.message : String(cause));
 }
 
+// src/core/path-canonicalization.ts
+import { realpathSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { basename, dirname, join as join2 } from "node:path";
+var PATH_CANONICALIZATION_LIMITS = Object.freeze({
+  maxMissingSuffixComponents: 256,
+  maxRealpathAttempts: 1024,
+  maxProcessedCandidateBytes: 4194304
+});
+
+class PathCanonicalizationLimitError extends Error {
+  name = "PathCanonicalizationLimitError";
+  constructor() {
+    super("Path canonicalization work limit exceeded.");
+  }
+}
+function createPathCanonicalizationBudget() {
+  return { realpathAttempts: 0, processedCandidateBytes: 0, resolvedPaths: /* @__PURE__ */ new Map };
+}
+var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
+  "CC_SAFETY_NET_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "COPILOT_HOME",
+  "GEMINI_CLI_HOME",
+  "HOME",
+  "KIMI_CODE_HOME",
+  "KIMI_SHARE_DIR",
+  "OPENCODE_CONFIG",
+  "OPENCODE_CONFIG_DIR",
+  "PI_CODING_AGENT_DIR",
+  "ProgramData",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME"
+]);
+function expandSupportedPathEnvironmentVariables(value) {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
+}
+function resolveExistingPath(path, budget = createPathCanonicalizationBudget()) {
+  if (!path)
+    return path;
+  let cached = budget.resolvedPaths.get(path);
+  if (cached !== void 0)
+    return cached;
+  let suffixes = [], candidate = path;
+  while (!0) {
+    if (budget.realpathAttempts++, budget.processedCandidateBytes += Buffer.byteLength(candidate), budget.realpathAttempts > PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts || budget.processedCandidateBytes > PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes)
+      throw new PathCanonicalizationLimitError;
+    try {
+      let existing = realpathSync(candidate), resolved = suffixes.length === 0 ? existing : join2(existing, ...suffixes.reverse());
+      return budget.resolvedPaths.set(path, resolved), resolved;
+    } catch {
+      let parent = dirname(candidate);
+      if (parent === candidate) {
+        let resolved = suffixes.length === 0 ? candidate : join2(candidate, ...suffixes.reverse());
+        return budget.resolvedPaths.set(path, resolved), resolved;
+      }
+      if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents)
+        throw new PathCanonicalizationLimitError;
+      suffixes.push(basename(candidate)), candidate = parent;
+    }
+  }
+}
+function getSupportedPathEnvironmentValue(name) {
+  if (!SUPPORTED_PATH_ENV_NAMES.has(name))
+    return null;
+  if (name === "HOME")
+    return process.env.HOME ?? homedir2();
+  return process.env[name] ?? null;
+}
+
+// node_modules/shell-quote/index.js
+var $quote = require_quote(), $parse = require_parse();
+
+// src/core/shell/shared.ts
+function advanceQuoteScanState(char, state) {
+  if (state.escaped)
+    return state.escaped = !1, !0;
+  if (char === "\\" && !state.inSingle)
+    return state.escaped = !0, !0;
+  if (char === "'" && !state.inDouble)
+    return state.inSingle = !state.inSingle, !0;
+  if (char === '"' && !state.inSingle)
+    return state.inDouble = !state.inDouble, !0;
+  return !1;
+}
+function hasUnclosedQuotes(command) {
+  let state = { inSingle: !1, inDouble: !1, escaped: !1 };
+  for (let char of stripShellComments(command))
+    advanceQuoteScanState(char, state);
+  return state.inSingle || state.inDouble;
+}
+function stripShellComments(command) {
+  let result = "", state = { inSingle: !1, inDouble: !1, escaped: !1 }, inComment = !1;
+  for (let i = 0;i < command.length; i++) {
+    let char = command[i];
+    if (!char)
+      break;
+    if (inComment) {
+      if (char === `
+` || char === "\r")
+        result += char, inComment = !1, state.escaped = !1;
+      continue;
+    }
+    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
+      inComment = !0;
+      continue;
+    }
+    result += char, advanceQuoteScanState(char, state);
+  }
+  return result;
+}
+function startsShellComment(command, index) {
+  return index === 0 || /\s/.test(command[index - 1] ?? "");
+}
+function getCommandTokenText(token) {
+  if (typeof token === "string")
+    return token;
+  if (token && typeof token === "object" && "pattern" in token && typeof token.pattern === "string")
+    return token.pattern;
+  return null;
+}
+
+// src/parser/immutable.ts
+function createCommandNodes() {
+  return [];
+}
+function createCommandIssues() {
+  return [];
+}
+function createCommandAccumulator() {
+  return {
+    words: [],
+    redirections: [],
+    nested: [],
+    start: -1,
+    end: -1,
+    reset() {
+      this.words = [], this.redirections = [], this.nested = [], this.start = -1, this.end = -1;
+    }
+  };
+}
+function freezeCommandView(command) {
+  return Object.freeze({
+    ...command,
+    span: Object.freeze(command.span),
+    words: Object.freeze(command.words),
+    tokens: Object.freeze(command.tokens),
+    analysisTokens: Object.freeze(command.analysisTokens),
+    redirections: Object.freeze(command.redirections),
+    nested: Object.freeze(command.nested)
+  });
+}
+function appendAccumulatedCommand(nodes, accumulator, command) {
+  nodes.push(freezeCommandView(command)), accumulator.reset();
+}
+function appendCommandWordPart(parts, source, start, end, provenance) {
+  if (end <= start)
+    return;
+  parts.push({ raw: source.slice(start, end), span: { start, end }, provenance });
+}
+function createCommandWordParts(source) {
+  let parts = [];
+  return {
+    parts,
+    push: (start, end, provenance) => appendCommandWordPart(parts, source, start, end, provenance)
+  };
+}
+function freezeCommandWord(word) {
+  let parts = word.parts ?? [
+    {
+      raw: word.raw,
+      span: word.span,
+      provenance: word.provenance
+    }
+  ];
+  return Object.freeze({
+    kind: "word",
+    ...word,
+    span: Object.freeze(word.span),
+    parts: Object.freeze(parts.map((part) => Object.freeze({ ...part, span: Object.freeze(part.span) })))
+  });
+}
+function freezeParsedCommandWord(source, start, end, text, provenance, quoted, parts) {
+  return freezeCommandWord({
+    text,
+    raw: source.slice(start, end),
+    span: { start, end },
+    provenance,
+    quoted,
+    ...parts ? { parts } : {}
+  });
+}
+function freezeCommandProgram(program) {
+  return Object.freeze({
+    ...program,
+    span: Object.freeze(program.span),
+    issues: Object.freeze(program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) }))),
+    nodes: Object.freeze(program.nodes)
+  });
+}
+
+// src/parser/posix.ts
+function parsePosixCommand(source, dialect, limits) {
+  let span = { start: 0, end: source.length };
+  if (source.length > limits.maxInputLength)
+    return freezeCommandProgram({
+      kind: "program",
+      dialect,
+      source,
+      span,
+      status: "limited",
+      issues: [
+        {
+          code: "input-limit",
+          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
+          span
+        }
+      ],
+      nodes: []
+    });
+  let result = scanSequence(source, 0, source.length, dialect, limits, 0);
+  return freezeCommandProgram({
+    kind: "program",
+    dialect,
+    source,
+    span,
+    status: getParseStatus(result.issues, result.limited),
+    issues: result.issues,
+    nodes: result.nodes
+  });
+}
+function scanSequence(source, start, end, dialect, limits, depth, closing) {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flushCommand = () => {
+    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
+      return;
+    let span = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text), analysisTokens = accumulator.words.map((word) => word.provenance === "command-substitution" ? word.raw : word.text);
+    appendAccumulatedCommand(nodes, accumulator, {
+      kind: "command",
+      dialect,
+      source: source.slice(span.start, span.end),
+      span,
+      words: accumulator.words,
+      tokens,
+      analysisTokens,
+      redirections: accumulator.redirections,
+      nested: accumulator.nested,
+      dynamicExecutable: accumulator.words[0]?.provenance === "command-substitution",
+      legacyNormalized: issues.length > 0 && nodes.length === 0 ? source.slice(start, end) : tokens.join(" ")
+    });
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char)
+      break;
+    if (closing && char === closing)
+      return flushCommand(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
+    if (isShellWhitespace(char)) {
+      if (char === `
+` || char === "\r") {
+        flushCommand();
+        let connectorEnd = char === "\r" && source[i + 1] === `
+` ? i + 2 : i + 1;
+        nodes.push(Object.freeze({
+          kind: "connector",
+          operator: source.slice(i, connectorEnd),
+          span: Object.freeze({ start: i, end: connectorEnd })
+        })), i = connectorEnd;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (char === "#") {
+      while (i < end && source[i] !== `
+` && source[i] !== "\r")
+        i++;
+      continue;
+    }
+    let connector = readConnector(source, i);
+    if (connector) {
+      flushCommand(), nodes.push(Object.freeze({
+        kind: "connector",
+        operator: connector,
+        span: Object.freeze({ start: i, end: i + connector.length })
+      })), i += connector.length;
+      continue;
+    }
+    if ((char === "(" || char === "{") && accumulator.start === -1) {
+      if (depth >= limits.maxDepth)
+        return limitedResult(nodes, issues, i, wordCount, "depth-limit", limits.maxDepth);
+      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = freezeCommandProgram({
+        kind: "program",
+        dialect,
+        source: source.slice(bodySpan.start, bodySpan.end),
+        span: bodySpan,
+        status: getParseStatus(inner.issues, inner.limited),
+        issues: inner.issues,
+        nodes: inner.nodes
+      });
+      if (nodes.push(Object.freeze({
+        kind: "group",
+        style: char === "(" ? "subshell" : "brace",
+        span: Object.freeze({ start: i, end: groupEnd }),
+        body
+      })), issues.push(...inner.issues), !inner.closed)
+        issues.push({
+          code: char === "(" ? "unclosed-subshell" : "unclosed-brace-group",
+          message: `${char} group is not closed`,
+          span: { start: i, end: groupEnd }
+        });
+      wordCount += inner.words, limited ||= inner.limited, i = groupEnd;
+      continue;
+    }
+    let redirect = (char === "<" || char === ">") && source[i + 1] !== "(" ? readRedirect(source, i) : null;
+    if (redirect) {
+      if (accumulator.words.length > 0) {
+        let prior = accumulator.words.at(-1);
+        if (prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw))
+          accumulator.words.pop();
+      }
+      let redirectStart = i;
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
+      let targetStart = i + redirect.length;
+      while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
+        targetStart++;
+      let targetResult = targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length;
+      if (accumulator.redirections.push(Object.freeze({
+        kind: "redirection",
+        operator: redirect,
+        span: Object.freeze({ start: redirectStart, end: redirectEnd }),
+        ...targetResult ? { target: targetResult.word } : {}
+      })), targetResult)
+        accumulator.nested.push(...targetResult.nested), issues.push(...targetResult.issues), wordCount += targetResult.words, limited ||= targetResult.limited;
+      accumulator.end = redirectEnd, i = redirectEnd;
+      continue;
+    }
+    let wordResult = readWord(source, i, end, dialect, limits, depth);
+    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = wordResult.next, accumulator.words.push(wordResult.word), accumulator.nested.push(...wordResult.nested), issues.push(...wordResult.issues), wordCount += 1 + wordResult.words, limited ||= wordResult.limited, wordCount > limits.maxWords)
+      return limitedResult(nodes, issues, wordResult.next, wordCount, "word-limit", limits.maxWords);
+    i = wordResult.next > i ? wordResult.next : i + 1;
+  }
+  return flushCommand(), { nodes, issues, next: i, closed: closing === void 0, words: wordCount, limited };
+}
+function readWord(source, start, end, dialect, limits, depth) {
+  let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], nestedWords = 0, limited = !1;
+  while (i < end) {
+    let char = source[i], processSubstitution = (char === "<" || char === ">") && source[i + 1] === "(";
+    if (!char || isShellWhitespace(char) || (char === ";" || char === "|" || char === "&") && readConnector(source, i) || (char === "<" || char === ">") && !processSubstitution)
+      break;
+    if (char === ")")
+      break;
+    if (char === "'") {
+      quoted = !0;
+      let close = source.indexOf("'", i + 1);
+      if (close === -1 || close >= end) {
+        text += source.slice(i + 1, end), issues.push({
+          code: "unclosed-single-quote",
+          message: "single-quoted word is not closed",
+          span: { start: i, end }
+        }), i = end;
+        break;
+      }
+      text += source.slice(i + 1, close), i = close + 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !0;
+      let result = readDoubleQuoted(source, i, end, dialect, limits, depth);
+      text += result.text, nested.push(...result.nested), issues.push(...result.issues), nestedWords += result.words, limited ||= result.limited, provenance = mergeProvenance(provenance, result.provenance), i = result.next;
+      continue;
+    }
+    if (source.startsWith("$'", i)) {
+      quoted = !0;
+      let ansi = readAnsiCString(source, i + 2, end);
+      if (text += ansi.text, issues.push(...ansi.issues), !ansi.closed)
+        issues.push({
+          code: "unclosed-ansi-c-quote",
+          message: "ANSI-C quoted word is not closed",
+          span: { start: i, end }
+        });
+      i = ansi.next;
+      continue;
+    }
+    if (char === "\\") {
+      let next = source[i + 1];
+      if (!next) {
+        issues.push({
+          code: "trailing-escape",
+          message: "escape has no following character",
+          span: { start: i, end: i + 1 }
+        }), i++;
+        break;
+      }
+      text += next, i += 2;
+      continue;
+    }
+    let substitution = char === "$" || char === "<" || char === ">" || char === "`" ? readSubstitution(source, i, end, dialect, limits, depth) : null;
+    if (substitution) {
+      let collected = collectSubstitution(substitution, nested, issues);
+      nestedWords += collected.words, limited ||= collected.limited, provenance = collected.provenance, i = collected.next;
+      continue;
+    }
+    if (char === "$") {
+      let variable = appendVariable(source, i, end, text, provenance);
+      text = variable.text, provenance = variable.provenance, i = variable.next;
+      continue;
+    }
+    if (char === "*" || char === "?" || char === "[")
+      provenance = mergeProvenance(provenance, "glob");
+    text += char, i++;
+  }
+  return {
+    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePosixWordParts(source, start, i)),
+    nested,
+    issues,
+    next: i,
+    words: nestedWords,
+    limited
+  };
+}
+function readDoubleQuoted(source, start, end, dialect, limits, depth) {
+  let text = "", provenance = "literal", nested = [], issues = [], words = 0, limited = !1, i = start + 1;
+  while (i < end) {
+    let char = source[i];
+    if (char === '"')
+      return { text, provenance, nested, issues, next: i + 1, words, limited };
+    if (char === "\\" && source[i + 1]) {
+      let escaped = source[i + 1] ?? "";
+      if (escaped === `
+`) {
+        i += 2;
+        continue;
+      }
+      if (escaped === "\r" && source[i + 2] === `
+`) {
+        i += 3;
+        continue;
+      }
+      text += ["$", "`", '"', "\\"].includes(escaped) ? escaped : `\\${escaped}`, i += 2;
+      continue;
+    }
+    if (source.startsWith("$((", i)) {
+      let close = findSubstitutionEnd(source, i + 3, end, "))"), next = close === -1 ? end : close + 2;
+      if (text += source.slice(i, next), close === -1)
+        issues.push({
+          code: "unclosed-arithmetic",
+          message: "$(( substitution is not closed",
+          span: { start: i, end: next }
+        });
+      i = next;
+      continue;
+    }
+    let substitution = readSubstitution(source, i, end, dialect, limits, depth);
+    if (substitution) {
+      let collected = collectSubstitution(substitution, nested, issues);
+      words += collected.words, i = collected.next, limited ||= collected.limited, provenance = collected.provenance;
+      continue;
+    }
+    if (char === "$") {
+      let variable = appendVariable(source, i, end, text, provenance);
+      text = variable.text, provenance = variable.provenance, i = variable.next;
+      continue;
+    }
+    text += char ?? "", i++;
+  }
+  return issues.push({
+    code: "unclosed-double-quote",
+    message: "double-quoted word is not closed",
+    span: { start, end }
+  }), { text, provenance, nested, issues, next: end, words, limited };
+}
+function readSubstitution(source, start, end, dialect, limits, depth) {
+  let arithmetic = source.startsWith("$((", start), command = source.startsWith("$(", start) && !arithmetic, process2 = (source.startsWith("<(", start) || source.startsWith(">(", start)) && !0, backtick = source[start] === "`";
+  if (!arithmetic && !command && !process2 && !backtick)
+    return null;
+  let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, start + openLength, end, closing), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + closing.length;
+  if (depth >= limits.maxDepth)
+    return {
+      program: limitedProgram(source, start + openLength, innerEnd, dialect, "depth-limit"),
+      next,
+      provenance: arithmetic ? "arithmetic" : "command-substitution"
+    };
+  if (arithmetic) {
+    let arithmeticNodes = [], arithmeticIssues = [], cursor = start + openLength;
+    while (cursor < innerEnd) {
+      let nestedSubstitution = readSubstitution(source, cursor, innerEnd, dialect, limits, depth + 1);
+      if (!nestedSubstitution || nestedSubstitution.provenance === "arithmetic") {
+        cursor++;
+        continue;
+      }
+      arithmeticNodes.push(...nestedSubstitution.program.nodes), arithmeticIssues.push(...nestedSubstitution.program.issues), cursor = nestedSubstitution.next;
+    }
+    if (close === -1)
+      arithmeticIssues.push({
+        code: "unclosed-arithmetic",
+        message: "$(( substitution is not closed",
+        span: { start, end: next }
+      });
+    return {
+      program: freezeCommandProgram({
+        kind: "program",
+        dialect,
+        source: source.slice(start + openLength, innerEnd),
+        span: { start: start + openLength, end: innerEnd },
+        status: getParseStatus(arithmeticIssues),
+        issues: arithmeticIssues,
+        nodes: arithmeticNodes
+      }),
+      next,
+      provenance: "arithmetic"
+    };
+  }
+  let inner = scanSequence(source, start + openLength, innerEnd, dialect, limits, depth + 1), substitutionIssue = close === -1 ? [
+    {
+      code: arithmetic ? "unclosed-arithmetic" : "unclosed-command-substitution",
+      message: `${source.slice(start, start + openLength)} substitution is not closed`,
+      span: { start, end: next }
+    }
+  ] : [];
+  return {
+    program: freezeCommandProgram({
+      kind: "program",
+      dialect,
+      source: source.slice(start + openLength, innerEnd),
+      span: { start: start + openLength, end: innerEnd },
+      status: getParseStatus([...inner.issues, ...substitutionIssue], inner.limited),
+      issues: [...inner.issues, ...substitutionIssue],
+      nodes: inner.nodes
+    }),
+    next,
+    provenance: arithmetic ? "arithmetic" : "command-substitution"
+  };
+}
+function collectSubstitution(substitution, nested, issues) {
+  return nested.push(substitution.program), issues.push(...substitution.program.issues), {
+    provenance: substitution.provenance,
+    next: substitution.next,
+    limited: substitution.program.status === "limited",
+    words: substitution.program.nodes.filter((node) => node.kind === "command").length
+  };
+}
+function findSubstitutionEnd(source, start, end, closing) {
+  if (closing === "`") {
+    for (let i = start;i < end; i++)
+      if (source[i] === "\\")
+        i++;
+      else if (source[i] === "`")
+        return i;
+    return -1;
+  }
+  let depth = 1, single = !1, double = !1;
+  for (let i = start;i < end; i++) {
+    let char = source[i];
+    if (char === "\\") {
+      i++;
+      continue;
+    }
+    if (!double && char === "'")
+      single = !single;
+    if (!single && char === '"')
+      double = !double;
+    if (single)
+      continue;
+    if (source.startsWith("$(", i) && !source.startsWith("$((", i)) {
+      depth++, i++;
+      continue;
+    }
+    if (char === "(" && !double)
+      depth++;
+    if (char === ")" && !double) {
+      if (depth--, depth === 0)
+        return closing === "))" && source[i + 1] !== ")" ? -1 : i;
+    }
+  }
+  return -1;
+}
+function readConnector(source, index) {
+  let char = source[index];
+  if (char === ";")
+    return ";";
+  if (char === "&")
+    return source[index + 1] === "&" ? "&&" : "&";
+  if (char === "|")
+    return source[index + 1] === "|" ? "||" : source[index + 1] === "&" ? "|&" : "|";
+  return null;
+}
+function readRedirect(source, index) {
+  let char = source[index];
+  if (char === ">") {
+    if (source[index + 1] === ">")
+      return ">>";
+    if (source[index + 1] === "&")
+      return ">&";
+    return source[index + 1] === "|" ? ">|" : ">";
+  }
+  if (char !== "<")
+    return null;
+  if (source.startsWith("<<<", index))
+    return "<<<";
+  if (source[index + 1] === "<")
+    return "<<";
+  if (source[index + 1] === "&")
+    return "<&";
+  if (source[index + 1] === ">")
+    return "<>";
+  return "<";
+}
+function isShellWhitespace(char) {
+  let code = char.charCodeAt(0);
+  if (code === 32 || code >= 9 && code <= 13)
+    return !0;
+  if (code < 128)
+    return !1;
+  return /\s/u.test(char);
+}
+function readVariableEnd(source, start, end) {
+  if (source[start + 1] === "{") {
+    let close = source.indexOf("}", start + 2);
+    return close === -1 || close >= end ? end : close + 1;
+  }
+  let i = start + 1;
+  while (i < end && /[A-Za-z0-9_?@#$!*-]/.test(source[i] ?? ""))
+    i++;
+  return i === start + 1 ? start + 1 : i;
+}
+function readAnsiCString(source, start, end) {
+  let text = "", issues = [], i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "'")
+      return { text, next: i + 1, closed: !0, issues };
+    if (char !== "\\") {
+      text += char ?? "", i++;
+      continue;
+    }
+    let decoded = readAnsiEscape(source, i + 1, end);
+    if (text += decoded.text, decoded.invalidCodePoint !== void 0)
+      issues.push({
+        code: "invalid-ansi-c-code-point",
+        message: `ANSI-C escape is not a valid Unicode scalar value: ${decoded.invalidCodePoint}`,
+        span: { start: i, end: decoded.next }
+      });
+    i = decoded.next;
+  }
+  return { text, next: end, closed: !1, issues };
+}
+function readAnsiEscape(source, start, end) {
+  let char = source[start];
+  if (!char || start >= end)
+    return { text: "\\", next: start };
+  let simple = /* @__PURE__ */ new Map([
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["e", "\x1B"],
+    ["E", "\x1B"],
+    ["f", "\f"],
+    ["n", `
+`],
+    ["r", "\r"],
+    ["t", "\t"],
+    ["v", "\v"],
+    ["\\", "\\"],
+    ["'", "'"],
+    ['"', '"']
+  ]);
+  if (simple.has(char))
+    return { text: simple.get(char) ?? char, next: start + 1 };
+  if (char === "x")
+    return readFixedBaseEscape(source, start + 1, end, 16, 2, start + 1);
+  if (char === "u")
+    return readFixedBaseEscape(source, start + 1, end, 16, 4, start + 1);
+  if (char === "U")
+    return readFixedBaseEscape(source, start + 1, end, 16, 8, start + 1);
+  if (/[0-7]/.test(char))
+    return readFixedBaseEscape(source, start, end, 8, 3, start + 1);
+  return { text: char, next: start + 1 };
+}
+function readFixedBaseEscape(source, start, end, base, maxLength, fallbackNext) {
+  let digitPattern = base === 16 ? /[0-9a-fA-F]/ : /[0-7]/, digits = "", i = start;
+  while (i < end && digits.length < maxLength && digitPattern.test(source[i] ?? ""))
+    digits += source[i], i++;
+  if (!digits)
+    return { text: source[fallbackNext - 1] ?? "", next: fallbackNext };
+  let codePoint = Number.parseInt(digits, base);
+  return codePoint > 1114111 || codePoint >= 55296 && codePoint <= 57343 ? { text: "�", next: i, invalidCodePoint: codePoint } : { text: String.fromCodePoint(codePoint), next: i };
+}
+function getParseStatus(issues, limited = !1) {
+  if (limited)
+    return "limited";
+  if (issues.some((issue) => issue.code === "invalid-ansi-c-code-point"))
+    return "invalid";
+  return issues.length > 0 ? "partial" : "complete";
+}
+function appendVariable(source, start, end, text, provenance) {
+  let next = readVariableEnd(source, start, end);
+  return {
+    text: text + source.slice(start, next),
+    provenance: mergeProvenance(provenance, "variable"),
+    next
+  };
+}
+function derivePosixWordParts(source, start, end) {
+  let collector = createCommandWordParts(source), literalStart = start, single = !1, double = !1, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "\\" && !single) {
+      i += 2;
+      continue;
+    }
+    if (!double && char === "'") {
+      single = !single, i++;
+      continue;
+    }
+    if (!single && char === '"') {
+      double = !double, i++;
+      continue;
+    }
+    if (single) {
+      i++;
+      continue;
+    }
+    let arithmetic = source.startsWith("$((", i), command = source.startsWith("$(", i) && !arithmetic, process2 = !double && (source.startsWith("<(", i) || source.startsWith(">(", i)), backtick = char === "`";
+    if (arithmetic || command || process2 || backtick) {
+      let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, i + openLength, end, closing), next = close === -1 ? end : close + closing.length;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, arithmetic ? "arithmetic" : "command-substitution"), i = next, literalStart = next;
+      continue;
+    }
+    if (char === "$") {
+      let next = readVariableEnd(source, i, end);
+      if (next > i + 1) {
+        collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
+        continue;
+      }
+    }
+    if (!double && (char === "*" || char === "?" || char === "[")) {
+      collector.push(literalStart, i, "literal"), collector.push(i, i + 1, "glob"), i++, literalStart = i;
+      continue;
+    }
+    i++;
+  }
+  return collector.push(literalStart, end, "literal"), collector.parts;
+}
+function mergeProvenance(current, next) {
+  if (next === "command-substitution" || current === "command-substitution")
+    return "command-substitution";
+  if (next === "arithmetic" || current === "arithmetic")
+    return "arithmetic";
+  if (next === "variable" || current === "variable")
+    return "variable";
+  if (next === "glob" || current === "glob")
+    return "glob";
+  return current;
+}
+function limitedProgram(source, start, end, dialect, code) {
+  return freezeCommandProgram({
+    kind: "program",
+    dialect,
+    source: source.slice(start, end),
+    span: { start, end },
+    status: "limited",
+    issues: [{ code, message: "command structure exceeds parser limit", span: { start, end } }],
+    nodes: []
+  });
+}
+function limitedResult(nodes, issues, next, words, code, limit) {
+  return {
+    nodes,
+    issues: [
+      ...issues,
+      {
+        code,
+        message: `command structure exceeds parser limit ${limit}`,
+        span: { start: next, end: next }
+      }
+    ],
+    next,
+    closed: !1,
+    words,
+    limited: !0
+  };
+}
+
+// src/parser/powershell.ts
+var AUTO_POWERSHELL_HEADS = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]), AUTO_POWERSHELL_PARAMETERS = ["-rec", "-for", "-path", "-literalpath", "-whatif"], SELECTOR_LIMITS = { maxInputLength: 131072, maxWords: 16384, maxDepth: 64 };
+function shouldUsePowerShellParser(source) {
+  let candidate = source.toLowerCase().replaceAll("`", "");
+  if (![...AUTO_POWERSHELL_HEADS].some((head) => candidate.includes(head)) && !(candidate.includes("rm") && AUTO_POWERSHELL_PARAMETERS.some((word) => candidate.includes(word))) && !candidate.includes("<#"))
+    return !1;
+  let selector = scanSelectorCommands(source);
+  return selector.invalidComment || selector.commands.some(isPowerShellSelectorCommand);
+}
+function isPowerShellSelectorCommand(words) {
+  let headIndex = words[0] === "&" || words[0] === "." ? 1 : 0, head = words[headIndex]?.toLowerCase();
+  if (head && AUTO_POWERSHELL_HEADS.has(head))
+    return !0;
+  if (head !== "rm")
+    return !1;
+  return words.slice(headIndex + 1).some((word) => {
+    let parameter = word.toLowerCase().split(":", 1)[0] ?? "";
+    return AUTO_POWERSHELL_PARAMETERS.some((prefix) => parameter.startsWith(prefix));
+  });
+}
+function parsePowerShellCommand(source, limits) {
+  let span = { start: 0, end: source.length };
+  if (source.length > limits.maxInputLength)
+    return freezeCommandProgram({
+      kind: "program",
+      dialect: "powershell",
+      source,
+      span,
+      status: "limited",
+      issues: [
+        {
+          code: "input-limit",
+          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
+          span
+        }
+      ],
+      nodes: []
+    });
+  let result = scanPowerShellSequence(source, 0, source.length, limits, 0);
+  return freezeCommandProgram({
+    kind: "program",
+    dialect: "powershell",
+    source,
+    span,
+    status: getPowerShellParseStatus(result.issues, result.limited),
+    issues: result.issues,
+    nodes: result.nodes
+  });
+}
+function scanPowerShellSequence(source, start, end, limits, depth, closingBrace = !1) {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flush = () => {
+    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
+      return;
+    let commandSpan = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text);
+    appendAccumulatedCommand(nodes, accumulator, {
+      kind: "command",
+      dialect: "powershell",
+      source: source.slice(commandSpan.start, commandSpan.end),
+      span: commandSpan,
+      words: accumulator.words,
+      tokens,
+      analysisTokens: [...tokens],
+      redirections: accumulator.redirections,
+      nested: accumulator.nested,
+      dynamicExecutable: accumulator.words[0]?.provenance !== "literal",
+      legacyNormalized: tokens.join(" ")
+    });
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char)
+      break;
+    if (closingBrace && char === "}")
+      return flush(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
+    let comment = readPowerShellComment(source, i, end, limits.maxDepth);
+    if (comment) {
+      if (comment.issue)
+        issues.push(comment.issue);
+      if (comment.limited)
+        return flush(), {
+          nodes,
+          issues,
+          next: comment.next,
+          closed: !1,
+          words: wordCount,
+          limited: !0
+        };
+      i = comment.next;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (char === "\r" || char === `
+`) {
+        flush();
+        let next = char === "\r" && source[i + 1] === `
+` ? i + 2 : i + 1;
+        nodes.push(connector(source, i, next)), i = next;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    let operator = readOperator(source, i);
+    if (operator) {
+      flush(), nodes.push(connector(source, i, i + operator.length)), i += operator.length;
+      continue;
+    }
+    if (char === "{") {
+      if (flush(), depth >= limits.maxDepth)
+        return issues.push(depthLimitIssue(i, limits.maxDepth)), { nodes, issues, next: end, closed: !1, words: wordCount, limited: !0 };
+      let inner = scanPowerShellSequence(source, i + 1, end, limits, depth + 1, !0), bodyEnd = inner.closed ? inner.next - 1 : inner.next, body = freezeCommandProgram({
+        kind: "program",
+        dialect: "powershell",
+        source: source.slice(i + 1, bodyEnd),
+        span: { start: i + 1, end: bodyEnd },
+        status: inner.limited ? "limited" : inner.issues.length > 0 ? "partial" : "complete",
+        issues: inner.issues,
+        nodes: inner.nodes
+      });
+      if (nodes.push(Object.freeze({
+        kind: "group",
+        style: "brace",
+        span: Object.freeze({ start: i, end: inner.next }),
+        body
+      })), issues.push(...inner.issues), !inner.closed)
+        issues.push({
+          code: "unclosed-script-block",
+          message: "PowerShell script block is not closed",
+          span: { start: i, end: inner.next }
+        });
+      wordCount += inner.words, limited ||= inner.limited, i = inner.next;
+      continue;
+    }
+    if (char === "}") {
+      flush(), nodes.push(connector(source, i, i + 1)), i++;
+      continue;
+    }
+    if (char === ">" || char === "<") {
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
+      let operatorEnd = source[i + 1] === char ? i + 2 : i + 1, targetStart = operatorEnd;
+      while (/[ \t]/.test(source[targetStart] ?? ""))
+        targetStart++;
+      let target = targetStart < end ? readPowerShellWord(source, targetStart, end, limits, depth) : void 0, redirectEnd = target?.next ?? operatorEnd;
+      if (accumulator.redirections.push(Object.freeze({
+        kind: "redirection",
+        operator: source.slice(i, operatorEnd),
+        span: Object.freeze({ start: i, end: redirectEnd }),
+        ...target ? { target: target.word } : {}
+      })), target)
+        issues.push(...target.issues), accumulator.nested.push(...target.nested), wordCount += target.words, limited ||= target.limited;
+      accumulator.end = redirectEnd, i = redirectEnd;
+      continue;
+    }
+    if (char === ",") {
+      accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.words.push(freezeCommandWord({
+        text: ",",
+        raw: ",",
+        span: { start: i, end: i + 1 },
+        provenance: "literal",
+        quoted: !1
+      })), accumulator.end = ++i;
+      continue;
+    }
+    let result = readPowerShellWord(source, i, end, limits, depth);
+    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = result.next, accumulator.words.push(result.word), issues.push(...result.issues), accumulator.nested.push(...result.nested), wordCount += 1 + result.words, limited ||= result.limited, wordCount > limits.maxWords)
+      return issues.push({
+        code: "word-limit",
+        message: `command exceeds ${limits.maxWords} words`,
+        span: { start: i, end: result.next }
+      }), flush(), { nodes, issues, next: result.next, closed: !1, words: wordCount, limited: !0 };
+    i = result.next > i ? result.next : i + 1;
+  }
+  return flush(), { nodes, issues, next: i, closed: !closingBrace, words: wordCount, limited };
+}
+function readPowerShellWord(source, start, end, limits, depth) {
+  let text = "", provenance = "literal", quoted = !1, issues = [], nested = [], nestedWords = 0, limited = !1, consumeSubexpression = (offset) => {
+    let subexpression = readPowerShellSubexpression(source, offset, end, limits, depth);
+    return text += source.slice(offset, subexpression.next), nested.push(subexpression.program), issues.push(...subexpression.program.issues), nestedWords += countProgramWords(subexpression.program), limited ||= subexpression.program.status === "limited", provenance = "command-substitution", subexpression.next;
+  }, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (!char || /\s/.test(char) || readOperator(source, i) || char === ">" || char === "<" || char === "#")
+      break;
+    if (char === ",")
+      break;
+    if (char === "`") {
+      let next = source[i + 1];
+      if (!next) {
+        issues.push({
+          code: "trailing-escape",
+          message: "PowerShell escape has no following character",
+          span: { start: i, end: i + 1 }
+        }), i++;
+        break;
+      }
+      text += next, i += 2;
+      continue;
+    }
+    if (source.startsWith("$(", i)) {
+      i = consumeSubexpression(i);
+      continue;
+    }
+    if (char === "'") {
+      quoted = !0, i++;
+      let closed = !1;
+      while (i < source.length) {
+        if (source[i] === "'" && source[i + 1] === "'") {
+          text += "'", i += 2;
+          continue;
+        }
+        if (source[i] === "'") {
+          closed = !0, i++;
+          break;
+        }
+        text += source[i] ?? "", i++;
+      }
+      if (!closed)
+        issues.push({
+          code: "unclosed-single-quote",
+          message: "single-quoted word is not closed",
+          span: { start, end: source.length }
+        });
+      continue;
+    }
+    if (char === '"') {
+      quoted = !0;
+      let quoteStart = i++, closed = !1;
+      while (i < end) {
+        let inner = source[i];
+        if (inner === "`" && source[i + 1]) {
+          text += source[i + 1], i += 2;
+          continue;
+        }
+        if (inner === '"') {
+          closed = !0, i++;
+          break;
+        }
+        if (source.startsWith("$(", i)) {
+          i = consumeSubexpression(i);
+          continue;
+        }
+        if (inner === "$")
+          provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
+        text += inner ?? "", i++;
+      }
+      if (!closed)
+        issues.push({
+          code: "unclosed-double-quote",
+          message: "double-quoted word is not closed",
+          span: { start: quoteStart, end: source.length }
+        });
+      continue;
+    }
+    if (char === "$")
+      provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
+    if (char === "@" && i === start)
+      provenance = "variable";
+    text += char, i++;
+  }
+  return {
+    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePowerShellWordParts(source, start, i)),
+    next: i,
+    issues,
+    nested,
+    words: nestedWords,
+    limited
+  };
+}
+function readPowerShellSubexpression(source, start, end, limits, depth) {
+  let close = findPowerShellSubexpressionEnd(source, start + 2, end), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + 1;
+  if (depth >= limits.maxDepth)
+    return {
+      program: freezeCommandProgram({
+        kind: "program",
+        dialect: "powershell",
+        source: source.slice(start + 2, innerEnd),
+        span: { start: start + 2, end: innerEnd },
+        status: "limited",
+        issues: [depthLimitIssue(start, limits.maxDepth)],
+        nodes: []
+      }),
+      next
+    };
+  let inner = scanPowerShellSequence(source, start + 2, innerEnd, limits, depth + 1), unclosedIssue = close === -1 ? [
+    {
+      code: "unclosed-command-subexpression",
+      message: "PowerShell command subexpression is not closed",
+      span: { start, end: next }
+    }
+  ] : [];
+  return {
+    program: freezeCommandProgram({
+      kind: "program",
+      dialect: "powershell",
+      source: source.slice(start + 2, innerEnd),
+      span: { start: start + 2, end: innerEnd },
+      status: inner.limited ? "limited" : inner.issues.length + unclosedIssue.length > 0 ? "partial" : "complete",
+      issues: [...inner.issues, ...unclosedIssue],
+      nodes: inner.nodes
+    }),
+    next
+  };
+}
+function findPowerShellSubexpressionEnd(source, start, end) {
+  let depth = 1, single = !1, double = !1;
+  for (let i = start;i < end; i++) {
+    let char = source[i];
+    if (char === "`") {
+      i++;
+      continue;
+    }
+    if (!double && char === "'") {
+      if (single && source[i + 1] === "'") {
+        i++;
+        continue;
+      }
+      single = !single;
+      continue;
+    }
+    if (!single && char === '"') {
+      double = !double;
+      continue;
+    }
+    if (single)
+      continue;
+    if (source.startsWith("$(", i)) {
+      depth++, i++;
+      continue;
+    }
+    if (!double && char === "(")
+      depth++;
+    if (char !== ")")
+      continue;
+    if (depth--, depth === 0)
+      return i;
+  }
+  return -1;
+}
+function countProgramWords(program) {
+  let count = 0;
+  for (let node of program.nodes) {
+    if (node.kind === "group")
+      count += countProgramWords(node.body);
+    if (node.kind === "command") {
+      count += node.words.length;
+      for (let nested of node.nested)
+        count += countProgramWords(nested);
+    }
+  }
+  return count;
+}
+function derivePowerShellWordParts(source, start, end) {
+  let collector = createCommandWordParts(source), literalStart = start, single = !1, i = start;
+  while (i < end) {
+    let char = source[i];
+    if (char === "`") {
+      i += 2;
+      continue;
+    }
+    if (char === "'") {
+      if (single && source[i + 1] === "'") {
+        i += 2;
+        continue;
+      }
+      single = !single, i++;
+      continue;
+    }
+    if (single) {
+      i++;
+      continue;
+    }
+    if (source.startsWith("$(", i)) {
+      let close = findPowerShellSubexpressionEnd(source, i + 2, end), next = close === -1 ? end : close + 1;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, "command-substitution"), i = next, literalStart = next;
+      continue;
+    }
+    if (char === "$" || char === "@" && i === start) {
+      let next = i + 1;
+      if (source[next] === "{") {
+        let close = source.indexOf("}", next + 1);
+        next = close === -1 || close >= end ? end : close + 1;
+      } else
+        while (next < end && /[A-Za-z0-9_:?]/.test(source[next] ?? ""))
+          next++;
+      collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
+      continue;
+    }
+    i++;
+  }
+  return collector.push(literalStart, end, "literal"), collector.parts;
+}
+function depthLimitIssue(start, limit) {
+  return {
+    code: "depth-limit",
+    message: `command structure exceeds parser limit ${limit}`,
+    span: { start, end: start }
+  };
+}
+function scanSelectorCommands(source) {
+  let commands = [], words = [], i = 0, wordCount = 0, invalidComment = !1, flush = () => {
+    if (words.length > 0)
+      commands.push(words);
+    words = [];
+  };
+  while (i < source.length && i < 131072 && wordCount < 16384) {
+    let char = source[i];
+    if (char === "\r" || char === `
+`) {
+      flush(), i += char === "\r" && source[i + 1] === `
+` ? 2 : 1;
+      continue;
+    }
+    if (/\s/.test(char ?? "")) {
+      i++;
+      continue;
+    }
+    let comment = readPowerShellComment(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS.maxDepth);
+    if (comment) {
+      invalidComment ||= !!comment.issue || comment.limited, i = comment.next;
+      continue;
+    }
+    let operator = readOperator(source, i);
+    if (operator) {
+      flush(), i += operator.length;
+      continue;
+    }
+    if (char === "{" || char === "}") {
+      flush(), i++;
+      continue;
+    }
+    let result = readPowerShellWord(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS, 0);
+    if (result.word.text)
+      words.push(result.word.text);
+    for (let nested of result.nested)
+      commands.push(...selectorCommandsFromProgram(nested));
+    wordCount++, i = result.next > i ? result.next : i + 1;
+  }
+  return flush(), { commands, invalidComment };
+}
+function selectorCommandsFromProgram(program) {
+  return program.nodes.flatMap((node) => {
+    if (node.kind === "group")
+      return selectorCommandsFromProgram(node.body);
+    if (node.kind !== "command")
+      return [];
+    return [
+      node.words.map((word) => word.text),
+      ...node.nested.flatMap(selectorCommandsFromProgram)
+    ];
+  });
+}
+function readOperator(source, index) {
+  for (let operator of ["&&", "||", ";", "|"])
+    if (source.startsWith(operator, index))
+      return operator;
+  return null;
+}
+function readPowerShellComment(source, start, end, maxDepth) {
+  if (source[start] === "#" && source[start + 1] !== ">") {
+    let next = start + 1;
+    while (next < end && source[next] !== "\r" && source[next] !== `
+`)
+      next++;
+    return { next, limited: !1 };
+  }
+  if (!source.startsWith("<#", start))
+    return null;
+  let depth = 1, i = start + 2;
+  while (i < end) {
+    if (source.startsWith("<#", i)) {
+      if (depth++, depth > maxDepth)
+        return {
+          next: end,
+          issue: {
+            code: "comment-depth-limit",
+            message: `PowerShell block comment exceeds nesting limit ${maxDepth}`,
+            span: { start, end: i + 2 }
+          },
+          limited: !0
+        };
+      i += 2;
+      continue;
+    }
+    if (source.startsWith("#>", i)) {
+      if (depth--, i += 2, depth === 0)
+        return { next: i, limited: !1 };
+      continue;
+    }
+    i++;
+  }
+  return {
+    next: end,
+    issue: {
+      code: "unclosed-block-comment",
+      message: "PowerShell block comment is not closed",
+      span: { start, end }
+    },
+    limited: !1
+  };
+}
+function getPowerShellParseStatus(issues, limited) {
+  if (limited)
+    return "limited";
+  if (issues.some((issue) => issue.code === "unclosed-block-comment"))
+    return "invalid";
+  return issues.length > 0 ? "partial" : "complete";
+}
+function connector(source, start, end) {
+  return Object.freeze({
+    kind: "connector",
+    operator: source.slice(start, end),
+    span: Object.freeze({ start, end })
+  });
+}
+
+// src/parser/command.ts
+var DEFAULT_COMMAND_PARSER_LIMITS = Object.freeze({
+  maxInputLength: 131072,
+  maxWords: 16384,
+  maxDepth: 64
+});
+function parseCommand(source, dialect = "auto", limits = DEFAULT_COMMAND_PARSER_LIMITS) {
+  if (dialect === "powershell" || dialect === "auto" && shouldUsePowerShellParser(source))
+    return parsePowerShellCommand(source, limits);
+  return parsePosixCommand(source, "posix", limits);
+}
+
+// src/core/semantic-facts.ts
+var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
+  "absolutepath",
+  "directorypath",
+  "directory_path",
+  "file",
+  "file_path",
+  "filepath",
+  "notebook_path",
+  "path",
+  "searchdirectory",
+  "search_directory",
+  "searchpath",
+  "targetfile",
+  "target_file"
+]), GREP_KEYS = /* @__PURE__ */ new Set([...PATH_LIKE_KEYS, "glob"]), GLOB_KEYS = /* @__PURE__ */ new Set([...GREP_KEYS, "pattern"]), REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<", "<<", "<<<", "<>", ">&", "<&", "&>", "&>>"]), LEGACY_BOUNDARIES = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]), NEUTRAL_ENV_PROXY = new Proxy({}, { get: (_, name) => ["$", "{", String(name), "}"].join("") }), DEFAULT_PARSERS = {
+  parseCommand,
+  parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
+};
+
+class StructuralShellSyntaxLimitError extends Error {
+  name = "StructuralShellSyntaxLimitError";
+  constructor() {
+    super("Structural command analysis limit exceeded.");
+  }
+}
+function createSemanticFacts(invocation, parserDependencies = {}) {
+  let store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
+  if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
+    candidates.push({ usage: "input-candidate", source: inputCommand });
+  if (invocation.route.kind === "command" && "command" in invocation && invocation.command)
+    candidates.push({ usage: "declared-command", source: invocation.command });
+  let commands = candidates.reduce((facts, candidate) => {
+    let existingIndex = facts.findIndex((fact) => fact.source === candidate.source);
+    if (existingIndex !== -1) {
+      let existing = facts[existingIndex];
+      if (!existing)
+        return facts;
+      return facts[existingIndex] = freezeCommandFact({
+        ...existing,
+        usages: [...existing.usages, candidate.usage]
+      }), facts;
+    }
+    let dialect = invocation.route.kind === "command" ? invocation.route.shell : "posix", program = store.getCommandProgram(candidate.source, dialect);
+    return facts.push(freezeCommandFact({
+      usages: [candidate.usage],
+      source: candidate.source,
+      program,
+      views: projectAnalysisOrder(program),
+      uncertainties: program.issues,
+      shell: store.getShellSyntax(candidate.source, program)
+    })), facts;
+  }, []);
+  return Object.freeze({
+    invocation: Object.freeze({
+      toolName: invocation.toolName,
+      route: Object.freeze({ ...invocation.route }),
+      context: Object.freeze({
+        ...invocation.context,
+        ...invocation.context.policyConfigCwds ? { policyConfigCwds: Object.freeze([...invocation.context.policyConfigCwds]) } : {}
+      })
+    }),
+    commands: Object.freeze(commands),
+    paths: Object.freeze(extractDirectPathFacts(invocation)),
+    store
+  });
+}
+function getCommandSyntaxFact(facts, usage) {
+  return facts.commands.find((fact) => fact.usages.includes(usage));
+}
+function projectSensitiveShellText(source) {
+  return expandSupportedPathEnvironmentVariables(source);
+}
+function createSemanticFactStore(parserDependencies = {}) {
+  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map, structuralLimitFacts = /* @__PURE__ */ new WeakMap, getCommandProgram = (source, dialect) => {
+    let key = `${dialect}\x00${source}`, existing = commandPrograms.get(key);
+    if (existing)
+      return existing;
+    let program = parsers.parseCommand(source, dialect);
+    return commandPrograms.set(key, program), program;
+  };
+  return Object.freeze({
+    getShellSyntax: (source, suppliedProgram) => {
+      if (suppliedProgram && suppliedProgram.source !== source)
+        throw TypeError("Shell syntax source does not match command program source.");
+      let program = suppliedProgram ?? getCommandProgram(source, "posix");
+      if (program.status === "limited") {
+        let existing2 = structuralLimitFacts.get(program);
+        if (existing2)
+          return existing2;
+        let syntax2 = Object.freeze({
+          status: "structural-limit",
+          source,
+          entries: EMPTY_SHELL_SYNTAX_ENTRIES
+        });
+        return structuralLimitFacts.set(program, syntax2), syntax2;
+      }
+      let existing = shellFacts.get(source);
+      if (existing)
+        return existing;
+      let syntax = parseShellSyntax(source, parsers.parseShell);
+      return shellFacts.set(source, syntax), syntax;
+    },
+    getCommandProgram
+  });
+}
+function freezeCommandFact(fact) {
+  return Object.freeze({
+    ...fact,
+    usages: Object.freeze([...fact.usages]),
+    views: Object.freeze([...fact.views]),
+    uncertainties: Object.freeze([...fact.uncertainties])
+  });
+}
+function projectAnalysisOrder(program) {
+  return Object.freeze(program.nodes.flatMap((node) => {
+    if (node.kind === "group")
+      return [...projectAnalysisOrder(node.body)];
+    if (node.kind !== "command")
+      return [];
+    return [...node.nested.flatMap((nested) => [...projectAnalysisOrder(nested)]), node];
+  }));
+}
+function parseShellSyntax(source, parseShell) {
+  if (hasUnclosedQuotes(source))
+    return Object.freeze({
+      status: "unclosed-quote",
+      source,
+      entries: Object.freeze([])
+    });
+  try {
+    let parsed = parseShell(source, NEUTRAL_ENV_PROXY), entries = [];
+    for (let index = 0;index < parsed.length; index++) {
+      let token = parsed[index], operator = getOperator(token);
+      if (operator === "<" && getOperator(parsed[index + 1]) === "<") {
+        let targetIndex = index + 2, target = getCommandTokenText(parsed[targetIndex]);
+        entries.push(Object.freeze({
+          kind: "redirection",
+          operator: "<<",
+          role: "here-data",
+          targetOrder: "legacy-segment",
+          ...target === null ? {} : { target }
+        })), index = target === null ? index + 1 : targetIndex;
+        continue;
+      }
+      if (operator && REDIRECTS.has(operator)) {
+        let pipeAdjusted = operator === ">" && getOperator(parsed[index + 1]) === "|", targetIndex = index + (pipeAdjusted ? 2 : 1), target = getCommandTokenText(parsed[targetIndex]);
+        if (entries.push(Object.freeze({
+          kind: "redirection",
+          operator: pipeAdjusted ? ">|" : operator,
+          role: getRedirectionRole(pipeAdjusted ? ">|" : operator),
+          targetOrder: pipeAdjusted || operator === "<<" || operator === "<<<" ? "legacy-segment" : "immediate",
+          ...target === null ? {} : { target }
+        })), target !== null || operator !== "<<" && operator !== "<<<")
+          index = targetIndex;
+        continue;
+      }
+      if (operator) {
+        entries.push(Object.freeze({
+          kind: "operator",
+          operator,
+          boundary: LEGACY_BOUNDARIES.has(operator)
+        }));
+        continue;
+      }
+      let text = getCommandTokenText(token);
+      if (text !== null)
+        entries.push(Object.freeze({ kind: "word", text }));
+    }
+    return Object.freeze({ status: "complete", source, entries: Object.freeze(entries) });
+  } catch {
+    return Object.freeze({ status: "invalid", source, entries: Object.freeze([]) });
+  }
+}
+function getRedirectionRole(operator) {
+  if (operator === "<<" || operator === "<<<")
+    return "here-data";
+  if (operator === "<" || operator === "<&")
+    return "file-read";
+  return "file-write";
+}
+function extractDirectPathFacts(invocation) {
+  let keys = invocation.route.kind === "grep" ? GREP_KEYS : invocation.route.kind === "glob" ? GLOB_KEYS : PATH_LIKE_KEYS, access = invocation.route.kind === "grep" || invocation.route.kind === "glob" ? "read" : invocation.route.kind === "patch" ? "write" : "unknown";
+  return [
+    ...extractPathLikeToolValues(invocation.input, keys).map((raw) => Object.freeze({ raw, role: "tool-path", access })),
+    ...invocation.route.kind === "patch" ? extractPatchTargetsFromToolInput(invocation.input).map((raw) => Object.freeze({ raw, role: "patch-target", access: "write" })) : []
+  ];
+}
+function getOperator(token) {
+  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
+}
+
 // src/config/policy-metadata.ts
 var metadata = /* @__PURE__ */ new WeakMap;
 function registerPolicyRuleMetadata(snapshot, rules) {
@@ -952,7 +2460,7 @@ function getPolicyRuleMetadata(snapshot, id) {
 
 // src/core/policy.ts
 import { chmodSync, existsSync, mkdirSync as mkdirSync3, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname3, join as join4 } from "node:path";
+import { dirname as dirname4, join as join5 } from "node:path";
 
 // src/config/schema.ts
 import { createRequire } from "node:module";
@@ -2302,7 +3810,7 @@ function hasAttachedLongValue(token, options) {
   return options !== void 0 && [...options].some((option) => token.startsWith(`${option}=`));
 }
 // src/core/shell/wrappers.ts
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute3, parse as parsePath2 } from "node:path";
 
 // src/core/git/env.ts
@@ -2369,8 +3877,8 @@ function hasAnyEnvAssignment(envAssignments, names) {
 }
 
 // src/core/path.ts
-import { lstatSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
+import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
 function isUnsupportedWindowsNamespacePath(target, platform = process.platform) {
   if (platform !== "win32")
     return !1;
@@ -2384,11 +3892,11 @@ function resolveChdirTarget(baseCwd, target) {
     if (component === "" || component === ".")
       continue;
     if (component === "..") {
-      current = dirname(current);
+      current = dirname2(current);
       continue;
     }
     let candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
+    current = lstatSync(candidate).isSymbolicLink() ? realpathSync2(candidate) : candidate;
   }
   return current;
 }
@@ -2401,1193 +3909,6 @@ function getPathRoot(target) {
 function getPathComponents(target) {
   let separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
   return target.split(separator);
-}
-
-// src/parser/immutable.ts
-function createCommandNodes() {
-  return [];
-}
-function createCommandIssues() {
-  return [];
-}
-function createCommandAccumulator() {
-  return {
-    words: [],
-    redirections: [],
-    nested: [],
-    start: -1,
-    end: -1,
-    reset() {
-      this.words = [], this.redirections = [], this.nested = [], this.start = -1, this.end = -1;
-    }
-  };
-}
-function freezeCommandView(command) {
-  return Object.freeze({
-    ...command,
-    span: Object.freeze(command.span),
-    words: Object.freeze(command.words),
-    tokens: Object.freeze(command.tokens),
-    analysisTokens: Object.freeze(command.analysisTokens),
-    redirections: Object.freeze(command.redirections),
-    nested: Object.freeze(command.nested)
-  });
-}
-function appendAccumulatedCommand(nodes, accumulator, command) {
-  nodes.push(freezeCommandView(command)), accumulator.reset();
-}
-function appendCommandWordPart(parts, source, start, end, provenance) {
-  if (end <= start)
-    return;
-  parts.push({ raw: source.slice(start, end), span: { start, end }, provenance });
-}
-function createCommandWordParts(source) {
-  let parts = [];
-  return {
-    parts,
-    push: (start, end, provenance) => appendCommandWordPart(parts, source, start, end, provenance)
-  };
-}
-function freezeCommandWord(word) {
-  let parts = word.parts ?? [
-    {
-      raw: word.raw,
-      span: word.span,
-      provenance: word.provenance
-    }
-  ];
-  return Object.freeze({
-    kind: "word",
-    ...word,
-    span: Object.freeze(word.span),
-    parts: Object.freeze(parts.map((part) => Object.freeze({ ...part, span: Object.freeze(part.span) })))
-  });
-}
-function freezeParsedCommandWord(source, start, end, text, provenance, quoted, parts) {
-  return freezeCommandWord({
-    text,
-    raw: source.slice(start, end),
-    span: { start, end },
-    provenance,
-    quoted,
-    ...parts ? { parts } : {}
-  });
-}
-function freezeCommandProgram(program) {
-  return Object.freeze({
-    ...program,
-    span: Object.freeze(program.span),
-    issues: Object.freeze(program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) }))),
-    nodes: Object.freeze(program.nodes)
-  });
-}
-
-// src/parser/posix.ts
-function parsePosixCommand(source, dialect, limits) {
-  let span = { start: 0, end: source.length };
-  if (source.length > limits.maxInputLength)
-    return freezeCommandProgram({
-      kind: "program",
-      dialect,
-      source,
-      span,
-      status: "limited",
-      issues: [
-        {
-          code: "input-limit",
-          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
-          span
-        }
-      ],
-      nodes: []
-    });
-  let result = scanSequence(source, 0, source.length, dialect, limits, 0);
-  return freezeCommandProgram({
-    kind: "program",
-    dialect,
-    source,
-    span,
-    status: getParseStatus(result.issues, result.limited),
-    issues: result.issues,
-    nodes: result.nodes
-  });
-}
-function scanSequence(source, start, end, dialect, limits, depth, closing) {
-  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flushCommand = () => {
-    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
-      return;
-    let span = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text), analysisTokens = accumulator.words.map((word) => word.provenance === "command-substitution" ? word.raw : word.text);
-    appendAccumulatedCommand(nodes, accumulator, {
-      kind: "command",
-      dialect,
-      source: source.slice(span.start, span.end),
-      span,
-      words: accumulator.words,
-      tokens,
-      analysisTokens,
-      redirections: accumulator.redirections,
-      nested: accumulator.nested,
-      dynamicExecutable: accumulator.words[0]?.provenance === "command-substitution",
-      legacyNormalized: issues.length > 0 && nodes.length === 0 ? source.slice(start, end) : tokens.join(" ")
-    });
-  }, i = start;
-  while (i < end) {
-    let char = source[i];
-    if (!char)
-      break;
-    if (closing && char === closing)
-      return flushCommand(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
-    if (isShellWhitespace(char)) {
-      if (char === `
-` || char === "\r") {
-        flushCommand();
-        let connectorEnd = char === "\r" && source[i + 1] === `
-` ? i + 2 : i + 1;
-        nodes.push(Object.freeze({
-          kind: "connector",
-          operator: source.slice(i, connectorEnd),
-          span: Object.freeze({ start: i, end: connectorEnd })
-        })), i = connectorEnd;
-        continue;
-      }
-      i++;
-      continue;
-    }
-    if (char === "#") {
-      while (i < end && source[i] !== `
-` && source[i] !== "\r")
-        i++;
-      continue;
-    }
-    let connector = readConnector(source, i);
-    if (connector) {
-      flushCommand(), nodes.push(Object.freeze({
-        kind: "connector",
-        operator: connector,
-        span: Object.freeze({ start: i, end: i + connector.length })
-      })), i += connector.length;
-      continue;
-    }
-    if ((char === "(" || char === "{") && accumulator.start === -1) {
-      if (depth >= limits.maxDepth)
-        return limitedResult(nodes, issues, i, wordCount, "depth-limit", limits.maxDepth);
-      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = freezeCommandProgram({
-        kind: "program",
-        dialect,
-        source: source.slice(bodySpan.start, bodySpan.end),
-        span: bodySpan,
-        status: getParseStatus(inner.issues, inner.limited),
-        issues: inner.issues,
-        nodes: inner.nodes
-      });
-      if (nodes.push(Object.freeze({
-        kind: "group",
-        style: char === "(" ? "subshell" : "brace",
-        span: Object.freeze({ start: i, end: groupEnd }),
-        body
-      })), issues.push(...inner.issues), !inner.closed)
-        issues.push({
-          code: char === "(" ? "unclosed-subshell" : "unclosed-brace-group",
-          message: `${char} group is not closed`,
-          span: { start: i, end: groupEnd }
-        });
-      wordCount += inner.words, limited ||= inner.limited, i = groupEnd;
-      continue;
-    }
-    let redirect = (char === "<" || char === ">") && source[i + 1] !== "(" ? readRedirect(source, i) : null;
-    if (redirect) {
-      if (accumulator.words.length > 0) {
-        let prior = accumulator.words.at(-1);
-        if (prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw))
-          accumulator.words.pop();
-      }
-      let redirectStart = i;
-      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
-      let targetStart = i + redirect.length;
-      while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
-        targetStart++;
-      let targetResult = targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length;
-      if (accumulator.redirections.push(Object.freeze({
-        kind: "redirection",
-        operator: redirect,
-        span: Object.freeze({ start: redirectStart, end: redirectEnd }),
-        ...targetResult ? { target: targetResult.word } : {}
-      })), targetResult)
-        accumulator.nested.push(...targetResult.nested), issues.push(...targetResult.issues), wordCount += targetResult.words, limited ||= targetResult.limited;
-      accumulator.end = redirectEnd, i = redirectEnd;
-      continue;
-    }
-    let wordResult = readWord(source, i, end, dialect, limits, depth);
-    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = wordResult.next, accumulator.words.push(wordResult.word), accumulator.nested.push(...wordResult.nested), issues.push(...wordResult.issues), wordCount += 1 + wordResult.words, limited ||= wordResult.limited, wordCount > limits.maxWords)
-      return limitedResult(nodes, issues, wordResult.next, wordCount, "word-limit", limits.maxWords);
-    i = wordResult.next > i ? wordResult.next : i + 1;
-  }
-  return flushCommand(), { nodes, issues, next: i, closed: closing === void 0, words: wordCount, limited };
-}
-function readWord(source, start, end, dialect, limits, depth) {
-  let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], nestedWords = 0, limited = !1;
-  while (i < end) {
-    let char = source[i], processSubstitution = (char === "<" || char === ">") && source[i + 1] === "(";
-    if (!char || isShellWhitespace(char) || (char === ";" || char === "|" || char === "&") && readConnector(source, i) || (char === "<" || char === ">") && !processSubstitution)
-      break;
-    if (char === ")")
-      break;
-    if (char === "'") {
-      quoted = !0;
-      let close = source.indexOf("'", i + 1);
-      if (close === -1 || close >= end) {
-        text += source.slice(i + 1, end), issues.push({
-          code: "unclosed-single-quote",
-          message: "single-quoted word is not closed",
-          span: { start: i, end }
-        }), i = end;
-        break;
-      }
-      text += source.slice(i + 1, close), i = close + 1;
-      continue;
-    }
-    if (char === '"') {
-      quoted = !0;
-      let result = readDoubleQuoted(source, i, end, dialect, limits, depth);
-      text += result.text, nested.push(...result.nested), issues.push(...result.issues), nestedWords += result.words, limited ||= result.limited, provenance = mergeProvenance(provenance, result.provenance), i = result.next;
-      continue;
-    }
-    if (source.startsWith("$'", i)) {
-      quoted = !0;
-      let ansi = readAnsiCString(source, i + 2, end);
-      if (text += ansi.text, issues.push(...ansi.issues), !ansi.closed)
-        issues.push({
-          code: "unclosed-ansi-c-quote",
-          message: "ANSI-C quoted word is not closed",
-          span: { start: i, end }
-        });
-      i = ansi.next;
-      continue;
-    }
-    if (char === "\\") {
-      let next = source[i + 1];
-      if (!next) {
-        issues.push({
-          code: "trailing-escape",
-          message: "escape has no following character",
-          span: { start: i, end: i + 1 }
-        }), i++;
-        break;
-      }
-      text += next, i += 2;
-      continue;
-    }
-    let substitution = char === "$" || char === "<" || char === ">" || char === "`" ? readSubstitution(source, i, end, dialect, limits, depth) : null;
-    if (substitution) {
-      let collected = collectSubstitution(substitution, nested, issues);
-      nestedWords += collected.words, limited ||= collected.limited, provenance = collected.provenance, i = collected.next;
-      continue;
-    }
-    if (char === "$") {
-      let variable = appendVariable(source, i, end, text, provenance);
-      text = variable.text, provenance = variable.provenance, i = variable.next;
-      continue;
-    }
-    if (char === "*" || char === "?" || char === "[")
-      provenance = mergeProvenance(provenance, "glob");
-    text += char, i++;
-  }
-  return {
-    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePosixWordParts(source, start, i)),
-    nested,
-    issues,
-    next: i,
-    words: nestedWords,
-    limited
-  };
-}
-function readDoubleQuoted(source, start, end, dialect, limits, depth) {
-  let text = "", provenance = "literal", nested = [], issues = [], words = 0, limited = !1, i = start + 1;
-  while (i < end) {
-    let char = source[i];
-    if (char === '"')
-      return { text, provenance, nested, issues, next: i + 1, words, limited };
-    if (char === "\\" && source[i + 1]) {
-      let escaped = source[i + 1] ?? "";
-      if (escaped === `
-`) {
-        i += 2;
-        continue;
-      }
-      if (escaped === "\r" && source[i + 2] === `
-`) {
-        i += 3;
-        continue;
-      }
-      text += ["$", "`", '"', "\\"].includes(escaped) ? escaped : `\\${escaped}`, i += 2;
-      continue;
-    }
-    if (source.startsWith("$((", i)) {
-      let close = findSubstitutionEnd(source, i + 3, end, "))"), next = close === -1 ? end : close + 2;
-      if (text += source.slice(i, next), close === -1)
-        issues.push({
-          code: "unclosed-arithmetic",
-          message: "$(( substitution is not closed",
-          span: { start: i, end: next }
-        });
-      i = next;
-      continue;
-    }
-    let substitution = readSubstitution(source, i, end, dialect, limits, depth);
-    if (substitution) {
-      let collected = collectSubstitution(substitution, nested, issues);
-      words += collected.words, i = collected.next, limited ||= collected.limited, provenance = collected.provenance;
-      continue;
-    }
-    if (char === "$") {
-      let variable = appendVariable(source, i, end, text, provenance);
-      text = variable.text, provenance = variable.provenance, i = variable.next;
-      continue;
-    }
-    text += char ?? "", i++;
-  }
-  return issues.push({
-    code: "unclosed-double-quote",
-    message: "double-quoted word is not closed",
-    span: { start, end }
-  }), { text, provenance, nested, issues, next: end, words, limited };
-}
-function readSubstitution(source, start, end, dialect, limits, depth) {
-  let arithmetic = source.startsWith("$((", start), command = source.startsWith("$(", start) && !arithmetic, process2 = (source.startsWith("<(", start) || source.startsWith(">(", start)) && !0, backtick = source[start] === "`";
-  if (!arithmetic && !command && !process2 && !backtick)
-    return null;
-  let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, start + openLength, end, closing), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + closing.length;
-  if (depth >= limits.maxDepth)
-    return {
-      program: limitedProgram(source, start + openLength, innerEnd, dialect, "depth-limit"),
-      next,
-      provenance: arithmetic ? "arithmetic" : "command-substitution"
-    };
-  if (arithmetic) {
-    let arithmeticNodes = [], arithmeticIssues = [], cursor = start + openLength;
-    while (cursor < innerEnd) {
-      let nestedSubstitution = readSubstitution(source, cursor, innerEnd, dialect, limits, depth + 1);
-      if (!nestedSubstitution || nestedSubstitution.provenance === "arithmetic") {
-        cursor++;
-        continue;
-      }
-      arithmeticNodes.push(...nestedSubstitution.program.nodes), arithmeticIssues.push(...nestedSubstitution.program.issues), cursor = nestedSubstitution.next;
-    }
-    if (close === -1)
-      arithmeticIssues.push({
-        code: "unclosed-arithmetic",
-        message: "$(( substitution is not closed",
-        span: { start, end: next }
-      });
-    return {
-      program: freezeCommandProgram({
-        kind: "program",
-        dialect,
-        source: source.slice(start + openLength, innerEnd),
-        span: { start: start + openLength, end: innerEnd },
-        status: getParseStatus(arithmeticIssues),
-        issues: arithmeticIssues,
-        nodes: arithmeticNodes
-      }),
-      next,
-      provenance: "arithmetic"
-    };
-  }
-  let inner = scanSequence(source, start + openLength, innerEnd, dialect, limits, depth + 1), substitutionIssue = close === -1 ? [
-    {
-      code: arithmetic ? "unclosed-arithmetic" : "unclosed-command-substitution",
-      message: `${source.slice(start, start + openLength)} substitution is not closed`,
-      span: { start, end: next }
-    }
-  ] : [];
-  return {
-    program: freezeCommandProgram({
-      kind: "program",
-      dialect,
-      source: source.slice(start + openLength, innerEnd),
-      span: { start: start + openLength, end: innerEnd },
-      status: getParseStatus([...inner.issues, ...substitutionIssue], inner.limited),
-      issues: [...inner.issues, ...substitutionIssue],
-      nodes: inner.nodes
-    }),
-    next,
-    provenance: arithmetic ? "arithmetic" : "command-substitution"
-  };
-}
-function collectSubstitution(substitution, nested, issues) {
-  return nested.push(substitution.program), issues.push(...substitution.program.issues), {
-    provenance: substitution.provenance,
-    next: substitution.next,
-    limited: substitution.program.status === "limited",
-    words: substitution.program.nodes.filter((node) => node.kind === "command").length
-  };
-}
-function findSubstitutionEnd(source, start, end, closing) {
-  if (closing === "`") {
-    for (let i = start;i < end; i++)
-      if (source[i] === "\\")
-        i++;
-      else if (source[i] === "`")
-        return i;
-    return -1;
-  }
-  let depth = 1, single = !1, double = !1;
-  for (let i = start;i < end; i++) {
-    let char = source[i];
-    if (char === "\\") {
-      i++;
-      continue;
-    }
-    if (!double && char === "'")
-      single = !single;
-    if (!single && char === '"')
-      double = !double;
-    if (single)
-      continue;
-    if (source.startsWith("$(", i) && !source.startsWith("$((", i)) {
-      depth++, i++;
-      continue;
-    }
-    if (char === "(" && !double)
-      depth++;
-    if (char === ")" && !double) {
-      if (depth--, depth === 0)
-        return closing === "))" && source[i + 1] !== ")" ? -1 : i;
-    }
-  }
-  return -1;
-}
-function readConnector(source, index) {
-  let char = source[index];
-  if (char === ";")
-    return ";";
-  if (char === "&")
-    return source[index + 1] === "&" ? "&&" : "&";
-  if (char === "|")
-    return source[index + 1] === "|" ? "||" : source[index + 1] === "&" ? "|&" : "|";
-  return null;
-}
-function readRedirect(source, index) {
-  let char = source[index];
-  if (char === ">") {
-    if (source[index + 1] === ">")
-      return ">>";
-    if (source[index + 1] === "&")
-      return ">&";
-    return source[index + 1] === "|" ? ">|" : ">";
-  }
-  if (char !== "<")
-    return null;
-  if (source.startsWith("<<<", index))
-    return "<<<";
-  if (source[index + 1] === "<")
-    return "<<";
-  if (source[index + 1] === "&")
-    return "<&";
-  if (source[index + 1] === ">")
-    return "<>";
-  return "<";
-}
-function isShellWhitespace(char) {
-  let code = char.charCodeAt(0);
-  if (code === 32 || code >= 9 && code <= 13)
-    return !0;
-  if (code < 128)
-    return !1;
-  return /\s/u.test(char);
-}
-function readVariableEnd(source, start, end) {
-  if (source[start + 1] === "{") {
-    let close = source.indexOf("}", start + 2);
-    return close === -1 || close >= end ? end : close + 1;
-  }
-  let i = start + 1;
-  while (i < end && /[A-Za-z0-9_?@#$!*-]/.test(source[i] ?? ""))
-    i++;
-  return i === start + 1 ? start + 1 : i;
-}
-function readAnsiCString(source, start, end) {
-  let text = "", issues = [], i = start;
-  while (i < end) {
-    let char = source[i];
-    if (char === "'")
-      return { text, next: i + 1, closed: !0, issues };
-    if (char !== "\\") {
-      text += char ?? "", i++;
-      continue;
-    }
-    let decoded = readAnsiEscape(source, i + 1, end);
-    if (text += decoded.text, decoded.invalidCodePoint !== void 0)
-      issues.push({
-        code: "invalid-ansi-c-code-point",
-        message: `ANSI-C escape is not a valid Unicode scalar value: ${decoded.invalidCodePoint}`,
-        span: { start: i, end: decoded.next }
-      });
-    i = decoded.next;
-  }
-  return { text, next: end, closed: !1, issues };
-}
-function readAnsiEscape(source, start, end) {
-  let char = source[start];
-  if (!char || start >= end)
-    return { text: "\\", next: start };
-  let simple = /* @__PURE__ */ new Map([
-    ["a", "\x07"],
-    ["b", "\b"],
-    ["e", "\x1B"],
-    ["E", "\x1B"],
-    ["f", "\f"],
-    ["n", `
-`],
-    ["r", "\r"],
-    ["t", "\t"],
-    ["v", "\v"],
-    ["\\", "\\"],
-    ["'", "'"],
-    ['"', '"']
-  ]);
-  if (simple.has(char))
-    return { text: simple.get(char) ?? char, next: start + 1 };
-  if (char === "x")
-    return readFixedBaseEscape(source, start + 1, end, 16, 2, start + 1);
-  if (char === "u")
-    return readFixedBaseEscape(source, start + 1, end, 16, 4, start + 1);
-  if (char === "U")
-    return readFixedBaseEscape(source, start + 1, end, 16, 8, start + 1);
-  if (/[0-7]/.test(char))
-    return readFixedBaseEscape(source, start, end, 8, 3, start + 1);
-  return { text: char, next: start + 1 };
-}
-function readFixedBaseEscape(source, start, end, base, maxLength, fallbackNext) {
-  let digitPattern = base === 16 ? /[0-9a-fA-F]/ : /[0-7]/, digits = "", i = start;
-  while (i < end && digits.length < maxLength && digitPattern.test(source[i] ?? ""))
-    digits += source[i], i++;
-  if (!digits)
-    return { text: source[fallbackNext - 1] ?? "", next: fallbackNext };
-  let codePoint = Number.parseInt(digits, base);
-  return codePoint > 1114111 || codePoint >= 55296 && codePoint <= 57343 ? { text: "�", next: i, invalidCodePoint: codePoint } : { text: String.fromCodePoint(codePoint), next: i };
-}
-function getParseStatus(issues, limited = !1) {
-  if (limited)
-    return "limited";
-  if (issues.some((issue) => issue.code === "invalid-ansi-c-code-point"))
-    return "invalid";
-  return issues.length > 0 ? "partial" : "complete";
-}
-function appendVariable(source, start, end, text, provenance) {
-  let next = readVariableEnd(source, start, end);
-  return {
-    text: text + source.slice(start, next),
-    provenance: mergeProvenance(provenance, "variable"),
-    next
-  };
-}
-function derivePosixWordParts(source, start, end) {
-  let collector = createCommandWordParts(source), literalStart = start, single = !1, double = !1, i = start;
-  while (i < end) {
-    let char = source[i];
-    if (char === "\\" && !single) {
-      i += 2;
-      continue;
-    }
-    if (!double && char === "'") {
-      single = !single, i++;
-      continue;
-    }
-    if (!single && char === '"') {
-      double = !double, i++;
-      continue;
-    }
-    if (single) {
-      i++;
-      continue;
-    }
-    let arithmetic = source.startsWith("$((", i), command = source.startsWith("$(", i) && !arithmetic, process2 = !double && (source.startsWith("<(", i) || source.startsWith(">(", i)), backtick = char === "`";
-    if (arithmetic || command || process2 || backtick) {
-      let openLength = arithmetic ? 3 : backtick ? 1 : 2, closing = arithmetic ? "))" : backtick ? "`" : ")", close = findSubstitutionEnd(source, i + openLength, end, closing), next = close === -1 ? end : close + closing.length;
-      collector.push(literalStart, i, "literal"), collector.push(i, next, arithmetic ? "arithmetic" : "command-substitution"), i = next, literalStart = next;
-      continue;
-    }
-    if (char === "$") {
-      let next = readVariableEnd(source, i, end);
-      if (next > i + 1) {
-        collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
-        continue;
-      }
-    }
-    if (!double && (char === "*" || char === "?" || char === "[")) {
-      collector.push(literalStart, i, "literal"), collector.push(i, i + 1, "glob"), i++, literalStart = i;
-      continue;
-    }
-    i++;
-  }
-  return collector.push(literalStart, end, "literal"), collector.parts;
-}
-function mergeProvenance(current, next) {
-  if (next === "command-substitution" || current === "command-substitution")
-    return "command-substitution";
-  if (next === "arithmetic" || current === "arithmetic")
-    return "arithmetic";
-  if (next === "variable" || current === "variable")
-    return "variable";
-  if (next === "glob" || current === "glob")
-    return "glob";
-  return current;
-}
-function limitedProgram(source, start, end, dialect, code) {
-  return freezeCommandProgram({
-    kind: "program",
-    dialect,
-    source: source.slice(start, end),
-    span: { start, end },
-    status: "limited",
-    issues: [{ code, message: "command structure exceeds parser limit", span: { start, end } }],
-    nodes: []
-  });
-}
-function limitedResult(nodes, issues, next, words, code, limit) {
-  return {
-    nodes,
-    issues: [
-      ...issues,
-      {
-        code,
-        message: `command structure exceeds parser limit ${limit}`,
-        span: { start: next, end: next }
-      }
-    ],
-    next,
-    closed: !1,
-    words,
-    limited: !0
-  };
-}
-
-// src/parser/powershell.ts
-var AUTO_POWERSHELL_HEADS = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rmdir"]), AUTO_POWERSHELL_PARAMETERS = ["-rec", "-for", "-path", "-literalpath", "-whatif"], SELECTOR_LIMITS = { maxInputLength: 131072, maxWords: 16384, maxDepth: 64 };
-function shouldUsePowerShellParser(source) {
-  let candidate = source.toLowerCase().replaceAll("`", "");
-  if (![...AUTO_POWERSHELL_HEADS].some((head) => candidate.includes(head)) && !(candidate.includes("rm") && AUTO_POWERSHELL_PARAMETERS.some((word) => candidate.includes(word))) && !candidate.includes("<#"))
-    return !1;
-  let selector = scanSelectorCommands(source);
-  return selector.invalidComment || selector.commands.some(isPowerShellSelectorCommand);
-}
-function isPowerShellSelectorCommand(words) {
-  let headIndex = words[0] === "&" || words[0] === "." ? 1 : 0, head = words[headIndex]?.toLowerCase();
-  if (head && AUTO_POWERSHELL_HEADS.has(head))
-    return !0;
-  if (head !== "rm")
-    return !1;
-  return words.slice(headIndex + 1).some((word) => {
-    let parameter = word.toLowerCase().split(":", 1)[0] ?? "";
-    return AUTO_POWERSHELL_PARAMETERS.some((prefix) => parameter.startsWith(prefix));
-  });
-}
-function parsePowerShellCommand(source, limits) {
-  let span = { start: 0, end: source.length };
-  if (source.length > limits.maxInputLength)
-    return freezeCommandProgram({
-      kind: "program",
-      dialect: "powershell",
-      source,
-      span,
-      status: "limited",
-      issues: [
-        {
-          code: "input-limit",
-          message: `command exceeds ${limits.maxInputLength} UTF-16 code units`,
-          span
-        }
-      ],
-      nodes: []
-    });
-  let result = scanPowerShellSequence(source, 0, source.length, limits, 0);
-  return freezeCommandProgram({
-    kind: "program",
-    dialect: "powershell",
-    source,
-    span,
-    status: getPowerShellParseStatus(result.issues, result.limited),
-    issues: result.issues,
-    nodes: result.nodes
-  });
-}
-function scanPowerShellSequence(source, start, end, limits, depth, closingBrace = !1) {
-  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flush = () => {
-    if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
-      return;
-    let commandSpan = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text);
-    appendAccumulatedCommand(nodes, accumulator, {
-      kind: "command",
-      dialect: "powershell",
-      source: source.slice(commandSpan.start, commandSpan.end),
-      span: commandSpan,
-      words: accumulator.words,
-      tokens,
-      analysisTokens: [...tokens],
-      redirections: accumulator.redirections,
-      nested: accumulator.nested,
-      dynamicExecutable: accumulator.words[0]?.provenance !== "literal",
-      legacyNormalized: tokens.join(" ")
-    });
-  }, i = start;
-  while (i < end) {
-    let char = source[i];
-    if (!char)
-      break;
-    if (closingBrace && char === "}")
-      return flush(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
-    let comment = readPowerShellComment(source, i, end, limits.maxDepth);
-    if (comment) {
-      if (comment.issue)
-        issues.push(comment.issue);
-      if (comment.limited)
-        return flush(), {
-          nodes,
-          issues,
-          next: comment.next,
-          closed: !1,
-          words: wordCount,
-          limited: !0
-        };
-      i = comment.next;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (char === "\r" || char === `
-`) {
-        flush();
-        let next = char === "\r" && source[i + 1] === `
-` ? i + 2 : i + 1;
-        nodes.push(connector(source, i, next)), i = next;
-        continue;
-      }
-      i++;
-      continue;
-    }
-    let operator = readOperator(source, i);
-    if (operator) {
-      flush(), nodes.push(connector(source, i, i + operator.length)), i += operator.length;
-      continue;
-    }
-    if (char === "{") {
-      if (flush(), depth >= limits.maxDepth)
-        return issues.push(depthLimitIssue(i, limits.maxDepth)), { nodes, issues, next: end, closed: !1, words: wordCount, limited: !0 };
-      let inner = scanPowerShellSequence(source, i + 1, end, limits, depth + 1, !0), bodyEnd = inner.closed ? inner.next - 1 : inner.next, body = freezeCommandProgram({
-        kind: "program",
-        dialect: "powershell",
-        source: source.slice(i + 1, bodyEnd),
-        span: { start: i + 1, end: bodyEnd },
-        status: inner.limited ? "limited" : inner.issues.length > 0 ? "partial" : "complete",
-        issues: inner.issues,
-        nodes: inner.nodes
-      });
-      if (nodes.push(Object.freeze({
-        kind: "group",
-        style: "brace",
-        span: Object.freeze({ start: i, end: inner.next }),
-        body
-      })), issues.push(...inner.issues), !inner.closed)
-        issues.push({
-          code: "unclosed-script-block",
-          message: "PowerShell script block is not closed",
-          span: { start: i, end: inner.next }
-        });
-      wordCount += inner.words, limited ||= inner.limited, i = inner.next;
-      continue;
-    }
-    if (char === "}") {
-      flush(), nodes.push(connector(source, i, i + 1)), i++;
-      continue;
-    }
-    if (char === ">" || char === "<") {
-      accumulator.start = accumulator.start === -1 ? i : accumulator.start;
-      let operatorEnd = source[i + 1] === char ? i + 2 : i + 1, targetStart = operatorEnd;
-      while (/[ \t]/.test(source[targetStart] ?? ""))
-        targetStart++;
-      let target = targetStart < end ? readPowerShellWord(source, targetStart, end, limits, depth) : void 0, redirectEnd = target?.next ?? operatorEnd;
-      if (accumulator.redirections.push(Object.freeze({
-        kind: "redirection",
-        operator: source.slice(i, operatorEnd),
-        span: Object.freeze({ start: i, end: redirectEnd }),
-        ...target ? { target: target.word } : {}
-      })), target)
-        issues.push(...target.issues), accumulator.nested.push(...target.nested), wordCount += target.words, limited ||= target.limited;
-      accumulator.end = redirectEnd, i = redirectEnd;
-      continue;
-    }
-    if (char === ",") {
-      accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.words.push(freezeCommandWord({
-        text: ",",
-        raw: ",",
-        span: { start: i, end: i + 1 },
-        provenance: "literal",
-        quoted: !1
-      })), accumulator.end = ++i;
-      continue;
-    }
-    let result = readPowerShellWord(source, i, end, limits, depth);
-    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = result.next, accumulator.words.push(result.word), issues.push(...result.issues), accumulator.nested.push(...result.nested), wordCount += 1 + result.words, limited ||= result.limited, wordCount > limits.maxWords)
-      return issues.push({
-        code: "word-limit",
-        message: `command exceeds ${limits.maxWords} words`,
-        span: { start: i, end: result.next }
-      }), flush(), { nodes, issues, next: result.next, closed: !1, words: wordCount, limited: !0 };
-    i = result.next > i ? result.next : i + 1;
-  }
-  return flush(), { nodes, issues, next: i, closed: !closingBrace, words: wordCount, limited };
-}
-function readPowerShellWord(source, start, end, limits, depth) {
-  let text = "", provenance = "literal", quoted = !1, issues = [], nested = [], nestedWords = 0, limited = !1, consumeSubexpression = (offset) => {
-    let subexpression = readPowerShellSubexpression(source, offset, end, limits, depth);
-    return text += source.slice(offset, subexpression.next), nested.push(subexpression.program), issues.push(...subexpression.program.issues), nestedWords += countProgramWords(subexpression.program), limited ||= subexpression.program.status === "limited", provenance = "command-substitution", subexpression.next;
-  }, i = start;
-  while (i < end) {
-    let char = source[i];
-    if (!char || /\s/.test(char) || readOperator(source, i) || char === ">" || char === "<" || char === "#")
-      break;
-    if (char === ",")
-      break;
-    if (char === "`") {
-      let next = source[i + 1];
-      if (!next) {
-        issues.push({
-          code: "trailing-escape",
-          message: "PowerShell escape has no following character",
-          span: { start: i, end: i + 1 }
-        }), i++;
-        break;
-      }
-      text += next, i += 2;
-      continue;
-    }
-    if (source.startsWith("$(", i)) {
-      i = consumeSubexpression(i);
-      continue;
-    }
-    if (char === "'") {
-      quoted = !0, i++;
-      let closed = !1;
-      while (i < source.length) {
-        if (source[i] === "'" && source[i + 1] === "'") {
-          text += "'", i += 2;
-          continue;
-        }
-        if (source[i] === "'") {
-          closed = !0, i++;
-          break;
-        }
-        text += source[i] ?? "", i++;
-      }
-      if (!closed)
-        issues.push({
-          code: "unclosed-single-quote",
-          message: "single-quoted word is not closed",
-          span: { start, end: source.length }
-        });
-      continue;
-    }
-    if (char === '"') {
-      quoted = !0;
-      let quoteStart = i++, closed = !1;
-      while (i < end) {
-        let inner = source[i];
-        if (inner === "`" && source[i + 1]) {
-          text += source[i + 1], i += 2;
-          continue;
-        }
-        if (inner === '"') {
-          closed = !0, i++;
-          break;
-        }
-        if (source.startsWith("$(", i)) {
-          i = consumeSubexpression(i);
-          continue;
-        }
-        if (inner === "$")
-          provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
-        text += inner ?? "", i++;
-      }
-      if (!closed)
-        issues.push({
-          code: "unclosed-double-quote",
-          message: "double-quoted word is not closed",
-          span: { start: quoteStart, end: source.length }
-        });
-      continue;
-    }
-    if (char === "$")
-      provenance = source[i + 1] === "(" ? "command-substitution" : "variable";
-    if (char === "@" && i === start)
-      provenance = "variable";
-    text += char, i++;
-  }
-  return {
-    word: freezeParsedCommandWord(source, start, i, text, provenance, quoted, provenance === "literal" ? void 0 : derivePowerShellWordParts(source, start, i)),
-    next: i,
-    issues,
-    nested,
-    words: nestedWords,
-    limited
-  };
-}
-function readPowerShellSubexpression(source, start, end, limits, depth) {
-  let close = findPowerShellSubexpressionEnd(source, start + 2, end), innerEnd = close === -1 ? end : close, next = close === -1 ? end : close + 1;
-  if (depth >= limits.maxDepth)
-    return {
-      program: freezeCommandProgram({
-        kind: "program",
-        dialect: "powershell",
-        source: source.slice(start + 2, innerEnd),
-        span: { start: start + 2, end: innerEnd },
-        status: "limited",
-        issues: [depthLimitIssue(start, limits.maxDepth)],
-        nodes: []
-      }),
-      next
-    };
-  let inner = scanPowerShellSequence(source, start + 2, innerEnd, limits, depth + 1), unclosedIssue = close === -1 ? [
-    {
-      code: "unclosed-command-subexpression",
-      message: "PowerShell command subexpression is not closed",
-      span: { start, end: next }
-    }
-  ] : [];
-  return {
-    program: freezeCommandProgram({
-      kind: "program",
-      dialect: "powershell",
-      source: source.slice(start + 2, innerEnd),
-      span: { start: start + 2, end: innerEnd },
-      status: inner.limited ? "limited" : inner.issues.length + unclosedIssue.length > 0 ? "partial" : "complete",
-      issues: [...inner.issues, ...unclosedIssue],
-      nodes: inner.nodes
-    }),
-    next
-  };
-}
-function findPowerShellSubexpressionEnd(source, start, end) {
-  let depth = 1, single = !1, double = !1;
-  for (let i = start;i < end; i++) {
-    let char = source[i];
-    if (char === "`") {
-      i++;
-      continue;
-    }
-    if (!double && char === "'") {
-      if (single && source[i + 1] === "'") {
-        i++;
-        continue;
-      }
-      single = !single;
-      continue;
-    }
-    if (!single && char === '"') {
-      double = !double;
-      continue;
-    }
-    if (single)
-      continue;
-    if (source.startsWith("$(", i)) {
-      depth++, i++;
-      continue;
-    }
-    if (!double && char === "(")
-      depth++;
-    if (char !== ")")
-      continue;
-    if (depth--, depth === 0)
-      return i;
-  }
-  return -1;
-}
-function countProgramWords(program) {
-  let count = 0;
-  for (let node of program.nodes) {
-    if (node.kind === "group")
-      count += countProgramWords(node.body);
-    if (node.kind === "command") {
-      count += node.words.length;
-      for (let nested of node.nested)
-        count += countProgramWords(nested);
-    }
-  }
-  return count;
-}
-function derivePowerShellWordParts(source, start, end) {
-  let collector = createCommandWordParts(source), literalStart = start, single = !1, i = start;
-  while (i < end) {
-    let char = source[i];
-    if (char === "`") {
-      i += 2;
-      continue;
-    }
-    if (char === "'") {
-      if (single && source[i + 1] === "'") {
-        i += 2;
-        continue;
-      }
-      single = !single, i++;
-      continue;
-    }
-    if (single) {
-      i++;
-      continue;
-    }
-    if (source.startsWith("$(", i)) {
-      let close = findPowerShellSubexpressionEnd(source, i + 2, end), next = close === -1 ? end : close + 1;
-      collector.push(literalStart, i, "literal"), collector.push(i, next, "command-substitution"), i = next, literalStart = next;
-      continue;
-    }
-    if (char === "$" || char === "@" && i === start) {
-      let next = i + 1;
-      if (source[next] === "{") {
-        let close = source.indexOf("}", next + 1);
-        next = close === -1 || close >= end ? end : close + 1;
-      } else
-        while (next < end && /[A-Za-z0-9_:?]/.test(source[next] ?? ""))
-          next++;
-      collector.push(literalStart, i, "literal"), collector.push(i, next, "variable"), i = next, literalStart = next;
-      continue;
-    }
-    i++;
-  }
-  return collector.push(literalStart, end, "literal"), collector.parts;
-}
-function depthLimitIssue(start, limit) {
-  return {
-    code: "depth-limit",
-    message: `command structure exceeds parser limit ${limit}`,
-    span: { start, end: start }
-  };
-}
-function scanSelectorCommands(source) {
-  let commands = [], words = [], i = 0, wordCount = 0, invalidComment = !1, flush = () => {
-    if (words.length > 0)
-      commands.push(words);
-    words = [];
-  };
-  while (i < source.length && i < 131072 && wordCount < 16384) {
-    let char = source[i];
-    if (char === "\r" || char === `
-`) {
-      flush(), i += char === "\r" && source[i + 1] === `
-` ? 2 : 1;
-      continue;
-    }
-    if (/\s/.test(char ?? "")) {
-      i++;
-      continue;
-    }
-    let comment = readPowerShellComment(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS.maxDepth);
-    if (comment) {
-      invalidComment ||= !!comment.issue || comment.limited, i = comment.next;
-      continue;
-    }
-    let operator = readOperator(source, i);
-    if (operator) {
-      flush(), i += operator.length;
-      continue;
-    }
-    if (char === "{" || char === "}") {
-      flush(), i++;
-      continue;
-    }
-    let result = readPowerShellWord(source, i, Math.min(source.length, SELECTOR_LIMITS.maxInputLength), SELECTOR_LIMITS, 0);
-    if (result.word.text)
-      words.push(result.word.text);
-    for (let nested of result.nested)
-      commands.push(...selectorCommandsFromProgram(nested));
-    wordCount++, i = result.next > i ? result.next : i + 1;
-  }
-  return flush(), { commands, invalidComment };
-}
-function selectorCommandsFromProgram(program) {
-  return program.nodes.flatMap((node) => {
-    if (node.kind === "group")
-      return selectorCommandsFromProgram(node.body);
-    if (node.kind !== "command")
-      return [];
-    return [
-      node.words.map((word) => word.text),
-      ...node.nested.flatMap(selectorCommandsFromProgram)
-    ];
-  });
-}
-function readOperator(source, index) {
-  for (let operator of ["&&", "||", ";", "|"])
-    if (source.startsWith(operator, index))
-      return operator;
-  return null;
-}
-function readPowerShellComment(source, start, end, maxDepth) {
-  if (source[start] === "#" && source[start + 1] !== ">") {
-    let next = start + 1;
-    while (next < end && source[next] !== "\r" && source[next] !== `
-`)
-      next++;
-    return { next, limited: !1 };
-  }
-  if (!source.startsWith("<#", start))
-    return null;
-  let depth = 1, i = start + 2;
-  while (i < end) {
-    if (source.startsWith("<#", i)) {
-      if (depth++, depth > maxDepth)
-        return {
-          next: end,
-          issue: {
-            code: "comment-depth-limit",
-            message: `PowerShell block comment exceeds nesting limit ${maxDepth}`,
-            span: { start, end: i + 2 }
-          },
-          limited: !0
-        };
-      i += 2;
-      continue;
-    }
-    if (source.startsWith("#>", i)) {
-      if (depth--, i += 2, depth === 0)
-        return { next: i, limited: !1 };
-      continue;
-    }
-    i++;
-  }
-  return {
-    next: end,
-    issue: {
-      code: "unclosed-block-comment",
-      message: "PowerShell block comment is not closed",
-      span: { start, end }
-    },
-    limited: !1
-  };
-}
-function getPowerShellParseStatus(issues, limited) {
-  if (limited)
-    return "limited";
-  if (issues.some((issue) => issue.code === "unclosed-block-comment"))
-    return "invalid";
-  return issues.length > 0 ? "partial" : "complete";
-}
-function connector(source, start, end) {
-  return Object.freeze({
-    kind: "connector",
-    operator: source.slice(start, end),
-    span: Object.freeze({ start, end })
-  });
-}
-
-// src/parser/command.ts
-var DEFAULT_COMMAND_PARSER_LIMITS = Object.freeze({
-  maxInputLength: 131072,
-  maxWords: 16384,
-  maxDepth: 64
-});
-function parseCommand(source, dialect = "auto", limits = DEFAULT_COMMAND_PARSER_LIMITS) {
-  if (dialect === "powershell" || dialect === "auto" && shouldUsePowerShellParser(source))
-    return parsePowerShellCommand(source, limits);
-  return parsePosixCommand(source, "posix", limits);
 }
 
 // src/parser/traversal.ts
@@ -3880,7 +4201,7 @@ function resolveWrapperCwd(cwd, target) {
   try {
     if (!cwd && !isAbsolute3(target))
       return null;
-    let baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync2(cwd ?? "/");
+    let baseCwd = isAbsolute3(target) ? getPathRoot2(target) : realpathSync3(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -3931,8 +4252,8 @@ function unwrapTransparentWrapper(tokens, policy) {
   return { wrapper, tokens: [...tokens.slice(childIndex)], childIndex };
 }
 function isProtectableCommand(token, policy) {
-  let basename = getBasename(token), normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename) || policy.transparentWrappers.includes(basename) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename);
+  let basename2 = getBasename(token), normalized = normalizeCommandToken(token);
+  return normalized === "git" || basename2 === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename2) || policy.transparentWrappers.includes(basename2) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename2);
 }
 function isReservedTransparentWrapper(command2) {
   let normalized = normalizeCommandToken(command2);
@@ -4602,14 +4923,14 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  realpathSync as realpathSync3,
+  realpathSync as realpathSync4,
   renameSync,
   rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join2, normalize, parse, relative, resolve, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute4, join as join3, normalize, parse, relative, resolve, sep as sep2 } from "node:path";
 var POLICY_FILESYSTEM_SCOPE = Symbol("PolicyFilesystemScope"), POLICY_FILESYSTEM_TARGET = Symbol("PolicyFilesystemTarget"), NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
 class PolicyFilesystemError extends Error {
@@ -4629,7 +4950,7 @@ function getPolicyFilesystemTarget(scope, relativePath) {
     [POLICY_FILESYSTEM_TARGET]: !0,
     scope,
     relativePath: normalized,
-    path: join2(scope.root, normalized)
+    path: join3(scope.root, normalized)
   };
 }
 function getPolicyFilesystemTargetForPath(scope, path) {
@@ -4684,7 +5005,7 @@ function isSamePolicyFilesystemTarget(first, second) {
   try {
     if (!validateTarget(first, !1).exists || !validateTarget(second, !1).exists)
       return !1;
-    return realpathSync3(first.path) === realpathSync3(second.path);
+    return realpathSync4(first.path) === realpathSync4(second.path);
   } catch (error) {
     if (error instanceof PolicyFilesystemError)
       throw error;
@@ -4707,10 +5028,10 @@ function readPolicyDirectoryEntries(target) {
     return null;
   try {
     let entries = names.map((name) => {
-      let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+      let child = getPolicyFilesystemTarget(target.scope, join3(target.relativePath, name)), stat = lstatSync2(child.path);
       if (stat.isSymbolicLink() || !stat.isFile() && !stat.isDirectory())
         throw new PolicyFilesystemError(target.scope.label);
-      return assertCanonicalContainment(getCanonicalRootOrThrow(target.scope), realpathSync3(child.path), target.scope.label), { name, kind: stat.isDirectory() ? "directory" : "file" };
+      return assertCanonicalContainment(getCanonicalRootOrThrow(target.scope), realpathSync4(child.path), target.scope.label), { name, kind: stat.isDirectory() ? "directory" : "file" };
     });
     return validateTarget(target, !1, "directory"), entries;
   } catch (error) {
@@ -4757,7 +5078,7 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
     return { exists: !1 };
   let parts = target.relativePath.split(sep2);
   for (let index of parts.keys()) {
-    let path = join2(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
+    let path = join3(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
     if (!stat) {
       if (index === parts.length - 1 && allowMissingLeaf)
         return { exists: !1 };
@@ -4769,13 +5090,13 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
       throw new PolicyFilesystemError(target.scope.label);
     if (index === parts.length - 1 && (leafType === "file" ? !stat.isFile() : !stat.isDirectory()))
       throw new PolicyFilesystemError(target.scope.label);
-    assertCanonicalContainment(canonicalRoot, realpathSync3(path), target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync4(path), target.scope.label);
   }
   return { exists: !0 };
 }
 function validateRemovalTree(target) {
   for (let name of readdirSync(target.path)) {
-    let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+    let child = getPolicyFilesystemTarget(target.scope, join3(target.relativePath, name)), stat = lstatSync2(child.path);
     if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile())
       throw new PolicyFilesystemError(target.scope.label);
     if (stat.isDirectory())
@@ -4785,7 +5106,7 @@ function validateRemovalTree(target) {
 }
 function removeValidatedTree(target) {
   for (let name of readdirSync(target.path)) {
-    let child = getPolicyFilesystemTarget(target.scope, join2(target.relativePath, name)), stat = lstatSync2(child.path);
+    let child = getPolicyFilesystemTarget(target.scope, join3(target.relativePath, name)), stat = lstatSync2(child.path);
     if (stat.isSymbolicLink())
       throw new PolicyFilesystemError(target.scope.label);
     if (stat.isDirectory()) {
@@ -4805,13 +5126,13 @@ function ensureDirectoryComponents(target, parts) {
   ensureRoot(target.scope);
   let canonicalRoot = getCanonicalRootOrThrow(target.scope);
   for (let index of parts.keys()) {
-    let path = join2(target.scope.root, ...parts.slice(0, index + 1));
+    let path = join3(target.scope.root, ...parts.slice(0, index + 1));
     if (!lstatOrMissing(path))
       mkdirSync2(path, { mode: 448 });
     let after = lstatSync2(path);
     if (!after.isDirectory() || after.isSymbolicLink())
       throw new PolicyFilesystemError(target.scope.label);
-    assertCanonicalContainment(canonicalRoot, realpathSync3(path), target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync4(path), target.scope.label);
   }
 }
 function ensureRoot(scope) {
@@ -4842,7 +5163,7 @@ function getCanonicalRoot(scope) {
     return null;
   if (!statSync(scope.root).isDirectory())
     throw new PolicyFilesystemError(scope.label);
-  return realpathSync3(scope.root);
+  return realpathSync4(scope.root);
 }
 function getCanonicalRootOrThrow(scope) {
   let root = getCanonicalRoot(scope);
@@ -4857,7 +5178,7 @@ function validateAdjacentTemp(target, tempPath, device, inode) {
   let canonicalRoot = getCanonicalRoot(target.scope);
   if (!canonicalRoot)
     throw new PolicyFilesystemError(target.scope.label);
-  assertCanonicalContainment(canonicalRoot, realpathSync3(tempPath), target.scope.label);
+  assertCanonicalContainment(canonicalRoot, realpathSync4(tempPath), target.scope.label);
 }
 function assertCanonicalContainment(canonicalRoot, canonicalPath, label) {
   let remainder = relative(canonicalRoot, canonicalPath);
@@ -4983,33 +5304,33 @@ function toTarget(path) {
 }
 
 // src/core/rules/policy/paths.ts
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname2, isAbsolute as isAbsolute5, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
+import { homedir as homedir3 } from "node:os";
+import { dirname as dirname3, isAbsolute as isAbsolute5, join as join4, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
   return resolve2(cwd ?? process.cwd(), RULES_DIR);
 }
 function getProjectRulesConfigPath(cwd) {
-  return join3(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+  return join4(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
 }
 function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname2(options2.userConfigPath) : join3(getUserSafetyNetHome(), RULES_SUBDIR));
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname3(options2.userConfigPath) : join4(getUserSafetyNetHome(), RULES_SUBDIR));
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve2(home) : join3(homedir2(), SAFETY_NET_DIR);
+  return home ? resolve2(home) : join4(homedir3(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
-  return join3(getUserRulesDir(options2), RULES_CONFIG_FILE);
+  return join4(getUserRulesDir(options2), RULES_CONFIG_FILE);
 }
 function getUserRulesLockPath(options2) {
-  return join3(getUserRulesDir(options2), RULES_LOCK_FILE);
+  return join4(getUserRulesDir(options2), RULES_LOCK_FILE);
 }
 function getRulesLockPathForConfigPath(configPath) {
-  return join3(dirname2(configPath), RULES_LOCK_FILE);
+  return join4(dirname3(configPath), RULES_LOCK_FILE);
 }
 function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join3(dirname2(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+  return join4(dirname3(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
 }
 function getLegacyProjectRulesConfigPath(options2 = {}) {
   return resolve2(options2.cwd ?? process.cwd(), ".safety-net.json");
@@ -5035,7 +5356,7 @@ function getPolicyPaths(options2) {
 function getScopePaths(options2) {
   let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), filesystemScope = options2.global ? getUserPolicyFilesystemScope(configPath, options2) : getProjectPolicyFilesystemScope(configPath, options2), lockPath = getRulesLockPathForConfigPath(configPath);
   return {
-    configDir: dirname2(configPath),
+    configDir: dirname3(configPath),
     configPath,
     lockPath,
     filesystemScope,
@@ -5044,14 +5365,14 @@ function getScopePaths(options2) {
   };
 }
 function getUserPolicyFilesystemScope(_configPath, options2) {
-  let root = options2.userConfigPath ? dirname2(dirname2(resolve2(options2.userConfigPath))) : dirname2(resolve2(options2.userConfigDir ?? getUserRulesDir(options2)));
+  let root = options2.userConfigPath ? dirname3(dirname3(resolve2(options2.userConfigPath))) : dirname3(resolve2(options2.userConfigDir ?? getUserRulesDir(options2)));
   return bindPolicyFilesystemScope(root, "user policy");
 }
 function getProjectPolicyFilesystemScope(configPath, options2) {
   let cwd = resolve2(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve2(configPath), fromCwd = relative2(cwd, absoluteConfigPath);
   if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep3}`) && !isAbsolute5(fromCwd))
     return bindPolicyFilesystemScope(cwd, "project policy");
-  return bindPolicyFilesystemScope(dirname2(dirname2(absoluteConfigPath)), "project policy");
+  return bindPolicyFilesystemScope(dirname3(dirname3(absoluteConfigPath)), "project policy");
 }
 function getRulebookDisplaySource(entry) {
   if (entry.kind === "github" && entry.display_ref)
@@ -5060,10 +5381,10 @@ function getRulebookDisplaySource(entry) {
 }
 function getRulebookCachePath(entry, options2) {
   let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join3(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+  return join4(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
 }
 function getRulebookCacheRoot(options2) {
-  return join3(getRulesCacheDir(options2), "rulebooks");
+  return join4(getRulesCacheDir(options2), "rulebooks");
 }
 function getRulebookCacheOptions(configDir, options2) {
   let syncOptions = options2;
@@ -5079,8 +5400,8 @@ function getRulebookCacheSlug(entry) {
 function getRulesCacheDir(options2) {
   let configDir = options2?.cacheConfigDir ?? getUserRulesDir(options2), syncOptions = options2;
   if (syncOptions && !syncOptions.global && syncOptions.cwd && resolve2(configDir) === resolve2(syncOptions.cwd))
-    return join3(resolve2(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
-  return join3(dirname2(configDir), CACHE_SUBDIR);
+    return join4(resolve2(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
+  return join4(dirname3(configDir), CACHE_SUBDIR);
 }
 
 // src/core/policy.ts
@@ -5104,7 +5425,7 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS = /* @__PURE__ */ new Set(["stand
   }
 };
 function getUserPolicyPath(options2) {
-  return join4(dirname3(getUserRulesDir(options2)), POLICY_FILE);
+  return join5(dirname4(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
@@ -5148,7 +5469,7 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   let path = getUserPolicyPath(options2), errors = getUserPolicyDiagnostics(policy), normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0)
     return { path, policy: normalizedPolicy, errors };
-  return mkdirSync3(dirname3(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
+  return mkdirSync3(dirname4(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
@@ -5317,7 +5638,7 @@ function normalizeSafety(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { dirname as dirname5, isAbsolute as isAbsolute6, join as join6, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join7, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/core/rules/custom-rule-validation.ts
 function validateCustomRule(rule, index, ruleNames, options2 = {}) {
@@ -6050,7 +6371,7 @@ function requiredString(candidate, field) {
 
 // src/core/rules/policy/resolver.ts
 import { createHash } from "node:crypto";
-import { dirname as dirname4, join as join5 } from "node:path";
+import { dirname as dirname5, join as join6 } from "node:path";
 var GITHUB_FETCH_LIMITS = Object.freeze({
   timeoutMs: 15000,
   metadataBytes: 524288,
@@ -6058,7 +6379,7 @@ var GITHUB_FETCH_LIMITS = Object.freeze({
   treeBytes: 16777216,
   rawBytes: 4194304
 });
-async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname4(dirname4(configDir)), "rules policy"), operation = createRuleSyncOperation()) {
+async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy"), operation = createRuleSyncOperation()) {
   if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec, operation);
   return resolveLocalRulebook(spec, configDir, options2, filesystemScope);
@@ -6142,7 +6463,7 @@ async function resolveGitHubRulebook(spec, operation) {
     }
   };
 }
-async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname4(dirname4(configDir)), "rules policy"), operation) {
+async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), "rules policy"), operation) {
   let identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError)
     throw Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
@@ -6260,7 +6581,7 @@ function safelyCancelGitHubResponse(cancel) {
   } catch {}
 }
 function getLocalRulebookPath(configDir, name) {
-  return join5(configDir, name, RULEBOOK_FILE);
+  return join6(configDir, name, RULEBOOK_FILE);
 }
 function sha256Digest(content) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -6288,7 +6609,7 @@ function loadRulesPolicy(options2 = {}) {
     ...legacyErrors,
     ...formatPolicyReadErrors(paths.userConfigPath, user.errors),
     ...formatPolicyReadErrors(paths.projectConfigPath, project.errors)
-  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname5(paths.userConfigPath), options2, "user", paths.userScope) : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname5(paths.projectConfigPath), options2, "project", paths.projectScope) : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
+  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname6(paths.userConfigPath), options2, "user", paths.userScope) : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname6(paths.projectConfigPath), options2, "project", paths.projectScope) : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockTarget) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockTarget) : []
   ]), userOverrides = user.config?.overrides ?? {}, projectOverrides = project.config?.overrides ?? {};
@@ -6314,7 +6635,7 @@ function loadRulesPolicy(options2 = {}) {
   };
 }
 function getRulesConfigSourceDisplayMap(configPath, filesystemScope) {
-  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname5(dirname5(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config, lock = readLockfile(getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath))).lock;
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname6(dirname6(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config, lock = readLockfile(getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath))).lock;
   if (!config || !lock)
     return /* @__PURE__ */ new Map;
   let configuredSources = new Set(config.rules);
@@ -6327,18 +6648,18 @@ function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2, fi
   return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
 }
 function loadScopePolicyForConfig(configPath, lockPath, options2, filesystemScope) {
-  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname5(dirname5(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname6(dirname6(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
   if (!config)
     return null;
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname5(configPath), options2, "project", scope)
+    scope: loadScopePolicy(config, lockPath, dirname6(configPath), options2, "project", scope)
   };
 }
 function getUnknownOverrideErrorsForScope(config, scope) {
   return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
 }
-function loadScopePolicy(config, lockPath, configDir, options2, source, filesystemScope = bindPolicyFilesystemScope(dirname5(dirname5(configDir)), source === "user" ? "user policy" : "project policy")) {
+function loadScopePolicy(config, lockPath, configDir, options2, source, filesystemScope = bindPolicyFilesystemScope(dirname6(dirname6(configDir)), source === "user" ? "user policy" : "project policy")) {
   let lockTarget;
   try {
     lockTarget = getPolicyFilesystemTargetForPath(filesystemScope, lockPath);
@@ -6419,7 +6740,7 @@ function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
     let sourcePath = resolve3(configDir, entry.path), sourceRelative = relative3(resolve3(configDir), sourcePath);
     if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute6(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
-    let localPath = join6(sourcePath, RULEBOOK_FILE), localContent;
+    let localPath = join7(sourcePath, RULEBOOK_FILE), localContent;
     try {
       localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
     } catch (error) {
@@ -6452,7 +6773,7 @@ function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom, filesys
   let legacyContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, legacyPath));
   if (legacyContent === null)
     return [];
-  if (hasMigrationEvidence(configTarget, dirname5(configPath), migratedFrom, configFilesystemScope))
+  if (hasMigrationEvidence(configTarget, dirname6(configPath), migratedFrom, configFilesystemScope))
     return [];
   if (!legacyRulesConfigNeedsMigration(legacyContent))
     return [];
@@ -6486,7 +6807,7 @@ function hasMigrationEvidence(configTarget, configDir, migratedFrom, filesystemS
 function getRulebookMigratedFromTarget(configDir, source, filesystemScope) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  let path = join6(configDir, source, RULEBOOK_FILE);
+  let path = join7(configDir, source, RULEBOOK_FILE);
   try {
     let content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
     if (content === null)
@@ -6743,8 +7064,8 @@ function exceedsLimit(current, amount, limit) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { realpathSync as realpathSync4 } from "node:fs";
-import { homedir as homedir3, tmpdir } from "node:os";
+import { realpathSync as realpathSync5 } from "node:fs";
+import { homedir as homedir4, tmpdir } from "node:os";
 import { normalize as normalize2, resolve as resolve4, sep as sep5 } from "node:path";
 var IS_WINDOWS = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
@@ -6824,7 +7145,7 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir3();
+  return process.env.HOME ?? homedir4();
 }
 function isDynamicTarget(target) {
   return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
@@ -6847,7 +7168,7 @@ function hasShellGlobMetachar(target) {
 }
 function isCwdHomeForRmPolicy(cwd, homeDir) {
   try {
-    return normalizePathForComparison(realpathSync4(cwd)) === normalizePathForComparison(realpathSync4(homeDir));
+    return normalizePathForComparison(realpathSync5(cwd)) === normalizePathForComparison(realpathSync5(homeDir));
   } catch {
     try {
       return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
@@ -6860,7 +7181,7 @@ function isCwdSelfTarget(target, cwd) {
   if (target === "." || target === "./" || target === ".\\")
     return !0;
   try {
-    return normalizePathForComparison(realpathSync4(resolve4(cwd, target))) === normalizePathForComparison(realpathSync4(cwd));
+    return normalizePathForComparison(realpathSync5(resolve4(cwd, target))) === normalizePathForComparison(realpathSync5(cwd));
   } catch {
     try {
       return normalizePathForComparison(resolve4(cwd, target)) === normalizePathForComparison(cwd);
@@ -6897,7 +7218,7 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
 }
 function isResolvedPathWithinCwd(resolvedTarget, cwd) {
   try {
-    return isNormalizedPathWithin(realpathSync4(resolvedTarget), realpathSync4(cwd));
+    return isNormalizedPathWithin(realpathSync5(resolvedTarget), realpathSync5(cwd));
   } catch {
     return isNormalizedPathWithin(resolvedTarget, cwd);
   }
@@ -7156,7 +7477,7 @@ function matchForClassification(classification, ctx) {
 }
 
 // src/core/analyze/segment.ts
-import { realpathSync as realpathSync7 } from "node:fs";
+import { realpathSync as realpathSync8 } from "node:fs";
 import { normalize as normalize4 } from "node:path";
 
 // src/core/analyze/constants.ts
@@ -7491,8 +7812,8 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
 }
 
 // src/core/git/worktree.ts
-import { existsSync as existsSync2, lstatSync as lstatSync3, readFileSync as readFileSync3, realpathSync as realpathSync5, statSync as statSync2 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute7, join as join7, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync2, lstatSync as lstatSync3, readFileSync as readFileSync3, realpathSync as realpathSync6, statSync as statSync2 } from "node:fs";
+import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, resolve as resolve5 } from "node:path";
 var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
   "-c",
   "-C",
@@ -7513,7 +7834,7 @@ function getGitExecutionContext(tokens, cwd) {
     return { gitCwd: null, hasExplicitGitContext: !1 };
   let gitCwd;
   try {
-    gitCwd = realpathSync5(resolve5(cwd));
+    gitCwd = realpathSync6(resolve5(cwd));
   } catch {
     return { gitCwd: null, hasExplicitGitContext: !1 };
   }
@@ -7576,12 +7897,12 @@ function isLinkedWorktree(cwd) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return !1;
-    let gitDir = isAbsolute7(rawGitDir) ? rawGitDir : resolve5(dirname6(dotGitPath), rawGitDir);
-    if (!existsSync2(join7(gitDir, "commondir")))
+    let gitDir = isAbsolute7(rawGitDir) ? rawGitDir : resolve5(dirname7(dotGitPath), rawGitDir);
+    if (!existsSync2(join8(gitDir, "commondir")))
       return !1;
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
       return !1;
-    return worktreeConfigMatchesRoot(gitDir, dirname6(dotGitPath));
+    return worktreeConfigMatchesRoot(gitDir, dirname7(dotGitPath));
   } catch {
     return !1;
   }
@@ -7595,14 +7916,14 @@ function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
   return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
 function readWorktreeGitdirBacklink(gitDir) {
-  let backlinkPath = join7(gitDir, "gitdir");
+  let backlinkPath = join8(gitDir, "gitdir");
   if (!existsSync2(backlinkPath))
     return null;
   let rawBacklink = readFileSync3(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
   return rawBacklink === "" ? null : rawBacklink;
 }
 function readWorktreeConfigWorktree(gitDir) {
-  let configWorktreePath = join7(gitDir, "config.worktree");
+  let configWorktreePath = join8(gitDir, "config.worktree");
   return existsSync2(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
 function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
@@ -7627,7 +7948,7 @@ function sameFilesystemPath(left, right) {
   return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
 }
 function getCanonicalPathForComparison(path) {
-  return normalizePathForComparison2(realpathSync5.native(path));
+  return normalizePathForComparison2(realpathSync6.native(path));
 }
 function normalizePathForComparison2(path) {
   let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
@@ -7712,7 +8033,7 @@ function isDirectory(path) {
 }
 function findDotGit(cwd) {
   try {
-    return findDotGitInAncestors(realpathSync5(cwd));
+    return findDotGitInAncestors(realpathSync6(cwd));
   } catch {
     return null;
   }
@@ -7720,10 +8041,10 @@ function findDotGit(cwd) {
 function findDotGitInAncestors(cwd) {
   let current = cwd;
   while (!0) {
-    let dotGitPath = join7(current, ".git");
+    let dotGitPath = join8(current, ".git");
     if (existsSync2(dotGitPath))
       return dotGitPath;
-    let parent = dirname6(current);
+    let parent = dirname7(current);
     if (parent === current)
       return null;
     current = parent;
@@ -8183,7 +8504,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute8, join as join8, resolve as resolve6 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute8, join as join9, resolve as resolve6 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -8323,7 +8644,7 @@ function getLocalGitConfigPaths(cwd) {
   let commonDir = resolveCommonGitDir(gitDir);
   if (commonDir === null)
     return null;
-  return [join8(commonDir, "config"), join8(gitDir, "config.worktree")];
+  return [join9(commonDir, "config"), join9(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
@@ -8333,13 +8654,13 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute8(rawGitDir) ? rawGitDir : resolve6(dirname7(dotGitPath), rawGitDir);
+    return isAbsolute8(rawGitDir) ? rawGitDir : resolve6(dirname8(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join8(gitDir, "commondir");
+  let commonDirPath = join9(gitDir, "commondir");
   if (!existsSync3(commonDirPath))
     return gitDir;
   try {
@@ -9125,9 +9446,9 @@ function extractParallelChildCommand(tokens) {
 }
 
 // src/core/analyze/tmpdir.ts
-import { existsSync as existsSync4, lstatSync as lstatSync4, realpathSync as realpathSync6 } from "node:fs";
+import { existsSync as existsSync4, lstatSync as lstatSync4, realpathSync as realpathSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute9, join as join9, normalize as normalize3, parse as parsePath3, sep as sep6 } from "node:path";
+import { isAbsolute as isAbsolute9, join as join10, normalize as normalize3, parse as parsePath3, sep as sep6 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir2(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 function isTmpdirOverriddenToNonTemp(envAssignments) {
   if (!envAssignments.has("TMPDIR"))
@@ -9168,10 +9489,10 @@ function resolveExistingPathComponents(path) {
     return normalized;
   let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
-    let candidate = join9(current, components[i] ?? "");
+    let candidate = join10(current, components[i] ?? "");
     if (!existsSync4(candidate))
-      return join9(candidate, ...components.slice(i + 1));
-    current = lstatSync4(candidate).isSymbolicLink() ? realpathSync6(candidate) : candidate;
+      return join10(candidate, ...components.slice(i + 1));
+    current = lstatSync4(candidate).isSymbolicLink() ? realpathSync7(candidate) : candidate;
   }
   return current;
 }
@@ -9351,7 +9672,7 @@ function analyzeSegment(tokens, depth, options2) {
     return null;
   if (options2.invalidReason)
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
-  let normalizedHead = normalizeCommandToken(head), basename = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
+  let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
   if (dynamicCommandMatch)
     return trace?.recordSegment({
       type: "rule-check",
@@ -9459,7 +9780,7 @@ function analyzeSegment(tokens, depth, options2) {
     tokens: stripped,
     head,
     normalizedHead,
-    basename,
+    basename: basename2,
     cwdForRm,
     originalCwd: originalCwdForRm,
     envAssignments,
@@ -9828,7 +10149,7 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize4(realpathSync7(a)) === normalize4(realpathSync7(b));
+    return normalize4(realpathSync8(a)) === normalize4(realpathSync8(b));
   } catch {
     return normalize4(a) === normalize4(b);
   }
@@ -10422,318 +10743,6 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
 import { dirname as dirname9, isAbsolute as isAbsolute10, join as join11, normalize as normalize5, resolve as resolve7 } from "node:path";
-
-// src/core/path-canonicalization.ts
-import { realpathSync as realpathSync8 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname8, join as join10 } from "node:path";
-var PATH_CANONICALIZATION_LIMITS = Object.freeze({
-  maxMissingSuffixComponents: 256,
-  maxRealpathAttempts: 1024,
-  maxProcessedCandidateBytes: 4194304
-});
-
-class PathCanonicalizationLimitError extends Error {
-  name = "PathCanonicalizationLimitError";
-  constructor() {
-    super("Path canonicalization work limit exceeded.");
-  }
-}
-function createPathCanonicalizationBudget() {
-  return { realpathAttempts: 0, processedCandidateBytes: 0 };
-}
-var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
-  "CC_SAFETY_NET_HOME",
-  "CLAUDE_CONFIG_DIR",
-  "CODEX_HOME",
-  "COPILOT_HOME",
-  "GEMINI_CLI_HOME",
-  "HOME",
-  "KIMI_CODE_HOME",
-  "KIMI_SHARE_DIR",
-  "OPENCODE_CONFIG",
-  "OPENCODE_CONFIG_DIR",
-  "PI_CODING_AGENT_DIR",
-  "ProgramData",
-  "XDG_CONFIG_HOME",
-  "XDG_DATA_HOME"
-]);
-function expandSupportedPathEnvironmentVariables(value) {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
-}
-function resolveExistingPath(path, budget = createPathCanonicalizationBudget()) {
-  if (!path)
-    return path;
-  let suffixes = [], candidate = path;
-  while (!0) {
-    if (budget.realpathAttempts++, budget.processedCandidateBytes += Buffer.byteLength(candidate), budget.realpathAttempts > PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts || budget.processedCandidateBytes > PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes)
-      throw new PathCanonicalizationLimitError;
-    try {
-      let existing = realpathSync8(candidate);
-      return suffixes.length === 0 ? existing : join10(existing, ...suffixes.reverse());
-    } catch {
-      let parent = dirname8(candidate);
-      if (parent === candidate)
-        return suffixes.length === 0 ? candidate : join10(candidate, ...suffixes.reverse());
-      if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents)
-        throw new PathCanonicalizationLimitError;
-      suffixes.push(basename(candidate)), candidate = parent;
-    }
-  }
-}
-function getSupportedPathEnvironmentValue(name) {
-  if (!SUPPORTED_PATH_ENV_NAMES.has(name))
-    return null;
-  if (name === "HOME")
-    return process.env.HOME ?? homedir4();
-  return process.env[name] ?? null;
-}
-
-// node_modules/shell-quote/index.js
-var $quote = require_quote(), $parse = require_parse();
-
-// src/core/shell/shared.ts
-function advanceQuoteScanState(char, state) {
-  if (state.escaped)
-    return state.escaped = !1, !0;
-  if (char === "\\" && !state.inSingle)
-    return state.escaped = !0, !0;
-  if (char === "'" && !state.inDouble)
-    return state.inSingle = !state.inSingle, !0;
-  if (char === '"' && !state.inSingle)
-    return state.inDouble = !state.inDouble, !0;
-  return !1;
-}
-function hasUnclosedQuotes(command2) {
-  let state = { inSingle: !1, inDouble: !1, escaped: !1 };
-  for (let char of stripShellComments(command2))
-    advanceQuoteScanState(char, state);
-  return state.inSingle || state.inDouble;
-}
-function stripShellComments(command2) {
-  let result = "", state = { inSingle: !1, inDouble: !1, escaped: !1 }, inComment = !1;
-  for (let i = 0;i < command2.length; i++) {
-    let char = command2[i];
-    if (!char)
-      break;
-    if (inComment) {
-      if (char === `
-` || char === "\r")
-        result += char, inComment = !1, state.escaped = !1;
-      continue;
-    }
-    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command2, i)) {
-      inComment = !0;
-      continue;
-    }
-    result += char, advanceQuoteScanState(char, state);
-  }
-  return result;
-}
-function startsShellComment(command2, index) {
-  return index === 0 || /\s/.test(command2[index - 1] ?? "");
-}
-function getCommandTokenText(token) {
-  if (typeof token === "string")
-    return token;
-  if (token && typeof token === "object" && "pattern" in token && typeof token.pattern === "string")
-    return token.pattern;
-  return null;
-}
-
-// src/core/semantic-facts.ts
-var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
-  "absolutepath",
-  "directorypath",
-  "directory_path",
-  "file",
-  "file_path",
-  "filepath",
-  "notebook_path",
-  "path",
-  "searchdirectory",
-  "search_directory",
-  "searchpath",
-  "targetfile",
-  "target_file"
-]), GREP_KEYS = /* @__PURE__ */ new Set([...PATH_LIKE_KEYS, "glob"]), GLOB_KEYS = /* @__PURE__ */ new Set([...GREP_KEYS, "pattern"]), REDIRECTS = /* @__PURE__ */ new Set([">", ">>", "<", "<<", "<<<", "<>", ">&", "<&", "&>", "&>>"]), LEGACY_BOUNDARIES = /* @__PURE__ */ new Set(["&&", "||", "|&", "|", "&", ";"]), EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]), NEUTRAL_ENV_PROXY = new Proxy({}, { get: (_, name) => ["$", "{", String(name), "}"].join("") }), DEFAULT_PARSERS = {
-  parseCommand,
-  parseShell: (source, environment) => $parse(source.replace(/\n/g, " ; "), environment)
-};
-
-class StructuralShellSyntaxLimitError extends Error {
-  name = "StructuralShellSyntaxLimitError";
-  constructor() {
-    super("Structural command analysis limit exceeded.");
-  }
-}
-function createSemanticFacts(invocation, parserDependencies = {}) {
-  let store = createSemanticFactStore({ ...DEFAULT_PARSERS, ...parserDependencies }), inputCommand = getCommandFromToolInput(invocation.input), candidates = [];
-  if ((invocation.route.kind === "command" || invocation.route.kind === "unknown") && inputCommand)
-    candidates.push({ usage: "input-candidate", source: inputCommand });
-  if (invocation.route.kind === "command" && "command" in invocation && invocation.command)
-    candidates.push({ usage: "declared-command", source: invocation.command });
-  let commands = candidates.reduce((facts, candidate) => {
-    let existingIndex = facts.findIndex((fact) => fact.source === candidate.source);
-    if (existingIndex !== -1) {
-      let existing = facts[existingIndex];
-      if (!existing)
-        return facts;
-      return facts[existingIndex] = freezeCommandFact({
-        ...existing,
-        usages: [...existing.usages, candidate.usage]
-      }), facts;
-    }
-    let dialect = invocation.route.kind === "command" ? invocation.route.shell : "posix", program = store.getCommandProgram(candidate.source, dialect);
-    return facts.push(freezeCommandFact({
-      usages: [candidate.usage],
-      source: candidate.source,
-      program,
-      views: projectAnalysisOrder(program),
-      uncertainties: program.issues,
-      shell: store.getShellSyntax(candidate.source, program)
-    })), facts;
-  }, []);
-  return Object.freeze({
-    invocation: Object.freeze({
-      toolName: invocation.toolName,
-      route: Object.freeze({ ...invocation.route }),
-      context: Object.freeze({
-        ...invocation.context,
-        ...invocation.context.policyConfigCwds ? { policyConfigCwds: Object.freeze([...invocation.context.policyConfigCwds]) } : {}
-      })
-    }),
-    commands: Object.freeze(commands),
-    paths: Object.freeze(extractDirectPathFacts(invocation)),
-    store
-  });
-}
-function getCommandSyntaxFact(facts, usage) {
-  return facts.commands.find((fact) => fact.usages.includes(usage));
-}
-function projectSensitiveShellText(source) {
-  return expandSupportedPathEnvironmentVariables(source);
-}
-function createSemanticFactStore(parserDependencies = {}) {
-  let parsers = { ...DEFAULT_PARSERS, ...parserDependencies }, shellFacts = /* @__PURE__ */ new Map, commandPrograms = /* @__PURE__ */ new Map, structuralLimitFacts = /* @__PURE__ */ new WeakMap, getCommandProgram = (source, dialect) => {
-    let key = `${dialect}\x00${source}`, existing = commandPrograms.get(key);
-    if (existing)
-      return existing;
-    let program = parsers.parseCommand(source, dialect);
-    return commandPrograms.set(key, program), program;
-  };
-  return Object.freeze({
-    getShellSyntax: (source, suppliedProgram) => {
-      if (suppliedProgram && suppliedProgram.source !== source)
-        throw TypeError("Shell syntax source does not match command program source.");
-      let program = suppliedProgram ?? getCommandProgram(source, "posix");
-      if (program.status === "limited") {
-        let existing2 = structuralLimitFacts.get(program);
-        if (existing2)
-          return existing2;
-        let syntax2 = Object.freeze({
-          status: "structural-limit",
-          source,
-          entries: EMPTY_SHELL_SYNTAX_ENTRIES
-        });
-        return structuralLimitFacts.set(program, syntax2), syntax2;
-      }
-      let existing = shellFacts.get(source);
-      if (existing)
-        return existing;
-      let syntax = parseShellSyntax(source, parsers.parseShell);
-      return shellFacts.set(source, syntax), syntax;
-    },
-    getCommandProgram
-  });
-}
-function freezeCommandFact(fact) {
-  return Object.freeze({
-    ...fact,
-    usages: Object.freeze([...fact.usages]),
-    views: Object.freeze([...fact.views]),
-    uncertainties: Object.freeze([...fact.uncertainties])
-  });
-}
-function projectAnalysisOrder(program) {
-  return Object.freeze(program.nodes.flatMap((node) => {
-    if (node.kind === "group")
-      return [...projectAnalysisOrder(node.body)];
-    if (node.kind !== "command")
-      return [];
-    return [...node.nested.flatMap((nested) => [...projectAnalysisOrder(nested)]), node];
-  }));
-}
-function parseShellSyntax(source, parseShell) {
-  if (hasUnclosedQuotes(source))
-    return Object.freeze({
-      status: "unclosed-quote",
-      source,
-      entries: Object.freeze([])
-    });
-  try {
-    let parsed = parseShell(source, NEUTRAL_ENV_PROXY), entries = [];
-    for (let index = 0;index < parsed.length; index++) {
-      let token = parsed[index], operator = getOperator(token);
-      if (operator === "<" && getOperator(parsed[index + 1]) === "<") {
-        let targetIndex = index + 2, target = getCommandTokenText(parsed[targetIndex]);
-        entries.push(Object.freeze({
-          kind: "redirection",
-          operator: "<<",
-          role: "here-data",
-          targetOrder: "legacy-segment",
-          ...target === null ? {} : { target }
-        })), index = target === null ? index + 1 : targetIndex;
-        continue;
-      }
-      if (operator && REDIRECTS.has(operator)) {
-        let pipeAdjusted = operator === ">" && getOperator(parsed[index + 1]) === "|", targetIndex = index + (pipeAdjusted ? 2 : 1), target = getCommandTokenText(parsed[targetIndex]);
-        if (entries.push(Object.freeze({
-          kind: "redirection",
-          operator: pipeAdjusted ? ">|" : operator,
-          role: getRedirectionRole(pipeAdjusted ? ">|" : operator),
-          targetOrder: pipeAdjusted || operator === "<<" || operator === "<<<" ? "legacy-segment" : "immediate",
-          ...target === null ? {} : { target }
-        })), target !== null || operator !== "<<" && operator !== "<<<")
-          index = targetIndex;
-        continue;
-      }
-      if (operator) {
-        entries.push(Object.freeze({
-          kind: "operator",
-          operator,
-          boundary: LEGACY_BOUNDARIES.has(operator)
-        }));
-        continue;
-      }
-      let text = getCommandTokenText(token);
-      if (text !== null)
-        entries.push(Object.freeze({ kind: "word", text }));
-    }
-    return Object.freeze({ status: "complete", source, entries: Object.freeze(entries) });
-  } catch {
-    return Object.freeze({ status: "invalid", source, entries: Object.freeze([]) });
-  }
-}
-function getRedirectionRole(operator) {
-  if (operator === "<<" || operator === "<<<")
-    return "here-data";
-  if (operator === "<" || operator === "<&")
-    return "file-read";
-  return "file-write";
-}
-function extractDirectPathFacts(invocation) {
-  let keys = invocation.route.kind === "grep" ? GREP_KEYS : invocation.route.kind === "glob" ? GLOB_KEYS : PATH_LIKE_KEYS, access = invocation.route.kind === "grep" || invocation.route.kind === "glob" ? "read" : invocation.route.kind === "patch" ? "write" : "unknown";
-  return [
-    ...extractPathLikeToolValues(invocation.input, keys).map((raw) => Object.freeze({ raw, role: "tool-path", access })),
-    ...invocation.route.kind === "patch" ? extractPatchTargetsFromToolInput(invocation.input).map((raw) => Object.freeze({ raw, role: "patch-target", access: "write" })) : []
-  ];
-}
-function getOperator(token) {
-  return typeof token === "object" && token !== null && "op" in token ? token.op : null;
-}
-
-// src/core/policy-protection.ts
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
@@ -10781,7 +10790,10 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   ["perl", /* @__PURE__ */ new Set(["e"])]
 ]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]);
 function findPolicyConfigMutationTargetInSemanticFacts(facts) {
-  let budget = createPathCanonicalizationBudget();
+  let budget = {
+    ...createPathCanonicalizationBudget(),
+    protectedPaths: /* @__PURE__ */ new Map
+  };
   for (let configCwd of /* @__PURE__ */ new Set([
     facts.invocation.context.configCwd,
     ...facts.invocation.context.policyConfigCwds ?? []
@@ -10977,8 +10989,11 @@ function isReadOnlyTool(toolName) {
   return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
 }
 function isPolicyConfigPath(target, configCwd, executionCwd, budget) {
-  let normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase();
-  return getPolicyConfigProtectedPaths(configCwd).some((path) => normalized === normalizeCandidatePath(path, configCwd, budget).toLowerCase());
+  let normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase(), policyBudget = budget, cached = policyBudget.protectedPaths.get(configCwd);
+  if (cached)
+    return cached.has(normalized);
+  let protectedPaths = new Set(getPolicyConfigProtectedPaths(configCwd).map((path) => normalizeCandidatePath(path, configCwd, budget).toLowerCase()));
+  return policyBudget.protectedPaths.set(configCwd, protectedPaths), protectedPaths.has(normalized);
 }
 function getPolicyConfigProtectedPaths(cwd) {
   let paths = getPolicyPaths({ cwd });
@@ -12011,15 +12026,24 @@ function evaluateRuntimeGuard(invocation, options2) {
   } catch (error) {
     if (!(error instanceof GuardEvaluationError))
       throw error;
-    throw writeRuntimeAudit(invocation, error.evaluation, options2, !(error.cause instanceof ToolInputLimitError)), error;
+    throw writeRuntimeAudit(invocation, error.evaluation, options2, !(error.cause instanceof ToolInputLimitError), { stage: error.stage, errorCode: classifyAuditError(error.cause) }), error;
   }
 }
-function writeRuntimeAudit(invocation, evaluation, options2, includeInvocationCommand = !0) {
-  writeGuardAudit(projectGuardAudit(invocation, evaluation, options2.guard?.auditAllowed ?? !1, includeInvocationCommand), options2.audit.getSessionId, {
+function writeRuntimeAudit(invocation, evaluation, options2, includeInvocationCommand = !0, failure) {
+  writeGuardAudit(projectGuardAudit(invocation, evaluation, options2.guard?.auditAllowed ?? !1, includeInvocationCommand, failure), options2.audit.getSessionId, {
     agent: options2.audit.agent,
     shape: options2.audit.shape,
     homeDir: options2.audit.homeDir
   });
+}
+function classifyAuditError(error) {
+  if (error instanceof PathCanonicalizationLimitError)
+    return "path-canonicalization-limit";
+  if (error instanceof ToolInputLimitError)
+    return "tool-input-limit";
+  if (error instanceof StructuralShellSyntaxLimitError)
+    return "structural-shell-syntax-limit";
+  return "unexpected-error";
 }
 
 // src/builtin-commands/templates/cc-safety-net.ts

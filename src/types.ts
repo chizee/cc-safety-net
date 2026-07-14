@@ -201,6 +201,23 @@ export interface AnalyzeNestedOverrides {
   worktreeMode?: boolean;
 }
 
+/** Guard stage recorded for an unexpected evaluation failure. */
+export type AuditFailureStage =
+  | 'policy-protection'
+  | 'config-load'
+  | 'config-state'
+  | 'secret-protection'
+  | 'non-command'
+  | 'command-validation'
+  | 'command-analysis';
+
+/** Sanitized category recorded for an unexpected evaluation failure. */
+export type AuditErrorCode =
+  | 'path-canonicalization-limit'
+  | 'tool-input-limit'
+  | 'structural-shell-syntax-limit'
+  | 'unexpected-error';
+
 /** Audit log entry */
 export interface AuditLogEntry {
   ts: string;
@@ -217,6 +234,8 @@ export interface AuditLogEntry {
   reason: string;
   ruleId?: string;
   intent?: BlockIntent;
+  failureStage?: AuditFailureStage;
+  errorCode?: AuditErrorCode;
   cwd?: string | null;
 }
 

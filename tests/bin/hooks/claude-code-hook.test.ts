@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listAuditLogFiles } from '@/core/audit-scan';
+import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
 import {
   syncRulesConfig,
   writeDefaultRulesConfig,
@@ -198,6 +199,19 @@ describe('Claude Code hook', () => {
   describe('allowed commands', () => {
     test('allowed command produces no output', async () => {
       await expectNoHookOutput(runClaudeCodeHook, claudeCodeBashInput('git status'));
+    });
+
+    test.each([
+      `BASE_SOURCE="$(git show 849d475eddafc04fd57ab73887e53e8d5abfc1ea:username.py)" PYTHONDONTWRITEBYTECODE=1 python3 -c 'import os, runpy, sys, types, unittest; module = types.ModuleType("username"); exec(os.environ["BASE_SOURCE"], module.__dict__); sys.modules["username"] = module; namespace = runpy.run_path("tests/test_username.py", run_name="red_check"); suite = unittest.TestSuite([namespace["NormalizeUsernameTest"]("test_strips_surrounding_whitespace")]); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)'`,
+      `cd /Users/kenryu/Developer/420024-lab/pi-grok-cli && git add src/provider/billing.ts tests/provider/register.test.ts && git commit -m "fix: keep weekly usage block visible when creditUsagePercent is omitted
+
+The credits endpoint omits creditUsagePercent until there is usage in the
+period, so default to 0 instead of hiding the Weekly block at fresh-period start."`,
+      'I have the onboarding context and the vault repo snapshot. Next I’m checking the connected app surfaces and the vault’s git remotes so I can filter out anything already handled or not actually actionable here.',
+    ])('allows a historical path-canonicalization false positive', async (command) => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(context.runClaudeCodeHook, context.claudeCodeBashInput(command));
+      });
     });
 
     test('PowerShell WhatIf Remove-Item command produces no output', async () => {
@@ -558,6 +572,30 @@ describe('Claude Code hook', () => {
   });
 
   describe('preflight audit', () => {
+    test('audits path canonicalization limits with sanitized diagnostics', async () => {
+      await withHookTestContext(async (context) => {
+        const sessionId = 'path-canonicalization-limit-session';
+        const command = `echo ${Array.from(
+          { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
+          (_, index) => join(context.cwd, `ordinary-${index}.txt`),
+        ).join(' ')}`;
+        const result = await context.runClaudeCodeHook({
+          ...context.claudeCodeBashInput(command),
+          session_id: sessionId,
+        });
+
+        expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
+        const entries = readAuditLogEntriesForSession(context.home, sessionId);
+        expect(entries).toMatchObject([
+          {
+            failureStage: 'policy-protection',
+            errorCode: 'path-canonicalization-limit',
+          },
+        ]);
+        expect(JSON.stringify(entries)).not.toContain('Path canonicalization work limit exceeded.');
+      });
+    });
+
     test('audits a missing tool name exactly once', async () => {
       await withHookTestContext(async (context) => {
         const sessionId = 'missing-tool-session';

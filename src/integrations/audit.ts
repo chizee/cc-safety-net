@@ -2,6 +2,7 @@ import { writeAuditLog } from '@/core/audit';
 import type { BlockIntent, Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { IntegrationDenial } from '@/integrations/denial';
+import type { AuditErrorCode, AuditFailureStage } from '@/types';
 
 type GuardEvaluation = {
   stage: string;
@@ -17,6 +18,8 @@ type GuardAuditDescriptor = {
   toolName: string;
   ruleId?: string;
   intent?: BlockIntent;
+  failureStage?: AuditFailureStage;
+  errorCode?: AuditErrorCode;
 };
 
 /** @internal */
@@ -25,6 +28,7 @@ export function projectGuardAudit(
   evaluation: GuardEvaluation,
   auditAllowed: boolean,
   includeInvocationCommand = true,
+  failure?: { stage: AuditFailureStage; errorCode: AuditErrorCode },
 ): GuardAuditDescriptor | undefined {
   if (evaluation.decision.kind === 'allow') {
     if (!auditAllowed || invocation.route.kind !== 'command') return undefined;
@@ -51,6 +55,8 @@ export function projectGuardAudit(
     toolName: invocation.toolName,
     ruleId: evaluation.decision.ruleId,
     intent: evaluation.decision.intent,
+    failureStage: failure?.stage,
+    errorCode: failure?.errorCode,
   };
 }
 
@@ -80,6 +86,8 @@ export function writeGuardAudit(
     toolName: audit.toolName,
     ruleId: audit.ruleId,
     intent: audit.intent,
+    failureStage: audit.failureStage,
+    errorCode: audit.errorCode,
   });
 }
 

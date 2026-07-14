@@ -85,6 +85,10 @@ type ShellState = {
   variables: ReadonlyMap<string, string>;
 };
 
+type PolicyProtectionBudget = PathCanonicalizationBudget & {
+  protectedPaths: Map<string, ReadonlySet<string>>;
+};
+
 /** @internal */
 export function findPolicyConfigMutationTargetInToolInput(
   toolName: string,
@@ -101,7 +105,10 @@ export function findPolicyConfigMutationTargetInToolInput(
 export function findPolicyConfigMutationTargetInSemanticFacts(
   facts: SemanticFacts,
 ): PolicyConfigTarget | null {
-  const budget = createPathCanonicalizationBudget();
+  const budget: PolicyProtectionBudget = {
+    ...createPathCanonicalizationBudget(),
+    protectedPaths: new Map(),
+  };
   for (const configCwd of new Set([
     facts.invocation.context.configCwd,
     ...(facts.invocation.context.policyConfigCwds ?? []),
@@ -443,9 +450,17 @@ function isPolicyConfigPath(
   budget: PathCanonicalizationBudget,
 ): boolean {
   const normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase();
-  return getPolicyConfigProtectedPaths(configCwd).some(
-    (path) => normalized === normalizeCandidatePath(path, configCwd, budget).toLowerCase(),
+  const policyBudget = budget as PolicyProtectionBudget;
+  const cached = policyBudget.protectedPaths.get(configCwd);
+  if (cached) return cached.has(normalized);
+
+  const protectedPaths = new Set(
+    getPolicyConfigProtectedPaths(configCwd).map((path) =>
+      normalizeCandidatePath(path, configCwd, budget).toLowerCase(),
+    ),
   );
+  policyBudget.protectedPaths.set(configCwd, protectedPaths);
+  return protectedPaths.has(normalized);
 }
 
 function getPolicyConfigProtectedPaths(cwd: string): string[] {

@@ -565,6 +565,34 @@ describe('writeAuditLog', () => {
     expect(entries[0]?.intent).toBe('use_alternative');
   });
 
+  test('log entry can include bounded failure diagnostics', () => {
+    const sessionId = 'test-session-failure-diagnostics';
+    writeAuditLog(sessionId, 'echo ok', 'echo ok', 'failed closed', '/home/user/project', {
+      homeDir: testDir,
+      failureStage: 'secret-protection',
+      errorCode: 'path-canonicalization-limit',
+    });
+
+    expect(readLogEntries(sessionId)).toMatchObject([
+      {
+        failureStage: 'secret-protection',
+        errorCode: 'path-canonicalization-limit',
+      },
+    ]);
+  });
+
+  test('ordinary log entries omit failure diagnostics', () => {
+    const sessionId = 'test-session-without-failure-diagnostics';
+    writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
+      homeDir: testDir,
+      decision: 'allow',
+    });
+
+    const entry = readLogEntries(sessionId)[0];
+    expect(entry).not.toHaveProperty('failureStage');
+    expect(entry).not.toHaveProperty('errorCode');
+  });
+
   test('log entry can include integration metadata', () => {
     const sessionId = 'test-session-agent-metadata';
     writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {

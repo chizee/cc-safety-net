@@ -1,3 +1,5 @@
+import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
+import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
 import type { ToolInvocation } from '@/domain/invocation';
 import {
@@ -7,6 +9,7 @@ import {
   type GuardOptions,
 } from '@/engine/guard';
 import { projectGuardAudit, writeGuardAudit } from '@/integrations/audit';
+import type { AuditErrorCode, AuditFailureStage } from '@/types';
 
 export type {
   GuardDependencies,
@@ -38,6 +41,7 @@ export function evaluateRuntimeGuard(
       error.evaluation,
       options,
       !(error.cause instanceof ToolInputLimitError),
+      { stage: error.stage, errorCode: classifyAuditError(error.cause) },
     );
     throw error;
   }
@@ -48,6 +52,7 @@ function writeRuntimeAudit(
   evaluation: GuardEvaluation,
   options: { guard?: GuardOptions; audit: RuntimeAuditOptions },
   includeInvocationCommand = true,
+  failure?: { stage: AuditFailureStage; errorCode: AuditErrorCode },
 ): void {
   writeGuardAudit(
     projectGuardAudit(
@@ -55,6 +60,7 @@ function writeRuntimeAudit(
       evaluation,
       options.guard?.auditAllowed ?? false,
       includeInvocationCommand,
+      failure,
     ),
     options.audit.getSessionId,
     {
@@ -63,4 +69,11 @@ function writeRuntimeAudit(
       homeDir: options.audit.homeDir,
     },
   );
+}
+
+function classifyAuditError(error: unknown): AuditErrorCode {
+  if (error instanceof PathCanonicalizationLimitError) return 'path-canonicalization-limit';
+  if (error instanceof ToolInputLimitError) return 'tool-input-limit';
+  if (error instanceof StructuralShellSyntaxLimitError) return 'structural-shell-syntax-limit';
+  return 'unexpected-error';
 }
