@@ -207,7 +207,7 @@ export function analyzeSegment(
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
 
   const dynamicCommandMatch = filterDestructiveCommandMatch(
-    analyzeDynamicCommandStructure(normalizedCommandView),
+    analyzeDynamicCommandStructure(normalizedCommandView, options.strict),
     options.policy,
   );
   if (dynamicCommandMatch) {
@@ -396,7 +396,8 @@ export function analyzeSegment(
         : analyzeGitCommand(commandContext)
       : (commandAnalyzer?.(commandContext) ?? null);
   const commandResult =
-    options.compatibility === 'explain-legacy'
+    options.compatibility === 'explain-legacy' &&
+    unfilteredCommandResult?.id !== 'rm.recursive-force-dynamic-target'
       ? unfilteredCommandResult
       : filterDestructiveCommandMatch(unfilteredCommandResult, options.policy);
   if (trace)
@@ -513,8 +514,11 @@ function blockResultFromMatch(match: DestructiveCommandRuleMatch): AnalyzeBlockR
   return { reason: match.reason, ruleId: match.id || undefined, intent: match.intent };
 }
 
-function analyzeDynamicExecutable(dynamic: boolean): DestructiveCommandRuleMatch | null {
-  return dynamic
+function analyzeDynamicExecutable(
+  dynamic: boolean,
+  strict: boolean | undefined,
+): DestructiveCommandRuleMatch | null {
+  return dynamic && strict
     ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
     : null;
 }
@@ -522,15 +526,17 @@ function analyzeDynamicExecutable(dynamic: boolean): DestructiveCommandRuleMatch
 /** @internal */
 export function analyzeDynamicCommandStructure(
   command: CommandView | undefined,
+  strict = false,
 ): DestructiveCommandRuleMatch | null {
   return (
-    analyzeDynamicExecutable(command?.dynamicExecutable ?? false) ??
-    analyzeDynamicStructure(command)
+    analyzeDynamicExecutable(command?.dynamicExecutable ?? false, strict) ??
+    analyzeDynamicStructure(command, strict)
   );
 }
 
 function analyzeDynamicStructure(
   command: CommandView | undefined,
+  strict: boolean,
 ): DestructiveCommandRuleMatch | null {
   if (!command || command.words.length < 2) return null;
   const dynamicIndexes = command.words.flatMap((word, index) =>
@@ -541,13 +547,14 @@ function analyzeDynamicStructure(
   const head = normalizeCommandToken(command.words[0]?.text ?? '');
   if (head === 'git') {
     const subcommandIndex = findGitSubcommandIndex(command.analysisTokens);
-    if (dynamicIndexes.some((index) => index <= subcommandIndex)) {
+    if (strict && dynamicIndexes.some((index) => index <= subcommandIndex)) {
       return destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE);
     }
     if (analyzeGitMatch(command.analysisTokens)) return null;
     const subcommand = command.words[subcommandIndex]?.text.toLowerCase();
     const dataBoundary = command.analysisTokens.indexOf('--', subcommandIndex + 1);
     if (
+      strict &&
       subcommand &&
       STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) &&
       dynamicIndexes.some(
@@ -560,7 +567,7 @@ function analyzeDynamicStructure(
   }
 
   if (head === 'find') {
-    return hasDynamicFindStructure(command)
+    return strict && hasDynamicFindStructure(command)
       ? destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE)
       : null;
   }
@@ -570,6 +577,7 @@ function analyzeDynamicStructure(
       command,
       extractXargsChildCommandWithInfo(command.analysisTokens).childTokens,
       'xargs',
+      strict,
     );
   }
   if (head === 'parallel') {
@@ -577,6 +585,7 @@ function analyzeDynamicStructure(
       command,
       extractParallelChildCommand(command.analysisTokens),
       'parallel',
+      strict,
     );
   }
   return null;
@@ -634,6 +643,7 @@ function analyzeDynamicChildStructure(
   command: CommandView,
   childTokens: readonly string[],
   kind: 'xargs' | 'parallel',
+  strict: boolean,
 ): DestructiveCommandRuleMatch | null {
   if (childTokens.length === 0) return null;
   const childStart = command.analysisTokens.length - childTokens.length;
@@ -644,7 +654,7 @@ function analyzeDynamicChildStructure(
       kind === 'xargs' ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL,
     );
   }
-  const nestedStructure = analyzeDynamicStructure(childView);
+  const nestedStructure = analyzeDynamicStructure(childView, strict);
   if (nestedStructure) return nestedStructure;
   if (
     childView.words[0]?.text === 'rm' &&
@@ -784,6 +794,7 @@ function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRu
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
+    strict: context.options.strict,
     paranoid: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
   });
@@ -845,6 +856,7 @@ function getNestedCommandAnalyzeContext(
   return {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
+    strict: context.options.strict,
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,

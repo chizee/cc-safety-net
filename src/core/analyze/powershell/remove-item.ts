@@ -32,6 +32,7 @@ const REASON_REMOVE_ITEM_PIPELINE =
 interface AnalyzePowerShellRemoveItemOptions {
   cwd?: string;
   originalCwd?: string;
+  strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
 }
@@ -84,7 +85,7 @@ function analyzePowerShellSegment(
     return null;
   }
 
-  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
+  if (ctx.strict && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
     return destructiveCommandMatch(
       'powershell.remove-item-pipeline-dynamic-target',
       REASON_REMOVE_ITEM_PIPELINE,
@@ -106,7 +107,7 @@ function analyzePowerShellSegment(
     return null;
   }
 
-  if (parsed.hasDynamicTarget || parsed.targets.length === 0) {
+  if (ctx.strict && (parsed.hasDynamicTarget || parsed.targets.length === 0)) {
     return destructiveCommandMatch(
       'powershell.remove-item-recursive-force-dynamic-target',
       REASON_REMOVE_ITEM_DYNAMIC_TARGET,
@@ -273,6 +274,7 @@ function matchForClassification(
     case 'temp_target':
       return null;
     case 'dynamic_target':
+      if (!ctx.strict) return null;
       return destructiveCommandMatch(
         'powershell.remove-item-recursive-force-dynamic-target',
         REASON_REMOVE_ITEM_DYNAMIC_TARGET,

@@ -460,6 +460,7 @@ function getPowerShellRemoveItemOptions(
   return {
     cwd: cwdUnknown ? undefined : (effectiveCwd ?? options.cwd),
     originalCwd: cwdUnknown ? undefined : options.cwd,
+    strict: options.strict,
     paranoid: options.paranoidRm,
     allowTmpdirVar: options.allowTmpdirVar,
   };

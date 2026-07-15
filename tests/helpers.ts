@@ -42,6 +42,12 @@ export function assertBlocked(command: string, reasonContains: string, cwd?: str
   expect(result?.reason).toContain(reasonContains);
 }
 
+export function assertStrictBlocked(command: string, reasonContains: string, cwd?: string): void {
+  const result = analyzeCommand(command, { ...getOptionsFromEnv(cwd), strict: true });
+  expect(result).not.toBeNull();
+  expect(result?.reason).toContain(reasonContains);
+}
+
 export function assertAllowed(command: string, cwd?: string): void {
   const options = getOptionsFromEnv(cwd);
   const result = analyzeCommand(command, options);

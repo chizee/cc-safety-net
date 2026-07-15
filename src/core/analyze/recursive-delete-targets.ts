@@ -8,6 +8,7 @@ const IS_WINDOWS = process.platform === 'win32';
 export interface RecursiveDeleteTargetOptions {
   cwd?: string;
   originalCwd?: string;
+  strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
 }
@@ -15,6 +16,7 @@ export interface RecursiveDeleteTargetOptions {
 export interface RecursiveDeleteTargetContext {
   readonly anchoredCwd: string | null;
   readonly resolvedCwd: string | null;
+  readonly strict: boolean;
   readonly paranoid: boolean;
   readonly trustTmpdirVar: boolean;
   readonly homeDir: string;
@@ -35,6 +37,7 @@ export function createRecursiveDeleteTargetContext(
   return {
     anchoredCwd: options.originalCwd ?? options.cwd ?? null,
     resolvedCwd: options.cwd ?? null,
+    strict: options.strict ?? false,
     paranoid: options.paranoid ?? false,
     trustTmpdirVar: options.allowTmpdirVar ?? true,
     homeDir: getHomeDirForRmPolicy(),

@@ -120,9 +120,15 @@ export function behavioralContractCases(paths: {
       },
     },
     {
-      name: 'blocks an executable assembled by command substitution',
+      name: 'allows an executable assembled by command substitution at standard safety',
       command: '$(printf r)m -rf /',
       options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks an executable assembled by command substitution at strict safety',
+      command: '$(printf r)m -rf /',
+      options: options({ cwd: paths.cwd, strict: true }),
       expected: {
         kind: 'block',
         ruleId: 'shell.dynamic-executable',

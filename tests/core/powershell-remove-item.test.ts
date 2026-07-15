@@ -19,8 +19,17 @@ function withTempProject(fn: (cwd: string) => void): void {
   }
 }
 
-function analyzePowerShell(command: string, cwd: string, paranoidRm = false) {
-  return analyzeCommand(command, { cwd, config, shell: 'powershell', paranoidRm });
+function analyzePowerShell(
+  command: string,
+  cwd: string,
+  options: { paranoidRm?: boolean; strict?: boolean } = {},
+) {
+  return analyzeCommand(command, { cwd, config, shell: 'powershell', ...options });
+}
+
+function expectStrictOnly(command: string, cwd: string, ruleId: string): void {
+  expect(analyzePowerShell(command, cwd)).toBeNull();
+  expect(analyzePowerShell(command, cwd, { strict: true })?.ruleId).toBe(ruleId);
 }
 
 describe('PowerShell Remove-Item support', () => {
@@ -53,11 +62,13 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
-  test('blocks recursive forced deletion with dynamic targets', () => {
+  test('blocks recursive forced deletion with dynamic targets only in strict mode', () => {
     withTempProject((cwd) => {
-      const result = analyzePowerShell('Remove-Item $target -Recurse -Force', cwd);
-
-      expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-dynamic-target');
+      expectStrictOnly(
+        'Remove-Item $target -Recurse -Force',
+        cwd,
+        'powershell.remove-item-recursive-force-dynamic-target',
+      );
     });
   });
 
@@ -77,11 +88,13 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
-  test('blocks pipeline-fed Remove-Item without explicit target', () => {
+  test('blocks pipeline-fed Remove-Item without explicit target only in strict mode', () => {
     withTempProject((cwd) => {
-      const result = analyzePowerShell('Get-ChildItem . -Recurse | Remove-Item -Force', cwd);
-
-      expect(result?.ruleId).toBe('powershell.remove-item-pipeline-dynamic-target');
+      expectStrictOnly(
+        'Get-ChildItem . -Recurse | Remove-Item -Force',
+        cwd,
+        'powershell.remove-item-pipeline-dynamic-target',
+      );
     });
   });
 
@@ -270,7 +283,9 @@ describe('PowerShell Remove-Item support', () => {
 
   test('blocks recursive forced child deletion in paranoid mode', () => {
     withTempProject((cwd) => {
-      const result = analyzePowerShell('Remove-Item .\\dist -Recurse -Force', cwd, true);
+      const result = analyzePowerShell('Remove-Item .\\dist -Recurse -Force', cwd, {
+        paranoidRm: true,
+      });
 
       expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-paranoid');
     });
@@ -315,19 +330,23 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
-  test('blocks recursive forced deletion with missing Path value as dynamic', () => {
+  test('blocks recursive forced deletion with missing Path value only in strict mode', () => {
     withTempProject((cwd) => {
-      const result = analyzePowerShell('Remove-Item -Recurse -Force -Path', cwd);
-
-      expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-dynamic-target');
+      expectStrictOnly(
+        'Remove-Item -Recurse -Force -Path',
+        cwd,
+        'powershell.remove-item-recursive-force-dynamic-target',
+      );
     });
   });
 
-  test('blocks recursive forced deletion with splatted target', () => {
+  test('blocks recursive forced deletion with splatted target only in strict mode', () => {
     withTempProject((cwd) => {
-      const result = analyzePowerShell('Remove-Item @params -Recurse -Force', cwd);
-
-      expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-dynamic-target');
+      expectStrictOnly(
+        'Remove-Item @params -Recurse -Force',
+        cwd,
+        'powershell.remove-item-recursive-force-dynamic-target',
+      );
     });
   });
 

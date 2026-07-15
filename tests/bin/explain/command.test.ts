@@ -115,8 +115,7 @@ describe('explainCommand', () => {
       const enforced = analyzeTestCommand(command);
       const explained = explainCommand(command);
 
-      expect(enforced).not.toBeNull();
-      expect(explained.result).toBe('blocked');
+      expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
       expect(explained.reason).toBe(enforced?.reason);
     }
   });
@@ -577,9 +576,10 @@ describe('explainCommand guard parity fixes', () => {
     expect(cwdStep).toBeDefined();
   });
 
-  test('Fix #3: leading TMPDIR override blocks rm', () => {
-    const result = explainCommand('TMPDIR=/non-temp rm -rf $TMPDIR/foo');
-    expect(result.result).toBe('blocked');
+  test('Fix #3: leading TMPDIR override is strict-only', () => {
+    const command = 'TMPDIR=/non-temp rm -rf $TMPDIR/foo';
+    expect(explainCommand(command, { strict: false }).result).toBe('allowed');
+    expect(explainCommand(command, { strict: true }).result).toBe('blocked');
   });
 
   test('Fix #3: leading TMPDIR=/tmp still allows rm', () => {
@@ -587,8 +587,10 @@ describe('explainCommand guard parity fixes', () => {
     expect(result.result).toBe('allowed');
   });
 
-  test('Fix #3: TMPDIR traversal override blocks rm', () => {
-    const result = explainCommand('TMPDIR=/tmp/../root rm -rf $TMPDIR/foo', { cwd: '/tmp' });
+  test('Fix #3: TMPDIR traversal override is strict-only', () => {
+    const command = 'TMPDIR=/tmp/../root rm -rf $TMPDIR/foo';
+    expect(explainCommand(command, { cwd: '/tmp', strict: false }).result).toBe('allowed');
+    const result = explainCommand(command, { cwd: '/tmp', strict: true });
     expect(result.result).toBe('blocked');
     expect(result.reason).toContain('rm -rf');
   });
@@ -729,6 +731,41 @@ describe('explainCommand guard parity fixes', () => {
   });
 });
 
+describe('explainCommand strict-only unverifiable checks', () => {
+  const cases = [
+    ['rm -rf "$target"', 'rm.recursive-force-dynamic-target'],
+    [
+      'Remove-Item $target -Recurse -Force',
+      'powershell.remove-item-recursive-force-dynamic-target',
+    ],
+    [
+      'Get-ChildItem . -Recurse | Remove-Item -Force',
+      'powershell.remove-item-pipeline-dynamic-target',
+    ],
+    ['$(printf r)m -rf /', 'shell.dynamic-executable'],
+    ['git reset $(printf --hard)', 'shell.dynamic-structure'],
+  ] as const;
+
+  for (const [command, ruleId] of cases) {
+    test(`${ruleId} matches enforcement in standard and strict modes`, () => {
+      expect(analyzeTestCommand(command, { strict: false })).toBeNull();
+      expect(explainCommand(command, { strict: false }).result).toBe('allowed');
+
+      const enforced = analyzeTestCommand(command, { strict: true });
+      const explained = explainCommand(command, { strict: true });
+      expect(enforced?.ruleId).toBe(ruleId);
+      expect(explained.result).toBe('blocked');
+      expect(explained.reason).toBe(enforced?.reason);
+    });
+
+    test(`${ruleId} disablement matches enforcement in strict mode`, () => {
+      const config = { disabledDestructiveCommandRules: [ruleId] };
+      expect(analyzeTestCommand(command, { strict: true, config })).toBeNull();
+      expect(explainCommand(command, { strict: true, config }).result).toBe('allowed');
+    });
+  }
+});
+
 describe('explainCommand CWD unknown parity with guard', () => {
   test('xargs rm blocked when CWD unknown after cd', () => {
     const result = explainCommand('cd /somewhere && xargs rm -rf foo', { cwd: '/home/user' });
@@ -860,14 +897,16 @@ describe('explainCommand worktree parity', () => {
 });
 
 describe('explainCommand env from wrapper stripping', () => {
-  test('env command TMPDIR override is detected', () => {
-    const result = explainCommand('env TMPDIR=/bad rm -rf $TMPDIR/foo');
-    expect(result.result).toBe('blocked');
+  test('env command TMPDIR override is strict-only', () => {
+    const command = 'env TMPDIR=/bad rm -rf $TMPDIR/foo';
+    expect(explainCommand(command, { strict: false }).result).toBe('allowed');
+    expect(explainCommand(command, { strict: true }).result).toBe('blocked');
   });
 
-  test('sudo env TMPDIR chains env assignments through wrappers', () => {
-    const result = explainCommand('sudo env TMPDIR=/not-temp rm -rf $TMPDIR/x');
-    expect(result.result).toBe('blocked');
+  test('sudo env TMPDIR chains env assignments through wrappers in strict mode', () => {
+    const command = 'sudo env TMPDIR=/not-temp rm -rf $TMPDIR/x';
+    expect(explainCommand(command, { strict: false }).result).toBe('allowed');
+    expect(explainCommand(command, { strict: true }).result).toBe('blocked');
   });
 });
 

@@ -18,6 +18,7 @@ export interface ChildCommandContext {
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
   derivedCommandWorkBudget: DerivedCommandWorkBudget;
   originalCwd: string | undefined;
+  strict?: boolean;
   paranoidRm: boolean | undefined;
   paranoidInterpreters?: boolean;
   allowTmpdirVar: boolean;

@@ -21,6 +21,7 @@ const REASON_RM_HOME_CWD =
 export interface AnalyzeRmOptions {
   cwd?: string;
   originalCwd?: string;
+  strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
 }
@@ -89,6 +90,7 @@ function reasonForClassification(
     case 'temp_target':
       return null;
     case 'dynamic_target':
+      if (!ctx.strict) return null;
       return destructiveCommandMatch(
         'rm.recursive-force-dynamic-target',
         REASON_RM_RF_DYNAMIC_TARGET,

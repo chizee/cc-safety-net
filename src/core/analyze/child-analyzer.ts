@@ -28,6 +28,7 @@ export interface ChildCommandAnalysisContext {
   cwd: string | undefined;
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   originalCwd: string | undefined;
+  strict?: boolean;
   paranoidRm: boolean | undefined;
   paranoidInterpreters?: boolean;
   allowTmpdirVar: boolean;
@@ -146,6 +147,7 @@ export function analyzeChildCommandMatch(
         analyzeRmMatch([...tokens], {
           cwd: context.cwd,
           originalCwd: context.originalCwd,
+          strict: context.strict,
           paranoid: context.paranoidRm,
           allowTmpdirVar: context.allowTmpdirVar,
         }),

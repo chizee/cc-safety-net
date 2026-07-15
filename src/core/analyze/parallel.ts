@@ -214,17 +214,10 @@ export function analyzeParallel(
     const result = analyzeChildCommandMatch(
       tokens,
       {
+        ...context,
         cwd: childCommand.cwd,
-        derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-        originalCwd: context.originalCwd,
-        paranoidRm: context.paranoidRm,
-        paranoidInterpreters: context.paranoidInterpreters,
-        allowTmpdirVar: context.allowTmpdirVar,
         envAssignments: childCommand.envAssignments,
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
-        analyzeNested: context.analyzeNested,
-        policy: context.policy,
-        scanWork: context.scanWork,
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
@@ -279,6 +272,7 @@ function analyzeParallelRmExpansion(
     analyzeRmMatch(tokens, {
       cwd,
       originalCwd: context.originalCwd,
+      strict: context.strict,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar,
     }),

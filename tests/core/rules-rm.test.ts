@@ -6,6 +6,7 @@ import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
 import {
   assertAllowed,
   assertBlocked,
+  assertStrictBlocked,
   toShellPath,
   withEnv,
   withSymlinkedHomeCwd,
@@ -72,8 +73,10 @@ describe('rm -rf blocked', () => {
     assertBlocked('echo $(rm -rf /some/path)', 'rm -rf');
   });
 
-  test('TMPDIR=/Users rm -rf $TMPDIR/test-dir blocked', () => {
-    assertBlocked('TMPDIR=/Users rm -rf $TMPDIR/test-dir', 'rm -rf');
+  test('TMPDIR=/Users rm -rf $TMPDIR/test-dir is strict-only', () => {
+    const command = 'TMPDIR=/Users rm -rf $TMPDIR/test-dir';
+    assertAllowed(command);
+    assertStrictBlocked(command, 'rm -rf');
   });
 
   test('rm -rf / blocked (root)', () => {
@@ -88,12 +91,16 @@ describe('rm -rf blocked', () => {
     assertBlocked('rm -rf -- /', 'extremely dangerous');
   });
 
-  test('rm -rf $TMPDIR/../escape blocked', () => {
-    assertBlocked('rm -rf $TMPDIR/../escape', 'rm -rf');
+  test('rm -rf $TMPDIR/../escape is strict-only', () => {
+    const command = 'rm -rf $TMPDIR/../escape';
+    assertAllowed(command);
+    assertStrictBlocked(command, 'rm -rf');
   });
 
-  test('rm -rf `pwd`/escape blocked', () => {
-    assertBlocked('rm -rf `pwd`/escape', 'rm -rf');
+  test('rm -rf `pwd`/escape is strict-only', () => {
+    const command = 'rm -rf `pwd`/escape';
+    assertAllowed(command);
+    assertStrictBlocked(command, 'rm -rf');
   });
 
   test('rm -rf ~someone/escape blocked', () => {
@@ -421,7 +428,7 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf after safe command substitution cd bypasses cwd allowlist blocked', () => {
     setup();
     try {
-      assertBlocked('$( cd ..; echo ok ) && rm -rf build', 'dynamic command', tmpDir);
+      assertBlocked('$( cd ..; echo ok ) && rm -rf build', 'outside cwd', tmpDir);
     } finally {
       cleanup();
     }
@@ -483,19 +490,23 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
-  test('TMPDIR= empty assignment blocked (expands to /)', () => {
+  test('TMPDIR= empty assignment is strict-only', () => {
     setup();
     try {
-      assertBlocked('TMPDIR= rm -rf $TMPDIR/test-dir', 'rm -rf', tmpDir);
+      const command = 'TMPDIR= rm -rf $TMPDIR/test-dir';
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf', tmpDir);
     } finally {
       cleanup();
     }
   });
 
-  test('TMPDIR=/tmp-malicious blocked (not a real temp path)', () => {
+  test('TMPDIR=/tmp-malicious is strict-only', () => {
     setup();
     try {
-      assertBlocked('TMPDIR=/tmp-malicious rm -rf $TMPDIR/test-dir', 'rm -rf', tmpDir);
+      const command = 'TMPDIR=/tmp-malicious rm -rf $TMPDIR/test-dir';
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf', tmpDir);
     } finally {
       cleanup();
     }
@@ -510,13 +521,15 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
-  test('TMPDIR symlink from temp to non-temp blocked', () => {
+  test('TMPDIR symlink from temp to non-temp is strict-only', () => {
     setup();
     const outsideTemp = mkdtempSync(join(process.cwd(), 'outside-temp-'));
     const tempLink = join(tmpdir(), `safety-net-tmpdir-link-${Date.now()}`);
     symlinkSync(outsideTemp, tempLink, process.platform === 'win32' ? 'junction' : 'dir');
     try {
-      assertBlocked(`TMPDIR=${toShellPath(tempLink)} rm -rf $TMPDIR/test-dir`, 'rm -rf', tmpDir);
+      const command = `TMPDIR=${toShellPath(tempLink)} rm -rf $TMPDIR/test-dir`;
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf', tmpDir);
     } finally {
       rmSync(tempLink, { recursive: true, force: true });
       rmSync(outsideTemp, { recursive: true, force: true });
@@ -524,19 +537,23 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
-  test('TMPDIR=/tmp/../root blocked (path traversal escapes temp)', () => {
+  test('TMPDIR=/tmp/../root is strict-only', () => {
     setup();
     try {
-      assertBlocked('TMPDIR=/tmp/../root rm -rf $TMPDIR/test-dir', 'rm -rf', tmpDir);
+      const command = 'TMPDIR=/tmp/../root rm -rf $TMPDIR/test-dir';
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf', tmpDir);
     } finally {
       cleanup();
     }
   });
 
-  test('TMPDIR=/var/tmp-malicious blocked (not a real temp path)', () => {
+  test('TMPDIR=/var/tmp-malicious is strict-only', () => {
     setup();
     try {
-      assertBlocked('TMPDIR=/var/tmp-malicious rm -rf $TMPDIR/test-dir', 'rm -rf', tmpDir);
+      const command = 'TMPDIR=/var/tmp-malicious rm -rf $TMPDIR/test-dir';
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf', tmpDir);
     } finally {
       cleanup();
     }
@@ -616,23 +633,30 @@ describe('analyzeRm (unit)', () => {
     ).toBeNull();
   });
 
-  test('does not trust ${TMPDIR} when disallowed', () => {
+  test('does not trust ${TMPDIR} when disallowed in strict mode', () => {
+    const options = {
+      cwd: '/tmp',
+      allowTmpdirVar: false,
+    };
+    expect(analyzeRm(['rm', '-rf', '${TMPDIR}/test'], options)).toBeNull();
     expect(
       analyzeRm(['rm', '-rf', '${TMPDIR}/test'], {
-        cwd: '/tmp',
-        allowTmpdirVar: false,
+        ...options,
+        strict: true,
       }),
     ).toContain('shell variables');
   });
 
-  test('blocks shell variable targets with dynamic-path reason', () => {
-    expect(analyzeRm(['rm', '-rf', '$tmpbase', '$outside'], { cwd: '/tmp' })).toContain(
-      'shell variables',
-    );
+  test('blocks shell variable targets with dynamic-path reason in strict mode', () => {
+    const tokens = ['rm', '-rf', '$tmpbase', '$outside'];
+    expect(analyzeRm(tokens, { cwd: '/tmp' })).toBeNull();
+    expect(analyzeRm(tokens, { cwd: '/tmp', strict: true })).toContain('shell variables');
   });
 
-  test('blocks backtick targets with dynamic-path reason', () => {
-    expect(analyzeRm(['rm', '-rf', '`pwd`/escape'], { cwd: '/tmp' })).toContain('shell variables');
+  test('blocks backtick targets with dynamic-path reason in strict mode', () => {
+    const tokens = ['rm', '-rf', '`pwd`/escape'];
+    expect(analyzeRm(tokens, { cwd: '/tmp' })).toBeNull();
+    expect(analyzeRm(tokens, { cwd: '/tmp', strict: true })).toContain('shell variables');
   });
 
   test('handles non-string cwd defensively', () => {

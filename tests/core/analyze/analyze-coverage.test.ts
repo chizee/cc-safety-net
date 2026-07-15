@@ -351,12 +351,14 @@ describe('analyzeCommand (coverage)', () => {
     expect(result).toBeNull();
   });
 
-  test('TMPDIR traversal override blocks $TMPDIR', () => {
-    const result = analyzeCommand('TMPDIR=/tmp/../root rm -rf $TMPDIR/test-dir', {
+  test('TMPDIR traversal override blocks $TMPDIR only in strict mode', () => {
+    const command = 'TMPDIR=/tmp/../root rm -rf $TMPDIR/test-dir';
+    const options = {
       cwd: '/tmp',
       config: EMPTY_CONFIG,
-    });
-    expect(result?.reason).toContain('rm -rf');
+    };
+    expect(analyzeCommand(command, options)).toBeNull();
+    expect(analyzeCommand(command, { ...options, strict: true })?.reason).toContain('rm -rf');
   });
 
   test('xargs child git command is analyzed', () => {

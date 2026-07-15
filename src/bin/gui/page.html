@@ -120,8 +120,8 @@
     const token = __CC_SAFETY_NET_TOKEN__;
     const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
     const safetyLevels = {
-      standard: ['Standard', 'Blocks destructive git and filesystem commands. Recommended for most people.'],
-      strict: ['Strict', "Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell."],
+      standard: ['Standard', 'Blocks recognizable destructive Git and filesystem commands. Recommended for normal coding.'],
+      strict: ['Strict', 'Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely. Occasional false positives on advanced shell.'],
       paranoid: ['Paranoid', 'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.']
     };
     const safetyOverrides = {

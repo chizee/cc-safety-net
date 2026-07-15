@@ -6,6 +6,7 @@ import { analyzeTestCommand as analyzeCommand } from '../../helpers/policy';
 import {
   assertAllowed,
   assertBlocked,
+  assertStrictBlocked,
   createLinkedWorktreeFixture,
   runGuard,
   toShellPath,
@@ -358,23 +359,35 @@ describe('edge cases', () => {
   });
 
   describe('command substitution dynamic output', () => {
-    test('command substitution dynamic rm target blocked', () => {
-      assertBlocked([RM_RF_REASON, '$(printf /)'].join(' '), 'shell variables', tempDir);
+    test('command substitution dynamic rm target is strict-only', () => {
+      const command = [RM_RF_REASON, '$(printf /)'].join(' ');
+      assertAllowed(command, tempDir);
+      assertStrictBlocked(command, 'shell variables', tempDir);
     });
 
-    test('command substitution dynamic executable blocked', () => {
-      assertBlocked(['$(printf r)m', '-rf', '/'].join(' '), 'dynamic command', tempDir);
-      assertBlocked(['r$(printf m)', '-rf', '/'].join(' '), 'dynamic command', tempDir);
+    test('command substitution dynamic executable is strict-only', () => {
+      for (const command of [
+        ['$(printf r)m', '-rf', '/'].join(' '),
+        ['r$(printf m)', '-rf', '/'].join(' '),
+      ]) {
+        assertAllowed(command, tempDir);
+        assertStrictBlocked(command, 'dynamic command', tempDir);
+      }
     });
 
     test('safe command substitution argument remains allowed', () => {
       assertAllowed('echo $(printf ok)', tempDir);
     });
 
-    test('blocks dynamic assembly of guarded command structure', () => {
-      expect(analyzeCommand('git reset $(printf --hard)')?.ruleId).toBe('shell.dynamic-structure');
-      expect(analyzeCommand('git reset --ha$(printf rd)')?.ruleId).toBe('shell.dynamic-structure');
-      expect(analyzeCommand('find . -del$(printf ete)')?.ruleId).toBe('shell.dynamic-structure');
+    test('blocks dynamic assembly of guarded command structure only in strict mode', () => {
+      for (const command of [
+        'git reset $(printf --hard)',
+        'git reset --ha$(printf rd)',
+        'find . -del$(printf ete)',
+      ]) {
+        expect(analyzeCommand(command)).toBeNull();
+        expect(analyzeCommand(command, { strict: true })?.ruleId).toBe('shell.dynamic-structure');
+      }
       expect(analyzeCommand('xargs r$(printf m) -rf')?.ruleId).toBe('xargs.shell-dynamic');
       expect(analyzeCommand('parallel r$(printf m) -rf ::: child')?.ruleId).toBe(
         'parallel.shell-dynamic',
@@ -388,7 +401,7 @@ describe('edge cases', () => {
       expect(analyzeCommand('parallel echo $(printf data) ::: child')).toBeNull();
     });
 
-    test('preserves dynamic structure provenance through command wrappers', () => {
+    test('preserves strict dynamic structure provenance through command wrappers', () => {
       for (const command of [
         'FOO=bar env git reset --ha$(printf rd)',
         'env -i FOO=bar -- git reset $(printf --hard)',
@@ -396,17 +409,19 @@ describe('edge cases', () => {
         'sudo -u root -- git reset $(printf --hard)',
         'busybox git reset --ha$(printf rd)',
       ]) {
-        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+        expect(analyzeCommand(command)).toBeNull();
+        expect(analyzeCommand(command, { strict: true })?.ruleId).toBe('shell.dynamic-structure');
       }
 
       expect(
         analyzeCommand('wrap -- git reset --ha$(printf rd)', {
+          strict: true,
           config: { transparent_wrappers: ['wrap'] },
         })?.ruleId,
       ).toBe('shell.dynamic-structure');
     });
 
-    test('preserves dynamic structure provenance through xargs and parallel child wrappers', () => {
+    test('preserves strict dynamic structure provenance through xargs and parallel child wrappers', () => {
       for (const command of [
         'xargs env FOO=bar git reset --ha$(printf rd)',
         'xargs command -- r$(printf m) -rf',
@@ -415,7 +430,7 @@ describe('edge cases', () => {
         'parallel command -- r$(printf m) -rf ::: child',
         'parallel busybox rm -$(printf rf) ::: child',
       ]) {
-        expect(analyzeCommand(command)).not.toBeNull();
+        expect(analyzeCommand(command, { strict: true })).not.toBeNull();
       }
     });
 
@@ -434,13 +449,14 @@ describe('edge cases', () => {
 
     test('models Git option and pathspec boundaries for dynamic words', () => {
       expect(analyzeCommand('git status -- $(printf path)')).toBeNull();
-      expect(analyzeCommand('git reset $(printf --hard) -- path')?.ruleId).toBe(
+      expect(analyzeCommand('git reset $(printf --hard) -- path')).toBeNull();
+      expect(analyzeCommand('git reset $(printf --hard) -- path', { strict: true })?.ruleId).toBe(
         'shell.dynamic-structure',
       );
       expect(analyzeCommand('git reset --hard -- $(printf path)')?.ruleId).toBe('git.reset-hard');
     });
 
-    test('blocks substitution-derived Git global options and their values before dispatch', () => {
+    test('blocks substitution-derived Git global options and values in strict mode', () => {
       for (const command of [
         `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`,
         `git -c$(printf 'alias.boom=!printf PROBE_OK') boom`,
@@ -459,7 +475,8 @@ describe('edge cases', () => {
         'git --namespace=$(printf ns) status',
         'git -C $(printf /tmp) reset --hard',
       ]) {
-        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+        expect(analyzeCommand(command)?.ruleId).not.toBe('shell.dynamic-structure');
+        expect(analyzeCommand(command, { strict: true })?.ruleId).toBe('shell.dynamic-structure');
       }
     });
 
@@ -481,6 +498,7 @@ describe('edge cases', () => {
     test('honors dynamic-structure rule disablement for Git globals', () => {
       expect(
         analyzeCommand(`git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`, {
+          strict: true,
           config: { disabledDestructiveCommandRules: ['shell.dynamic-structure'] },
         }),
       ).toBeNull();
@@ -531,7 +549,8 @@ describe('edge cases', () => {
         'find . -okdir $(printf rm) -f {} ;',
         'find . -exec rm -$(printf rf) {} ;',
       ]) {
-        expect(analyzeCommand(command)?.ruleId).toBe('shell.dynamic-structure');
+        expect(analyzeCommand(command)?.ruleId).not.toBe('shell.dynamic-structure');
+        expect(analyzeCommand(command, { strict: true })?.ruleId).toBe('shell.dynamic-structure');
       }
     });
 
@@ -1330,9 +1349,11 @@ describe('edge cases', () => {
       });
     });
 
-    test('brace group environment changes remain visible to following commands', () => {
+    test('brace group environment changes remain visible to strict analysis', () => {
       withEnv({ TMPDIR: tempDir }, () => {
-        assertBlocked('{ export TMPDIR=/Users; }; rm -rf $TMPDIR/build', 'rm -rf', tempDir);
+        const command = '{ export TMPDIR=/Users; }; rm -rf $TMPDIR/build';
+        assertAllowed(command, tempDir);
+        assertStrictBlocked(command, 'rm -rf', tempDir);
       });
     });
 
@@ -1422,24 +1443,33 @@ describe('edge cases', () => {
   });
 
   describe('recursive rm target expansion', () => {
-    test('globbed relative recursive delete targets blocked', () => {
-      assertBlocked([RM_RF_REASON, './build-*'].join(' '), 'shell variables', tempDir);
-      assertBlocked([RM_RF_REASON, 'build?'].join(' '), 'shell variables', tempDir);
-      assertBlocked([RM_RF_REASON, 'dist[0-9]'].join(' '), 'shell variables', tempDir);
+    test('globbed relative recursive delete targets are strict-only', () => {
+      for (const command of [
+        [RM_RF_REASON, './build-*'].join(' '),
+        [RM_RF_REASON, 'build?'].join(' '),
+        [RM_RF_REASON, 'dist[0-9]'].join(' '),
+      ]) {
+        assertAllowed(command, tempDir);
+        assertStrictBlocked(command, 'shell variables', tempDir);
+      }
     });
 
-    test('unresolved glob under cwd blocked', () => {
-      assertBlocked([RM_RF_REASON, './missing-*'].join(' '), 'shell variables', tempDir);
+    test('unresolved glob under cwd is strict-only', () => {
+      const command = [RM_RF_REASON, './missing-*'].join(' ');
+      assertAllowed(command, tempDir);
+      assertStrictBlocked(command, 'shell variables', tempDir);
     });
 
-    test('glob can traverse a symlinked directory outside cwd', () => {
+    test('glob that can traverse a symlinked directory is strict-only', () => {
       const projectDir = join(tempDir, 'project');
       const outsideDir = join(tempDir, 'outside');
       mkdirSync(join(outsideDir, 'nested'), { recursive: true });
       mkdirSync(projectDir);
       symlinkSync(outsideDir, join(projectDir, 'external'), 'dir');
 
-      assertBlocked([RM_RF_REASON, './*/nested'].join(' '), 'shell variables', projectDir);
+      const command = [RM_RF_REASON, './*/nested'].join(' ');
+      assertAllowed(command, projectDir);
+      assertStrictBlocked(command, 'shell variables', projectDir);
     });
 
     test('literal cwd-contained recursive delete target remains allowed', () => {
@@ -1449,25 +1479,31 @@ describe('edge cases', () => {
   });
 
   describe('TMPDIR handling', () => {
-    test('inherited non-temp TMPDIR blocks recursive delete through TMPDIR', () => {
+    test('inherited non-temp TMPDIR blocks recursive delete only in strict mode', () => {
       const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
 
       withEnv({ TMPDIR: unsafeTmpdir }, () => {
-        assertBlocked([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), 'shell variables', tempDir);
+        const command = [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' ');
+        assertAllowed(command, tempDir);
+        assertStrictBlocked(command, 'shell variables', tempDir);
       });
     });
 
-    test('envAssignments non-temp TMPDIR blocks recursive delete through TMPDIR', () => {
-      const result = analyzeCommand([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), {
+    test('envAssignments non-temp TMPDIR blocks recursive delete only in strict mode', () => {
+      const command = [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' ');
+      const options = {
         cwd: tempDir,
         config: { version: 1, rules: [] },
         envAssignments: new Map([['TMPDIR', join(process.cwd(), 'unsafe-tmpdir')]]),
-      });
+      };
 
-      expect(result?.reason).toContain('shell variables');
+      expect(analyzeCommand(command, options)).toBeNull();
+      expect(analyzeCommand(command, { ...options, strict: true })?.reason).toContain(
+        'shell variables',
+      );
     });
 
-    test('exported non-temp TMPDIR across segments blocks recursive delete through TMPDIR', () => {
+    test('exported non-temp TMPDIR blocks recursive delete only in strict mode', () => {
       const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
       const assignment = ['TMPDIR', toShellPath(unsafeTmpdir)].join('=');
       const command = [
@@ -1475,7 +1511,8 @@ describe('edge cases', () => {
         [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
       ].join(` ${SHELL_SEMICOLON} `);
 
-      assertBlocked(command, 'shell variables', tempDir);
+      assertAllowed(command, tempDir);
+      assertStrictBlocked(command, 'shell variables', tempDir);
     });
 
     test('inherited and exported temp TMPDIR remain allowed', () => {
@@ -1492,7 +1529,7 @@ describe('edge cases', () => {
       assertAllowed(command, tempDir);
     });
 
-    test('unset TMPDIR removes inherited trust for recursive delete through TMPDIR', () => {
+    test('unset TMPDIR removes inherited trust only in strict mode', () => {
       const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
       const command = [
         ['unset', 'TMPDIR'].join(' '),
@@ -1500,7 +1537,8 @@ describe('edge cases', () => {
       ].join(` ${SHELL_SEMICOLON} `);
 
       withEnv({ TMPDIR: unsafeTmpdir }, () => {
-        assertBlocked(command, 'shell variables', tempDir);
+        assertAllowed(command, tempDir);
+        assertStrictBlocked(command, 'shell variables', tempDir);
       });
     });
   });

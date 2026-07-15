@@ -205,8 +205,8 @@ Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 
 | Level | Effect |
 |---|---|
-| Standard | Blocks destructive git and filesystem commands. Recommended for most people. |
-| Strict | Standard, plus blocks anything the parser can't fully understand. Occasional false positives on exotic shell. |
+| Standard | Blocks recognizable destructive Git and filesystem commands. Recommended for normal coding. |
+| Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
 Advanced policy users can set `safety.overrides.fail_closed`, `safety.overrides.paranoid_rm`, and `safety.overrides.paranoid_interpreters` in `policy.json`. Worktree relaxation is separate: `workflow.worktree_mode` or `CC_SAFETY_NET_WORKTREE=1` allows local git discards inside verified linked worktrees.

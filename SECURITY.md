@@ -28,6 +28,8 @@ The current implementation preserves these product invariants:
 
 The current public command analyzer returns `null` when it allows a command and an `AnalyzeResult` when it blocks one. It does **not** expose the parser's internal `complete`, `partial`, or `limited` states. Unsupported or malformed shell syntax is safety-level dependent: standard mode may allow malformed safe-looking text, while strict mode blocks unparseable input; destructive-looking malformed text can still be blocked by conservative heuristics. Parser resource exhaustion is different: input beyond 131,072 UTF-16 code units, more than 16,384 words, or nesting beyond 64 levels is denied rather than analyzed incompletely.
 
+Standard mode is best-effort protection for recognizable destructive commands and intentionally allows dynamic executables, guarded command structure assembled through substitution, and unverifiable recursive-delete targets. Strict and paranoid modes fail closed on those forms and are required when commands may come from prompt injection or other adversarial context.
+
 PowerShell support is partial. Its parser preserves native quoting, path separators, connectors, pipelines, and dynamic-word provenance for a conservative subset centered on `Remove-Item` and its supported aliases, plus existing cross-shell command rules; it is not a general PowerShell parser. Explicit `powershell` mode and quote-aware `auto` detection are covered, while `posix` mode intentionally does not apply PowerShell removal rules.
 
 The structural command IR is produced by the bounded internal POSIX and PowerShell parsers. Published JavaScript artifacts also embed `shell-quote` for legacy POSIX token and display compatibility. Although `shell-quote` is a build-time dependency in `package.json`, its bundled code is treated as production code for vulnerability monitoring, dependency audits, updates, SBOM generation, and security review.
@@ -52,7 +54,7 @@ Please redact tokens, credentials, private repository names, and sensitive file 
 
 ## The Boundary: Bug or Vulnerability?
 
-CC Safety Net's job is to stop agents from running destructive commands. A report that the tool failed to do that job is a **bug**, and it belongs in a public GitHub issue. The threat model already assumes an attacker (prompt injection, adversarial context) can emit any destructive command, so publishing "this command shape is not caught" does not hand the attacker a capability they did not already have — it just gets the gap fixed faster and lets users ship a custom rule as an immediate workaround.
+CC Safety Net's job is to stop agents from running destructive commands within the selected safety level's documented guarantees. A report that the tool failed to do that job is a **bug**, and it belongs in a public GitHub issue. The strict and paranoid threat model assumes an attacker (prompt injection, adversarial context) can emit any destructive command, so publishing "this command shape is not caught" does not hand the attacker a capability they did not already have — it just gets the gap fixed faster and lets users ship a custom rule as an immediate workaround.
 
 A report that the tool did something harmful it was never supposed to do — leak a secret, write a file outside its own directory, or ship a tampered package — is a **vulnerability**. The non-obvious construction is the secret, so it belongs in private disclosure.
 

@@ -257,7 +257,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: 'rm.recursive-force-dynamic-target',
     category: 'Filesystem',
     label: 'rm -rf dynamic target',
-    description: 'Blocks recursive forced removal with dynamic targets.',
+    description: 'Blocks recursive forced removal with dynamic targets in strict mode.',
     intent: 'scope_down',
   },
   {
@@ -306,7 +306,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: 'powershell.remove-item-recursive-force-dynamic-target',
     category: 'PowerShell',
     label: 'Remove-Item recursive force dynamic target',
-    description: 'Blocks recursive forced PowerShell removal with dynamic targets.',
+    description: 'Blocks recursive forced PowerShell removal with dynamic targets in strict mode.',
     intent: 'scope_down',
   },
   {
@@ -341,7 +341,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: 'powershell.remove-item-pipeline-dynamic-target',
     category: 'PowerShell',
     label: 'Remove-Item pipeline dynamic target',
-    description: 'Blocks PowerShell Remove-Item with unverifiable pipeline input.',
+    description: 'Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode.',
     intent: 'scope_down',
   },
   {
@@ -418,14 +418,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: 'shell.dynamic-structure',
     category: 'Execution',
     label: 'Dynamic command structure',
-    description: 'Blocks guarded subcommands and options assembled from substitution output.',
+    description:
+      'Blocks guarded subcommands and options assembled from substitution output in strict mode.',
     intent: 'stop_and_explain',
   },
   {
     id: 'shell.dynamic-executable',
     category: 'Execution',
     label: 'Dynamic executable name',
-    description: 'Blocks executable names assembled from command substitution output.',
+    description:
+      'Blocks executable names assembled from command substitution output in strict mode.',
     intent: 'manual_only',
   },
   {

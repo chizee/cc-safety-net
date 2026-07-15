@@ -34,17 +34,9 @@ export function analyzeXargs(
   const childResult = analyzeChildCommandMatch(
     childTokens,
     {
+      ...context,
       cwd: childCommand.cwd,
-      derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-      originalCwd: context.originalCwd,
-      paranoidRm: context.paranoidRm,
-      paranoidInterpreters: context.paranoidInterpreters,
-      allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
-      worktreeMode: context.worktreeMode,
-      analyzeNested: context.analyzeNested,
-      policy: context.policy,
-      scanWork: context.scanWork,
     },
     {
       dynamicInput: childCommand.head !== 'git',
@@ -69,17 +61,10 @@ export function analyzeXargs(
         value.includes(replacementToken),
       ));
   return analyzeChildCommandMatch(gitTokens, {
+    ...context,
     cwd: childCommand.cwd,
-    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.paranoidRm,
-    paranoidInterpreters: context.paranoidInterpreters,
-    allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
-    analyzeNested: context.analyzeNested,
-    policy: context.policy,
-    scanWork: context.scanWork,
   });
 }
 

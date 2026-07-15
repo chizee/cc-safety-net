@@ -2941,7 +2941,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     id: "rm.recursive-force-dynamic-target",
     category: "Filesystem",
     label: "rm -rf dynamic target",
-    description: "Blocks recursive forced removal with dynamic targets.",
+    description: "Blocks recursive forced removal with dynamic targets in strict mode.",
     intent: "scope_down"
   },
   {
@@ -2990,7 +2990,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     id: "powershell.remove-item-recursive-force-dynamic-target",
     category: "PowerShell",
     label: "Remove-Item recursive force dynamic target",
-    description: "Blocks recursive forced PowerShell removal with dynamic targets.",
+    description: "Blocks recursive forced PowerShell removal with dynamic targets in strict mode.",
     intent: "scope_down"
   },
   {
@@ -3025,7 +3025,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     id: "powershell.remove-item-pipeline-dynamic-target",
     category: "PowerShell",
     label: "Remove-Item pipeline dynamic target",
-    description: "Blocks PowerShell Remove-Item with unverifiable pipeline input.",
+    description: "Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode.",
     intent: "scope_down"
   },
   {
@@ -3102,14 +3102,14 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     id: "shell.dynamic-structure",
     category: "Execution",
     label: "Dynamic command structure",
-    description: "Blocks guarded subcommands and options assembled from substitution output.",
+    description: "Blocks guarded subcommands and options assembled from substitution output in strict mode.",
     intent: "stop_and_explain"
   },
   {
     id: "shell.dynamic-executable",
     category: "Execution",
     label: "Dynamic executable name",
-    description: "Blocks executable names assembled from command substitution output.",
+    description: "Blocks executable names assembled from command substitution output in strict mode.",
     intent: "manual_only"
   },
   {
@@ -7307,6 +7307,7 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
   return {
     anchoredCwd: options2.originalCwd ?? options2.cwd ?? null,
     resolvedCwd: options2.cwd ?? null,
+    strict: options2.strict ?? !1,
     paranoid: options2.paranoid ?? !1,
     trustTmpdirVar: options2.allowTmpdirVar ?? !0,
     homeDir: getHomeDirForRmPolicy()
@@ -7575,14 +7576,14 @@ function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
   let parsed = parseRemoveItem(words.slice(commandIndex + 1));
   if (parsed.whatIfProtected)
     return null;
-  if (hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
+  if (ctx.strict && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
     return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
   for (let target of parsed.targets)
     if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
   if (!parsed.recursive || !parsed.force)
     return null;
-  if (parsed.hasDynamicTarget || parsed.targets.length === 0)
+  if (ctx.strict && (parsed.hasDynamicTarget || parsed.targets.length === 0))
     return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
   for (let target of parsed.targets) {
     let match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
@@ -7697,6 +7698,8 @@ function matchForClassification(classification, ctx) {
     case "temp_target":
       return null;
     case "dynamic_target":
+      if (!ctx.strict)
+        return null;
       return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
     case "home_cwd_target":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-home-cwd", REASON_REMOVE_ITEM_HOME_CWD);
@@ -8010,6 +8013,8 @@ function reasonForClassification(classification, ctx) {
     case "temp_target":
       return null;
     case "dynamic_target":
+      if (!ctx.strict)
+        return null;
       return destructiveCommandMatch("rm.recursive-force-dynamic-target", REASON_RM_RF_DYNAMIC_TARGET);
     case "home_cwd_target":
       return destructiveCommandMatch("rm.recursive-force-home-cwd", REASON_RM_HOME_CWD);
@@ -9124,6 +9129,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
+      strict: context.strict,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar
     }), context.policy) ?? getDynamicRmReason(options2, context);
@@ -9279,17 +9285,10 @@ function analyzeParallel(tokens, context) {
   let childArgs = args.length > 0 ? args : [void 0];
   for (let arg of childArgs) {
     let tokens2 = arg === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelPlaceholder(token, arg)) : [...childTokens, arg], result = analyzeChildCommandMatch(tokens2, {
+      ...context,
       cwd: childCommand.cwd,
-      derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-      originalCwd: context.originalCwd,
-      paranoidRm: context.paranoidRm,
-      paranoidInterpreters: context.paranoidInterpreters,
-      allowTmpdirVar: context.allowTmpdirVar,
       envAssignments: childCommand.envAssignments,
-      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode,
-      analyzeNested: context.analyzeNested,
-      policy: context.policy,
-      scanWork: context.scanWork
+      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
       shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
@@ -9313,6 +9312,7 @@ function analyzeParallelRmExpansion(tokens, cwd, context) {
   return filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
     cwd,
     originalCwd: context.originalCwd,
+    strict: context.strict,
     paranoid: context.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar
   }), context.policy);
@@ -9742,17 +9742,9 @@ function isPathOrSubpath(path, basePath) {
 var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
 function analyzeXargs(tokens, context) {
   let { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens), childCommand = normalizeChildCommand(rawChildTokens, context), childTokens = childCommand.tokens, childResult = analyzeChildCommandMatch(childTokens, {
+    ...context,
     cwd: childCommand.cwd,
-    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.paranoidRm,
-    paranoidInterpreters: context.paranoidInterpreters,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: childCommand.envAssignments,
-    worktreeMode: context.worktreeMode,
-    analyzeNested: context.analyzeNested,
-    policy: context.policy,
-    scanWork: context.scanWork
+    envAssignments: childCommand.envAssignments
   }, {
     dynamicInput: childCommand.head !== "git",
     shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
@@ -9764,17 +9756,10 @@ function analyzeXargs(tokens, context) {
     return null;
   let gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens, hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
   return analyzeChildCommandMatch(gitTokens, {
+    ...context,
     cwd: childCommand.cwd,
-    derivedCommandWorkBudget: context.derivedCommandWorkBudget,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.paranoidRm,
-    paranoidInterpreters: context.paranoidInterpreters,
-    allowTmpdirVar: context.allowTmpdirVar,
     envAssignments: childCommand.envAssignments,
-    worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode,
-    analyzeNested: context.analyzeNested,
-    policy: context.policy,
-    scanWork: context.scanWork
+    worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode
   });
 }
 function extractXargsChildCommandWithInfo(tokens) {
@@ -9907,7 +9892,7 @@ function analyzeSegment(tokens, depth, options2) {
     return null;
   if (options2.invalidReason)
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
-  let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView), options2.policy);
+  let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView, options2.strict), options2.policy);
   if (dynamicCommandMatch)
     return trace?.recordSegment({
       type: "rule-check",
@@ -10031,7 +10016,7 @@ function analyzeSegment(tokens, depth, options2) {
       isOverriddenToNonTemp: !allowTmpdirVar,
       allowTmpdirVar
     });
-  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" ? unfilteredCommandResult : filterDestructiveCommandMatch(unfilteredCommandResult, options2.policy);
+  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" && unfilteredCommandResult?.id !== "rm.recursive-force-dynamic-target" ? unfilteredCommandResult : filterDestructiveCommandMatch(unfilteredCommandResult, options2.policy);
   if (trace)
     recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult)
@@ -10110,13 +10095,13 @@ function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
 function blockResultFromMatch(match) {
   return { reason: match.reason, ruleId: match.id || void 0, intent: match.intent };
 }
-function analyzeDynamicExecutable(dynamic) {
-  return dynamic ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
+function analyzeDynamicExecutable(dynamic, strict) {
+  return dynamic && strict ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
 }
-function analyzeDynamicCommandStructure(command2) {
-  return analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1) ?? analyzeDynamicStructure(command2);
+function analyzeDynamicCommandStructure(command2, strict = !1) {
+  return analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict) ?? analyzeDynamicStructure(command2, strict);
 }
-function analyzeDynamicStructure(command2) {
+function analyzeDynamicStructure(command2, strict) {
   if (!command2 || command2.words.length < 2)
     return null;
   let dynamicIndexes = command2.words.flatMap((word, index) => hasCommandSubstitutionPart(word) ? [index] : []);
@@ -10125,21 +10110,21 @@ function analyzeDynamicStructure(command2) {
   let head = normalizeCommandToken(command2.words[0]?.text ?? "");
   if (head === "git") {
     let subcommandIndex = findGitSubcommandIndex(command2.analysisTokens);
-    if (dynamicIndexes.some((index) => index <= subcommandIndex))
+    if (strict && dynamicIndexes.some((index) => index <= subcommandIndex))
       return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
     if (analyzeGitMatch(command2.analysisTokens))
       return null;
     let subcommand = command2.words[subcommandIndex]?.text.toLowerCase(), dataBoundary = command2.analysisTokens.indexOf("--", subcommandIndex + 1);
-    if (subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
+    if (strict && subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
       return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
     return null;
   }
   if (head === "find")
-    return hasDynamicFindStructure(command2) ? destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE) : null;
+    return strict && hasDynamicFindStructure(command2) ? destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE) : null;
   if (head === "xargs")
-    return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs");
+    return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs", strict);
   if (head === "parallel")
-    return analyzeDynamicChildStructure(command2, extractParallelChildCommand(command2.analysisTokens), "parallel");
+    return analyzeDynamicChildStructure(command2, extractParallelChildCommand(command2.analysisTokens), "parallel", strict);
   return null;
 }
 function hasDynamicFindStructure(command2) {
@@ -10180,13 +10165,13 @@ function hasDynamicFindStructure(command2) {
   }
   return !1;
 }
-function analyzeDynamicChildStructure(command2, childTokens, kind) {
+function analyzeDynamicChildStructure(command2, childTokens, kind, strict) {
   if (childTokens.length === 0)
     return null;
   let childStart = command2.analysisTokens.length - childTokens.length, childView = normalizeChildCommandView(sliceCommandView(command2, childStart));
   if (childView.dynamicExecutable)
     return destructiveCommandMatch(`${kind}.shell-dynamic`, kind === "xargs" ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL);
-  let nestedStructure = analyzeDynamicStructure(childView);
+  let nestedStructure = analyzeDynamicStructure(childView, strict);
   if (nestedStructure)
     return nestedStructure;
   if (childView.words[0]?.text === "rm" && childView.words.slice(1).some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word)))
@@ -10274,6 +10259,7 @@ function analyzeRmCommand(context) {
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
+    strict: context.options.strict,
     paranoid: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar
   });
@@ -10316,6 +10302,7 @@ function getNestedCommandAnalyzeContext(context) {
   return {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
+    strict: context.options.strict,
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
@@ -10951,6 +10938,7 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
   return {
     cwd: cwdUnknown ? void 0 : effectiveCwd ?? options2.cwd,
     originalCwd: cwdUnknown ? void 0 : options2.cwd,
+    strict: options2.strict,
     paranoid: options2.paranoidRm,
     allowTmpdirVar: options2.allowTmpdirVar
   };
