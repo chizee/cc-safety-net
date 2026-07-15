@@ -6,11 +6,13 @@ import type {
   CommandParserLimits,
   CommandParseStatus,
   CommandProgram,
+  CommandRedirection,
   CommandView,
   CommandWord,
   CommandWordPart,
   WordProvenance,
 } from '@/domain/command';
+import { consumeHeredocBodies, type PendingHeredoc, readHeredocDelimiter } from './heredoc';
 import {
   appendAccumulatedCommand,
   createCommandAccumulator,
@@ -28,6 +30,7 @@ type ScanResult = {
   closed: boolean;
   words: number;
   limited: boolean;
+  pendingHeredocs: PendingHeredoc[];
 };
 
 type WordResult = {
@@ -94,6 +97,7 @@ function scanSequence(
   const nodes = createCommandNodes();
   const issues = createCommandIssues();
   const accumulator = createCommandAccumulator();
+  const pendingHeredocs: PendingHeredoc[] = [];
   let wordCount = 0;
   let limited = false;
 
@@ -127,7 +131,15 @@ function scanSequence(
 
     if (closing && char === closing) {
       flushCommand();
-      return { nodes, issues, next: i + 1, closed: true, words: wordCount, limited };
+      return {
+        nodes,
+        issues,
+        next: i + 1,
+        closed: true,
+        words: wordCount,
+        limited,
+        pendingHeredocs,
+      };
     }
 
     if (isShellWhitespace(char)) {
@@ -141,6 +153,12 @@ function scanSequence(
             span: Object.freeze({ start: i, end: connectorEnd }),
           }),
         );
+        if (pendingHeredocs.length > 0) {
+          const bodies = consumeHeredocBodies(source, connectorEnd, end, pendingHeredocs.splice(0));
+          issues.push(...bodies.issues);
+          i = bodies.next;
+          continue;
+        }
         i = connectorEnd;
         continue;
       }
@@ -175,7 +193,7 @@ function scanSequence(
       const inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close);
       const groupEnd = inner.next;
       const bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd };
-      const body = freezeCommandProgram({
+      const body = {
         kind: 'program',
         dialect,
         source: source.slice(bodySpan.start, bodySpan.end),
@@ -183,16 +201,22 @@ function scanSequence(
         status: getParseStatus(inner.issues, inner.limited),
         issues: inner.issues,
         nodes: inner.nodes,
-      });
-      nodes.push(
-        Object.freeze({
-          kind: 'group',
-          style: char === '(' ? 'subshell' : 'brace',
-          span: Object.freeze({ start: i, end: groupEnd }),
-          body,
-        } satisfies CommandGroup),
-      );
+      } satisfies CommandProgram;
+      nodes.push({
+        kind: 'group',
+        style: char === '(' ? 'subshell' : 'brace',
+        span: { start: i, end: groupEnd },
+        body,
+      } satisfies CommandGroup);
       issues.push(...inner.issues);
+      if (inner.pendingHeredocs.length > 0 || containsHeredoc(inner.nodes)) {
+        issues.push({
+          code: 'unsupported-heredoc-context',
+          message: 'heredocs attached inside command groups are not supported safely',
+          span: { start: i, end: groupEnd },
+        });
+      }
+      pendingHeredocs.push(...inner.pendingHeredocs);
       if (!inner.closed) {
         issues.push({
           code: char === '(' ? 'unclosed-subshell' : 'unclosed-brace-group',
@@ -209,29 +233,79 @@ function scanSequence(
     const redirect =
       (char === '<' || char === '>') && source[i + 1] !== '(' ? readRedirect(source, i) : null;
     if (redirect) {
-      if (accumulator.words.length > 0) {
-        const prior = accumulator.words.at(-1);
-        if (prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw)) {
-          accumulator.words.pop();
-        }
-      }
-      const redirectStart = i;
+      const prior = accumulator.words.at(-1);
+      const attachedFd =
+        prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw) ? Number(prior.raw) : undefined;
+      if (attachedFd !== undefined) accumulator.words.pop();
+      const redirectStart = attachedFd === undefined ? i : (prior?.span.start ?? i);
       accumulator.start = accumulator.start === -1 ? i : accumulator.start;
       let targetStart = i + redirect.length;
       while (targetStart < end && /[ \t]/.test(source[targetStart] ?? '')) targetStart++;
-      const targetResult =
-        targetStart < end && !readConnector(source, targetStart)
+      const delimiter =
+        redirect === '<<' || redirect === '<<-'
+          ? readHeredocDelimiter(source, targetStart, end)
+          : undefined;
+      const targetResult = delimiter
+        ? {
+            word: freezeParsedCommandWord(
+              source,
+              targetStart,
+              delimiter.next,
+              delimiter.delimiter,
+              'literal',
+              delimiter.quoted,
+            ),
+            nested: [],
+            issues: [],
+            next: delimiter.next,
+            words: 0,
+            limited: false,
+          }
+        : targetStart < end && !readConnector(source, targetStart)
           ? readWord(source, targetStart, end, dialect, limits, depth)
           : undefined;
       const redirectEnd = targetResult?.next ?? i + redirect.length;
-      accumulator.redirections.push(
-        Object.freeze({
-          kind: 'redirection',
-          operator: redirect,
-          span: Object.freeze({ start: redirectStart, end: redirectEnd }),
-          ...(targetResult ? { target: targetResult.word } : {}),
-        }),
-      );
+      const redirection: {
+        kind: 'redirection';
+        operator: string;
+        span: { start: number; end: number };
+        fd?: number;
+        target?: CommandWord;
+        heredoc?: CommandRedirection['heredoc'];
+      } = {
+        kind: 'redirection',
+        operator: redirect,
+        span: { start: redirectStart, end: redirectEnd },
+        ...(attachedFd === undefined ? {} : { fd: attachedFd }),
+        ...(targetResult ? { target: targetResult.word } : {}),
+      };
+      accumulator.redirections.push(redirection);
+      if (redirect === '<<' || redirect === '<<-') {
+        if (!delimiter) {
+          issues.push({
+            code: 'missing-heredoc-delimiter',
+            message: 'heredoc redirection requires a delimiter word',
+            span: { start: i, end: i + redirect.length },
+          });
+        } else {
+          if (delimiter.ambiguous || delimiter.delimiter.length === 0) {
+            issues.push({
+              code: 'ambiguous-heredoc-delimiter',
+              message: 'heredoc delimiter cannot be determined safely',
+              span: delimiter.span,
+            });
+          }
+          pendingHeredocs.push({
+            delimiter: delimiter.delimiter,
+            quotedDelimiter: delimiter.quoted,
+            stripTabs: redirect === '<<-',
+            declarationSpan: { start: redirectStart, end: redirectEnd },
+            attach: (heredoc) => {
+              redirection.heredoc = heredoc;
+            },
+          });
+        }
+      }
       if (targetResult) {
         accumulator.nested.push(...targetResult.nested);
         issues.push(...targetResult.issues);
@@ -265,7 +339,16 @@ function scanSequence(
   }
 
   flushCommand();
-  return { nodes, issues, next: i, closed: closing === undefined, words: wordCount, limited };
+  issues.push(...unterminatedHeredocIssues(pendingHeredocs));
+  return {
+    nodes,
+    issues,
+    next: i,
+    closed: closing === undefined,
+    words: wordCount,
+    limited,
+    pendingHeredocs: [],
+  };
 }
 
 function readWord(
@@ -561,14 +644,27 @@ function readSubstitution(
           },
         ]
       : [];
+  const contextIssue =
+    (backtick || process) && containsHeredoc(inner.nodes)
+      ? [
+          {
+            code: 'unsupported-heredoc-context',
+            message: 'heredocs are supported only in ordinary commands and $(...) substitutions',
+            span: { start, end: next },
+          },
+        ]
+      : [];
   return {
     program: freezeCommandProgram({
       kind: 'program',
       dialect,
       source: source.slice(start + openLength, innerEnd),
       span: { start: start + openLength, end: innerEnd },
-      status: getParseStatus([...inner.issues, ...substitutionIssue], inner.limited),
-      issues: [...inner.issues, ...substitutionIssue],
+      status: getParseStatus(
+        [...inner.issues, ...substitutionIssue, ...contextIssue],
+        inner.limited,
+      ),
+      issues: [...inner.issues, ...substitutionIssue, ...contextIssue],
       nodes: inner.nodes,
     }),
     next,
@@ -607,15 +703,50 @@ function findSubstitutionEnd(
   let depth = 1;
   let single = false;
   let double = false;
+  const pendingHeredocs: PendingHeredoc[] = [];
   for (let i = start; i < end; i++) {
     const char = source[i];
     if (char === '\\') {
       i++;
       continue;
     }
+    if ((char === '\n' || char === '\r') && pendingHeredocs.length > 0) {
+      const lineEnd = char === '\r' && source[i + 1] === '\n' ? i + 2 : i + 1;
+      const bodies = consumeHeredocBodies(source, lineEnd, end, pendingHeredocs.splice(0));
+      if (!bodies.terminated) return -1;
+      i = bodies.next - 1;
+      continue;
+    }
     if (!double && char === "'") single = !single;
     if (!single && char === '"') double = !double;
     if (single) continue;
+    if (!double && char === '#' && isCommentStart(source, i, start)) {
+      while (i + 1 < end && source[i + 1] !== '\n' && source[i + 1] !== '\r') i++;
+      continue;
+    }
+    if (
+      closing === ')' &&
+      !double &&
+      char === '<' &&
+      source[i + 1] === '<' &&
+      source[i + 2] !== '<'
+    ) {
+      const stripTabs = source[i + 2] === '-';
+      let targetStart = i + (stripTabs ? 3 : 2);
+      while (targetStart < end && /[ \t]/.test(source[targetStart] ?? '')) targetStart++;
+      const delimiter = readHeredocDelimiter(source, targetStart, end);
+      if (delimiter) {
+        pendingHeredocs.push({
+          delimiter: delimiter.delimiter,
+          quotedDelimiter: delimiter.quoted,
+          stripTabs,
+          declarationSpan: { start: i, end: delimiter.next },
+          attach: () => undefined,
+        });
+        i = delimiter.next - 1;
+        continue;
+      }
+    }
     if (source.startsWith('$(', i) && !source.startsWith('$((', i)) {
       depth++;
       i++;
@@ -648,6 +779,7 @@ function readRedirect(source: string, index: number): string | null {
   }
   if (char !== '<') return null;
   if (source.startsWith('<<<', index)) return '<<<';
+  if (source.startsWith('<<-', index)) return '<<-';
   if (source[index + 1] === '<') return '<<';
   if (source[index + 1] === '&') return '<&';
   if (source[index + 1] === '>') return '<>';
@@ -746,7 +878,18 @@ function readFixedBaseEscape(
 
 function getParseStatus(issues: readonly CommandIssue[], limited = false): CommandParseStatus {
   if (limited) return 'limited';
-  if (issues.some((issue) => issue.code === 'invalid-ansi-c-code-point')) return 'invalid';
+  if (
+    issues.some(
+      (issue) =>
+        issue.code === 'invalid-ansi-c-code-point' ||
+        issue.code === 'missing-heredoc-delimiter' ||
+        issue.code === 'ambiguous-heredoc-delimiter' ||
+        issue.code === 'unterminated-heredoc' ||
+        issue.code === 'unsupported-heredoc-context',
+    )
+  ) {
+    return 'invalid';
+  }
   return issues.length > 0 ? 'partial' : 'complete';
 }
 
@@ -881,5 +1024,30 @@ function limitedResult(
     closed: false,
     words,
     limited: true,
+    pendingHeredocs: [],
   };
+}
+
+function containsHeredoc(nodes: readonly CommandNode[]): boolean {
+  return nodes.some((node) => {
+    if (node.kind === 'command') {
+      return (
+        node.redirections.some((redirection) => redirection.heredoc) ||
+        node.nested.some((program) => containsHeredoc(program.nodes))
+      );
+    }
+    return node.kind === 'group' && containsHeredoc(node.body.nodes);
+  });
+}
+
+function unterminatedHeredocIssues(pending: readonly PendingHeredoc[]): CommandIssue[] {
+  return pending.map((declaration) => ({
+    code: 'unterminated-heredoc',
+    message: `heredoc delimiter ${declaration.delimiter} was not found`,
+    span: declaration.declarationSpan,
+  }));
+}
+
+function isCommentStart(source: string, index: number, start: number): boolean {
+  return index === start || /[\s;&|()]/u.test(source[index - 1] ?? '');
 }

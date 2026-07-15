@@ -52,6 +52,11 @@ type ActiveInternalOptions = InternalOptions & {
   parallelBudget: ParallelAnalysisBudget;
 };
 
+const REASON_UNQUOTED_HEREDOC =
+  'Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.';
+const REASON_UNSUPPORTED_HEREDOC =
+  'This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.';
+
 export function analyzeCommandInternal(
   command: string,
   depth: number,
@@ -120,6 +125,13 @@ function analyzeCommandWithBudget(
   }
 
   if (program.status === 'invalid') {
+    const heredocIssue = program.issues.find((issue) => issue.code.includes('heredoc'));
+    if (heredocIssue) {
+      if (!options.strict) return analyzeUnparseableCommand(command, options);
+      const reason = `Unsupported heredoc syntax: ${heredocIssue.message}`;
+      options.trace?.recordGlobal({ type: 'error', message: reason });
+      return { reason, segment: command, intent: 'stop_and_explain' };
+    }
     recordStrictUnparseable(command, options);
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
@@ -243,6 +255,15 @@ function analyzeCommandView(
   state: AnalysisState,
   hasPipelineInput: boolean,
 ): AnalyzeResult | null {
+  const heredocReason = getHeredocReason(commandView);
+  if (heredocReason && options.strict) {
+    options.trace?.recordSegment({ type: 'error', message: heredocReason });
+    return {
+      reason: heredocReason,
+      segment: commandView.source,
+      intent: 'stop_and_explain',
+    };
+  }
   const segment = [...commandView.analysisTokens];
   const segmentStr = commandView.legacyNormalized;
   const segmentEnvAssignments = getSegmentGitContextEnvAssignments(
@@ -294,6 +315,8 @@ function analyzeCommandView(
       };
     }
     options.trace?.recordSegment({ type: 'dangerous-text', token: segment[0], matched: false });
+    const heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options);
+    if (heredocResult) return heredocResult;
     updateCwdAfterSegment(segment, state, options.trace);
     return null;
   }
@@ -334,9 +357,63 @@ function analyzeCommandView(
   });
   if (result) return { ...result, segment: segmentStr };
 
+  const heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options);
+  if (heredocResult) return heredocResult;
+
   updateCwdAfterSegment(segment, state, options.trace);
   applyShellGitContextEnvSegment(segment, state.shellGitContextState);
   return null;
+}
+
+function getHeredocReason(commandView: CommandView): string | undefined {
+  const heredocs = commandView.redirections.filter(
+    (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
+  );
+  if (heredocs.length === 0) return undefined;
+  if (heredocs.length !== 1) return REASON_UNSUPPORTED_HEREDOC;
+
+  const heredoc = heredocs[0];
+  if (!heredoc?.heredoc) return REASON_UNSUPPORTED_HEREDOC;
+  if (!heredoc.heredoc.quotedDelimiter) return REASON_UNQUOTED_HEREDOC;
+  if (heredoc.fd !== undefined && heredoc.fd !== 0) return REASON_UNSUPPORTED_HEREDOC;
+  if (
+    commandView.redirections.some(
+      (redirection) =>
+        redirection !== heredoc &&
+        ['<', '<<', '<<-', '<<<', '<&', '<>'].includes(redirection.operator),
+    )
+  ) {
+    return REASON_UNSUPPORTED_HEREDOC;
+  }
+
+  const bareWord = (index: number, value: string) => {
+    const word = commandView.words[index];
+    return (
+      word?.text === value && word.raw === value && word.provenance === 'literal' && !word.quoted
+    );
+  };
+  if (bareWord(0, 'cat') || bareWord(0, 'tee')) return undefined;
+  if (bareWord(0, 'git') && bareWord(1, 'apply')) return undefined;
+  return REASON_UNSUPPORTED_HEREDOC;
+}
+
+function analyzeUnsupportedHeredoc(
+  commandView: CommandView,
+  reason: string | undefined,
+  options: ActiveInternalOptions,
+): AnalyzeResult | null {
+  if (!reason) return null;
+  const heredocs = commandView.redirections.filter(
+    (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
+  );
+  const bodies = heredocs.flatMap((redirection) =>
+    redirection.heredoc ? [redirection.heredoc.body] : [],
+  );
+  const result = analyzeUnparseableCommand(
+    bodies.length === heredocs.length ? bodies.join('\n') : commandView.source,
+    options,
+  );
+  return result ? { ...result, segment: commandView.legacyNormalized } : null;
 }
 
 function updateCwdAfterSegment(

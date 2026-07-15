@@ -686,7 +686,7 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('preserves missing end-of-input here-data parity without crashing', async () => {
+  test('uses mode-aware fallback for a missing heredoc delimiter', async () => {
     await withTempDir('cc-safety-net-guard-missing-here-eof-', (cwd) => {
       for (const command of ['cat <<<', 'cat <<', 'cat < <']) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
@@ -694,6 +694,34 @@ describe('guard evaluation', () => {
           decision: { kind: 'allow' },
         });
       }
+
+      expect(
+        evaluateGuard(commandInvocation(cwd, 'cat <<'), {
+          dependencies: {
+            getModes: () => ({
+              strict: true,
+              paranoidRm: false,
+              paranoidInterpreters: false,
+              worktreeMode: false,
+              effectiveLevel: 'strict',
+              sources: {
+                failClosed: [],
+                paranoidRm: [],
+                paranoidInterpreters: [],
+                worktreeMode: [],
+              },
+            }),
+          },
+        }),
+      ).toEqual({
+        stage: 'command-analysis',
+        decision: {
+          kind: 'deny',
+          intent: 'stop_and_explain',
+          reason: 'Unsupported heredoc syntax: heredoc redirection requires a delimiter word',
+          evidence: [{ kind: 'command', command: 'cat <<', segment: 'cat <<' }],
+        },
+      });
     });
   });
 

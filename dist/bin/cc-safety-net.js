@@ -1527,6 +1527,105 @@ function getCommandTokenText(token) {
   return null;
 }
 
+// src/parser/heredoc.ts
+function readHeredocDelimiter(source, start, end) {
+  if (start >= end || isBoundary(source[start] ?? ""))
+    return null;
+  let delimiter = "", quoted = !1, ambiguous = !1, i = start;
+  while (i < end && !isBoundary(source[i] ?? "")) {
+    let char = source[i] ?? "";
+    if (char === "'") {
+      quoted = !0;
+      let result = readQuotedDelimiter(source, i + 1, end, "'");
+      delimiter += result.text, ambiguous ||= !result.closed, i = result.next;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !0;
+      let result = readQuotedDelimiter(source, i + 1, end, '"');
+      delimiter += result.text, ambiguous ||= !result.closed, i = result.next;
+      continue;
+    }
+    if (char === "\\") {
+      quoted = !0;
+      let next = source[i + 1];
+      if (!next || next === `
+` || next === "\r") {
+        ambiguous = !0;
+        break;
+      }
+      delimiter += next, i += 2;
+      continue;
+    }
+    if (char === "`" || source.startsWith("$(", i) || source.startsWith("${", i) || source.startsWith("<(", i) || source.startsWith(">(", i))
+      ambiguous = !0;
+    delimiter += char, i++;
+  }
+  return { delimiter, quoted, next: i, span: { start, end: i }, ambiguous };
+}
+function consumeHeredocBodies(source, start, end, pending) {
+  let issues = [], cursor = start;
+  for (let declaration of pending) {
+    let bodyStart = cursor, terminated = !1;
+    while (cursor < end) {
+      let line = readLine(source, cursor, end);
+      if ((declaration.stripTabs ? line.text.replace(/^\t+/, "") : line.text) === declaration.delimiter) {
+        declaration.attach({
+          body: declaration.stripTabs ? stripLeadingTabs(source.slice(bodyStart, cursor)) : source.slice(bodyStart, cursor),
+          delimiter: declaration.delimiter,
+          quotedDelimiter: declaration.quotedDelimiter,
+          stripTabs: declaration.stripTabs,
+          bodySpan: { start: bodyStart, end: cursor },
+          terminatorSpan: { start: cursor, end: line.contentEnd }
+        }), cursor = line.next, terminated = !0;
+        break;
+      }
+      if (line.next <= cursor)
+        break;
+      cursor = line.next;
+    }
+    if (terminated)
+      continue;
+    return issues.push({
+      code: "unterminated-heredoc",
+      message: `heredoc delimiter ${declaration.delimiter} was not found`,
+      span: declaration.declarationSpan
+    }), { next: end, issues, terminated: !1 };
+  }
+  return { next: cursor, issues, terminated: !0 };
+}
+function readQuotedDelimiter(source, start, end, quote) {
+  let text = "", i = start;
+  while (i < end && source[i] !== `
+` && source[i] !== "\r") {
+    let char = source[i] ?? "";
+    if (char === quote)
+      return { text, next: i + 1, closed: !0 };
+    if (quote === '"' && char === "\\" && source[i + 1]) {
+      let next = source[i + 1] ?? "";
+      text += ["$", "`", '"', "\\"].includes(next) ? next : `\\${next}`, i += 2;
+      continue;
+    }
+    text += char, i++;
+  }
+  return { text, next: i, closed: !1 };
+}
+function isBoundary(char) {
+  return /[\s;&|<>)]/u.test(char) || char === "`";
+}
+function readLine(source, start, end) {
+  let contentEnd = start;
+  while (contentEnd < end && source[contentEnd] !== `
+` && source[contentEnd] !== "\r")
+    contentEnd++;
+  let next = contentEnd >= end ? end : source[contentEnd] === "\r" && source[contentEnd + 1] === `
+` ? contentEnd + 2 : contentEnd + 1;
+  return { text: source.slice(start, contentEnd), contentEnd, next };
+}
+function stripLeadingTabs(body) {
+  return body.replace(/(^|\r?\n)\t+/g, "$1");
+}
+
 // src/parser/immutable.ts
 function createCommandNodes() {
   return [];
@@ -1553,12 +1652,22 @@ function freezeCommandView(command) {
     words: Object.freeze(command.words),
     tokens: Object.freeze(command.tokens),
     analysisTokens: Object.freeze(command.analysisTokens),
-    redirections: Object.freeze(command.redirections),
-    nested: Object.freeze(command.nested)
+    redirections: Object.freeze(command.redirections.map((redirection) => Object.freeze({
+      ...redirection,
+      span: Object.freeze(redirection.span),
+      ...redirection.heredoc ? {
+        heredoc: Object.freeze({
+          ...redirection.heredoc,
+          bodySpan: Object.freeze(redirection.heredoc.bodySpan),
+          terminatorSpan: Object.freeze(redirection.heredoc.terminatorSpan)
+        })
+      } : {}
+    }))),
+    nested: Object.freeze(command.nested.map((program) => freezeCommandProgram(program)))
   });
 }
 function appendAccumulatedCommand(nodes, accumulator, command) {
-  nodes.push(freezeCommandView(command)), accumulator.reset();
+  nodes.push(command), accumulator.reset();
 }
 function appendCommandWordPart(parts, source, start, end, provenance) {
   if (end <= start)
@@ -1602,7 +1711,17 @@ function freezeCommandProgram(program) {
     ...program,
     span: Object.freeze(program.span),
     issues: Object.freeze(program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) }))),
-    nodes: Object.freeze(program.nodes)
+    nodes: Object.freeze(program.nodes.map((node) => {
+      if (node.kind === "command")
+        return freezeCommandView(node);
+      if (node.kind === "group")
+        return Object.freeze({
+          ...node,
+          span: Object.freeze(node.span),
+          body: freezeCommandProgram(node.body)
+        });
+      return Object.freeze({ ...node, span: Object.freeze(node.span) });
+    }))
   });
 }
 
@@ -1637,7 +1756,7 @@ function parsePosixCommand(source, dialect, limits) {
   });
 }
 function scanSequence(source, start, end, dialect, limits, depth, closing) {
-  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), wordCount = 0, limited = !1, flushCommand = () => {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), pendingHeredocs = [], wordCount = 0, limited = !1, flushCommand = () => {
     if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
       return;
     let span = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text), analysisTokens = accumulator.words.map((word) => word.provenance === "command-substitution" ? word.raw : word.text);
@@ -1660,18 +1779,31 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
     if (!char)
       break;
     if (closing && char === closing)
-      return flushCommand(), { nodes, issues, next: i + 1, closed: !0, words: wordCount, limited };
+      return flushCommand(), {
+        nodes,
+        issues,
+        next: i + 1,
+        closed: !0,
+        words: wordCount,
+        limited,
+        pendingHeredocs
+      };
     if (isShellWhitespace(char)) {
       if (char === `
 ` || char === "\r") {
         flushCommand();
         let connectorEnd = char === "\r" && source[i + 1] === `
 ` ? i + 2 : i + 1;
-        nodes.push(Object.freeze({
+        if (nodes.push(Object.freeze({
           kind: "connector",
           operator: source.slice(i, connectorEnd),
           span: Object.freeze({ start: i, end: connectorEnd })
-        })), i = connectorEnd;
+        })), pendingHeredocs.length > 0) {
+          let bodies = consumeHeredocBodies(source, connectorEnd, end, pendingHeredocs.splice(0));
+          issues.push(...bodies.issues), i = bodies.next;
+          continue;
+        }
+        i = connectorEnd;
         continue;
       }
       i++;
@@ -1695,7 +1827,7 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
     if ((char === "(" || char === "{") && accumulator.start === -1) {
       if (depth >= limits.maxDepth)
         return limitedResult(nodes, issues, i, wordCount, "depth-limit", limits.maxDepth);
-      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = freezeCommandProgram({
+      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = {
         kind: "program",
         dialect,
         source: source.slice(bodySpan.start, bodySpan.end),
@@ -1703,13 +1835,19 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
         status: getParseStatus(inner.issues, inner.limited),
         issues: inner.issues,
         nodes: inner.nodes
-      });
-      if (nodes.push(Object.freeze({
+      };
+      if (nodes.push({
         kind: "group",
         style: char === "(" ? "subshell" : "brace",
-        span: Object.freeze({ start: i, end: groupEnd }),
+        span: { start: i, end: groupEnd },
         body
-      })), issues.push(...inner.issues), !inner.closed)
+      }), issues.push(...inner.issues), inner.pendingHeredocs.length > 0 || containsHeredoc(inner.nodes))
+        issues.push({
+          code: "unsupported-heredoc-context",
+          message: "heredocs attached inside command groups are not supported safely",
+          span: { start: i, end: groupEnd }
+        });
+      if (pendingHeredocs.push(...inner.pendingHeredocs), !inner.closed)
         issues.push({
           code: char === "(" ? "unclosed-subshell" : "unclosed-brace-group",
           message: `${char} group is not closed`,
@@ -1720,23 +1858,53 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
     }
     let redirect = (char === "<" || char === ">") && source[i + 1] !== "(" ? readRedirect(source, i) : null;
     if (redirect) {
-      if (accumulator.words.length > 0) {
-        let prior = accumulator.words.at(-1);
-        if (prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw))
-          accumulator.words.pop();
-      }
-      let redirectStart = i;
+      let prior = accumulator.words.at(-1), attachedFd = prior && prior.span.end === i && /^[0-9]+$/.test(prior.raw) ? Number(prior.raw) : void 0;
+      if (attachedFd !== void 0)
+        accumulator.words.pop();
+      let redirectStart = attachedFd === void 0 ? i : prior?.span.start ?? i;
       accumulator.start = accumulator.start === -1 ? i : accumulator.start;
       let targetStart = i + redirect.length;
       while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
         targetStart++;
-      let targetResult = targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length;
-      if (accumulator.redirections.push(Object.freeze({
+      let delimiter = redirect === "<<" || redirect === "<<-" ? readHeredocDelimiter(source, targetStart, end) : void 0, targetResult = delimiter ? {
+        word: freezeParsedCommandWord(source, targetStart, delimiter.next, delimiter.delimiter, "literal", delimiter.quoted),
+        nested: [],
+        issues: [],
+        next: delimiter.next,
+        words: 0,
+        limited: !1
+      } : targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length, redirection = {
         kind: "redirection",
         operator: redirect,
-        span: Object.freeze({ start: redirectStart, end: redirectEnd }),
+        span: { start: redirectStart, end: redirectEnd },
+        ...attachedFd === void 0 ? {} : { fd: attachedFd },
         ...targetResult ? { target: targetResult.word } : {}
-      })), targetResult)
+      };
+      if (accumulator.redirections.push(redirection), redirect === "<<" || redirect === "<<-")
+        if (!delimiter)
+          issues.push({
+            code: "missing-heredoc-delimiter",
+            message: "heredoc redirection requires a delimiter word",
+            span: { start: i, end: i + redirect.length }
+          });
+        else {
+          if (delimiter.ambiguous || delimiter.delimiter.length === 0)
+            issues.push({
+              code: "ambiguous-heredoc-delimiter",
+              message: "heredoc delimiter cannot be determined safely",
+              span: delimiter.span
+            });
+          pendingHeredocs.push({
+            delimiter: delimiter.delimiter,
+            quotedDelimiter: delimiter.quoted,
+            stripTabs: redirect === "<<-",
+            declarationSpan: { start: redirectStart, end: redirectEnd },
+            attach: (heredoc) => {
+              redirection.heredoc = heredoc;
+            }
+          });
+        }
+      if (targetResult)
         accumulator.nested.push(...targetResult.nested), issues.push(...targetResult.issues), wordCount += targetResult.words, limited ||= targetResult.limited;
       accumulator.end = redirectEnd, i = redirectEnd;
       continue;
@@ -1746,7 +1914,15 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
       return limitedResult(nodes, issues, wordResult.next, wordCount, "word-limit", limits.maxWords);
     i = wordResult.next > i ? wordResult.next : i + 1;
   }
-  return flushCommand(), { nodes, issues, next: i, closed: closing === void 0, words: wordCount, limited };
+  return flushCommand(), issues.push(...unterminatedHeredocIssues(pendingHeredocs)), {
+    nodes,
+    issues,
+    next: i,
+    closed: closing === void 0,
+    words: wordCount,
+    limited,
+    pendingHeredocs: []
+  };
 }
 function readWord(source, start, end, dialect, limits, depth) {
   let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], nestedWords = 0, limited = !1;
@@ -1923,6 +2099,12 @@ function readSubstitution(source, start, end, dialect, limits, depth) {
       message: `${source.slice(start, start + openLength)} substitution is not closed`,
       span: { start, end: next }
     }
+  ] : [], contextIssue = (backtick || process2) && containsHeredoc(inner.nodes) ? [
+    {
+      code: "unsupported-heredoc-context",
+      message: "heredocs are supported only in ordinary commands and $(...) substitutions",
+      span: { start, end: next }
+    }
   ] : [];
   return {
     program: freezeCommandProgram({
@@ -1930,8 +2112,8 @@ function readSubstitution(source, start, end, dialect, limits, depth) {
       dialect,
       source: source.slice(start + openLength, innerEnd),
       span: { start: start + openLength, end: innerEnd },
-      status: getParseStatus([...inner.issues, ...substitutionIssue], inner.limited),
-      issues: [...inner.issues, ...substitutionIssue],
+      status: getParseStatus([...inner.issues, ...substitutionIssue, ...contextIssue], inner.limited),
+      issues: [...inner.issues, ...substitutionIssue, ...contextIssue],
       nodes: inner.nodes
     }),
     next,
@@ -1955,11 +2137,20 @@ function findSubstitutionEnd(source, start, end, closing) {
         return i;
     return -1;
   }
-  let depth = 1, single = !1, double = !1;
+  let depth = 1, single = !1, double = !1, pendingHeredocs = [];
   for (let i = start;i < end; i++) {
     let char = source[i];
     if (char === "\\") {
       i++;
+      continue;
+    }
+    if ((char === `
+` || char === "\r") && pendingHeredocs.length > 0) {
+      let lineEnd = char === "\r" && source[i + 1] === `
+` ? i + 2 : i + 1, bodies = consumeHeredocBodies(source, lineEnd, end, pendingHeredocs.splice(0));
+      if (!bodies.terminated)
+        return -1;
+      i = bodies.next - 1;
       continue;
     }
     if (!double && char === "'")
@@ -1968,6 +2159,30 @@ function findSubstitutionEnd(source, start, end, closing) {
       double = !double;
     if (single)
       continue;
+    if (!double && char === "#" && isCommentStart(source, i, start)) {
+      while (i + 1 < end && source[i + 1] !== `
+` && source[i + 1] !== "\r")
+        i++;
+      continue;
+    }
+    if (closing === ")" && !double && char === "<" && source[i + 1] === "<" && source[i + 2] !== "<") {
+      let stripTabs = source[i + 2] === "-", targetStart = i + (stripTabs ? 3 : 2);
+      while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
+        targetStart++;
+      let delimiter = readHeredocDelimiter(source, targetStart, end);
+      if (delimiter) {
+        pendingHeredocs.push({
+          delimiter: delimiter.delimiter,
+          quotedDelimiter: delimiter.quoted,
+          stripTabs,
+          declarationSpan: { start: i, end: delimiter.next },
+          attach: () => {
+            return;
+          }
+        }), i = delimiter.next - 1;
+        continue;
+      }
+    }
     if (source.startsWith("$(", i) && !source.startsWith("$((", i)) {
       depth++, i++;
       continue;
@@ -2004,6 +2219,8 @@ function readRedirect(source, index) {
     return null;
   if (source.startsWith("<<<", index))
     return "<<<";
+  if (source.startsWith("<<-", index))
+    return "<<-";
   if (source[index + 1] === "<")
     return "<<";
   if (source[index + 1] === "&")
@@ -2094,7 +2311,7 @@ function readFixedBaseEscape(source, start, end, base, maxLength, fallbackNext) 
 function getParseStatus(issues, limited = !1) {
   if (limited)
     return "limited";
-  if (issues.some((issue) => issue.code === "invalid-ansi-c-code-point"))
+  if (issues.some((issue) => issue.code === "invalid-ansi-c-code-point" || issue.code === "missing-heredoc-delimiter" || issue.code === "ambiguous-heredoc-delimiter" || issue.code === "unterminated-heredoc" || issue.code === "unsupported-heredoc-context"))
     return "invalid";
   return issues.length > 0 ? "partial" : "complete";
 }
@@ -2183,8 +2400,26 @@ function limitedResult(nodes, issues, next, words, code, limit) {
     next,
     closed: !1,
     words,
-    limited: !0
+    limited: !0,
+    pendingHeredocs: []
   };
+}
+function containsHeredoc(nodes) {
+  return nodes.some((node) => {
+    if (node.kind === "command")
+      return node.redirections.some((redirection) => redirection.heredoc) || node.nested.some((program) => containsHeredoc(program.nodes));
+    return node.kind === "group" && containsHeredoc(node.body.nodes);
+  });
+}
+function unterminatedHeredocIssues(pending) {
+  return pending.map((declaration) => ({
+    code: "unterminated-heredoc",
+    message: `heredoc delimiter ${declaration.delimiter} was not found`,
+    span: declaration.declarationSpan
+  }));
+}
+function isCommentStart(source, index, start) {
+  return index === start || /[\s;&|()]/u.test(source[index - 1] ?? "");
 }
 
 // src/parser/powershell.ts
@@ -10811,6 +11046,7 @@ function getSetOptionChanges(tokens, commandIndex) {
 }
 
 // src/core/analyze/analyze-command.ts
+var REASON_UNQUOTED_HEREDOC = "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.", REASON_UNSUPPORTED_HEREDOC = "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.";
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
   let ownsDerivedCommandWorkBudget = options2.derivedCommandWorkBudget === void 0, ownsParallelBudget = options2.parallelBudget === void 0;
   try {
@@ -10842,8 +11078,16 @@ function analyzeCommandWithBudget(command2, depth, options2, parsedProgram) {
     return null;
   if (program.status === "limited")
     return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, segment: command2, intent: "stop_and_explain" };
-  if (program.status === "invalid")
+  if (program.status === "invalid") {
+    let heredocIssue = program.issues.find((issue) => issue.code.includes("heredoc"));
+    if (heredocIssue) {
+      if (!options2.strict)
+        return analyzeUnparseableCommand(command2, options2);
+      let reason = `Unsupported heredoc syntax: ${heredocIssue.message}`;
+      return options2.trace?.recordGlobal({ type: "error", message: reason }), { reason, segment: command2, intent: "stop_and_explain" };
+    }
     return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
+  }
   let hasUnclosedQuote = program.issues.some((issue) => issue.code.includes("quote"));
   if (options2.strict && hasUnclosedQuote && command2.includes(" "))
     return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
@@ -10900,6 +11144,13 @@ function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
   return null;
 }
 function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput) {
+  let heredocReason = getHeredocReason(commandView);
+  if (heredocReason && options2.strict)
+    return options2.trace?.recordSegment({ type: "error", message: heredocReason }), {
+      reason: heredocReason,
+      segment: commandView.source,
+      intent: "stop_and_explain"
+    };
   let segment = [...commandView.analysisTokens], segmentStr = commandView.legacyNormalized, segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, state.shellGitContextState);
   if (commandView.dialect === "powershell" && !options2.invalidReason && (options2.compatibility !== "explain-legacy" || options2.policySnapshot.state === "ready")) {
     let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(commandView, hasPipelineInput, getPowerShellRemoveItemOptions(options2, state.effectiveCwd)), options2.policy);
@@ -10926,7 +11177,11 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
         ruleId: textMatch.id,
         intent: textMatch.intent
       };
-    return options2.trace?.recordSegment({ type: "dangerous-text", token: segment[0], matched: !1 }), updateCwdAfterSegment(segment, state, options2.trace), null;
+    options2.trace?.recordSegment({ type: "dangerous-text", token: segment[0], matched: !1 });
+    let heredocResult2 = analyzeUnsupportedHeredoc(commandView, heredocReason, options2);
+    if (heredocResult2)
+      return heredocResult2;
+    return updateCwdAfterSegment(segment, state, options2.trace), null;
   }
   let result = analyzeSegment(segment, depth, {
     ...options2,
@@ -10953,7 +11208,42 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
   });
   if (result)
     return { ...result, segment: segmentStr };
+  let heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options2);
+  if (heredocResult)
+    return heredocResult;
   return updateCwdAfterSegment(segment, state, options2.trace), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+}
+function getHeredocReason(commandView) {
+  let heredocs = commandView.redirections.filter((redirection) => redirection.operator === "<<" || redirection.operator === "<<-");
+  if (heredocs.length === 0)
+    return;
+  if (heredocs.length !== 1)
+    return REASON_UNSUPPORTED_HEREDOC;
+  let heredoc = heredocs[0];
+  if (!heredoc?.heredoc)
+    return REASON_UNSUPPORTED_HEREDOC;
+  if (!heredoc.heredoc.quotedDelimiter)
+    return REASON_UNQUOTED_HEREDOC;
+  if (heredoc.fd !== void 0 && heredoc.fd !== 0)
+    return REASON_UNSUPPORTED_HEREDOC;
+  if (commandView.redirections.some((redirection) => redirection !== heredoc && ["<", "<<", "<<-", "<<<", "<&", "<>"].includes(redirection.operator)))
+    return REASON_UNSUPPORTED_HEREDOC;
+  let bareWord = (index, value) => {
+    let word = commandView.words[index];
+    return word?.text === value && word.raw === value && word.provenance === "literal" && !word.quoted;
+  };
+  if (bareWord(0, "cat") || bareWord(0, "tee"))
+    return;
+  if (bareWord(0, "git") && bareWord(1, "apply"))
+    return;
+  return REASON_UNSUPPORTED_HEREDOC;
+}
+function analyzeUnsupportedHeredoc(commandView, reason, options2) {
+  if (!reason)
+    return null;
+  let heredocs = commandView.redirections.filter((redirection) => redirection.operator === "<<" || redirection.operator === "<<-"), bodies = heredocs.flatMap((redirection) => redirection.heredoc ? [redirection.heredoc.body] : []), result = analyzeUnparseableCommand(bodies.length === heredocs.length ? bodies.join(`
+`) : commandView.source, options2);
+  return result ? { ...result, segment: commandView.legacyNormalized } : null;
 }
 function updateCwdAfterSegment(segment, state, trace) {
   let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);

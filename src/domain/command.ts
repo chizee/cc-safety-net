@@ -47,11 +47,23 @@ export type CommandWord = {
 };
 
 /** @internal */
+export type CommandHeredoc = {
+  readonly body: string;
+  readonly delimiter: string;
+  readonly quotedDelimiter: boolean;
+  readonly stripTabs: boolean;
+  readonly bodySpan: CommandSpan;
+  readonly terminatorSpan: CommandSpan;
+};
+
+/** @internal */
 export type CommandRedirection = {
   readonly kind: 'redirection';
   readonly operator: string;
   readonly span: CommandSpan;
+  readonly fd?: number;
   readonly target?: CommandWord;
+  readonly heredoc?: CommandHeredoc;
 };
 
 /** @internal */

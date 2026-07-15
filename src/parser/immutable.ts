@@ -45,8 +45,24 @@ export function freezeCommandView(command: CommandView): CommandView {
     words: Object.freeze(command.words),
     tokens: Object.freeze(command.tokens),
     analysisTokens: Object.freeze(command.analysisTokens),
-    redirections: Object.freeze(command.redirections),
-    nested: Object.freeze(command.nested),
+    redirections: Object.freeze(
+      command.redirections.map((redirection) =>
+        Object.freeze({
+          ...redirection,
+          span: Object.freeze(redirection.span),
+          ...(redirection.heredoc
+            ? {
+                heredoc: Object.freeze({
+                  ...redirection.heredoc,
+                  bodySpan: Object.freeze(redirection.heredoc.bodySpan),
+                  terminatorSpan: Object.freeze(redirection.heredoc.terminatorSpan),
+                }),
+              }
+            : {}),
+        }),
+      ),
+    ),
+    nested: Object.freeze(command.nested.map((program) => freezeCommandProgram(program))),
   });
 }
 
@@ -56,7 +72,7 @@ export function appendAccumulatedCommand(
   accumulator: ReturnType<typeof createCommandAccumulator>,
   command: CommandView,
 ) {
-  nodes.push(freezeCommandView(command));
+  nodes.push(command);
   accumulator.reset();
 }
 
@@ -131,6 +147,18 @@ export function freezeCommandProgram(program: CommandProgram): CommandProgram {
     issues: Object.freeze(
       program.issues.map((issue) => Object.freeze({ ...issue, span: Object.freeze(issue.span) })),
     ),
-    nodes: Object.freeze(program.nodes),
+    nodes: Object.freeze(
+      program.nodes.map((node) => {
+        if (node.kind === 'command') return freezeCommandView(node);
+        if (node.kind === 'group') {
+          return Object.freeze({
+            ...node,
+            span: Object.freeze(node.span),
+            body: freezeCommandProgram(node.body),
+          });
+        }
+        return Object.freeze({ ...node, span: Object.freeze(node.span) });
+      }),
+    ),
   });
 }
