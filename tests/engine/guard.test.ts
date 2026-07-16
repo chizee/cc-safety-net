@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { join } from 'node:path';
-import {
-  PATH_CANONICALIZATION_LIMITS,
-  PathCanonicalizationLimitError,
-} from '@/core/path-canonicalization';
+import { dirname, join } from 'node:path';
+import { getUserPolicyPath } from '@/core/policy';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import {
   evaluateGuard,
@@ -241,27 +238,6 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('fails closed when policy protection exhausts one budget across multiple real targets', async () => {
-    await withTempDir('cc-safety-net-guard-policy-path-budget-', (cwd) => {
-      expect(evaluateGuard(nonCommandInvocation(cwd, { path: cwd })).decision.kind).toBe('allow');
-
-      const marker = 'private-policy-path-marker';
-      const error = captureNonCommandGuardError(cwd, {
-        targets: Array.from(
-          { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
-          (_, index) => ({
-            file_path: join(cwd, `${marker}-${index}`),
-          }),
-        ),
-      });
-
-      expect(error.stage).toBe('policy-protection');
-      expect(error.cause).toBeInstanceOf(PathCanonicalizationLimitError);
-      expect((error.cause as Error).message).toBe('Path canonicalization work limit exceeded.');
-      expect((error.cause as Error).message).not.toContain(marker);
-    });
-  });
-
   test('fails closed before policy evaluation when recursive tool input exceeds traversal bounds', async () => {
     await withTempDir('cc-safety-net-guard-input-bounds-', (cwd) => {
       const input: Record<string, unknown> = {};
@@ -380,6 +356,53 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('allows a review command that mentions the policy path inside its prompt', async () => {
+    await withTempDir('cc-safety-net-guard-policy-prompt-', (cwd) => {
+      const policyPath = getUserPolicyPath();
+      const prompt = [
+        `Review against this intentional contract: only canonical ${policyPath} is policy-protected.`,
+        'Rule configs, locks, rulebooks, caches, and ordinary directory inspection are intentionally allowed.',
+        'Recursive rm of the policy directory remains hard-blocked.',
+        'Direct policy writes, patches, symlink aliases, redirects, and directly extractable malformed commands must remain protected.',
+      ].join(' ');
+      const command = [
+        '/opt/autoreview --mode local',
+        `--prompt '${prompt}'`,
+        "--parallel-tests 'bun test tests/core/policy-protection.test.ts tests/engine/guard.test.ts tests/pi/tool-call.test.ts tests/bin/hooks/antigravity-cli-hook.test.ts tests/opencode/plugin.test.ts'",
+        '--stream-engine-output',
+      ].join(' ');
+
+      expect(
+        evaluateGuard(commandInvocation(cwd, command), {
+          policyOptions: { userConfigDir: join(cwd, 'user-rules') },
+        }),
+      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+    });
+  });
+
+  test('hard-stops direct policy file mutation commands', async () => {
+    await withTempDir('cc-safety-net-guard-policy-mutation-', (cwd) => {
+      const policyPath = getUserPolicyPath();
+      const policyDirectory = dirname(policyPath);
+      for (const command of [
+        `printf '{}' > "${policyPath}"`,
+        `tee "${policyPath}"`,
+        `rm "${policyPath}"`,
+        `mv "${policyDirectory}" /tmp/disabled-safety-net`,
+        `mv -t /tmp "${policyPath}"`,
+        `rm -rf "${policyDirectory}"`,
+        `rm -rf "${dirname(policyDirectory)}"`,
+        `POLICY="${policyPath}"; printf '{}' > "$POLICY"`,
+        `cd "${policyDirectory}" && printf '{}' > policy.json`,
+      ]) {
+        expect(evaluateGuard(commandInvocation(cwd, command)), command).toMatchObject({
+          stage: 'policy-protection',
+          decision: { kind: 'deny', intent: 'hard_stop' },
+        });
+      }
+    });
+  });
+
   test('secret protection precedes invalid config state', async () => {
     await withTempDir('cc-safety-net-guard-secret-', (cwd) => {
       const result = evaluateGuard(commandInvocation(cwd, 'cat .env'), {
@@ -481,17 +504,10 @@ describe('guard evaluation', () => {
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync && rm -rf /'), options)
           .decision,
-      ).toEqual({
+      ).toMatchObject({
         kind: 'deny',
-        reason: 'missing lockfile',
-        intent: 'stop_and_explain',
-        evidence: [
-          {
-            kind: 'command',
-            command: 'npx -y cc-safety-net rule sync && rm -rf /',
-            segment: 'npx -y cc-safety-net rule sync',
-          },
-        ],
+        reason: 'Policy config is protected and you must not modify it.',
+        intent: 'hard_stop',
       });
     });
   });
@@ -629,29 +645,21 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('preserves policy protection for legacy here-data segment targets', async () => {
+  test('treats here-data values as data rather than policy mutation targets', async () => {
     await withTempDir('cc-safety-net-guard-policy-here-data-', (cwd) => {
-      const target = '.cc-safety-net/rules/rule.json';
+      const target = getUserPolicyPath();
       const command = `rm <<< ${target}`;
 
       expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
-        stage: 'policy-protection',
-        decision: {
-          kind: 'deny',
-          reason: 'Policy config is protected and you must not modify it.',
-          intent: 'hard_stop',
-          evidence: [
-            { kind: 'command', command, segment: target },
-            { kind: 'path', target },
-          ],
-        },
+        stage: 'command-analysis',
+        decision: { kind: 'allow' },
       });
     });
   });
 
   test('leaves boundaries after missing here-data targets for later policy evaluation', async () => {
     await withTempDir('cc-safety-net-guard-missing-here-policy-', (cwd) => {
-      const target = '.cc-safety-net/rules/rule.json';
+      const target = getUserPolicyPath();
       const commands = [
         `cat <<< ; rm ${target}`,
         `cat << ; rm ${target}`,

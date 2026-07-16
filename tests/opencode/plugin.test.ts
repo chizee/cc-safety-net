@@ -191,7 +191,11 @@ describe('OpenCode plugin', () => {
     await plugin.config(opencodeConfig);
     opencodeConfig.shell = 'pwsh';
 
-    await expectBashBlock(plugin, 'rm -rf /', 'powershell.remove-item-root-or-home');
+    await expectBashBlock(
+      plugin,
+      'Remove-Item . -Recurse -Force',
+      'powershell.remove-item-recursive-force-cwd-self',
+    );
   });
 
   test('routes real bash traffic through the configured PowerShell analyzer', async () => {
@@ -203,7 +207,11 @@ describe('OpenCode plugin', () => {
         'Remove-Item . -Recurse -Force',
         'powershell.remove-item-recursive-force-cwd-self',
       );
-      await expectBashBlock(plugin, 'rm -rf /', 'powershell.remove-item-root-or-home');
+      await expectBashBlock(
+        plugin,
+        'Remove-Item / -Recurse -Force',
+        'powershell.remove-item-recursive-force-root-or-home',
+      );
     }
   });
 
@@ -227,7 +235,7 @@ describe('OpenCode plugin', () => {
         'Remove-Item . -Recurse -Force',
         'powershell.remove-item-recursive-force-cwd-self',
       );
-      await expectBashBlock(plugin, 'rm -rf /', 'rm.recursive-force-root-or-home');
+      await expectBashBlock(plugin, 'rm -rf .', 'rm.recursive-force-cwd-self');
     }
   });
 
@@ -514,7 +522,7 @@ describe('OpenCode plugin', () => {
         ).resolves.toBeUndefined();
         await expect(
           plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: 'rm -rf /' } }),
-        ).rejects.toThrow('root or home directory');
+        ).rejects.toThrow('Policy config is protected and you must not modify it.');
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -732,7 +740,7 @@ describe('OpenCode plugin', () => {
           { tool: 'bash' },
           { args: { command: 'npx -y cc-safety-net rule sync && rm -rf /' } },
         ),
-      ).rejects.toThrow('missing lockfile');
+      ).rejects.toThrow('Policy config is protected and you must not modify it.');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

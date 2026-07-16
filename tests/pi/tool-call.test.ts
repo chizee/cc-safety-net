@@ -295,7 +295,7 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('protects ctx cwd rule config when Grok Shell executes in a nested directory', async () => {
+  test('allows ctx cwd rule config changes from a nested execution directory', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-policy-cwd-'));
     try {
       mkdirSync(join(dir, 'app'));
@@ -309,7 +309,7 @@ describe('Pi tool_call event', () => {
         piContext(dir),
       );
 
-      expect(result?.reason).toContain('Policy config is protected and you must not modify it.');
+      expect(result).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -588,7 +588,7 @@ describe('Pi tool_call event', () => {
 
       expect(handler(bashToolCall('cat .env'), piContext(dir))).toBeUndefined();
       expect(handler(bashToolCall('rm -rf /'), piContext(dir))?.reason).toContain(
-        'root or home directory',
+        'Policy config is protected and you must not modify it.',
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -886,7 +886,7 @@ describe('Pi tool_call event', () => {
       expect(
         handlePiToolCall(bashToolCall('npx -y cc-safety-net rule sync && rm -rf /'), piContext(dir))
           ?.reason,
-      ).toContain('missing lockfile');
+      ).toContain('Policy config is protected and you must not modify it.');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

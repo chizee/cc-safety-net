@@ -48,6 +48,12 @@ For v2.0.0, incomplete parsing of native PowerShell path syntax is explicitly ac
 
 All-tool routing is not complete PowerShell path parsing. Complete coverage requires a separate PowerShell-aware path-extraction design and tests. Use operating-system permissions, a sandbox, or equivalent runtime filesystem enforcement when complete protection is required.
 
+### Policy file protection limitation
+
+The canonical user `policy.json` has a best-effort exact-path guard for direct write, edit, and patch targets; exact shell operands and write redirections; supported environment, relative, and existing symlink aliases; recursive `rm` of its directory or an ancestor; and `mv` when the file, its directory, or an ancestor is a source. The existing read whitelist remains allowed, as do rulebooks, lockfiles, caches, sibling files, and directory inspection.
+
+This guard does not infer computed interpreter paths, inspect interpreter bodies, expand shell globs or braces, infer archive members, simulate `find` actions, infer remote filenames, or infer a transfer's final filename from its destination directory. Its hard-stop message is agent guidance, not a complete security boundary. Use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime filesystem enforcement when complete protection is required.
+
 The command analyzer uses separate bounded parsers for POSIX-like shell commands and the supported PowerShell subset. These parsers model command boundaries, redirections, groups, substitutions, word provenance, and source spans; they are not claims of complete Bash or PowerShell grammar support. Malformed input is reported as partial, while commands beyond the parser's input, word, or nesting budgets are denied instead of being analyzed incompletely.
 
 For backward compatibility, published JavaScript bundles also embed `shell-quote` for legacy POSIX token projection. It is listed under `devDependencies` because package consumers do not resolve it at runtime, but its bundled code remains part of the production security surface and is included in dependency auditing.

@@ -11346,7 +11346,7 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute11, join as join12, normalize as normalize5, resolve as resolve9 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute11, normalize as normalize5, resolve as resolve9 } from "node:path";
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
@@ -11362,6 +11362,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "view",
   "viewfile"
 ]), READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
+  "[",
   "cat",
   "file",
   "grep",
@@ -11373,199 +11374,120 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "sed",
   "stat",
   "tail",
+  "test",
   "wc"
-]), SHELL_SCRIPT_COMMANDS = /* @__PURE__ */ new Set(["bash", "dash", "ksh", "sh", "zsh"]), SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
-  ["bash", /* @__PURE__ */ new Set(["-c"])],
-  ["dash", /* @__PURE__ */ new Set(["-c"])],
-  ["ksh", /* @__PURE__ */ new Set(["-c"])],
-  ["sh", /* @__PURE__ */ new Set(["-c"])],
-  ["zsh", /* @__PURE__ */ new Set(["-c"])],
-  ["python", /* @__PURE__ */ new Set(["-c"])],
-  ["python3", /* @__PURE__ */ new Set(["-c"])],
-  ["node", /* @__PURE__ */ new Set(["-e", "--eval"])],
-  ["perl", /* @__PURE__ */ new Set(["-e"])]
-]), CLUSTERED_SCRIPT_ARGUMENT_OPTIONS = /* @__PURE__ */ new Map([
-  ["bash", /* @__PURE__ */ new Set(["c"])],
-  ["dash", /* @__PURE__ */ new Set(["c"])],
-  ["ksh", /* @__PURE__ */ new Set(["c"])],
-  ["sh", /* @__PURE__ */ new Set(["c"])],
-  ["zsh", /* @__PURE__ */ new Set(["c"])],
-  ["node", /* @__PURE__ */ new Set(["e"])],
-  ["perl", /* @__PURE__ */ new Set(["e"])]
-]), POLICY_ENV_PATH_NAMES = /* @__PURE__ */ new Set(["CC_SAFETY_NET_HOME"]);
+]), MV_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set(["-S", "-t", "--suffix", "--target-directory"]);
 function findPolicyConfigMutationTargetInSemanticFacts(facts) {
-  let budget = {
-    ...createPathCanonicalizationBudget(),
-    protectedPaths: /* @__PURE__ */ new Map
-  };
-  for (let configCwd of /* @__PURE__ */ new Set([
-    facts.invocation.context.configCwd,
-    ...facts.invocation.context.policyConfigCwds ?? []
-  ])) {
-    let target = findPolicyConfigMutationTargetForContext(facts, {
-      configCwd,
-      executionCwd: facts.invocation.context.executionCwd
-    }, budget);
+  let budget = createPathCanonicalizationBudget(), identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, budget);
+  if (facts.invocation.route.kind === "patch")
+    return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), !1, facts.invocation.context.executionCwd, identity, budget);
+  let command2 = getCommandSyntaxFact(facts, "input-candidate");
+  if (facts.invocation.route.kind === "command")
+    return command2 ? findPolicyConfigMutationTargetInCommand(command2.shell, facts.invocation.context.executionCwd, identity, budget) : null;
+  if (facts.invocation.route.kind === "unknown" && command2) {
+    let target = findPolicyConfigMutationTargetInCommand(command2.shell, facts.invocation.context.executionCwd, identity, budget);
     if (target)
       return target;
   }
-  return null;
+  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || READ_ONLY_TOOLS.has(normalizeToolName(facts.invocation.toolName)), facts.invocation.context.executionCwd, identity, budget);
 }
-function findPolicyConfigMutationTargetForContext(facts, context, budget) {
-  if (facts.invocation.route.kind === "patch")
-    return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), !1, context, budget);
-  let command2 = getCommandSyntaxFact(facts, "input-candidate");
-  if (facts.invocation.route.kind === "command")
-    return command2 ? findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store, budget) : null;
-  if (facts.invocation.route.kind === "unknown" && command2) {
-    let commandTarget = findPolicyConfigMutationTargetInCommand(command2.shell, context, /* @__PURE__ */ new Map, facts.store, budget);
-    if (commandTarget)
-      return commandTarget;
-  }
-  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), context, budget);
-}
-function findPolicyConfigMutationTargetInPaths(paths, readOnly, context, budget) {
-  let target = paths.find((value) => isPolicyConfigPath(value, context.configCwd, context.executionCwd, budget));
-  if (!target)
+function findPolicyConfigMutationTargetInPaths(paths, readOnly, cwd, identity, budget) {
+  if (readOnly)
     return null;
-  return readOnly ? null : { target };
+  let target = paths.find((path) => isPolicyFile(path, cwd, identity, budget));
+  return target ? { target } : null;
 }
-function findPolicyConfigMutationTargetInCommand(syntax, context, variables = /* @__PURE__ */ new Map, store, budget) {
+function findPolicyConfigMutationTargetInCommand(syntax, cwd, identity, budget) {
   if (syntax.status === "structural-limit")
     throw new StructuralShellSyntaxLimitError;
   if (syntax.status !== "complete")
-    return findPolicyConfigTargetInText(syntax.source, context, budget);
-  let state = { cwd: context.executionCwd, variables }, segment = [];
+    return findPolicyConfigTargetInMalformedText(syntax.source, cwd, identity, budget);
+  let state = { cwd, variables: /* @__PURE__ */ new Map }, segment = [];
   for (let entry of syntax.entries) {
     if (entry.kind === "operator") {
       if (!entry.boundary)
         continue;
-      let target = findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store, budget);
+      let target = findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
       if (target)
         return target;
       state = applyShellState(segment, state, budget), segment = [];
       continue;
     }
     if (entry.kind === "redirection") {
-      if (entry.role === "here-data") {
-        if (entry.target)
-          segment.push(entry.target);
-        continue;
-      }
-      let target = entry.role === "file-write" ? entry.target : void 0;
-      if (target && isPolicyConfigPath(expandShellVariables(target, state.variables), context.configCwd, state.cwd, budget))
-        return { target: formatShellPolicyTarget(target) };
+      if (entry.role === "file-write" && entry.target && isPolicyFile(expandShellVariables(entry.target, state.variables), state.cwd, identity, budget))
+        return { target: entry.target };
       continue;
     }
     segment.push(entry.text);
   }
-  return findUnsafePolicyConfigSegmentTarget(segment, state, context.configCwd, store, budget);
+  return findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
 }
-function findUnsafePolicyConfigSegmentTarget(segment, state, configCwd, store, budget) {
+function findPolicyConfigMutationTargetInSegment(segment, state, identity, budget) {
   if (isAssignmentOnlySegment(segment))
     return null;
-  let scriptTarget = findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store, budget);
-  if (scriptTarget)
-    return scriptTarget;
-  let sedWriteTarget = findSedScriptWritePolicyConfigTarget(segment, state, configCwd, budget);
-  if (sedWriteTarget)
-    return sedWriteTarget;
-  let target = segment.flatMap((token) => extractPolicyConfigPathCandidates(token).map((candidate) => expandShellVariables(candidate, state.variables))).find((token) => isPolicyConfigPath(token, configCwd, state.cwd, budget));
-  if (!target)
-    return null;
-  return isReadOnlySegment(segment) ? null : { target };
-}
-function findScriptArgumentPolicyConfigTarget(segment, state, configCwd, store, budget) {
-  let stripped = stripEnvAssignments(stripWrappers([...segment]));
-  if (stripped.length < 3)
-    return null;
-  let command2 = getBasename(stripped[0] ?? "").toLowerCase();
-  if (!SCRIPT_ARGUMENT_OPTIONS.has(command2))
-    return null;
-  if (SHELL_SCRIPT_COMMANDS.has(command2)) {
-    let script2 = getShellCommandString(command2, stripped.slice(1));
-    if (script2 === null)
-      return null;
-    return findPolicyConfigMutationTargetInCommand(store.getShellSyntax(script2), { configCwd, executionCwd: state.cwd }, state.variables, store, budget);
+  let stripped = stripWrappers([...segment]), command2 = getBasename(stripped[0] ?? "").toLowerCase(), args = stripped.slice(1);
+  if (command2 === "rm" && hasRecursiveRmOption(args)) {
+    let target = extractRmOperands(args).find((operand) => isPolicyDirectoryOrAncestor(expandShellVariables(operand, state.variables), state.cwd, identity, budget));
+    if (target)
+      return { target };
   }
-  let optionIndex = stripped.findIndex((token) => isScriptArgumentOption(command2, token));
-  if (optionIndex === -1)
+  if (command2 === "mv") {
+    let target = extractMvSources(args).find((source) => isPolicyFileOrDirectorySource(expandShellVariables(source, state.variables), state.cwd, identity, budget));
+    if (target)
+      return { target };
+  }
+  if (isReadOnlySegment(segment))
     return null;
-  let script = stripped[optionIndex + 1];
-  if (!script)
-    return null;
-  let target = extractPolicyConfigPathCandidates(script).flatMap((candidate) => [
-    candidate,
-    expandShellVariables(candidate, state.variables),
-    ...extractConstructedPolicyPathCandidates(script)
-  ]).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
-  return target ? { target } : null;
+  for (let token of segment)
+    for (let candidate of extractDirectPathCandidates(token))
+      if (isPolicyFile(expandShellVariables(candidate, state.variables), state.cwd, identity, budget))
+        return { target: candidate };
+  return null;
 }
-function findSedScriptWritePolicyConfigTarget(segment, state, configCwd, budget) {
-  let stripped = stripEnvAssignments(stripWrappers([...segment]));
-  if (getBasename(stripped[0] ?? "").toLowerCase() !== "sed")
-    return null;
-  let target = extractSedScriptArguments(stripped.slice(1)).flatMap((script) => extractSedWritePathCandidates(script)).map((candidate) => expandShellVariables(candidate, state.variables)).find((candidate) => isPolicyConfigPath(candidate, configCwd, state.cwd, budget));
-  return target ? { target } : null;
+function hasRecursiveRmOption(args) {
+  return args.some((arg) => arg === "--recursive" || arg.startsWith("-") && !arg.startsWith("--") && /[rR]/.test(arg.slice(1)));
 }
-function applyShellState(segment, state, budget) {
-  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables;
-  return {
-    cwd: getSegmentCwd(segment, { cwd: state.cwd, variables }, budget),
-    variables
-  };
+function extractRmOperands(args) {
+  let separator = args.indexOf("--");
+  if (separator !== -1)
+    return [
+      ...args.slice(0, separator).filter((arg) => !arg.startsWith("-")),
+      ...args.slice(separator + 1)
+    ];
+  return args.filter((arg) => !arg.startsWith("-"));
 }
-function extractShellAssignments(segment, variables) {
-  return segment.flatMap((token) => {
-    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
-    return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
-  });
-}
-function getSegmentCwd(segment, state, budget) {
-  let stripped = stripEnvAssignments(stripWrappers([...segment]));
-  if (getBasename(stripped[0] ?? "").toLowerCase() !== "cd")
-    return state.cwd;
-  let target = stripped[1];
-  if (!target || target === "-")
-    return state.cwd;
-  return normalizeCandidatePath(expandShellVariables(target, state.variables), state.cwd, budget);
-}
-function extractSedScriptArguments(tokens) {
-  let scripts = [];
-  for (let i = 0;i < tokens.length; i++) {
-    let token = tokens[i];
-    if (token === void 0)
+function extractMvSources(args) {
+  let operands = [], targetDirectory = !1, optionsEnded = !1;
+  for (let index = 0;index < args.length; index++) {
+    let arg = args[index];
+    if (arg === void 0)
       break;
-    if (token === "-e" || token === "--expression") {
-      let script = tokens[i + 1];
-      if (script !== void 0)
-        scripts.push(script);
-      i++;
+    if (!optionsEnded && arg === "--") {
+      optionsEnded = !0;
       continue;
     }
-    let expression = /^--expression=(.*)$/.exec(token);
-    if (expression?.[1]) {
-      scripts.push(expression[1]);
+    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
+      targetDirectory ||= arg === "-t" || arg === "--target-directory", index++;
       continue;
     }
-    if (token === "-f" || token === "--file") {
-      i++;
+    if (!optionsEnded && arg.startsWith("--target-directory=")) {
+      targetDirectory = !0;
       continue;
     }
-    if (token.startsWith("-f") || token.startsWith("--file="))
+    if (!optionsEnded && (arg.startsWith("--suffix=") || arg.startsWith("--backup=")))
       continue;
-    if (token.startsWith("-"))
+    if (!optionsEnded && arg.startsWith("-t") && arg.length > 2) {
+      targetDirectory = !0;
       continue;
-    scripts.push(token);
-    break;
+    }
+    if (!optionsEnded && arg.startsWith("-"))
+      continue;
+    operands.push(arg);
   }
-  return scripts;
-}
-function extractSedWritePathCandidates(script) {
-  return Array.from(script.matchAll(/(?:^|[;\n])\s*(?:(?:\d+|\$|\/(?:\\.|[^/\\])*\/)(?:\s*,\s*(?:\d+|\$|\/(?:\\.|[^/\\])*\/))?\s*)?!?\s*w\s+([^;\n]+)/g)).flatMap((match) => extractPolicyConfigPathCandidates(match[1] ?? ""));
+  return targetDirectory ? operands : operands.slice(0, -1);
 }
 function isReadOnlySegment(tokens) {
-  let stripped = stripEnvAssignments(stripWrappers([...tokens]));
+  let stripped = stripWrappers([...tokens]);
   if (stripped.length === 0)
     return !1;
   let command2 = getBasename(stripped[0] ?? "").toLowerCase();
@@ -11575,89 +11497,70 @@ function isReadOnlySegment(tokens) {
     return !0;
   return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
 }
-function stripEnvAssignments(tokens) {
-  let firstCommandIndex = tokens.findIndex((token) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
-  return firstCommandIndex === -1 ? [] : [...tokens.slice(firstCommandIndex)];
+function applyShellState(segment, state, budget) {
+  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables, stripped = stripWrappers([...segment]), target = getBasename(stripped[0] ?? "").toLowerCase() === "cd" ? stripped[1] : void 0;
+  return {
+    cwd: !target || target === "-" ? state.cwd : normalizePolicyCandidatePath(expandShellVariables(target, variables), state.cwd, budget),
+    variables
+  };
 }
-function isAssignmentOnlySegment(tokens) {
-  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
-}
-function isScriptArgumentOption(command2, token) {
-  if (SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token))
-    return !0;
-  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
-    return !1;
-  return CLUSTERED_SCRIPT_ARGUMENT_OPTIONS.get(command2)?.has(token[token.length - 1] ?? "") ?? !1;
-}
-function isReadOnlyTool(toolName) {
-  return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
-}
-function isPolicyConfigPath(target, configCwd, executionCwd, budget) {
-  let normalized = normalizeCandidatePath(target, executionCwd, budget).toLowerCase(), policyBudget = budget, cached = policyBudget.protectedPaths.get(configCwd);
-  if (cached)
-    return cached.has(normalized);
-  let protectedPaths = new Set(getPolicyConfigProtectedPaths(configCwd).map((path) => normalizeCandidatePath(path, configCwd, budget).toLowerCase()));
-  return policyBudget.protectedPaths.set(configCwd, protectedPaths), protectedPaths.has(normalized);
-}
-function getPolicyConfigProtectedPaths(cwd) {
-  let paths = getPolicyPaths({ cwd });
-  return [
-    getUserPolicyPath(),
-    ...getScopePolicyConfigProtectedPaths(paths.userConfigPath, paths.userLockPath, paths.userConfigTarget, paths.userLockTarget),
-    ...getScopePolicyConfigProtectedPaths(paths.projectConfigPath, paths.projectLockPath, paths.projectConfigTarget, paths.projectLockTarget)
-  ];
-}
-function getScopePolicyConfigProtectedPaths(configPath, lockPath, configTarget, lockTarget) {
-  let configDir = dirname10(configPath), loaded = readRulesConfig(configTarget);
-  if (!loaded.config)
-    return [dirname10(configDir), configDir, configPath, lockPath];
-  let configuredSources = new Set(loaded.config.rules);
-  return [
-    dirname10(configDir),
-    configDir,
-    configPath,
-    lockPath,
-    ...loaded.config.rules.filter((source) => !isGitHubRulebookSource(source)).flatMap((source) => [join12(configDir, source), join12(configDir, source, RULEBOOK_FILE)]),
-    ...(readLockfile(lockTarget).lock?.rulebooks ?? []).filter((entry) => configuredSources.has(entry.spec)).flatMap((entry) => {
-      let cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
-      return [dirname10(cachePath), cachePath];
-    })
-  ];
-}
-function findPolicyConfigTargetInText(text, context, budget) {
-  let target = extractPolicyConfigPathCandidates(text).find((candidate) => isPolicyConfigPath(candidate, context.configCwd, context.executionCwd, budget));
-  return target ? { target } : null;
-}
-function formatShellPolicyTarget(target) {
-  return target.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, "$$$1");
-}
-function extractPolicyConfigPathCandidates(text) {
-  return text.split(/[^A-Za-z0-9_./\\~:$-]+/).flatMap((part) => part.split("=")).filter((part) => part.length > 0);
-}
-function extractConstructedPolicyPathCandidates(text) {
-  let envNames = Array.from(text.matchAll(/(?:process\.env\.|os\.environ\[['"])([A-Za-z_][A-Za-z0-9_]*)/g)).map((match) => match[1]).filter((name) => name !== void 0 && POLICY_ENV_PATH_NAMES.has(name));
-  if (envNames.length === 0)
-    return [];
-  let suffixes = Array.from(text.matchAll(/['"](\/[^'"]+)['"]/g)).map((match) => match[1]).filter((suffix) => suffix !== void 0);
-  return envNames.flatMap((name) => suffixes.map((suffix) => `$${name}${suffix}`));
+function extractShellAssignments(segment, variables) {
+  return segment.flatMap((token) => {
+    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
+    return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
+  });
 }
 function expandShellVariables(text, variables) {
   return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
     let value = variables.get(name);
     if (value === void 0)
       return match;
-    let isUsable = operator.startsWith(":") ? value !== "" : !0;
+    let usable = operator.startsWith(":") ? value !== "" : !0;
     if (operator.endsWith("-"))
-      return isUsable ? value : expandShellVariables(word, variables);
-    return isUsable ? expandShellVariables(word, variables) : "";
+      return usable ? value : expandShellVariables(word, variables);
+    return usable ? expandShellVariables(word, variables) : "";
   }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
 }
-function normalizeCandidatePath(target, cwd, budget) {
+function isAssignmentOnlySegment(tokens) {
+  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+}
+function findPolicyConfigTargetInMalformedText(text, cwd, identity, budget) {
+  for (let token of text.split(/\s+/))
+    for (let candidate of extractDirectPathCandidates(token))
+      if (isPolicyFile(candidate, cwd, identity, budget))
+        return { target: candidate };
+  return null;
+}
+function extractDirectPathCandidates(value) {
+  let cleaned = value.trim().replace(/^['"]|['"]$/g, ""), separator = cleaned.indexOf("=");
+  return separator === -1 || separator === cleaned.length - 1 ? [cleaned] : [cleaned, cleaned.slice(separator + 1)];
+}
+function createPolicyPathIdentity(cwd, budget) {
+  let file = normalizePolicyCandidatePath(getUserPolicyPath(), cwd, budget), directory = dirname10(file), directoryAndAncestors = /* @__PURE__ */ new Set;
+  for (let current = directory;; current = dirname10(current))
+    if (directoryAndAncestors.add(comparePath(current)), dirname10(current) === current)
+      break;
+  return { file: comparePath(file), directory: comparePath(directory), directoryAndAncestors };
+}
+function isPolicyFile(target, cwd, identity, budget) {
+  return comparePath(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
+}
+function isPolicyDirectoryOrAncestor(target, cwd, identity, budget) {
+  return identity.directoryAndAncestors.has(comparePath(normalizePolicyCandidatePath(target, cwd, budget)));
+}
+function isPolicyFileOrDirectorySource(target, cwd, identity, budget) {
+  let normalized = comparePath(normalizePolicyCandidatePath(target, cwd, budget));
+  return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
+}
+function normalizePolicyCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
   let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
   return resolveExistingPath(normalize5(isAbsolute11(expanded) ? expanded : resolve9(cwd, expanded)), budget).replace(/\\/g, "/");
+}
+function comparePath(path) {
+  return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 // src/core/secret-protection.ts
@@ -12237,7 +12140,7 @@ var PUBLIC_KEY_BASENAMES = /* @__PURE__ */ new Set(["id_rsa.pub", "id_ed25519.pu
   ["vendor", "cache"]
 ];
 function isSensitivePath(target, cwd, config, budget) {
-  let normalized = normalizeCandidatePath2(target, cwd, budget);
+  let normalized = normalizeCandidatePath(target, cwd, budget);
   if (!normalized)
     return null;
   let comparableName = comparable(normalized.split("/").pop() ?? ""), comparablePath = comparable(normalized);
@@ -12334,7 +12237,7 @@ function matchesKimiCodePath(normalized, cwd, budget) {
 }
 function matchesOpenCodePath(normalized, cwd, budget) {
   let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd, budget), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd, budget) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd, budget), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd, budget), "opencode")] : [];
-  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath2(root, cwd, budget), [
+  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
     "opencode.json",
     "opencode.jsonc"
   ]));
@@ -12343,7 +12246,7 @@ function matchesPiPath(normalized, cwd, budget) {
   return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd, budget), ["auth.json"]);
 }
 function codingCliRoot(envValue, fallback, cwd, budget) {
-  return normalizeCandidatePath2(envValue?.trim() ? envValue : fallback, cwd, budget);
+  return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd, budget);
 }
 function matchesFileInRoot(normalized, root, files) {
   return files.some((file) => sameComparablePath(normalized, appendPath(root, file)));
@@ -12352,7 +12255,7 @@ function matchesDirInRoot(normalized, root, dirs) {
   return dirs.some((dir) => isSameOrChildPath(comparable(normalized), comparable(appendPath(root, dir))));
 }
 function matchesExactPath(normalized, path, cwd, budget) {
-  return sameComparablePath(normalized, normalizeCandidatePath2(path, cwd, budget));
+  return sameComparablePath(normalized, normalizeCandidatePath(path, cwd, budget));
 }
 function matchesOptionalExactPath(normalized, path, cwd, budget) {
   return path?.trim() ? matchesExactPath(normalized, path, cwd, budget) : !1;
@@ -12411,7 +12314,7 @@ function isSecretRuleEnabled(id, config) {
     return !config.disabledRules.includes(id);
   return !config.disabledRules.has(id);
 }
-function normalizeCandidatePath2(target, cwd, budget) {
+function normalizeCandidatePath(target, cwd, budget) {
   let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
@@ -12973,15 +12876,15 @@ function normalizeAntigravityToolArgs(args, toolName) {
 
 // src/bin/hook/agent-detection.ts
 import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute14, join as join13 } from "node:path";
+import { isAbsolute as isAbsolute14, join as join12 } from "node:path";
 function detectClaudeShapeAgent(transcriptPath) {
   if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute14(transcriptPath))
     return "unknown";
   try {
     let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir7(), roots = [
-      ["codex", process.env.CODEX_HOME || join13(home, ".codex")],
-      ["copilot-cli", process.env.COPILOT_HOME || join13(home, ".copilot")],
-      ["claude-code", process.env.CLAUDE_CONFIG_DIR || join13(home, ".claude")]
+      ["codex", process.env.CODEX_HOME || join12(home, ".codex")],
+      ["copilot-cli", process.env.COPILOT_HOME || join12(home, ".copilot")],
+      ["claude-code", process.env.CLAUDE_CONFIG_DIR || join12(home, ".claude")]
     ], matches = transcript ? roots.flatMap(([agent, root]) => {
       if (!isAbsolute14(root))
         return [];
@@ -13601,7 +13504,7 @@ function validateParsedConfigFile(path, validate) {
   return validate(loaded.parsed);
 }
 // src/core/rules/policy/sync.ts
-import { isAbsolute as isAbsolute15, join as join14, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute15, join as join13, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
 }
@@ -13863,8 +13766,8 @@ function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesyste
   if (!cacheEntries)
     return [];
   let keepTargets = entries.map((entry) => getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions))), pruneTargets = cacheEntries.filter((entry) => entry.kind === "directory").map((entry) => ({
-    directory: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name)),
-    identity: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name, RULEBOOK_FILE))
+    directory: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name)),
+    identity: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name, RULEBOOK_FILE))
   })).filter((candidate) => !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target))).map((candidate) => candidate.directory);
   for (let target of pruneTargets)
     validatePolicyDirectoryRemoval(target);
@@ -13884,7 +13787,7 @@ function getLocalSourceDirsForDelete(configDir, specs, lock, filesystemScope) {
     return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
   }), dirs = specs.map((spec) => {
     let entry = entriesBySpec.get(spec);
-    return join14(configDir, entry?.kind === "local-directory" ? entry.path : spec);
+    return join13(configDir, entry?.kind === "local-directory" ? entry.path : spec);
   }), dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir, filesystemScope)), allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0 ? { ok: !1, result: { ok: !1, errors: allErrors, warnings: [], entries: [] } } : { ok: !0, dirs };
 }
@@ -13900,7 +13803,7 @@ function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
   if (rulebookEntry.kind !== "file")
     throw new PolicyFilesystemError(filesystemScope.label);
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join14(resolvedDir, "rulebook.json"))), entries.length > 1)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join13(resolvedDir, "rulebook.json"))), entries.length > 1)
     return [
       `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
     ];
@@ -14384,7 +14287,7 @@ All checks passed.`);
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync5, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
-import { join as join17 } from "node:path";
+import { join as join16 } from "node:path";
 
 // src/bin/config/jsonc.ts
 function stripJsonComments(content) {
@@ -14449,14 +14352,14 @@ function stripJsonComments(content) {
 }
 
 // src/bin/hook/antigravity.ts
-import { join as join15 } from "node:path";
+import { join as join14 } from "node:path";
 function getAntigravityHooksPath(homeDir) {
-  return join15(homeDir, ".gemini", "config", "hooks.json");
+  return join14(homeDir, ".gemini", "config", "hooks.json");
 }
 
 // src/integrations/self-test.ts
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join16 } from "node:path";
+import { join as join15 } from "node:path";
 var CASES = Object.freeze([
   { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
   { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
@@ -14491,7 +14394,7 @@ var CASES = Object.freeze([
   }
 };
 function runIntegrationSelfTest() {
-  let cwd = join16(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+  let cwd = join15(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
     let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
       guard: {
         dependencies: {
@@ -14564,9 +14467,9 @@ function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  let errors = [], configDir = join17(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  let errors = [], configDir = join16(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
-    let configPath = join17(configDir, filename);
+    let configPath = join16(configDir, filename);
     if (existsSync5(configPath))
       try {
         let content = readFileSync7(configPath, "utf-8"), json = stripJsonComments(content);
@@ -14615,7 +14518,7 @@ function detectGeminiCLI(extensionsListOutput) {
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join17(process.env.KIMI_CODE_HOME || join17(homeDir, ".kimi-code"), "config.toml");
+  return join16(process.env.KIMI_CODE_HOME || join16(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -14804,7 +14707,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join17(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join16(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   return (config.hooks?.preToolUse ?? []).some((hook) => {
@@ -14833,7 +14736,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
-    let configPath = join17(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    let configPath = join16(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
   }
@@ -14869,10 +14772,10 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join17(cwd, ".github", "hooks"), userHookDir = join17(configHome, "hooks"), repoConfigDir = join17(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join17(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join17(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join17(repoConfigDir, "settings.local.json"), inlineErrors)
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join16(cwd, ".github", "hooks"), userHookDir = join16(configHome, "hooks"), repoConfigDir = join16(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
+    userConfig: _collectCopilotInlineConfig(join16(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== !1) {
     let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -14884,7 +14787,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   }
   let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync5(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
-    let configPath = join17(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    let configPath = join16(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
   }
@@ -14975,7 +14878,7 @@ import { spawn } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir4 } from "node:os";
-import { delimiter, extname, join as join18 } from "node:path";
+import { delimiter, extname, join as join17 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
@@ -15003,7 +14906,7 @@ function resolveWindowsCommand(command2, env) {
   ];
   if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync6(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join18(dir, candidate))).find((candidate) => existsSync6(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync6(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -15138,7 +15041,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join18(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join18(tempDir, "pi-extension-probe.ts"), resultPath = join18(tempDir, "result.json"), stdoutPath = join18(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join17(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -18385,7 +18288,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname13, join as join19 } from "node:path";
+import { dirname as dirname13, join as join18 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -18464,7 +18367,7 @@ var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code", KIMI_HOOK_BLOCK
 event = "PreToolUse"
 command = "${KIMI_HOOK_COMMAND}"`, KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join19(process.env.KIMI_CODE_HOME ?? join19(homeDir, ".kimi-code"), "config.toml");
+  return join18(process.env.KIMI_CODE_HOME ?? join18(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   return content.split(`
@@ -18590,16 +18493,16 @@ ${output}`.trim()));
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync9, readFileSync as readFileSync10, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join20 } from "node:path";
+import { join as join19 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
-  return join20(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+  return join19(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
 function getOpenCodeConfigPaths(homeDir) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join20(homeDir, ".config", "opencode", filename));
+  return OPENCODE_CONFIG_FILES.map((filename) => join19(homeDir, ".config", "opencode", filename));
 }
 function getOpenCodeCachePath(homeDir) {
-  return join20(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+  return join19(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
   rmSync(getOpenCodeCachePath(homeDir), { recursive: !0, force: !0 });
@@ -19182,7 +19085,7 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { join as join23 } from "node:path";
+import { join as join22 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = "# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | Lower |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Higher |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- Override values are either `\"off\"` to disable a rule or `{ \"reason\": \"...\" }` to replace the rule reason.\n- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- Rulebook source names must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | String |\n| `author` | No | String |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | Yes | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook; same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nEvery rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.\n\n## Matching Behavior\n\n- **Command**: Normalized to basename (`/usr/bin/git` → `git`).\n- **Subcommand**: First non-option argument after command.\n- **Arguments**: Matched literally. Command blocked if **any** `block_args` item is present.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source.\n5. Run `cc-safety-net rule sync` after adding or changing rulebook sources.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.\n7. Run `cc-safety-net rule test` to execute rulebook fixtures.\n8. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nInvalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `cc-safety-net rule sync`.\n";
@@ -19279,7 +19182,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { dirname as dirname14, join as join21 } from "node:path";
+import { dirname as dirname14, join as join20 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
   return [
@@ -19322,7 +19225,7 @@ async function migrateRulesScope(options2) {
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  }, rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join21(dirname14(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join20(dirname14(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
     snapshotFile(scope.configTarget),
     snapshotFile(rulebookTarget),
     snapshotFile(scope.lockTarget)
@@ -19371,14 +19274,14 @@ function readLegacyRulesConfig(content) {
   }
 }
 function getMigratedRulebookName(configDir, sources, defaultRulebookName, migratedFrom, filesystemScope) {
-  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, source, "rulebook.json"))) === migratedFrom);
+  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, source, "rulebook.json"))) === migratedFrom);
   if (existing)
     return existing;
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, defaultRulebookName, "rulebook.json"))) === null)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, defaultRulebookName, "rulebook.json"))) === null)
     return defaultRulebookName;
   for (let i = 2;; i++) {
     let name = `${defaultRulebookName}-${i}`;
-    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, name, "rulebook.json"))) === null)
+    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, name, "rulebook.json"))) === null)
       return name;
   }
 }
@@ -19437,7 +19340,7 @@ function getMigratedFrom(target) {
 }
 
 // src/bin/rule/verify.ts
-import { dirname as dirname15, join as join22, resolve as resolve14 } from "node:path";
+import { dirname as dirname15, join as join21, resolve as resolve14 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   try {
@@ -19570,7 +19473,7 @@ function validateGitHubSourceRules(target) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join22(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
+    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join21(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
     if (content === null) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -19703,7 +19606,7 @@ async function runRuleCommandInternal(args) {
   if (subcommand === "init") {
     let scope = getScopePaths(options2), dir = scope.configDir;
     ensureRulesConfig(scope.configTarget), ensurePolicyDirectory(getPolicyFilesystemTargetForPath(scope.filesystemScope, getRulebookCacheRoot({ ...options2, cacheConfigDir: dir })));
-    let rulebookPath = join23(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
+    let rulebookPath = join22(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
     if (flags.example && readPolicyFile(rulebookTarget) === null)
       writeStarterRulebook(rulebookTarget, "example-rules");
     let result = await syncRulesConfig(options2);
@@ -19898,7 +19801,7 @@ function printTransparentWrappers(wrappers2) {
 // src/bin/statusline.ts
 import { existsSync as existsSync10, readFileSync as readFileSync11 } from "node:fs";
 import { homedir as homedir10 } from "node:os";
-import { join as join24 } from "node:path";
+import { join as join23 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
     return null;
@@ -19917,7 +19820,7 @@ async function readStdinAsync() {
 function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  return join24(homedir10(), ".claude", "settings.json");
+  return join23(homedir10(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();

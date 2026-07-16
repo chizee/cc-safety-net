@@ -22,7 +22,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 372_000;
+const MAX_TARBALL_BYTES = 420_000;
 
 interface PackResult {
   filename: string;

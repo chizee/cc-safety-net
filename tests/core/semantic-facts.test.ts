@@ -166,7 +166,7 @@ describe('semantic facts', () => {
     expect(facts.commands[0]?.shell.status).toBe(shellStatus);
   });
 
-  test('nested shell bodies obtain their own structural program before policy and secret scans', () => {
+  test('policy protection does not emulate nested shell bodies', () => {
     const body = 'a a a';
     const command = `bash -c '${body}'`;
     let bodyShellParses = 0;
@@ -186,9 +186,7 @@ describe('semantic facts', () => {
     });
 
     expect(facts.commands[0]?.program.status).toBe('complete');
-    expect(() => findPolicyConfigMutationTargetInSemanticFacts(facts)).toThrow(
-      'Structural command analysis limit exceeded.',
-    );
+    expect(findPolicyConfigMutationTargetInSemanticFacts(facts)).toBeNull();
     expect(() => findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] })).toThrow(
       'Structural command analysis limit exceeded.',
     );
@@ -196,82 +194,50 @@ describe('semantic facts', () => {
   });
 
   test.each([
-    ['policy', 'option-terminator', "bash -- -c 'a a a'"],
-    ['policy', 'script-positional', "bash script.sh -c 'a a a'"],
-    ['policy', 'consumed-option-value', "bash -O -c 'a a a'"],
-    ['secret', 'option-terminator', "bash -- -c 'a a a'"],
-    ['secret', 'script-positional', "bash script.sh -c 'a a a'"],
-    ['secret', 'consumed-option-value', "bash -O -c 'a a a'"],
-    ['policy', 'ksh option-terminator', "ksh -- -c 'a a a'"],
-    ['secret', 'ksh option-terminator', "ksh -- -c 'a a a'"],
-    ['policy', 'ksh script-positional', "ksh script.ksh -c 'a a a'"],
-    ['secret', 'ksh script-positional', "ksh script.ksh -c 'a a a'"],
-    ['policy', 'ksh unsupported plus resumed cluster', "ksh +o-c 'a a a'"],
-    ['secret', 'ksh unsupported plus resumed cluster', "ksh +o-c 'a a a'"],
-  ] as const)('does not reinterpret shell argv for the %s consumer after the %s boundary', (consumer, _case, command) => {
+    ['option-terminator', "bash -- -c 'a a a'"],
+    ['script-positional', "bash script.sh -c 'a a a'"],
+    ['consumed-option-value', "bash -O -c 'a a a'"],
+    ['ksh option-terminator', "ksh -- -c 'a a a'"],
+    ['ksh script-positional', "ksh script.ksh -c 'a a a'"],
+    ['ksh unsupported plus resumed cluster', "ksh +o-c 'a a a'"],
+  ] as const)('does not reinterpret shell argv for secret protection after the %s boundary', (_case, command) => {
     let bodyProgramParses = 0;
     const facts = commandFactsWithLimitedBody(command, () => bodyProgramParses++);
 
-    expect(() =>
-      consumer === 'policy'
-        ? findPolicyConfigMutationTargetInSemanticFacts(facts)
-        : findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] }),
-    ).not.toThrow();
+    expect(() => findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] })).not.toThrow();
     expect(bodyProgramParses).toBe(0);
   });
 
-  test.each([
-    'policy',
-    'secret',
-  ] as const)('continues argv-aware structural checks after consumed options for the %s consumer', (consumer) => {
+  test('secret protection continues argv-aware structural checks after consumed options', () => {
     const facts = commandFactsWithLimitedBody("bash -O extglob -lc 'a a a'");
 
-    expect(() =>
-      consumer === 'policy'
-        ? findPolicyConfigMutationTargetInSemanticFacts(facts)
-        : findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] }),
-    ).toThrow('Structural command analysis limit exceeded.');
+    expect(() => findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] })).toThrow(
+      'Structural command analysis limit exceeded.',
+    );
   });
 
   test.each([
-    ['policy', 'sh plus-option', "sh +e -c 'a a a'"],
-    ['secret', 'sh plus-option', "sh +e -c 'a a a'"],
-    ['policy', 'bash mixed option/value cluster', "bash -lO extglob -c 'a a a'"],
-    ['secret', 'bash mixed option/value cluster', "bash -lO extglob -c 'a a a'"],
-    ['policy', 'bash command/value cluster', "bash -co errexit 'a a a'"],
-    ['secret', 'bash command/value cluster', "bash -co errexit 'a a a'"],
-    ['policy', 'zsh attached option value', "zsh -ocorrect -c 'a a a'"],
-    ['secret', 'zsh attached option value', "zsh -ocorrect -c 'a a a'"],
-    ['policy', 'ksh attached option name', "ksh -oerrexit -c 'a a a'"],
-    ['secret', 'ksh attached option name', "ksh -oerrexit -c 'a a a'"],
-    ['policy', 'ksh separated option name', "ksh -o errexit -c 'a a a'"],
-    ['secret', 'ksh separated option name', "ksh -o errexit -c 'a a a'"],
-    ['policy', 'ksh separated plus option name', "ksh +o errexit -c 'a a a'"],
-    ['secret', 'ksh separated plus option name', "ksh +o errexit -c 'a a a'"],
-    ['policy', 'ksh command option in the option-name cluster', "ksh -oc 'a a a'"],
-    ['secret', 'ksh command option in the option-name cluster', "ksh -oc 'a a a'"],
-    ['policy', 'ksh resumed negative command option', "ksh -o-c 'a a a'"],
-    ['secret', 'ksh resumed negative command option', "ksh -o-c 'a a a'"],
-    ['policy', 'ksh resumed negative option cluster', "ksh -o-lc 'a a a'"],
-    ['secret', 'ksh resumed negative option cluster', "ksh -o-lc 'a a a'"],
-    ['policy', 'ksh bare option-name selector', "ksh -o -c 'a a a'"],
-    ['secret', 'ksh bare option-name selector', "ksh -o -c 'a a a'"],
-    ['policy', 'ksh attached plus option name', "ksh +oerrexit -c 'a a a'"],
-    ['secret', 'ksh attached plus option name', "ksh +oerrexit -c 'a a a'"],
-    ['policy', 'ksh bare plus option-name selector', "ksh +o -c 'a a a'"],
-    ['secret', 'ksh bare plus option-name selector', "ksh +o -c 'a a a'"],
-    ['policy', 'ksh option-looking token after bare option selector', "ksh -o +e -c 'a a a'"],
-    ['secret', 'ksh option-looking token after bare option selector', "ksh -o +e -c 'a a a'"],
-    ['policy', 'ksh command/value cluster', "ksh -co errexit 'a a a'"],
-    ['secret', 'ksh command/value cluster', "ksh -co errexit 'a a a'"],
-  ] as const)('selects the real shell body for the %s consumer through %s', (consumer, _case, command) => {
+    ['sh plus-option', "sh +e -c 'a a a'"],
+    ['bash mixed option/value cluster', "bash -lO extglob -c 'a a a'"],
+    ['bash command/value cluster', "bash -co errexit 'a a a'"],
+    ['zsh attached option value', "zsh -ocorrect -c 'a a a'"],
+    ['ksh attached option name', "ksh -oerrexit -c 'a a a'"],
+    ['ksh separated option name', "ksh -o errexit -c 'a a a'"],
+    ['ksh separated plus option name', "ksh +o errexit -c 'a a a'"],
+    ['ksh command option in the option-name cluster', "ksh -oc 'a a a'"],
+    ['ksh resumed negative command option', "ksh -o-c 'a a a'"],
+    ['ksh resumed negative option cluster', "ksh -o-lc 'a a a'"],
+    ['ksh bare option-name selector', "ksh -o -c 'a a a'"],
+    ['ksh attached plus option name', "ksh +oerrexit -c 'a a a'"],
+    ['ksh bare plus option-name selector', "ksh +o -c 'a a a'"],
+    ['ksh option-looking token after bare option selector', "ksh -o +e -c 'a a a'"],
+    ['ksh command/value cluster', "ksh -co errexit 'a a a'"],
+  ] as const)('selects the real shell body for secret protection through %s', (_case, command) => {
     const facts = commandFactsWithLimitedBody(command);
 
-    expect(() =>
-      consumer === 'policy'
-        ? findPolicyConfigMutationTargetInSemanticFacts(facts)
-        : findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] }),
-    ).toThrow('Structural command analysis limit exceeded.');
+    expect(() => findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] })).toThrow(
+      'Structural command analysis limit exceeded.',
+    );
   });
 
   test('direct semantic-fact consumers reject structural limits before fallback scanning', () => {

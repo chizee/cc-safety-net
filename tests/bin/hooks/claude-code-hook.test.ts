@@ -143,7 +143,9 @@ describe('Claude Code hook', () => {
 
         const parsed = JSON.parse(result.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
+        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
+          'Policy config is protected and you must not modify it.',
+        );
       });
     });
 

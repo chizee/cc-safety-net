@@ -33,8 +33,7 @@ describe('integration self-test', () => {
             expected: 'blocked',
             actual: 'blocked',
             passed: true,
-            reason:
-              'rm -rf targeting root or home directory is extremely dangerous and always blocked.',
+            reason: 'Policy config is protected and you must not modify it.',
           },
           {
             command: 'rm -rf ./node_modules',

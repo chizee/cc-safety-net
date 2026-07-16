@@ -101,37 +101,23 @@ describe('Antigravity CLI hook', () => {
       });
     });
 
-    test('protects policy configuration in every listed workspace root', async () => {
+    test('allows rule configuration writes in every listed workspace root', async () => {
       await withHookTestContext(async (context) => {
         const secondWorkspace = mkdtempSync(join(tmpdir(), 'safety-net-antigravity-workspace-'));
         try {
           mkdirSync(join(secondWorkspace, 'app'));
           const secondRulesPath = join(secondWorkspace, '.cc-safety-net/rules/rule.json');
-          writeDefaultRulesConfig(secondRulesPath, ['project-rules']);
 
-          const readResult = await context.runAntigravityHook({
-            toolCall: {
-              name: 'view_file',
-              args: { AbsolutePath: join(secondWorkspace, 'README.md') },
-            },
-            workspacePaths: [context.cwd, secondWorkspace],
-          });
-          expect(getHookDenyReason(readResult, 'antigravity-cli')).toContain('missing lockfile');
-
-          const writeResult = await context.runAntigravityHook({
+          await expectNoHookOutput(context.runAntigravityHook, {
             toolCall: {
               name: 'write_to_file',
               args: { TargetFile: secondRulesPath, CodeContent: '{}' },
             },
             workspacePaths: [context.cwd, secondWorkspace],
           });
-          expect(getHookDenyReason(writeResult, 'antigravity-cli')).toContain(
-            'Policy config is protected and you must not modify it.',
-          );
 
           const firstRulesPath = join(context.cwd, '.cc-safety-net/rules/rule.json');
-          writeDefaultRulesConfig(firstRulesPath, ['project-rules']);
-          const commandResult = await context.runAntigravityHook({
+          await expectNoHookOutput(context.runAntigravityHook, {
             toolCall: {
               name: 'run_command',
               args: {
@@ -141,9 +127,6 @@ describe('Antigravity CLI hook', () => {
             },
             workspacePaths: [context.cwd, secondWorkspace],
           });
-          expect(getHookDenyReason(commandResult, 'antigravity-cli')).toContain(
-            'Policy config is protected and you must not modify it.',
-          );
         } finally {
           rmSync(secondWorkspace, { recursive: true, force: true });
         }
