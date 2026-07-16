@@ -12382,7 +12382,7 @@ function getPiToolCall(event, ctx) {
   let command2 = toolCall.input[adapter.commandField];
   if (typeof command2 !== "string" || command2.trim() === "")
     return malformedPiToolCall(ctx, toolCall.toolName);
-  let hasCwdInput = adapter.cwdField && Object.hasOwn(toolCall.input, adapter.cwdField), cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : void 0;
+  let hasCwdInput = adapter.cwdField !== void 0 && Object.hasOwn(toolCall.input, adapter.cwdField) && toolCall.input[adapter.cwdField] !== void 0, cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : void 0;
   if (hasCwdInput && (typeof cwdInput !== "string" || cwdInput.trim() === ""))
     return malformedPiToolCall(ctx, toolCall.toolName, command2);
   let executionCwd = typeof cwdInput === "string" ? resolveContainedCwd(cwdInput, [ctx.cwd]) : ctx.cwd;

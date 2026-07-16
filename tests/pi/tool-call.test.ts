@@ -167,6 +167,15 @@ describe('Pi tool_call event', () => {
     ).toBeUndefined();
   });
 
+  test('treats normalized undefined Grok Shell working_directory as omitted', () => {
+    expect(
+      handlePiToolCall(
+        shellToolCall({ command: 'git status', working_directory: undefined }),
+        piContext(process.cwd()),
+      ),
+    ).toBeUndefined();
+  });
+
   test('routes verified Grok Shell commands as auto from the contained working_directory', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-route-'));
     try {
@@ -231,7 +240,6 @@ describe('Pi tool_call event', () => {
   });
 
   test.each([
-    undefined,
     null,
     '',
     '   ',

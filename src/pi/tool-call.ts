@@ -162,7 +162,10 @@ function getPiToolCall(
     return malformedPiToolCall(ctx, toolCall.toolName);
   }
 
-  const hasCwdInput = adapter.cwdField && Object.hasOwn(toolCall.input, adapter.cwdField);
+  const hasCwdInput =
+    adapter.cwdField !== undefined &&
+    Object.hasOwn(toolCall.input, adapter.cwdField) &&
+    toolCall.input[adapter.cwdField] !== undefined;
   const cwdInput = adapter.cwdField && hasCwdInput ? toolCall.input[adapter.cwdField] : undefined;
   if (hasCwdInput && (typeof cwdInput !== 'string' || cwdInput.trim() === '')) {
     return malformedPiToolCall(ctx, toolCall.toolName, command);
