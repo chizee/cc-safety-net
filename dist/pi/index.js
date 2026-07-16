@@ -12338,7 +12338,7 @@ function handlePiToolCallWithDependencies(event, ctx, options2) {
   if (!toolCall)
     return;
   if ("malformed" in toolCall)
-    return writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionFile(), {
+    return writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionId(), {
       agent: "pi",
       toolName: toolCall.denial.toolName,
       cwd: toolCall.cwd
@@ -12352,7 +12352,7 @@ function handlePiToolCallWithDependencies(event, ctx, options2) {
       },
       audit: {
         agent: "pi",
-        getSessionId: () => ctx.sessionManager.getSessionFile()
+        getSessionId: () => ctx.sessionManager.getSessionId()
       }
     });
     return blockPiEvaluation(evaluation, evaluation.stage !== "config-state");

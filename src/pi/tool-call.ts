@@ -28,7 +28,7 @@ type PiApi = {
 type PiToolCallContext = {
   cwd: string;
   sessionManager: {
-    getSessionFile: () => string | undefined;
+    getSessionId: () => string | undefined;
   };
 };
 
@@ -93,7 +93,7 @@ function handlePiToolCallWithDependencies(
   if (!toolCall) return undefined;
 
   if ('malformed' in toolCall) {
-    writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionFile(), {
+    writeIntegrationDenialAudit(toolCall.denial, () => ctx.sessionManager.getSessionId(), {
       agent: 'pi',
       toolName: toolCall.denial.toolName,
       cwd: toolCall.cwd,
@@ -110,7 +110,7 @@ function handlePiToolCallWithDependencies(
       },
       audit: {
         agent: 'pi',
-        getSessionId: () => ctx.sessionManager.getSessionFile(),
+        getSessionId: () => ctx.sessionManager.getSessionId(),
       },
     });
     return blockPiEvaluation(evaluation, evaluation.stage !== 'config-state');

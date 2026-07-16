@@ -644,15 +644,16 @@ describe('Pi tool_call event', () => {
   test('writes audit logs for secret protection blocks', () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-secret-audit-'));
     const home = join(dir, 'home');
+    const sessionId = '019f6be1-74c3-7692-852d-7fee79b8e67f';
     try {
       withEnv({ HOME: home }, () => {
         const result = handlePiToolCall(bashToolCall('cat .env'), {
           ...piContext(dir),
-          sessionManager: { getSessionFile: () => 'pi-session' },
+          sessionManager: { getSessionId: () => sessionId },
         });
 
         expect(result?.reason).toContain('Access to a sensitive path is not allowed.');
-        expect(readLatestAuditLogEntry(home, 'pi-session')).toEqual(
+        expect(readLatestAuditLogEntry(home, sessionId)).toEqual(
           expect.objectContaining({
             decision: 'deny',
             command: 'cat .env',
@@ -675,7 +676,7 @@ describe('Pi tool_call event', () => {
       withEnv({ HOME: home }, () => {
         const result = handlePiToolCall(toolCall('bash', {}), {
           ...piContext(dir),
-          sessionManager: { getSessionFile: () => 'pi-preflight-session' },
+          sessionManager: { getSessionId: () => 'pi-preflight-session' },
         });
 
         expect(result?.reason).toContain('CC Safety Net failed closed');
@@ -752,7 +753,7 @@ describe('Pi tool_call event', () => {
     const ctx = {
       ...piContext(cwd),
       sessionManager: {
-        getSessionFile: () => {
+        getSessionId: () => {
           sessionLookups.push('session');
           return undefined;
         },
@@ -800,7 +801,7 @@ describe('Pi tool_call event', () => {
     const result = handlePiToolCall(bashToolCall(command), {
       ...piContext(process.cwd()),
       sessionManager: {
-        getSessionFile: () => {
+        getSessionId: () => {
           throw new Error('session lookup failed');
         },
       },
@@ -816,7 +817,7 @@ describe('Pi tool_call event', () => {
     const ctx = {
       ...piContext(process.cwd()),
       sessionManager: {
-        getSessionFile: () => {
+        getSessionId: () => {
           sessionLookups++;
           return undefined;
         },
@@ -856,7 +857,7 @@ describe('Pi tool_call event', () => {
     const result = handler(toolCall('bash', { command }), {
       ...piContext(process.cwd()),
       sessionManager: {
-        getSessionFile: () => {
+        getSessionId: () => {
           calls.push('session');
           return undefined;
         },
@@ -952,7 +953,7 @@ function piContext(cwd: string, options: Partial<Parameters<typeof handlePiToolC
   return {
     cwd,
     sessionManager: {
-      getSessionFile: () => join(cwd, '.pi', 'sessions', 'session.jsonl'),
+      getSessionId: () => 'pi-session',
     },
     ...options,
   };
