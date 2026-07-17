@@ -38,6 +38,7 @@
     "sg:scan": "ast-grep scan",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e",
+    "test:e2e:stability": "bun test tests/e2e --randomize --rerun-each 3",
     "test:coverage": "AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov",
     "cc-safety-net": "bun run src/bin/cc-safety-net.ts",
     "prepare": "husky && bun run setup-hooks",

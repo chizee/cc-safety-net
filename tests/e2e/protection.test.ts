@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -9,8 +11,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { redactSecrets } from '@/core/audit';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
+import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from '../../scripts/integration-host-scripts';
 import { readAuditLogEntriesForSession } from '../helpers';
 
 const adapters = [
@@ -112,97 +116,72 @@ afterAll(() => {
 
 describe('built CLI protection contract', () => {
   for (const adapter of adapters) {
-    test(`${adapter.agent} gates destructive commands through its real hook protocol`, async () => {
-      await withWorkspace(async ({ cwd, home }) => {
-        const safeSession = `${adapter.agent}-safe`;
-        const safeAction = join(cwd, 'safe-action-ran');
-        const safeResult = await runGated(
-          adapter,
-          adapter.commandInput('git status', cwd, home, safeSession),
-          cwd,
-          home,
-          () => writeFileSync(safeAction, 'ran'),
-        );
-
-        expect(safeResult).toEqual({ allowed: true });
-        expect(readFileSync(safeAction, 'utf8')).toBe('ran');
-        expect(readAuditLogEntriesForSession(home, safeSession)).toEqual([]);
-
-        const gitSession = `${adapter.agent}-git-reset`;
-        const gitSentinel = join(cwd, 'git-sentinel');
-        writeFileSync(gitSentinel, 'preserve');
-        const gitResult = await runGated(
-          adapter,
-          adapter.commandInput('git reset --hard', cwd, home, gitSession),
-          cwd,
-          home,
-          () => rmSync(gitSentinel),
-        );
-
-        expect(gitResult.allowed).toBe(false);
-        expect(gitResult.reason).toContain('git.reset-hard');
-        expect(readFileSync(gitSentinel, 'utf8')).toBe('preserve');
-        expectSingleAudit(home, gitSession, {
-          agent: adapter.agent,
-          command: 'git reset --hard',
-          ruleId: 'git.reset-hard',
+    describe(`${adapter.agent === 'claude-code' ? 'Coding CLI' : adapter.agent} hook protocol`, () => {
+      test('allows git status and produces no audit', async () => {
+        await withWorkspace(async ({ cwd, home }) => {
+          const safeSession = `${adapter.agent}-safe`;
+          await expectAllowedAction(cwd, home, safeSession, (action) =>
+            runGated(
+              adapter,
+              adapter.commandInput('git status', cwd, home, safeSession),
+              cwd,
+              home,
+              action,
+            ),
+          );
         });
+      });
 
-        const rmSession = `${adapter.agent}-rm-cwd`;
-        const rmSentinel = join(cwd, 'rm-sentinel');
-        writeFileSync(rmSentinel, 'preserve');
-        const rmResult = await runGated(
-          adapter,
-          adapter.commandInput('rm -rf .', cwd, home, rmSession),
-          cwd,
-          home,
-          () => rmSync(rmSentinel),
-        );
+      test.each([
+        ['git reset --hard', 'git.reset-hard', 'git-reset'],
+        ['rm -rf .', 'rm.recursive-force-cwd-self', 'rm-cwd'],
+      ] as const)('blocks %s and preserves the target', async (command, ruleId, name) => {
+        await withWorkspace(async ({ cwd, home }) => {
+          const sessionId = `${adapter.agent}-${name}`;
+          const sentinel = join(cwd, `${name}-sentinel`);
+          writeFileSync(sentinel, 'preserve');
+          const result = await runGated(
+            adapter,
+            adapter.commandInput(command, cwd, home, sessionId),
+            cwd,
+            home,
+            () => rmSync(sentinel),
+          );
 
-        expect(rmResult.allowed).toBe(false);
-        expect(rmResult.reason).toContain('rm.recursive-force-cwd-self');
-        expect(readFileSync(rmSentinel, 'utf8')).toBe('preserve');
-        expectSingleAudit(home, rmSession, {
-          agent: adapter.agent,
-          command: 'rm -rf .',
-          ruleId: 'rm.recursive-force-cwd-self',
+          expect(result.allowed).toBe(false);
+          expect(result.reason).toContain(ruleId);
+          expect(readFileSync(sentinel, 'utf8')).toBe('preserve');
+          expectSingleAudit(home, sessionId, {
+            agent: adapter.agent,
+            command,
+            ruleId,
+          });
         });
       });
     });
   }
 
-  test('Coding CLI preserves log-derived false-positive and strict-mode boundaries', async () => {
+  test.each([
+    ['bash syntax', "bash -n -c '(( rm -rf / root ))'"],
+    ['Node data', `node -e 'console.log("rm -rf /")'`],
+    ['xargs positional input', `find src -type f | xargs sh -c 'wc -l "$1"' _`],
+    ['parallel probe', 'command -v parallel'],
+    ['secret metadata', 'test -f "$HOME/.ssh/id_rsa"'],
+    [
+      'self-explain output',
+      `bun src/bin/cc-safety-net.ts explain --json --cwd /tmp/ccsn-scout 'cat /tmp/ccsn-scout/fixture/.env' | jq -c '{result}'`,
+    ],
+  ] as const)('Coding CLI allows log-derived %s in standard mode', async (name, command) => {
     await withWorkspace(async ({ cwd, home }) => {
-      const standardAllows = [
-        ['bash-syntax', "bash -n -c '(( rm -rf / root ))'"],
-        ['node-data', `node -e 'console.log("rm -rf /")'`],
-        ['xargs-positional', `find src -type f | xargs sh -c 'wc -l "$1"' _`],
-        ['parallel-probe', 'command -v parallel'],
-        ['secret-metadata', 'test -f "$HOME/.ssh/id_rsa"'],
-        [
-          'self-explain',
-          `bun src/bin/cc-safety-net.ts explain --json --cwd /tmp/ccsn-scout 'cat /tmp/ccsn-scout/fixture/.env' | jq -c '{result}'`,
-        ],
-      ] as const;
+      const sessionId = `log-regression-${name}-standard`;
+      await expectAllowedAction(cwd, home, sessionId, (action) =>
+        runCodingCliTool('Bash', { command }, cwd, home, sessionId, action, 'standard'),
+      );
+    });
+  });
 
-      for (const [name, command] of standardAllows) {
-        const sessionId = `log-regression-${name}-standard`;
-        const action = join(cwd, `${name}-allowed`);
-        expect(
-          await runCodingCliTool(
-            'Bash',
-            { command },
-            cwd,
-            home,
-            sessionId,
-            () => writeFileSync(action, 'ran'),
-            'standard',
-          ),
-        ).toEqual({ allowed: true });
-        expect(readFileSync(action, 'utf8')).toBe('ran');
-        expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
-      }
-
+  test('Coding CLI blocks secret metadata in strict mode', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
       const strictCommand = 'test -f "$HOME/.ssh/id_rsa"';
       const strictSession = 'log-regression-secret-metadata-strict';
       const strictResult = await runCodingCliTool(
@@ -221,51 +200,46 @@ describe('built CLI protection contract', () => {
         command: strictCommand,
         ruleId: 'secret.home.ssh',
       });
-
-      const standardDenies = [
-        ['bash-executes', "bash -c 'rm -rf /'", 'rm.recursive-force-root-or-home'],
-        [
-          'node-executes',
-          `node -e 'require("node:child_process").execSync("rm -rf /")'`,
-          'interpreter.dangerous-command',
-        ],
-        [
-          'xargs-source',
-          `find src -type f | xargs -I{} sh -c 'echo {}; sed -n 1,20p {}'`,
-          'xargs.shell-dynamic',
-        ],
-        ['parallel-stream', 'parallel', 'parallel.command-stream-dynamic'],
-        ['secret-content', 'cat "$HOME/.ssh/id_rsa"', 'secret.home.ssh'],
-      ] as const;
-
-      for (const [name, command, ruleId] of standardDenies) {
-        const sessionId = `log-regression-${name}-standard`;
-        const result = await runCodingCliTool(
-          'Bash',
-          { command },
-          cwd,
-          home,
-          sessionId,
-          () => writeFileSync(join(cwd, `${name}-ran`), 'ran'),
-          'standard',
-        );
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain(ruleId);
-        expectSingleAudit(home, sessionId, { agent: 'claude-code', command, ruleId });
-      }
     });
   });
 
-  test('Coding CLI blocks secret paths while allowing nearby harmless inputs', async () => {
+  test.each([
+    ['Bash execution', 'bash-executes', "bash -c 'rm -rf /'", 'rm.recursive-force-root-or-home'],
+    [
+      'Node execution',
+      'node-executes',
+      `node -e 'require("node:child_process").execSync("rm -rf /")'`,
+      'interpreter.dangerous-command',
+    ],
+    [
+      'xargs source execution',
+      'xargs-source',
+      `find src -type f | xargs -I{} sh -c 'echo {}; sed -n 1,20p {}'`,
+      'xargs.shell-dynamic',
+    ],
+    ['parallel command stream', 'parallel-stream', 'parallel', 'parallel.command-stream-dynamic'],
+    ['secret content', 'secret-content', 'cat "$HOME/.ssh/id_rsa"', 'secret.home.ssh'],
+  ] as const)('Coding CLI blocks log-derived %s in standard mode', async (_name, slug, command, ruleId) => {
     await withWorkspace(async ({ cwd, home }) => {
-      mkdirSync(join(cwd, 'src'));
-      mkdirSync(join(cwd, 'nested'));
-      writeFileSync(join(cwd, '.env'), 'SECRET=protected');
-      writeFileSync(join(cwd, '.env.example'), 'SECRET=example');
-      writeFileSync(join(cwd, 'README.md'), 'public');
-      symlinkSync(join(cwd, '.env'), join(cwd, 'public.txt'));
-      const reads: string[] = [];
+      const sessionId = `log-regression-${slug}-standard`;
+      const result = await runCodingCliTool(
+        'Bash',
+        { command },
+        cwd,
+        home,
+        sessionId,
+        () => writeFileSync(join(cwd, `${slug}-ran`), 'ran'),
+        'standard',
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain(ruleId);
+      expectSingleAudit(home, sessionId, { agent: 'claude-code', command, ruleId });
+    });
+  });
 
+  test('Coding CLI blocks direct .env reads', async () => {
+    await withSecretWorkspace(async ({ cwd, home }) => {
+      const reads: string[] = [];
       const secretSession = 'claude-secret-env';
       const secretResult = await runCodingCliTool(
         'Read',
@@ -283,106 +257,102 @@ describe('built CLI protection contract', () => {
         command: '.env',
         ruleId: 'secret.basename.env',
       });
-
-      for (const [sessionId, filePath, expected] of [
-        ['claude-env-example', '.env.example', 'SECRET=example'],
-        ['claude-readme', 'README.md', 'public'],
-      ] as const) {
-        const result = await runCodingCliTool(
-          'Read',
-          { file_path: filePath },
-          cwd,
-          home,
-          sessionId,
-          () => reads.push(readFileSync(join(cwd, filePath), 'utf8')),
-        );
-        expect(result).toEqual({ allowed: true });
-        expect(reads.at(-1)).toBe(expected);
-        expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
-      }
-
-      for (const [sessionId, toolName, toolInput] of [
-        ['claude-grep-content', 'Grep', { pattern: '.env', path: 'src' }],
-        [
-          'claude-patch-content',
-          'apply_patch',
-          {
-            command: [
-              '*** Begin Patch',
-              '*** Update File: tests/example.test.ts',
-              '@@',
-              ' rm -rf ~',
-              '*** End Patch',
-            ].join('\n'),
-          },
-        ],
-      ] as const) {
-        const action = join(cwd, `${sessionId}-ran`);
-        expect(
-          await runCodingCliTool(toolName, toolInput, cwd, home, sessionId, () =>
-            writeFileSync(action, 'ran'),
-          ),
-        ).toEqual({ allowed: true });
-        expect(readFileSync(action, 'utf8')).toBe('ran');
-        expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
-      }
-
-      for (const [sessionId, executionCwd, filePath] of [
-        ['claude-relative-secret', join(cwd, 'nested'), '../.env'],
-        ['claude-symlink-secret', cwd, 'public.txt'],
-      ] as const) {
-        const result = await runCodingCliTool(
-          'Read',
-          { file_path: filePath },
-          executionCwd,
-          home,
-          sessionId,
-          () => reads.push(readFileSync(join(executionCwd, filePath), 'utf8')),
-        );
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('secret.basename.env');
-        expectSingleAudit(home, sessionId, {
-          agent: 'claude-code',
-          command: filePath,
-          ruleId: 'secret.basename.env',
-        });
-      }
-      expect(reads).toEqual(['SECRET=example', 'public']);
     });
   });
 
-  test('Coding CLI protects only policy mutations across direct and aliased paths', async () => {
-    await withWorkspace(async ({ cwd, home }) => {
-      const safetyNetHome = join(home, '.cc-safety-net');
-      const policyPath = join(safetyNetHome, 'policy.json');
-      const originalPolicy = JSON.stringify({ version: 1 });
-      mkdirSync(safetyNetHome, { recursive: true });
-      writeFileSync(policyPath, originalPolicy);
-      symlinkSync(policyPath, join(cwd, 'policy-alias.json'));
+  test.each([
+    ['.env.example', 'SECRET=example'],
+    ['README.md', 'public'],
+  ] as const)('Coding CLI allows harmless %s reads', async (filePath, expected) => {
+    await withSecretWorkspace(async ({ cwd, home }) => {
+      const reads: string[] = [];
+      const sessionId = `claude-${filePath.replaceAll('.', '-')}`;
+      const result = await runCodingCliTool(
+        'Read',
+        { file_path: filePath },
+        cwd,
+        home,
+        sessionId,
+        () => reads.push(readFileSync(join(cwd, filePath), 'utf8')),
+      );
+      expect(result).toEqual({ allowed: true });
+      expect(reads.at(-1)).toBe(expected);
+      expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
+    });
+  });
 
-      for (const [sessionId, toolName, toolInput] of [
-        ['claude-policy-write', 'Write', { file_path: policyPath, content: '{}' }],
-        ['claude-policy-redirect', 'Bash', { command: `printf mutated > ${policyPath}` }],
-        [
-          'claude-policy-env',
-          'Bash',
-          { command: 'printf mutated > $CC_SAFETY_NET_HOME/policy.json' },
-        ],
-        [
-          'claude-policy-symlink',
-          'Write',
-          { file_path: join(cwd, 'policy-alias.json'), content: '{}' },
-        ],
-      ] as const) {
-        const result = await runCodingCliTool(toolName, toolInput, cwd, home, sessionId, () =>
-          writeFileSync(policyPath, 'mutated'),
-        );
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('Policy config is protected and you must not modify it.');
-        expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
-        expectSingleAudit(home, sessionId, { agent: 'claude-code' });
-      }
+  test.each([
+    ['Grep content', 'Grep', { pattern: '.env', path: 'src' }],
+    [
+      'patch content',
+      'apply_patch',
+      {
+        command: [
+          '*** Begin Patch',
+          '*** Update File: tests/example.test.ts',
+          '@@',
+          ' rm -rf ~',
+          '*** End Patch',
+        ].join('\n'),
+      },
+    ],
+  ] as const)('Coding CLI allows harmless %s', async (name, toolName, toolInput) => {
+    await withSecretWorkspace(async ({ cwd, home }) => {
+      const sessionId = `claude-${name.replaceAll(' ', '-')}`;
+      await expectAllowedAction(cwd, home, sessionId, (action) =>
+        runCodingCliTool(toolName, toolInput, cwd, home, sessionId, action),
+      );
+    });
+  });
 
+  test.each([
+    ['relative path', 'relative', '../.env'],
+    ['symlink', 'symlink', 'public.txt'],
+  ] as const)('Coding CLI blocks .env reads through a %s', async (_name, pathKind, filePath) => {
+    await withSecretWorkspace(async ({ cwd, home }) => {
+      const sessionId = `claude-${pathKind}-secret`;
+      const executionCwd = pathKind === 'relative' ? join(cwd, 'nested') : cwd;
+      const reads: string[] = [];
+      const result = await runCodingCliTool(
+        'Read',
+        { file_path: filePath },
+        executionCwd,
+        home,
+        sessionId,
+        () => reads.push(readFileSync(join(executionCwd, filePath), 'utf8')),
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('secret.basename.env');
+      expectSingleAudit(home, sessionId, {
+        agent: 'claude-code',
+        command: filePath,
+        ruleId: 'secret.basename.env',
+      });
+      expect(reads).toEqual([]);
+    });
+  });
+
+  test.each([
+    ['direct Write', 'write'],
+    ['absolute shell redirect', 'redirect'],
+    ['environment shell redirect', 'env'],
+    ['symlink Write', 'symlink'],
+  ] as const)('Coding CLI blocks policy mutation through %s', async (_name, kind) => {
+    await withPolicyWorkspace(async ({ cwd, home, policyPath, originalPolicy }) => {
+      const sessionId = `claude-policy-${kind}`;
+      const [toolName, toolInput] = policyMutation(kind, cwd, policyPath);
+      const result = await runCodingCliTool(toolName, toolInput, cwd, home, sessionId, () =>
+        writeFileSync(policyPath, 'mutated'),
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('Policy config is protected and you must not modify it.');
+      expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
+      expectSingleAudit(home, sessionId, { agent: 'claude-code' });
+    });
+  });
+
+  test('Coding CLI allows policy reads', async () => {
+    await withPolicyWorkspace(async ({ cwd, home, policyPath, originalPolicy }) => {
       const reads: string[] = [];
       const readSession = 'claude-policy-read';
       expect(
@@ -392,7 +362,12 @@ describe('built CLI protection contract', () => {
       ).toEqual({ allowed: true });
       expect(reads).toEqual([originalPolicy]);
       expect(readAuditLogEntriesForSession(home, readSession)).toEqual([]);
+    });
+  });
 
+  test('Coding CLI allows policy directory inspection', async () => {
+    await withPolicyWorkspace(async ({ cwd, home, safetyNetHome }) => {
+      const reads: string[] = [];
       const inspectSession = 'claude-policy-inspect';
       expect(
         await runGated(
@@ -437,19 +412,6 @@ describe('built Pi extension protection contract', () => {
       });
     });
   });
-
-  test('gates destructive, secret, and policy actions without blocking nearby safe inputs', async () => {
-    await withWorkspace(async ({ cwd, home }) => {
-      await expectIntegrationProtection({
-        agent: 'pi',
-        cwd,
-        home,
-        run: runPiGated,
-        readTool: 'Read',
-        readPathField: 'file_path',
-      });
-    });
-  });
 });
 
 describe('built OpenCode plugin protection contract', () => {
@@ -478,21 +440,11 @@ describe('built OpenCode plugin protection contract', () => {
     });
   });
 
-  test('gates destructive, secret, policy, and patchText actions without false positives', async () => {
+  test('allows harmless patchText content', async () => {
     await withWorkspace(async ({ cwd, home }) => {
-      const policyPath = await expectIntegrationProtection({
-        agent: 'opencode',
-        cwd,
-        home,
-        run: runOpenCodeGated,
-        readTool: 'read',
-        readPathField: 'path',
-      });
-
       const patchSession = 'opencode-patch-content';
-      const patchAction = join(cwd, 'opencode-patch-ran');
-      expect(
-        await runOpenCodeGated(
+      await expectAllowedAction(cwd, home, patchSession, (action) =>
+        runOpenCodeGated(
           'apply_patch',
           {
             patchText: [
@@ -507,12 +459,14 @@ describe('built OpenCode plugin protection contract', () => {
           cwd,
           home,
           patchSession,
-          () => writeFileSync(patchAction, 'ran'),
+          action,
         ),
-      ).toEqual({ allowed: true });
-      expect(readFileSync(patchAction, 'utf8')).toBe('ran');
-      expect(readAuditLogEntriesForSession(home, patchSession)).toEqual([]);
+      );
+    });
+  });
 
+  test('blocks policy mutation through patchText', async () => {
+    await withPolicyWorkspace(async ({ cwd, home, policyPath, originalPolicy }) => {
       const policySession = 'opencode-policy-patch';
       const policyResult = await runOpenCodeGated(
         'apply_patch',
@@ -533,11 +487,170 @@ describe('built OpenCode plugin protection contract', () => {
       );
       expect(policyResult.allowed).toBe(false);
       expect(policyResult.reason).toContain('Policy config is protected');
-      expect(readFileSync(policyPath, 'utf8')).toBe('{"version":1}');
+      expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
       expectSingleAudit(home, policySession, { agent: 'opencode' });
     });
   });
 });
+
+for (const integration of [
+  {
+    agent: 'pi',
+    title: 'built Pi extension protection contract',
+    run: runPiGated,
+    readTool: 'Read',
+    readPathField: 'file_path',
+  },
+  {
+    agent: 'opencode',
+    title: 'built OpenCode plugin protection contract',
+    run: runOpenCodeGated,
+    readTool: 'read',
+    readPathField: 'path',
+  },
+] as const) {
+  describe(integration.title, () => {
+    test('allows git status and produces no audit', async () => {
+      await withWorkspace(async ({ cwd, home }) => {
+        const sessionId = `${integration.agent}-safe`;
+        await expectAllowedAction(cwd, home, sessionId, (action) =>
+          integration.run('bash', { command: 'git status' }, cwd, home, sessionId, action),
+        );
+      });
+    });
+
+    test('blocks git reset --hard and preserves the target', async () => {
+      await withWorkspace(async ({ cwd, home }) => {
+        const sessionId = `${integration.agent}-reset`;
+        const sentinel = join(cwd, `${integration.agent}-reset-sentinel`);
+        writeFileSync(sentinel, 'preserve');
+        const result = await integration.run(
+          'bash',
+          { command: 'git reset --hard' },
+          cwd,
+          home,
+          sessionId,
+          () => rmSync(sentinel),
+        );
+        expect(expectDeniedReason(result)).toContain('git.reset-hard');
+        expect(readFileSync(sentinel, 'utf8')).toBe('preserve');
+        expectSingleAudit(home, sessionId, {
+          agent: integration.agent,
+          command: 'git reset --hard',
+          ruleId: 'git.reset-hard',
+        });
+      });
+    });
+
+    test('blocks direct .env reads', async () => {
+      await withSecretWorkspace(async ({ cwd, home }) => {
+        const sessionId = `${integration.agent}-secret`;
+        const reads: string[] = [];
+        const result = await integration.run(
+          integration.readTool,
+          { [integration.readPathField]: '.env' },
+          cwd,
+          home,
+          sessionId,
+          () => reads.push(readFileSync(join(cwd, '.env'), 'utf8')),
+        );
+        expect(expectDeniedReason(result)).toContain('secret.basename.env');
+        expect(reads).toEqual([]);
+        expectSingleAudit(home, sessionId, {
+          agent: integration.agent,
+          command: '.env',
+          ruleId: 'secret.basename.env',
+        });
+      });
+    });
+
+    test.each([
+      ['.env.example', 'SECRET=example'],
+      ['README.md', 'public'],
+    ] as const)('allows harmless %s reads', async (filePath, expected) => {
+      await withSecretWorkspace(async ({ cwd, home }) => {
+        const sessionId = `${integration.agent}-${filePath.replaceAll('.', '-')}`;
+        const reads: string[] = [];
+        expect(
+          await integration.run(
+            integration.readTool,
+            { [integration.readPathField]: filePath },
+            cwd,
+            home,
+            sessionId,
+            () => reads.push(readFileSync(join(cwd, filePath), 'utf8')),
+          ),
+        ).toEqual({ allowed: true });
+        expect(reads).toEqual([expected]);
+        expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
+      });
+    });
+
+    test('blocks policy writes', async () => {
+      await withPolicyWorkspace(async ({ cwd, home, policyPath, originalPolicy }) => {
+        const sessionId = `${integration.agent}-policy-write`;
+        const result = await integration.run(
+          'Write',
+          { file_path: policyPath, content: 'mutated' },
+          cwd,
+          home,
+          sessionId,
+          () => writeFileSync(policyPath, 'mutated'),
+        );
+        expect(expectDeniedReason(result)).toContain('Policy config is protected');
+        expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
+        expectSingleAudit(home, sessionId, { agent: integration.agent });
+      });
+    });
+  });
+}
+
+function withSecretWorkspace<T>(run: (context: { cwd: string; home: string }) => T | Promise<T>) {
+  return withWorkspace((context) => {
+    mkdirSync(join(context.cwd, 'src'));
+    mkdirSync(join(context.cwd, 'nested'));
+    writeFileSync(join(context.cwd, '.env'), 'SECRET=protected');
+    writeFileSync(join(context.cwd, '.env.example'), 'SECRET=example');
+    writeFileSync(join(context.cwd, 'README.md'), 'public');
+    symlinkSync(join(context.cwd, '.env'), join(context.cwd, 'public.txt'));
+    return run(context);
+  });
+}
+
+function withPolicyWorkspace<T>(
+  run: (context: {
+    cwd: string;
+    home: string;
+    safetyNetHome: string;
+    policyPath: string;
+    originalPolicy: string;
+  }) => T | Promise<T>,
+) {
+  return withWorkspace((context) => {
+    const safetyNetHome = join(context.home, '.cc-safety-net');
+    const policyPath = join(safetyNetHome, 'policy.json');
+    const originalPolicy = JSON.stringify({ version: 1 });
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(policyPath, originalPolicy);
+    symlinkSync(policyPath, join(context.cwd, 'policy-alias.json'));
+    return run({ ...context, safetyNetHome, policyPath, originalPolicy });
+  });
+}
+
+function policyMutation(
+  kind: 'write' | 'redirect' | 'env' | 'symlink',
+  cwd: string,
+  policyPath: string,
+) {
+  if (kind === 'write') return ['Write', { file_path: policyPath, content: '{}' }] as const;
+  if (kind === 'redirect') {
+    return ['Bash', { command: `printf mutated > ${policyPath}` }] as const;
+  }
+  if (kind === 'env') {
+    return ['Bash', { command: 'printf mutated > $CC_SAFETY_NET_HOME/policy.json' }] as const;
+  }
+  return ['Write', { file_path: join(cwd, 'policy-alias.json'), content: '{}' }] as const;
+}
 
 async function withWorkspace<T>(run: (context: { cwd: string; home: string }) => T | Promise<T>) {
   const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-e2e-'));
@@ -547,9 +660,43 @@ async function withWorkspace<T>(run: (context: { cwd: string; home: string }) =>
   mkdirSync(home);
   try {
     return await run({ cwd, home });
+  } catch (error) {
+    try {
+      preserveFailureEvidence(root, home, error);
+    } catch (artifactError) {
+      console.error(`Failed to preserve E2E evidence: ${redactSecrets(String(artifactError))}`);
+    }
+    throw error;
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function preserveFailureEvidence(root: string, home: string, error: unknown) {
+  const artifactRoot = process.env.CC_SAFETY_NET_E2E_ARTIFACTS?.trim();
+  if (!artifactRoot) return;
+  const destination = join(artifactRoot, basename(root));
+  mkdirSync(destination, { recursive: true });
+  writeFileSync(
+    join(destination, 'failure.txt'),
+    redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+  );
+  const auditLogs = join(home, '.cc-safety-net', 'logs');
+  if (existsSync(auditLogs)) {
+    cpSync(auditLogs, join(destination, 'audit-logs'), { recursive: true });
+  }
+}
+
+async function expectAllowedAction(
+  cwd: string,
+  home: string,
+  sessionId: string,
+  run: (action: () => void) => Promise<{ allowed: true } | { allowed: false; reason: string }>,
+) {
+  const action = join(cwd, `${sessionId}-ran`);
+  expect(await run(() => writeFileSync(action, 'ran'))).toEqual({ allowed: true });
+  expect(readFileSync(action, 'utf8')).toBe('ran');
+  expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
 }
 
 async function runGated(
@@ -560,16 +707,14 @@ async function runGated(
   action: () => void,
   level?: 'standard' | 'strict',
 ) {
-  const result = await runBuiltHook(adapter.flag, input, cwd, home, level);
-  expect(result.exitCode).toBe(0);
-  expect(result.stderr).toBe('');
-  if (!result.stdout) {
+  const stdout = await runBuiltHook(adapter.flag, input, cwd, home, level);
+  if (!stdout) {
     action();
     return { allowed: true } as const;
   }
   return {
     allowed: false,
-    reason: adapter.denyReason(JSON.parse(result.stdout) as Record<string, unknown>),
+    reason: adapter.denyReason(parseJsonOutput('CLI hook', stdout)),
   } as const;
 }
 
@@ -606,14 +751,7 @@ async function runBuiltHook(
   home: string,
   level?: 'standard' | 'strict',
 ) {
-  const { stdout, stderr, exitCode } = await runNode(
-    [cliPath, 'hook', flag],
-    input,
-    cwd,
-    home,
-    level,
-  );
-  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+  return (await runNode([cliPath, 'hook', flag], input, cwd, home, level)).stdout.trim();
 }
 
 type IntegrationGate = (
@@ -624,104 +762,6 @@ type IntegrationGate = (
   sessionId: string,
   action: () => void,
 ) => Promise<{ allowed: true } | { allowed: false; reason: string }>;
-
-async function expectIntegrationProtection(options: {
-  agent: 'opencode' | 'pi';
-  cwd: string;
-  home: string;
-  run: IntegrationGate;
-  readTool: string;
-  readPathField: 'file_path' | 'path';
-}) {
-  writeFileSync(join(options.cwd, '.env'), 'SECRET=protected');
-  writeFileSync(join(options.cwd, '.env.example'), 'SECRET=example');
-  writeFileSync(join(options.cwd, 'README.md'), 'public');
-
-  const safeSession = `${options.agent}-safe`;
-  const safeAction = join(options.cwd, `${options.agent}-safe-ran`);
-  expect(
-    await options.run(
-      'bash',
-      { command: 'git status' },
-      options.cwd,
-      options.home,
-      safeSession,
-      () => writeFileSync(safeAction, 'ran'),
-    ),
-  ).toEqual({ allowed: true });
-  expect(readFileSync(safeAction, 'utf8')).toBe('ran');
-  expect(readAuditLogEntriesForSession(options.home, safeSession)).toEqual([]);
-
-  const resetSession = `${options.agent}-reset`;
-  const resetSentinel = join(options.cwd, `${options.agent}-reset-sentinel`);
-  writeFileSync(resetSentinel, 'preserve');
-  const resetResult = await options.run(
-    'bash',
-    { command: 'git reset --hard' },
-    options.cwd,
-    options.home,
-    resetSession,
-    () => rmSync(resetSentinel),
-  );
-  expect(expectDeniedReason(resetResult)).toContain('git.reset-hard');
-  expect(readFileSync(resetSentinel, 'utf8')).toBe('preserve');
-  expectSingleAudit(options.home, resetSession, {
-    agent: options.agent,
-    command: 'git reset --hard',
-    ruleId: 'git.reset-hard',
-  });
-
-  const secretSession = `${options.agent}-secret`;
-  const secretReads: string[] = [];
-  const secretResult = await options.run(
-    options.readTool,
-    { [options.readPathField]: '.env' },
-    options.cwd,
-    options.home,
-    secretSession,
-    () => secretReads.push(readFileSync(join(options.cwd, '.env'), 'utf8')),
-  );
-  expect(expectDeniedReason(secretResult)).toContain('secret.basename.env');
-  expect(secretReads).toEqual([]);
-  expectSingleAudit(options.home, secretSession, {
-    agent: options.agent,
-    command: '.env',
-    ruleId: 'secret.basename.env',
-  });
-
-  for (const filePath of ['.env.example', 'README.md']) {
-    const sessionId = `${options.agent}-${filePath.replaceAll('.', '-')}`;
-    expect(
-      await options.run(
-        options.readTool,
-        { [options.readPathField]: filePath },
-        options.cwd,
-        options.home,
-        sessionId,
-        () => secretReads.push(readFileSync(join(options.cwd, filePath), 'utf8')),
-      ),
-    ).toEqual({ allowed: true });
-    expect(readAuditLogEntriesForSession(options.home, sessionId)).toEqual([]);
-  }
-  expect(secretReads).toEqual(['SECRET=example', 'public']);
-
-  const policyPath = join(options.home, '.cc-safety-net', 'policy.json');
-  mkdirSync(join(options.home, '.cc-safety-net'), { recursive: true });
-  writeFileSync(policyPath, '{"version":1}');
-  const policySession = `${options.agent}-policy-write`;
-  const policyResult = await options.run(
-    'Write',
-    { file_path: policyPath, content: 'mutated' },
-    options.cwd,
-    options.home,
-    policySession,
-    () => writeFileSync(policyPath, 'mutated'),
-  );
-  expect(expectDeniedReason(policyResult)).toContain('Policy config is protected');
-  expect(readFileSync(policyPath, 'utf8')).toBe('{"version":1}');
-  expectSingleAudit(options.home, policySession, { agent: options.agent });
-  return policyPath;
-}
 
 function expectDeniedReason(result: Awaited<ReturnType<IntegrationGate>>) {
   expect(result.allowed).toBe(false);
@@ -781,15 +821,13 @@ async function runBuiltHost(
   cwd: string,
   home: string,
 ) {
-  const { stdout, stderr, exitCode } = await runNode(
+  const { stdout } = await runNode(
     ['--input-type=module', '--eval', hostScript, bundlePath],
     input,
     cwd,
     home,
   );
-  expect(exitCode).toBe(0);
-  expect(stderr.trim()).toBe('');
-  return JSON.parse(stdout) as Record<string, unknown>;
+  return parseJsonOutput('integration host', stdout);
 }
 
 async function runNode(
@@ -813,7 +851,19 @@ async function runNode(
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  return { stdout, stderr, exitCode };
+  const result = { command: ['node', ...args], cwd, input, stdout, stderr, exitCode };
+  if (exitCode === 0 && stderr.trim() === '') return result;
+  throw new Error(
+    `Node subprocess violated the E2E contract:\n${redactSecrets(JSON.stringify(result, null, 2))}`,
+  );
+}
+
+function parseJsonOutput(label: string, output: string) {
+  try {
+    return JSON.parse(output) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`${label} returned invalid JSON:\n${redactSecrets(output)}`, { cause: error });
+  }
 }
 
 function isolatedEnv(home: string, level?: 'standard' | 'strict') {
@@ -856,90 +906,3 @@ function getClaudeStyleDenyReason(output: Record<string, unknown>) {
   expect(hookOutput.permissionDecision).toBe('deny');
   return String(hookOutput.permissionDecisionReason);
 }
-
-const PI_HOST_SCRIPT = `
-import { pathToFileURL } from 'node:url';
-
-let input = '';
-for await (const chunk of process.stdin) input += chunk;
-const request = JSON.parse(input);
-const events = new Map();
-const commands = new Map();
-const sentMessages = [];
-const pi = {
-  on(name, handler) {
-    events.set(name, handler);
-  },
-  registerCommand(name, command) {
-    commands.set(name, command);
-  },
-  sendUserMessage(content, options) {
-    sentMessages.push({ content, options });
-  },
-};
-const extension = (await import(pathToFileURL(process.argv[1]).href)).default;
-await extension(pi);
-
-if (request.kind === 'registration') {
-  await commands.get('cc-safety-net').handler(request.commandArgs, {
-    isIdle: () => request.idle,
-  });
-  process.stdout.write(JSON.stringify({
-    eventNames: [...events.keys()],
-    commandNames: [...commands.keys()],
-    commandDescription: commands.get('cc-safety-net').description,
-    sentMessages,
-  }));
-} else {
-  const result = await events.get('tool_call')(request.event, {
-    cwd: process.cwd(),
-    sessionManager: { getSessionId: () => request.sessionId },
-  });
-  process.stdout.write(JSON.stringify({ result: result ?? null }));
-}
-`;
-
-const OPENCODE_HOST_SCRIPT = `
-import { pathToFileURL } from 'node:url';
-
-let input = '';
-for await (const chunk of process.stdin) input += chunk;
-const request = JSON.parse(input);
-const pluginModule = await import(pathToFileURL(process.argv[1]).href);
-const factories = Object.values(pluginModule).filter((value) => typeof value === 'function');
-const pluginInput = {
-  client: {},
-  project: {},
-  directory: process.cwd(),
-  worktree: process.cwd(),
-  experimental_workspace: { register() {} },
-  serverUrl: new URL('http://127.0.0.1:4096'),
-  $: () => {},
-};
-const hooks = await Promise.all(factories.map((factory) => factory(pluginInput)));
-
-if (request.kind === 'config') {
-  for (const hook of hooks) await hook.config?.(request.config);
-  process.stdout.write(JSON.stringify({
-    exportNames: Object.keys(pluginModule),
-    pluginCount: hooks.length,
-    commandNames: Object.keys(request.config.command ?? {}),
-    existingCommand: request.config.command?.existing,
-  }));
-} else {
-  try {
-    for (const hook of hooks) {
-      await hook['tool.execute.before']?.(
-        { tool: request.tool, sessionID: request.sessionId, callID: request.sessionId + '-call' },
-        { args: request.args },
-      );
-    }
-    process.stdout.write(JSON.stringify({ allowed: true }));
-  } catch (error) {
-    process.stdout.write(JSON.stringify({
-      allowed: false,
-      reason: error instanceof Error ? error.message : String(error),
-    }));
-  }
-}
-`;

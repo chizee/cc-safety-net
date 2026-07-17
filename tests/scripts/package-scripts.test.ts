@@ -9,6 +9,9 @@ describe('package scripts', () => {
   test('keeps tests serial and emits visible deterministic LCOV coverage', () => {
     expect(packageJson.scripts?.test).toBe('bun test');
     expect(packageJson.scripts?.['test:e2e']).toBe('bun test tests/e2e');
+    expect(packageJson.scripts?.['test:e2e:stability']).toBe(
+      'bun test tests/e2e --randomize --rerun-each 3',
+    );
     expect(packageJson.scripts?.['test:coverage']).toBe(
       'AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov',
     );

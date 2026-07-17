@@ -29,6 +29,20 @@ describe('CI and release workflows', () => {
     expect(workflow).toContain('git diff --exit-code -- dist assets/cc-safety-net.schema.json');
   });
 
+  test('stress-checks E2E stability and preserves failure evidence', () => {
+    const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const windows = readFileSync('.github/workflows/test-windows.yml', 'utf8');
+    expect(ci).toContain('run: bun run test:e2e:stability');
+    for (const workflow of [ci, windows]) {
+      expect(workflow).toContain(
+        'CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e',
+      );
+      expect(workflow).toContain('if: ${{ failure() }}');
+      expect(workflow).toContain('uses: actions/upload-artifact@');
+      expect(workflow).toContain('if-no-files-found: ignore');
+    }
+  });
+
   test('audits bundled build dependencies instead of omitting development dependencies', () => {
     const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
     expect(workflow).toContain('run: bun run audit:dependencies');

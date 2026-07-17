@@ -30,6 +30,12 @@ jobs:
         run: bun run audit:dependencies
       - name: Check source
         run: bun run check:ci
+        env:
+          CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e
+      - name: Verify E2E stability
+        run: bun run test:e2e:stability
+        env:
+          CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e
       - name: Rebuild owned artifacts
         run: bun run build
       - name: Reject stale generated artifacts
@@ -41,6 +47,14 @@ jobs:
       - uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload E2E failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e2e-failure-evidence-ubuntu
+          path: ${{ runner.temp }}/cc-safety-net-e2e
+          if-no-files-found: ignore
+          retention-days: 7
 
   packed-runtime:
     needs: full-check

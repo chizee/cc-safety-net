@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from './integration-host-scripts';
 
 const PACKAGE_FILES = [
   'package/LICENSE',
@@ -102,11 +103,19 @@ export async function verifyPackage(): Promise<void> {
     );
     const packageRoot = join(directory, 'node_modules', 'cc-safety-net');
     const cli = join(packageRoot, 'dist', 'bin', 'cc-safety-net.js');
+    const packageVerificationEnv = getPackageVerificationEnv(directory);
     for (const bundle of ['dist/index.js', 'dist/bin/cc-safety-net.js', 'dist/pi/index.js']) {
       if (readFileSync(join(packageRoot, bundle), 'utf8').includes('_operation')) {
         throw new Error(`Packed ${bundle} exposes the internal rule synchronization operation`);
       }
     }
+    verifyInstalledProtectionJourneys({
+      directory,
+      cli,
+      pi: join(packageRoot, 'dist', 'pi', 'index.js'),
+      openCode: join(packageRoot, 'dist', 'index.js'),
+      env: packageVerificationEnv,
+    });
     const overLimitRulebook = join(
       directory,
       '.cc-safety-net',
@@ -200,7 +209,6 @@ export async function verifyPackage(): Promise<void> {
     }
     const aliasConfigReason =
       'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
-    const packageVerificationEnv = getPackageVerificationEnv(directory);
     for (const command of ['GIT_CONFIG_COUNT=1025 git status', 'GIT_CONFIG_COUNT=1 git status']) {
       const output = JSON.parse(
         run(
@@ -280,6 +288,130 @@ export async function verifyPackage(): Promise<void> {
     console.log(`Verified ${basename(tarball)} (${result.size} bytes)`);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function verifyInstalledProtectionJourneys(options: {
+  directory: string;
+  cli: string;
+  pi: string;
+  openCode: string;
+  env: Record<string, string | undefined>;
+}) {
+  const cliSafe = runPackedCliHook(options, 'git status', 'package-cli-safe');
+  if (cliSafe !== null) throw new Error('Packed CLI blocked git status');
+
+  const cliReset = runPackedCliHook(options, 'git reset --hard', 'package-cli-reset');
+  const cliHookOutput = cliReset?.hookSpecificOutput as Record<string, unknown> | undefined;
+  if (
+    cliHookOutput?.permissionDecision !== 'deny' ||
+    !String(cliHookOutput.permissionDecisionReason).includes('git.reset-hard')
+  ) {
+    throw new Error('Packed CLI did not block git reset --hard');
+  }
+
+  const piSafe = runPackedHost(
+    options,
+    options.pi,
+    PI_HOST_SCRIPT,
+    integrationToolRequest('package-pi-safe', 'git status'),
+  );
+  if (piSafe.result !== null) throw new Error('Packed Pi extension blocked git status');
+
+  const piReset = runPackedHost(
+    options,
+    options.pi,
+    PI_HOST_SCRIPT,
+    integrationToolRequest('package-pi-reset', 'git reset --hard'),
+  ).result as { block?: boolean; reason?: string } | undefined;
+  if (piReset?.block !== true || !piReset.reason?.includes('git.reset-hard')) {
+    throw new Error('Packed Pi extension did not block git reset --hard');
+  }
+
+  const openCodeSafe = runPackedHost(
+    options,
+    options.openCode,
+    OPENCODE_HOST_SCRIPT,
+    openCodeToolRequest('package-opencode-safe', 'git status'),
+  );
+  if (openCodeSafe.allowed !== true) throw new Error('Packed OpenCode plugin blocked git status');
+
+  const openCodeReset = runPackedHost(
+    options,
+    options.openCode,
+    OPENCODE_HOST_SCRIPT,
+    openCodeToolRequest('package-opencode-reset', 'git reset --hard'),
+  );
+  if (openCodeReset.allowed !== false || !String(openCodeReset.reason).includes('git.reset-hard')) {
+    throw new Error('Packed OpenCode plugin did not block git reset --hard');
+  }
+}
+
+function runPackedCliHook(
+  options: { directory: string; cli: string; env: Record<string, string | undefined> },
+  command: string,
+  sessionId: string,
+) {
+  const result = run(
+    ['node', options.cli, 'hook', '--coding-cli'],
+    options.directory,
+    [0],
+    JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      session_id: sessionId,
+      transcript_path: join(options.directory, 'home', '.claude', 'transcript.jsonl'),
+      cwd: options.directory,
+      tool_name: 'Bash',
+      tool_input: { command },
+    }),
+    options.env,
+  );
+  if (result.stderr.length > 0) throw new Error(`Packed CLI wrote to stderr: ${result.stderr}`);
+  return result.stdout.length === 0
+    ? null
+    : (parsePackedJson('Packed CLI', result.stdout) as Record<string, unknown>);
+}
+
+function runPackedHost(
+  options: { directory: string; env: Record<string, string | undefined> },
+  bundle: string,
+  hostScript: string,
+  input: unknown,
+) {
+  const result = run(
+    ['node', '--input-type=module', '--eval', hostScript, bundle],
+    options.directory,
+    [0],
+    JSON.stringify(input),
+    options.env,
+  );
+  if (result.stderr.length > 0)
+    throw new Error(`Packed integration wrote to stderr: ${result.stderr}`);
+  return parsePackedJson('Packed integration', result.stdout) as Record<string, unknown>;
+}
+
+function integrationToolRequest(sessionId: string, command: string) {
+  return {
+    kind: 'tool_call',
+    event: {
+      type: 'tool_call',
+      toolCallId: `${sessionId}-call`,
+      toolName: 'bash',
+      input: { command },
+    },
+    sessionId,
+  };
+}
+
+function openCodeToolRequest(sessionId: string, command: string) {
+  return { kind: 'tool', tool: 'bash', args: { command }, sessionId };
+}
+
+function parsePackedJson(label: string, output: Uint8Array) {
+  try {
+    return JSON.parse(output.toString()) as unknown;
+  } catch (error) {
+    throw new Error(`${label} returned invalid JSON: ${output}`, { cause: error });
   }
 }
 
