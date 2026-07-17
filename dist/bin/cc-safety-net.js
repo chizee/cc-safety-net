@@ -15381,6 +15381,7 @@ import * as readline from "node:readline";
 
 // src/bin/utils/lolcat.ts
 var CURSOR_DOWN = (rows) => `\x1B[${rows}B`;
+var SCRAMBLE_POOL = ["░", "▒", "▓", "╱", "╲", "┃", "━", "┏", "┓", "┗", "┛", "╋"];
 function wait(milliseconds) {
   return new Promise((resolve13) => setTimeout(resolve13, milliseconds));
 }
@@ -15403,51 +15404,102 @@ function waitForAnimationFrame(milliseconds, sleep, signal) {
 function positiveOrDefault(value, fallback) {
   return value && value > 0 ? value : fallback;
 }
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
 function byte(value) {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
-function rainbow(frequency, offset) {
+function linearToSrgb(value) {
+  return value <= 0.0031308 ? 12.92 * value : 1.055 * value ** 0.4166666666666667 - 0.055;
+}
+function oklchToSrgb(lightness, chroma, hueDegrees) {
+  let hueRadians = hueDegrees * Math.PI / 180, a = chroma * Math.cos(hueRadians), b = chroma * Math.sin(hueRadians), l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
   return {
-    blue: byte(Math.sin(frequency * offset + 4 * Math.PI / 3) * 127 + 128),
-    green: byte(Math.sin(frequency * offset + 2 * Math.PI / 3) * 127 + 128),
-    red: byte(Math.sin(frequency * offset) * 127 + 128)
+    blue: byte(linearToSrgb(clamp01(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)) * 255),
+    green: byte(linearToSrgb(clamp01(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)) * 255),
+    red: byte(linearToSrgb(clamp01(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)) * 255)
   };
 }
-function colorizeCharacter(character, frequency, offset) {
-  let color = rainbow(frequency, offset);
-  return `\x1B[38;2;${color.red};${color.green};${color.blue}m${character}\x1B[39m`;
+function rainbow(frequency, offset) {
+  let hueDegrees = (offset * frequency * 180 / Math.PI % 360 + 360) % 360;
+  return oklchToSrgb(0.72, 0.15, hueDegrees);
 }
-function renderLolcat(text, options2 = {}) {
-  if (!text)
+function rainbowColorEscape(offset, frequency = 0.1) {
+  let color = rainbow(frequency, offset);
+  return `\x1B[38;2;${color.red};${color.green};${color.blue}m`;
+}
+function mixTowardWhite(color, amount) {
+  return {
+    blue: byte(color.blue + (255 - color.blue) * amount),
+    green: byte(color.green + (255 - color.green) * amount),
+    red: byte(color.red + (255 - color.red) * amount)
+  };
+}
+function hash01(a, b, c) {
+  let mixed = Math.imul(a + 2654435769, 2246822507) ^ Math.imul(b + 3266489909, 668265263) ^ Math.imul(c + 374761393, 2654435761), x1 = mixed ^ mixed >>> 15, x2 = Math.imul(x1, 739982445), x3 = x2 ^ x2 >>> 12, x4 = Math.imul(x3, 695872825);
+  return ((x4 ^ x4 >>> 15) >>> 0) / 4294967296;
+}
+function scrambleGlyph(lineIndex, columnIndex, frame) {
+  let index = Math.floor(hash01(lineIndex, columnIndex, frame) * SCRAMBLE_POOL.length);
+  return SCRAMBLE_POOL[index] ?? "░";
+}
+function smootherstep(progress) {
+  let t = clamp01(progress);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+function buildLine(cells) {
+  if (cells.length === 0)
     return "";
-  let frequency = positiveOrDefault(options2.frequency, 0.1), seed = options2.seed ?? 0, spread = positiveOrDefault(options2.spread, 3);
-  return `${text.split(`
-`).map((line, lineIndex) => Array.from(line).map((character, characterIndex) => colorizeCharacter(character, frequency, seed + lineIndex + characterIndex / spread)).join("")).join(`
-`)}\x1B[0m`;
+  let parts = [], activeBold = !1, activeColor = "";
+  for (let cell of cells) {
+    let color = `${cell.red};${cell.green};${cell.blue}`;
+    if (cell.bold !== activeBold)
+      parts.push(cell.bold ? "\x1B[1m" : "\x1B[22m"), activeBold = cell.bold;
+    if (color !== activeColor)
+      parts.push(`\x1B[38;2;${color}m`), activeColor = color;
+    parts.push(cell.character);
+  }
+  return `${parts.join("")}\x1B[22m\x1B[39m`;
+}
+function settledLineCells(line, lineIndex, frequency, seed, spread) {
+  return line.map((character, columnIndex) => ({
+    ...rainbow(frequency, seed + lineIndex + columnIndex / spread),
+    bold: !1,
+    character
+  }));
+}
+function wavefrontLineCells(line, lineIndex, frame, frameCount, width, frequency, seed, spread) {
+  let revealFrames = Math.max(1, frameCount * 0.75), revealProgress = Math.min(1, frame / revealFrames), front = width * smootherstep(revealProgress), settleProgress = Math.max(0, (frame - revealFrames) / Math.max(1, frameCount - revealFrames)), seedOffset = (1 - smootherstep(frame / frameCount)) * spread * 2, settleFlash = 0.35 * Math.max(0, 1 - settleProgress * 2), revealed = revealProgress >= 1, cutoff = Math.min(line.length, Math.ceil(front + 2 + 1));
+  return line.slice(0, cutoff).map((character, columnIndex) => {
+    let base = rainbow(frequency, seed + lineIndex + columnIndex / spread + seedOffset), position = columnIndex + hash01(lineIndex, columnIndex, 7919) * 2 - 1;
+    if (position > front + 2)
+      return { ...base, bold: !1, character: " " };
+    let distance = front - position, glow = 0.8 * Math.exp(-(distance * distance) / 12.5), boost = Math.min(0.9, glow + settleFlash), scrambling = !revealed && position > front - 4;
+    return {
+      ...mixTowardWhite(base, boost),
+      bold: boost > 0.3,
+      character: scrambling ? scrambleGlyph(lineIndex, columnIndex, frame) : character
+    };
+  });
+}
+function buildFrame(cellsPerLine) {
+  return `\x1B[?2026h${cellsPerLine.map((cells, lineIndex) => `\x1B8${lineIndex > 0 ? CURSOR_DOWN(lineIndex) : ""}${buildLine(cells)}`).join("")}\x1B[?2026l`;
 }
 async function writeAnimatedLolcat(text, options2 = {}) {
   if (!text)
     return;
-  let output = options2.output ?? process.stdout, sleep = options2.sleep ?? wait, speed = positiveOrDefault(options2.speed, 40), duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, 12))), spread = positiveOrDefault(options2.spread, 3), lines = text.split(`
-`).map((line) => Array.from(line)), width = Math.max(...lines.map((line) => line.length)), totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed, frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / 33.333333333333336)) : 0, frameDelay = frameCount > 0 ? totalDuration / frameCount : 0, renderFrame = (visibleColumns, seedOffset) => lines.map((line, lineIndex) => [
-    "\x1B8",
-    lineIndex > 0 ? CURSOR_DOWN(lineIndex) : "",
-    renderLolcat(line.slice(0, visibleColumns).join(""), {
-      frequency: options2.frequency,
-      seed: (options2.seed ?? 0) + lineIndex + seedOffset,
-      spread
-    })
-  ].join("")).join("");
+  let output = options2.output ?? process.stdout, sleep = options2.sleep ?? wait, frequency = positiveOrDefault(options2.frequency, 0.1), seed = options2.seed ?? 0, speed = positiveOrDefault(options2.speed, 40), spread = positiveOrDefault(options2.spread, 3), frameRate = positiveOrDefault(options2.frameRate, 60), duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, 12))), lines = text.split(`
+`).map((line) => Array.from(line)), width = Math.max(...lines.map((line) => line.length)), totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed, frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / frameRate))) : 0, frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
   output.write("\x1B[?25l\x1B7");
   try {
-    for (let frameIndex = 1;frameIndex <= frameCount; frameIndex += 1) {
+    for (let frame = 1;frame <= frameCount; frame += 1) {
       if (options2.signal?.aborted)
         break;
-      let progress = frameIndex / frameCount, easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
-      output.write(renderFrame(Math.max(1, Math.ceil(width * easedProgress)), (1 - easedProgress) * spread * 2)), await waitForAnimationFrame(frameDelay, sleep, options2.signal);
+      output.write(buildFrame(lines.map((line, lineIndex) => wavefrontLineCells(line, lineIndex, frame, frameCount, width, frequency, seed, spread)))), await waitForAnimationFrame(frameDelay, sleep, options2.signal);
     }
   } finally {
-    if (output.write(renderFrame(width, 0)), output.write("\x1B8"), lines.length > 1)
+    if (output.write(buildFrame(lines.map((line, lineIndex) => settledLineCells(line, lineIndex, frequency, seed, spread)))), output.write("\x1B8"), lines.length > 1)
       output.write(CURSOR_DOWN(lines.length - 1));
     output.write(`
 \x1B[0m\x1B[?25h`);
@@ -15507,7 +15559,7 @@ async function printInstallBanner(options2 = {}) {
 }
 
 // src/bin/startup/banner.ts
-var SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+var CLEAR_LINE = "\r\x1B[2K", HIDE_CURSOR = "\x1B[?25l", RESET_FOREGROUND = "\x1B[39m", SHOW_CURSOR = "\x1B[?25h", SPINNER_DELAY = 100, SPINNER_HUE_STEP = 0.55, SPINNER_INTERVAL = 80, SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 function wait2(milliseconds) {
   return new Promise((resolve13) => setTimeout(resolve13, milliseconds));
 }
@@ -15524,16 +15576,16 @@ async function waitForReady(ready, options2) {
   });
   if (await Promise.race([
     trackedReady.then(() => !0),
-    sleep(100).then(() => !1)
+    sleep(SPINNER_DELAY).then(() => !1)
   ]))
     return;
-  output.write("\x1B[?25l");
+  output.write(HIDE_CURSOR);
   try {
     for (let frameIndex = 0;!settled; frameIndex += 1)
-      output.write(`\r\x1B[2K${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]} ${options2.loadingMessage ?? "Loading…"}`), await Promise.race([trackedReady, sleep(80)]);
+      output.write(`${CLEAR_LINE}${rainbowColorEscape(frameIndex * SPINNER_HUE_STEP)}${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]}${RESET_FOREGROUND} ${options2.loadingMessage ?? "Loading…"}`), await Promise.race([trackedReady, sleep(SPINNER_INTERVAL)]);
     await trackedReady;
   } finally {
-    output.write("\r\x1B[2K\x1B[?25h");
+    output.write(`${CLEAR_LINE}${SHOW_CURSOR}`);
   }
 }
 async function resolveAfterOptionalBanner(showBanner, startWork, printBanner, options2 = {}) {

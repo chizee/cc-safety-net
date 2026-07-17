@@ -1,4 +1,4 @@
-import type { LolcatOutput, LolcatSleep } from '@/bin/utils/lolcat';
+import { type LolcatOutput, type LolcatSleep, rainbowColorEscape } from '@/bin/utils/lolcat';
 
 type DeferredStartupWork<T> = {
   ready?: Promise<unknown>;
@@ -13,8 +13,10 @@ type StartupBannerOptions = {
 
 const CLEAR_LINE = '\r\x1b[2K';
 const HIDE_CURSOR = '\x1b[?25l';
+const RESET_FOREGROUND = '\x1b[39m';
 const SHOW_CURSOR = '\x1b[?25h';
 const SPINNER_DELAY = 100;
+const SPINNER_HUE_STEP = 0.55;
 const SPINNER_INTERVAL = 80;
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -51,7 +53,7 @@ async function waitForReady(ready: Promise<unknown>, options: StartupBannerOptio
   try {
     for (let frameIndex = 0; !settled; frameIndex += 1) {
       output.write(
-        `${CLEAR_LINE}${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]} ${options.loadingMessage ?? 'Loading…'}`,
+        `${CLEAR_LINE}${rainbowColorEscape(frameIndex * SPINNER_HUE_STEP)}${SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]}${RESET_FOREGROUND} ${options.loadingMessage ?? 'Loading…'}`,
       );
       await Promise.race([trackedReady, sleep(SPINNER_INTERVAL)]);
     }
