@@ -381,6 +381,18 @@ main {
   margin-bottom: 16px;
 }
 
+.foldable > .panel-head {
+  position: relative;
+  min-height: 44px;
+}
+
+.foldable > .panel-head .panel-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
 .panel-title {
   min-width: 0;
 }

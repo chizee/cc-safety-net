@@ -130,6 +130,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="destructive-command-panel-content" hidden');
       expect(html).toContain('.panel-toggle {\n  display: inline-flex;');
       expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');
+      expect(html).toContain('.foldable > .panel-head {\n  position: relative;');
+      expect(html).toContain('min-height: 44px;');
+      expect(html).toContain('.foldable > .panel-head .panel-toggle::before {');
+      expect(html).toContain('content: "";\n  position: absolute;\n  inset: 0;\n  z-index: 1;');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).not.toContain('Paused');
@@ -188,6 +192,16 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('textarea:disabled:hover');
       expect(html).toContain('cursor: not-allowed');
       expect(html).toContain("if (input.id === 'policy-search') {");
+      expect(html).toContain(
+        "const searchPanelIds = ['destructive-command-panel-content', 'secret-panel-content'];",
+      );
+      expect(html).toContain('let searchActive = false;');
+      expect(html).toContain('const searchExpandedPanels = new Set();');
+      expect(html).toContain('const syncSearchPanels = () => {');
+      expect(html).toContain('if (active === searchActive) return;');
+      expect(html).toContain('searchExpandedPanels.add(id);');
+      expect(html).toContain('if (!searchExpandedPanels.delete(id)) return;');
+      expect(html).toContain("searchExpandedPanels.delete(button.getAttribute('aria-controls'));");
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
       expect(html).toContain(

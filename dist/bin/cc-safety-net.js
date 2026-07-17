@@ -16617,6 +16617,18 @@ main {
   margin-bottom: 16px;
 }
 
+.foldable > .panel-head {
+  position: relative;
+  min-height: 44px;
+}
+
+.foldable > .panel-head .panel-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
 .panel-title {
   min-width: 0;
 }
@@ -17391,9 +17403,12 @@ var page_default = `<!doctype html>
       add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
       remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
     };
+    const searchPanelIds = ['destructive-command-panel-content', 'secret-panel-content'];
     let state;
     let draftPolicy;
     let dirty = false;
+    let searchActive = false;
+    const searchExpandedPanels = new Set();
     let rawCopyResetTimer = null;
     let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
     const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
@@ -17513,11 +17528,29 @@ var page_default = `<!doctype html>
       detail: options.detail,
       confirmLabel: 'Disable protection'
     });
+    const setPanelExpanded = (button, expanded) => {
+      button.setAttribute('aria-expanded', String(expanded));
+      qs(button.getAttribute('aria-controls')).hidden = !expanded;
+    };
     const togglePanel = (button) => {
-      const content = qs(button.getAttribute('aria-controls'));
-      const expanded = button.getAttribute('aria-expanded') === 'true';
-      button.setAttribute('aria-expanded', String(!expanded));
-      content.hidden = expanded;
+      searchExpandedPanels.delete(button.getAttribute('aria-controls'));
+      setPanelExpanded(button, button.getAttribute('aria-expanded') !== 'true');
+    };
+    const syncSearchPanels = () => {
+      const active = qs('policy-search').value.trim().length > 0;
+      if (active === searchActive) return;
+      searchActive = active;
+      searchPanelIds.forEach((id) => {
+        const button = document.querySelector(\`[aria-controls="\${id}"]\`);
+        if (active) {
+          if (button.getAttribute('aria-expanded') === 'true') return;
+          searchExpandedPanels.add(id);
+          setPanelExpanded(button, true);
+          return;
+        }
+        if (!searchExpandedPanels.delete(id)) return;
+        setPanelExpanded(button, false);
+      });
     };
     const updateRawSource = () => {
       qs('raw-source').textContent = state?.errors.length
@@ -17792,6 +17825,7 @@ var page_default = `<!doctype html>
         '<ul class="deny-paths-list" id="deny-paths-list"></ul>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('policy-search').value = '';
+      syncSearchPanels();
       renderDestructiveCommands();
       renderSecretPatterns();
       renderDenyPaths();
@@ -17820,6 +17854,7 @@ var page_default = `<!doctype html>
     document.addEventListener('input', (event) => {
       const input = event.target;
       if (input.id === 'policy-search') {
+        syncSearchPanels();
         renderDestructiveCommands();
         renderSecretPatterns();
       }
