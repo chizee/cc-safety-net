@@ -8,6 +8,7 @@ const packageJson = JSON.parse(readFileSync('package.json', 'utf-8')) as {
 describe('package scripts', () => {
   test('keeps tests serial and emits visible deterministic LCOV coverage', () => {
     expect(packageJson.scripts?.test).toBe('bun test');
+    expect(packageJson.scripts?.['test:e2e']).toBe('bun test tests/e2e');
     expect(packageJson.scripts?.['test:coverage']).toBe(
       'AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov',
     );

@@ -22,10 +22,10 @@ describe('published runtime contract', () => {
     expect(pkg.engines).toEqual({ node: '>=18' });
     expect(pkg.dependencies).toEqual({ zod: '4.3.5' });
     expect(pkg.devDependencies).toMatchObject({
-      '@opencode-ai/plugin': '^1.0.224',
+      '@opencode-ai/plugin': '^1.18.3',
       'shell-quote': '^1.10.0',
     });
-    expect(pkg.peerDependencies).toEqual({ '@opencode-ai/plugin': '^1.0.224' });
+    expect(pkg.peerDependencies).toEqual({ '@opencode-ai/plugin': '^1.18.3' });
     expect(pkg.peerDependenciesMeta).toEqual({
       '@opencode-ai/plugin': { optional: true },
     });

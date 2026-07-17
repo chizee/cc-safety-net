@@ -4,21 +4,12 @@
  * to avoid embedding the full package.json in the bundle.
  */
 
-import pkg from '../package.json';
 import { getBundledOutputs } from './build-output';
+import { buildRuntimeBundles } from './build-runtime';
 import { formatSubprocessFailure } from './subprocess-output';
 import { verifyBuildArtifacts } from './verify-build';
 
-const result = await Bun.build({
-  entrypoints: ['src/index.ts', 'src/bin/cc-safety-net.ts', 'src/pi/index.ts'],
-  outdir: 'dist',
-  target: 'node',
-  external: ['zod'],
-  minify: { syntax: true },
-  define: {
-    __PKG_VERSION__: JSON.stringify(pkg.version),
-  },
-});
+const result = await buildRuntimeBundles('dist');
 
 if (!result.success) {
   console.error('Build failed:');

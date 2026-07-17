@@ -36,12 +36,19 @@ interface BuildPackageTarballOptions {
   npmCommand?: string[];
 }
 
-function run(command: string[], cwd = process.cwd(), allowedExitCodes = [0], stdin?: string) {
+function run(
+  command: string[],
+  cwd = process.cwd(),
+  allowedExitCodes = [0],
+  stdin?: string,
+  env?: Record<string, string | undefined>,
+) {
   const result = Bun.spawnSync(command, {
     cwd,
     stdout: 'pipe',
     stderr: 'pipe',
     ...(stdin === undefined ? {} : { stdin: Buffer.from(stdin) }),
+    ...(env === undefined ? {} : { env }),
   });
   if (allowedExitCodes.includes(result.exitCode)) return result;
   throw new Error(
@@ -87,7 +94,7 @@ export async function verifyPackage(): Promise<void> {
         '--no-audit',
         '--no-fund',
         tarball,
-        '@opencode-ai/plugin@1.0.224',
+        '@opencode-ai/plugin@1.18.3',
         '@types/node@18',
         'typescript@5',
       ],
@@ -193,6 +200,7 @@ export async function verifyPackage(): Promise<void> {
     }
     const aliasConfigReason =
       'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
+    const packageVerificationEnv = getPackageVerificationEnv(directory);
     for (const command of ['GIT_CONFIG_COUNT=1025 git status', 'GIT_CONFIG_COUNT=1 git status']) {
       const output = JSON.parse(
         run(
@@ -206,6 +214,7 @@ export async function verifyPackage(): Promise<void> {
             tool_name: 'Bash',
             tool_input: { command },
           }),
+          packageVerificationEnv,
         ).stdout.toString(),
       ) as {
         hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
@@ -242,7 +251,7 @@ export async function verifyPackage(): Promise<void> {
       const packageRoot = dirname(require.resolve('cc-safety-net/package.json'));
       const manifest = require(resolve(packageRoot, 'package.json'));
       if (JSON.stringify(manifest.dependencies) !== JSON.stringify({ zod: '4.3.5' })) process.exit(4);
-      if (manifest.peerDependencies['@opencode-ai/plugin'] !== '^1.0.224') process.exit(5);
+      if (manifest.peerDependencies['@opencode-ai/plugin'] !== '^1.18.3') process.exit(5);
       if (!manifest.peerDependenciesMeta['@opencode-ai/plugin'].optional) process.exit(6);
       const extension = manifest.pi.extensions[0];
       if (extension !== './dist/pi/index.js') process.exit(2);
@@ -272,6 +281,17 @@ export async function verifyPackage(): Promise<void> {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+/** @internal */
+export function getPackageVerificationEnv(directory: string): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    HOME: join(directory, 'home'),
+    USERPROFILE: join(directory, 'home'),
+    CC_SAFETY_NET_HOME: join(directory, '.cc-safety-net'),
+    CC_SAFETY_NET_AUDIT_HOME: join(directory, 'audit-home'),
+  };
 }
 
 export async function buildPackageTarball(options: BuildPackageTarballOptions) {
