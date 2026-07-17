@@ -33,7 +33,7 @@ describe('integration metadata', () => {
     ]);
   });
 
-  test('runtime hook metadata keeps flags and legacy top-level settings', () => {
+  test('runtime hook metadata separates canonical and legacy flags', () => {
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.id)).toEqual([
       'antigravity-cli',
       'claude-code',
@@ -43,22 +43,38 @@ describe('integration metadata', () => {
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.flags)).toEqual([
       ['-ac', '--agy-cli'],
-      ['-cc', '--claude-code'],
+      ['-cc', '--coding-cli'],
       ['-cp', '--copilot-cli'],
       ['-gc', '--gemini-cli'],
       ['-kc', '--kimi-code'],
     ]);
-    expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyTopLevel)).toEqual(
-      [false, true, true, true, false],
-    );
+    expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyFlags)).toEqual([
+      [],
+      ['--claude-code'],
+      [],
+      [],
+      [],
+    ]);
+    expect(
+      runtimeHookIntegrationMetadata.map((integration) => integration.legacyTopLevelFlags),
+    ).toEqual([
+      [],
+      ['-cc', '--claude-code'],
+      ['-cp', '--copilot-cli'],
+      ['-gc', '--gemini-cli'],
+      [],
+    ]);
   });
 
-  test('runtime hook metadata uses display names from the shared integration metadata', () => {
-    expect(
-      runtimeHookIntegrationMetadata.map((integration) =>
-        getIntegrationDisplayName(integration.id),
-      ),
-    ).toEqual(runtimeHookIntegrationMetadata.map((integration) => integration.displayName));
+  test('runtime hook metadata can present a name separate from the integration target', () => {
+    expect(runtimeHookIntegrationMetadata.map((integration) => integration.displayName)).toEqual([
+      'Antigravity CLI',
+      'Coding CLI',
+      'Copilot CLI',
+      'Gemini CLI',
+      'Kimi Code',
+    ]);
+    expect(getIntegrationDisplayName('claude-code')).toBe('Claude Code');
   });
 
   test('keeps install order and labels separate from runtime and doctor presentation', () => {

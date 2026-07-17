@@ -16,7 +16,7 @@ import { readAuditLogEntriesForSession } from '../helpers';
 const adapters = [
   {
     agent: 'claude-code',
-    flag: '--claude-code',
+    flag: '--coding-cli',
     commandInput: (command: string, cwd: string, home: string, sessionId: string) => ({
       hook_event_name: 'PreToolUse',
       session_id: sessionId,
@@ -171,7 +171,7 @@ describe('built CLI protection contract', () => {
     });
   }
 
-  test('Claude Code preserves log-derived false-positive and strict-mode boundaries', async () => {
+  test('Coding CLI preserves log-derived false-positive and strict-mode boundaries', async () => {
     await withWorkspace(async ({ cwd, home }) => {
       const standardAllows = [
         ['bash-syntax', "bash -n -c '(( rm -rf / root ))'"],
@@ -189,7 +189,7 @@ describe('built CLI protection contract', () => {
         const sessionId = `log-regression-${name}-standard`;
         const action = join(cwd, `${name}-allowed`);
         expect(
-          await runClaudeTool(
+          await runCodingCliTool(
             'Bash',
             { command },
             cwd,
@@ -205,7 +205,7 @@ describe('built CLI protection contract', () => {
 
       const strictCommand = 'test -f "$HOME/.ssh/id_rsa"';
       const strictSession = 'log-regression-secret-metadata-strict';
-      const strictResult = await runClaudeTool(
+      const strictResult = await runCodingCliTool(
         'Bash',
         { command: strictCommand },
         cwd,
@@ -240,7 +240,7 @@ describe('built CLI protection contract', () => {
 
       for (const [name, command, ruleId] of standardDenies) {
         const sessionId = `log-regression-${name}-standard`;
-        const result = await runClaudeTool(
+        const result = await runCodingCliTool(
           'Bash',
           { command },
           cwd,
@@ -256,7 +256,7 @@ describe('built CLI protection contract', () => {
     });
   });
 
-  test('Claude Code blocks secret paths while allowing nearby harmless inputs', async () => {
+  test('Coding CLI blocks secret paths while allowing nearby harmless inputs', async () => {
     await withWorkspace(async ({ cwd, home }) => {
       mkdirSync(join(cwd, 'src'));
       mkdirSync(join(cwd, 'nested'));
@@ -267,7 +267,7 @@ describe('built CLI protection contract', () => {
       const reads: string[] = [];
 
       const secretSession = 'claude-secret-env';
-      const secretResult = await runClaudeTool(
+      const secretResult = await runCodingCliTool(
         'Read',
         { file_path: '.env' },
         cwd,
@@ -288,7 +288,7 @@ describe('built CLI protection contract', () => {
         ['claude-env-example', '.env.example', 'SECRET=example'],
         ['claude-readme', 'README.md', 'public'],
       ] as const) {
-        const result = await runClaudeTool(
+        const result = await runCodingCliTool(
           'Read',
           { file_path: filePath },
           cwd,
@@ -319,7 +319,7 @@ describe('built CLI protection contract', () => {
       ] as const) {
         const action = join(cwd, `${sessionId}-ran`);
         expect(
-          await runClaudeTool(toolName, toolInput, cwd, home, sessionId, () =>
+          await runCodingCliTool(toolName, toolInput, cwd, home, sessionId, () =>
             writeFileSync(action, 'ran'),
           ),
         ).toEqual({ allowed: true });
@@ -331,7 +331,7 @@ describe('built CLI protection contract', () => {
         ['claude-relative-secret', join(cwd, 'nested'), '../.env'],
         ['claude-symlink-secret', cwd, 'public.txt'],
       ] as const) {
-        const result = await runClaudeTool(
+        const result = await runCodingCliTool(
           'Read',
           { file_path: filePath },
           executionCwd,
@@ -351,7 +351,7 @@ describe('built CLI protection contract', () => {
     });
   });
 
-  test('Claude Code protects only policy mutations across direct and aliased paths', async () => {
+  test('Coding CLI protects only policy mutations across direct and aliased paths', async () => {
     await withWorkspace(async ({ cwd, home }) => {
       const safetyNetHome = join(home, '.cc-safety-net');
       const policyPath = join(safetyNetHome, 'policy.json');
@@ -374,7 +374,7 @@ describe('built CLI protection contract', () => {
           { file_path: join(cwd, 'policy-alias.json'), content: '{}' },
         ],
       ] as const) {
-        const result = await runClaudeTool(toolName, toolInput, cwd, home, sessionId, () =>
+        const result = await runCodingCliTool(toolName, toolInput, cwd, home, sessionId, () =>
           writeFileSync(policyPath, 'mutated'),
         );
         expect(result.allowed).toBe(false);
@@ -386,7 +386,7 @@ describe('built CLI protection contract', () => {
       const reads: string[] = [];
       const readSession = 'claude-policy-read';
       expect(
-        await runClaudeTool('Read', { file_path: policyPath }, cwd, home, readSession, () =>
+        await runCodingCliTool('Read', { file_path: policyPath }, cwd, home, readSession, () =>
           reads.push(readFileSync(policyPath, 'utf8')),
         ),
       ).toEqual({ allowed: true });
@@ -573,7 +573,7 @@ async function runGated(
   } as const;
 }
 
-function runClaudeTool(
+function runCodingCliTool(
   toolName: string,
   toolInput: unknown,
   cwd: string,

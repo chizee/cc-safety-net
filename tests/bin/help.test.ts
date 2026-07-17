@@ -163,11 +163,12 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       const { output } = captureOutput(() => printCommandHelp(cmd));
       expect(output).toContain('cc-safety-net hook');
       expect(output).toContain('-ac, --agy-cli');
-      expect(output).toContain('-cc, --claude-code');
+      expect(output).toContain('-cc, --coding-cli');
       expect(output).toContain('-cp, --copilot-cli');
       expect(output).toContain('-gc, --gemini-cli');
       expect(output).toContain('-kc, --kimi-code');
-      expect(output).toContain('cc-safety-net hook --claude-code');
+      expect(output).toContain('cc-safety-net hook --coding-cli');
+      expect(output).not.toContain('cc-safety-net hook --claude-code');
       expect(output).toContain('cc-safety-net hook --agy-cli');
       expect(output).toContain('cc-safety-net hook --kimi-code');
     });
@@ -245,8 +246,9 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('cc-safety-net doctor');
     });
 
-    test('returns false for old top-level hook aliases', () => {
+    test('returns false for hook flags', () => {
       expect(showCommandHelp('-cc')).toBe(false);
+      expect(showCommandHelp('--coding-cli')).toBe(false);
       expect(showCommandHelp('--claude-code')).toBe(false);
     });
 

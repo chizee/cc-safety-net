@@ -13151,7 +13151,7 @@ var catalog = [
       order: 1,
       flags: ["-ac", "--agy-cli"],
       description: "Run as Antigravity CLI PreToolUse hook",
-      legacyTopLevel: !1
+      legacyTopLevelFlags: []
     },
     install: {
       order: 1,
@@ -13166,9 +13166,11 @@ var catalog = [
     doctorOrder: 1,
     runtime: {
       order: 2,
-      flags: ["-cc", "--claude-code"],
-      description: "Run as Claude Code PreToolUse hook",
-      legacyTopLevel: !0
+      displayName: "Coding CLI",
+      flags: ["-cc", "--coding-cli"],
+      legacyFlags: ["--claude-code"],
+      description: "Run as Coding CLI PreToolUse hook",
+      legacyTopLevelFlags: ["-cc", "--claude-code"]
     },
     install: {
       order: 2,
@@ -13196,7 +13198,7 @@ var catalog = [
       order: 3,
       flags: ["-cp", "--copilot-cli"],
       description: "Run as Copilot CLI PreToolUse hook",
-      legacyTopLevel: !0
+      legacyTopLevelFlags: ["-cp", "--copilot-cli"]
     },
     install: {
       order: 5,
@@ -13213,7 +13215,7 @@ var catalog = [
       order: 4,
       flags: ["-gc", "--gemini-cli"],
       description: "Run as Gemini CLI BeforeTool hook",
-      legacyTopLevel: !0
+      legacyTopLevelFlags: ["-gc", "--gemini-cli"]
     },
     install: {
       order: 4,
@@ -13230,7 +13232,7 @@ var catalog = [
       order: 5,
       flags: ["-kc", "--kimi-code"],
       description: "Run as Kimi Code PreToolUse hook",
-      legacyTopLevel: !1
+      legacyTopLevelFlags: []
     },
     install: {
       order: 6,
@@ -13263,10 +13265,11 @@ var catalog = [
   }
 ], doctorIntegrationOrder = catalog.slice().sort((a, b) => a.doctorOrder - b.doctorOrder).map((integration) => integration.id), runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" in integration)).slice().sort((a, b) => a.runtime.order - b.runtime.order).map((integration) => ({
   id: integration.id,
-  displayName: integration.displayName,
+  displayName: "displayName" in integration.runtime ? integration.runtime.displayName : integration.displayName,
   flags: integration.runtime.flags,
+  legacyFlags: "legacyFlags" in integration.runtime ? integration.runtime.legacyFlags : [],
   description: integration.runtime.description,
-  legacyTopLevel: integration.runtime.legacyTopLevel
+  legacyTopLevelFlags: integration.runtime.legacyTopLevelFlags
 })), installIntegrationMetadata = catalog.slice().sort((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
 function getIntegrationDisplayName(id) {
   return catalog.find((integration) => integration.id === id)?.displayName ?? id;
@@ -13287,10 +13290,10 @@ var hookRunners = {
   run: hookRunners[integration.id]
 }));
 function findHookIntegrationByFlag(args) {
-  return hookIntegrations.find((integration) => integration.flags.some((flag) => args.includes(flag)));
+  return hookIntegrations.find((integration) => [...integration.flags, ...integration.legacyFlags].some((flag) => args.includes(flag)));
 }
 function findLegacyTopLevelHookIntegration(flag) {
-  return hookIntegrations.find((integration) => integration.legacyTopLevel && integration.flags.some((integrationFlag) => integrationFlag === flag));
+  return hookIntegrations.find((integration) => integration.legacyTopLevelFlags.some((integrationFlag) => integrationFlag === flag));
 }
 
 // src/bin/commands/hook.ts

@@ -4,7 +4,7 @@ import {
   getHookDenyReason,
   type HookFormat,
   runAntigravityHook,
-  runClaudeCodeHook,
+  runCodingCliHook,
   runCopilotHook,
   runGeminiHook,
   runKimiHook,
@@ -48,12 +48,12 @@ describe('bounded hook input', () => {
   });
 
   test.each([
-    ['claude-code', runClaudeCodeHook],
-    ['gemini-cli', runGeminiHook],
-    ['kimi-code', runKimiHook],
-    ['copilot-cli', runCopilotHook],
-    ['antigravity-cli', runAntigravityHook],
-  ] as const)('fails closed once for oversized %s protocol input', async (format, run) => {
+    ['coding-cli', 'claude-code', runCodingCliHook],
+    ['gemini-cli', 'gemini-cli', runGeminiHook],
+    ['kimi-code', 'kimi-code', runKimiHook],
+    ['copilot-cli', 'copilot-cli', runCopilotHook],
+    ['antigravity-cli', 'antigravity-cli', runAntigravityHook],
+  ] as const)('fails closed once for oversized %s protocol input', async (_name, format, run) => {
     const result = await run(`{"padding":"${'x'.repeat(HOOK_INPUT_MAX_BYTES)}"}`);
 
     expect(getHookDenyReason(result, format as HookFormat)).toContain(

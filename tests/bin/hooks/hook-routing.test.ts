@@ -249,7 +249,7 @@ describe('hook command routing', () => {
 
   test('each hook format keeps real subprocess transport coverage', async () => {
     for (const hook of [
-      { flag: '--claude-code', format: 'claude-code' as const, input: claudeCodeBashInput },
+      { flag: '--coding-cli', format: 'claude-code' as const, input: claudeCodeBashInput },
       { flag: '-gc', format: 'gemini-cli' as const, input: geminiShellInput },
       { flag: '-kc', format: 'kimi-code' as const, input: kimiShellInput },
       { flag: '-cp', format: 'copilot-cli' as const, input: copilotBashInput },
@@ -300,9 +300,13 @@ describe('hook command routing', () => {
     }
   });
 
-  test('top-level Claude Code long flag routes to hook command for compatibility', async () => {
+  test.each([
+    ['legacy top-level --claude-code', ['--claude-code']],
+    ['legacy nested --claude-code', ['hook', '--claude-code']],
+    ['top-level Coding CLI -cc', ['-cc']],
+  ])('%s alias routes to the hook command', async (_name, args) => {
     const { stdout, exitCode } = await runCli(
-      ['--claude-code'],
+      args,
       JSON.stringify(claudeCodeBashInput('git reset --hard')),
     );
 
@@ -313,25 +317,20 @@ describe('hook command routing', () => {
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('git reset --hard');
   });
 
-  test('top-level Claude Code short flag routes to hook command for compatibility', async () => {
-    const { stdout, exitCode } = await runCli(
-      ['-cc'],
-      JSON.stringify(claudeCodeBashInput('git reset --hard')),
-    );
+  test('canonical --coding-cli flag requires the hook command', async () => {
+    const { stderr, exitCode } = await runCli(['--coding-cli']);
 
-    const output = JSON.parse(stdout);
-    expect(exitCode).toBe(0);
-    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('git reset --hard');
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('Unknown option: --coding-cli');
   });
 
-  test('Claude Code hook fails closed when config loading throws', async () => {
+  test('Coding CLI hook fails closed when config loading throws', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-bad-config-'));
     try {
       writeLockedGitHubRulebookPolicy(cwd, '{}', { cacheAsDirectory: true });
 
       const { stdout, exitCode } = await runCli(
-        ['hook', '--claude-code'],
+        ['hook', '--coding-cli'],
         JSON.stringify({ ...claudeCodeBashInput('echo ok'), cwd }),
       );
       const output = JSON.parse(stdout);
@@ -421,7 +420,7 @@ describe('hook command routing', () => {
     expect(exitCode).toBe(1);
     expect(stdout).toContain('cc-safety-net hook');
     expect(stdout).toContain('-ac, --agy-cli');
-    expect(stdout).toContain('-cc, --claude-code');
+    expect(stdout).toContain('-cc, --coding-cli');
     expect(stdout).toContain('-cp, --copilot-cli');
     expect(stdout).toContain('-gc, --gemini-cli');
     expect(stdout).toContain('-kc, --kimi-code');

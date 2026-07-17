@@ -204,7 +204,7 @@ export async function verifyPackage(): Promise<void> {
     for (const command of ['GIT_CONFIG_COUNT=1025 git status', 'GIT_CONFIG_COUNT=1 git status']) {
       const output = JSON.parse(
         run(
-          ['node', cli, 'hook', '--claude-code'],
+          ['node', cli, 'hook', '--coding-cli'],
           directory,
           [0],
           JSON.stringify({

@@ -10,8 +10,9 @@ describe('command registry', () => {
       expect(cmd?.name).toBe('doctor');
     });
 
-    test('does not register legacy top-level hook aliases as commands', () => {
+    test('does not register hook flags as commands', () => {
       expect(findCommand('-cc')).toBeUndefined();
+      expect(findCommand('--coding-cli')).toBeUndefined();
       expect(findCommand('--claude-code')).toBeUndefined();
       expect(findCommand('-cp')).toBeUndefined();
       expect(findCommand('--copilot-cli')).toBeUndefined();

@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 
 describe('packaged structural command limits', () => {
-  test('denies an exact one-MiB command through the built Claude Code hook', () => {
+  test('denies an exact one-MiB command through the built Coding CLI hook', () => {
     const command = 'a '.repeat(524_288);
-    const result = spawnSync('node', ['dist/bin/cc-safety-net.js', 'hook', '--claude-code'], {
+    const result = spawnSync('node', ['dist/bin/cc-safety-net.js', 'hook', '--coding-cli'], {
       cwd: process.cwd(),
       input: JSON.stringify({
         hook_event_name: 'PreToolUse',

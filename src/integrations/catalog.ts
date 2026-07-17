@@ -1,8 +1,10 @@
 type RuntimeMetadata = {
   order: number;
+  displayName?: string;
   flags: readonly [string, string];
+  legacyFlags?: readonly string[];
   description: string;
-  legacyTopLevel: boolean;
+  legacyTopLevelFlags: readonly string[];
 };
 
 type InstallMetadata = {
@@ -29,7 +31,7 @@ const catalog = [
       order: 1,
       flags: ['-ac', '--agy-cli'],
       description: 'Run as Antigravity CLI PreToolUse hook',
-      legacyTopLevel: false,
+      legacyTopLevelFlags: [],
     },
     install: {
       order: 1,
@@ -44,9 +46,11 @@ const catalog = [
     doctorOrder: 1,
     runtime: {
       order: 2,
-      flags: ['-cc', '--claude-code'],
-      description: 'Run as Claude Code PreToolUse hook',
-      legacyTopLevel: true,
+      displayName: 'Coding CLI',
+      flags: ['-cc', '--coding-cli'],
+      legacyFlags: ['--claude-code'],
+      description: 'Run as Coding CLI PreToolUse hook',
+      legacyTopLevelFlags: ['-cc', '--claude-code'],
     },
     install: {
       order: 2,
@@ -74,7 +78,7 @@ const catalog = [
       order: 3,
       flags: ['-cp', '--copilot-cli'],
       description: 'Run as Copilot CLI PreToolUse hook',
-      legacyTopLevel: true,
+      legacyTopLevelFlags: ['-cp', '--copilot-cli'],
     },
     install: {
       order: 5,
@@ -91,7 +95,7 @@ const catalog = [
       order: 4,
       flags: ['-gc', '--gemini-cli'],
       description: 'Run as Gemini CLI BeforeTool hook',
-      legacyTopLevel: true,
+      legacyTopLevelFlags: ['-gc', '--gemini-cli'],
     },
     install: {
       order: 4,
@@ -108,7 +112,7 @@ const catalog = [
       order: 5,
       flags: ['-kc', '--kimi-code'],
       description: 'Run as Kimi Code PreToolUse hook',
-      legacyTopLevel: false,
+      legacyTopLevelFlags: [],
     },
     install: {
       order: 6,
@@ -156,10 +160,14 @@ export const runtimeHookIntegrationMetadata = catalog
   .sort((a, b) => a.runtime.order - b.runtime.order)
   .map((integration) => ({
     id: integration.id,
-    displayName: integration.displayName,
+    displayName:
+      'displayName' in integration.runtime
+        ? integration.runtime.displayName
+        : integration.displayName,
     flags: integration.runtime.flags,
+    legacyFlags: 'legacyFlags' in integration.runtime ? integration.runtime.legacyFlags : [],
     description: integration.runtime.description,
-    legacyTopLevel: integration.runtime.legacyTopLevel,
+    legacyTopLevelFlags: integration.runtime.legacyTopLevelFlags,
   }));
 
 export const installIntegrationMetadata = catalog

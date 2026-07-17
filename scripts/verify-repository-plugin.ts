@@ -18,7 +18,7 @@ export function verifyRepositoryPlugin(): void {
     hooks: { PreToolUse: Array<{ hooks: Array<{ command: string }> }> };
   };
   const command = hooks.hooks.PreToolUse[0]?.hooks[0]?.command;
-  if (command !== 'node "${CLAUDE_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --claude-code') {
+  if (command !== 'node "${CLAUDE_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --coding-cli') {
     throw new Error('Claude plugin hook target drifted');
   }
   accessSync('dist/bin/cc-safety-net.js', constants.X_OK);

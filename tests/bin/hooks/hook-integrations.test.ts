@@ -9,6 +9,7 @@ describe('hook integration registry', () => {
   test('finds hook integrations by nested hook flags', () => {
     expect(findHookIntegrationByFlag(['hook', '--agy-cli'])?.id).toBe('antigravity-cli');
     expect(findHookIntegrationByFlag(['hook', '-ac'])?.id).toBe('antigravity-cli');
+    expect(findHookIntegrationByFlag(['hook', '--coding-cli'])?.id).toBe('claude-code');
     expect(findHookIntegrationByFlag(['hook', '--claude-code'])?.id).toBe('claude-code');
     expect(findHookIntegrationByFlag(['hook', '-cp'])?.id).toBe('copilot-cli');
     expect(findHookIntegrationByFlag(['hook', '-gc'])?.id).toBe('gemini-cli');
@@ -19,6 +20,8 @@ describe('hook integration registry', () => {
   test('limits legacy top-level aliases to existing legacy integrations', () => {
     expect(findLegacyTopLevelHookIntegration('--agy-cli')).toBeUndefined();
     expect(findLegacyTopLevelHookIntegration('-ac')).toBeUndefined();
+    expect(findLegacyTopLevelHookIntegration('--coding-cli')).toBeUndefined();
+    expect(findLegacyTopLevelHookIntegration('-cc')?.id).toBe('claude-code');
     expect(findLegacyTopLevelHookIntegration('--claude-code')?.id).toBe('claude-code');
     expect(findLegacyTopLevelHookIntegration('-cp')?.id).toBe('copilot-cli');
     expect(findLegacyTopLevelHookIntegration('-gc')?.id).toBe('gemini-cli');
@@ -31,6 +34,6 @@ describe('hook integration registry', () => {
 
     expect(kimi?.displayName).toBe('Kimi Code');
     expect(kimi?.flags).toEqual(['-kc', '--kimi-code']);
-    expect(kimi?.legacyTopLevel).toBe(false);
+    expect(kimi?.legacyTopLevelFlags).toEqual([]);
   });
 });

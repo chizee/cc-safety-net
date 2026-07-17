@@ -43,7 +43,7 @@ export type HookTestContext = {
   kimiShellInput: typeof kimiShellInput;
   runCli: typeof runCli;
   runAntigravityHook: typeof runAntigravityHook;
-  runClaudeCodeHook: typeof runClaudeCodeHook;
+  runClaudeCodeHook: typeof runClaudeCodeHookDirect;
   runGeminiHook: typeof runGeminiHook;
   runKimiHook: typeof runKimiHook;
   runCopilotHook: typeof runCopilotHook;
@@ -173,7 +173,7 @@ export function kimiShellInput(command: string, cwd = TEST_HOOK_CWD) {
 
 /**
  * Runs a hook CLI with the given input and optional environment variables.
- * @param flag - Hook platform flag (e.g., '--claude-code', '-gc', '-cp')
+ * @param flag - Hook platform flag (e.g., '--coding-cli', '-gc', '-cp')
  * @param input - Raw string input to send to stdin
  * @param env - Optional environment variables to set
  */
@@ -366,15 +366,15 @@ export function expectSecretProtectionDeny(result: HookResult, format: HookForma
 }
 
 /**
- * Runs the Claude Code hook.
+ * Runs the Coding CLI hook.
  */
-export async function runClaudeCodeHook(
+export async function runCodingCliHook(
   input: object | string,
   env?: Record<string, string>,
   cwd = TEST_HOOK_CWD,
 ): Promise<HookResult> {
   const inputStr = typeof input === 'string' ? input : JSON.stringify(input);
-  return runHook('--claude-code', inputStr, env, cwd);
+  return runHook('--coding-cli', inputStr, env, cwd);
 }
 
 /**

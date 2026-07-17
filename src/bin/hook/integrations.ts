@@ -12,8 +12,9 @@ export type HookIntegration = {
   id: RuntimeHookIntegrationId;
   displayName: string;
   flags: readonly [string, string];
+  legacyFlags: readonly string[];
   description: string;
-  legacyTopLevel: boolean;
+  legacyTopLevelFlags: readonly string[];
   run: () => Promise<void>;
 };
 
@@ -34,16 +35,14 @@ export const hookIntegrations: readonly HookIntegration[] = runtimeHookIntegrati
 
 export function findHookIntegrationByFlag(args: readonly string[]): HookIntegration | undefined {
   return hookIntegrations.find((integration) =>
-    integration.flags.some((flag) => args.includes(flag)),
+    [...integration.flags, ...integration.legacyFlags].some((flag) => args.includes(flag)),
   );
 }
 
 export function findLegacyTopLevelHookIntegration(
   flag: string | undefined,
 ): HookIntegration | undefined {
-  return hookIntegrations.find(
-    (integration) =>
-      integration.legacyTopLevel &&
-      integration.flags.some((integrationFlag) => integrationFlag === flag),
+  return hookIntegrations.find((integration) =>
+    integration.legacyTopLevelFlags.some((integrationFlag) => integrationFlag === flag),
   );
 }
