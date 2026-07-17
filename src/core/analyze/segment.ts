@@ -12,6 +12,7 @@ import {
   containsDangerousCode,
   extractInterpreterCodeArg,
   isInterpreterCommand,
+  isInterpreterDisplayOnly,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
@@ -23,7 +24,7 @@ import {
 } from '@/core/analyze/parallel';
 import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
-import { extractDashCArg } from '@/core/analyze/shell-wrappers';
+import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import {
@@ -239,6 +240,7 @@ export function analyzeSegment(
   }
 
   if (isShellWrapperCommand(head, normalizedHead)) {
+    if (isShellSyntaxCheck(stripped)) return null;
     const dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
       const traceInnerCommand = unwrapTraceQuotes(dashCArg);
@@ -305,6 +307,8 @@ export function analyzeSegment(
             : filterDestructiveCommandMatch(interpreterMatch, options.policy);
         if (match) return blockResultFromMatch(match);
       }
+
+      if (isInterpreterDisplayOnly(normalizedHead, codeArg)) return null;
 
       trace?.recordSegment({
         type: 'recurse',
@@ -739,7 +743,9 @@ function analyzeEmbeddedCommand(
       context.options.derivedCommandWorkBudget,
       context.tokens.length - index,
     );
-    const dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
+    const shellTokens = [token, ...context.tokens.slice(index + 1)];
+    if (isShellSyntaxCheck(shellTokens)) return null;
+    const dashCArg = extractDashCArg(shellTokens);
     if (!dashCArg) {
       return null;
     }

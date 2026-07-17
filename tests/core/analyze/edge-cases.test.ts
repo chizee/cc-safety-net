@@ -85,6 +85,17 @@ describe('edge cases', () => {
       assertAllowed('bash -c');
     });
 
+    test('shell syntax checks do not execute dangerous-looking source', () => {
+      assertAllowed(`bash -n -c '(( ${RM_RF_ROOT} root ))'`);
+      assertAllowed(`bash -nc '(( ${RM_RF_ROOT} root ))'`);
+      assertBlocked(`bash -c '(( ${RM_RF_ROOT} root ))'`, RM_RF_REASON);
+    });
+
+    test('command v inspects names without executing them', () => {
+      assertAllowed('command -v parallel');
+      assertBlocked('parallel', 'dynamic input');
+    });
+
     test('$SHELL dash c is recursively analyzed', () => {
       assertBlocked('$SHELL -c "rm -rf /"', 'rm -rf');
     });
@@ -624,6 +635,24 @@ describe('edge cases', () => {
 
     test('xargs bash c script analyzed blocks', () => {
       assertBlocked("echo ok | xargs bash -c 'git reset --hard'", 'xargs');
+    });
+
+    test('xargs shell c keeps dynamic input in positional arguments', () => {
+      assertAllowed('find src -type f | sort | xargs -n1 sh -c \'wc -l "$1"\' _');
+      assertAllowed('find src -type f | sort | xargs -I{} sh -c \'wc -l "$1"\' _ {}');
+    });
+
+    test('xargs replacement inside shell source stays blocked', () => {
+      assertBlocked(
+        "find src -type f | sort | xargs -I{} sh -c 'echo {}; sed -n 1,20p {}'",
+        'xargs',
+      );
+      assertBlocked("printf '%s\\n' 'rm -rf /' | xargs sh -c 'eval \"$1\"' _", 'xargs');
+      assertBlocked("printf '%s\\n' 'rm -rf /' | xargs sh -c 'sh -c \"$1\"' _", 'xargs');
+    });
+
+    test('xargs shell syntax checks do not execute dynamic input', () => {
+      assertAllowed('find src -type f -print0 | xargs -0 -n1 -P4 bash -n');
     });
 
     test('xargs child interpreter dangerous code blocked', () => {
@@ -1216,6 +1245,14 @@ describe('edge cases', () => {
 
     test('node -e safe allowed', () => {
       assertAllowed('node -e "console.log(\\"ok\\")"');
+    });
+
+    test('node display-only strings are inert data', () => {
+      assertAllowed(`node -e 'console.log("${RM_RF_ROOT}")'`);
+      assertBlocked(
+        `node -e 'require("node:child_process").execSync("${RM_RF_ROOT}")'`,
+        'dangerous command',
+      );
     });
 
     test('ruby -e dangerous blocked', () => {

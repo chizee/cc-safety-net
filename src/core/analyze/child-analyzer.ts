@@ -5,12 +5,13 @@ import {
   containsDangerousCode,
   extractInterpreterCodeArg,
   isInterpreterCommand,
+  isInterpreterDisplayOnly,
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
-import { extractDashCArg } from '@/core/analyze/shell-wrappers';
+import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
@@ -79,6 +80,7 @@ export function analyzeChildCommandMatch(
   const normalizedHead = normalizeCommandToken(head);
 
   if (SHELL_WRAPPERS.has(normalizedHead)) {
+    if (isShellSyntaxCheck(tokens)) return null;
     const shellDynamicMatch =
       options.shellDynamicMatch ??
       (options.shellDynamicReason
@@ -124,6 +126,8 @@ export function analyzeChildCommandMatch(
         context.policy,
       );
     }
+
+    if (isInterpreterDisplayOnly(normalizedHead, codeArg)) return null;
 
     const nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,

@@ -3,8 +3,14 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommand,
 } from '@/core/analyze/child-command';
+import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
+import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
+import {
+  type AnalyzeNestedOverrides,
+  type DestructiveCommandRuleMatch,
+  SHELL_WRAPPERS,
+} from '@/types';
 
 /** @internal */
 export const REASON_XARGS_RM =
@@ -39,7 +45,14 @@ export function analyzeXargs(
       envAssignments: childCommand.envAssignments,
     },
     {
-      dynamicInput: childCommand.head !== 'git',
+      dynamicInput:
+        childCommand.head !== 'git' &&
+        xargsInputCanChangeExecutedSource(
+          childTokens,
+          childCommand.head,
+          replacementToken,
+          context.scanWork,
+        ),
       shellDynamicMatch: destructiveCommandMatch('xargs.shell-dynamic', REASON_XARGS_SHELL),
       rmDynamicMatch: destructiveCommandMatch('xargs.rm-recursive-force-dynamic', REASON_XARGS_RM),
     },
@@ -66,6 +79,21 @@ export function analyzeXargs(
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode,
   });
+}
+
+function xargsInputCanChangeExecutedSource(
+  childTokens: readonly string[],
+  childHead: string,
+  replacementToken: string | null,
+  scanWork: { units: number } | undefined,
+): boolean {
+  if (!SHELL_WRAPPERS.has(childHead)) return true;
+  if (isShellSyntaxCheck(childTokens)) return false;
+  const source = extractDashCArg(childTokens);
+  if (!source) return true;
+  if (replacementToken && source.includes(replacementToken)) return true;
+  if (dangerousInTextMatch(source, scanWork)) return true;
+  return /(?:^|[;&|]\s*|\b(?:eval|source)\s+|\b(?:ba|z|k)?sh\s+-c\s+)["']?\$[0-9@*]/.test(source);
 }
 
 interface XargsParseResult {

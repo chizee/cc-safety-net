@@ -171,6 +171,91 @@ describe('built CLI protection contract', () => {
     });
   }
 
+  test('Claude Code preserves log-derived false-positive and strict-mode boundaries', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      const standardAllows = [
+        ['bash-syntax', "bash -n -c '(( rm -rf / root ))'"],
+        ['node-data', `node -e 'console.log("rm -rf /")'`],
+        ['xargs-positional', `find src -type f | xargs sh -c 'wc -l "$1"' _`],
+        ['parallel-probe', 'command -v parallel'],
+        ['secret-metadata', 'test -f "$HOME/.ssh/id_rsa"'],
+        [
+          'self-explain',
+          `bun src/bin/cc-safety-net.ts explain --json --cwd /tmp/ccsn-scout 'cat /tmp/ccsn-scout/fixture/.env' | jq -c '{result}'`,
+        ],
+      ] as const;
+
+      for (const [name, command] of standardAllows) {
+        const sessionId = `log-regression-${name}-standard`;
+        const action = join(cwd, `${name}-allowed`);
+        expect(
+          await runClaudeTool(
+            'Bash',
+            { command },
+            cwd,
+            home,
+            sessionId,
+            () => writeFileSync(action, 'ran'),
+            'standard',
+          ),
+        ).toEqual({ allowed: true });
+        expect(readFileSync(action, 'utf8')).toBe('ran');
+        expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
+      }
+
+      const strictCommand = 'test -f "$HOME/.ssh/id_rsa"';
+      const strictSession = 'log-regression-secret-metadata-strict';
+      const strictResult = await runClaudeTool(
+        'Bash',
+        { command: strictCommand },
+        cwd,
+        home,
+        strictSession,
+        () => writeFileSync(join(cwd, 'strict-secret-metadata-ran'), 'ran'),
+        'strict',
+      );
+      expect(strictResult.allowed).toBe(false);
+      expect(strictResult.reason).toContain('secret.home.ssh');
+      expectSingleAudit(home, strictSession, {
+        agent: 'claude-code',
+        command: strictCommand,
+        ruleId: 'secret.home.ssh',
+      });
+
+      const standardDenies = [
+        ['bash-executes', "bash -c 'rm -rf /'", 'rm.recursive-force-root-or-home'],
+        [
+          'node-executes',
+          `node -e 'require("node:child_process").execSync("rm -rf /")'`,
+          'interpreter.dangerous-command',
+        ],
+        [
+          'xargs-source',
+          `find src -type f | xargs -I{} sh -c 'echo {}; sed -n 1,20p {}'`,
+          'xargs.shell-dynamic',
+        ],
+        ['parallel-stream', 'parallel', 'parallel.command-stream-dynamic'],
+        ['secret-content', 'cat "$HOME/.ssh/id_rsa"', 'secret.home.ssh'],
+      ] as const;
+
+      for (const [name, command, ruleId] of standardDenies) {
+        const sessionId = `log-regression-${name}-standard`;
+        const result = await runClaudeTool(
+          'Bash',
+          { command },
+          cwd,
+          home,
+          sessionId,
+          () => writeFileSync(join(cwd, `${name}-ran`), 'ran'),
+          'standard',
+        );
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain(ruleId);
+        expectSingleAudit(home, sessionId, { agent: 'claude-code', command, ruleId });
+      }
+    });
+  });
+
   test('Claude Code blocks secret paths while allowing nearby harmless inputs', async () => {
     await withWorkspace(async ({ cwd, home }) => {
       mkdirSync(join(cwd, 'src'));
@@ -473,8 +558,9 @@ async function runGated(
   cwd: string,
   home: string,
   action: () => void,
+  level?: 'standard' | 'strict',
 ) {
-  const result = await runBuiltHook(adapter.flag, input, cwd, home);
+  const result = await runBuiltHook(adapter.flag, input, cwd, home, level);
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe('');
   if (!result.stdout) {
@@ -494,6 +580,7 @@ function runClaudeTool(
   home: string,
   sessionId: string,
   action: () => void,
+  level?: 'standard' | 'strict',
 ) {
   return runGated(
     adapters[0],
@@ -508,11 +595,24 @@ function runClaudeTool(
     cwd,
     home,
     action,
+    level,
   );
 }
 
-async function runBuiltHook(flag: string, input: unknown, cwd: string, home: string) {
-  const { stdout, stderr, exitCode } = await runNode([cliPath, 'hook', flag], input, cwd, home);
+async function runBuiltHook(
+  flag: string,
+  input: unknown,
+  cwd: string,
+  home: string,
+  level?: 'standard' | 'strict',
+) {
+  const { stdout, stderr, exitCode } = await runNode(
+    [cliPath, 'hook', flag],
+    input,
+    cwd,
+    home,
+    level,
+  );
   return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
 }
 
@@ -692,13 +792,19 @@ async function runBuiltHost(
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
-async function runNode(args: string[], input: unknown, cwd: string, home: string) {
+async function runNode(
+  args: string[],
+  input: unknown,
+  cwd: string,
+  home: string,
+  level?: 'standard' | 'strict',
+) {
   const proc = Bun.spawn(['node', ...args], {
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
     cwd,
-    env: isolatedEnv(home),
+    env: isolatedEnv(home, level),
   });
   proc.stdin.write(JSON.stringify(input));
   proc.stdin.end();
@@ -710,7 +816,7 @@ async function runNode(args: string[], input: unknown, cwd: string, home: string
   return { stdout, stderr, exitCode };
 }
 
-function isolatedEnv(home: string) {
+function isolatedEnv(home: string, level?: 'standard' | 'strict') {
   return {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
@@ -721,7 +827,7 @@ function isolatedEnv(home: string) {
     USERPROFILE: home,
     CC_SAFETY_NET_HOME: join(home, '.cc-safety-net'),
     CC_SAFETY_NET_AUDIT_HOME: home,
-    CC_SAFETY_NET_LEVEL: '',
+    CC_SAFETY_NET_LEVEL: level ?? '',
     CC_SAFETY_NET_STRICT: '',
     CC_SAFETY_NET_PARANOID: '',
     CC_SAFETY_NET_PARANOID_RM: '',

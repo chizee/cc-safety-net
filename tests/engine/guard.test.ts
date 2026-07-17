@@ -85,6 +85,22 @@ function dependencies(
   };
 }
 
+function strictModes() {
+  return {
+    strict: true,
+    paranoidRm: false,
+    paranoidInterpreters: false,
+    worktreeMode: false,
+    effectiveLevel: 'strict' as const,
+    sources: {
+      failClosed: [],
+      paranoidRm: [],
+      paranoidInterpreters: [],
+      worktreeMode: [],
+    },
+  };
+}
+
 function captureGuardError(run: () => unknown): GuardEvaluationError {
   try {
     run();
@@ -426,6 +442,27 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('threads the safety level into metadata-only secret discovery', async () => {
+    await withTempDir('cc-safety-net-guard-secret-metadata-', (cwd) => {
+      const command = 'test -f ~/.ssh/id_rsa';
+
+      expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+        stage: 'command-analysis',
+        decision: { kind: 'allow' },
+      });
+      expect(
+        evaluateGuard(commandInvocation(cwd, command), {
+          dependencies: {
+            getModes: strictModes,
+          },
+        }),
+      ).toMatchObject({
+        stage: 'secret-protection',
+        decision: { kind: 'deny', ruleId: 'secret.home.ssh' },
+      });
+    });
+  });
+
   test('does not analyze command-looking input on an unknown non-command route', async () => {
     await withTempDir('cc-safety-net-guard-unknown-', (cwd) => {
       let analyzed = false;
@@ -706,19 +743,7 @@ describe('guard evaluation', () => {
       expect(
         evaluateGuard(commandInvocation(cwd, 'cat <<'), {
           dependencies: {
-            getModes: () => ({
-              strict: true,
-              paranoidRm: false,
-              paranoidInterpreters: false,
-              worktreeMode: false,
-              effectiveLevel: 'strict',
-              sources: {
-                failClosed: [],
-                paranoidRm: [],
-                paranoidInterpreters: [],
-                worktreeMode: [],
-              },
-            }),
+            getModes: strictModes,
           },
         }),
       ).toEqual({

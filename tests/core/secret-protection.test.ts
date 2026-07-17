@@ -370,6 +370,32 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('VAR=value', cwd)).toBeNull();
   });
 
+  test('treats commands passed to cc-safety-net explain as inert data', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      `cc-safety-net explain --json --cwd /tmp/project 'cat /tmp/project/.env'`,
+      `bun src/bin/cc-safety-net.ts explain --json --cwd /tmp/project 'cat /tmp/project/.env'`,
+      `node dist/bin/cc-safety-net.js explain 'cat .env'`,
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
+    }
+  });
+
+  test('keeps active paths around cc-safety-net explain protected', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      `cc-safety-net explain --cwd ~/.ssh 'git status'`,
+      `cc-safety-net explain 'cat .env' && cat .env`,
+      `cc-safety-net explain "$(cat .env)"`,
+      `bun src/bin/other.ts explain .env`,
+      `bun src/bin/cc-safety-net.ts run .env`,
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+    }
+  });
+
   test('blocks unlisted file readers reading sensitive operands', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -399,6 +425,51 @@ describe('secret protection command target extraction', () => {
     // -name .env is a search pattern, not a read
     expect(findSensitiveTargetInCommand('find . -name .env', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('find src -type f', cwd)).toBeNull();
+  });
+
+  test('allows metadata-only discovery in standard mode and blocks it in strict mode', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of ['test -f ~/.ssh/id_rsa', 'find ~/.ssh -type f']) {
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
+        command,
+      ).toBeNull();
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
+        command,
+      ).not.toBeNull();
+    }
+  });
+
+  test('keeps sensitive content access blocked in standard mode', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      'cat ~/.ssh/id_rsa',
+      'find ~/.ssh -type f -exec cat {} +',
+      'find ~/.ssh -type f -fprint .env',
+      'test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa',
+      'test -f "$(cat ~/.ssh/id_rsa)"',
+    ]) {
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
+        command,
+      ).not.toBeNull();
+    }
+  });
+
+  test('keeps explicit deny paths protected during metadata discovery', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(
+        'test -f protected.txt',
+        cwd,
+        { denyPaths: ['protected.txt'] },
+        { strict: false },
+      ),
+    ).toMatchObject({ ruleId: 'secret.deny-path' });
   });
 
   test('blocks find exec readers over sensitive matched paths', () => {

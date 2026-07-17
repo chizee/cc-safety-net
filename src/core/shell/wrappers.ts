@@ -320,6 +320,7 @@ function getPathRoot(target: string): string {
 }
 
 function stripCommand(tokens: string[]): string[] {
+  if (tokens[1] === '-v') return ['type', ...tokens.slice(2)];
   let i = 1;
   while (i < tokens.length) {
     const token = tokens[i];

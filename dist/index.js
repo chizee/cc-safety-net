@@ -3920,6 +3920,9 @@ function extractInterpreterCodeArg(tokens) {
 function isInterpreterCommand(command) {
   return CODE_FLAGS.has(normalizeInterpreter(command));
 }
+function isInterpreterDisplayOnly(command, code) {
+  return normalizeInterpreter(command) === "node" && /^\s*console\.(?:log|info|warn|error)\(\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*')\s*\)\s*;?\s*$/.test(code);
+}
 function normalizeInterpreter(command) {
   let interpreter = getBasename(command).toLowerCase();
   return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? "python" : interpreter;
@@ -4446,6 +4449,8 @@ function getPathRoot2(target) {
   return parsePath2(target).root;
 }
 function stripCommand(tokens) {
+  if (tokens[1] === "-v")
+    return ["type", ...tokens.slice(2)];
   let i = 1;
   while (i < tokens.length) {
     let token = tokens[i];
@@ -8042,6 +8047,26 @@ function extractDashCArg(tokens) {
   }
   return null;
 }
+function isShellSyntaxCheck(tokens) {
+  let enabled = !1;
+  for (let token of tokens.slice(1)) {
+    if (token === "--")
+      return enabled;
+    if (token.startsWith("+") && !token.startsWith("++")) {
+      if (token.slice(1).includes("n"))
+        enabled = !1;
+      continue;
+    }
+    if (!token.startsWith("-") || token.startsWith("--"))
+      return enabled;
+    let flags = token.slice(1);
+    if (flags.includes("n"))
+      enabled = !0;
+    if (flags.includes("c"))
+      return enabled;
+  }
+  return enabled;
+}
 function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
   if (tokens[dashCIndex + 1] === "--")
     return tokens[dashCIndex + 2] || null;
@@ -9095,6 +9120,8 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     return null;
   let normalizedHead = normalizeCommandToken(head);
   if (SHELL_WRAPPERS.has(normalizedHead)) {
+    if (isShellSyntaxCheck(tokens))
+      return null;
     let shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : void 0);
     if (options2.dynamicInput && shellDynamicMatch)
       return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
@@ -9117,6 +9144,8 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       return null;
     if (context.paranoidInterpreters)
       return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
+    if (isInterpreterDisplayOnly(normalizedHead, codeArg))
+      return null;
     let nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
@@ -9746,7 +9775,7 @@ function analyzeXargs(tokens, context) {
     cwd: childCommand.cwd,
     envAssignments: childCommand.envAssignments
   }, {
-    dynamicInput: childCommand.head !== "git",
+    dynamicInput: childCommand.head !== "git" && xargsInputCanChangeExecutedSource(childTokens, childCommand.head, replacementToken, context.scanWork),
     shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
     rmDynamicMatch: destructiveCommandMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
   });
@@ -9761,6 +9790,20 @@ function analyzeXargs(tokens, context) {
     envAssignments: childCommand.envAssignments,
     worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode
   });
+}
+function xargsInputCanChangeExecutedSource(childTokens, childHead, replacementToken, scanWork) {
+  if (!SHELL_WRAPPERS.has(childHead))
+    return !0;
+  if (isShellSyntaxCheck(childTokens))
+    return !1;
+  let source = extractDashCArg(childTokens);
+  if (!source)
+    return !0;
+  if (replacementToken && source.includes(replacementToken))
+    return !0;
+  if (dangerousInTextMatch(source, scanWork))
+    return !0;
+  return /(?:^|[;&|]\s*|\b(?:eval|source)\s+|\b(?:ba|z|k)?sh\s+-c\s+)["']?\$[0-9@*]/.test(source);
 }
 function extractXargsChildCommandWithInfo(tokens) {
   let xargsOptsWithValue = /* @__PURE__ */ new Set([
@@ -9914,6 +9957,8 @@ function analyzeSegment(tokens, depth, options2) {
       envAssignments
     });
   if (isShellWrapperCommand(head, normalizedHead)) {
+    if (isShellSyntaxCheck(stripped))
+      return null;
     let dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
       let traceInnerCommand = unwrapTraceQuotes(dashCArg);
@@ -9959,6 +10004,8 @@ function analyzeSegment(tokens, depth, options2) {
         if (match)
           return blockResultFromMatch(match);
       }
+      if (isInterpreterDisplayOnly(normalizedHead, codeArg))
+        return null;
       trace?.recordSegment({
         type: "recurse",
         reason: "interpreter",
@@ -10217,7 +10264,10 @@ function analyzeEmbeddedCommand(context, index) {
   let cmd = normalizeCommandToken(token);
   if (isShellWrapperCommand(token, cmd)) {
     reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
-    let dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
+    let shellTokens = [token, ...context.tokens.slice(index + 1)];
+    if (isShellSyntaxCheck(shellTokens))
+      return null;
+    let dashCArg = extractDashCArg(shellTokens);
     if (!dashCArg)
       return null;
     let result = context.options.analyzeNested(dashCArg, {
@@ -11241,7 +11291,17 @@ function comparePath(path) {
 import { homedir as homedir6 } from "node:os";
 import { isAbsolute as isAbsolute11, resolve as resolve8 } from "node:path";
 import { fileURLToPath } from "node:url";
-var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_MATCH_PATH_PRIMARIES = /* @__PURE__ */ new Set([
+var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
+  "-delete",
+  "-exec",
+  "-execdir",
+  "-fls",
+  "-fprint",
+  "-fprint0",
+  "-fprintf",
+  "-ok",
+  "-okdir"
+]), FIND_MATCH_PATH_PRIMARIES = /* @__PURE__ */ new Set([
   "-name",
   "-iname",
   "-path",
@@ -11266,7 +11326,10 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   "zsh",
   "dash",
   "ksh"
-]), CODE_EVAL_FLAGS = /* @__PURE__ */ new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]), CLUSTERED_CODE_EVAL_FLAGS = /* @__PURE__ */ new Map([
+]), CODE_EVAL_FLAGS = /* @__PURE__ */ new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]), CC_SAFETY_NET_ENTRYPOINTS = /* @__PURE__ */ new Set([
+  "src/bin/cc-safety-net.ts",
+  "dist/bin/cc-safety-net.js"
+]), CLUSTERED_CODE_EVAL_FLAGS = /* @__PURE__ */ new Map([
   ["bash", /* @__PURE__ */ new Set(["c"])],
   ["sh", /* @__PURE__ */ new Set(["c"])],
   ["zsh", /* @__PURE__ */ new Set(["c"])],
@@ -11310,8 +11373,38 @@ function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
   }
   return null;
 }
-function findSensitiveTargetInSemanticFacts(facts, config) {
-  return findSensitivePolicyPathTarget(extractToolPathTargets(facts), facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd);
+function findSensitiveTargetInSemanticFacts(facts, config, options2 = {}) {
+  let target = findSensitivePolicyPathTarget(extractToolPathTargets(facts), facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd);
+  if (target?.ruleId !== "secret.deny-path" && options2.strict === !1 && isMetadataOnlyCommand(facts))
+    return null;
+  return target;
+}
+function isMetadataOnlyCommand(facts) {
+  if (facts.invocation.route.kind !== "command")
+    return !1;
+  let syntax = getCommandSyntaxFact(facts, "input-candidate") ?? getCommandSyntaxFact(facts, "declared-command");
+  if (!syntax)
+    return !1;
+  if (syntax.program.nodes.some((node) => node.kind === "command" && node.nested.length > 0))
+    return !1;
+  let tokens = [];
+  for (let entry of syntax.shell.entries) {
+    if (entry.kind === "operator" && entry.boundary)
+      return !1;
+    if (entry.kind === "redirection")
+      return !1;
+    if (entry.kind !== "operator")
+      tokens.push(projectSensitiveShellText(entry.text));
+  }
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1)
+    return !1;
+  let command2 = basename2(stripped[commandIndex] ?? "").toLowerCase(), args = stripped.slice(commandIndex + 1);
+  if (command2 === "test")
+    return args.length === 2 && (args[0] === "-e" || args[0] === "-f");
+  if (command2 !== "find")
+    return !1;
+  return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
 }
 function extractToolPathTargets(facts) {
   if (facts.invocation.route.kind === "command") {
@@ -11366,7 +11459,9 @@ function extractSegmentPathTargets(tokens, store) {
   let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1)
     return assignmentValues;
-  let command2 = basename2(stripped[commandIndex] ?? "").toLowerCase(), post = stripped.slice(commandIndex + 1);
+  let executable = stripped[commandIndex] ?? "", command2 = basename2(executable).toLowerCase(), post = stripped.slice(commandIndex + 1), explainTargets = extractSafetyNetExplainPathTargets(executable, command2, post);
+  if (explainTargets)
+    return [...assignmentValues, ...explainTargets];
   if (NON_PATH_OPERAND_COMMANDS.has(command2))
     return assignmentValues;
   if (PATTERN_FIRST_COMMANDS.has(command2))
@@ -11381,6 +11476,30 @@ function extractSegmentPathTargets(tokens, store) {
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
   ];
+}
+function extractSafetyNetExplainPathTargets(executable, command2, tokens) {
+  let direct = command2 === "cc-safety-net" && tokens[0] === "explain", runtime = (command2 === "bun" || command2 === "node") && isSafetyNetEntrypoint(tokens[0]) && tokens[1] === "explain";
+  if (!direct && !runtime)
+    return null;
+  let targets = runtime ? [executable, tokens[0] ?? ""] : [executable], args = tokens.slice(runtime ? 2 : 1);
+  for (let index = 0;index < args.length; index++) {
+    let arg = args[index];
+    if (arg === "--json" || arg === "--help" || arg === "-h")
+      continue;
+    if (arg === "--cwd") {
+      let cwd = args[index + 1];
+      if (cwd && !cwd.startsWith("--"))
+        targets.push(cwd);
+      index++;
+      continue;
+    }
+    return targets;
+  }
+  return targets;
+}
+function isSafetyNetEntrypoint(value) {
+  let normalized = value?.replaceAll("\\", "/");
+  return [...CC_SAFETY_NET_ENTRYPOINTS].some((entrypoint) => normalized === entrypoint || normalized?.endsWith(`/${entrypoint}`));
 }
 function assertShellInterpreterBodiesWithinStructuralLimits(command2, tokens, store) {
   if (!SHELL_STDIN_INTERPRETERS.has(command2))
@@ -12111,7 +12230,9 @@ function evaluateGuard(invocation, options2 = {}) {
   let snapshot = callDependency("config-load", command2, () => dependencies.loadPolicySnapshot({
     ...options2.policyOptions,
     cwd: invocation.context.configCwd
-  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", command2, () => dependencies.findSensitiveTarget(facts, policy.secretProtection));
+  })), policy = snapshot.policy, secretTarget = policy.secretProtection.enabled === !1 ? null : callDependency("secret-protection", command2, () => dependencies.findSensitiveTarget(facts, policy.secretProtection, {
+    strict: isCommandInvocation(invocation) ? dependencies.getModes(policy).strict : void 0
+  }));
   if (secretTarget) {
     let displayCommand = command2 ?? secretTarget.target;
     return {

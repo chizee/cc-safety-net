@@ -48,6 +48,15 @@ export function isInterpreterCommand(command: string): boolean {
   return CODE_FLAGS.has(normalizeInterpreter(command));
 }
 
+export function isInterpreterDisplayOnly(command: string, code: string): boolean {
+  return (
+    normalizeInterpreter(command) === 'node' &&
+    /^\s*console\.(?:log|info|warn|error)\(\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*')\s*\)\s*;?\s*$/.test(
+      code,
+    )
+  );
+}
+
 function normalizeInterpreter(command: string): string {
   const interpreter = getBasename(command).toLowerCase();
   return PYTHON_INTERPRETER_PATTERN.test(interpreter) ? 'python' : interpreter;

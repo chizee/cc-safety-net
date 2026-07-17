@@ -11,7 +11,7 @@ import { toNamespacedPath } from 'node:path';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
-import { extractDashCArg } from '@/core/analyze/shell-wrappers';
+import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import { extractShortOpts, stripWrappersWithInfo } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
@@ -92,6 +92,19 @@ describe('shell parsing helpers', () => {
 
     test('handles -c appearing later in tokens', () => {
       expect(extractDashCArg(['bash', '-l', '-c', 'echo ok'])).toBe('echo ok');
+    });
+  });
+
+  describe('isShellSyntaxCheck', () => {
+    test('recognizes standalone and clustered no-exec flags', () => {
+      expect(isShellSyntaxCheck(['bash', '-n', '-c', 'rm -rf /'])).toBeTrue();
+      expect(isShellSyntaxCheck(['bash', '-nc', 'rm -rf /'])).toBeTrue();
+      expect(isShellSyntaxCheck(['bash', '-n', 'script.sh'])).toBeTrue();
+    });
+
+    test('does not treat command arguments or disabled no-exec flags as syntax checks', () => {
+      expect(isShellSyntaxCheck(['bash', '-c', 'rm -rf /', '-n'])).toBeFalse();
+      expect(isShellSyntaxCheck(['bash', '-n', '+n', '-c', 'rm -rf /'])).toBeFalse();
     });
   });
 

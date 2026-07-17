@@ -50,6 +50,17 @@ const NON_PATH_OPERAND_COMMANDS = new Set(['echo', 'printf']);
 const PATH_ROOT_COMMANDS = new Set(['find']);
 const FIND_EXEC_PRIMARIES = new Set(['-exec', '-execdir']);
 const FIND_EXEC_TERMINATORS = new Set([';', '+']);
+const FIND_NON_METADATA_ACTIONS = new Set([
+  '-delete',
+  '-exec',
+  '-execdir',
+  '-fls',
+  '-fprint',
+  '-fprint0',
+  '-fprintf',
+  '-ok',
+  '-okdir',
+]);
 const FIND_MATCH_PATH_PRIMARIES = new Set([
   '-name',
   '-iname',
@@ -82,6 +93,10 @@ const CODE_INTERPRETERS = new Set([
   'ksh',
 ]);
 const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
+const CC_SAFETY_NET_ENTRYPOINTS = new Set([
+  'src/bin/cc-safety-net.ts',
+  'dist/bin/cc-safety-net.js',
+]);
 const CLUSTERED_CODE_EVAL_FLAGS = new Map([
   ['bash', new Set(['c'])],
   ['sh', new Set(['c'])],
@@ -160,6 +175,10 @@ type SecretProtectionPolicy = {
   readonly denyPaths: readonly string[];
 };
 
+type SecretInspectionOptions = {
+  readonly strict?: boolean;
+};
+
 /** @internal */
 export function findSensitivePathTarget(
   targets: readonly string[],
@@ -194,6 +213,7 @@ export function findSensitiveTargetInCommand(
   command: string,
   cwd = process.cwd(),
   config?: SecretProtectionConfig,
+  options: SecretInspectionOptions = {},
 ): SecretTarget | null {
   const facts = createSemanticFacts(
     createToolInvocation(
@@ -204,13 +224,7 @@ export function findSensitiveTargetInCommand(
       command,
     ),
   );
-  const syntax = getCommandSyntaxFact(facts, 'declared-command');
-  return findSensitivePolicyPathTarget(
-    syntax ? extractCommandPathTargets(syntax.shell, facts.store) : [],
-    cwd,
-    config,
-    cwd,
-  );
+  return findSensitiveTargetInSemanticFacts(facts, config, options);
 }
 
 /** @internal */
@@ -231,13 +245,49 @@ export function findSensitiveTargetInToolInput(
 export function findSensitiveTargetInSemanticFacts(
   facts: SemanticFacts,
   config: SecretProtectionPolicy | undefined,
+  options: SecretInspectionOptions = {},
 ): SecretTarget | null {
-  return findSensitivePolicyPathTarget(
+  const target = findSensitivePolicyPathTarget(
     extractToolPathTargets(facts),
     facts.invocation.context.executionCwd,
     config,
     facts.invocation.context.configCwd,
   );
+  if (
+    target?.ruleId !== 'secret.deny-path' &&
+    options.strict === false &&
+    isMetadataOnlyCommand(facts)
+  ) {
+    return null;
+  }
+  return target;
+}
+
+function isMetadataOnlyCommand(facts: SemanticFacts): boolean {
+  if (facts.invocation.route.kind !== 'command') return false;
+  const syntax =
+    getCommandSyntaxFact(facts, 'input-candidate') ??
+    getCommandSyntaxFact(facts, 'declared-command');
+  if (!syntax) return false;
+  if (syntax.program.nodes.some((node) => node.kind === 'command' && node.nested.length > 0)) {
+    return false;
+  }
+
+  const tokens: string[] = [];
+  for (const entry of syntax.shell.entries) {
+    if (entry.kind === 'operator' && entry.boundary) return false;
+    if (entry.kind === 'redirection') return false;
+    if (entry.kind !== 'operator') tokens.push(projectSensitiveShellText(entry.text));
+  }
+
+  const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
+  if (commandIndex === -1) return false;
+  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
+  const args = stripped.slice(commandIndex + 1);
+  if (command === 'test') return args.length === 2 && (args[0] === '-e' || args[0] === '-f');
+  if (command !== 'find') return false;
+  return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
 }
 
 function extractToolPathTargets(facts: SemanticFacts): string[] {
@@ -313,8 +363,14 @@ function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFac
     return assignmentValues;
   }
 
-  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
+  const executable = stripped[commandIndex] ?? '';
+  const command = basename(executable).toLowerCase();
   const post = stripped.slice(commandIndex + 1);
+  const explainTargets = extractSafetyNetExplainPathTargets(executable, command, post);
+
+  if (explainTargets) {
+    return [...assignmentValues, ...explainTargets];
+  }
 
   if (NON_PATH_OPERAND_COMMANDS.has(command)) {
     return assignmentValues;
@@ -336,6 +392,41 @@ function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFac
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
   ];
+}
+
+function extractSafetyNetExplainPathTargets(
+  executable: string,
+  command: string,
+  tokens: readonly string[],
+): string[] | null {
+  const direct = command === 'cc-safety-net' && tokens[0] === 'explain';
+  const runtime =
+    (command === 'bun' || command === 'node') &&
+    isSafetyNetEntrypoint(tokens[0]) &&
+    tokens[1] === 'explain';
+  if (!direct && !runtime) return null;
+
+  const targets = runtime ? [executable, tokens[0] ?? ''] : [executable];
+  const args = tokens.slice(runtime ? 2 : 1);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--json' || arg === '--help' || arg === '-h') continue;
+    if (arg === '--cwd') {
+      const cwd = args[index + 1];
+      if (cwd && !cwd.startsWith('--')) targets.push(cwd);
+      index++;
+      continue;
+    }
+    return targets;
+  }
+  return targets;
+}
+
+function isSafetyNetEntrypoint(value: string | undefined): boolean {
+  const normalized = value?.replaceAll('\\', '/');
+  return [...CC_SAFETY_NET_ENTRYPOINTS].some(
+    (entrypoint) => normalized === entrypoint || normalized?.endsWith(`/${entrypoint}`),
+  );
 }
 
 function assertShellInterpreterBodiesWithinStructuralLimits(

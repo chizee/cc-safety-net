@@ -150,7 +150,11 @@ export function evaluateGuard(
     policy.secretProtection.enabled === false
       ? null
       : callDependency('secret-protection', command, () =>
-          dependencies.findSensitiveTarget(facts, policy.secretProtection),
+          dependencies.findSensitiveTarget(facts, policy.secretProtection, {
+            strict: isCommandInvocation(invocation)
+              ? dependencies.getModes(policy).strict
+              : undefined,
+          }),
         );
   if (secretTarget) {
     const displayCommand = command ?? secretTarget.target;
