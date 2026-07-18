@@ -684,8 +684,9 @@ describe('edge cases', () => {
       assertAllowed("echo ok | xargs awk '{ print }'");
     });
 
-    test('xargs child wrappers only allowed', () => {
-      assertAllowed('echo ok | xargs sudo --');
+    test('xargs child wrappers without a fixed command are blocked', () => {
+      // Appended input becomes the child executable after the wrapper terminator.
+      assertBlocked('echo ok | xargs sudo --', 'xargs dynamic input');
     });
 
     test('xargs busybox rm non destructive allowed', () => {
@@ -693,7 +694,8 @@ describe('edge cases', () => {
     });
 
     test('xargs find without delete allowed', () => {
-      assertAllowed('echo ok | xargs find . -name foo');
+      // Appended stdin can still extend find expressions (-delete/-exec), so fail closed.
+      assertBlocked('echo ok | xargs find . -name foo', 'xargs dynamic input');
     });
 
     test('xargs print0 rm -rf blocked', () => {
@@ -933,14 +935,15 @@ describe('edge cases', () => {
       const fixture = createLinkedWorktreeFixture();
       try {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+          // --pipe makes stdin part of command construction; fail closed via parallel.shell-dynamic.
           assertBlocked(
             'parallel --pipe git clean -f ::: .',
-            'git clean -f',
+            'parallel with shell -c',
             fixture.linkedWorktree,
           );
           assertBlocked(
             'parallel --pipepart git clean -f ::: .',
-            'git clean -f',
+            'parallel with shell -c',
             fixture.linkedWorktree,
           );
         });

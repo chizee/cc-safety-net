@@ -1,7 +1,13 @@
-import { realpathSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { normalize, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { normalize, posix, resolve, sep } from 'node:path';
+import { isTrustedTempPath } from '@/core/analyze/tmpdir';
+import { getOwnEnvValue } from '@/core/env';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
+import {
+  createPathCanonicalizationBudget,
+  type PathCanonicalizationBudget,
+  resolveExistingPath,
+} from '@/core/path-canonicalization';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -11,6 +17,10 @@ export interface RecursiveDeleteTargetOptions {
   strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
+  posixShell?: boolean;
+  tmpdirVarExpandsEmpty?: boolean;
+  tmpdirWordSplittingUnsafe?: boolean;
+  trustedTmpdirValue?: boolean;
 }
 
 export interface RecursiveDeleteTargetContext {
@@ -19,7 +29,19 @@ export interface RecursiveDeleteTargetContext {
   readonly strict: boolean;
   readonly paranoid: boolean;
   readonly trustTmpdirVar: boolean;
+  readonly posixShell: boolean;
+  readonly tmpdirVarExpandsEmpty: boolean;
+  readonly tmpdirWordSplittingUnsafe: boolean;
+  readonly trustedTmpdirValue: boolean;
   readonly homeDir: string;
+  readonly pathCanonicalizationBudget: PathCanonicalizationBudget;
+}
+
+export interface RecursiveDeleteTargetClassificationOptions {
+  targetIsLiteral?: boolean;
+  tmpdirWordSplittingProtected?: boolean;
+  skipHomeCwd?: boolean;
+  skipCwdSelf?: boolean;
 }
 
 export type RecursiveDeleteTargetClassification =
@@ -40,41 +62,90 @@ export function createRecursiveDeleteTargetContext(
     strict: options.strict ?? false,
     paranoid: options.paranoid ?? false,
     trustTmpdirVar: options.allowTmpdirVar ?? true,
+    posixShell: options.posixShell ?? false,
+    tmpdirVarExpandsEmpty: options.tmpdirVarExpandsEmpty ?? false,
+    tmpdirWordSplittingUnsafe: options.tmpdirWordSplittingUnsafe ?? false,
+    trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
     homeDir: getHomeDirForRmPolicy(),
+    pathCanonicalizationBudget: createPathCanonicalizationBudget(),
   };
 }
 
 export function classifyRecursiveDeleteTarget(
   target: string,
   ctx: RecursiveDeleteTargetContext,
+  options: RecursiveDeleteTargetClassificationOptions = {},
 ): RecursiveDeleteTargetClassification {
-  if (isUnsupportedWindowsNamespacePath(target)) {
+  const targetIsLiteral = options.targetIsLiteral ?? false;
+  if (
+    !targetIsLiteral &&
+    ctx.tmpdirWordSplittingUnsafe &&
+    !options.tmpdirWordSplittingProtected &&
+    containsTmpdirVariable(target)
+  ) {
+    return { kind: 'outside_anchored_cwd' };
+  }
+  // Empty TMPDIR makes $TMPDIR/foo expand to /foo at runtime, but policy treats it as an
+  // unverifiable dynamic target (strict-only) rather than rewriting to an absolute path here.
+  const normalizedTarget = target;
+  const dynamic = !targetIsLiteral && isDynamicTarget(normalizedTarget, ctx.posixShell);
+
+  if (isUnsupportedWindowsNamespacePath(normalizedTarget)) {
     return { kind: 'outside_anchored_cwd' };
   }
 
-  if (isDangerousRootOrHomeTarget(target)) {
+  if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral)) {
     return { kind: 'root_or_home_target' };
   }
 
-  if (isTempTarget(target, ctx.trustTmpdirVar)) {
+  if (
+    isTempTarget(
+      normalizedTarget,
+      ctx.trustTmpdirVar,
+      ctx.posixShell,
+      dynamic,
+      targetIsLiteral,
+      options.tmpdirWordSplittingProtected ?? false,
+      ctx.trustedTmpdirValue,
+    )
+  ) {
     return { kind: 'temp_target' };
   }
 
-  if (isDynamicTarget(target)) {
+  if (dynamic) {
     return { kind: 'dynamic_target' };
   }
 
   const anchoredCwd = ctx.anchoredCwd;
   if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
+    if (
+      !options.skipHomeCwd &&
+      isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir, ctx.pathCanonicalizationBudget)
+    ) {
       return { kind: 'home_cwd_target' };
     }
 
-    if (isCwdSelfTarget(target, anchoredCwd)) {
+    if (
+      !options.skipCwdSelf &&
+      isCwdSelfTarget(
+        normalizedTarget,
+        ctx.resolvedCwd ?? anchoredCwd,
+        ctx.pathCanonicalizationBudget,
+      )
+    ) {
       return { kind: 'cwd_self_target' };
     }
 
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
+    if (
+      isTargetWithinCwd(
+        normalizedTarget,
+        anchoredCwd,
+        ctx.resolvedCwd ?? anchoredCwd,
+        dynamic,
+        targetIsLiteral,
+        ctx.pathCanonicalizationBudget,
+      )
+    ) {
       return { kind: 'within_anchored_cwd' };
     }
   }
@@ -82,24 +153,42 @@ export function classifyRecursiveDeleteTarget(
   return { kind: 'outside_anchored_cwd' };
 }
 
-export function isDangerousRootOrHomeTarget(path: string): boolean {
-  const normalized = path.trim();
+export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = false): boolean {
+  const trimmed = path.trim();
+  const normalized = posix.normalize(trimmed);
+  const windowsNormalized = trimmed.replace(/\\/g, '/');
 
   if (normalized === '/' || normalized === '/*') {
     return true;
   }
 
-  if (normalized === '~' || normalized === '~/' || normalized.startsWith('~/')) {
+  if (
+    /^[A-Za-z]:\/+\*?$/.test(windowsNormalized) ||
+    /^\/\/[^/]+\/+[^/]+(?:\/+\*?)?$/.test(windowsNormalized)
+  ) {
+    return true;
+  }
+
+  if (
+    !targetIsLiteral &&
+    (normalized === '~' || normalized === '~/' || normalized.startsWith('~/'))
+  ) {
     if (normalized === '~' || normalized === '~/' || normalized === '~/*') {
       return true;
     }
   }
 
-  if (normalized === '$HOME' || normalized === '$HOME/' || normalized === '$HOME/*') {
+  if (
+    !targetIsLiteral &&
+    (normalized === '$HOME' || normalized === '$HOME/' || normalized === '$HOME/*')
+  ) {
     return true;
   }
 
-  if (normalized === '${HOME}' || normalized === '${HOME}/' || normalized === '${HOME}/*') {
+  if (
+    !targetIsLiteral &&
+    (normalized === '${HOME}' || normalized === '${HOME}/' || normalized === '${HOME}/*')
+  ) {
     return true;
   }
 
@@ -122,37 +211,39 @@ function normalizePathForComparison(p: string): string {
   return normalized;
 }
 
-function isTempTarget(path: string, allowTmpdirVar: boolean): boolean {
+function isTempTarget(
+  path: string,
+  allowTmpdirVar: boolean,
+  posixShell: boolean,
+  dynamic: boolean,
+  targetIsLiteral: boolean,
+  tmpdirWordSplittingProtected: boolean,
+  trustedTmpdirValue: boolean,
+): boolean {
   const normalized = path.trim();
 
   if (hasParentDirectoryComponent(normalized)) {
     return false;
   }
 
-  if (normalized === '/tmp' || normalized.startsWith('/tmp/')) {
+  if (!dynamic && isTrustedTempPath(normalized)) {
     return true;
   }
 
-  if (normalized === '/var/tmp' || normalized.startsWith('/var/tmp/')) {
-    return true;
-  }
+  return (
+    (allowTmpdirVar || (tmpdirWordSplittingProtected && trustedTmpdirValue)) &&
+    posixShell &&
+    !targetIsLiteral &&
+    isTrustedTmpdirVariableTarget(normalized, posixShell)
+  );
+}
 
-  const normalizedTmpdir = normalizePathForComparison(tmpdir());
-  const pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep}`) || pathToCompare === normalizedTmpdir) {
-    return true;
-  }
-
-  if (allowTmpdirVar) {
-    if (normalized === '$TMPDIR' || normalized.startsWith('$TMPDIR/')) {
-      return true;
-    }
-    if (normalized === '${TMPDIR}' || normalized.startsWith('${TMPDIR}/')) {
-      return true;
-    }
-  }
-
-  return false;
+function isTrustedTmpdirVariableTarget(path: string, posixShell: boolean): boolean {
+  return ['$TMPDIR', '${TMPDIR}'].some((prefix) => {
+    if (path === prefix) return true;
+    if (!path.startsWith(`${prefix}/`)) return false;
+    return !isDynamicTarget(path.slice(prefix.length + 1), posixShell);
+  });
 }
 
 function hasParentDirectoryComponent(path: string): boolean {
@@ -160,11 +251,20 @@ function hasParentDirectoryComponent(path: string): boolean {
 }
 
 function getHomeDirForRmPolicy(): string {
-  return process.env.HOME ?? homedir();
+  return getOwnEnvValue('HOME') || homedir();
 }
 
-function isDynamicTarget(target: string): boolean {
-  return target.includes('$') || target.includes('`') || hasShellGlobMetachar(target);
+function containsTmpdirVariable(target: string): boolean {
+  return /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(target);
+}
+
+function isDynamicTarget(target: string, posixShell = false): boolean {
+  return (
+    target.includes('$') ||
+    target.includes('`') ||
+    hasShellGlobMetachar(target) ||
+    (posixShell && hasPosixShellExpansionMetachar(target))
+  );
 }
 
 function hasShellGlobMetachar(target: string): boolean {
@@ -185,11 +285,44 @@ function hasShellGlobMetachar(target: string): boolean {
   return false;
 }
 
-function isCwdHomeForRmPolicy(cwd: string, homeDir: string): boolean {
+function hasPosixShellExpansionMetachar(target: string): boolean {
+  let escaped = false;
+  for (let index = 0; index < target.length; index++) {
+    const char = target[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (
+      (char === '{' && hasBraceExpansion(target, index)) ||
+      ((char === '+' || char === '@' || char === '!') && target[index + 1] === '(')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasBraceExpansion(target: string, openIndex: number): boolean {
+  const closeIndex = target.indexOf('}', openIndex + 1);
+  if (closeIndex === -1) return false;
+  const body = target.slice(openIndex + 1, closeIndex);
+  return body.includes(',') || body.includes('..');
+}
+
+function isCwdHomeForRmPolicy(
+  cwd: string,
+  homeDir: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   try {
     return (
-      normalizePathForComparison(realpathSync(cwd)) ===
-      normalizePathForComparison(realpathSync(homeDir))
+      normalizePathForComparison(resolveExistingPath(cwd, budget)) ===
+      normalizePathForComparison(resolveExistingPath(homeDir, budget))
     );
   } catch {
     try {
@@ -200,15 +333,15 @@ function isCwdHomeForRmPolicy(cwd: string, homeDir: string): boolean {
   }
 }
 
-function isCwdSelfTarget(target: string, cwd: string): boolean {
+function isCwdSelfTarget(target: string, cwd: string, budget: PathCanonicalizationBudget): boolean {
   if (target === '.' || target === './' || target === '.\\') {
     return true;
   }
 
   try {
     return (
-      normalizePathForComparison(realpathSync(resolve(cwd, target))) ===
-      normalizePathForComparison(realpathSync(cwd))
+      normalizePathForComparison(resolveExistingPath(resolve(cwd, target), budget)) ===
+      normalizePathForComparison(resolveExistingPath(cwd, budget))
     );
   } catch {
     try {
@@ -219,19 +352,29 @@ function isCwdSelfTarget(target: string, cwd: string): boolean {
   }
 }
 
-function isTargetWithinCwd(target: string, originalCwd: string, effectiveCwd?: string): boolean {
+function isTargetWithinCwd(
+  target: string,
+  originalCwd: string,
+  effectiveCwd: string | undefined,
+  dynamic: boolean,
+  targetIsLiteral: boolean,
+  budget: PathCanonicalizationBudget,
+): boolean {
   const resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith('~') || target.startsWith('$HOME') || target.startsWith('${HOME}')) {
+  if (
+    !targetIsLiteral &&
+    (target.startsWith('~') || target.startsWith('$HOME') || target.startsWith('${HOME}'))
+  ) {
     return false;
   }
 
-  if (isDynamicTarget(target)) {
+  if (dynamic) {
     return false;
   }
 
   if (target.startsWith('/') || /^[A-Za-z]:[\\/]/.test(target)) {
     try {
-      return isResolvedPathWithinCwd(target, originalCwd);
+      return isResolvedPathWithinCwd(target, originalCwd, budget);
     } catch {
       return false;
     }
@@ -243,7 +386,7 @@ function isTargetWithinCwd(target: string, originalCwd: string, effectiveCwd?: s
     (!target.includes('/') && !target.includes('\\'))
   ) {
     try {
-      return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd);
+      return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, budget);
     } catch {
       return false;
     }
@@ -254,17 +397,24 @@ function isTargetWithinCwd(target: string, originalCwd: string, effectiveCwd?: s
   }
 
   try {
-    return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd);
+    return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, budget);
   } catch {
     return false;
   }
 }
 
-function isResolvedPathWithinCwd(resolvedTarget: string, cwd: string): boolean {
+function isResolvedPathWithinCwd(
+  resolvedTarget: string,
+  cwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
   try {
-    return isNormalizedPathWithin(realpathSync(resolvedTarget), realpathSync(cwd));
+    return isNormalizedPathWithin(
+      resolveExistingPath(resolvedTarget, budget),
+      resolveExistingPath(cwd, budget),
+    );
   } catch {
-    return isNormalizedPathWithin(resolvedTarget, cwd);
+    return false;
   }
 }
 

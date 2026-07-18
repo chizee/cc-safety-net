@@ -5,9 +5,9 @@ export function hasRecursiveForceFlags(tokens: readonly string[]): boolean {
   for (const token of tokens) {
     if (token === '--') break;
 
-    if (token === '-r' || token === '-R' || token === '--recursive') {
+    if (token === '-r' || token === '-R' || isLongOptionAbbreviation(token, 'recursive')) {
       hasRecursive = true;
-    } else if (token === '-f' || token === '--force') {
+    } else if (token === '-f' || isLongOptionAbbreviation(token, 'force')) {
       hasForce = true;
     } else if (token.startsWith('-') && !token.startsWith('--')) {
       if (token.includes('r') || token.includes('R')) hasRecursive = true;
@@ -16,4 +16,8 @@ export function hasRecursiveForceFlags(tokens: readonly string[]): boolean {
   }
 
   return hasRecursive && hasForce;
+}
+
+function isLongOptionAbbreviation(token: string, option: string): boolean {
+  return token.length > 2 && token.startsWith('--') && option.startsWith(token.slice(2));
 }

@@ -1,10 +1,10 @@
-export const BLOCK_INTENTS = [
+export const BLOCK_INTENTS = Object.freeze([
   'hard_stop',
   'use_alternative',
   'scope_down',
   'manual_only',
   'stop_and_explain',
-] as const;
+] as const);
 
 export type BlockIntent = (typeof BLOCK_INTENTS)[number];
 

@@ -91,7 +91,7 @@ export type CommandConnector = {
 /** @internal */
 export type CommandGroup = {
   readonly kind: 'group';
-  readonly style: 'subshell' | 'brace';
+  readonly style: 'subshell' | 'brace' | 'grouping';
   readonly span: CommandSpan;
   readonly body: CommandProgram;
 };

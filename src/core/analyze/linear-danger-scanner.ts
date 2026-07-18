@@ -10,9 +10,9 @@ import {
   scanChar,
   scanLength,
   scannedText,
-  sequenceAt,
   wordAt,
 } from '@/core/analyze/text-scanner';
+import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
 
 export function hasLinearInterpreterDanger(
   code: string,
@@ -29,6 +29,9 @@ export function hasLinearDangerousText(
   text: string,
   kind:
     | 'rm'
+    | 'reset-hard'
+    | 'reset-merge'
+    | 'clean'
     | 'checkout'
     | 'push-force'
     | 'push-refspec'
@@ -41,6 +44,9 @@ export function hasLinearDangerousText(
 ): boolean {
   const scanned = scannedText(text, work);
   if (kind === 'rm') return hasRawRm(scanned);
+  if (kind === 'reset-hard') return hasResetOption(scanned, '--ha', 'rd');
+  if (kind === 'reset-merge') return hasResetOption(scanned, '--me', 'rge');
+  if (kind === 'clean') return hasCleanForce(scanned);
   if (kind === 'checkout') return hasCheckoutForce(scanned);
   if (kind === 'push-force') return hasPushForce(scanned);
   if (kind === 'push-refspec') return hasPushForcedRefspec(scanned);
@@ -66,11 +72,13 @@ function hasInterpreterRm(text: ScannedText): boolean {
       }
       continue;
     }
-    if (char === '\n') {
+    const escapedLineFeedEnd = getInterpreterEscapedLineFeedEnd(text, i);
+    if (char === '\n' || escapedLineFeedEnd !== -1) {
       active = false;
       recursive = false;
       force = false;
       tokenStart = -1;
+      if (escapedLineFeedEnd !== -1) i = escapedLineFeedEnd - 1;
       continue;
     }
     if (char === ';' || char === '&' || char === '|' || i === scanLength(text)) {
@@ -107,11 +115,23 @@ function hasInterpreterRm(text: ScannedText): boolean {
   return false;
 }
 
+function getInterpreterEscapedLineFeedEnd(text: ScannedText, index: number): number {
+  if (scanChar(text, index) !== '\\' || scanChar(text, index - 1) === '\\') return -1;
+  if (fixedAt(text, index, String.raw`\n`)) return index + 2;
+  if (fixedAt(text, index, String.raw`\x0a`) || fixedAt(text, index, String.raw`\x0A`)) {
+    return index + 5;
+  }
+  if (fixedAt(text, index, String.raw`\u000a`) || fixedAt(text, index, String.raw`\u000A`)) {
+    return index + 7;
+  }
+  return fixedAt(text, index, String.raw`\012`) ? index + 4 : -1;
+}
+
 function interpreterRmFlags(text: ScannedText, start: number, end: number) {
-  if (fixedAt(text, start, '--recursive') && end - start === 11) {
+  if (isScannedLongOptionAbbreviation(text, start, end, 'recursive')) {
     return { recursive: true, force: false };
   }
-  if (fixedAt(text, start, '--force') && end - start === 7) {
+  if (isScannedLongOptionAbbreviation(text, start, end, 'force')) {
     return { recursive: false, force: true };
   }
   if (scanChar(text, start) !== '-' || scanChar(text, start + 1) === '-') {
@@ -125,6 +145,20 @@ function interpreterRmFlags(text: ScannedText, start: number, end: number) {
     force ||= char === 'f' || char === 'F';
   }
   return { recursive, force };
+}
+
+function isScannedLongOptionAbbreviation(
+  text: ScannedText,
+  start: number,
+  end: number,
+  option: string,
+): boolean {
+  const length = end - start - 2;
+  if (length < 1 || length > option.length || !fixedAt(text, start, '--')) return false;
+  for (let i = 0; i < length; i++) {
+    if (scanChar(text, start + i + 2) !== option[i]) return false;
+  }
+  return true;
 }
 
 function hasInterpreterDd(text: ScannedText): boolean {
@@ -187,26 +221,83 @@ function hasRawRm(text: ScannedText): boolean {
       i++;
       continue;
     }
-    recursiveLong ||= fixedAt(text, i, '--recursive') && hasWordBoundaryAfter(text, i + 11);
-    forceLong ||= fixedAt(text, i, '--force') && hasWordBoundaryAfter(text, i + 7);
+    if (
+      fixedAt(text, i, '--') &&
+      (i === 0 || isEcmaWhitespace(scanChar(text, i - 1))) &&
+      (!scanChar(text, i + 2) ||
+        isEcmaWhitespace(scanChar(text, i + 2)) ||
+        isRawStop(scanChar(text, i + 2)))
+    ) {
+      active = false;
+      recursiveLong = false;
+      forceLong = false;
+      i += 2;
+      continue;
+    }
+    recursiveLong ||=
+      (fixedAt(text, i, '--recursive') && hasWordBoundaryAfter(text, i + 11)) ||
+      hasRawLongOptionPrefix(text, i, 'recursive');
+    forceLong ||=
+      (fixedAt(text, i, '--force') && hasWordBoundaryAfter(text, i + 7)) ||
+      hasRawLongOptionPrefix(text, i, 'force');
     if (recursiveLong && forceLong) return true;
     i++;
   }
   return false;
 }
 
+function hasRawLongOptionPrefix(text: ScannedText, start: number, option: string): boolean {
+  if (!fixedAt(text, start, '--')) return false;
+  let length = 0;
+  while (length <= option.length) {
+    const char = scanChar(text, start + length + 2);
+    if (!char || isEcmaWhitespace(char) || isRawStop(char)) break;
+    if (char !== option[length]) return false;
+    length++;
+  }
+  return length > 0 && hasWordBoundaryAfter(text, start + length + 2);
+}
+
 function rawRmShortMatch(text: ScannedText, start: number): boolean {
   let cursor = start;
-  while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
-  const firstStart = cursor;
-  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor))) cursor++;
-  const first = summarizeRawShortToken(text, firstStart, cursor);
-  if (first.combined) return true;
-  while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
-  const secondStart = cursor;
-  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor))) cursor++;
-  const second = summarizeRawShortToken(text, secondStart, cursor);
-  return (first.recursive && second.forceAtBoundary) || (first.force && second.recursiveAtBoundary);
+  let recursive = false;
+  let force = false;
+  while (cursor < scanLength(text)) {
+    while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
+    const tokenStart = cursor;
+    while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor))) cursor++;
+    if (
+      scanChar(text, tokenStart) !== '-' ||
+      (cursor - tokenStart === 2 && fixedAt(text, tokenStart, '--'))
+    ) {
+      return false;
+    }
+    const recursiveLong = hasRawLongOptionAt(text, tokenStart, 'recursive');
+    const forceLong = hasRawLongOptionAt(text, tokenStart, 'force');
+    if ((recursive && forceLong) || (force && recursiveLong)) return true;
+    recursive ||= recursiveLong;
+    force ||= forceLong;
+    if (scanChar(text, tokenStart + 1) === '-') continue;
+    const flags = summarizeRawShortToken(text, tokenStart, cursor);
+    if (
+      flags.combined ||
+      (recursive && flags.forceAtBoundary) ||
+      (force && flags.recursiveAtBoundary)
+    ) {
+      return true;
+    }
+    recursive ||= flags.recursive;
+    force ||= flags.force;
+  }
+  return false;
+}
+
+function hasRawLongOptionAt(text: ScannedText, start: number, option: string): boolean {
+  return (
+    (fixedAt(text, start, `--${option}`) &&
+      hasWordBoundaryAfter(text, start + option.length + 2)) ||
+    hasRawLongOptionPrefix(text, start, option)
+  );
 }
 
 function rawRmAt(text: ScannedText, index: number): number {
@@ -242,6 +333,76 @@ function summarizeRawShortToken(text: ScannedText, start: number, end: number) {
     previous = char;
   }
   return { recursive, force, recursiveAtBoundary, forceAtBoundary, combined };
+}
+
+function hasResetOption(text: ScannedText, prefix: string, optional: string): boolean {
+  return scanGitSuffix(text, 'reset', isPipeSemicolonStop, true, (index) =>
+    scanChar(text, index) === '-' && isPartialLongOption(text, index, prefix, optional)
+      ? true
+      : index,
+  );
+}
+
+function hasCleanForce(text: ScannedText): boolean {
+  return scanGitSuffix(text, 'clean', isPipeSemicolonStop, true, (index) => {
+    if (scanChar(text, index) !== '-') return index;
+    if (isPartialLongOption(text, index, '--fo', 'rce')) return true;
+    const end = tokenEnd(text, index, isPipeSemicolonStop);
+    for (let cursor = index + 1; cursor < end; cursor++) {
+      if (scanChar(text, cursor) === 'f') return true;
+    }
+    return end - 1;
+  });
+}
+
+function scanGitCommandAt(
+  text: ScannedText,
+  index: number,
+  command: string,
+): { commandEnd: number; next: number } | null {
+  if (!wordAt(text, index, 'git')) return null;
+  let cursor = index + 3;
+  if (!isEcmaWhitespace(scanChar(text, cursor))) {
+    return { commandEnd: -1, next: cursor };
+  }
+  while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
+
+  while (cursor < scanLength(text)) {
+    if (isRawStop(scanChar(text, cursor))) {
+      return { commandEnd: -1, next: cursor };
+    }
+    const end = tokenEnd(text, cursor, isRawStop);
+    if (wordAt(text, cursor, command)) {
+      return { commandEnd: cursor + command.length, next: end };
+    }
+    if (scanChar(text, cursor) !== '-') {
+      return { commandEnd: -1, next: end };
+    }
+
+    const doubleDash = end - cursor === 2 && fixedAt(text, cursor, '--');
+    const consumesValue = matchesGitGlobalOptionWithValue(text, cursor, end);
+    cursor = end;
+    while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
+    if (doubleDash) {
+      const commandEnd = wordAt(text, cursor, command) ? cursor + command.length : -1;
+      return { commandEnd, next: tokenEnd(text, cursor, isRawStop) };
+    }
+    if (!consumesValue) continue;
+    if (cursor >= scanLength(text) || isRawStop(scanChar(text, cursor))) {
+      return { commandEnd: -1, next: cursor };
+    }
+    cursor = tokenEnd(text, cursor, isRawStop);
+    while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
+  }
+
+  return { commandEnd: -1, next: cursor };
+}
+
+function matchesGitGlobalOptionWithValue(text: ScannedText, start: number, end: number): boolean {
+  for (const option of GIT_GLOBAL_OPTS_WITH_VALUE) {
+    if (end - start === option.length && fixedAt(text, start, option)) return true;
+  }
+  return false;
 }
 
 function hasCheckoutForce(text: ScannedText): boolean {
@@ -312,11 +473,13 @@ function hasBranchDeleteForce(text: ScannedText): boolean {
       force = false;
       continue;
     }
-    const after = sequenceAt(text, i, 'git', 'branch');
-    if (after >= 0) {
-      active = true;
-      i = after - 1;
-      continue;
+    if (!active) {
+      const gitCommand = scanGitCommandAt(text, i, 'branch');
+      if (gitCommand) {
+        active = gitCommand.commandEnd >= 0;
+        i = Math.max(i, (active ? gitCommand.commandEnd : gitCommand.next) - 1);
+        continue;
+      }
     }
     if (!active || scanChar(text, i) !== '-') continue;
     const end = tokenEnd(text, i, isRawStop);
@@ -391,13 +554,16 @@ function hasGitShortOption(
       hasShortFlag = false;
     }
 
-    const after = sequenceAt(text, i, 'git', options.command);
-    if (after >= 0 && isEcmaWhitespace(scanChar(text, after))) {
-      outerActive = true;
-      shortActive = false;
-      hasShortFlag = false;
-      i = after - 1;
-      continue;
+    if (!outerActive) {
+      const gitCommand = scanGitCommandAt(text, i, options.command);
+      if (gitCommand) {
+        outerActive =
+          gitCommand.commandEnd >= 0 && isEcmaWhitespace(scanChar(text, gitCommand.commandEnd));
+        shortActive = false;
+        hasShortFlag = false;
+        i = Math.max(i, (outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
+        continue;
+      }
     }
 
     if (outerActive && char === '-') {
@@ -422,11 +588,13 @@ function scanGitSuffix(
   for (let i = 0; i < scanLength(text); i++) {
     const char = scanChar(text, i);
     const stopped = stop(char);
-    if (!stopped) {
-      const after = sequenceAt(text, i, 'git', command);
-      if (after >= 0 && (!requireTrailingWhitespace || isEcmaWhitespace(scanChar(text, after)))) {
-        active = true;
-        i = after - 1;
+    if (!active && !stopped) {
+      const gitCommand = scanGitCommandAt(text, i, command);
+      if (gitCommand) {
+        active =
+          gitCommand.commandEnd >= 0 &&
+          (!requireTrailingWhitespace || isEcmaWhitespace(scanChar(text, gitCommand.commandEnd)));
+        i = Math.max(i, (active ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }
@@ -451,11 +619,11 @@ function hasRestoreWithoutExclusion(text: ScannedText): boolean {
       candidate = false;
       continue;
     }
-    if (wordAt(text, i, 'git')) {
-      const after = sequenceAt(text, i, 'git', 'restore');
-      if (after >= 0) {
-        candidate = true;
-        i = after - 1;
+    if (!candidate) {
+      const gitCommand = scanGitCommandAt(text, i, 'restore');
+      if (gitCommand) {
+        candidate = gitCommand.commandEnd >= 0;
+        i = Math.max(i, (candidate ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }

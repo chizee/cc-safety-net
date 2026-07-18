@@ -58,10 +58,8 @@ export function evaluateCommandWithTrace(
     },
     program,
   );
-  const strictUnclosedQuote =
-    !!options.strict && program.issues.some((issue) => issue.code.includes('quote'));
-  if (analysis && !strictUnclosedQuote && trace.getNextSegmentIndex() < entries.length) {
-    const index = trace.getNextSegmentIndex();
+  const index = trace.getNextSegmentIndex();
+  if (analysis && index > 0 && index < entries.length) {
     trace.recordSegment({ type: 'segment-skipped', index, reason: 'prior-segment-blocked' }, index);
   }
   return Object.freeze({

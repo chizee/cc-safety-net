@@ -2,11 +2,16 @@ import {
   classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
   type RecursiveDeleteTargetClassification,
+  type RecursiveDeleteTargetClassificationOptions,
   type RecursiveDeleteTargetContext,
 } from '@/core/analyze/recursive-delete-targets';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/core/destructive-command-rules';
 import { ENV_FLAGS } from '@/core/env';
+import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_RM_RF =
@@ -24,6 +29,17 @@ export interface AnalyzeRmOptions {
   strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
+  tmpdirVarExpandsEmpty?: boolean;
+  tmpdirWordSplittingUnsafe?: boolean;
+  trustedTmpdirValue?: boolean;
+  literalTargetTokenIndexes?: ReadonlySet<number>;
+  tmpdirWordSplittingProtectedTargetTokenIndexes?: ReadonlySet<number>;
+  expandedTargetTokens?: ReadonlyMap<number, readonly string[]>;
+  unsafeBraceExpansionTargetTokenIndexes?: ReadonlySet<number>;
+  policy?: Pick<
+    EffectivePolicy,
+    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+  >;
 }
 
 /** @internal */
@@ -35,7 +51,7 @@ export function analyzeRmMatch(
   tokens: string[],
   options: AnalyzeRmOptions = {},
 ): DestructiveCommandRuleMatch | null {
-  const ctx = createRecursiveDeleteTargetContext(options);
+  const ctx = createRecursiveDeleteTargetContext({ ...options, posixShell: true });
 
   if (!hasRecursiveForceFlags(tokens)) {
     return null;
@@ -44,18 +60,68 @@ export function analyzeRmMatch(
   const targets = extractTargets(tokens);
 
   for (const target of targets) {
-    const classification = classifyRecursiveDeleteTarget(target, ctx);
-    const reason = reasonForClassification(classification, ctx);
-    if (reason) {
-      return reason;
+    if (options.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+      const match = filterDestructiveCommandMatch(
+        reasonForClassification({ kind: 'outside_anchored_cwd' }, ctx),
+        options.policy,
+      );
+      if (match) return match;
+      continue;
+    }
+
+    const expandedTargets = options.expandedTargetTokens?.get(target.index);
+    for (const expandedTarget of expandedTargets ?? [target.text]) {
+      const classificationOptions = {
+        targetIsLiteral:
+          expandedTargets !== undefined || options.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: options.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
+          target.index,
+        ),
+      };
+      for (const classification of orderedTargetClassifications(
+        expandedTarget,
+        ctx,
+        classificationOptions,
+      )) {
+        const candidate = reasonForClassification(classification, ctx);
+        const match = filterDestructiveCommandMatch(candidate, options.policy);
+        if (match) return match;
+      }
     }
   }
 
   return null;
 }
 
-function extractTargets(tokens: readonly string[]): string[] {
-  const targets: string[] = [];
+function orderedTargetClassifications(
+  target: string,
+  ctx: RecursiveDeleteTargetContext,
+  options: RecursiveDeleteTargetClassificationOptions,
+): RecursiveDeleteTargetClassification[] {
+  const primary = classifyRecursiveDeleteTarget(target, ctx, options);
+  if (primary.kind === 'cwd_self_target') {
+    return [primary, classifyRecursiveDeleteTarget(target, ctx, { ...options, skipCwdSelf: true })];
+  }
+  if (primary.kind !== 'home_cwd_target') return [primary];
+
+  const targetSpecific = classifyRecursiveDeleteTarget(target, ctx, {
+    ...options,
+    skipHomeCwd: true,
+  });
+  if (targetSpecific.kind !== 'cwd_self_target') return [primary, targetSpecific];
+  return [
+    primary,
+    targetSpecific,
+    classifyRecursiveDeleteTarget(target, ctx, {
+      ...options,
+      skipHomeCwd: true,
+      skipCwdSelf: true,
+    }),
+  ];
+}
+
+function extractTargets(tokens: readonly string[]): { text: string; index: number }[] {
+  const targets: { text: string; index: number }[] = [];
   let pastDoubleDash = false;
 
   for (let i = 1; i < tokens.length; i++) {
@@ -68,12 +134,12 @@ function extractTargets(tokens: readonly string[]): string[] {
     }
 
     if (pastDoubleDash) {
-      targets.push(token);
+      targets.push({ text: token, index: i });
       continue;
     }
 
     if (!token.startsWith('-')) {
-      targets.push(token);
+      targets.push({ text: token, index: i });
     }
   }
 

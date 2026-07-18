@@ -133,13 +133,15 @@ describe('derived command work budget', () => {
   test('propagates the budget into xargs find children', () => {
     const command = `${embeddedGit(10_000)} ; xargs find . ${repeatedFindExec(70)}`;
 
-    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
+    // Appended xargs input can extend find execution sources before the budget is exhausted.
+    expect(analyzeTestCommand(command)?.ruleId).toBe('xargs.shell-dynamic');
   });
 
   test('propagates the budget into parallel find children', () => {
     const command = `${embeddedGit(10_000)} ; parallel find . ${repeatedFindExec(70)}`;
 
-    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
+    // Parallel stdin/source uncertainty is fail-closed before derived-command budget exhaustion.
+    expect(analyzeTestCommand(command)?.ruleId).toBe('parallel.shell-dynamic');
   });
 
   test('preserves under-limit fallback detection order and display bypasses', () => {

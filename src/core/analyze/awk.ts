@@ -1,7 +1,44 @@
+import { chargeNativeLinearPass } from '@/core/analyze/text-scanner';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
+
+const AWK_SOURCE_VALUE_OPTIONS = new Set(['-e', '--source']);
+const AWK_DATA_VALUE_OPTIONS = new Set(['-F', '-v', '--assign', '--field-separator']);
+const AWK_FILE_VALUE_OPTIONS = new Set(['-f', '--file']);
+const AWK_REGEX_PREFIX_KEYWORDS = new Set(['print', 'printf', 'return']);
+
+/** @internal */
+export type AwkExecutableSourceKind = 'inline-code' | 'main-program' | 'program-file';
+
+/** @internal */
+export interface AwkExecutableSource {
+  readonly tokenIndex: number;
+  readonly kind: AwkExecutableSourceKind;
+  readonly value: string;
+}
+
+/** @internal */
+export interface AwkExecutableSourceSelector {
+  readonly selector: string;
+  readonly kind: Exclude<AwkExecutableSourceKind, 'main-program'>;
+  readonly valueForm: 'attached-or-separate' | 'equals-or-separate';
+}
+
+/** @internal */
+export interface AwkArgvMetadata {
+  readonly sources: readonly AwkExecutableSource[];
+  readonly optionsOpen: boolean;
+}
+
+/** @internal */
+export const AWK_EXECUTABLE_SOURCE_SELECTORS: readonly AwkExecutableSourceSelector[] = [
+  { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
+  { selector: '--source', kind: 'inline-code', valueForm: 'equals-or-separate' },
+  { selector: '-f', kind: 'program-file', valueForm: 'attached-or-separate' },
+  { selector: '--file', kind: 'program-file', valueForm: 'equals-or-separate' },
+];
 
 /** @internal */
 export const REASON_AWK_SYSTEM_DYNAMIC =
@@ -23,24 +60,147 @@ export function analyzeAwkSystemCalls(
 export function analyzeAwkSystemCallMatch(
   tokens: readonly string[],
   analyzeNested: (command: string) => DestructiveCommandRuleMatch | null,
+  scanWork?: { units: number },
 ): DestructiveCommandRuleMatch | null {
-  for (const token of tokens.slice(1)) {
-    const commands = extractAwkExternalCommands(token);
+  let dynamic = false;
+
+  for (const source of extractAwkSourceArgs(tokens)) {
+    const commands = extractAwkExternalCommands(source, scanWork);
     if (!commands) continue;
-    if (commands.dynamic)
-      return destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC);
 
     for (const command of commands.commands) {
       const result = analyzeNested(command);
       if (result) return result;
+      // Fail closed when nested analysis cannot prove the recovered command text is fixed.
+      // xargs/parallel replacement tokens like "{}" are literal to awk but dynamic at runtime.
+      if (command.includes('{}') || /[$`]/.test(command)) dynamic = true;
     }
+    dynamic ||= commands.dynamic;
   }
-  return null;
+
+  return dynamic ? destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC) : null;
 }
 
-function extractAwkExternalCommands(code: string): { dynamic: boolean; commands: string[] } | null {
-  const systemCommands = code.includes('system') ? extractAwkSystemCommands(code) : null;
-  const pipeCommands = extractAwkPipeCommands(code);
+/** @internal */
+export function parseAwkArgv(tokens: readonly string[]): AwkArgvMetadata {
+  const sources: AwkExecutableSource[] = [];
+  let hasExplicitSource = false;
+  let hasFileSource = false;
+  let options = true;
+  let valid = true;
+
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined) break;
+
+    if (options && token === '--') {
+      options = false;
+      continue;
+    }
+
+    if (options && AWK_SOURCE_VALUE_OPTIONS.has(token)) {
+      hasExplicitSource = true;
+      const source = tokens[i + 1];
+      if (source !== undefined) {
+        sources.push({ tokenIndex: i + 1, kind: 'inline-code', value: source });
+      } else {
+        valid = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (options && token.startsWith('--source=')) {
+      hasExplicitSource = true;
+      sources.push({
+        tokenIndex: i,
+        kind: 'inline-code',
+        value: token.slice('--source='.length),
+      });
+      continue;
+    }
+
+    if (options && token.startsWith('-e') && token.length > 2) {
+      hasExplicitSource = true;
+      sources.push({ tokenIndex: i, kind: 'inline-code', value: token.slice(2) });
+      continue;
+    }
+
+    if (options && (AWK_DATA_VALUE_OPTIONS.has(token) || AWK_FILE_VALUE_OPTIONS.has(token))) {
+      if (AWK_FILE_VALUE_OPTIONS.has(token)) {
+        hasFileSource = true;
+        const source = tokens[i + 1];
+        if (source !== undefined) {
+          sources.push({ tokenIndex: i + 1, kind: 'program-file', value: source });
+        } else {
+          valid = false;
+        }
+      } else if (tokens[i + 1] === undefined) {
+        valid = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (
+      options &&
+      (token.startsWith('-F') || (token.startsWith('-v') && token.slice(2).includes('=')))
+    ) {
+      continue;
+    }
+
+    if (options && token.startsWith('-f') && token.length > 2) {
+      hasFileSource = true;
+      sources.push({ tokenIndex: i, kind: 'program-file', value: token.slice(2) });
+      continue;
+    }
+
+    if (options && (token.startsWith('--assign=') || token.startsWith('--field-separator='))) {
+      continue;
+    }
+
+    if (options && token.startsWith('--file=')) {
+      hasFileSource = true;
+      sources.push({
+        tokenIndex: i,
+        kind: 'program-file',
+        value: token.slice('--file='.length),
+      });
+      continue;
+    }
+
+    if (options && token.startsWith('-') && token !== '-') continue;
+    options = false;
+
+    if (!hasExplicitSource && !hasFileSource) {
+      sources.push({ tokenIndex: i, kind: 'main-program', value: token });
+    }
+    return { sources, optionsOpen: false };
+  }
+
+  return { sources: valid ? sources : [], optionsOpen: options && valid };
+}
+
+/** @internal */
+export function extractAwkExecutableSources(
+  tokens: readonly string[],
+): readonly AwkExecutableSource[] {
+  return parseAwkArgv(tokens).sources;
+}
+
+function extractAwkSourceArgs(tokens: readonly string[]): string[] {
+  return extractAwkExecutableSources(tokens)
+    .filter((source) => source.kind !== 'program-file')
+    .map((source) => source.value);
+}
+
+function extractAwkExternalCommands(
+  code: string,
+  scanWork?: { units: number },
+): { dynamic: boolean; commands: string[] } | null {
+  chargeNativeLinearPass(scanWork, code);
+  const systemCommands = code.includes('system') ? extractAwkSystemCommands(code, scanWork) : null;
+  const pipeCommands = extractAwkPipeCommands(code, scanWork);
   if (!systemCommands && !pipeCommands) return null;
 
   return {
@@ -51,15 +211,35 @@ function extractAwkExternalCommands(code: string): { dynamic: boolean; commands:
 
 export function extractAwkSystemCommands(
   code: string,
+  scanWork?: { units: number },
 ): { dynamic: boolean; commands: string[] } | null {
+  chargeNativeLinearPass(scanWork, code);
   const commands: string[] = [];
   let sawSystem = false;
+  let dynamic = false;
   let searchIndex = 0;
 
   while (searchIndex < code.length) {
-    const systemIndex = code.indexOf('system', searchIndex);
-    if (systemIndex === -1) break;
-    searchIndex = systemIndex + 'system'.length;
+    const char = code[searchIndex];
+    if (char === '"' || char === "'") {
+      searchIndex = readAwkStringLiteral(code, searchIndex, char)?.endIndex ?? searchIndex + 1;
+      continue;
+    }
+    if (char === '#') {
+      searchIndex = findAwkLineEnd(code, searchIndex + 1);
+      continue;
+    }
+    if (char === '/' && isLikelyAwkRegexStart(code, searchIndex)) {
+      searchIndex = findAwkRegexEnd(code, searchIndex + 1) ?? searchIndex + 1;
+      continue;
+    }
+    if (!code.startsWith('system', searchIndex)) {
+      searchIndex++;
+      continue;
+    }
+
+    const systemIndex = searchIndex;
+    searchIndex += 'system'.length;
 
     if (isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex])) {
       continue;
@@ -72,33 +252,47 @@ export function extractAwkSystemCommands(
     const quote = code[i];
     if (quote !== '"' && quote !== "'") {
       sawSystem = true;
+      dynamic = true;
       continue;
     }
 
     const parsed = readAwkStringLiteral(code, i, quote);
     if (!parsed) {
       sawSystem = true;
+      dynamic = true;
       continue;
     }
 
     i = skipAwkWhitespace(code, parsed.endIndex);
     sawSystem = true;
     if (code[i] !== ')') {
-      return { dynamic: true, commands };
+      dynamic = true;
+      searchIndex = parsed.endIndex;
+      continue;
     }
     commands.push(parsed.value);
     searchIndex = i + 1;
   }
 
   if (!sawSystem) return null;
-  return commands.length > 0 ? { dynamic: false, commands } : { dynamic: true, commands };
+  return { dynamic, commands };
 }
 
-function extractAwkPipeCommands(code: string): { dynamic: boolean; commands: string[] } | null {
+function extractAwkPipeCommands(
+  code: string,
+  scanWork?: { units: number },
+): { dynamic: boolean; commands: string[] } | null {
+  chargeNativeLinearPass(scanWork, code);
   const commands: string[] = [];
   let dynamic = false;
   let sawPipeCommand = false;
   let i = 0;
+  let statementStart = 0;
+  let printKeywordIndex: number | null = null;
+  let leadingString:
+    | ({ startIndex: number } & NonNullable<ReturnType<typeof readAwkStringAt>>)
+    | null = null;
+  let lastSignificantEnd = 0;
 
   while (i < code.length) {
     const char = code[i];
@@ -106,21 +300,48 @@ function extractAwkPipeCommands(code: string): { dynamic: boolean; commands: str
 
     if (char === '"' || char === "'") {
       const parsed = readAwkStringLiteral(code, i, char);
+      if (parsed && lastSignificantEnd === statementStart) {
+        leadingString = { ...parsed, startIndex: i };
+      }
+      lastSignificantEnd = parsed?.endIndex ?? i + 1;
       i = parsed?.endIndex ?? i + 1;
       continue;
     }
 
     if (char === '#') {
       i = findAwkLineEnd(code, i + 1);
+      statementStart = i;
+      printKeywordIndex = null;
+      leadingString = null;
+      lastSignificantEnd = i;
       continue;
     }
 
     if (char === '/' && isLikelyAwkRegexStart(code, i)) {
-      i = findAwkRegexEnd(code, i + 1) ?? i + 1;
+      const regexEnd = findAwkRegexEnd(code, i + 1);
+      lastSignificantEnd = regexEnd ?? i + 1;
+      i = regexEnd ?? i + 1;
       continue;
     }
 
+    if (';\n{}'.includes(char)) {
+      i++;
+      statementStart = i;
+      printKeywordIndex = null;
+      leadingString = null;
+      lastSignificantEnd = i;
+      continue;
+    }
+
+    if (
+      printKeywordIndex === null &&
+      (startsAwkKeyword(code, i, 'print') || startsAwkKeyword(code, i, 'printf'))
+    ) {
+      printKeywordIndex = i;
+    }
+
     if (char !== '|' || code[i - 1] === '|' || code[i + 1] === '|') {
+      if (!/\s/.test(char)) lastSignificantEnd = i + 1;
       i++;
       continue;
     }
@@ -129,29 +350,39 @@ function extractAwkPipeCommands(code: string): { dynamic: boolean; commands: str
     const afterPipe = skipAwkWhitespace(code, operatorEnd);
     if (startsAwkKeyword(code, afterPipe, 'getline')) {
       sawPipeCommand = true;
-      const command = readAwkStringBeforePipe(code, i);
+      const command = readAwkStringBeforePipe(statementStart, leadingString, lastSignificantEnd);
       if (command === null) {
         dynamic = true;
       } else {
         commands.push(command);
       }
+      lastSignificantEnd = operatorEnd;
       i = operatorEnd;
       continue;
     }
 
-    if (isAwkPrintPipe(code, i)) {
+    if (isAwkPrintPipe(statementStart, printKeywordIndex)) {
       sawPipeCommand = true;
       const parsed = readAwkStringAt(code, afterPipe);
       if (!parsed) {
         dynamic = true;
+        lastSignificantEnd = operatorEnd;
         i = operatorEnd;
         continue;
       }
+      if (!isAwkExpressionEnd(code, parsed.endIndex)) {
+        dynamic = true;
+        lastSignificantEnd = parsed.endIndex;
+        i = parsed.endIndex;
+        continue;
+      }
       commands.push(parsed.value);
+      lastSignificantEnd = parsed.endIndex;
       i = parsed.endIndex;
       continue;
     }
 
+    lastSignificantEnd = operatorEnd;
     i++;
   }
 
@@ -169,6 +400,15 @@ function skipAwkWhitespace(code: string, index: number): number {
     i++;
   }
   return i;
+}
+
+function isAwkExpressionEnd(code: string, index: number): boolean {
+  let i = index;
+  while (/[\t\f\v\r ]/.test(code[i] ?? '')) {
+    i++;
+  }
+  const char = code[i];
+  return !char || ';\n}#'.includes(char);
 }
 
 function readAwkStringLiteral(
@@ -213,20 +453,15 @@ function readAwkStringAt(code: string, index: number): { value: string; endIndex
   return readAwkStringLiteral(code, index, quote);
 }
 
-function readAwkStringBeforePipe(code: string, pipeIndex: number): string | null {
-  const endIndex = skipAwkWhitespaceBack(code, pipeIndex);
-  const quote = code[endIndex - 1];
-  if (quote !== '"' && quote !== "'") return null;
-
-  for (let i = endIndex - 2; i >= 0; i--) {
-    if (code[i] !== quote) continue;
-
-    const parsed = readAwkStringLiteral(code, i, quote);
-    if (parsed?.endIndex === endIndex) {
-      return parsed.value;
-    }
-  }
-  return null;
+function readAwkStringBeforePipe(
+  statementStart: number,
+  leadingString: ({ startIndex: number } & NonNullable<ReturnType<typeof readAwkStringAt>>) | null,
+  lastSignificantEnd: number,
+): string | null {
+  if (!leadingString) return null;
+  return leadingString.startIndex >= statementStart && leadingString.endIndex === lastSignificantEnd
+    ? leadingString.value
+    : null;
 }
 
 function decodeAwkEscape(code: string, index: number): { value: string; endIndex: number } | null {
@@ -260,14 +495,6 @@ function decodeAwkEscape(code: string, index: number): { value: string; endIndex
   return { value: simpleEscapes[char] ?? char, endIndex: index };
 }
 
-function skipAwkWhitespaceBack(code: string, index: number): number {
-  let i = index;
-  while (i > 0 && /\s/.test(code[i - 1] ?? '')) {
-    i--;
-  }
-  return i;
-}
-
 function startsAwkKeyword(code: string, index: number, keyword: string): boolean {
   return (
     code.startsWith(keyword, index) &&
@@ -276,13 +503,8 @@ function startsAwkKeyword(code: string, index: number, keyword: string): boolean
   );
 }
 
-function isAwkPrintPipe(code: string, pipeIndex: number): boolean {
-  return /\b(?:print|printf)\b/.test(code.slice(findAwkStatementStart(code, pipeIndex), pipeIndex));
-}
-
-function findAwkStatementStart(code: string, index: number): number {
-  const starts = [';', '\n', '{', '}'].map((marker) => code.lastIndexOf(marker, index - 1));
-  return Math.max(...starts) + 1;
+function isAwkPrintPipe(statementStart: number, printKeywordIndex: number | null): boolean {
+  return printKeywordIndex !== null && printKeywordIndex >= statementStart;
 }
 
 function findAwkLineEnd(code: string, index: number): number {
@@ -293,7 +515,11 @@ function findAwkLineEnd(code: string, index: number): number {
 function isLikelyAwkRegexStart(code: string, index: number): boolean {
   const previousIndex = findPreviousAwkNonWhitespace(code, index);
   if (previousIndex === -1) return true;
-  return '{([,;!~'.includes(code[previousIndex] ?? '');
+  if ('{([,;!~='.includes(code[previousIndex] ?? '')) return true;
+
+  let wordStart = previousIndex;
+  while (isAwkIdentifierChar(code[wordStart - 1])) wordStart--;
+  return AWK_REGEX_PREFIX_KEYWORDS.has(code.slice(wordStart, previousIndex + 1));
 }
 
 function findPreviousAwkNonWhitespace(code: string, index: number): number {

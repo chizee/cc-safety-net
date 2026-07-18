@@ -24,9 +24,9 @@ export function dangerousInTextMatch(
     caseSensitive?: boolean;
   }> = [
     { scan: 'rm', label: 'rm -rf' },
-    { regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/, label: 'git reset --hard' },
-    { regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/, label: 'git reset --merge' },
-    { regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/, label: 'git clean -f' },
+    { scan: 'reset-hard', label: 'git reset --hard' },
+    { scan: 'reset-merge', label: 'git reset --merge' },
+    { scan: 'clean', label: 'git clean -f' },
     { scan: 'checkout', label: 'git checkout --force' },
     { scan: 'push-force', label: 'git push --force' },
     { scan: 'push-refspec', label: 'git push --force' },

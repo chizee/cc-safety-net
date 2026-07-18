@@ -7,11 +7,13 @@
 
 import { describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { toNamespacedPath } from 'node:path';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
+import { isTrustedTempPath } from '@/core/analyze/tmpdir';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import { extractShortOpts, stripWrappersWithInfo } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
@@ -474,9 +476,11 @@ describe('shell parsing helpers', () => {
     });
 
     test('tracks nested parentheses inside inline command substitutions', () => {
+      // Nested "(" inside $(...) is not a valid shell command-sub boundary; projection keeps
+      // the partial inner tokens without inventing a trailing empty operand.
       expect(splitShellCommands('echo "x$(printf y(z))"')).toEqual([
         ['echo', 'x$(printf y(z))'],
-        ['printf', 'y(z', ''],
+        ['printf', 'y(z'],
       ]);
     });
 
@@ -567,6 +571,15 @@ describe('shell parsing helpers', () => {
       expect(result.cwd).toBeNull();
     });
 
+    test('marks an over-limit env -S split string as unverifiable', () => {
+      const result = stripWrappersWithInfo([
+        'env',
+        '-S',
+        Array.from({ length: 16_385 }, () => 'x').join(' '),
+      ]);
+      expect(result.unverifiableEnvSplit).toBeTrue();
+    });
+
     test('empty env chdir target makes cwd unknown', () => {
       const result = stripWrappersWithInfo(['env', '-C', '', 'git', 'status'], '/tmp');
       expect(result.tokens).toEqual(['git', 'status']);
@@ -655,6 +668,10 @@ describe('shell parsing helpers', () => {
       const result = stripWrappersWithInfo(['FOO=', 'rm', '-rf']);
       expect(result.tokens).toEqual(['rm', '-rf']);
       expect(result.envAssignments.get('FOO')).toBe('');
+    });
+
+    test.skipIf(process.platform !== 'win32')('trusts the Windows system temp root', () => {
+      expect(isTrustedTempPath(tmpdir())).toBeTrue();
     });
   });
 });

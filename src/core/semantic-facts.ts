@@ -26,6 +26,7 @@ const PATH_LIKE_KEYS = new Set([
   'file',
   'file_path',
   'filepath',
+  'include',
   'notebook_path',
   'path',
   'searchdirectory',

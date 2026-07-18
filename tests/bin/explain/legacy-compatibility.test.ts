@@ -257,8 +257,13 @@ describe('legacy explain compatibility', () => {
               innerCommand: "print('git reset --hard')",
               depth: 1,
             },
-            { type: 'fallback-scan', tokensScanned: [] },
-            { type: 'custom-rules-check', rulesChecked: false, matched: false },
+            {
+              type: 'dangerous-text',
+              token: 'print(git reset --hard',
+              matched: true,
+              reason:
+                'Unparseable command text contains a destructive pattern (git reset --hard). Rewrite as a plain, parseable command so it can be analyzed.',
+            },
             {
               type: 'dangerous-text',
               token: "print('git reset --hard')",

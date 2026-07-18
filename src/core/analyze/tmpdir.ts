@@ -1,33 +1,56 @@
-import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
+import { getOwnEnvValue } from '@/core/env';
 
 const INITIAL_SYSTEM_TMPDIR = tmpdir();
 const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp'];
+const TRUSTED_TEMP_ROOTS = buildTrustedTempRoots();
+const DEFAULT_IFS = ' \t\n';
 
-export function isTmpdirOverriddenToNonTemp(envAssignments: Map<string, string>): boolean {
-  if (!envAssignments.has('TMPDIR')) {
-    return false;
-  }
-  const tmpdirValue = envAssignments.get('TMPDIR') ?? '';
-
-  // Empty TMPDIR is dangerous: $TMPDIR/foo expands to /foo
-  if (tmpdirValue === '') {
-    return true;
-  }
-
-  const normalizedTmpdirValue = tryResolveExistingPathComponents(tmpdirValue);
-  if (normalizedTmpdirValue === null) {
-    return true;
-  }
-
-  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root))) {
-    return false;
-  }
-  return true;
+export function isTmpdirOverriddenToNonTemp(envAssignments: ReadonlyMap<string, string>): boolean {
+  if (hasUnsafeTmpdirWordSplitting(envAssignments)) return true;
+  // Only explicit shell assignments override TMPDIR trust. Inherited process env is not an override.
+  if (!envAssignments.has('TMPDIR')) return false;
+  return !isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
 }
 
-function getTrustedTempRoots(): string[] {
+export function isTmpdirValueTrusted(envAssignments: ReadonlyMap<string, string>): boolean {
+  if (envAssignments.has('TMPDIR')) {
+    return isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
+  }
+  const tmpdirValue = getOwnEnvValue('TMPDIR');
+  if (tmpdirValue === undefined) return true;
+  return isAssignedTmpdirValueTrusted(tmpdirValue);
+}
+
+export function isTmpdirKnownEmpty(envAssignments: ReadonlyMap<string, string>): boolean {
+  if (envAssignments.has('TMPDIR')) return (envAssignments.get('TMPDIR') ?? '') === '';
+  // Unset/empty assignments are tracked in envAssignments. Inherited process env emptiness is not.
+  return false;
+}
+
+function isAssignedTmpdirValueTrusted(tmpdirValue: string): boolean {
+  // Empty TMPDIR is dangerous: $TMPDIR/foo expands to /foo
+  if (!tmpdirValue) return false;
+  if (hasUnsafeTmpdirShellExpansion(tmpdirValue)) return false;
+  return isTrustedTempPath(tmpdirValue);
+}
+
+export function hasUnsafeTmpdirWordSplitting(envAssignments: ReadonlyMap<string, string>): boolean {
+  const ifs = getEffectiveShellEnvValue(envAssignments, 'IFS');
+  return ifs !== undefined && ifs !== '' && ifs !== DEFAULT_IFS;
+}
+
+export function isTrustedTempPath(path: string): boolean {
+  const normalizedPath = tryResolveExistingPathComponents(path);
+  return (
+    normalizedPath !== null &&
+    TRUSTED_TEMP_ROOTS.some((root) => isPathOrSubpath(normalizedPath, root))
+  );
+}
+
+function buildTrustedTempRoots(): string[] {
   const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize(root));
   const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
   if (!initialTmpdir) return roots;
@@ -36,6 +59,19 @@ function getTrustedTempRoots(): string[] {
     return [...roots, initialTmpdir];
   }
   return roots;
+}
+
+function hasUnsafeTmpdirShellExpansion(path: string): boolean {
+  return (
+    /[\s$`*?[]/.test(path) || /\{[^{}]*(?:,|\.\.)[^{}]*\}/.test(path) || /[+@!]\([^)]*\)/.test(path)
+  );
+}
+
+function getEffectiveShellEnvValue(
+  envAssignments: ReadonlyMap<string, string>,
+  name: string,
+): string | undefined {
+  return envAssignments.has(name) ? envAssignments.get(name) : getOwnEnvValue(name);
 }
 
 function isMacOSPerUserTempRoot(path: string): boolean {
@@ -65,11 +101,12 @@ function resolveExistingPathComponents(path: string): string {
 
   for (let i = 0; i < components.length; i++) {
     const candidate = join(current, components[i] ?? '');
-    if (!existsSync(candidate)) {
+    const stats = lstatSync(candidate, { throwIfNoEntry: false });
+    if (!stats) {
       return join(candidate, ...components.slice(i + 1));
     }
-    // This is a best-effort safety check before command execution; symlink targets can race.
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
+    // This is a best-effort safety check before command execution; path targets can race.
+    current = realpathSync(candidate);
   }
 
   return current;

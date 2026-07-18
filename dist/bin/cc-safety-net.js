@@ -290,6 +290,9 @@ function sanitizeDiagnosticText(text) {
 function getEnvAssignmentValues(text) {
   return findEnvAssignments(text).map((assignment) => text.slice(assignment.valueStart, assignment.valueEnd));
 }
+function mightContainEnvAssignment(text) {
+  return /[A-Za-z_][A-Za-z0-9_]*=/.test(text);
+}
 function findEnvAssignments(text) {
   let assignments = [], pattern = /[A-Za-z_][A-Za-z0-9_]*=/g;
   for (let match of text.matchAll(pattern)) {
@@ -698,11 +701,11 @@ var guiCommand = {
 };
 
 // src/bin/hook/antigravity-cli.ts
-import { isAbsolute as isAbsolute13, relative as relative5 } from "node:path";
+import { isAbsolute as isAbsolute15, relative as relative5 } from "node:path";
 
 // src/core/cwd-containment.ts
 import { realpathSync as realpathSync2, statSync } from "node:fs";
-import { isAbsolute as isAbsolute3, relative, resolve as resolve2 } from "node:path";
+import { isAbsolute as isAbsolute3, relative, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/core/path.ts
 import { lstatSync, realpathSync } from "node:fs";
@@ -764,7 +767,7 @@ function canonicalDirectory(path) {
 }
 function isSameOrInsidePath(path, root) {
   let rel = relative(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute3(rel);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute3(rel);
 }
 
 // src/core/env.ts
@@ -849,18 +852,22 @@ function getCCSafetyNetEnvModes(policy = {}) {
   };
 }
 function envTruthy(flag) {
-  let value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
+  let value = typeof flag === "string" ? getOwnEnvValue(flag) : getEnvFlagValue(flag);
   return value === "1" || value?.toLowerCase() === "true";
 }
+function getOwnEnvValue(name) {
+  return Object.hasOwn(process.env, name) ? process.env[name] : void 0;
+}
 function getEnvFlagValue(flag) {
-  if (process.env[flag.name] !== void 0)
-    return process.env[flag.name];
+  let value = getOwnEnvValue(flag.name);
+  if (value !== void 0)
+    return value;
   if (flag.legacyName)
-    return process.env[flag.legacyName];
+    return getOwnEnvValue(flag.legacyName);
   return;
 }
 function envFlagIsSet(flag) {
-  return process.env[flag.name] !== void 0 || !!flag.legacyName && process.env[flag.legacyName] !== void 0;
+  return getOwnEnvValue(flag.name) !== void 0 || !!flag.legacyName && getOwnEnvValue(flag.legacyName) !== void 0;
 }
 
 // src/core/tool-input.ts
@@ -1409,6 +1416,7 @@ import { realpathSync as realpathSync3 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { basename as basename2, dirname as dirname3, join as join3 } from "node:path";
 var PATH_CANONICALIZATION_LIMITS = Object.freeze({
+  maxEnvironmentExpansionDepth: 64,
   maxMissingSuffixComponents: 256,
   maxRealpathAttempts: 1024,
   maxProcessedCandidateBytes: 4194304
@@ -1436,11 +1444,92 @@ var SUPPORTED_PATH_ENV_NAMES = /* @__PURE__ */ new Set([
   "OPENCODE_CONFIG_DIR",
   "PI_CODING_AGENT_DIR",
   "ProgramData",
+  "TMPDIR",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME"
 ]);
 function expandSupportedPathEnvironmentVariables(value) {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-?+]|[-?+]|%[^}]*)[^}]*\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => getSupportedPathEnvironmentValue(name) ?? match);
+  return expandSupportedPathEnvironmentVariablesAtDepth(value, 0);
+}
+function expandSupportedPathEnvironmentVariablesAtDepth(value, depth) {
+  let expanded = "", index = 0;
+  while (index < value.length) {
+    if (value[index] !== "$") {
+      expanded += value[index], index++;
+      continue;
+    }
+    if (value[index + 1] === "{") {
+      let name2 = readPathEnvironmentName(value, index + 2), end = findParameterExpansionEnd(value, index, depth);
+      if (end === null) {
+        if (SUPPORTED_PATH_ENV_NAMES.has(name2))
+          throw new PathCanonicalizationLimitError;
+        expanded += value.slice(index);
+        break;
+      }
+      let match = value.slice(index, end + 1);
+      expanded += expandBracedPathEnvironmentVariable(match, depth), index = end + 1;
+      continue;
+    }
+    let name = readPathEnvironmentName(value, index + 1);
+    if (!name) {
+      expanded += "$", index++;
+      continue;
+    }
+    expanded += getSupportedPathEnvironmentValue(name) ?? `$${name}`, index += name.length + 1;
+  }
+  return expanded;
+}
+function findParameterExpansionEnd(value, start, depth) {
+  let nesting = 1;
+  for (let index = start + 2;index < value.length; index++) {
+    if (value[index] === "\\") {
+      index++;
+      continue;
+    }
+    if (value[index] === "$" && value[index + 1] === "{") {
+      if (nesting++, depth + nesting > PATH_CANONICALIZATION_LIMITS.maxEnvironmentExpansionDepth)
+        throw new PathCanonicalizationLimitError;
+      index++;
+      continue;
+    }
+    if (value[index] !== "}")
+      continue;
+    if (nesting--, nesting === 0)
+      return index;
+  }
+  return null;
+}
+function expandBracedPathEnvironmentVariable(match, depth) {
+  let content = match.slice(2, -1), name = readPathEnvironmentName(content, 0);
+  if (!name)
+    return match;
+  let suffix = content.slice(name.length);
+  if (!suffix)
+    return getSupportedPathEnvironmentValue(name) ?? match;
+  let operator = [":-", ":+", ":=", ":?", "-", "+", "=", "?"].find((candidate) => suffix.startsWith(candidate));
+  if (!operator) {
+    if (SUPPORTED_PATH_ENV_NAMES.has(name))
+      throw new PathCanonicalizationLimitError;
+    return match;
+  }
+  if (operator.endsWith("="))
+    throw new PathCanonicalizationLimitError;
+  if (!SUPPORTED_PATH_ENV_NAMES.has(name))
+    return match;
+  let environmentValue = getSupportedPathEnvironmentValue(name), usable = operator.startsWith(":") ? environmentValue !== null && environmentValue !== "" : environmentValue !== null;
+  if (operator.endsWith("?") && !usable)
+    throw new PathCanonicalizationLimitError;
+  if (operator.endsWith("-") || operator.endsWith("?"))
+    return usable ? environmentValue ?? "" : expandSupportedPathEnvironmentVariablesAtDepth(suffix.slice(operator.length), depth + 1);
+  return usable ? expandSupportedPathEnvironmentVariablesAtDepth(suffix.slice(operator.length), depth + 1) : "";
+}
+function readPathEnvironmentName(value, start) {
+  if (!/[A-Za-z_]/.test(value[start] ?? ""))
+    return "";
+  let end = start + 1;
+  while (/[A-Za-z0-9_]/.test(value[end] ?? ""))
+    end++;
+  return value.slice(start, end);
 }
 function resolveExistingPath(path, budget = createPathCanonicalizationBudget()) {
   if (!path)
@@ -1471,8 +1560,8 @@ function getSupportedPathEnvironmentValue(name) {
   if (!SUPPORTED_PATH_ENV_NAMES.has(name))
     return null;
   if (name === "HOME")
-    return process.env.HOME ?? homedir2();
-  return process.env[name] ?? null;
+    return getOwnEnvValue("HOME") ?? homedir2();
+  return getOwnEnvValue(name) ?? null;
 }
 
 // node_modules/shell-quote/index.js
@@ -1497,7 +1586,7 @@ function hasUnclosedQuotes(command) {
   return state.inSingle || state.inDouble;
 }
 function stripShellComments(command) {
-  let result = "", state = { inSingle: !1, inDouble: !1, escaped: !1 }, inComment = !1;
+  let result = "", state = { inSingle: !1, inDouble: !1, escaped: !1 }, inComment = !1, atTokenStart = !0;
   for (let i = 0;i < command.length; i++) {
     let char = command[i];
     if (!char)
@@ -1508,16 +1597,15 @@ function stripShellComments(command) {
         result += char, inComment = !1, state.escaped = !1;
       continue;
     }
-    if (char === "#" && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
+    if (char === "#" && !state.inSingle && !state.inDouble && atTokenStart) {
       inComment = !0;
       continue;
     }
-    result += char, advanceQuoteScanState(char, state);
+    if (result += char, !state.inSingle && !state.inDouble && !state.escaped)
+      atTokenStart = /[\s;&|()<>]/.test(char);
+    advanceQuoteScanState(char, state);
   }
   return result;
-}
-function startsShellComment(command, index) {
-  return index === 0 || /\s/.test(command[index - 1] ?? "");
 }
 function getCommandTokenText(token) {
   if (typeof token === "string")
@@ -1623,7 +1711,7 @@ function readLine(source, start, end) {
   return { text: source.slice(start, contentEnd), contentEnd, next };
 }
 function stripLeadingTabs(body) {
-  return body.replace(/(^|\r?\n)\t+/g, "$1");
+  return body.replace(/(^|\r\n?|\n)\t+/g, "$1");
 }
 
 // src/parser/immutable.ts
@@ -1726,6 +1814,7 @@ function freezeCommandProgram(program) {
 }
 
 // src/parser/posix.ts
+var CONTINUATION_CONNECTORS = /* @__PURE__ */ new Set(["&&", "||", "|", "|&"]);
 function parsePosixCommand(source, dialect, limits) {
   let span = { start: 0, end: source.length };
   if (source.length > limits.maxInputLength)
@@ -1744,7 +1833,10 @@ function parsePosixCommand(source, dialect, limits) {
       ],
       nodes: []
     });
-  let result = scanSequence(source, 0, source.length, dialect, limits, 0);
+  let result = scanSequence(source, 0, source.length, dialect, limits, {
+    used: 0,
+    max: limits.maxWords
+  }, 0);
   return freezeCommandProgram({
     kind: "program",
     dialect,
@@ -1755,8 +1847,8 @@ function parsePosixCommand(source, dialect, limits) {
     nodes: result.nodes
   });
 }
-function scanSequence(source, start, end, dialect, limits, depth, closing) {
-  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), pendingHeredocs = [], wordCount = 0, limited = !1, flushCommand = () => {
+function scanSequence(source, start, end, dialect, limits, wordBudget, depth, closing) {
+  let nodes = createCommandNodes(), issues = createCommandIssues(), accumulator = createCommandAccumulator(), pendingHeredocs = [], flushCommand = () => {
     if (accumulator.words.length === 0 && accumulator.redirections.length === 0)
       return;
     let span = { start: accumulator.start, end: accumulator.end }, tokens = accumulator.words.map((word) => word.text), analysisTokens = accumulator.words.map((word) => word.provenance === "command-substitution" ? word.raw : word.text);
@@ -1779,13 +1871,12 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
     if (!char)
       break;
     if (closing && char === closing)
-      return flushCommand(), {
+      return flushCommand(), appendMissingCommandIssue(nodes, issues), {
         nodes,
         issues,
         next: i + 1,
         closed: !0,
-        words: wordCount,
-        limited,
+        limited: !1,
         pendingHeredocs
       };
     if (isShellWhitespace(char)) {
@@ -1793,12 +1884,14 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
 ` || char === "\r") {
         flushCommand();
         let connectorEnd = char === "\r" && source[i + 1] === `
-` ? i + 2 : i + 1;
-        if (nodes.push(Object.freeze({
-          kind: "connector",
-          operator: source.slice(i, connectorEnd),
-          span: Object.freeze({ start: i, end: connectorEnd })
-        })), pendingHeredocs.length > 0) {
+` ? i + 2 : i + 1, previous = nodes.at(-1);
+        if (previous?.kind !== "connector" || !CONTINUATION_CONNECTORS.has(previous.operator))
+          nodes.push(Object.freeze({
+            kind: "connector",
+            operator: source.slice(i, connectorEnd),
+            span: Object.freeze({ start: i, end: connectorEnd })
+          }));
+        if (pendingHeredocs.length > 0) {
           let bodies = consumeHeredocBodies(source, connectorEnd, end, pendingHeredocs.splice(0));
           issues.push(...bodies.issues), i = bodies.next;
           continue;
@@ -1817,17 +1910,31 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
     }
     let connector = readConnector(source, i);
     if (connector) {
-      flushCommand(), nodes.push(Object.freeze({
+      if (flushCommand(), !isExecutableNode(nodes.at(-1)))
+        issues.push({
+          code: "unexpected-connector",
+          message: `connector ${connector} has no preceding command`,
+          span: { start: i, end: i + connector.length }
+        });
+      nodes.push(Object.freeze({
         kind: "connector",
         operator: connector,
         span: Object.freeze({ start: i, end: i + connector.length })
       })), i += connector.length;
       continue;
     }
-    if ((char === "(" || char === "{") && accumulator.start === -1) {
-      if (depth >= limits.maxDepth)
-        return limitedResult(nodes, issues, i, wordCount, "depth-limit", limits.maxDepth);
-      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = {
+    if (char === ")") {
+      flushCommand(), issues.push({
+        code: "unexpected-closing-delimiter",
+        message: "closing parenthesis has no matching opening parenthesis",
+        span: { start: i, end: i + 1 }
+      }), nodes.push({ kind: "unknown", source: char, span: { start: i, end: i + 1 } }), i++;
+      continue;
+    }
+    if ((char === "(" || char === "{" && isBraceGroupOpening(source, i, end)) && accumulator.start === -1) {
+      if (appendMissingConnectorIssue(nodes, issues, i), depth >= limits.maxDepth)
+        return limitedResult(nodes, issues, i, "depth-limit", limits.maxDepth);
+      let close = char === "(" ? ")" : "}", inner = scanSequence(source, i + 1, end, dialect, limits, wordBudget, depth + 1, close), groupEnd = inner.next, bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd }, body = {
         kind: "program",
         dialect,
         source: source.slice(bodySpan.start, bodySpan.end),
@@ -1847,13 +1954,15 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
           message: "heredocs attached inside command groups are not supported safely",
           span: { start: i, end: groupEnd }
         });
-      if (pendingHeredocs.push(...inner.pendingHeredocs), !inner.closed)
+      if (pendingHeredocs.push(...inner.pendingHeredocs), inner.limited)
+        return propagatedLimitResult(nodes, issues, inner.next);
+      if (!inner.closed)
         issues.push({
           code: char === "(" ? "unclosed-subshell" : "unclosed-brace-group",
           message: `${char} group is not closed`,
           span: { start: i, end: groupEnd }
         });
-      wordCount += inner.words, limited ||= inner.limited, i = groupEnd;
+      i = groupEnd;
       continue;
     }
     let redirect = (char === "<" || char === ">") && source[i + 1] !== "(" ? readRedirect(source, i) : null;
@@ -1866,14 +1975,20 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
       let targetStart = i + redirect.length;
       while (targetStart < end && /[ \t]/.test(source[targetStart] ?? ""))
         targetStart++;
-      let delimiter = redirect === "<<" || redirect === "<<-" ? readHeredocDelimiter(source, targetStart, end) : void 0, targetResult = delimiter ? {
+      let targetChar = source[targetStart], targetStartsComment = targetStart > i + redirect.length && targetChar === "#", targetIsBoundary = !targetChar || isShellWhitespace(targetChar) || !!readConnector(source, targetStart) || targetChar === closing || targetChar === ")" || targetStartsComment || (targetChar === "<" || targetChar === ">") && source[targetStart + 1] !== "(", delimiter = redirect === "<<" || redirect === "<<-" ? readHeredocDelimiter(source, targetStart, end) : void 0, targetResult = delimiter ? {
         word: freezeParsedCommandWord(source, targetStart, delimiter.next, delimiter.delimiter, "literal", delimiter.quoted),
         nested: [],
         issues: [],
         next: delimiter.next,
-        words: 0,
         limited: !1
-      } : targetStart < end && !readConnector(source, targetStart) ? readWord(source, targetStart, end, dialect, limits, depth) : void 0, redirectEnd = targetResult?.next ?? i + redirect.length, redirection = {
+      } : !targetIsBoundary ? readWord(source, targetStart, end, dialect, limits, wordBudget, depth) : void 0;
+      if (targetResult) {
+        if (issues.push(...targetResult.issues), targetResult.limited)
+          return propagatedLimitResult(nodes, issues, targetResult.next);
+        if (!consumeWord(wordBudget))
+          return limitedResult(nodes, issues, targetResult.next, "word-limit", limits.maxWords);
+      }
+      let redirectEnd = targetResult?.next ?? i + redirect.length, redirection = {
         kind: "redirection",
         operator: redirect,
         span: { start: redirectStart, end: redirectEnd },
@@ -1904,28 +2019,44 @@ function scanSequence(source, start, end, dialect, limits, depth, closing) {
             }
           });
         }
+      else if (!targetResult)
+        issues.push({
+          code: "missing-redirection-target",
+          message: `redirection ${redirect} requires a target word`,
+          span: { start: i, end: i + redirect.length }
+        });
       if (targetResult)
-        accumulator.nested.push(...targetResult.nested), issues.push(...targetResult.issues), wordCount += targetResult.words, limited ||= targetResult.limited;
+        accumulator.nested.push(...targetResult.nested);
       accumulator.end = redirectEnd, i = redirectEnd;
       continue;
     }
-    let wordResult = readWord(source, i, end, dialect, limits, depth);
-    if (accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = wordResult.next, accumulator.words.push(wordResult.word), accumulator.nested.push(...wordResult.nested), issues.push(...wordResult.issues), wordCount += 1 + wordResult.words, limited ||= wordResult.limited, wordCount > limits.maxWords)
-      return limitedResult(nodes, issues, wordResult.next, wordCount, "word-limit", limits.maxWords);
-    i = wordResult.next > i ? wordResult.next : i + 1;
+    if (accumulator.start === -1)
+      appendMissingConnectorIssue(nodes, issues, i);
+    let wordResult = readWord(source, i, end, dialect, limits, wordBudget, depth);
+    if (issues.push(...wordResult.issues), wordResult.limited)
+      return propagatedLimitResult(nodes, issues, wordResult.next);
+    let expanded = isCommandWordPosition(accumulator.words) ? expandLiteralCommandWord(source, wordResult.word, wordBudget.max - wordBudget.used, limits.maxDepth, limits.maxInputLength) : void 0;
+    if (expanded?.limitCode)
+      return limitedResult(nodes, issues, wordResult.next, expanded.limitCode, expanded.limitCode === "word-limit" ? limits.maxWords : expanded.limitCode === "depth-limit" ? limits.maxDepth : limits.maxInputLength);
+    let words = expanded?.words ?? [wordResult.word];
+    for (let word of words) {
+      if (!consumeWord(wordBudget))
+        return limitedResult(nodes, issues, wordResult.next, "word-limit", limits.maxWords);
+      accumulator.words.push(word);
+    }
+    accumulator.start = accumulator.start === -1 ? i : accumulator.start, accumulator.end = wordResult.next, accumulator.nested.push(...wordResult.nested), i = wordResult.next > i ? wordResult.next : i + 1;
   }
-  return flushCommand(), issues.push(...unterminatedHeredocIssues(pendingHeredocs)), {
+  return flushCommand(), appendMissingCommandIssue(nodes, issues), issues.push(...unterminatedHeredocIssues(pendingHeredocs)), {
     nodes,
     issues,
     next: i,
     closed: closing === void 0,
-    words: wordCount,
-    limited,
+    limited: !1,
     pendingHeredocs: []
   };
 }
-function readWord(source, start, end, dialect, limits, depth) {
-  let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], nestedWords = 0, limited = !1;
+function readWord(source, start, end, dialect, limits, wordBudget, depth) {
+  let text = "", i = start, quoted = !1, provenance = "literal", nested = [], issues = [], limited = !1;
   while (i < end) {
     let char = source[i], processSubstitution = (char === "<" || char === ">") && source[i + 1] === "(";
     if (!char || isShellWhitespace(char) || (char === ";" || char === "|" || char === "&") && readConnector(source, i) || (char === "<" || char === ">") && !processSubstitution)
@@ -1948,8 +2079,9 @@ function readWord(source, start, end, dialect, limits, depth) {
     }
     if (char === '"') {
       quoted = !0;
-      let result = readDoubleQuoted(source, i, end, dialect, limits, depth);
-      text += result.text, nested.push(...result.nested), issues.push(...result.issues), nestedWords += result.words, limited ||= result.limited, provenance = mergeProvenance(provenance, result.provenance), i = result.next;
+      let result = readDoubleQuoted(source, i, end, dialect, limits, wordBudget, depth);
+      if (text += result.text, nested.push(...result.nested), issues.push(...result.issues), limited ||= result.limited, provenance = mergeProvenance(provenance, result.provenance), i = result.next, limited)
+        break;
       continue;
     }
     if (source.startsWith("$'", i)) {
@@ -1974,13 +2106,19 @@ function readWord(source, start, end, dialect, limits, depth) {
         }), i++;
         break;
       }
+      if (next === `
+`) {
+        i += 2;
+        continue;
+      }
       text += next, i += 2;
       continue;
     }
-    let substitution = char === "$" || char === "<" || char === ">" || char === "`" ? readSubstitution(source, i, end, dialect, limits, depth) : null;
+    let substitution = char === "$" || char === "<" || char === ">" || char === "`" ? readSubstitution(source, i, end, dialect, limits, wordBudget, depth) : null;
     if (substitution) {
       let collected = collectSubstitution(substitution, nested, issues);
-      nestedWords += collected.words, limited ||= collected.limited, provenance = collected.provenance, i = collected.next;
+      if (limited ||= collected.limited, provenance = mergeProvenance(provenance, collected.provenance), i = collected.next, limited)
+        break;
       continue;
     }
     if (char === "$") {
@@ -1997,16 +2135,15 @@ function readWord(source, start, end, dialect, limits, depth) {
     nested,
     issues,
     next: i,
-    words: nestedWords,
     limited
   };
 }
-function readDoubleQuoted(source, start, end, dialect, limits, depth) {
-  let text = "", provenance = "literal", nested = [], issues = [], words = 0, limited = !1, i = start + 1;
+function readDoubleQuoted(source, start, end, dialect, limits, wordBudget, depth) {
+  let text = "", provenance = "literal", nested = [], issues = [], limited = !1, i = start + 1;
   while (i < end) {
     let char = source[i];
     if (char === '"')
-      return { text, provenance, nested, issues, next: i + 1, words, limited };
+      return { text, provenance, nested, issues, next: i + 1, limited };
     if (char === "\\" && source[i + 1]) {
       let escaped = source[i + 1] ?? "";
       if (escaped === `
@@ -2033,10 +2170,11 @@ function readDoubleQuoted(source, start, end, dialect, limits, depth) {
       i = next;
       continue;
     }
-    let substitution = readSubstitution(source, i, end, dialect, limits, depth);
+    let substitution = readSubstitution(source, i, end, dialect, limits, wordBudget, depth);
     if (substitution) {
       let collected = collectSubstitution(substitution, nested, issues);
-      words += collected.words, i = collected.next, limited ||= collected.limited, provenance = collected.provenance;
+      if (i = collected.next, limited ||= collected.limited, provenance = mergeProvenance(provenance, collected.provenance), limited)
+        return { text, provenance, nested, issues, next: i, limited };
       continue;
     }
     if (char === "$") {
@@ -2050,9 +2188,9 @@ function readDoubleQuoted(source, start, end, dialect, limits, depth) {
     code: "unclosed-double-quote",
     message: "double-quoted word is not closed",
     span: { start, end }
-  }), { text, provenance, nested, issues, next: end, words, limited };
+  }), { text, provenance, nested, issues, next: end, limited };
 }
-function readSubstitution(source, start, end, dialect, limits, depth) {
+function readSubstitution(source, start, end, dialect, limits, wordBudget, depth) {
   let arithmetic = source.startsWith("$((", start), command = source.startsWith("$(", start) && !arithmetic, process2 = (source.startsWith("<(", start) || source.startsWith(">(", start)) && !0, backtick = source[start] === "`";
   if (!arithmetic && !command && !process2 && !backtick)
     return null;
@@ -2064,14 +2202,15 @@ function readSubstitution(source, start, end, dialect, limits, depth) {
       provenance: arithmetic ? "arithmetic" : "command-substitution"
     };
   if (arithmetic) {
-    let arithmeticNodes = [], arithmeticIssues = [], cursor = start + openLength;
+    let arithmeticNodes = [], arithmeticIssues = [], arithmeticLimited = !1, cursor = start + openLength;
     while (cursor < innerEnd) {
-      let nestedSubstitution = readSubstitution(source, cursor, innerEnd, dialect, limits, depth + 1);
-      if (!nestedSubstitution || nestedSubstitution.provenance === "arithmetic") {
+      let nestedSubstitution = readSubstitution(source, cursor, innerEnd, dialect, limits, wordBudget, depth + 1);
+      if (!nestedSubstitution) {
         cursor++;
         continue;
       }
-      arithmeticNodes.push(...nestedSubstitution.program.nodes), arithmeticIssues.push(...nestedSubstitution.program.issues), cursor = nestedSubstitution.next;
+      if (arithmeticNodes.push(...nestedSubstitution.program.nodes), arithmeticIssues.push(...nestedSubstitution.program.issues), arithmeticLimited ||= nestedSubstitution.program.status === "limited", cursor = nestedSubstitution.next, arithmeticLimited)
+        break;
     }
     if (close === -1)
       arithmeticIssues.push({
@@ -2085,7 +2224,7 @@ function readSubstitution(source, start, end, dialect, limits, depth) {
         dialect,
         source: source.slice(start + openLength, innerEnd),
         span: { start: start + openLength, end: innerEnd },
-        status: getParseStatus(arithmeticIssues),
+        status: getParseStatus(arithmeticIssues, arithmeticLimited),
         issues: arithmeticIssues,
         nodes: arithmeticNodes
       }),
@@ -2093,7 +2232,7 @@ function readSubstitution(source, start, end, dialect, limits, depth) {
       provenance: "arithmetic"
     };
   }
-  let inner = scanSequence(source, start + openLength, innerEnd, dialect, limits, depth + 1), substitutionIssue = close === -1 ? [
+  let inner = scanSequence(source, start + openLength, innerEnd, dialect, limits, wordBudget, depth + 1), substitutionIssue = close === -1 ? [
     {
       code: arithmetic ? "unclosed-arithmetic" : "unclosed-command-substitution",
       message: `${source.slice(start, start + openLength)} substitution is not closed`,
@@ -2124,8 +2263,7 @@ function collectSubstitution(substitution, nested, issues) {
   return nested.push(substitution.program), issues.push(...substitution.program.issues), {
     provenance: substitution.provenance,
     next: substitution.next,
-    limited: substitution.program.status === "limited",
-    words: substitution.program.nodes.filter((node) => node.kind === "command").length
+    limited: substitution.program.status === "limited"
   };
 }
 function findSubstitutionEnd(source, start, end, closing) {
@@ -2140,7 +2278,7 @@ function findSubstitutionEnd(source, start, end, closing) {
   let depth = 1, single = !1, double = !1, pendingHeredocs = [];
   for (let i = start;i < end; i++) {
     let char = source[i];
-    if (char === "\\") {
+    if (char === "\\" && !single) {
       i++;
       continue;
     }
@@ -2163,6 +2301,13 @@ function findSubstitutionEnd(source, start, end, closing) {
       while (i + 1 < end && source[i + 1] !== `
 ` && source[i + 1] !== "\r")
         i++;
+      continue;
+    }
+    if (!double && source.startsWith("$((", i)) {
+      let arithmeticClose = findArithmeticEnd(source, i + 3, end);
+      if (arithmeticClose === -1)
+        return -1;
+      i = arithmeticClose + 1;
       continue;
     }
     if (closing === ")" && !double && char === "<" && source[i + 1] === "<" && source[i + 2] !== "<") {
@@ -2193,6 +2338,39 @@ function findSubstitutionEnd(source, start, end, closing) {
       if (depth--, depth === 0)
         return closing === "))" && source[i + 1] !== ")" ? -1 : i;
     }
+  }
+  return -1;
+}
+function findArithmeticEnd(source, start, end) {
+  let depth = 1, single = !1, double = !1;
+  for (let i = start;i < end; i++) {
+    let char = source[i];
+    if (char === "\\" && !single) {
+      i++;
+      continue;
+    }
+    if (!double && char === "'")
+      single = !single;
+    if (!single && char === '"')
+      double = !double;
+    if (single)
+      continue;
+    if (!double && char === "#" && isCommentStart(source, i, start)) {
+      while (i + 1 < end && source[i + 1] !== `
+` && source[i + 1] !== "\r")
+        i++;
+      continue;
+    }
+    if (source.startsWith("$(", i) && !source.startsWith("$((", i)) {
+      depth++, i++;
+      continue;
+    }
+    if (char === "(" && !double)
+      depth++;
+    if (char !== ")" || double)
+      continue;
+    if (depth--, depth === 0)
+      return source[i + 1] === ")" ? i : -1;
   }
   return -1;
 }
@@ -2375,6 +2553,250 @@ function mergeProvenance(current, next) {
     return "glob";
   return current;
 }
+function isBraceGroupOpening(source, start, end) {
+  return start + 1 >= end || isShellWhitespace(source[start + 1] ?? "") || readConnector(source, start + 1) !== null;
+}
+var ENV_WRAPPER_OPTIONS_WITH_VALUE = /* @__PURE__ */ new Set([
+  "-u",
+  "--unset",
+  "-C",
+  "--chdir",
+  "-S",
+  "--split-string",
+  "-P"
+]), SUDO_WRAPPER_OPTIONS_WITH_VALUE = /* @__PURE__ */ new Set([
+  "-u",
+  "-g",
+  "-C",
+  "-D",
+  "-h",
+  "-p",
+  "-r",
+  "-t",
+  "-T",
+  "-U"
+]);
+function isCommandWordPosition(words) {
+  let index = 0;
+  while (index <= words.length) {
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index]?.text ?? ""))
+      index++;
+    if (index === words.length)
+      return !0;
+    let next = getStandardWrapperPrefixEnd(words, index);
+    if (next === void 0 || next === null)
+      return !1;
+    index = next;
+  }
+  return !1;
+}
+function getStandardWrapperPrefixEnd(words, start) {
+  let wrapper = words[start]?.text.toLowerCase();
+  if (wrapper === "command")
+    return getCommandPrefixEnd(words, start);
+  if (wrapper === "env")
+    return getEnvPrefixEnd(words, start);
+  if (wrapper === "sudo")
+    return getSudoPrefixEnd(words, start);
+  return;
+}
+function getCommandPrefixEnd(words, start) {
+  if (words[start + 1]?.text === "-v")
+    return null;
+  for (let index = start + 1;index < words.length; index++) {
+    let token = words[index]?.text ?? "";
+    if (token === "--")
+      return index + 1;
+    if (token === "-p" || token === "-v" || token === "-V" || /^-[pvV]+$/.test(token))
+      continue;
+    return index;
+  }
+  return words.length;
+}
+function getEnvPrefixEnd(words, start) {
+  for (let index = start + 1;index < words.length; index++) {
+    let token = words[index]?.text ?? "";
+    if (token === "--")
+      return index + 1;
+    if (ENV_WRAPPER_OPTIONS_WITH_VALUE.has(token)) {
+      if (words[index + 1] === void 0)
+        return null;
+      index++;
+      continue;
+    }
+    if (token.startsWith("-u=") || token.startsWith("--unset=") || token.startsWith("-C") && token.length > 2 || token.startsWith("--chdir=") || token.startsWith("-S") && token.length > 2 || token.startsWith("--split-string=") || token.startsWith("-P"))
+      continue;
+    if (token.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(token))
+      continue;
+    return index;
+  }
+  return words.length;
+}
+function getSudoPrefixEnd(words, start) {
+  for (let index = start + 1;index < words.length; index++) {
+    let token = words[index]?.text ?? "";
+    if (token === "--")
+      return index + 1;
+    if (SUDO_WRAPPER_OPTIONS_WITH_VALUE.has(token)) {
+      if (words[index + 1] === void 0)
+        return null;
+      index++;
+      continue;
+    }
+    if (token.startsWith("-"))
+      continue;
+    return index;
+  }
+  return words.length;
+}
+function expandPosixLiteralBraceWord(word, maxWords, maxExpansions, maxExpandedLength) {
+  if (word.provenance !== "literal" || !word.raw.includes("{"))
+    return;
+  let values = [word.raw], totalLength = word.raw.length, expansions = 0;
+  while (!0) {
+    let valueIndex = values.findIndex((value2) => findActiveBraceExpansion(value2));
+    if (valueIndex === -1)
+      break;
+    if (++expansions > maxExpansions)
+      return { limited: !0 };
+    let value = values[valueIndex] ?? "", expansion = findActiveBraceExpansion(value);
+    if (!expansion || expansion.kind === "range")
+      return { limited: !0 };
+    let fixedLength = expansion.start + value.length - expansion.end, replacementsLength = expansion.alternatives.reduce((total, alternative) => total + fixedLength + alternative.length, 0);
+    if (totalLength - value.length + replacementsLength > maxExpandedLength || values.length - 1 + expansion.alternatives.length > maxWords)
+      return { limited: !0 };
+    let replacements = expansion.alternatives.map((alternative) => `${value.slice(0, expansion.start)}${alternative}${value.slice(expansion.end)}`);
+    values.splice(valueIndex, 1, ...replacements), totalLength += replacementsLength - value.length;
+  }
+  if (expansions === 0)
+    return;
+  let words = values.map((value) => decodePosixLiteralWord(value, maxExpansions));
+  if (words.some((value) => value === null))
+    return { limited: !0 };
+  return {
+    words: [...new Set(words.filter((value) => value !== null && value !== ""))]
+  };
+}
+function expandLiteralCommandWord(source, word, maxWords, maxDepth, maxExpandedLength) {
+  if (word.provenance !== "literal" || word.quoted || word.raw !== word.text || !word.raw.includes("{"))
+    return;
+  let values = [word.text], totalLength = word.text.length, expansions = 0;
+  while (!0) {
+    let valueIndex = values.findIndex((value2) => findBraceExpansion(value2));
+    if (valueIndex === -1)
+      break;
+    if (++expansions > maxDepth)
+      return { limitCode: "depth-limit" };
+    let value = values[valueIndex] ?? "", expansion = findBraceExpansion(value);
+    if (!expansion)
+      break;
+    let fixedLength = expansion.start + value.length - expansion.end, alternatives = expansion.alternatives.filter((alternative) => fixedLength + alternative.length > 0), replacementsLength = alternatives.reduce((total, alternative) => total + fixedLength + alternative.length, 0);
+    if (totalLength - value.length + replacementsLength > maxExpandedLength)
+      return { limitCode: "brace-expansion-limit" };
+    if (values.length - 1 + alternatives.length > maxWords)
+      return { limitCode: "word-limit" };
+    let replacements = alternatives.map((alternative) => `${value.slice(0, expansion.start)}${alternative}${value.slice(expansion.end)}`);
+    values.splice(valueIndex, 1, ...replacements), totalLength += replacementsLength - value.length;
+  }
+  let expanded = values.filter((value) => value.length > 0);
+  if (expansions === 0)
+    return;
+  return {
+    words: expanded.map((text) => freezeParsedCommandWord(source, word.span.start, word.span.end, text, "literal", !1))
+  };
+}
+function findBraceExpansion(value) {
+  let stack = [], selected;
+  for (let i = 0;i < value.length; i++) {
+    let char = value[i];
+    if (char === "{") {
+      stack.push({ start: i, commas: [] });
+      continue;
+    }
+    if (char === "," && stack.length > 0) {
+      stack.at(-1)?.commas.push(i);
+      continue;
+    }
+    if (char !== "}" || stack.length === 0)
+      continue;
+    let frame = stack.pop();
+    if (!frame || frame.commas.length === 0)
+      continue;
+    if (!selected || frame.start < selected.start)
+      selected = { start: frame.start, end: i + 1, commas: frame.commas };
+  }
+  if (!selected)
+    return;
+  let boundaries = [selected.start, ...selected.commas, selected.end - 1];
+  return {
+    start: selected.start,
+    end: selected.end,
+    alternatives: boundaries.slice(0, -1).map((start, index) => value.slice(start + 1, boundaries[index + 1]))
+  };
+}
+function findActiveBraceExpansion(value) {
+  let stack = [], selected, quote = null, escaped = !1;
+  for (let index = 0;index < value.length; index++) {
+    let char = value[index];
+    if (escaped) {
+      escaped = !1;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = !0;
+      continue;
+    }
+    if (char === quote) {
+      quote = null;
+      continue;
+    }
+    if (quote === null && (char === "'" || char === '"')) {
+      quote = char;
+      continue;
+    }
+    if (quote !== null)
+      continue;
+    if (char === "{") {
+      stack.push({ start: index, commas: [] });
+      continue;
+    }
+    if (char === "," && stack.length > 0) {
+      stack.at(-1)?.commas.push(index);
+      continue;
+    }
+    if (char !== "}" || stack.length === 0)
+      continue;
+    let frame = stack.pop();
+    if (!frame)
+      continue;
+    let candidate = frame.commas.length > 0 ? {
+      kind: "alternatives",
+      start: frame.start,
+      end: index + 1,
+      commas: frame.commas
+    } : isActiveBraceRange(value.slice(frame.start + 1, index)) ? { kind: "range", start: frame.start, end: index + 1 } : void 0;
+    if (candidate && (!selected || candidate.start < selected.start))
+      selected = candidate;
+  }
+  if (!selected || selected.kind === "range")
+    return selected;
+  let boundaries = [selected.start, ...selected.commas, selected.end - 1];
+  return {
+    kind: selected.kind,
+    start: selected.start,
+    end: selected.end,
+    alternatives: boundaries.slice(0, -1).map((start, index) => value.slice(start + 1, boundaries[index + 1]))
+  };
+}
+function isActiveBraceRange(value) {
+  return /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(value) || /^[A-Za-z]\.\.[A-Za-z](?:\.\.-?\d+)?$/.test(value);
+}
+function decodePosixLiteralWord(value, maxDepth) {
+  let source = `x${value}`, result = readWord(source, 0, source.length, "posix", { maxInputLength: source.length, maxWords: 1, maxDepth }, { used: 0, max: 1 }, 0);
+  if (result.limited || result.issues.length > 0 || result.next !== source.length || result.word.provenance !== "literal")
+    return null;
+  return result.word.text.slice(1);
+}
 function limitedProgram(source, start, end, dialect, code) {
   return freezeCommandProgram({
     kind: "program",
@@ -2386,7 +2808,7 @@ function limitedProgram(source, start, end, dialect, code) {
     nodes: []
   });
 }
-function limitedResult(nodes, issues, next, words, code, limit) {
+function limitedResult(nodes, issues, next, code, limit) {
   return {
     nodes,
     issues: [
@@ -2399,10 +2821,15 @@ function limitedResult(nodes, issues, next, words, code, limit) {
     ],
     next,
     closed: !1,
-    words,
     limited: !0,
     pendingHeredocs: []
   };
+}
+function propagatedLimitResult(nodes, issues, next) {
+  return { nodes, issues, next, closed: !1, limited: !0, pendingHeredocs: [] };
+}
+function consumeWord(budget) {
+  return budget.used++, budget.used <= budget.max;
 }
 function containsHeredoc(nodes) {
   return nodes.some((node) => {
@@ -2417,6 +2844,28 @@ function unterminatedHeredocIssues(pending) {
     message: `heredoc delimiter ${declaration.delimiter} was not found`,
     span: declaration.declarationSpan
   }));
+}
+function isExecutableNode(node) {
+  return node?.kind === "command" || node?.kind === "group";
+}
+function appendMissingCommandIssue(nodes, issues) {
+  let trailing = nodes.at(-1);
+  if (trailing?.kind !== "connector" || !CONTINUATION_CONNECTORS.has(trailing.operator))
+    return;
+  issues.push({
+    code: "missing-command-after-connector",
+    message: `connector ${trailing.operator} requires a following command`,
+    span: trailing.span
+  });
+}
+function appendMissingConnectorIssue(nodes, issues, start) {
+  if (!isExecutableNode(nodes.at(-1)))
+    return;
+  issues.push({
+    code: "missing-command-connector",
+    message: "adjacent commands require a connector",
+    span: { start, end: start + 1 }
+  });
 }
 function isCommentStart(source, index, start) {
   return index === start || /[\s;&|()]/u.test(source[index - 1] ?? "");
@@ -2944,7 +3393,7 @@ var DEFAULT_COMMAND_PARSER_LIMITS = Object.freeze({
   maxDepth: 64
 });
 function parseCommand(source, dialect = "auto", limits = DEFAULT_COMMAND_PARSER_LIMITS) {
-  if (dialect === "powershell" || dialect === "auto" && shouldUsePowerShellParser(source))
+  if (dialect === "powershell" || dialect === "auto" && shouldUsePowerShellParser(source.slice(0, limits.maxInputLength)))
     return parsePowerShellCommand(source, limits);
   return parsePosixCommand(source, "posix", limits);
 }
@@ -2957,6 +3406,7 @@ var PATH_LIKE_KEYS = /* @__PURE__ */ new Set([
   "file",
   "file_path",
   "filepath",
+  "include",
   "notebook_path",
   "path",
   "searchdirectory",
@@ -3151,16 +3601,74 @@ function getPolicyRuleMetadata(snapshot, id) {
 }
 
 // src/core/policy.ts
-import { chmodSync, existsSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3 } from "node:fs";
-import { dirname as dirname5, join as join6 } from "node:path";
+import { chmodSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync4 } from "node:fs";
+import { dirname as dirname6, join as join7 } from "node:path";
 
 // src/config/schema.ts
 import { createRequire } from "node:module";
+
+// src/core/analyze/text-scanner.ts
+function scannedText(value, work) {
+  return { value, work };
+}
+function scanChar(text, index) {
+  if (text.work)
+    text.work.units = Math.min(Number.MAX_SAFE_INTEGER, text.work.units + 1);
+  return text.value[index];
+}
+function scanLength(text) {
+  return text.value.length;
+}
+function chargeScan(work, text, passes = 1) {
+  if (work)
+    work.units = Math.min(Number.MAX_SAFE_INTEGER, work.units + text.length * passes);
+}
+function chargeNativeLinearPass(work, text) {
+  chargeScan(work, text);
+}
+function isAsciiWord(char) {
+  if (!char)
+    return !1;
+  let code = char.charCodeAt(0);
+  return code >= 48 && code <= 57 || code >= 65 && code <= 90 || code === 95 || code >= 97 && code <= 122;
+}
+function isEcmaWhitespace(char) {
+  if (!char)
+    return !1;
+  let code = char.charCodeAt(0);
+  return code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32 || code === 160 || code === 65279 || code === 5760 || code >= 8192 && code <= 8202 || code === 8232 || code === 8233 || code === 8239 || code === 8287 || code === 12288;
+}
+function isJsLineTerminator(char) {
+  return char === `
+` || char === "\r" || char === "\u2028" || char === "\u2029";
+}
+function fixedAt(text, index, expected) {
+  if (index + expected.length > scanLength(text))
+    return !1;
+  for (let offset = 0;offset < expected.length; offset++)
+    if (scanChar(text, index + offset) !== expected[offset])
+      return !1;
+  return !0;
+}
+function wordAt(text, index, word) {
+  return !isAsciiWord(scanChar(text, index - 1)) && fixedAt(text, index, word) && !isAsciiWord(scanChar(text, index + word.length));
+}
+function hasWordBoundaryAfter(text, end) {
+  return isAsciiWord(scanChar(text, end - 1)) !== isAsciiWord(scanChar(text, end));
+}
+function isRawStop(char) {
+  return char === `
+` || char === ";" || char === "&" || char === "|";
+}
+function isPipeSemicolonStop(char) {
+  return char === "|" || char === ";";
+}
 
 // src/core/destructive-command-rules.ts
 var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.ssh-env",
   "git.alias-config",
+  "git.executable-config",
   "git.checkout-force",
   "git.checkout-double-dash",
   "git.checkout-ref-path",
@@ -3224,6 +3732,13 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git command-line alias",
     description: "Blocks command-line Git aliases that cannot be safely resolved.",
+    intent: "manual_only"
+  },
+  {
+    id: "git.executable-config",
+    category: "Git",
+    label: "Git executable config",
+    description: "Blocks Git operations that may invoke an executable configured by Git.",
     intent: "manual_only"
   },
   {
@@ -3593,24 +4108,107 @@ function filterDestructiveCommandMatch(match, policy) {
 }
 
 // src/core/analyze/awk.ts
-var AWK_INTERPRETERS = /* @__PURE__ */ new Set(["awk", "gawk", "nawk", "mawk"]), REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
-function analyzeAwkSystemCallMatch(tokens, analyzeNested) {
-  for (let token of tokens.slice(1)) {
-    let commands = extractAwkExternalCommands(token);
+var AWK_INTERPRETERS = /* @__PURE__ */ new Set(["awk", "gawk", "nawk", "mawk"]), AWK_SOURCE_VALUE_OPTIONS = /* @__PURE__ */ new Set(["-e", "--source"]), AWK_DATA_VALUE_OPTIONS = /* @__PURE__ */ new Set(["-F", "-v", "--assign", "--field-separator"]), AWK_FILE_VALUE_OPTIONS = /* @__PURE__ */ new Set(["-f", "--file"]), AWK_REGEX_PREFIX_KEYWORDS = /* @__PURE__ */ new Set(["print", "printf", "return"]), AWK_EXECUTABLE_SOURCE_SELECTORS = [
+  { selector: "-e", kind: "inline-code", valueForm: "attached-or-separate" },
+  { selector: "--source", kind: "inline-code", valueForm: "equals-or-separate" },
+  { selector: "-f", kind: "program-file", valueForm: "attached-or-separate" },
+  { selector: "--file", kind: "program-file", valueForm: "equals-or-separate" }
+], REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system(), pipe, or getline command with dynamic command that cannot be safely analyzed. Use a literal command or process the data without system(), pipes, or getline.";
+function analyzeAwkSystemCallMatch(tokens, analyzeNested, scanWork) {
+  let dynamic = !1;
+  for (let source of extractAwkSourceArgs(tokens)) {
+    let commands = extractAwkExternalCommands(source, scanWork);
     if (!commands)
       continue;
-    if (commands.dynamic)
-      return destructiveCommandMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC);
     for (let command of commands.commands) {
       let result = analyzeNested(command);
       if (result)
         return result;
+      if (command.includes("{}") || /[$`]/.test(command))
+        dynamic = !0;
     }
+    dynamic ||= commands.dynamic;
   }
-  return null;
+  return dynamic ? destructiveCommandMatch("awk.system-dynamic", REASON_AWK_SYSTEM_DYNAMIC) : null;
 }
-function extractAwkExternalCommands(code) {
-  let systemCommands = code.includes("system") ? extractAwkSystemCommands(code) : null, pipeCommands = extractAwkPipeCommands(code);
+function parseAwkArgv(tokens) {
+  let sources = [], hasExplicitSource = !1, hasFileSource = !1, options = !0, valid = !0;
+  for (let i = 1;i < tokens.length; i++) {
+    let token = tokens[i];
+    if (token === void 0)
+      break;
+    if (options && token === "--") {
+      options = !1;
+      continue;
+    }
+    if (options && AWK_SOURCE_VALUE_OPTIONS.has(token)) {
+      hasExplicitSource = !0;
+      let source = tokens[i + 1];
+      if (source !== void 0)
+        sources.push({ tokenIndex: i + 1, kind: "inline-code", value: source });
+      else
+        valid = !1;
+      i++;
+      continue;
+    }
+    if (options && token.startsWith("--source=")) {
+      hasExplicitSource = !0, sources.push({
+        tokenIndex: i,
+        kind: "inline-code",
+        value: token.slice(9)
+      });
+      continue;
+    }
+    if (options && token.startsWith("-e") && token.length > 2) {
+      hasExplicitSource = !0, sources.push({ tokenIndex: i, kind: "inline-code", value: token.slice(2) });
+      continue;
+    }
+    if (options && (AWK_DATA_VALUE_OPTIONS.has(token) || AWK_FILE_VALUE_OPTIONS.has(token))) {
+      if (AWK_FILE_VALUE_OPTIONS.has(token)) {
+        hasFileSource = !0;
+        let source = tokens[i + 1];
+        if (source !== void 0)
+          sources.push({ tokenIndex: i + 1, kind: "program-file", value: source });
+        else
+          valid = !1;
+      } else if (tokens[i + 1] === void 0)
+        valid = !1;
+      i++;
+      continue;
+    }
+    if (options && (token.startsWith("-F") || token.startsWith("-v") && token.slice(2).includes("=")))
+      continue;
+    if (options && token.startsWith("-f") && token.length > 2) {
+      hasFileSource = !0, sources.push({ tokenIndex: i, kind: "program-file", value: token.slice(2) });
+      continue;
+    }
+    if (options && (token.startsWith("--assign=") || token.startsWith("--field-separator=")))
+      continue;
+    if (options && token.startsWith("--file=")) {
+      hasFileSource = !0, sources.push({
+        tokenIndex: i,
+        kind: "program-file",
+        value: token.slice(7)
+      });
+      continue;
+    }
+    if (options && token.startsWith("-") && token !== "-")
+      continue;
+    if (options = !1, !hasExplicitSource && !hasFileSource)
+      sources.push({ tokenIndex: i, kind: "main-program", value: token });
+    return { sources, optionsOpen: !1 };
+  }
+  return { sources: valid ? sources : [], optionsOpen: options && valid };
+}
+function extractAwkExecutableSources(tokens) {
+  return parseAwkArgv(tokens).sources;
+}
+function extractAwkSourceArgs(tokens) {
+  return extractAwkExecutableSources(tokens).filter((source) => source.kind !== "program-file").map((source) => source.value);
+}
+function extractAwkExternalCommands(code, scanWork) {
+  chargeNativeLinearPass(scanWork, code);
+  let systemCommands = code.includes("system") ? extractAwkSystemCommands(code, scanWork) : null, pipeCommands = extractAwkPipeCommands(code, scanWork);
   if (!systemCommands && !pipeCommands)
     return null;
   return {
@@ -3618,13 +4216,29 @@ function extractAwkExternalCommands(code) {
     commands: [...systemCommands?.commands ?? [], ...pipeCommands?.commands ?? []]
   };
 }
-function extractAwkSystemCommands(code) {
-  let commands = [], sawSystem = !1, searchIndex = 0;
+function extractAwkSystemCommands(code, scanWork) {
+  chargeNativeLinearPass(scanWork, code);
+  let commands = [], sawSystem = !1, dynamic = !1, searchIndex = 0;
   while (searchIndex < code.length) {
-    let systemIndex = code.indexOf("system", searchIndex);
-    if (systemIndex === -1)
-      break;
-    if (searchIndex = systemIndex + 6, isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex]))
+    let char = code[searchIndex];
+    if (char === '"' || char === "'") {
+      searchIndex = readAwkStringLiteral(code, searchIndex, char)?.endIndex ?? searchIndex + 1;
+      continue;
+    }
+    if (char === "#") {
+      searchIndex = findAwkLineEnd(code, searchIndex + 1);
+      continue;
+    }
+    if (char === "/" && isLikelyAwkRegexStart(code, searchIndex)) {
+      searchIndex = findAwkRegexEnd(code, searchIndex + 1) ?? searchIndex + 1;
+      continue;
+    }
+    if (!code.startsWith("system", searchIndex)) {
+      searchIndex++;
+      continue;
+    }
+    let systemIndex = searchIndex;
+    if (searchIndex += 6, isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex]))
       continue;
     let i = skipAwkWhitespace(code, searchIndex);
     if (code[i] !== "(")
@@ -3632,66 +4246,86 @@ function extractAwkSystemCommands(code) {
     i = skipAwkWhitespace(code, i + 1);
     let quote = code[i];
     if (quote !== '"' && quote !== "'") {
-      sawSystem = !0;
+      sawSystem = !0, dynamic = !0;
       continue;
     }
     let parsed = readAwkStringLiteral(code, i, quote);
     if (!parsed) {
-      sawSystem = !0;
+      sawSystem = !0, dynamic = !0;
       continue;
     }
-    if (i = skipAwkWhitespace(code, parsed.endIndex), sawSystem = !0, code[i] !== ")")
-      return { dynamic: !0, commands };
+    if (i = skipAwkWhitespace(code, parsed.endIndex), sawSystem = !0, code[i] !== ")") {
+      dynamic = !0, searchIndex = parsed.endIndex;
+      continue;
+    }
     commands.push(parsed.value), searchIndex = i + 1;
   }
   if (!sawSystem)
     return null;
-  return commands.length > 0 ? { dynamic: !1, commands } : { dynamic: !0, commands };
+  return { dynamic, commands };
 }
-function extractAwkPipeCommands(code) {
-  let commands = [], dynamic = !1, sawPipeCommand = !1, i = 0;
+function extractAwkPipeCommands(code, scanWork) {
+  chargeNativeLinearPass(scanWork, code);
+  let commands = [], dynamic = !1, sawPipeCommand = !1, i = 0, statementStart = 0, printKeywordIndex = null, leadingString = null, lastSignificantEnd = 0;
   while (i < code.length) {
     let char = code[i];
     if (!char)
       break;
     if (char === '"' || char === "'") {
-      i = readAwkStringLiteral(code, i, char)?.endIndex ?? i + 1;
+      let parsed = readAwkStringLiteral(code, i, char);
+      if (parsed && lastSignificantEnd === statementStart)
+        leadingString = { ...parsed, startIndex: i };
+      lastSignificantEnd = parsed?.endIndex ?? i + 1, i = parsed?.endIndex ?? i + 1;
       continue;
     }
     if (char === "#") {
-      i = findAwkLineEnd(code, i + 1);
+      i = findAwkLineEnd(code, i + 1), statementStart = i, printKeywordIndex = null, leadingString = null, lastSignificantEnd = i;
       continue;
     }
     if (char === "/" && isLikelyAwkRegexStart(code, i)) {
-      i = findAwkRegexEnd(code, i + 1) ?? i + 1;
+      let regexEnd = findAwkRegexEnd(code, i + 1);
+      lastSignificantEnd = regexEnd ?? i + 1, i = regexEnd ?? i + 1;
       continue;
     }
+    if (`;
+{}`.includes(char)) {
+      i++, statementStart = i, printKeywordIndex = null, leadingString = null, lastSignificantEnd = i;
+      continue;
+    }
+    if (printKeywordIndex === null && (startsAwkKeyword(code, i, "print") || startsAwkKeyword(code, i, "printf")))
+      printKeywordIndex = i;
     if (char !== "|" || code[i - 1] === "|" || code[i + 1] === "|") {
+      if (!/\s/.test(char))
+        lastSignificantEnd = i + 1;
       i++;
       continue;
     }
     let operatorEnd = code[i + 1] === "&" ? i + 2 : i + 1, afterPipe = skipAwkWhitespace(code, operatorEnd);
     if (startsAwkKeyword(code, afterPipe, "getline")) {
       sawPipeCommand = !0;
-      let command = readAwkStringBeforePipe(code, i);
+      let command = readAwkStringBeforePipe(statementStart, leadingString, lastSignificantEnd);
       if (command === null)
         dynamic = !0;
       else
         commands.push(command);
-      i = operatorEnd;
+      lastSignificantEnd = operatorEnd, i = operatorEnd;
       continue;
     }
-    if (isAwkPrintPipe(code, i)) {
+    if (isAwkPrintPipe(statementStart, printKeywordIndex)) {
       sawPipeCommand = !0;
       let parsed = readAwkStringAt(code, afterPipe);
       if (!parsed) {
-        dynamic = !0, i = operatorEnd;
+        dynamic = !0, lastSignificantEnd = operatorEnd, i = operatorEnd;
         continue;
       }
-      commands.push(parsed.value), i = parsed.endIndex;
+      if (!isAwkExpressionEnd(code, parsed.endIndex)) {
+        dynamic = !0, lastSignificantEnd = parsed.endIndex, i = parsed.endIndex;
+        continue;
+      }
+      commands.push(parsed.value), lastSignificantEnd = parsed.endIndex, i = parsed.endIndex;
       continue;
     }
-    i++;
+    lastSignificantEnd = operatorEnd, i++;
   }
   if (!sawPipeCommand)
     return null;
@@ -3705,6 +4339,14 @@ function skipAwkWhitespace(code, index) {
   while (/\s/.test(code[i] ?? ""))
     i++;
   return i;
+}
+function isAwkExpressionEnd(code, index) {
+  let i = index;
+  while (/[\t\f\v\r ]/.test(code[i] ?? ""))
+    i++;
+  let char = code[i];
+  return !char || `;
+}#`.includes(char);
 }
 function readAwkStringLiteral(code, startIndex, quote) {
   let value = "", escaped = !1;
@@ -3735,18 +4377,10 @@ function readAwkStringAt(code, index) {
     return null;
   return readAwkStringLiteral(code, index, quote);
 }
-function readAwkStringBeforePipe(code, pipeIndex) {
-  let endIndex = skipAwkWhitespaceBack(code, pipeIndex), quote = code[endIndex - 1];
-  if (quote !== '"' && quote !== "'")
+function readAwkStringBeforePipe(statementStart, leadingString, lastSignificantEnd) {
+  if (!leadingString)
     return null;
-  for (let i = endIndex - 2;i >= 0; i--) {
-    if (code[i] !== quote)
-      continue;
-    let parsed = readAwkStringLiteral(code, i, quote);
-    if (parsed?.endIndex === endIndex)
-      return parsed.value;
-  }
-  return null;
+  return leadingString.startIndex >= statementStart && leadingString.endIndex === lastSignificantEnd ? leadingString.value : null;
 }
 function decodeAwkEscape(code, index) {
   let char = code[index];
@@ -3778,22 +4412,11 @@ function decodeAwkEscape(code, index) {
     v: "\v"
   }[char] ?? char, endIndex: index };
 }
-function skipAwkWhitespaceBack(code, index) {
-  let i = index;
-  while (i > 0 && /\s/.test(code[i - 1] ?? ""))
-    i--;
-  return i;
-}
 function startsAwkKeyword(code, index, keyword) {
   return code.startsWith(keyword, index) && !isAwkIdentifierChar(code[index - 1]) && !isAwkIdentifierChar(code[index + keyword.length]);
 }
-function isAwkPrintPipe(code, pipeIndex) {
-  return /\b(?:print|printf)\b/.test(code.slice(findAwkStatementStart(code, pipeIndex), pipeIndex));
-}
-function findAwkStatementStart(code, index) {
-  let starts = [";", `
-`, "{", "}"].map((marker) => code.lastIndexOf(marker, index - 1));
-  return Math.max(...starts) + 1;
+function isAwkPrintPipe(statementStart, printKeywordIndex) {
+  return printKeywordIndex !== null && printKeywordIndex >= statementStart;
 }
 function findAwkLineEnd(code, index) {
   let lineEnd = code.indexOf(`
@@ -3804,7 +4427,12 @@ function isLikelyAwkRegexStart(code, index) {
   let previousIndex = findPreviousAwkNonWhitespace(code, index);
   if (previousIndex === -1)
     return !0;
-  return "{([,;!~".includes(code[previousIndex] ?? "");
+  if ("{([,;!~=".includes(code[previousIndex] ?? ""))
+    return !0;
+  let wordStart = previousIndex;
+  while (isAwkIdentifierChar(code[wordStart - 1]))
+    wordStart--;
+  return AWK_REGEX_PREFIX_KEYWORDS.has(code.slice(wordStart, previousIndex + 1));
 }
 function findPreviousAwkNonWhitespace(code, index) {
   for (let i = index - 1;i >= 0; i--)
@@ -3832,71 +4460,412 @@ function findAwkRegexEnd(code, index) {
   return null;
 }
 
-// src/core/analyze/text-scanner.ts
-function scannedText(value, work) {
-  return { value, work };
+// src/core/analyze/constants.ts
+var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
+  "echo",
+  "printf",
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "grep",
+  "rg",
+  "ag",
+  "ack",
+  "sed",
+  "awk",
+  "cut",
+  "tr",
+  "sort",
+  "uniq",
+  "wc",
+  "tee",
+  "man",
+  "help",
+  "info",
+  "type",
+  "which",
+  "whereis",
+  "whatis",
+  "apropos",
+  "file",
+  "stat",
+  "ls",
+  "ll",
+  "dir",
+  "tree",
+  "pwd",
+  "date",
+  "cal",
+  "uptime",
+  "whoami",
+  "id",
+  "groups",
+  "hostname",
+  "uname",
+  "env",
+  "printenv",
+  "set",
+  "export",
+  "alias",
+  "history",
+  "jobs",
+  "fg",
+  "bg",
+  "test",
+  "true",
+  "false",
+  "read",
+  "return",
+  "exit",
+  "break",
+  "continue",
+  "shift",
+  "wait",
+  "trap",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "md5sum",
+  "sha256sum",
+  "base64",
+  "xxd",
+  "od",
+  "hexdump",
+  "strings",
+  "diff",
+  "cmp",
+  "comm",
+  "join",
+  "paste",
+  "column",
+  "fmt",
+  "fold",
+  "nl",
+  "pr",
+  "expand",
+  "unexpand",
+  "rev",
+  "tac",
+  "shuf",
+  "seq",
+  "yes",
+  "sleep",
+  "logger",
+  "write",
+  "wall",
+  "mesg",
+  "notify-send"
+]);
+
+// src/core/git/worktree.ts
+import { existsSync, lstatSync as lstatSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync as statSync2 } from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute4, join as join4, resolve as resolve3 } from "node:path";
+
+// src/core/git/env.ts
+var GIT_CONTEXT_ENV_OVERRIDES = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE"
+], GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES);
+var GIT_CONFIG_AFFECTING_ENV_NAMES = /* @__PURE__ */ new Set([
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_SYSTEM",
+  "HOME",
+  "XDG_CONFIG_HOME"
+]), GIT_SSH_ENV_NAMES = /* @__PURE__ */ new Set([
+  "GIT_SSH_COMMAND",
+  "GIT_SSH",
+  "GIT_SSH_VARIANT"
+]), GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
+function isGitContextEnvOverrideName(name) {
+  return GIT_CONTEXT_ENV_OVERRIDE_NAMES.has(name);
 }
-function scanChar(text, index) {
-  if (text.work)
-    text.work.units = Math.min(Number.MAX_SAFE_INTEGER, text.work.units + 1);
-  return text.value[index];
+function isGitConfigEnvName(name) {
+  return name === "GIT_CONFIG_COUNT" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name);
 }
-function scanLength(text) {
-  return text.value.length;
+function isTrackedGitEnvName(name) {
+  return isGitContextEnvOverrideName(name) || GIT_CONFIG_AFFECTING_ENV_NAMES.has(name) || GIT_SSH_ENV_NAMES.has(name) || isGitConfigEnvName(name);
 }
-function chargeScan(work, text, passes = 1) {
-  if (work)
-    work.units = Math.min(Number.MAX_SAFE_INTEGER, work.units + text.length * passes);
+function getGitEnvValue(name, envAssignments) {
+  return envAssignments?.has(name) ? envAssignments.get(name) : Object.hasOwn(process.env, name) ? process.env[name] : void 0;
 }
-function chargeNativeLinearPass(work, text) {
-  chargeScan(work, text);
+function resolveGitConfigCount(envAssignments) {
+  let value = getGitEnvValue("GIT_CONFIG_COUNT", envAssignments);
+  if (value === void 0)
+    return { state: "absent" };
+  if (value === "")
+    return { state: "valid", count: 0 };
+  if (!/^\d+$/.test(value))
+    return { state: "invalid" };
+  let count = Number(value);
+  return Number.isSafeInteger(count) && count <= 1024 ? { state: "valid", count } : { state: "invalid" };
 }
-function isAsciiWord(char) {
-  if (!char)
+function parseGitContextAppendEnvAssignment(token, envAssignments) {
+  let name = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE)?.[1];
+  if (!name || !isTrackedGitEnvName(name))
+    return null;
+  let eqIdx = token.indexOf("=");
+  return {
+    name,
+    value: `${getGitEnvValue(name, envAssignments) ?? ""}${token.slice(eqIdx + 1)}`
+  };
+}
+function hasGitSshEnvAssignment(envAssignments) {
+  return hasAnyEnvAssignment(envAssignments, GIT_SSH_ENV_NAMES);
+}
+function hasConfigAffectingEnvAssignment(envAssignments) {
+  return hasAnyEnvAssignment(envAssignments, GIT_CONFIG_AFFECTING_ENV_NAMES);
+}
+function hasAnyEnvAssignment(envAssignments, names) {
+  if (!envAssignments)
     return !1;
-  let code = char.charCodeAt(0);
-  return code >= 48 && code <= 57 || code >= 65 && code <= 90 || code === 95 || code >= 97 && code <= 122;
+  for (let key of envAssignments.keys())
+    if (names.has(key))
+      return !0;
+  return !1;
 }
-function isEcmaWhitespace(char) {
-  if (!char)
+
+// src/core/git/worktree.ts
+var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
+  "-c",
+  "-C",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--super-prefix",
+  "--config-env"
+]);
+function hasGitContextEnvOverride(envAssignments) {
+  for (let name of GIT_CONTEXT_ENV_OVERRIDES)
+    if (envAssignments?.has(name) || Object.hasOwn(process.env, name))
+      return !0;
+  return !1;
+}
+function getGitExecutionContext(tokens, cwd) {
+  if (!cwd)
+    return { gitCwd: null, hasExplicitGitContext: !1 };
+  let gitCwd;
+  try {
+    gitCwd = realpathSync4(resolve3(cwd));
+  } catch {
+    return { gitCwd: null, hasExplicitGitContext: !1 };
+  }
+  if (!isDirectory(gitCwd))
+    return { gitCwd: null, hasExplicitGitContext: !1 };
+  let hasExplicitGitContext = !1, i = 1;
+  while (i < tokens.length) {
+    let token = tokens[i];
+    if (!token)
+      break;
+    if (token === "--")
+      break;
+    if (!token.startsWith("-"))
+      break;
+    if (token === "-C") {
+      let target = tokens[i + 1];
+      if (!target)
+        return { gitCwd: null, hasExplicitGitContext };
+      let resolvedCwd = resolveGitCwd(gitCwd, target);
+      if (!resolvedCwd)
+        return { gitCwd: null, hasExplicitGitContext };
+      gitCwd = resolvedCwd, i += 2;
+      continue;
+    }
+    if (token.startsWith("-C") && token.length > 2) {
+      let resolvedCwd = resolveGitCwd(gitCwd, token.slice(2));
+      if (!resolvedCwd)
+        return { gitCwd: null, hasExplicitGitContext };
+      gitCwd = resolvedCwd, i++;
+      continue;
+    }
+    if (token === "--git-dir" || token === "--work-tree") {
+      hasExplicitGitContext = !0, i += 2;
+      continue;
+    }
+    if (token.startsWith("--git-dir=") || token.startsWith("--work-tree=")) {
+      hasExplicitGitContext = !0, i++;
+      continue;
+    }
+    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token))
+      i += 2;
+    else if (token.startsWith("-c") && token.length > 2)
+      i++;
+    else
+      i++;
+  }
+  return { gitCwd, hasExplicitGitContext };
+}
+function isLinkedWorktree(cwd) {
+  let dotGitPath = findDotGit(cwd);
+  if (!dotGitPath)
     return !1;
-  let code = char.charCodeAt(0);
-  return code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32 || code === 160 || code === 65279 || code === 5760 || code >= 8192 && code <= 8202 || code === 8232 || code === 8233 || code === 8239 || code === 8287 || code === 12288;
-}
-function isJsLineTerminator(char) {
-  return char === `
-` || char === "\r" || char === "\u2028" || char === "\u2029";
-}
-function fixedAt(text, index, expected) {
-  if (index + expected.length > scanLength(text))
-    return !1;
-  for (let offset = 0;offset < expected.length; offset++)
-    if (scanChar(text, index + offset) !== expected[offset])
+  try {
+    let stat = lstatSync2(dotGitPath);
+    if (stat.isSymbolicLink() || !stat.isFile())
       return !1;
-  return !0;
+    let firstLine = readFileSync2(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+    if (!firstLine.startsWith("gitdir:"))
+      return !1;
+    let rawGitDir = firstLine.slice(7).trim();
+    if (rawGitDir === "")
+      return !1;
+    let gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve3(dirname4(dotGitPath), rawGitDir);
+    if (!existsSync(join4(gitDir, "commondir")))
+      return !1;
+    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
+      return !1;
+    return worktreeConfigMatchesRoot(gitDir, dirname4(dotGitPath));
+  } catch {
+    return !1;
+  }
 }
-function wordAt(text, index, word) {
-  return !isAsciiWord(scanChar(text, index - 1)) && fixedAt(text, index, word) && !isAsciiWord(scanChar(text, index + word.length));
+function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
+  let rawBacklink = readWorktreeGitdirBacklink(gitDir);
+  return rawBacklink === null ? !1 : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
 }
-function sequenceAt(text, index, first, second) {
-  if (!wordAt(text, index, first))
-    return -1;
-  let cursor = index + first.length;
-  if (!isEcmaWhitespace(scanChar(text, cursor)))
-    return -1;
-  while (isEcmaWhitespace(scanChar(text, cursor)))
-    cursor++;
-  return wordAt(text, cursor, second) ? cursor + second.length : -1;
+function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
+  let configuredWorktree = readWorktreeConfigWorktree(gitDir);
+  return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
 }
-function hasWordBoundaryAfter(text, end) {
-  return isAsciiWord(scanChar(text, end - 1)) !== isAsciiWord(scanChar(text, end));
+function readWorktreeGitdirBacklink(gitDir) {
+  let backlinkPath = join4(gitDir, "gitdir");
+  if (!existsSync(backlinkPath))
+    return null;
+  let rawBacklink = readFileSync2(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return rawBacklink === "" ? null : rawBacklink;
 }
-function isRawStop(char) {
-  return char === `
-` || char === ";" || char === "&" || char === "|";
+function readWorktreeConfigWorktree(gitDir) {
+  let configWorktreePath = join4(gitDir, "config.worktree");
+  return existsSync(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
 }
-function isPipeSemicolonStop(char) {
-  return char === "|" || char === ";";
+function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
+  return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
+}
+function resolveGitDirPath(gitDir, target) {
+  return isAbsolute4(target) ? target : resolve3(gitDir, target);
+}
+function sameFilesystemPathOrFalse(left, right) {
+  try {
+    return sameFilesystemPath(left, right);
+  } catch {
+    return !1;
+  }
+}
+function sameFilesystemPath(left, right) {
+  try {
+    let leftStat = statSync2(left), rightStat = statSync2(right);
+    if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
+      return !0;
+  } catch {}
+  return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
+}
+function getCanonicalPathForComparison(path) {
+  return normalizePathForComparison(realpathSync4.native(path));
+}
+function normalizePathForComparison(path) {
+  let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
+  if (normalized = normalized.replace(/\\/g, "/"), normalized.length > 1 && normalized.endsWith("/"))
+    normalized = normalized.slice(0, -1);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function readCoreWorktree(configPath) {
+  let content = readFileSync2(configPath, "utf-8"), inCore = !1, configuredWorktree = null;
+  for (let line of content.split(/\r?\n/)) {
+    let trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";"))
+      continue;
+    if (trimmed.startsWith("[")) {
+      inCore = /^\[core\]$/i.test(trimmed);
+      continue;
+    }
+    if (!inCore)
+      continue;
+    let match = trimmed.match(/^worktree\s*=\s*(.*)$/i);
+    if (match)
+      configuredWorktree = parseGitConfigValue(match[1] ?? "");
+  }
+  return configuredWorktree;
+}
+function parseGitConfigValue(value) {
+  let trimmed = value.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"'))
+    return trimmed;
+  return unescapeDoubleQuotedGitConfigValue(trimmed.slice(1, -1));
+}
+function unescapeDoubleQuotedGitConfigValue(value) {
+  let result = "";
+  for (let i = 0;i < value.length; i++) {
+    let char = value[i];
+    if (char !== "\\") {
+      result += char;
+      continue;
+    }
+    let next = value[i + 1];
+    if (next === void 0) {
+      result += char;
+      continue;
+    }
+    switch (next) {
+      case "\\":
+      case '"':
+        result += next;
+        break;
+      case "n":
+        result += `
+`;
+        break;
+      case "t":
+        result += "\t";
+        break;
+      case "b":
+        result += "\b";
+        break;
+      default:
+        result += `\\${next}`;
+        break;
+    }
+    i++;
+  }
+  return result;
+}
+function resolveGitCwd(baseCwd, target) {
+  try {
+    let resolved = resolveChdirTarget(baseCwd, target);
+    return isDirectory(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+function isDirectory(path) {
+  try {
+    return statSync2(path).isDirectory();
+  } catch {
+    return !1;
+  }
+}
+function findDotGit(cwd) {
+  try {
+    return findDotGitInAncestors(realpathSync4(cwd));
+  } catch {
+    return null;
+  }
+}
+function findDotGitInAncestors(cwd) {
+  let current = cwd;
+  while (!0) {
+    let dotGitPath = join4(current, ".git");
+    if (existsSync(dotGitPath))
+      return dotGitPath;
+    let parent = dirname4(current);
+    if (parent === current)
+      return null;
+    current = parent;
+  }
 }
 
 // src/core/analyze/linear-danger-scanner.ts
@@ -3912,6 +4881,12 @@ function hasLinearDangerousText(text, kind, work) {
   let scanned = scannedText(text, work);
   if (kind === "rm")
     return hasRawRm(scanned);
+  if (kind === "reset-hard")
+    return hasResetOption(scanned, "--ha", "rd");
+  if (kind === "reset-merge")
+    return hasResetOption(scanned, "--me", "rge");
+  if (kind === "clean")
+    return hasCleanForce(scanned);
   if (kind === "checkout")
     return hasCheckoutForce(scanned);
   if (kind === "push-force")
@@ -3939,9 +4914,11 @@ function hasInterpreterRm(text) {
         active = !0, i++;
       continue;
     }
+    let escapedLineFeedEnd = getInterpreterEscapedLineFeedEnd(text, i);
     if (char === `
-`) {
-      active = !1, recursive = !1, force = !1, tokenStart = -1;
+` || escapedLineFeedEnd !== -1) {
+      if (active = !1, recursive = !1, force = !1, tokenStart = -1, escapedLineFeedEnd !== -1)
+        i = escapedLineFeedEnd - 1;
       continue;
     }
     if (char === ";" || char === "&" || char === "|" || i === scanLength(text)) {
@@ -3972,10 +4949,21 @@ function hasInterpreterRm(text) {
   }
   return !1;
 }
+function getInterpreterEscapedLineFeedEnd(text, index) {
+  if (scanChar(text, index) !== "\\" || scanChar(text, index - 1) === "\\")
+    return -1;
+  if (fixedAt(text, index, String.raw`\n`))
+    return index + 2;
+  if (fixedAt(text, index, String.raw`\x0a`) || fixedAt(text, index, String.raw`\x0A`))
+    return index + 5;
+  if (fixedAt(text, index, String.raw`\u000a`) || fixedAt(text, index, String.raw`\u000A`))
+    return index + 7;
+  return fixedAt(text, index, String.raw`\012`) ? index + 4 : -1;
+}
 function interpreterRmFlags(text, start, end) {
-  if (fixedAt(text, start, "--recursive") && end - start === 11)
+  if (isScannedLongOptionAbbreviation(text, start, end, "recursive"))
     return { recursive: !0, force: !1 };
-  if (fixedAt(text, start, "--force") && end - start === 7)
+  if (isScannedLongOptionAbbreviation(text, start, end, "force"))
     return { recursive: !1, force: !0 };
   if (scanChar(text, start) !== "-" || scanChar(text, start + 1) === "-")
     return { recursive: !1, force: !1 };
@@ -3985,6 +4973,15 @@ function interpreterRmFlags(text, start, end) {
     recursive ||= char === "r" || char === "R", force ||= char === "f" || char === "F";
   }
   return { recursive, force };
+}
+function isScannedLongOptionAbbreviation(text, start, end, option) {
+  let length = end - start - 2;
+  if (length < 1 || length > option.length || !fixedAt(text, start, "--"))
+    return !1;
+  for (let i = 0;i < length; i++)
+    if (scanChar(text, start + i + 2) !== option[i])
+      return !1;
+  return !0;
 }
 function hasInterpreterDd(text) {
   let active = !1;
@@ -4030,29 +5027,54 @@ function hasRawRm(text) {
       i++;
       continue;
     }
-    if (recursiveLong ||= fixedAt(text, i, "--recursive") && hasWordBoundaryAfter(text, i + 11), forceLong ||= fixedAt(text, i, "--force") && hasWordBoundaryAfter(text, i + 7), recursiveLong && forceLong)
+    if (fixedAt(text, i, "--") && (i === 0 || isEcmaWhitespace(scanChar(text, i - 1))) && (!scanChar(text, i + 2) || isEcmaWhitespace(scanChar(text, i + 2)) || isRawStop(scanChar(text, i + 2)))) {
+      active = !1, recursiveLong = !1, forceLong = !1, i += 2;
+      continue;
+    }
+    if (recursiveLong ||= fixedAt(text, i, "--recursive") && hasWordBoundaryAfter(text, i + 11) || hasRawLongOptionPrefix(text, i, "recursive"), forceLong ||= fixedAt(text, i, "--force") && hasWordBoundaryAfter(text, i + 7) || hasRawLongOptionPrefix(text, i, "force"), recursiveLong && forceLong)
       return !0;
     i++;
   }
   return !1;
 }
+function hasRawLongOptionPrefix(text, start, option) {
+  if (!fixedAt(text, start, "--"))
+    return !1;
+  let length = 0;
+  while (length <= option.length) {
+    let char = scanChar(text, start + length + 2);
+    if (!char || isEcmaWhitespace(char) || isRawStop(char))
+      break;
+    if (char !== option[length])
+      return !1;
+    length++;
+  }
+  return length > 0 && hasWordBoundaryAfter(text, start + length + 2);
+}
 function rawRmShortMatch(text, start) {
-  let cursor = start;
-  while (isEcmaWhitespace(scanChar(text, cursor)))
-    cursor++;
-  let firstStart = cursor;
-  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor)))
-    cursor++;
-  let first = summarizeRawShortToken(text, firstStart, cursor);
-  if (first.combined)
-    return !0;
-  while (isEcmaWhitespace(scanChar(text, cursor)))
-    cursor++;
-  let secondStart = cursor;
-  while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor)))
-    cursor++;
-  let second = summarizeRawShortToken(text, secondStart, cursor);
-  return first.recursive && second.forceAtBoundary || first.force && second.recursiveAtBoundary;
+  let cursor = start, recursive = !1, force = !1;
+  while (cursor < scanLength(text)) {
+    while (isEcmaWhitespace(scanChar(text, cursor)))
+      cursor++;
+    let tokenStart = cursor;
+    while (cursor < scanLength(text) && !isEcmaWhitespace(scanChar(text, cursor)))
+      cursor++;
+    if (scanChar(text, tokenStart) !== "-" || cursor - tokenStart === 2 && fixedAt(text, tokenStart, "--"))
+      return !1;
+    let recursiveLong = hasRawLongOptionAt(text, tokenStart, "recursive"), forceLong = hasRawLongOptionAt(text, tokenStart, "force");
+    if (recursive && forceLong || force && recursiveLong)
+      return !0;
+    if (recursive ||= recursiveLong, force ||= forceLong, scanChar(text, tokenStart + 1) === "-")
+      continue;
+    let flags = summarizeRawShortToken(text, tokenStart, cursor);
+    if (flags.combined || recursive && flags.forceAtBoundary || force && flags.recursiveAtBoundary)
+      return !0;
+    recursive ||= flags.recursive, force ||= flags.force;
+  }
+  return !1;
+}
+function hasRawLongOptionAt(text, start, option) {
+  return fixedAt(text, start, `--${option}`) && hasWordBoundaryAfter(text, start + option.length + 2) || hasRawLongOptionPrefix(text, start, option);
 }
 function rawRmAt(text, index) {
   if (index > 0 && isAsciiWord(scanChar(text, index - 1)))
@@ -4078,6 +5100,60 @@ function summarizeRawShortToken(text, start, end) {
     recursive ||= char === "r", force ||= char === "f", recursiveAtBoundary ||= char === "r" && boundary, forceAtBoundary ||= char === "f" && boundary, combined ||= (previous === "r" && char === "f" || previous === "f" && char === "r") && boundary, previous = char;
   }
   return { recursive, force, recursiveAtBoundary, forceAtBoundary, combined };
+}
+function hasResetOption(text, prefix, optional) {
+  return scanGitSuffix(text, "reset", isPipeSemicolonStop, !0, (index) => scanChar(text, index) === "-" && isPartialLongOption(text, index, prefix, optional) ? !0 : index);
+}
+function hasCleanForce(text) {
+  return scanGitSuffix(text, "clean", isPipeSemicolonStop, !0, (index) => {
+    if (scanChar(text, index) !== "-")
+      return index;
+    if (isPartialLongOption(text, index, "--fo", "rce"))
+      return !0;
+    let end = tokenEnd(text, index, isPipeSemicolonStop);
+    for (let cursor = index + 1;cursor < end; cursor++)
+      if (scanChar(text, cursor) === "f")
+        return !0;
+    return end - 1;
+  });
+}
+function scanGitCommandAt(text, index, command) {
+  if (!wordAt(text, index, "git"))
+    return null;
+  let cursor = index + 3;
+  if (!isEcmaWhitespace(scanChar(text, cursor)))
+    return { commandEnd: -1, next: cursor };
+  while (isEcmaWhitespace(scanChar(text, cursor)))
+    cursor++;
+  while (cursor < scanLength(text)) {
+    if (isRawStop(scanChar(text, cursor)))
+      return { commandEnd: -1, next: cursor };
+    let end = tokenEnd(text, cursor, isRawStop);
+    if (wordAt(text, cursor, command))
+      return { commandEnd: cursor + command.length, next: end };
+    if (scanChar(text, cursor) !== "-")
+      return { commandEnd: -1, next: end };
+    let doubleDash = end - cursor === 2 && fixedAt(text, cursor, "--"), consumesValue = matchesGitGlobalOptionWithValue(text, cursor, end);
+    cursor = end;
+    while (isEcmaWhitespace(scanChar(text, cursor)))
+      cursor++;
+    if (doubleDash)
+      return { commandEnd: wordAt(text, cursor, command) ? cursor + command.length : -1, next: tokenEnd(text, cursor, isRawStop) };
+    if (!consumesValue)
+      continue;
+    if (cursor >= scanLength(text) || isRawStop(scanChar(text, cursor)))
+      return { commandEnd: -1, next: cursor };
+    cursor = tokenEnd(text, cursor, isRawStop);
+    while (isEcmaWhitespace(scanChar(text, cursor)))
+      cursor++;
+  }
+  return { commandEnd: -1, next: cursor };
+}
+function matchesGitGlobalOptionWithValue(text, start, end) {
+  for (let option of GIT_GLOBAL_OPTS_WITH_VALUE)
+    if (end - start === option.length && fixedAt(text, start, option))
+      return !0;
+  return !1;
 }
 function hasCheckoutForce(text) {
   return hasGitShortOption(text, {
@@ -4127,10 +5203,12 @@ function hasBranchDeleteForce(text) {
       active = !1, deletion = !1, force = !1;
       continue;
     }
-    let after = sequenceAt(text, i, "git", "branch");
-    if (after >= 0) {
-      active = !0, i = after - 1;
-      continue;
+    if (!active) {
+      let gitCommand = scanGitCommandAt(text, i, "branch");
+      if (gitCommand) {
+        active = gitCommand.commandEnd >= 0, i = Math.max(i, (active ? gitCommand.commandEnd : gitCommand.next) - 1);
+        continue;
+      }
     }
     if (!active || scanChar(text, i) !== "-")
       continue;
@@ -4184,10 +5262,12 @@ function hasGitShortOption(text, options) {
     let char = scanChar(text, i);
     if (isEcmaWhitespace(char))
       shortActive = !1, hasShortFlag = !1;
-    let after = sequenceAt(text, i, "git", options.command);
-    if (after >= 0 && isEcmaWhitespace(scanChar(text, after))) {
-      outerActive = !0, shortActive = !1, hasShortFlag = !1, i = after - 1;
-      continue;
+    if (!outerActive) {
+      let gitCommand = scanGitCommandAt(text, i, options.command);
+      if (gitCommand) {
+        outerActive = gitCommand.commandEnd >= 0 && isEcmaWhitespace(scanChar(text, gitCommand.commandEnd)), shortActive = !1, hasShortFlag = !1, i = Math.max(i, (outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
+        continue;
+      }
     }
     if (outerActive && char === "-") {
       if (isPartialLongOption(text, i, options.longPrefix, options.longOptional))
@@ -4205,10 +5285,10 @@ function scanGitSuffix(text, command, stop, requireTrailingWhitespace, inspect) 
   let active = !1;
   for (let i = 0;i < scanLength(text); i++) {
     let char = scanChar(text, i), stopped = stop(char);
-    if (!stopped) {
-      let after = sequenceAt(text, i, "git", command);
-      if (after >= 0 && (!requireTrailingWhitespace || isEcmaWhitespace(scanChar(text, after)))) {
-        active = !0, i = after - 1;
+    if (!active && !stopped) {
+      let gitCommand = scanGitCommandAt(text, i, command);
+      if (gitCommand) {
+        active = gitCommand.commandEnd >= 0 && (!requireTrailingWhitespace || isEcmaWhitespace(scanChar(text, gitCommand.commandEnd))), i = Math.max(i, (active ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }
@@ -4235,10 +5315,10 @@ function hasRestoreWithoutExclusion(text) {
       candidate = !1;
       continue;
     }
-    if (wordAt(text, i, "git")) {
-      let after = sequenceAt(text, i, "git", "restore");
-      if (after >= 0) {
-        candidate = !0, i = after - 1;
+    if (!candidate) {
+      let gitCommand = scanGitCommandAt(text, i, "restore");
+      if (gitCommand) {
+        candidate = gitCommand.commandEnd >= 0, i = Math.max(i, (candidate ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }
@@ -4334,16 +5414,29 @@ function assertBareRulebookName(source) {
 }
 
 // src/domain/decision.ts
-var BLOCK_INTENTS = [
+var BLOCK_INTENTS = Object.freeze([
   "hard_stop",
   "use_alternative",
   "scope_down",
   "manual_only",
   "stop_and_explain"
-];
+]);
 
 // src/types.ts
-var MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
+var AUDIT_FAILURE_STAGES = Object.freeze([
+  "policy-protection",
+  "config-load",
+  "config-state",
+  "secret-protection",
+  "non-command",
+  "command-validation",
+  "command-analysis"
+]), AUDIT_ERROR_CODES = Object.freeze([
+  "path-canonicalization-limit",
+  "tool-input-limit",
+  "structural-shell-syntax-limit",
+  "unexpected-error"
+]), AUDIT_LOG_DECISIONS = Object.freeze(["allow", "deny"]), MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 
 // src/core/analyze/interpreters.ts
 var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.", REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)", CODE_FLAGS = /* @__PURE__ */ new Map([
@@ -4351,28 +5444,321 @@ var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous comman
   ["node", /* @__PURE__ */ new Set(["-e", "--eval"])],
   ["ruby", /* @__PURE__ */ new Set(["-e"])],
   ["perl", /* @__PURE__ */ new Set(["-e", "-E"])]
-]), CLUSTERED_CODE_FLAGS = /* @__PURE__ */ new Map([
+]), NODE_PRINT_FLAGS = /* @__PURE__ */ new Set(["-p", "--print"]), CLUSTERED_CODE_FLAGS = /* @__PURE__ */ new Map([
   ["python", /* @__PURE__ */ new Set(["c"])],
   ["node", /* @__PURE__ */ new Set(["e"])],
   ["ruby", /* @__PURE__ */ new Set(["e"])],
   ["perl", /* @__PURE__ */ new Set(["e", "E"])]
+]), SHORT_VALUE_FLAGS = /* @__PURE__ */ new Map([
+  ["python", /* @__PURE__ */ new Set(["W", "X"])],
+  ["node", /* @__PURE__ */ new Set(["C", "r"])],
+  ["ruby", /* @__PURE__ */ new Set(["C", "E", "F", "I", "r"])],
+  ["perl", /* @__PURE__ */ new Set(["F", "I", "M", "m"])]
+]), ATTACHED_VALUE_FLAGS = /* @__PURE__ */ new Map([
+  ["ruby", /* @__PURE__ */ new Set(["0", "K", "W", "x"])],
+  ["perl", /* @__PURE__ */ new Set(["0", "C", "D", "V", "d", "i", "l", "x"])]
+]), PROGRAM_FLAGS = /* @__PURE__ */ new Map([["python", /* @__PURE__ */ new Set(["m"])]]), LONG_VALUE_FLAGS = /* @__PURE__ */ new Map([
+  [
+    "node",
+    /* @__PURE__ */ new Set([
+      "--allow-fs-read",
+      "--allow-fs-write",
+      "--conditions",
+      "--cpu-prof-dir",
+      "--cpu-prof-interval",
+      "--cpu-prof-name",
+      "--debug-port",
+      "--diagnostic-dir",
+      "--disable-proto",
+      "--disable-warning",
+      "--dns-result-order",
+      "--env-file",
+      "--env-file-if-exists",
+      "--experimental-loader",
+      "--experimental-package-map",
+      "--experimental-test-isolation",
+      "--experimental-test-tag-filter",
+      "--heap-prof-dir",
+      "--heap-prof-interval",
+      "--heap-prof-name",
+      "--heapsnapshot-near-heap-limit",
+      "--heapsnapshot-signal",
+      "--icu-data-dir",
+      "--import",
+      "--input-type",
+      "--inspect-port",
+      "--inspect-publish-uid",
+      "--loader",
+      "--localstorage-file",
+      "--max-http-header-size",
+      "--max-old-space-size-percentage",
+      "--network-family-autoselection-attempt-timeout",
+      "--openssl-config",
+      "--redirect-warnings",
+      "--report-dir",
+      "--report-directory",
+      "--report-filename",
+      "--report-signal",
+      "--require",
+      "--secure-heap",
+      "--secure-heap-min",
+      "--test-concurrency",
+      "--test-coverage-branches",
+      "--test-coverage-exclude",
+      "--test-coverage-functions",
+      "--test-coverage-include",
+      "--test-coverage-lines",
+      "--test-global-setup",
+      "--test-isolation",
+      "--test-name-pattern",
+      "--test-random-seed",
+      "--test-reporter",
+      "--test-reporter-destination",
+      "--test-rerun-failures",
+      "--test-shard",
+      "--test-skip-pattern",
+      "--test-timeout",
+      "--title",
+      "--tls-cipher-list",
+      "--tls-keylog",
+      "--trace-event-categories",
+      "--trace-event-file-pattern",
+      "--trace-require-module",
+      "--unhandled-rejections",
+      "--use-largepages",
+      "--v8-pool-size",
+      "--watch-kill-signal"
+    ])
+  ],
+  ["python", /* @__PURE__ */ new Set(["--check-hash-based-pycs"])],
+  [
+    "ruby",
+    /* @__PURE__ */ new Set([
+      "--backtrace-limit",
+      "--crash-report",
+      "--disable",
+      "--enable",
+      "--encoding",
+      "--external-encoding",
+      "--internal-encoding",
+      "--parser"
+    ])
+  ]
+]), PYTHON_HASH_PYC_MODES = /* @__PURE__ */ new Set(["always", "default", "never"]), RUBY_DASH_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "--backtrace-limit",
+  "--crash-report",
+  "--disable",
+  "--enable"
+]), INTERPRETER_SHELL_CONTINUATION = /\\\r?\n|(?:\\\\|\\x5[cC]|\\u005[cC]|\\134)(?:\\n|\\x0[aA]|\\u000[aA]|\\012|\r?\n)/g, INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = /* @__PURE__ */ new Map([
+  [
+    "python",
+    [
+      { selector: "-c", kind: "inline-code", valueForm: "attached-or-separate" },
+      { selector: "-m", kind: "python-module", valueForm: "attached-or-separate" }
+    ]
+  ],
+  [
+    "node",
+    [
+      { selector: "-e", kind: "inline-code", valueForm: "separate-only" },
+      { selector: "--eval", kind: "inline-code", valueForm: "equals-or-separate" },
+      { selector: "-p", kind: "inline-code", valueForm: "separate-only" },
+      { selector: "--print", kind: "inline-code", valueForm: "separate-only" },
+      { selector: "-r", kind: "node-require", valueForm: "separate-only" },
+      { selector: "--require", kind: "node-require", valueForm: "equals-or-separate" },
+      { selector: "--import", kind: "node-import", valueForm: "equals-or-separate" },
+      { selector: "--loader", kind: "node-loader", valueForm: "equals-or-separate" },
+      {
+        selector: "--experimental-loader",
+        kind: "node-loader",
+        valueForm: "equals-or-separate"
+      }
+    ]
+  ],
+  [
+    "ruby",
+    [
+      { selector: "-e", kind: "inline-code", valueForm: "attached-or-separate" },
+      { selector: "-r", kind: "ruby-require", valueForm: "attached-or-separate" }
+    ]
+  ],
+  [
+    "perl",
+    [
+      { selector: "-e", kind: "inline-code", valueForm: "attached-or-separate" },
+      { selector: "-E", kind: "inline-code", valueForm: "attached-or-separate" },
+      { selector: "-M", kind: "perl-module", valueForm: "attached-only" },
+      { selector: "-m", kind: "perl-module", valueForm: "attached-only" }
+    ]
+  ]
 ]);
 function extractInterpreterCodeArg(tokens) {
+  return parseInterpreterArgv(tokens).code;
+}
+function extractInterpreterExecutableSources(tokens) {
+  return parseInterpreterArgv(tokens).sources;
+}
+function getInterpreterExecutableSourceSelectors(command) {
+  return INTERPRETER_EXECUTABLE_SOURCE_SELECTORS.get(normalizeInterpreter(command)) ?? [];
+}
+function parseInterpreterArgv(tokens) {
   let interpreter = normalizeInterpreter(tokens[0] ?? "");
+  if (!CODE_FLAGS.has(interpreter))
+    return { code: null, sources: [], optionsOpen: !1 };
+  let codeArgs = [], sources = [], executableSourcesValid = !0;
   for (let i = 1;i < tokens.length; i++) {
     let token = tokens[i];
-    if (!token)
+    if (token === void 0)
+      break;
+    if (token === "--")
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid, tokens[i + 1] === void 0 ? void 0 : i + 1, tokens[i + 1]);
+    if (token === "" || token === "-" || !token.startsWith("-"))
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid, i, token);
+    if (interpreter === "node" && NODE_PRINT_FLAGS.has(token)) {
+      let code = tokens[i + 1];
+      if (code === void 0)
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      if (code.startsWith("-"))
+        continue;
+      codeArgs.push({ tokenIndex: i + 1, value: code }), sources.push({ tokenIndex: i + 1, kind: "inline-code", value: code }), i++;
       continue;
-    if (isInterpreterCodeFlag(interpreter, token))
-      return tokens[i + 1] || null;
+    }
+    if (isInterpreterCodeFlag(interpreter, token)) {
+      let code = tokens[i + 1];
+      if (code === void 0)
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      if (codeArgs.push({ tokenIndex: i + 1, value: code }), sources.push({ tokenIndex: i + 1, kind: "inline-code", value: code }), interpreter === "python")
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      i++;
+      continue;
+    }
     let inlineEval = /^--eval=(.*)$/s.exec(token);
-    if (supportsInlineEval(interpreter) && inlineEval?.[1])
-      return inlineEval[1];
-    let shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
-    if (shortCodeArg)
-      return shortCodeArg;
+    if (supportsInlineEval(interpreter) && inlineEval) {
+      let code = inlineEval[1] ?? "";
+      codeArgs.push({ tokenIndex: i, value: code }), sources.push({ tokenIndex: i, kind: "inline-code", value: code });
+      continue;
+    }
+    if (interpreter === "node") {
+      let loader = extractNodeLongLoader(token);
+      if (loader) {
+        if (loader.attached) {
+          if (executableSourcesValid &&= loader.value !== "", loader.value !== "")
+            sources.push({ tokenIndex: i, kind: loader.kind, value: loader.value });
+          continue;
+        }
+        let value = tokens[i + 1];
+        if (value === void 0 || value.startsWith("-"))
+          return executableSourcesValid = !1, finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+        sources.push({ tokenIndex: i + 1, kind: loader.kind, value }), i++;
+        continue;
+      }
+    }
+    if (interpreter === "python" && token.startsWith("--check-hash-based-pycs=") || interpreter === "node" && (token === "--conditions=" || token === "--diagnostic-dir=" || token === "--title=") || interpreter === "ruby" && (token === "--disable=" || token === "--enable="))
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+    if (LONG_VALUE_FLAGS.get(interpreter)?.has(token)) {
+      let value = tokens[i + 1];
+      if (value === void 0 || value.startsWith("-") && !(interpreter === "ruby" && RUBY_DASH_VALUE_FLAGS.has(token)) || interpreter === "python" && !PYTHON_HASH_PYC_MODES.has(value))
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      i++;
+      continue;
+    }
+    if (token.startsWith("--"))
+      continue;
+    let codeArg, consumesNext = !1;
+    for (let optionIndex = 1;optionIndex < token.length; optionIndex++) {
+      let option = token[optionIndex];
+      if (option === void 0)
+        break;
+      if (PROGRAM_FLAGS.get(interpreter)?.has(option)) {
+        let attached = token.slice(optionIndex + 1), value = attached || tokens[i + 1];
+        if (value !== void 0)
+          sources.push({
+            tokenIndex: attached ? i : i + 1,
+            kind: "python-module",
+            value
+          });
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      if (CLUSTERED_CODE_FLAGS.get(interpreter)?.has(option)) {
+        codeArg = token.slice(optionIndex + 1) || tokens[i + 1], consumesNext = optionIndex + 1 === token.length;
+        break;
+      }
+      if (interpreter === "node" && option === "r") {
+        if (token === "-r") {
+          let value = tokens[i + 1];
+          if (executableSourcesValid &&= value !== void 0 && !value.startsWith("-"), executableSourcesValid && value !== void 0)
+            sources.push({ tokenIndex: i + 1, kind: "node-require", value });
+          i++;
+        } else
+          executableSourcesValid = !1;
+        break;
+      }
+      if (interpreter === "ruby" && option === "r") {
+        let attached = token.slice(optionIndex + 1), value = attached || tokens[i + 1];
+        if (executableSourcesValid &&= value !== void 0, value !== void 0)
+          sources.push({
+            tokenIndex: attached ? i : i + 1,
+            kind: "ruby-require",
+            value
+          });
+        if (!attached)
+          i++;
+        break;
+      }
+      if (interpreter === "perl" && (option === "M" || option === "m")) {
+        let value = token.slice(optionIndex + 1);
+        if (value)
+          sources.push({ tokenIndex: i, kind: "perl-module", value });
+        else if (executableSourcesValid = !1, optionIndex + 1 === token.length)
+          i++;
+        break;
+      }
+      if (SHORT_VALUE_FLAGS.get(interpreter)?.has(option)) {
+        if (optionIndex + 1 === token.length)
+          i++;
+        break;
+      }
+      if (ATTACHED_VALUE_FLAGS.get(interpreter)?.has(option) && optionIndex + 1 < token.length)
+        break;
+    }
+    if (codeArg === void 0)
+      continue;
+    let tokenIndex = consumesNext ? i + 1 : i;
+    if (codeArgs.push({ tokenIndex, value: codeArg }), sources.push({ tokenIndex, kind: "inline-code", value: codeArg }), interpreter === "python")
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+    if (consumesNext)
+      i++;
   }
-  return null;
+  return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid, void 0, void 0, !0);
+}
+function finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid, mainScriptIndex, mainScript, optionsOpen = !1) {
+  let effectiveCodeArgs = interpreter === "node" ? codeArgs.slice(-1) : codeArgs, effectiveCodeIndexes = new Set(effectiveCodeArgs.map((codeArg) => codeArg.tokenIndex)), executableSources = sources.filter((source) => source.kind !== "inline-code" || effectiveCodeIndexes.has(source.tokenIndex));
+  if (executableSourcesValid && codeArgs.length === 0 && mainScriptIndex !== void 0 && mainScript !== void 0)
+    executableSources.push({
+      tokenIndex: mainScriptIndex,
+      kind: "main-script",
+      value: mainScript
+    });
+  return {
+    code: (interpreter === "node" ? effectiveCodeArgs[0]?.value : effectiveCodeArgs.map((codeArg) => codeArg.value).join(`
+`)) || null,
+    sources: executableSourcesValid ? executableSources : [],
+    optionsOpen: executableSourcesValid && optionsOpen
+  };
+}
+function extractNodeLongLoader(token) {
+  for (let [option, kind] of [
+    ["--import", "node-import"],
+    ["--loader", "node-loader"],
+    ["--experimental-loader", "node-loader"],
+    ["--require", "node-require"]
+  ]) {
+    if (token === option)
+      return { attached: !1, kind, value: "" };
+    if (token.startsWith(`${option}=`))
+      return { attached: !0, kind, value: token.slice(option.length + 1) };
+  }
+  return;
 }
 function isInterpreterCommand(command) {
   return CODE_FLAGS.has(normalizeInterpreter(command));
@@ -4390,31 +5776,44 @@ function isInterpreterCodeFlag(interpreter, token) {
 function supportsInlineEval(interpreter) {
   return CODE_FLAGS.get(interpreter)?.has("--eval") ?? !1;
 }
-function extractShortCodeArg(interpreter, token, nextToken) {
-  if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
-    return null;
-  let flags = CLUSTERED_CODE_FLAGS.get(interpreter), codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? !1);
-  if (codeFlagIndex < 0)
-    return null;
-  return token.slice(codeFlagIndex + 2) || nextToken || null;
-}
 function containsDangerousCode(code, scanWork) {
-  if (hasLinearInterpreterDanger(code, "rm", scanWork))
+  let executableCode = collapseInterpreterShellContinuations(code, scanWork);
+  if (hasLinearInterpreterDanger(executableCode, "rm", scanWork))
     return !0;
   for (let pattern of [
-    /\bgit\s+reset\s+--hard\b/,
-    /\bgit\s+checkout\s+--\b/,
-    /\bgit\s+clean\s+-f\b/,
-    /\bgit\s+stash\s+(drop|clear)\b/
+    /\bgit[^\S\n]+reset[^\S\n]+--ha(?:r(?:d)?)?\b/,
+    /\bgit[^\S\n]+reset[^\S\n]+--me(?:r(?:g(?:e)?)?)?\b/,
+    /\bgit[^\S\n]+checkout[^\S\n]+--[^\S\n]/,
+    /\bgit[^\S\n]+clean[^\S\n]+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
+    /\bgit[^\S\n]+stash[^\S\n]+(drop|clear)\b/
   ])
-    if (chargeNativeLinearPass(scanWork, code), pattern.test(code))
+    if (chargeNativeLinearPass(scanWork, executableCode), pattern.test(executableCode))
       return !0;
-  if (hasLinearInterpreterDanger(code, "dd", scanWork))
+  if (hasLinearInterpreterDanger(executableCode, "dd", scanWork))
     return !0;
   for (let pattern of [/\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/, /\bshred\b\s+/])
-    if (chargeNativeLinearPass(scanWork, code), pattern.test(code))
+    if (chargeNativeLinearPass(scanWork, executableCode), pattern.test(executableCode))
       return !0;
-  return hasLinearInterpreterDanger(code, "find", scanWork);
+  if (hasLinearInterpreterDanger(executableCode, "find", scanWork))
+    return !0;
+  let lines = executableCode.split(/[\n\r\u2028\u2029]/);
+  return [
+    "reset-hard",
+    "reset-merge",
+    "clean",
+    "checkout",
+    "push-force",
+    "push-refspec",
+    "push-delete",
+    "branch",
+    "tag",
+    "restore"
+  ].some((kind) => {
+    return chargeNativeLinearPass(scanWork, executableCode), lines.some((line) => hasLinearDangerousText(line, kind));
+  });
+}
+function collapseInterpreterShellContinuations(code, scanWork) {
+  return chargeNativeLinearPass(scanWork, code), code.replace(INTERPRETER_SHELL_CONTINUATION, "");
 }
 // src/core/shell/options.ts
 function extractShortOpts(tokens, options) {
@@ -4505,171 +5904,9 @@ function hasAttachedLongValue(token, options) {
   return options !== void 0 && [...options].some((option) => token.startsWith(`${option}=`));
 }
 // src/core/shell/wrappers.ts
-import { realpathSync as realpathSync4 } from "node:fs";
-import { isAbsolute as isAbsolute4, parse as parsePath2 } from "node:path";
-
-// src/core/git/env.ts
-var GIT_CONTEXT_ENV_OVERRIDES = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_COMMON_DIR",
-  "GIT_INDEX_FILE"
-], GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES);
-var GIT_CONFIG_AFFECTING_ENV_NAMES = /* @__PURE__ */ new Set([
-  "GIT_CONFIG_GLOBAL",
-  "GIT_CONFIG_NOSYSTEM",
-  "GIT_CONFIG_SYSTEM",
-  "HOME",
-  "XDG_CONFIG_HOME"
-]), GIT_SSH_ENV_NAMES = /* @__PURE__ */ new Set([
-  "GIT_SSH_COMMAND",
-  "GIT_SSH",
-  "GIT_SSH_VARIANT"
-]), GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
-function isGitContextEnvOverrideName(name) {
-  return GIT_CONTEXT_ENV_OVERRIDE_NAMES.has(name);
-}
-function isGitConfigEnvName(name) {
-  return name === "GIT_CONFIG_COUNT" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name);
-}
-function isTrackedGitEnvName(name) {
-  return isGitContextEnvOverrideName(name) || GIT_CONFIG_AFFECTING_ENV_NAMES.has(name) || GIT_SSH_ENV_NAMES.has(name) || isGitConfigEnvName(name);
-}
-function getGitEnvValue(name, envAssignments) {
-  return envAssignments?.has(name) ? envAssignments.get(name) : process.env[name];
-}
-function resolveGitConfigCount(envAssignments) {
-  let value = getGitEnvValue("GIT_CONFIG_COUNT", envAssignments);
-  if (value === void 0)
-    return { state: "absent" };
-  if (value === "")
-    return { state: "valid", count: 0 };
-  if (!/^\d+$/.test(value))
-    return { state: "invalid" };
-  let count = Number(value);
-  return Number.isSafeInteger(count) && count <= 1024 ? { state: "valid", count } : { state: "invalid" };
-}
-function parseGitContextAppendEnvAssignment(token) {
-  let name = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE)?.[1];
-  if (!name || !isTrackedGitEnvName(name))
-    return null;
-  let eqIdx = token.indexOf("=");
-  return { name, value: token.slice(eqIdx + 1) };
-}
-function hasGitSshEnvAssignment(envAssignments) {
-  return hasAnyEnvAssignment(envAssignments, GIT_SSH_ENV_NAMES);
-}
-function hasConfigAffectingEnvAssignment(envAssignments) {
-  return hasAnyEnvAssignment(envAssignments, GIT_CONFIG_AFFECTING_ENV_NAMES);
-}
-function hasAnyEnvAssignment(envAssignments, names) {
-  if (!envAssignments)
-    return !1;
-  for (let key of envAssignments.keys())
-    if (names.has(key))
-      return !0;
-  return !1;
-}
-
-// src/parser/traversal.ts
-function* walkCommandViews(program) {
-  for (let node of program.nodes)
-    yield* walkNode(node);
-}
-function* walkNode(node) {
-  if (node.kind === "command") {
-    yield node;
-    for (let nested of node.nested)
-      yield* walkCommandViews(nested);
-    return;
-  }
-  if (node.kind === "group")
-    yield* walkCommandViews(node.body);
-}
-
-// src/parser/projection.ts
-function projectCommandViews(program) {
-  return Object.freeze([...walkCommandViews(program)]);
-}
-function sliceCommandView(view, start, end = view.words.length) {
-  let words = view.words.slice(start, end), span = {
-    start: words[0]?.span.start ?? view.span.end,
-    end: words.at(-1)?.span.end ?? view.span.end
-  };
-  return Object.freeze({
-    ...view,
-    source: view.source.slice(span.start - view.span.start, span.end - view.span.start),
-    span: Object.freeze(span),
-    words: Object.freeze(words),
-    tokens: Object.freeze(view.tokens.slice(start, end)),
-    analysisTokens: Object.freeze(view.analysisTokens.slice(start, end)),
-    dynamicExecutable: words[0]?.provenance === "command-substitution",
-    legacyNormalized: words.map((word) => word.text).join(" ")
-  });
-}
-function projectLegacySegments(source, dialect = "posix") {
-  return Object.freeze(projectLegacyCommandEntries(source, dialect).map((entry) => entry.tokens));
-}
-function projectLegacyCommandEntries(source, dialect = "posix") {
-  let program = parseCommand(source, dialect);
-  return projectLegacyCommandEntriesFromProgram(source, program);
-}
-function projectLegacyCommandEntriesFromProgram(source, program) {
-  if (program.issues.some((issue) => issue.code.includes("quote")))
-    return Object.freeze([{ tokens: Object.freeze([source]) }]);
-  return Object.freeze(projectCommandViews(program).flatMap((view) => {
-    let tokens = projectLegacyViewTokens(view), arithmetic = view.words.flatMap((word) => word.provenance === "arithmetic" ? projectArithmeticText(word.raw) : []);
-    return [
-      Object.freeze({ tokens, view }),
-      ...arithmetic.map((text) => Object.freeze({ tokens: Object.freeze([text]) }))
-    ];
-  }));
-}
-function projectLegacyViewTokens(view) {
-  return Object.freeze(view.words.flatMap((word) => {
-    if (word.provenance === "arithmetic")
-      return [];
-    if (word.text === "" && word.provenance === "command-substitution")
-      return [];
-    if (word.provenance === "command-substitution" && (word.raw.startsWith('"') && word.raw.endsWith('"') || word.raw.startsWith("'") && word.raw.endsWith("'")))
-      return [word.raw.slice(1, -1)];
-    return [word.text];
-  }));
-}
-function projectArithmeticText(raw) {
-  if (!raw.startsWith("$(("))
-    return [];
-  let body = raw.slice(3), literal = ((body.endsWith("))") ? [body.slice(0, -2), body.slice(0, -1), body] : body.endsWith(")") ? [body.slice(0, -1), body] : [body]).find(hasBalancedParentheses) ?? body).replace(/\$\([^)]*\)/g, "").replace(/`[^`]*`/g, "").replace(/\s+/g, "");
-  return literal ? [literal] : [];
-}
-function hasBalancedParentheses(value) {
-  let depth = 0;
-  for (let char of value) {
-    if (char === "(")
-      depth++;
-    if (char === ")")
-      depth--;
-    if (depth < 0)
-      return !1;
-  }
-  return depth === 0;
-}
-function parseSimpleWords(source) {
-  let program = parseCommand(source, "posix");
-  if (program.status !== "complete" || program.nodes.length !== 1)
-    return null;
-  let command = program.nodes[0];
-  if (command?.kind !== "command")
-    return null;
-  if (command.redirections.length > 0 || command.nested.length > 0)
-    return null;
-  if (command.words.some((word) => word.provenance === "command-substitution"))
-    return null;
-  return [...command.tokens];
-}
-
-// src/core/shell/wrappers.ts
-var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+import { realpathSync as realpathSync5 } from "node:fs";
+import { isAbsolute as isAbsolute5, parse as parsePath2 } from "node:path";
+var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/, ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/, MAX_ENV_SPLIT_EXPANDED_LENGTH = 131072, MAX_ENV_SPLIT_TOKENS = 16384;
 function parseEnvAssignment(token) {
   if (!ENV_ASSIGNMENT_RE.test(token))
     return null;
@@ -4692,24 +5929,24 @@ function stripEnvAssignmentsWithInfo(tokens) {
 function stripWrappers(tokens, cwd) {
   return stripWrappersWithInfo(tokens, cwd).tokens;
 }
-function stripWrappersWithInfo(tokens, cwd) {
-  let result = [...tokens], allEnvAssignments = /* @__PURE__ */ new Map, currentCwd = cwd;
+function stripWrappersWithInfo(tokens, cwd, inheritedEnvAssignments) {
+  let result = [...tokens], allEnvAssignments = /* @__PURE__ */ new Map, effectiveEnvAssignments = new Map(inheritedEnvAssignments ?? []), currentCwd = cwd;
   for (let iteration = 0;iteration < MAX_STRIP_ITERATIONS; iteration++) {
     let before = result.join(" "), { tokens: strippedTokens, envAssignments } = stripEnvAssignmentsWithInfo(result);
     for (let [k, v] of envAssignments)
-      allEnvAssignments.set(k, v);
+      allEnvAssignments.set(k, v), effectiveEnvAssignments.set(k, v);
     if (result = strippedTokens, result.length === 0)
       break;
     while (result.length > 0 && result[0]?.includes("=") && !ENV_ASSIGNMENT_RE.test(result[0] ?? "")) {
-      let appendAssignment = parseGitContextAppendEnvAssignment(result[0] ?? "");
+      let appendAssignment = parseTmpdirAppendEnvAssignment(result[0] ?? "", effectiveEnvAssignments) ?? parseGitContextAppendEnvAssignment(result[0] ?? "", effectiveEnvAssignments);
       if (appendAssignment)
-        allEnvAssignments.set(appendAssignment.name, appendAssignment.value);
+        allEnvAssignments.set(appendAssignment.name, appendAssignment.value), effectiveEnvAssignments.set(appendAssignment.name, appendAssignment.value);
       result = result.slice(1);
     }
     if (result.length === 0)
       break;
     let head = result[0]?.toLowerCase();
-    if (head !== "sudo" && head !== "env" && head !== "command")
+    if (head !== "sudo" && head !== "env" && head !== "command" && head !== "builtin")
       break;
     if (head === "sudo") {
       let sudoResult = stripSudoWithInfo(result, currentCwd);
@@ -4717,21 +5954,38 @@ function stripWrappersWithInfo(tokens, cwd) {
         currentCwd = sudoResult.cwd;
     }
     if (head === "env") {
-      let envResult = stripEnvWithInfo(result, currentCwd);
+      let envResult = stripEnvWithInfo(result, currentCwd, effectiveEnvAssignments);
+      if (envResult.unverifiableEnvSplit)
+        return {
+          tokens: result,
+          envAssignments: allEnvAssignments,
+          cwd: currentCwd,
+          unverifiableEnvSplit: !0
+        };
       if (result = envResult.tokens, envResult.cwd !== void 0)
         currentCwd = envResult.cwd;
       for (let [k, v] of envResult.envAssignments)
-        allEnvAssignments.set(k, v);
+        allEnvAssignments.set(k, v), effectiveEnvAssignments.set(k, v);
     }
     if (head === "command")
       result = stripCommand(result);
+    if (head === "builtin")
+      result = result.slice(result[1] === "--" ? 2 : 1);
     if (result.join(" ") === before)
       break;
   }
   let { tokens: finalTokens, envAssignments: finalAssignments } = stripEnvAssignmentsWithInfo(result);
   for (let [k, v] of finalAssignments)
-    allEnvAssignments.set(k, v);
+    allEnvAssignments.set(k, v), effectiveEnvAssignments.set(k, v);
   return { tokens: finalTokens, envAssignments: allEnvAssignments, cwd: currentCwd };
+}
+function parseTmpdirAppendEnvAssignment(token, envAssignments) {
+  if (!token.startsWith("TMPDIR+="))
+    return null;
+  return {
+    name: "TMPDIR",
+    value: `${envAssignments.get("TMPDIR") ?? process.env.TMPDIR ?? ""}${token.slice(8)}`
+  };
 }
 var SUDO_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"]);
 function stripSudoWithInfo(tokens, cwd) {
@@ -4778,43 +6032,48 @@ var ENV_OPTS_NO_VALUE = /* @__PURE__ */ new Set(["-i", "-0", "--null"]), ENV_OPT
   "--split-string",
   "-P"
 ]);
-function stripEnvWithInfo(tokens, cwd) {
-  let envAssignments = /* @__PURE__ */ new Map, currentCwd = cwd, expandedTokens = tokens, i = 1;
+function stripEnvWithInfo(tokens, cwd, inheritedEnvAssignments) {
+  let envAssignments = /* @__PURE__ */ new Map, currentCwd = cwd, expandedTokens = tokens, unsetEnvNames = /* @__PURE__ */ new Set, i = 1;
   while (i < expandedTokens.length) {
     let token = expandedTokens[i];
     if (!token)
       break;
     if (token === "--")
       return { tokens: expandedTokens.slice(i + 1), envAssignments, cwd: currentCwd };
+    if (token === "-i" || token === "--ignore-environment" || token === "-") {
+      envAssignments.clear();
+      for (let name of inheritedEnvAssignments.keys())
+        envAssignments.set(name, "");
+      envAssignments.set("TMPDIR", ""), i++;
+      continue;
+    }
     if (ENV_OPTS_NO_VALUE.has(token)) {
       i++;
       continue;
     }
-    if (token === "-S" || token === "--split-string") {
-      let splitValue = expandedTokens[i + 1], splitTokens = splitValue !== void 0 ? parseEnvSplitString(splitValue) : null;
-      if (!splitTokens) {
-        currentCwd = null, i += 2;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 2, splitTokens);
+    if (token === "-u" || token === "--unset") {
+      let name = expandedTokens[i + 1];
+      if (name !== void 0)
+        unsetEnvNames.add(name), envAssignments.set(name, "");
+      i += 2;
       continue;
     }
-    if (token.startsWith("-S") && token.length > 2) {
-      let splitTokens = parseEnvSplitString(token.slice(2));
-      if (!splitTokens) {
-        currentCwd = null, i++;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
+    if (token.startsWith("-u") && token.length > 2 && !token.startsWith("-u=")) {
+      let name = token.slice(2);
+      unsetEnvNames.add(name), envAssignments.set(name, ""), i++;
       continue;
     }
-    if (token.startsWith("--split-string=")) {
-      let splitTokens = parseEnvSplitString(token.slice(15));
-      if (!splitTokens) {
-        currentCwd = null, i++;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
+    if (token.startsWith("--unset=")) {
+      let name = token.slice(8);
+      unsetEnvNames.add(name), envAssignments.set(name, ""), i++;
+      continue;
+    }
+    let splitString = token === "-S" || token === "--split-string" ? { value: expandedTokens[i + 1], consumed: 2 } : token.startsWith("-S") && token.length > 2 ? { value: token.slice(2), consumed: 1 } : token.startsWith("--split-string=") ? { value: token.slice(15), consumed: 1 } : null;
+    if (splitString) {
+      let applied = applyEnvSplitStringOption(expandedTokens, i, splitString.value, splitString.consumed, inheritedEnvAssignments, unsetEnvNames, currentCwd);
+      if (applied.done)
+        return applied.result;
+      expandedTokens = applied.expandedTokens, currentCwd = applied.currentCwd, i = applied.nextIndex;
       continue;
     }
     if (ENV_OPTS_WITH_VALUE.has(token)) {
@@ -4825,7 +6084,7 @@ function stripEnvWithInfo(tokens, cwd) {
       i += 2;
       continue;
     }
-    if (token.startsWith("-u=") || token.startsWith("--unset=")) {
+    if (token.startsWith("-u=")) {
       i++;
       continue;
     }
@@ -4842,15 +6101,153 @@ function stripEnvWithInfo(tokens, cwd) {
       i++;
       continue;
     }
-    let assignment = parseEnvAssignment(token);
-    if (!assignment)
+    if (!parseEnvAssignment(token))
       break;
-    envAssignments.set(assignment.name, assignment.value), i++;
+    while (i < expandedTokens.length) {
+      let nextAssignment = parseEnvAssignment(expandedTokens[i] ?? "");
+      if (!nextAssignment)
+        break;
+      envAssignments.set(nextAssignment.name, nextAssignment.value), i++;
+    }
+    if (expandedTokens[i] === "--")
+      i++;
+    return { tokens: expandedTokens.slice(i), envAssignments, cwd: currentCwd };
   }
   return { tokens: expandedTokens.slice(i), envAssignments, cwd: currentCwd };
 }
-function parseEnvSplitString(value) {
-  return parseSimpleWords(value);
+function applyEnvSplitStringOption(expandedTokens, index, value, consumed, inheritedEnvAssignments, unsetEnvNames, currentCwd) {
+  let splitResult = value !== void 0 ? parseEnvSplitString(value, inheritedEnvAssignments, unsetEnvNames) : { tokens: null, unverifiableEnvSplit: !1 };
+  if (splitResult.unverifiableEnvSplit)
+    return {
+      done: !0,
+      result: {
+        tokens: expandedTokens,
+        envAssignments: /* @__PURE__ */ new Map,
+        cwd: currentCwd,
+        unverifiableEnvSplit: !0
+      }
+    };
+  if (!splitResult.tokens)
+    return {
+      done: !1,
+      expandedTokens,
+      currentCwd: null,
+      nextIndex: index + consumed
+    };
+  return {
+    done: !1,
+    expandedTokens: replaceEnvSplitTokens(expandedTokens, index, consumed, splitResult.tokens),
+    currentCwd,
+    nextIndex: index
+  };
+}
+function parseEnvSplitString(value, envAssignments, unsetEnvNames) {
+  if (value.length > MAX_ENV_SPLIT_EXPANDED_LENGTH)
+    return { tokens: null, unverifiableEnvSplit: !0 };
+  let splitResult = splitEnvString(value, (name) => {
+    if (unsetEnvNames.has(name))
+      return "";
+    if (envAssignments.has(name))
+      return envAssignments.get(name) ?? "";
+    return Object.hasOwn(process.env, name) ? process.env[name] ?? "" : "";
+  });
+  return {
+    tokens: splitResult.tokens,
+    unverifiableEnvSplit: splitResult.limited
+  };
+}
+function splitEnvString(value, resolveVariable) {
+  let tokens = [], parts = [], totalLength = 0, tokenStarted = !1, singleQuoted = !1, doubleQuoted = !1, limited = !1, append = (text) => {
+    if (totalLength + text.length > MAX_ENV_SPLIT_EXPANDED_LENGTH)
+      return limited = !0, !1;
+    return parts.push(text), totalLength += text.length, tokenStarted = !0, !0;
+  }, flush = () => {
+    if (!tokenStarted)
+      return !0;
+    if (tokens.length >= MAX_ENV_SPLIT_TOKENS)
+      return limited = !0, !1;
+    return tokens.push(parts.join("")), parts = [], tokenStarted = !1, !0;
+  };
+  for (let index = 0;index < value.length; index++) {
+    let char = value[index] ?? "";
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted, tokenStarted = !0;
+      continue;
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted, tokenStarted = !0;
+      continue;
+    }
+    if (!singleQuoted && !doubleQuoted && isEnvSplitWhitespace(char)) {
+      if (!flush())
+        return { tokens: null, limited };
+      continue;
+    }
+    if (!singleQuoted && !doubleQuoted && char === "#" && !tokenStarted)
+      break;
+    if (char === "$" && !singleQuoted) {
+      let match = value.slice(index).match(ENV_SPLIT_VARIABLE_RE);
+      if (!match?.[1] || !append(resolveVariable(match[1])))
+        return { tokens: null, limited };
+      index += match[0].length - 1;
+      continue;
+    }
+    if (char !== "\\") {
+      if (!append(char))
+        return { tokens: null, limited };
+      continue;
+    }
+    let escaped = value[index + 1];
+    if (escaped === void 0)
+      return { tokens: null, limited };
+    if (singleQuoted && escaped !== "'" && escaped !== "\\") {
+      if (!append("\\"))
+        return { tokens: null, limited };
+      continue;
+    }
+    if (escaped === "c") {
+      if (doubleQuoted)
+        return { tokens: null, limited };
+      break;
+    }
+    if (escaped === "_" && !singleQuoted && !doubleQuoted) {
+      if (!flush())
+        return { tokens: null, limited };
+      index++;
+      continue;
+    }
+    let replacement = getEnvSplitEscape(escaped);
+    if (replacement === void 0 || !append(replacement))
+      return { tokens: null, limited };
+    index++;
+  }
+  if (singleQuoted || doubleQuoted || !flush())
+    return { tokens: null, limited };
+  return { tokens, limited: !1 };
+}
+function getEnvSplitEscape(escaped) {
+  if (escaped === "f")
+    return "\f";
+  if (escaped === "n")
+    return `
+`;
+  if (escaped === "r")
+    return "\r";
+  if (escaped === "t")
+    return "\t";
+  if (escaped === "v")
+    return "\v";
+  if (escaped === "_")
+    return " ";
+  if (escaped === "#" || escaped === "$" || escaped === '"' || escaped === "'")
+    return escaped;
+  if (escaped === "\\")
+    return "\\";
+  return;
+}
+function isEnvSplitWhitespace(char) {
+  return char === " " || char === "\t" || char === `
+` || char === "\r" || char === "\f" || char === "\v";
 }
 function replaceEnvSplitTokens(tokens, index, consumed, splitTokens) {
   return [...tokens.slice(0, index), ...splitTokens, ...tokens.slice(index + consumed)];
@@ -4859,9 +6256,9 @@ function resolveWrapperCwd(cwd, target) {
   if (target === "")
     return null;
   try {
-    if (!cwd && !isAbsolute4(target))
+    if (!cwd && !isAbsolute5(target))
       return null;
-    let baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync4(cwd ?? "/");
+    let baseCwd = isAbsolute5(target) ? getPathRoot2(target) : realpathSync5(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -4896,7 +6293,7 @@ function stripCommand(tokens) {
   return tokens.slice(i);
 }
 // src/core/analyze/transparent-wrappers.ts
-var BUILTIN_ANALYZED_COMMANDS = /* @__PURE__ */ new Set(["rm", "find", "xargs", "parallel"]), RESERVED_TRANSPARENT_WRAPPERS = /* @__PURE__ */ new Set([
+var BUILTIN_ANALYZED_COMMANDS = /* @__PURE__ */ new Set(["rm", "find", "xargs", "parallel"]), STANDARD_COMMAND_WRAPPERS = /* @__PURE__ */ new Set(["sudo", "env", "command", "builtin"]), RESERVED_TRANSPARENT_WRAPPERS = /* @__PURE__ */ new Set([
   "git",
   "busybox",
   ...BUILTIN_ANALYZED_COMMANDS,
@@ -4908,14 +6305,37 @@ function unwrapTransparentWrapper(tokens, policy) {
   let head = tokens[0];
   if (!head || !policy.transparentWrappers.includes(getBasename(head)))
     return null;
-  let wrapper = getBasename(head), startIndex = tokens[1] === "--" ? 2 : 1, childIndex = tokens.findIndex((child, index) => index >= startIndex && getBasename(child) !== wrapper && isProtectableCommand(child, policy));
-  if (childIndex < 0)
+  let wrapper = getBasename(head), startIndex = tokens[1] === "--" ? 2 : 1, childIndices = findChildIndices(tokens, startIndex, wrapper, policy), childIndex = childIndices[0];
+  if (childIndex === void 0)
     return null;
-  return { wrapper, tokens: [...tokens.slice(childIndex)], childIndex };
+  return {
+    wrapper,
+    tokens: [...tokens.slice(childIndex)],
+    childIndex,
+    alternativeChildIndices: childIndices.slice(1)
+  };
+}
+function findChildIndices(tokens, startIndex, wrapper, policy) {
+  let explicitChild = tokens[1] === "--", childIndices = [];
+  for (let index = startIndex;index < tokens.length; index++) {
+    let child = tokens[index];
+    if (!child)
+      continue;
+    if (getBasename(child) !== wrapper && isProtectableCommand(child, policy))
+      childIndices.push(index);
+    else if (DISPLAY_COMMANDS.has(normalizeCommandToken(child)))
+      break;
+    if (explicitChild)
+      break;
+  }
+  return childIndices;
 }
 function isProtectableCommand(token, policy) {
   let basename3 = getBasename(token), normalized = normalizeCommandToken(token);
-  return normalized === "git" || basename3 === "busybox" || BUILTIN_ANALYZED_COMMANDS.has(basename3) || policy.transparentWrappers.includes(basename3) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename3);
+  return normalized === "git" || basename3 === "busybox" || isStandardCommandWrapper(token) || BUILTIN_ANALYZED_COMMANDS.has(basename3) || policy.transparentWrappers.includes(basename3) || SHELL_WRAPPERS.has(normalized) || token === "$SHELL" || isInterpreterCommand(normalized) || AWK_INTERPRETERS.has(normalized) || policy.rules.some((rule) => rule.command === basename3);
+}
+function isStandardCommandWrapper(token) {
+  return STANDARD_COMMAND_WRAPPERS.has(token.toLowerCase());
 }
 function isReservedTransparentWrapper(command2) {
   let normalized = normalizeCommandToken(command2);
@@ -5580,19 +7000,19 @@ import {
   constants,
   fstatSync,
   fsyncSync,
-  lstatSync as lstatSync2,
+  lstatSync as lstatSync3,
   mkdirSync as mkdirSync2,
   openSync,
   readdirSync as readdirSync2,
-  readFileSync as readFileSync2,
-  realpathSync as realpathSync5,
+  readFileSync as readFileSync3,
+  realpathSync as realpathSync6,
   renameSync,
   rmdirSync,
-  statSync as statSync2,
+  statSync as statSync3,
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { isAbsolute as isAbsolute5, join as join4, normalize, parse, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join5, normalize, parse, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
 var POLICY_FILESYSTEM_SCOPE = Symbol("PolicyFilesystemScope"), POLICY_FILESYSTEM_TARGET = Symbol("PolicyFilesystemTarget"), NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
 class PolicyFilesystemError extends Error {
@@ -5602,25 +7022,25 @@ class PolicyFilesystemError extends Error {
   }
 }
 function bindPolicyFilesystemScope(root, label) {
-  return { [POLICY_FILESYSTEM_SCOPE]: !0, root: resolve3(root), label };
+  return { [POLICY_FILESYSTEM_SCOPE]: !0, root: resolve4(root), label };
 }
 function getPolicyFilesystemTarget(scope, relativePath) {
   let normalized = normalize(relativePath);
-  if (relativePath === "" || isAbsolute5(relativePath) || normalized === ".." || normalized.startsWith(`..${sep2}`))
+  if (relativePath === "" || isAbsolute6(relativePath) || normalized === ".." || normalized.startsWith(`..${sep3}`))
     throw new PolicyFilesystemError(scope.label);
   return {
     [POLICY_FILESYSTEM_TARGET]: !0,
     scope,
     relativePath: normalized,
-    path: join4(scope.root, normalized)
+    path: join5(scope.root, normalized)
   };
 }
 function getPolicyFilesystemTargetForPath(scope, path) {
-  let relativePath = relative2(scope.root, resolve3(path));
+  let relativePath = relative2(scope.root, resolve4(path));
   return getPolicyFilesystemTarget(scope, relativePath);
 }
 function bindDelegatedPolicyFilesystemTarget(path, label = "rules policy") {
-  let absolutePath = resolve3(path), root = parse(absolutePath).dir;
+  let absolutePath = resolve4(path), root = parse(absolutePath).dir;
   return getPolicyFilesystemTarget(bindPolicyFilesystemScope(root, label), relative2(root, absolutePath));
 }
 function readPolicyFile(target) {
@@ -5632,7 +7052,7 @@ function readPolicyFile(target) {
       let before = fstatSync(descriptor);
       if (!before.isFile())
         throw new PolicyFilesystemError(target.scope.label);
-      let content = readFileSync2(descriptor, "utf-8"), after = lstatSync2(target.path);
+      let content = readFileSync3(descriptor, "utf-8"), after = lstatSync3(target.path);
       if (!after.isFile() || after.isSymbolicLink() || before.dev !== after.dev || before.ino !== after.ino)
         throw new PolicyFilesystemError(target.scope.label);
       return validateTarget(target, !1), content;
@@ -5667,7 +7087,7 @@ function isSamePolicyFilesystemTarget(first, second) {
   try {
     if (!validateTarget(first, !1).exists || !validateTarget(second, !1).exists)
       return !1;
-    return realpathSync5(first.path) === realpathSync5(second.path);
+    return realpathSync6(first.path) === realpathSync6(second.path);
   } catch (error) {
     if (error instanceof PolicyFilesystemError)
       throw error;
@@ -5690,10 +7110,10 @@ function readPolicyDirectoryEntries(target) {
     return null;
   try {
     let entries = names.map((name) => {
-      let child = getPolicyFilesystemTarget(target.scope, join4(target.relativePath, name)), stat = lstatSync2(child.path);
+      let child = getPolicyFilesystemTarget(target.scope, join5(target.relativePath, name)), stat = lstatSync3(child.path);
       if (stat.isSymbolicLink() || !stat.isFile() && !stat.isDirectory())
         throw new PolicyFilesystemError(target.scope.label);
-      return assertCanonicalContainment(getCanonicalRootOrThrow(target.scope), realpathSync5(child.path), target.scope.label), { name, kind: stat.isDirectory() ? "directory" : "file" };
+      return assertCanonicalContainment(getCanonicalRootOrThrow(target.scope), realpathSync6(child.path), target.scope.label), { name, kind: stat.isDirectory() ? "directory" : "file" };
     });
     return validateTarget(target, !1, "directory"), entries;
   } catch (error) {
@@ -5711,7 +7131,7 @@ function removePolicyFile(target) {
 }
 function ensurePolicyDirectory(target) {
   try {
-    ensureDirectoryComponents(target, target.relativePath.split(sep2));
+    ensureDirectoryComponents(target, target.relativePath.split(sep3));
   } catch (error) {
     throwPolicyFilesystemError(target.scope.label, error);
   }
@@ -5738,9 +7158,9 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
   let canonicalRoot = getCanonicalRoot(target.scope);
   if (!canonicalRoot)
     return { exists: !1 };
-  let parts = target.relativePath.split(sep2);
+  let parts = target.relativePath.split(sep3);
   for (let index of parts.keys()) {
-    let path = join4(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
+    let path = join5(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
     if (!stat) {
       if (index === parts.length - 1 && allowMissingLeaf)
         return { exists: !1 };
@@ -5752,13 +7172,13 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
       throw new PolicyFilesystemError(target.scope.label);
     if (index === parts.length - 1 && (leafType === "file" ? !stat.isFile() : !stat.isDirectory()))
       throw new PolicyFilesystemError(target.scope.label);
-    assertCanonicalContainment(canonicalRoot, realpathSync5(path), target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync6(path), target.scope.label);
   }
   return { exists: !0 };
 }
 function validateRemovalTree(target) {
   for (let name of readdirSync2(target.path)) {
-    let child = getPolicyFilesystemTarget(target.scope, join4(target.relativePath, name)), stat = lstatSync2(child.path);
+    let child = getPolicyFilesystemTarget(target.scope, join5(target.relativePath, name)), stat = lstatSync3(child.path);
     if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile())
       throw new PolicyFilesystemError(target.scope.label);
     if (stat.isDirectory())
@@ -5768,7 +7188,7 @@ function validateRemovalTree(target) {
 }
 function removeValidatedTree(target) {
   for (let name of readdirSync2(target.path)) {
-    let child = getPolicyFilesystemTarget(target.scope, join4(target.relativePath, name)), stat = lstatSync2(child.path);
+    let child = getPolicyFilesystemTarget(target.scope, join5(target.relativePath, name)), stat = lstatSync3(child.path);
     if (stat.isSymbolicLink())
       throw new PolicyFilesystemError(target.scope.label);
     if (stat.isDirectory()) {
@@ -5782,24 +7202,24 @@ function removeValidatedTree(target) {
   rmdirSync(target.path);
 }
 function ensureTargetParents(target) {
-  ensureDirectoryComponents(target, target.relativePath.split(sep2).slice(0, -1));
+  ensureDirectoryComponents(target, target.relativePath.split(sep3).slice(0, -1));
 }
 function ensureDirectoryComponents(target, parts) {
   ensureRoot(target.scope);
   let canonicalRoot = getCanonicalRootOrThrow(target.scope);
   for (let index of parts.keys()) {
-    let path = join4(target.scope.root, ...parts.slice(0, index + 1));
+    let path = join5(target.scope.root, ...parts.slice(0, index + 1));
     if (!lstatOrMissing(path))
       mkdirSync2(path, { mode: 448 });
-    let after = lstatSync2(path);
+    let after = lstatSync3(path);
     if (!after.isDirectory() || after.isSymbolicLink())
       throw new PolicyFilesystemError(target.scope.label);
-    assertCanonicalContainment(canonicalRoot, realpathSync5(path), target.scope.label);
+    assertCanonicalContainment(canonicalRoot, realpathSync6(path), target.scope.label);
   }
 }
 function ensureRoot(scope) {
   if (lstatOrMissing(scope.root)) {
-    if (!statSync2(scope.root).isDirectory())
+    if (!statSync3(scope.root).isDirectory())
       throw new PolicyFilesystemError(scope.label);
     return;
   }
@@ -5811,11 +7231,11 @@ function ensureRoot(scope) {
       throw new PolicyFilesystemError(scope.label);
     current = parent;
   }
-  if (!statSync2(current).isDirectory())
+  if (!statSync3(current).isDirectory())
     throw new PolicyFilesystemError(scope.label);
   for (let path of missing) {
     mkdirSync2(path, { mode: 448 });
-    let stat = lstatSync2(path);
+    let stat = lstatSync3(path);
     if (!stat.isDirectory() || stat.isSymbolicLink())
       throw new PolicyFilesystemError(scope.label);
   }
@@ -5823,9 +7243,9 @@ function ensureRoot(scope) {
 function getCanonicalRoot(scope) {
   if (!lstatOrMissing(scope.root))
     return null;
-  if (!statSync2(scope.root).isDirectory())
+  if (!statSync3(scope.root).isDirectory())
     throw new PolicyFilesystemError(scope.label);
-  return realpathSync5(scope.root);
+  return realpathSync6(scope.root);
 }
 function getCanonicalRootOrThrow(scope) {
   let root = getCanonicalRoot(scope);
@@ -5834,22 +7254,22 @@ function getCanonicalRootOrThrow(scope) {
   return root;
 }
 function validateAdjacentTemp(target, tempPath, device, inode) {
-  let stat = lstatSync2(tempPath);
+  let stat = lstatSync3(tempPath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.dev !== device || stat.ino !== inode)
     throw new PolicyFilesystemError(target.scope.label);
   let canonicalRoot = getCanonicalRoot(target.scope);
   if (!canonicalRoot)
     throw new PolicyFilesystemError(target.scope.label);
-  assertCanonicalContainment(canonicalRoot, realpathSync5(tempPath), target.scope.label);
+  assertCanonicalContainment(canonicalRoot, realpathSync6(tempPath), target.scope.label);
 }
 function assertCanonicalContainment(canonicalRoot, canonicalPath, label) {
   let remainder = relative2(canonicalRoot, canonicalPath);
-  if (remainder === ".." || remainder.startsWith(`..${sep2}`) || isAbsolute5(remainder))
+  if (remainder === ".." || remainder.startsWith(`..${sep3}`) || isAbsolute6(remainder))
     throw new PolicyFilesystemError(label);
 }
 function lstatOrMissing(path) {
   try {
-    return lstatSync2(path);
+    return lstatSync3(path);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT")
       return null;
@@ -5967,38 +7387,38 @@ function toTarget(path) {
 
 // src/core/rules/policy/paths.ts
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname4, isAbsolute as isAbsolute6, join as join5, relative as relative3, resolve as resolve4, sep as sep3 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute7, join as join6, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
-  return resolve4(cwd ?? process.cwd(), RULES_DIR);
+  return resolve5(cwd ?? process.cwd(), RULES_DIR);
 }
 function getProjectRulesConfigPath(cwd) {
-  return join5(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
+  return join6(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
 }
 function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname4(options2.userConfigPath) : join5(getUserSafetyNetHome(), RULES_SUBDIR));
+  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname5(options2.userConfigPath) : join6(getUserSafetyNetHome(), RULES_SUBDIR));
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve4(home) : join5(homedir3(), SAFETY_NET_DIR);
+  return home ? resolve5(home) : join6(homedir3(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
-  return join5(getUserRulesDir(options2), RULES_CONFIG_FILE);
+  return join6(getUserRulesDir(options2), RULES_CONFIG_FILE);
 }
 function getUserRulesLockPath(options2) {
-  return join5(getUserRulesDir(options2), RULES_LOCK_FILE);
+  return join6(getUserRulesDir(options2), RULES_LOCK_FILE);
 }
 function getRulesLockPathForConfigPath(configPath) {
-  return join5(dirname4(configPath), RULES_LOCK_FILE);
+  return join6(dirname5(configPath), RULES_LOCK_FILE);
 }
 function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join5(dirname4(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
+  return join6(dirname5(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
 }
 function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve4(options2.cwd ?? process.cwd(), ".safety-net.json");
+  return resolve5(options2.cwd ?? process.cwd(), ".safety-net.json");
 }
 function getPolicyPaths(options2) {
-  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), userScope = getUserPolicyFilesystemScope(userConfigPath, options2), projectScope = getProjectPolicyFilesystemScope(projectConfigPath, options2), projectLegacyPath = getLegacyProjectRulesConfigPath(options2), projectLegacyScope = bindPolicyFilesystemScope(resolve4(options2.cwd ?? process.cwd()), "project policy");
+  let userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2), projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), userScope = getUserPolicyFilesystemScope(userConfigPath, options2), projectScope = getProjectPolicyFilesystemScope(projectConfigPath, options2), projectLegacyPath = getLegacyProjectRulesConfigPath(options2), projectLegacyScope = bindPolicyFilesystemScope(resolve5(options2.cwd ?? process.cwd()), "project policy");
   return {
     userConfigPath,
     projectConfigPath,
@@ -6018,7 +7438,7 @@ function getPolicyPaths(options2) {
 function getScopePaths(options2) {
   let configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd), filesystemScope = options2.global ? getUserPolicyFilesystemScope(configPath, options2) : getProjectPolicyFilesystemScope(configPath, options2), lockPath = getRulesLockPathForConfigPath(configPath);
   return {
-    configDir: dirname4(configPath),
+    configDir: dirname5(configPath),
     configPath,
     lockPath,
     filesystemScope,
@@ -6027,14 +7447,14 @@ function getScopePaths(options2) {
   };
 }
 function getUserPolicyFilesystemScope(_configPath, options2) {
-  let root = options2.userConfigPath ? dirname4(dirname4(resolve4(options2.userConfigPath))) : dirname4(resolve4(options2.userConfigDir ?? getUserRulesDir(options2)));
+  let root = options2.userConfigPath ? dirname5(dirname5(resolve5(options2.userConfigPath))) : dirname5(resolve5(options2.userConfigDir ?? getUserRulesDir(options2)));
   return bindPolicyFilesystemScope(root, "user policy");
 }
 function getProjectPolicyFilesystemScope(configPath, options2) {
-  let cwd = resolve4(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve4(configPath), fromCwd = relative3(cwd, absoluteConfigPath);
-  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep3}`) && !isAbsolute6(fromCwd))
+  let cwd = resolve5(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve5(configPath), fromCwd = relative3(cwd, absoluteConfigPath);
+  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep4}`) && !isAbsolute7(fromCwd))
     return bindPolicyFilesystemScope(cwd, "project policy");
-  return bindPolicyFilesystemScope(dirname4(dirname4(absoluteConfigPath)), "project policy");
+  return bindPolicyFilesystemScope(dirname5(dirname5(absoluteConfigPath)), "project policy");
 }
 function getRulebookDisplaySource(entry) {
   if (entry.kind === "github" && entry.display_ref)
@@ -6043,10 +7463,10 @@ function getRulebookDisplaySource(entry) {
 }
 function getRulebookCachePath(entry, options2) {
   let digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join5(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
+  return join6(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
 }
 function getRulebookCacheRoot(options2) {
-  return join5(getRulesCacheDir(options2), "rulebooks");
+  return join6(getRulesCacheDir(options2), "rulebooks");
 }
 function getRulebookCacheOptions(configDir, options2) {
   let syncOptions = options2;
@@ -6061,9 +7481,9 @@ function getRulebookCacheSlug(entry) {
 }
 function getRulesCacheDir(options2) {
   let configDir = options2?.cacheConfigDir ?? getUserRulesDir(options2), syncOptions = options2;
-  if (syncOptions && !syncOptions.global && syncOptions.cwd && resolve4(configDir) === resolve4(syncOptions.cwd))
-    return join5(resolve4(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
-  return join5(dirname4(configDir), CACHE_SUBDIR);
+  if (syncOptions && !syncOptions.global && syncOptions.cwd && resolve5(configDir) === resolve5(syncOptions.cwd))
+    return join6(resolve5(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
+  return join6(dirname5(configDir), CACHE_SUBDIR);
 }
 
 // src/core/policy.ts
@@ -6087,11 +7507,11 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS2 = /* @__PURE__ */ new Set(["stan
   }
 };
 function getUserPolicyPath(options2) {
-  return join6(dirname5(getUserRulesDir(options2)), POLICY_FILE);
+  return join7(dirname6(getUserRulesDir(options2)), POLICY_FILE);
 }
 function readUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
-  if (!existsSync(path))
+  if (!existsSync2(path))
     return {
       path,
       exists: !1,
@@ -6099,7 +7519,7 @@ function readUserPolicyForGui(options2 = {}) {
       policy: createDefaultGuiPolicy(),
       errors: []
     };
-  let raw = readFileSync3(path, "utf-8");
+  let raw = readFileSync4(path, "utf-8");
   if (!raw.trim())
     return {
       path,
@@ -6131,13 +7551,13 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
   let path = getUserPolicyPath(options2), errors = getUserPolicyDiagnostics(policy), normalizedPolicy = errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(policy);
   if (errors.length > 0)
     return { path, policy: normalizedPolicy, errors };
-  return mkdirSync3(dirname5(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
+  return mkdirSync3(dirname6(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
 function repairUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
-  if (!existsSync(path))
+  if (!existsSync2(path))
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
-  let raw = readFileSync3(path, "utf-8");
+  let raw = readFileSync4(path, "utf-8");
   if (!raw.trim())
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options2);
   try {
@@ -6245,10 +7665,10 @@ function normalizeGuiPolicy(policy) {
 }
 function readPolicyConfig(path) {
   let empty = createEmptyPolicy();
-  if (!existsSync(path))
+  if (!existsSync2(path))
     return { policy: empty, errors: [] };
   try {
-    let content = readFileSync3(path, "utf-8");
+    let content = readFileSync4(path, "utf-8");
     if (!content.trim())
       return { policy: empty, errors: [`${path}: Config file is empty`] };
     let parsed = JSON.parse(content), errors = getUserPolicyDiagnostics(parsed);
@@ -6300,7 +7720,7 @@ function normalizeSafety(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative4, resolve as resolve5, sep as sep4 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute8, join as join9, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
 // src/core/rules/custom-rule-validation.ts
 function validateCustomRule(rule, index, ruleNames, options2 = {}) {
@@ -6422,6 +7842,109 @@ function isRulebookWithinAcceptanceLimits(rulebook) {
 }
 function exceedsArrayLimit(value, limit) {
   return Array.isArray(value) && value.length > limit;
+}
+
+// src/parser/traversal.ts
+function* walkCommandViews(program) {
+  for (let node of program.nodes)
+    yield* walkNode(node);
+}
+function* walkNode(node) {
+  if (node.kind === "command") {
+    yield node;
+    for (let nested of node.nested)
+      yield* walkCommandViews(nested);
+    return;
+  }
+  if (node.kind === "group")
+    yield* walkCommandViews(node.body);
+}
+
+// src/parser/projection.ts
+function projectCommandViews(program) {
+  return Object.freeze([...walkCommandViews(program)]);
+}
+function sliceCommandView(view, start, end = view.words.length) {
+  let words = view.words.slice(start, end), span = {
+    start: words[0]?.span.start ?? view.span.end,
+    end: words.at(-1)?.span.end ?? view.span.end
+  };
+  return Object.freeze({
+    ...view,
+    source: view.source.slice(span.start - view.span.start, span.end - view.span.start),
+    span: Object.freeze(span),
+    words: Object.freeze(words),
+    tokens: Object.freeze(view.tokens.slice(start, end)),
+    analysisTokens: Object.freeze(view.analysisTokens.slice(start, end)),
+    dynamicExecutable: isDynamicExecutable(view.dialect, words),
+    legacyNormalized: words.map((word) => word.text).join(" ")
+  });
+}
+function isDynamicExecutable(dialect, words) {
+  if (dialect !== "powershell")
+    return words[0]?.provenance === "command-substitution";
+  let executableIndex = words[0]?.text === "&" || words[0]?.text === "." ? 1 : 0, provenance = words[executableIndex]?.provenance;
+  return provenance !== void 0 && provenance !== "literal";
+}
+function projectLegacySegments(source, dialect = "posix") {
+  return Object.freeze(projectLegacyCommandEntries(source, dialect).map((entry) => entry.tokens));
+}
+function projectLegacyCommandEntries(source, dialect = "posix") {
+  let program = parseCommand(source, dialect);
+  return projectLegacyCommandEntriesFromProgram(source, program);
+}
+function projectLegacyCommandEntriesFromProgram(source, program) {
+  if (program.issues.some((issue) => issue.code.includes("quote")))
+    return Object.freeze([{ tokens: Object.freeze([source]) }]);
+  return Object.freeze(projectCommandViews(program).flatMap((view) => {
+    let tokens = projectLegacyViewTokens(view), arithmetic = view.words.flatMap((word) => word.provenance === "arithmetic" ? projectArithmeticText(word.raw) : []);
+    return [
+      Object.freeze({ tokens, view }),
+      ...arithmetic.map((text) => Object.freeze({ tokens: Object.freeze([text]) }))
+    ];
+  }));
+}
+function projectLegacyViewTokens(view) {
+  return Object.freeze(view.words.flatMap((word) => {
+    if (word.provenance === "arithmetic")
+      return [];
+    if (word.text === "" && word.provenance === "command-substitution")
+      return [];
+    if (word.provenance === "command-substitution" && (word.raw.startsWith('"') && word.raw.endsWith('"') || word.raw.startsWith("'") && word.raw.endsWith("'")))
+      return [word.raw.slice(1, -1)];
+    return [word.text];
+  }));
+}
+function projectArithmeticText(raw) {
+  if (!raw.startsWith("$(("))
+    return [];
+  let body = raw.slice(3), literal = ((body.endsWith("))") ? [body.slice(0, -2), body.slice(0, -1), body] : body.endsWith(")") ? [body.slice(0, -1), body] : [body]).find(hasBalancedParentheses) ?? body).replace(/\$\([^)]*\)/g, "").replace(/`[^`]*`/g, "").replace(/\s+/g, "");
+  return literal ? [literal] : [];
+}
+function hasBalancedParentheses(value) {
+  let depth = 0;
+  for (let char of value) {
+    if (char === "(")
+      depth++;
+    if (char === ")")
+      depth--;
+    if (depth < 0)
+      return !1;
+  }
+  return depth === 0;
+}
+function parseSimpleWords(source) {
+  let program = parseCommand(source, "posix");
+  if (program.status !== "complete" || program.nodes.length !== 1)
+    return null;
+  let command2 = program.nodes[0];
+  if (command2?.kind !== "command")
+    return null;
+  if (command2.redirections.length > 0 || command2.nested.length > 0)
+    return null;
+  if (command2.words.some((word) => word.provenance === "command-substitution"))
+    return null;
+  return [...command2.tokens];
 }
 
 // src/core/rules/custom-subcommand.ts
@@ -7033,7 +8556,7 @@ function requiredString(candidate, field) {
 
 // src/core/rules/policy/resolver.ts
 import { createHash } from "node:crypto";
-import { dirname as dirname6, join as join7 } from "node:path";
+import { dirname as dirname7, join as join8 } from "node:path";
 var GITHUB_FETCH_LIMITS = Object.freeze({
   timeoutMs: 15000,
   metadataBytes: 524288,
@@ -7041,7 +8564,7 @@ var GITHUB_FETCH_LIMITS = Object.freeze({
   treeBytes: 16777216,
   rawBytes: 4194304
 });
-async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname6(dirname6(configDir)), "rules policy"), operation = createRuleSyncOperation()) {
+async function resolveRulebookSource(spec, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname7(dirname7(configDir)), "rules policy"), operation = createRuleSyncOperation()) {
   if (isGitHubRulebookSource(spec))
     return resolveGitHubRulebook(spec, operation);
   return resolveLocalRulebook(spec, configDir, options2, filesystemScope);
@@ -7125,7 +8648,7 @@ async function resolveGitHubRulebook(spec, operation) {
     }
   };
 }
-async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname6(dirname6(configDir)), "rules policy"), operation) {
+async function readLockedGitHubRulebook(entry, configDir, options2, filesystemScope = bindPolicyFilesystemScope(dirname7(dirname7(configDir)), "rules policy"), operation) {
   let identityError = getRulebookLockEntrySourceIdentityError(entry);
   if (identityError)
     throw Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
@@ -7243,7 +8766,7 @@ function safelyCancelGitHubResponse(cancel) {
   } catch {}
 }
 function getLocalRulebookPath(configDir, name) {
-  return join7(configDir, name, RULEBOOK_FILE);
+  return join8(configDir, name, RULEBOOK_FILE);
 }
 function sha256Digest(content) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -7271,7 +8794,7 @@ function loadRulesPolicy(options2 = {}) {
     ...legacyErrors,
     ...formatPolicyReadErrors(paths.userConfigPath, user.errors),
     ...formatPolicyReadErrors(paths.projectConfigPath, project.errors)
-  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname7(paths.userConfigPath), options2, "user", paths.userScope) : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname7(paths.projectConfigPath), options2, "project", paths.projectScope) : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
+  ], userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname8(paths.userConfigPath), options2, "user", paths.userScope) : emptyScopePolicy(), projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname8(paths.projectConfigPath), options2, "project", paths.projectScope) : emptyScopePolicy(), duplicateNames = getDuplicateRulebookNames([
     ...user.config ? getConfiguredLockEntries(user.config, paths.userLockTarget) : [],
     ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockTarget) : []
   ]), userOverrides = user.config?.overrides ?? {}, projectOverrides = project.config?.overrides ?? {};
@@ -7297,7 +8820,7 @@ function loadRulesPolicy(options2 = {}) {
   };
 }
 function getRulesConfigSourceDisplayMap(configPath, filesystemScope) {
-  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname7(dirname7(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config, lock = readLockfile(getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath))).lock;
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname8(dirname8(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config, lock = readLockfile(getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath))).lock;
   if (!config || !lock)
     return /* @__PURE__ */ new Map;
   let configuredSources = new Set(config.rules);
@@ -7310,18 +8833,18 @@ function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2, fi
   return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
 }
 function loadScopePolicyForConfig(configPath, lockPath, options2, filesystemScope) {
-  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname7(dirname7(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
+  let scope = filesystemScope ?? bindPolicyFilesystemScope(dirname8(dirname8(configPath)), "rules policy"), config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
   if (!config)
     return null;
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname7(configPath), options2, "project", scope)
+    scope: loadScopePolicy(config, lockPath, dirname8(configPath), options2, "project", scope)
   };
 }
 function getUnknownOverrideErrorsForScope(config, scope) {
   return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
 }
-function loadScopePolicy(config, lockPath, configDir, options2, source, filesystemScope = bindPolicyFilesystemScope(dirname7(dirname7(configDir)), source === "user" ? "user policy" : "project policy")) {
+function loadScopePolicy(config, lockPath, configDir, options2, source, filesystemScope = bindPolicyFilesystemScope(dirname8(dirname8(configDir)), source === "user" ? "user policy" : "project policy")) {
   let lockTarget;
   try {
     lockTarget = getPolicyFilesystemTargetForPath(filesystemScope, lockPath);
@@ -7399,10 +8922,10 @@ function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
     errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : "invalid rulebook"}`);
   }
   if (entry.kind === "local-directory") {
-    let sourcePath = resolve5(configDir, entry.path), sourceRelative = relative4(resolve5(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute7(sourceRelative))
+    let sourcePath = resolve6(configDir, entry.path), sourceRelative = relative4(resolve6(configDir), sourcePath);
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep5}`) || isAbsolute8(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
-    let localPath = join8(sourcePath, RULEBOOK_FILE), localContent;
+    let localPath = join9(sourcePath, RULEBOOK_FILE), localContent;
     try {
       localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
     } catch (error) {
@@ -7435,7 +8958,7 @@ function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom, filesys
   let legacyContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, legacyPath));
   if (legacyContent === null)
     return [];
-  if (hasMigrationEvidence(configTarget, dirname7(configPath), migratedFrom, configFilesystemScope))
+  if (hasMigrationEvidence(configTarget, dirname8(configPath), migratedFrom, configFilesystemScope))
     return [];
   if (!legacyRulesConfigNeedsMigration(legacyContent))
     return [];
@@ -7469,7 +8992,7 @@ function hasMigrationEvidence(configTarget, configDir, migratedFrom, filesystemS
 function getRulebookMigratedFromTarget(configDir, source, filesystemScope) {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
     return null;
-  let path = join8(configDir, source, RULEBOOK_FILE);
+  let path = join9(configDir, source, RULEBOOK_FILE);
   try {
     let content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
     if (content === null)
@@ -7647,9 +9170,9 @@ function dangerousInTextMatch(text, scanWork) {
   chargeScan(scanWork, text, 2);
   let lower = text.toLowerCase(), stripped = lower.trimStart(), isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg "), patterns = [
     { scan: "rm", label: "rm -rf" },
-    { regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/, label: "git reset --hard" },
-    { regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/, label: "git reset --merge" },
-    { regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/, label: "git clean -f" },
+    { scan: "reset-hard", label: "git reset --hard" },
+    { scan: "reset-merge", label: "git reset --merge" },
+    { scan: "clean", label: "git clean -f" },
     { scan: "checkout", label: "git checkout --force" },
     { scan: "push-force", label: "git push --force" },
     { scan: "push-refspec", label: "git push --force" },
@@ -7676,7 +9199,7 @@ function dangerousInTextMatch(text, scanWork) {
 // src/core/analyze/derived-command-budget.ts
 var DERIVED_COMMAND_WORK_LIMITS = Object.freeze({
   maxDerivedTokens: 16384
-}), REASON_DERIVED_COMMAND_WORK_LIMIT = "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.";
+}), REASON_DERIVED_COMMAND_WORK_LIMIT = "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.", REASON_ENV_SPLIT_STRING_UNVERIFIABLE = "env -S split-string variables cannot be resolved safely. Use literal values or expand the command explicitly.";
 
 class DerivedCommandWorkLimitError extends Error {
   constructor() {
@@ -7684,13 +9207,37 @@ class DerivedCommandWorkLimitError extends Error {
     this.name = "DerivedCommandWorkLimitError";
   }
 }
+
+class EnvSplitStringExpansionError extends Error {
+  constructor() {
+    super("env -S split-string variables cannot be resolved safely. Use literal values or expand the command explicitly.");
+    this.name = "EnvSplitStringExpansionError";
+  }
+}
 function createDerivedCommandWorkBudget() {
   return { derivedTokens: 0 };
 }
 function reserveDerivedCommandTokens(budget, derivedTokens) {
-  if (!Number.isSafeInteger(derivedTokens) || derivedTokens < 0 || derivedTokens > DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens - budget.derivedTokens)
+  if (!Number.isSafeInteger(budget.derivedTokens) || budget.derivedTokens < 0 || budget.derivedTokens > DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens || !Number.isSafeInteger(derivedTokens) || derivedTokens < 0 || derivedTokens > DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens - budget.derivedTokens)
     throw new DerivedCommandWorkLimitError;
   budget.derivedTokens += derivedTokens;
+}
+
+// src/core/analyze/heredoc-files.ts
+import { isAbsolute as isAbsolute9, resolve as resolve7 } from "node:path";
+var MAX_TRACKED_HEREDOC_FILES = 64;
+function resolveTrackedHeredocPath(source, effectiveCwd) {
+  let path = isAbsolute9(source) ? resolve7(source) : effectiveCwd ? resolve7(effectiveCwd, source) : void 0;
+  if (!path)
+    return;
+  try {
+    return resolveExistingPath(path);
+  } catch {
+    return path;
+  }
+}
+function isPersistentHeredocFilePath(path) {
+  return !["/dev", "/proc", "/sys"].some((root) => path === root || path.startsWith(`${root}/`));
 }
 
 // src/core/analyze/parallel-budget.ts
@@ -7722,13 +9269,101 @@ function reserveParallelAnalysis(budget, reservation) {
   budget.childAnalyses += childAnalyses, budget.derivedTokens += derivedTokens, budget.derivedBytes += derivedBytes, budget.placeholderReplacements += placeholderReplacements;
 }
 function exceedsLimit(current, amount, limit) {
-  return !Number.isSafeInteger(amount) || amount < 0 || amount > limit - current;
+  return !Number.isSafeInteger(current) || current < 0 || current > limit || !Number.isSafeInteger(amount) || amount < 0 || amount > limit - current;
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { realpathSync as realpathSync6 } from "node:fs";
-import { homedir as homedir4, tmpdir } from "node:os";
-import { normalize as normalize2, resolve as resolve6, sep as sep5 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { normalize as normalize3, posix, resolve as resolve8, sep as sep7 } from "node:path";
+
+// src/core/analyze/tmpdir.ts
+import { lstatSync as lstatSync4, realpathSync as realpathSync7 } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute as isAbsolute10, join as join10, normalize as normalize2, parse as parsePath3, sep as sep6 } from "node:path";
+var INITIAL_SYSTEM_TMPDIR = tmpdir(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"], TRUSTED_TEMP_ROOTS = buildTrustedTempRoots(), DEFAULT_IFS = ` 	
+`;
+function isTmpdirOverriddenToNonTemp(envAssignments) {
+  if (hasUnsafeTmpdirWordSplitting(envAssignments))
+    return !0;
+  if (!envAssignments.has("TMPDIR"))
+    return !1;
+  return !isAssignedTmpdirValueTrusted(envAssignments.get("TMPDIR") ?? "");
+}
+function isTmpdirValueTrusted(envAssignments) {
+  if (envAssignments.has("TMPDIR"))
+    return isAssignedTmpdirValueTrusted(envAssignments.get("TMPDIR") ?? "");
+  let tmpdirValue = getOwnEnvValue("TMPDIR");
+  if (tmpdirValue === void 0)
+    return !0;
+  return isAssignedTmpdirValueTrusted(tmpdirValue);
+}
+function isTmpdirKnownEmpty(envAssignments) {
+  if (envAssignments.has("TMPDIR"))
+    return (envAssignments.get("TMPDIR") ?? "") === "";
+  return !1;
+}
+function isAssignedTmpdirValueTrusted(tmpdirValue) {
+  if (!tmpdirValue)
+    return !1;
+  if (hasUnsafeTmpdirShellExpansion(tmpdirValue))
+    return !1;
+  return isTrustedTempPath(tmpdirValue);
+}
+function hasUnsafeTmpdirWordSplitting(envAssignments) {
+  let ifs = getEffectiveShellEnvValue(envAssignments, "IFS");
+  return ifs !== void 0 && ifs !== "" && ifs !== DEFAULT_IFS;
+}
+function isTrustedTempPath(path) {
+  let normalizedPath = tryResolveExistingPathComponents(path);
+  return normalizedPath !== null && TRUSTED_TEMP_ROOTS.some((root) => isPathOrSubpath(normalizedPath, root));
+}
+function buildTrustedTempRoots() {
+  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  if (!initialTmpdir)
+    return roots;
+  if (process.platform === "win32")
+    return [...roots, initialTmpdir];
+  if (process.platform === "darwin" && isMacOSPerUserTempRoot(initialTmpdir))
+    return [...roots, initialTmpdir];
+  return roots;
+}
+function hasUnsafeTmpdirShellExpansion(path) {
+  return /[\s$`*?[]/.test(path) || /\{[^{}]*(?:,|\.\.)[^{}]*\}/.test(path) || /[+@!]\([^)]*\)/.test(path);
+}
+function getEffectiveShellEnvValue(envAssignments, name) {
+  return envAssignments.has(name) ? envAssignments.get(name) : getOwnEnvValue(name);
+}
+function isMacOSPerUserTempRoot(path) {
+  return /^\/(?:private\/)?var\/folders\/[^/]{2}\/[^/]+\/T$/.test(path);
+}
+function tryResolveExistingPathComponents(path) {
+  try {
+    return resolveExistingPathComponents(path);
+  } catch {
+    return null;
+  }
+}
+function resolveExistingPathComponents(path) {
+  let normalized = normalize2(path);
+  if (!isAbsolute10(normalized))
+    return normalized;
+  let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
+  for (let i = 0;i < components.length; i++) {
+    let candidate = join10(current, components[i] ?? "");
+    if (!lstatSync4(candidate, { throwIfNoEntry: !1 }))
+      return join10(candidate, ...components.slice(i + 1));
+    current = realpathSync7(candidate);
+  }
+  return current;
+}
+function isPathOrSubpath(path, basePath) {
+  if (path === basePath)
+    return !0;
+  let baseWithSlash = basePath.endsWith(sep6) ? basePath : `${basePath}${sep6}`;
+  return path.startsWith(baseWithSlash);
+}
+
+// src/core/analyze/recursive-delete-targets.ts
 var IS_WINDOWS = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
   return {
@@ -7737,45 +9372,56 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
     strict: options2.strict ?? !1,
     paranoid: options2.paranoid ?? !1,
     trustTmpdirVar: options2.allowTmpdirVar ?? !0,
-    homeDir: getHomeDirForRmPolicy()
+    posixShell: options2.posixShell ?? !1,
+    tmpdirVarExpandsEmpty: options2.tmpdirVarExpandsEmpty ?? !1,
+    tmpdirWordSplittingUnsafe: options2.tmpdirWordSplittingUnsafe ?? !1,
+    trustedTmpdirValue: options2.trustedTmpdirValue ?? options2.allowTmpdirVar ?? !0,
+    homeDir: getHomeDirForRmPolicy(),
+    pathCanonicalizationBudget: createPathCanonicalizationBudget()
   };
 }
-function classifyRecursiveDeleteTarget(target, ctx) {
-  if (isUnsupportedWindowsNamespacePath(target))
+function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
+  let targetIsLiteral = options2.targetIsLiteral ?? !1;
+  if (!targetIsLiteral && ctx.tmpdirWordSplittingUnsafe && !options2.tmpdirWordSplittingProtected && containsTmpdirVariable(target))
     return { kind: "outside_anchored_cwd" };
-  if (isDangerousRootOrHomeTarget(target))
+  let normalizedTarget = target, dynamic = !targetIsLiteral && isDynamicTarget(normalizedTarget, ctx.posixShell);
+  if (isUnsupportedWindowsNamespacePath(normalizedTarget))
+    return { kind: "outside_anchored_cwd" };
+  if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral))
     return { kind: "root_or_home_target" };
-  if (isTempTarget(target, ctx.trustTmpdirVar))
+  if (isTempTarget(normalizedTarget, ctx.trustTmpdirVar, ctx.posixShell, dynamic, targetIsLiteral, options2.tmpdirWordSplittingProtected ?? !1, ctx.trustedTmpdirValue))
     return { kind: "temp_target" };
-  if (isDynamicTarget(target))
+  if (dynamic)
     return { kind: "dynamic_target" };
   let anchoredCwd = ctx.anchoredCwd;
   if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir))
+    if (!options2.skipHomeCwd && isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir, ctx.pathCanonicalizationBudget))
       return { kind: "home_cwd_target" };
-    if (isCwdSelfTarget(target, anchoredCwd))
+    if (!options2.skipCwdSelf && isCwdSelfTarget(normalizedTarget, ctx.resolvedCwd ?? anchoredCwd, ctx.pathCanonicalizationBudget))
       return { kind: "cwd_self_target" };
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd))
+    if (isTargetWithinCwd(normalizedTarget, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd, dynamic, targetIsLiteral, ctx.pathCanonicalizationBudget))
       return { kind: "within_anchored_cwd" };
   }
   return { kind: "outside_anchored_cwd" };
 }
-function isDangerousRootOrHomeTarget(path) {
-  let normalized = path.trim();
+function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
+  let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/");
   if (normalized === "/" || normalized === "/*")
     return !0;
-  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
+  if (/^[A-Za-z]:\/+\*?$/.test(windowsNormalized) || /^\/\/[^/]+\/+[^/]+(?:\/+\*?)?$/.test(windowsNormalized))
+    return !0;
+  if (!targetIsLiteral && (normalized === "~" || normalized === "~/" || normalized.startsWith("~/"))) {
     if (normalized === "~" || normalized === "~/" || normalized === "~/*")
       return !0;
   }
-  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*")
+  if (!targetIsLiteral && (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*"))
     return !0;
-  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*")
+  if (!targetIsLiteral && (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*"))
     return !0;
   return !1;
 }
-function normalizePathForComparison(p) {
-  let normalized = normalize2(p);
+function normalizePathForComparison2(p) {
+  let normalized = normalize3(p);
   if (IS_WINDOWS) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
@@ -7785,33 +9431,34 @@ function normalizePathForComparison(p) {
     normalized = normalized.slice(0, -1);
   return normalized;
 }
-function isTempTarget(path, allowTmpdirVar) {
+function isTempTarget(path, allowTmpdirVar, posixShell, dynamic, targetIsLiteral, tmpdirWordSplittingProtected, trustedTmpdirValue) {
   let normalized = path.trim();
   if (hasParentDirectoryComponent(normalized))
     return !1;
-  if (normalized === "/tmp" || normalized.startsWith("/tmp/"))
+  if (!dynamic && isTrustedTempPath(normalized))
     return !0;
-  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/"))
-    return !0;
-  let normalizedTmpdir = normalizePathForComparison(tmpdir()), pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep5}`) || pathToCompare === normalizedTmpdir)
-    return !0;
-  if (allowTmpdirVar) {
-    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/"))
+  return (allowTmpdirVar || tmpdirWordSplittingProtected && trustedTmpdirValue) && posixShell && !targetIsLiteral && isTrustedTmpdirVariableTarget(normalized, posixShell);
+}
+function isTrustedTmpdirVariableTarget(path, posixShell) {
+  return ["$TMPDIR", "${TMPDIR}"].some((prefix) => {
+    if (path === prefix)
       return !0;
-    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/"))
-      return !0;
-  }
-  return !1;
+    if (!path.startsWith(`${prefix}/`))
+      return !1;
+    return !isDynamicTarget(path.slice(prefix.length + 1), posixShell);
+  });
 }
 function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir4();
+  return getOwnEnvValue("HOME") || homedir4();
 }
-function isDynamicTarget(target) {
-  return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target);
+function containsTmpdirVariable(target) {
+  return /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(target);
+}
+function isDynamicTarget(target, posixShell = !1) {
+  return target.includes("$") || target.includes("`") || hasShellGlobMetachar(target) || posixShell && hasPosixShellExpansionMetachar(target);
 }
 function hasShellGlobMetachar(target) {
   let escaped = !1;
@@ -7829,66 +9476,90 @@ function hasShellGlobMetachar(target) {
   }
   return !1;
 }
-function isCwdHomeForRmPolicy(cwd, homeDir) {
+function hasPosixShellExpansionMetachar(target) {
+  let escaped = !1;
+  for (let index = 0;index < target.length; index++) {
+    let char = target[index];
+    if (escaped) {
+      escaped = !1;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = !0;
+      continue;
+    }
+    if (char === "{" && hasBraceExpansion(target, index) || (char === "+" || char === "@" || char === "!") && target[index + 1] === "(")
+      return !0;
+  }
+  return !1;
+}
+function hasBraceExpansion(target, openIndex) {
+  let closeIndex = target.indexOf("}", openIndex + 1);
+  if (closeIndex === -1)
+    return !1;
+  let body = target.slice(openIndex + 1, closeIndex);
+  return body.includes(",") || body.includes("..");
+}
+function isCwdHomeForRmPolicy(cwd, homeDir, budget) {
   try {
-    return normalizePathForComparison(realpathSync6(cwd)) === normalizePathForComparison(realpathSync6(homeDir));
+    return normalizePathForComparison2(resolveExistingPath(cwd, budget)) === normalizePathForComparison2(resolveExistingPath(homeDir, budget));
   } catch {
     try {
-      return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
+      return normalizePathForComparison2(cwd) === normalizePathForComparison2(homeDir);
     } catch {
       return !1;
     }
   }
 }
-function isCwdSelfTarget(target, cwd) {
+function isCwdSelfTarget(target, cwd, budget) {
   if (target === "." || target === "./" || target === ".\\")
     return !0;
   try {
-    return normalizePathForComparison(realpathSync6(resolve6(cwd, target))) === normalizePathForComparison(realpathSync6(cwd));
+    return normalizePathForComparison2(resolveExistingPath(resolve8(cwd, target), budget)) === normalizePathForComparison2(resolveExistingPath(cwd, budget));
   } catch {
     try {
-      return normalizePathForComparison(resolve6(cwd, target)) === normalizePathForComparison(cwd);
+      return normalizePathForComparison2(resolve8(cwd, target)) === normalizePathForComparison2(cwd);
     } catch {
       return !1;
     }
   }
 }
-function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
+function isTargetWithinCwd(target, originalCwd, effectiveCwd, dynamic, targetIsLiteral, budget) {
   let resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}"))
+  if (!targetIsLiteral && (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")))
     return !1;
-  if (isDynamicTarget(target))
+  if (dynamic)
     return !1;
   if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target))
     try {
-      return isResolvedPathWithinCwd(target, originalCwd);
+      return isResolvedPathWithinCwd(target, originalCwd, budget);
     } catch {
       return !1;
     }
   if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\"))
     try {
-      return isResolvedPathWithinCwd(resolve6(resolveCwd, target), originalCwd);
+      return isResolvedPathWithinCwd(resolve8(resolveCwd, target), originalCwd, budget);
     } catch {
       return !1;
     }
   if (target.startsWith("../"))
     return !1;
   try {
-    return isResolvedPathWithinCwd(resolve6(resolveCwd, target), originalCwd);
+    return isResolvedPathWithinCwd(resolve8(resolveCwd, target), originalCwd, budget);
   } catch {
     return !1;
   }
 }
-function isResolvedPathWithinCwd(resolvedTarget, cwd) {
+function isResolvedPathWithinCwd(resolvedTarget, cwd, budget) {
   try {
-    return isNormalizedPathWithin(realpathSync6(resolvedTarget), realpathSync6(cwd));
+    return isNormalizedPathWithin(resolveExistingPath(resolvedTarget, budget), resolveExistingPath(cwd, budget));
   } catch {
-    return isNormalizedPathWithin(resolvedTarget, cwd);
+    return !1;
   }
 }
 function isNormalizedPathWithin(target, cwd) {
-  let normalizedTarget = normalizePathForComparison(target), normalizedCwd = normalizePathForComparison(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep5}`) || normalizedTarget === normalizedCwd;
+  let normalizedTarget = normalizePathForComparison2(target), normalizedCwd = normalizePathForComparison2(cwd);
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep7}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/powershell/remove-item.ts
@@ -8046,108 +9717,70 @@ function matchForClassification(classification, ctx) {
 }
 
 // src/core/analyze/segment.ts
-import { realpathSync as realpathSync9 } from "node:fs";
+import { realpathSync as realpathSync8 } from "node:fs";
 import { normalize as normalize4 } from "node:path";
 
-// src/core/analyze/constants.ts
-var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
-  "echo",
-  "printf",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "sed",
-  "awk",
-  "cut",
-  "tr",
-  "sort",
-  "uniq",
-  "wc",
-  "tee",
-  "man",
-  "help",
-  "info",
-  "type",
-  "which",
-  "whereis",
-  "whatis",
-  "apropos",
-  "file",
-  "stat",
-  "ls",
-  "ll",
-  "dir",
-  "tree",
-  "pwd",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "id",
-  "groups",
-  "hostname",
-  "uname",
-  "env",
-  "printenv",
-  "set",
-  "export",
-  "alias",
-  "history",
-  "jobs",
-  "fg",
-  "bg",
-  "test",
-  "true",
-  "false",
-  "read",
-  "return",
-  "exit",
-  "break",
-  "continue",
-  "shift",
-  "wait",
-  "trap",
-  "basename",
-  "dirname",
-  "realpath",
-  "readlink",
-  "md5sum",
-  "sha256sum",
-  "base64",
-  "xxd",
-  "od",
-  "hexdump",
-  "strings",
-  "diff",
-  "cmp",
-  "comm",
-  "join",
-  "paste",
-  "column",
-  "fmt",
-  "fold",
-  "nl",
-  "pr",
-  "expand",
-  "unexpand",
-  "rev",
-  "tac",
-  "shuf",
-  "seq",
-  "yes",
-  "sleep",
-  "logger",
-  "write",
-  "wall",
-  "mesg",
-  "notify-send"
-]);
+// src/core/analyze/child-command.ts
+function normalizeChildCommands(tokens, context) {
+  let policy = context.policy ?? { rules: [], transparentWrappers: [] };
+  return normalizeChildCommandCandidates([...tokens], context.cwd, context.cwd, /* @__PURE__ */ new Map, new Map(context.envAssignments ?? []), policy, { iterations: 0 }, !1);
+}
+function* normalizeChildCommandCandidates(tokens, wrapperCwd, cwd, wrapperEnvAssignments, envAssignments, policy, budget, wrappedByTransparent) {
+  let wrapperInfo = stripWrappersWithInfo(tokens, wrapperCwd, envAssignments);
+  if (wrapperInfo.unverifiableEnvSplit)
+    throw new EnvSplitStringExpansionError;
+  for (let [key, value] of wrapperInfo.envAssignments)
+    envAssignments.set(key, value), wrapperEnvAssignments.set(key, value);
+  let { tokens: childTokens, cwd: childWrapperCwd } = wrapperInfo;
+  if (isStandardCommandWrapper(childTokens[0] ?? ""))
+    throw new DerivedCommandWorkLimitError;
+  let transparentWrapper = unwrapTransparentWrapper(childTokens, policy);
+  if (transparentWrapper) {
+    for (let childIndex of [
+      transparentWrapper.childIndex,
+      ...transparentWrapper.alternativeChildIndices
+    ])
+      reserveChildNormalization(budget), yield* normalizeChildCommandCandidates(childIndex === transparentWrapper.childIndex ? transparentWrapper.tokens : [...childTokens.slice(childIndex)], childWrapperCwd, cwd, new Map(wrapperEnvAssignments), new Map(envAssignments), policy, budget, !0);
+    return;
+  }
+  if (isBusyboxWrapper(childTokens)) {
+    reserveChildNormalization(budget), yield* normalizeChildCommandCandidates([...childTokens.slice(1)], childWrapperCwd, cwd, wrapperEnvAssignments, envAssignments, policy, budget, wrappedByTransparent);
+    return;
+  }
+  yield normalizedChildCommand(childTokens, childWrapperCwd, cwd, wrapperEnvAssignments, envAssignments, wrappedByTransparent);
+}
+function normalizedChildCommand(tokens, wrapperCwd, cwd, wrapperEnvAssignments, envAssignments, wrappedByTransparent) {
+  return {
+    tokens,
+    cwd: wrapperCwd === null ? void 0 : wrapperCwd ?? cwd,
+    wrapperCwd,
+    wrapperEnvAssignments,
+    envAssignments,
+    head: getBasename(tokens[0] ?? "").toLowerCase(),
+    wrappedByTransparent
+  };
+}
+function reserveChildNormalization(budget) {
+  if (budget.iterations >= MAX_STRIP_ITERATIONS)
+    throw new DerivedCommandWorkLimitError;
+  budget.iterations++;
+}
+function isBusyboxWrapper(tokens) {
+  return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1;
+}
+function collectCommandTemplate(tokens, start) {
+  let templateTokens = [], i = start;
+  while (i < tokens.length) {
+    let token = tokens[i];
+    if (token === void 0 || token === ":::")
+      break;
+    templateTokens.push(token), i++;
+  }
+  return {
+    markerIndex: i < tokens.length && tokens[i] === ":::" ? i : -1,
+    templateTokens
+  };
+}
 
 // src/core/analyze/rm-flags.ts
 function hasRecursiveForceFlags(tokens) {
@@ -8155,9 +9788,9 @@ function hasRecursiveForceFlags(tokens) {
   for (let token of tokens) {
     if (token === "--")
       break;
-    if (token === "-r" || token === "-R" || token === "--recursive")
+    if (token === "-r" || token === "-R" || isLongOptionAbbreviation(token, "recursive"))
       hasRecursive = !0;
-    else if (token === "-f" || token === "--force")
+    else if (token === "-f" || isLongOptionAbbreviation(token, "force"))
       hasForce = !0;
     else if (token.startsWith("-") && !token.startsWith("--")) {
       if (token.includes("r") || token.includes("R"))
@@ -8168,10 +9801,16 @@ function hasRecursiveForceFlags(tokens) {
   }
   return hasRecursive && hasForce;
 }
+function isLongOptionAbbreviation(token, option) {
+  return token.length > 2 && token.startsWith("--") && option.startsWith(token.slice(2));
+}
 
 // src/core/analyze/find.ts
 var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.", REASON_FIND_EXEC_RM_RF = "find -exec rm -rf is dangerous. Use explicit file list instead.", FIND_EXEC_PRIMARIES = /* @__PURE__ */ new Set(["-exec", "-execdir", "-ok", "-okdir"]), FIND_PRIMARY_ARITY = new Map([
   ...[
+    "-Bmin",
+    "-Bnewer",
+    "-Btime",
     "-amin",
     "-anewer",
     "-atime",
@@ -8179,6 +9818,8 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
     "-cnewer",
     "-context",
     "-ctime",
+    "-f",
+    "-flags",
     "-fprint",
     "-fprint0",
     "-fls",
@@ -8196,6 +9837,7 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
     "-maxdepth",
     "-mindepth",
     "-mmin",
+    "-mnewer",
     "-mtime",
     "-name",
     "-newer",
@@ -8212,40 +9854,43 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
     "-used",
     "-user",
     "-wholename",
+    "-xattrname",
     "-xtype"
   ].map((primary) => [primary, 1]),
   ["-fprintf", 2]
 ]);
 function analyzeFindMatch(tokens, context = {}) {
-  if (findHasDelete(tokens, 1))
-    return destructiveCommandMatch("find.delete", REASON_FIND_DELETE);
-  let derivedCommandWorkBudget = context.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget();
-  for (let i = 0;i < tokens.length; i++) {
-    let token = tokens[i];
-    if (isFindExecPrimary(token)) {
-      reserveDerivedCommandTokens(derivedCommandWorkBudget, tokens.length - i - 1);
-      let execCommand = getFindExecCommand(tokens, i), directoryRelative = token === "-execdir" || token === "-okdir", directReason = analyzeFindExecCommand(execCommand);
-      if (directReason)
-        return directReason;
-      if (context.analyzeTokens) {
-        let reason = context.analyzeTokens(execCommand, directoryRelative ? null : context.cwd);
-        if (reason)
-          return reason;
-        continue;
-      }
-      if (context.analyzeNested) {
-        let reason = context.analyzeNested(execCommand.join(" "), {
-          effectiveCwd: directoryRelative ? void 0 : context.cwd,
-          envAssignments: context.envAssignments
-        });
-        if (reason)
-          return reason;
-        continue;
-      }
-      let fallbackReason = analyzeFindExecCommand(execCommand);
-      if (fallbackReason)
-        return fallbackReason;
+  if (findHasDelete(tokens, 1)) {
+    let match = filterDestructiveCommandMatch(destructiveCommandMatch("find.delete", REASON_FIND_DELETE), context.policy);
+    if (match)
+      return match;
+  }
+  let derivedCommandWorkBudget = context.derivedCommandWorkBudget ?? createDerivedCommandWorkBudget(), i = 0;
+  while (i < tokens.length) {
+    let token = tokens[i], arity = getFindPrimaryArity(token ?? "");
+    if (arity > 0) {
+      i += arity + 1;
+      continue;
     }
+    if (!isFindExecPrimary(token)) {
+      i++;
+      continue;
+    }
+    reserveDerivedCommandTokens(derivedCommandWorkBudget, tokens.length - i - 1);
+    let execCommand = getFindExecCommand(tokens, i);
+    i = execCommand.nextIndex;
+    let directMatch = analyzeFindExecCommand(execCommand.tokens);
+    if (directMatch) {
+      let match2 = filterDestructiveCommandMatch(directMatch, context.policy);
+      if (match2)
+        return match2;
+    }
+    let directoryRelative = token === "-execdir" || token === "-okdir", nestedMatch = context.analyzeTokens ? context.analyzeTokens(execCommand.tokens, directoryRelative ? null : context.cwd) : context.analyzeNested ? context.analyzeNested(execCommand.tokens.join(" "), {
+      effectiveCwd: directoryRelative ? void 0 : context.cwd,
+      envAssignments: context.envAssignments
+    }) : null, match = nestedMatch?.id.startsWith("custom.") ? nestedMatch : filterDestructiveCommandMatch(nestedMatch, context.policy);
+    if (match)
+      return match;
   }
   return null;
 }
@@ -8261,11 +9906,16 @@ function analyzeFindExecCommand(tokens) {
   return null;
 }
 function getFindExecCommand(tokens, execIndex) {
-  let execTokens = tokens.slice(execIndex + 1), semicolonIdx = execTokens.indexOf(";"), plusIdx = execTokens.indexOf("+"), endIdx = semicolonIdx !== -1 && plusIdx !== -1 ? Math.min(semicolonIdx, plusIdx) : semicolonIdx !== -1 ? semicolonIdx : plusIdx !== -1 ? plusIdx : execTokens.length;
-  return execTokens.slice(0, endIdx);
+  let terminatorIndex = execIndex + 1;
+  while (terminatorIndex < tokens.length && tokens[terminatorIndex] !== ";" && !(tokens[terminatorIndex] === "+" && tokens[terminatorIndex - 1] === "{}"))
+    terminatorIndex++;
+  return {
+    tokens: tokens.slice(execIndex + 1, terminatorIndex),
+    nextIndex: Math.min(terminatorIndex + 1, tokens.length)
+  };
 }
 function findHasDelete(tokens, start) {
-  let i = start, insideExec = !1, execDepth = 0;
+  let i = start;
   while (i < tokens.length) {
     let token = tokens[i];
     if (!token) {
@@ -8273,17 +9923,7 @@ function findHasDelete(tokens, start) {
       continue;
     }
     if (isFindExecPrimary(token)) {
-      insideExec = !0, execDepth++, i++;
-      continue;
-    }
-    if (insideExec && (token === ";" || token === "+")) {
-      if (execDepth--, execDepth === 0)
-        insideExec = !1;
-      i++;
-      continue;
-    }
-    if (insideExec) {
-      i++;
+      i = getFindExecCommand(tokens, i).nextIndex;
       continue;
     }
     let arity = getFindPrimaryArity(token);
@@ -8304,19 +9944,59 @@ function isFindExecPrimary(token) {
   return token !== void 0 && FIND_EXEC_PRIMARIES.has(token);
 }
 
+// src/core/analyze/parallel.ts
+import { isAbsolute as isAbsolute12 } from "node:path";
+
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRmMatch(tokens, options2 = {}) {
-  let ctx = createRecursiveDeleteTargetContext(options2);
+  let ctx = createRecursiveDeleteTargetContext({ ...options2, posixShell: !0 });
   if (!hasRecursiveForceFlags(tokens))
     return null;
   let targets = extractTargets(tokens);
   for (let target of targets) {
-    let classification = classifyRecursiveDeleteTarget(target, ctx), reason = reasonForClassification(classification, ctx);
-    if (reason)
-      return reason;
+    if (options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+      let match = filterDestructiveCommandMatch(reasonForClassification({ kind: "outside_anchored_cwd" }, ctx), options2.policy);
+      if (match)
+        return match;
+      continue;
+    }
+    let expandedTargets = options2.expandedTargetTokens?.get(target.index);
+    for (let expandedTarget of expandedTargets ?? [target.text]) {
+      let classificationOptions = {
+        targetIsLiteral: expandedTargets !== void 0 || options2.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: options2.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
+      };
+      for (let classification of orderedTargetClassifications(expandedTarget, ctx, classificationOptions)) {
+        let candidate = reasonForClassification(classification, ctx), match = filterDestructiveCommandMatch(candidate, options2.policy);
+        if (match)
+          return match;
+      }
+    }
   }
   return null;
+}
+function orderedTargetClassifications(target, ctx, options2) {
+  let primary = classifyRecursiveDeleteTarget(target, ctx, options2);
+  if (primary.kind === "cwd_self_target")
+    return [primary, classifyRecursiveDeleteTarget(target, ctx, { ...options2, skipCwdSelf: !0 })];
+  if (primary.kind !== "home_cwd_target")
+    return [primary];
+  let targetSpecific = classifyRecursiveDeleteTarget(target, ctx, {
+    ...options2,
+    skipHomeCwd: !0
+  });
+  if (targetSpecific.kind !== "cwd_self_target")
+    return [primary, targetSpecific];
+  return [
+    primary,
+    targetSpecific,
+    classifyRecursiveDeleteTarget(target, ctx, {
+      ...options2,
+      skipHomeCwd: !0,
+      skipCwdSelf: !0
+    })
+  ];
 }
 function extractTargets(tokens) {
   let targets = [], pastDoubleDash = !1;
@@ -8329,11 +10009,11 @@ function extractTargets(tokens) {
       continue;
     }
     if (pastDoubleDash) {
-      targets.push(token);
+      targets.push({ text: token, index: i });
       continue;
     }
     if (!token.startsWith("-"))
-      targets.push(token);
+      targets.push({ text: token, index: i });
   }
   return targets;
 }
@@ -8361,6 +10041,19 @@ function reasonForClassification(classification, ctx) {
 }
 
 // src/core/analyze/shell-wrappers.ts
+var SHELL_SHORT_VALUE_OPTIONS = {
+  bash: ["O", "o"],
+  dash: ["o"],
+  ksh: ["o"],
+  sh: ["o"],
+  zsh: ["o"]
+}, BASH_LONG_VALUE_OPTIONS = /* @__PURE__ */ new Set(["--init-file", "--rcfile"]), BASH_STARTUP_OPTIONS = ["--init-file", "--rcfile"];
+var SHELL_STARTUP_ENV_NAMES = /* @__PURE__ */ new Map([
+  ["bash", "BASH_ENV"],
+  ["dash", "ENV"],
+  ["ksh", "ENV"],
+  ["sh", "ENV"]
+]);
 function extractDashCArg(tokens) {
   for (let i = 1;i < tokens.length; i++) {
     let token = tokens[i];
@@ -8368,12 +10061,18 @@ function extractDashCArg(tokens) {
       continue;
     if (token === "-c")
       return getCommandStringAfterDashC(tokens, i, !0);
-    if (token.startsWith("-") && token.includes("c") && !token.startsWith("--"))
-      return getCommandStringAfterDashC(tokens, i, !1);
+    if (token.startsWith("-") && token.includes("c") && !token.startsWith("--")) {
+      let command2 = getCommandStringAfterDashC(tokens, i, !1);
+      if (command2 !== null)
+        return command2;
+    }
   }
   return null;
 }
 function isShellSyntaxCheck(tokens) {
+  let shell = getBasename(tokens[0] ?? "").toLowerCase();
+  if (shell === "zsh" || shell === "ksh")
+    return parseShellArgv(tokens).syntaxCheck;
   let enabled = !1;
   for (let token of tokens.slice(1)) {
     if (token === "--")
@@ -8401,245 +10100,424 @@ function getCommandStringAfterDashC(tokens, dashCIndex, allowDashCommand) {
     return null;
   return commandString;
 }
+function extractShellStartupLoaderMetadata(tokens) {
+  let shell = getBasename(tokens[0] ?? "").toLowerCase(), parsed = parseShellStartupArgv(tokens, shell), envName = SHELL_STARTUP_ENV_NAMES.get(shell) ?? null, valid = parsed.argvSource?.kind !== "absent";
+  return {
+    argvSource: shell === "bash" ? parsed.argvSource : null,
+    argvSourceApplies: shell === "bash" && parsed.interactive && parsed.argvSource?.kind === "literal",
+    envName,
+    envSourceApplies: valid && (envName === "BASH_ENV" ? !parsed.interactive : envName === "ENV" && parsed.interactive)
+  };
+}
+function parseShellStartupArgv(tokens, shell) {
+  let parsed = parseShellArgv(tokens), boundary = parsed.commandIndex ?? parsed.scriptIndex ?? tokens.length, sources = [], interactive = !1, bashLongOptionsOpen = !0;
+  for (let index = 1;index < boundary; index++) {
+    let token = tokens[index];
+    if (token === void 0 || token === "--" || token === "-" || token[0] !== "-" && token[0] !== "+")
+      break;
+    if (token.startsWith("--")) {
+      let option = shell === "bash" && bashLongOptionsOpen ? BASH_STARTUP_OPTIONS.find((candidate) => token === candidate) : void 0;
+      if (option) {
+        let value = tokens[index + 1];
+        sources.push(value === void 0 ? { kind: "absent", option, optionIndex: index, tokenIndex: null, value: null } : { kind: "literal", option, optionIndex: index, tokenIndex: index + 1, value }), index++;
+        continue;
+      }
+      let longOption = token.split("=", 1)[0] ?? token;
+      if (shell === "bash" && BASH_LONG_VALUE_OPTIONS.has(longOption) && !token.includes("="))
+        index++;
+      continue;
+    }
+    if (shell === "bash")
+      bashLongOptionsOpen = !1;
+    let shortScan = scanShellShortOptions(shell, token, tokens[index + 1], "startup");
+    if (shortScan.interactive)
+      interactive = token[0] === "-";
+    index += shortScan.followingValues;
+  }
+  return { argvSource: sources.at(-1) ?? null, interactive };
+}
+function scanShellShortOptions(shell, token, nextToken, mode) {
+  let interactive = !1, followingValues = 0, commandSelected = !1, stdinMode = !1, syntaxCheck = !1;
+  for (let optionIndex = 1;optionIndex < token.length; optionIndex++) {
+    let option = token[optionIndex];
+    if (option === void 0)
+      break;
+    if (shell === "ksh" && option === "o" && optionIndex + 1 < token.length) {
+      if (mode === "argv") {
+        let optionName = token.slice(optionIndex + 1);
+        if (token[0] === "-" && (optionName === "c" || optionName[0] === "-" && optionName.endsWith("c")))
+          commandSelected = !0;
+      }
+      break;
+    }
+    if (shell === "ksh" && option === "o" && optionIndex + 1 === token.length && (nextToken?.startsWith("-") || nextToken?.startsWith("+")))
+      break;
+    if (shell === "zsh" && option === "o" && optionIndex + 1 < token.length)
+      break;
+    if (mode === "startup" && option === "i")
+      interactive = token[0] === "-";
+    if (mode === "argv" && token[0] === "-" && option === "c")
+      commandSelected = !0;
+    if (mode === "argv" && option === "n")
+      syntaxCheck = token[0] === "-";
+    if (mode === "argv" && option === "s")
+      stdinMode = token[0] === "-";
+    if (!SHELL_SHORT_VALUE_OPTIONS[shell]?.includes(option))
+      continue;
+    if (optionIndex + 1 === token.length)
+      followingValues++;
+    break;
+  }
+  return { interactive, followingValues, commandSelected, stdinMode, syntaxCheck };
+}
+function parseShellArgv(tokens) {
+  let shell = getBasename(tokens[0] ?? "").toLowerCase(), commandSelected = !1, stdinMode = !1, syntaxCheck = !1;
+  for (let index = 1;index < tokens.length; index++) {
+    let token = tokens[index];
+    if (token === void 0)
+      break;
+    if (token === "--") {
+      let commandIndex = commandSelected && tokens[index + 1] !== void 0 ? index + 1 : null;
+      return {
+        command: commandIndex === null ? null : tokens[commandIndex] ?? null,
+        commandIndex,
+        scriptIndex: !commandSelected && !stdinMode && tokens[index + 1] !== void 0 ? index + 1 : null,
+        readsStdinAsCommands: !commandSelected && (stdinMode || tokens[index + 1] === void 0),
+        syntaxCheck
+      };
+    }
+    if (token === "-" || token[0] !== "-" && token[0] !== "+")
+      return {
+        command: commandSelected ? token : null,
+        commandIndex: commandSelected ? index : null,
+        scriptIndex: !commandSelected && !stdinMode && token !== "-" ? index : null,
+        readsStdinAsCommands: !commandSelected && (stdinMode || token === "-"),
+        syntaxCheck
+      };
+    if (token.startsWith("--")) {
+      let option = token.split("=", 1)[0] ?? token;
+      if (shell === "bash" && BASH_LONG_VALUE_OPTIONS.has(option) && !token.includes("="))
+        index++;
+      continue;
+    }
+    let shortScan = scanShellShortOptions(shell, token, tokens[index + 1], "argv");
+    if (shortScan.commandSelected)
+      commandSelected = !0;
+    if (shortScan.syntaxCheck)
+      syntaxCheck = !0;
+    if (shortScan.stdinMode)
+      stdinMode = !0;
+    index += shortScan.followingValues;
+  }
+  return {
+    command: null,
+    commandIndex: null,
+    scriptIndex: null,
+    readsStdinAsCommands: !commandSelected,
+    syntaxCheck
+  };
+}
 
-// src/core/git/worktree.ts
-import { existsSync as existsSync2, lstatSync as lstatSync3, readFileSync as readFileSync4, realpathSync as realpathSync7, statSync as statSync3 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute8, join as join9, resolve as resolve7 } from "node:path";
-var GIT_GLOBAL_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
-  "-c",
-  "-C",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env"
-]);
-function hasGitContextEnvOverride(envAssignments) {
-  for (let name of GIT_CONTEXT_ENV_OVERRIDES)
-    if (envAssignments?.has(name) || Object.hasOwn(process.env, name))
+// src/core/analyze/shell-execution.ts
+var NO_SOURCE = { kind: "none" }, DYNAMIC_SOURCE = { kind: "dynamic" }, INPUT_REDIRECTIONS = /* @__PURE__ */ new Set(["<", "<<", "<<-", "<<<", "<&", "<>"]), SHELL_PARAMETER_RE = /\$(?:([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)|\{!?([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*))/g, POSITIONAL_SHELL_PARAMETER_RE = /^(?:[0-9]+|[@*])$/, MAX_POSITIONAL_EXPANSION_WORDS = DEFAULT_COMMAND_PARSER_LIMITS.maxWords, MAX_POSITIONAL_EXPANSION_CHARACTERS = DEFAULT_COMMAND_PARSER_LIMITS.maxInputLength;
+function extractLiteralPrintfOutput(command2) {
+  if (!command2 || getBasename(normalizeCommandToken(command2.words[0]?.text ?? "")) !== "printf")
+    return;
+  if (command2.words.some((word) => word.provenance !== "literal"))
+    return;
+  let args = command2.words.slice(command2.words[1]?.text === "--" ? 2 : 1), format = args[0]?.text;
+  if (format === void 0)
+    return "";
+  let values = args.slice(1).map((word) => word.text);
+  if (format === "%s")
+    return values.join("");
+  if (format === "%s\\n" || format === `%s
+`)
+    return `${values.join(`
+`)}
+`;
+  if (format.includes("%") || /\\(?![\\nrt])/.test(format))
+    return;
+  return format.replaceAll("\\n", `
+`).replaceAll("\\r", "\r").replaceAll("\\t", "\t").replaceAll("\\\\", "\\");
+}
+function extractEvalSource(tokens, command2) {
+  let start = tokens[1] === "--" ? 2 : 1;
+  if (tokens.length <= start)
+    return NO_SOURCE;
+  if (!tokens.slice(start).every((value, index) => isLiteralWord(command2, start + index, value)))
+    return DYNAMIC_SOURCE;
+  return { kind: "literal", source: tokens.slice(start).join(" ") };
+}
+function extractTrapSource(tokens, command2) {
+  let actionIndex = tokens[1] === "--" ? 2 : 1, action = tokens[actionIndex];
+  if (action === void 0 || tokens.length <= actionIndex + 1 || action === "-" || action === "" || action === "-l" || action === "-p")
+    return NO_SOURCE;
+  if (!isLiteralWord(command2, actionIndex, action))
+    return DYNAMIC_SOURCE;
+  return { kind: "literal", source: action };
+}
+function extractPositionalShellSource(tokens, command2, script) {
+  let scriptIndex = findShellScriptIndex(tokens);
+  if (scriptIndex === -1)
+    return NO_SOURCE;
+  let carrier = parsePositionalCarrier(script);
+  if (!carrier)
+    return NO_SOURCE;
+  let expanded = [], expandedCharacters = carrier.command?.length ?? 0;
+  for (let reference of carrier.references) {
+    let words = expandPositionalReference(reference, tokens, command2, scriptIndex, carrier.ifs);
+    if (!words)
+      return DYNAMIC_SOURCE;
+    if (expandedCharacters += words.reduce((total, word) => total + word.length + 3, 0), expanded.length + words.length > MAX_POSITIONAL_EXPANSION_WORDS || expandedCharacters > MAX_POSITIONAL_EXPANSION_CHARACTERS)
+      return DYNAMIC_SOURCE;
+    expanded.push(...words);
+  }
+  if (carrier.command === "eval")
+    return { kind: "literal", source: expanded.join(" ") };
+  if (expanded.length === 0 || /\s/.test(expanded[0] ?? ""))
+    return { kind: "literal", source: "" };
+  return {
+    kind: "literal",
+    source: [
+      carrier.command,
+      carrier.command && carrier.optionTerminator ? "--" : null,
+      ...expanded.map(quoteShellWord)
+    ].filter((value) => value !== null).join(" ")
+  };
+}
+function extractShellStdinSource(tokens, command2, hasPipelineInput, literalPipelineInput) {
+  if (!shellReadsStdinAsCommands(tokens))
+    return NO_SOURCE;
+  let input = command2?.redirections.filter((redirection) => (redirection.fd === void 0 || redirection.fd === 0) && INPUT_REDIRECTIONS.has(redirection.operator)).at(-1);
+  if (input) {
+    if (input.operator === "<<" || input.operator === "<<-")
+      return NO_SOURCE;
+    if (input.operator !== "<<<" || input.target?.provenance !== "literal")
+      return DYNAMIC_SOURCE;
+    return { kind: "literal", source: input.target.text };
+  }
+  if (!hasPipelineInput)
+    return NO_SOURCE;
+  return literalPipelineInput === void 0 ? DYNAMIC_SOURCE : { kind: "literal", source: literalPipelineInput };
+}
+function extractShellScriptOperandSource(tokens, command2) {
+  let scriptIndex = parseShellArgv(tokens).scriptIndex;
+  if (scriptIndex === null)
+    return NO_SOURCE;
+  let source = tokens[scriptIndex] ?? "", word = command2?.words[scriptIndex];
+  return (word ? word.provenance === "literal" : !/[$`*?[\]]/.test(source)) ? { kind: "literal", source } : DYNAMIC_SOURCE;
+}
+function shellReadsStdinAsCommands(tokens) {
+  return parseShellArgv(tokens).readsStdinAsCommands;
+}
+function findShellScriptIndex(tokens) {
+  return parseShellArgv(tokens).commandIndex ?? -1;
+}
+function parsePositionalCarrier(script) {
+  let ifsAssignment = /^IFS=(?:'([^']*)'|"([^"]*)"|([^;\s]*))\s*;\s*(.+)$/.exec(script.trim()), source = ifsAssignment?.[4] ?? script.trim(), command2 = /^(\.|bash|command|dash|exec|eval|ksh|sh|source|zsh)(?:\s+(--))?\s+(.+)$/.exec(source), references = (command2?.[3] ?? source).split(/\s+/).map(parsePositionalReference);
+  if (references.length === 0 || references.some((reference) => reference === null))
+    return null;
+  return {
+    command: command2?.[1] ?? null,
+    optionTerminator: command2?.[2] !== void 0,
+    references: references.filter((reference) => !!reference),
+    ifs: ifsAssignment ? ifsAssignment[1] ?? ifsAssignment[2] ?? ifsAssignment[3] ?? "" : ` 	
+`
+  };
+}
+function parsePositionalReference(value) {
+  let quoted = /^"\$(?:([0-9]+|[@*])|\{([0-9]+|[@*])\})"$/.exec(value), unquoted = /^\$(?:([0-9]+|[@*])|\{([0-9]+|[@*])\})$/.exec(value), match = quoted ?? unquoted;
+  if (!match)
+    return null;
+  let parameter = match[1] ?? match[2];
+  return {
+    parameter: parameter === "@" || parameter === "*" ? parameter : Number(parameter),
+    quoted: quoted !== null
+  };
+}
+function expandPositionalReference(reference, tokens, command2, scriptIndex, ifs) {
+  let positional = tokens.slice(scriptIndex + 2);
+  if (reference.parameter === "@")
+    return reference.quoted ? literalPositionalValues(positional, command2, scriptIndex + 2) : splitLiteralPositionalValues(positional, command2, scriptIndex + 2, ifs);
+  if (reference.parameter === "*") {
+    let values = literalPositionalValues(positional, command2, scriptIndex + 2);
+    if (!values)
+      return;
+    let joined = values.join(ifs[0] ?? "");
+    return reference.quoted ? [joined] : splitLiteralShellFields(joined, ifs);
+  }
+  let index = scriptIndex + 1 + reference.parameter, value = tokens[index] ?? "";
+  if (tokens[index] !== void 0 && !isLiteralWord(command2, index, value))
+    return;
+  return reference.quoted ? [value] : splitLiteralShellFields(value, ifs);
+}
+function literalPositionalValues(values, command2, start) {
+  return values.every((value, index) => isLiteralWord(command2, start + index, value)) ? [...values] : void 0;
+}
+function splitLiteralPositionalValues(values, command2, start, ifs) {
+  let literal = literalPositionalValues(values, command2, start);
+  if (!literal)
+    return;
+  let fields = literal.map((value) => splitLiteralShellFields(value, ifs));
+  return fields.some((value) => value === void 0) ? void 0 : fields.flatMap((value) => value ?? []);
+}
+function splitLiteralShellFields(value, ifs) {
+  if (["*", "?", "[", "]"].some((character) => value.includes(character)))
+    return;
+  if (ifs === "")
+    return value === "" ? [] : [value];
+  if (ifs === ` 	
+`)
+    return value.trim().split(/\s+/).filter(Boolean);
+  if (ifs.length !== 1)
+    return;
+  return ifs === " " || ifs === "\t" || ifs === `
+` ? value.trim().split(/\s+/).filter(Boolean) : value.split(ifs).filter(Boolean);
+}
+function isLiteralWord(command2, index, value = "") {
+  let word = command2?.words[index];
+  if (word)
+    return word.provenance === "literal";
+  return !/[$`]/.test(value);
+}
+function quoteShellWord(value) {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+function shellSourceHasDynamicExecutionCarrier(source, dynamicEnvNames) {
+  return programHasDynamicExecutionCarrier(parseCommand(source, "posix"), dynamicEnvNames);
+}
+function shellSourceHasUnresolvedDynamicExecutionCarrier(source) {
+  return shellSourceHasDynamicExecutionCarrier(source, new Set(Array.from(source.matchAll(SHELL_PARAMETER_RE)).flatMap((match) => {
+    let parameter = match[1] ?? match[2];
+    return parameter === void 0 ? [] : [parameter];
+  })));
+}
+function programHasDynamicExecutionCarrier(program, inheritedDynamicNames) {
+  if (program.status === "invalid" || program.status === "limited")
+    return !1;
+  let dynamicNames = new Set(inheritedDynamicNames);
+  for (let node of program.nodes) {
+    if (node.kind === "group") {
+      if (programHasDynamicExecutionCarrier(node.body, dynamicNames))
+        return !0;
+      continue;
+    }
+    if (node.kind !== "command")
+      continue;
+    if (node.nested.some((nested) => programHasDynamicExecutionCarrier(nested, dynamicNames)) || wordsHaveDynamicExecutionCarrier(node.words, dynamicNames))
       return !0;
+    updateDynamicAssignments(node, dynamicNames);
+  }
   return !1;
 }
-function getGitExecutionContext(tokens, cwd) {
-  if (!cwd)
-    return { gitCwd: null, hasExplicitGitContext: !1 };
-  let gitCwd;
-  try {
-    gitCwd = realpathSync7(resolve7(cwd));
-  } catch {
-    return { gitCwd: null, hasExplicitGitContext: !1 };
+function wordsHaveDynamicExecutionCarrier(words, dynamicNames) {
+  let headIndex = words.findIndex((word) => parseEnvAssignment(word.text) === null);
+  if (headIndex === -1)
+    return !1;
+  let head = words[headIndex];
+  if (!head)
+    return !1;
+  if (wordReferencesDynamicInput(head, dynamicNames))
+    return !0;
+  let normalizedHead = normalizeCommandToken(head.text);
+  if (normalizedHead === "source" || normalizedHead === ".") {
+    let operandIndex = words[headIndex + 1]?.text === "--" ? headIndex + 2 : headIndex + 1;
+    return wordSuppliesDynamicExecutionSource(words[operandIndex], dynamicNames);
   }
-  if (!isDirectory(gitCwd))
-    return { gitCwd: null, hasExplicitGitContext: !1 };
-  let hasExplicitGitContext = !1, i = 1;
-  while (i < tokens.length) {
-    let token = tokens[i];
-    if (!token)
-      break;
+  if (SHELL_WRAPPERS.has(normalizedHead)) {
+    let shellWords = words.slice(headIndex), parsed = parseShellArgv(shellWords.map((word) => word.text)), sourceIndex = parsed.commandIndex ?? parsed.scriptIndex;
+    return !parsed.syntaxCheck && sourceIndex !== null && wordSuppliesDynamicExecutionSource(shellWords[sourceIndex], dynamicNames);
+  }
+  let carrierIndex = findCarrierCommandIndex(words, headIndex, dynamicNames);
+  if (carrierIndex === null)
+    return !1;
+  if (carrierIndex === -1)
+    return !0;
+  return wordsHaveDynamicExecutionCarrier(words.slice(carrierIndex), dynamicNames);
+}
+function findCarrierCommandIndex(words, headIndex, dynamicNames) {
+  let head = normalizeCommandToken(words[headIndex]?.text ?? "");
+  if (head === "command")
+    return findCommandBuiltinCommandIndex(words, headIndex + 1);
+  if (head === "exec")
+    return findExecCommandIndex(words, headIndex + 1);
+  if (head === "env")
+    return findEnvCommandIndex(words, headIndex + 1, dynamicNames);
+  return null;
+}
+function findCommandBuiltinCommandIndex(words, start) {
+  for (let index = start;index < words.length; index++) {
+    let token = words[index]?.text ?? "";
     if (token === "--")
-      break;
-    if (!token.startsWith("-"))
-      break;
-    if (token === "-C") {
-      let target = tokens[i + 1];
-      if (!target)
-        return { gitCwd: null, hasExplicitGitContext };
-      let resolvedCwd = resolveGitCwd(gitCwd, target);
-      if (!resolvedCwd)
-        return { gitCwd: null, hasExplicitGitContext };
-      gitCwd = resolvedCwd, i += 2;
-      continue;
-    }
-    if (token.startsWith("-C") && token.length > 2) {
-      let resolvedCwd = resolveGitCwd(gitCwd, token.slice(2));
-      if (!resolvedCwd)
-        return { gitCwd: null, hasExplicitGitContext };
-      gitCwd = resolvedCwd, i++;
-      continue;
-    }
-    if (token === "--git-dir" || token === "--work-tree") {
-      hasExplicitGitContext = !0, i += 2;
-      continue;
-    }
-    if (token.startsWith("--git-dir=") || token.startsWith("--work-tree=")) {
-      hasExplicitGitContext = !0, i++;
-      continue;
-    }
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token))
-      i += 2;
-    else if (token.startsWith("-c") && token.length > 2)
-      i++;
-    else
-      i++;
-  }
-  return { gitCwd, hasExplicitGitContext };
-}
-function isLinkedWorktree(cwd) {
-  let dotGitPath = findDotGit(cwd);
-  if (!dotGitPath)
-    return !1;
-  try {
-    let stat = lstatSync3(dotGitPath);
-    if (stat.isSymbolicLink() || !stat.isFile())
-      return !1;
-    let firstLine = readFileSync4(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:"))
-      return !1;
-    let rawGitDir = firstLine.slice(7).trim();
-    if (rawGitDir === "")
-      return !1;
-    let gitDir = isAbsolute8(rawGitDir) ? rawGitDir : resolve7(dirname8(dotGitPath), rawGitDir);
-    if (!existsSync2(join9(gitDir, "commondir")))
-      return !1;
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
-      return !1;
-    return worktreeConfigMatchesRoot(gitDir, dirname8(dotGitPath));
-  } catch {
-    return !1;
-  }
-}
-function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
-  let rawBacklink = readWorktreeGitdirBacklink(gitDir);
-  return rawBacklink === null ? !1 : gitDirPathReferenceMatches(gitDir, rawBacklink, dotGitPath);
-}
-function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
-  let configuredWorktree = readWorktreeConfigWorktree(gitDir);
-  return configuredWorktree === null ? !0 : gitDirPathReferenceMatches(gitDir, configuredWorktree, worktreeRoot);
-}
-function readWorktreeGitdirBacklink(gitDir) {
-  let backlinkPath = join9(gitDir, "gitdir");
-  if (!existsSync2(backlinkPath))
-    return null;
-  let rawBacklink = readFileSync4(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-  return rawBacklink === "" ? null : rawBacklink;
-}
-function readWorktreeConfigWorktree(gitDir) {
-  let configWorktreePath = join9(gitDir, "config.worktree");
-  return existsSync2(configWorktreePath) ? readCoreWorktree(configWorktreePath) : null;
-}
-function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
-  return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
-}
-function resolveGitDirPath(gitDir, target) {
-  return isAbsolute8(target) ? target : resolve7(gitDir, target);
-}
-function sameFilesystemPathOrFalse(left, right) {
-  try {
-    return sameFilesystemPath(left, right);
-  } catch {
-    return !1;
-  }
-}
-function sameFilesystemPath(left, right) {
-  try {
-    let leftStat = statSync3(left), rightStat = statSync3(right);
-    if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
-      return !0;
-  } catch {}
-  return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
-}
-function getCanonicalPathForComparison(path) {
-  return normalizePathForComparison2(realpathSync7.native(path));
-}
-function normalizePathForComparison2(path) {
-  let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
-  if (normalized = normalized.replace(/\\/g, "/"), normalized.length > 1 && normalized.endsWith("/"))
-    normalized = normalized.slice(0, -1);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function readCoreWorktree(configPath) {
-  let content = readFileSync4(configPath, "utf-8"), inCore = !1, configuredWorktree = null;
-  for (let line of content.split(/\r?\n/)) {
-    let trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";"))
-      continue;
-    if (trimmed.startsWith("[")) {
-      inCore = /^\[core\]$/i.test(trimmed);
-      continue;
-    }
-    if (!inCore)
-      continue;
-    let match = trimmed.match(/^worktree\s*=\s*(.*)$/i);
-    if (match)
-      configuredWorktree = parseGitConfigValue(match[1] ?? "");
-  }
-  return configuredWorktree;
-}
-function parseGitConfigValue(value) {
-  let trimmed = value.trim();
-  if (!trimmed.startsWith('"') || !trimmed.endsWith('"'))
-    return trimmed;
-  return unescapeDoubleQuotedGitConfigValue(trimmed.slice(1, -1));
-}
-function unescapeDoubleQuotedGitConfigValue(value) {
-  let result = "";
-  for (let i = 0;i < value.length; i++) {
-    let char = value[i];
-    if (char !== "\\") {
-      result += char;
-      continue;
-    }
-    let next = value[i + 1];
-    if (next === void 0) {
-      result += char;
-      continue;
-    }
-    switch (next) {
-      case "\\":
-      case '"':
-        result += next;
-        break;
-      case "n":
-        result += `
-`;
-        break;
-      case "t":
-        result += "\t";
-        break;
-      case "b":
-        result += "\b";
-        break;
-      default:
-        result += `\\${next}`;
-        break;
-    }
-    i++;
-  }
-  return result;
-}
-function resolveGitCwd(baseCwd, target) {
-  try {
-    let resolved = resolveChdirTarget(baseCwd, target);
-    return isDirectory(resolved) ? resolved : null;
-  } catch {
-    return null;
-  }
-}
-function isDirectory(path) {
-  try {
-    return statSync3(path).isDirectory();
-  } catch {
-    return !1;
-  }
-}
-function findDotGit(cwd) {
-  try {
-    return findDotGitInAncestors(realpathSync7(cwd));
-  } catch {
-    return null;
-  }
-}
-function findDotGitInAncestors(cwd) {
-  let current = cwd;
-  while (!0) {
-    let dotGitPath = join9(current, ".git");
-    if (existsSync2(dotGitPath))
-      return dotGitPath;
-    let parent = dirname8(current);
-    if (parent === current)
+      return words[index + 1] ? index + 1 : null;
+    if (/^-[p]*[vV][pvV]*$/.test(token))
       return null;
-    current = parent;
+    if (/^-p+$/.test(token))
+      continue;
+    return index;
   }
+  return null;
+}
+function findExecCommandIndex(words, start) {
+  for (let index = start;index < words.length; index++) {
+    let token = words[index]?.text ?? "";
+    if (token === "--")
+      return words[index + 1] ? index + 1 : null;
+    if (token === "-a") {
+      index++;
+      continue;
+    }
+    if (/^-a.+/.test(token) || /^-[cl]+$/.test(token))
+      continue;
+    return index;
+  }
+  return null;
+}
+function findEnvCommandIndex(words, start, dynamicNames) {
+  for (let index = start;index < words.length; index++) {
+    let word = words[index], token = word?.text ?? "";
+    if (token === "--")
+      return words[index + 1] ? index + 1 : null;
+    if (token === "-S" || token === "--split-string")
+      return wordReferencesDynamicInput(words[index + 1], dynamicNames) ? -1 : index + 2;
+    if (token.startsWith("-S") || token.startsWith("--split-string="))
+      return wordReferencesDynamicInput(word, dynamicNames) ? -1 : index + 1;
+    if (token === "-u" || token === "--unset" || token === "-C" || token === "--chdir" || token === "-P") {
+      index++;
+      continue;
+    }
+    if (token === "-i" || token === "-0" || token === "--null" || token.startsWith("-u=") || token.startsWith("--unset=") || token.startsWith("-C") || token.startsWith("--chdir=") || token.startsWith("-P"))
+      continue;
+    if (token.startsWith("-"))
+      continue;
+    if (parseEnvAssignment(token))
+      continue;
+    return index;
+  }
+  return null;
+}
+function updateDynamicAssignments(command2, dynamicNames) {
+  if (!command2.words.every((word) => parseEnvAssignment(word.text) !== null))
+    return;
+  for (let word of command2.words) {
+    let assignment = parseEnvAssignment(word.text);
+    if (!assignment)
+      continue;
+    if (wordReferencesDynamicInput(word, dynamicNames))
+      dynamicNames.add(assignment.name);
+  }
+}
+function wordReferencesDynamicInput(word, dynamicNames) {
+  if (!word)
+    return !1;
+  return word.parts.filter((part) => part.provenance === "variable").some((part) => Array.from(part.raw.matchAll(SHELL_PARAMETER_RE)).some((match) => {
+    let parameter = match[1] ?? match[2];
+    return parameter !== void 0 && (POSITIONAL_SHELL_PARAMETER_RE.test(parameter) || dynamicNames.has(parameter));
+  }));
+}
+function wordSuppliesDynamicExecutionSource(word, dynamicNames) {
+  return !!word && (word.parts.some((part) => part.provenance !== "literal" && part.provenance !== "variable") || wordReferencesDynamicInput(word, dynamicNames));
 }
 
 // src/core/git/parse.ts
@@ -9095,7 +10973,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute9, join as join10, resolve as resolve8 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute11, join as join11, resolve as resolve9 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -9235,7 +11113,7 @@ function getLocalGitConfigPaths(cwd) {
   let commonDir = resolveCommonGitDir(gitDir);
   if (commonDir === null)
     return null;
-  return [join10(commonDir, "config"), join10(gitDir, "config.worktree")];
+  return [join11(commonDir, "config"), join11(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
@@ -9245,20 +11123,20 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute9(rawGitDir) ? rawGitDir : resolve8(dirname9(dotGitPath), rawGitDir);
+    return isAbsolute11(rawGitDir) ? rawGitDir : resolve9(dirname9(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
 function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join10(gitDir, "commondir");
+  let commonDirPath = join11(gitDir, "commondir");
   if (!existsSync3(commonDirPath))
     return gitDir;
   try {
     let rawCommonDir = readFileSync5(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute9(rawCommonDir) ? rawCommonDir : resolve8(gitDir, rawCommonDir);
+    return isAbsolute11(rawCommonDir) ? rawCommonDir : resolve9(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -9445,51 +11323,97 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
   if (!head)
     return null;
   let normalizedHead = normalizeCommandToken(head);
-  if (SHELL_WRAPPERS.has(normalizedHead)) {
-    if (isShellSyntaxCheck(tokens))
-      return null;
-    let shellDynamicMatch = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : void 0);
-    if (options2.dynamicInput && shellDynamicMatch)
-      return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
-    let dashCArg = extractDashCArg(tokens);
-    if (dashCArg && context.analyzeNested)
-      return context.analyzeNested(dashCArg, {
+  if (normalizedHead === "eval") {
+    let source = extractEvalSource(tokens, void 0);
+    if (source.kind === "dynamic")
+      return getShellDynamicReason(options2, context);
+    if (source.kind === "literal" && context.analyzeNested) {
+      let result = context.analyzeNested(source.source, {
         effectiveCwd: context.cwd,
         envAssignments: context.envAssignments
       });
+      if (result)
+        return result;
+    }
+    return getDynamicSourceReason(options2, context);
+  }
+  if (SHELL_WRAPPERS.has(normalizedHead)) {
+    if (isShellSyntaxCheck(tokens))
+      return null;
+    let dashCArg = extractDashCArg(tokens);
+    if (dashCArg) {
+      if (options2.dynamicSourceInput ?? options2.dynamicInput) {
+        let result2 = getShellDynamicReason(options2, context);
+        if (result2)
+          return result2;
+      }
+      if (shellSourceHasUnresolvedDynamicExecutionCarrier(dashCArg)) {
+        let result2 = getShellDynamicReason(options2, context);
+        if (result2)
+          return result2;
+      }
+      if (!context.analyzeNested)
+        return null;
+      let result = context.analyzeNested(dashCArg, {
+        effectiveCwd: context.cwd,
+        envAssignments: context.envAssignments
+      });
+      if (result)
+        return result;
+      return null;
+    }
+    let scriptSource = extractShellScriptOperandSource(tokens, void 0);
+    if (scriptSource.kind === "dynamic")
+      return getShellDynamicReason(options2, context);
+    if (scriptSource.kind === "literal") {
+      if (options2.dynamicSourceInput)
+        return getShellDynamicReason(options2, context);
+      return null;
+    }
+    if (options2.dynamicSourceInput ?? options2.dynamicInput)
+      return getShellDynamicReason(options2, context);
     return null;
   }
   if (AWK_INTERPRETERS.has(normalizedHead))
     return filterDestructiveCommandMatch(analyzeAwkSystemCallMatch(tokens, (command2) => context.analyzeNested ? context.analyzeNested(command2, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
-    }) : null), context.policy);
+    }) : null), context.policy) ?? checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ?? getDynamicSourceReason(options2, context);
   if (isInterpreterCommand(normalizedHead)) {
     let codeArg = extractInterpreterCodeArg(tokens);
     if (!codeArg)
-      return null;
-    if (context.paranoidInterpreters)
-      return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
+      return getDynamicSourceReason(options2, context);
+    if (context.paranoidInterpreters) {
+      let paranoidMatch = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
+      if (paranoidMatch)
+        return paranoidMatch;
+    }
     if (isInterpreterDisplayOnly(normalizedHead, codeArg))
-      return null;
+      return getDynamicSourceReason(options2, context);
     let nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments
     });
-    if (nestedResult)
+    if (nestedResult && nestedResult.id !== "raw-text.dangerous-command" && (nestedResult.reason !== REASON_STRICT_UNPARSEABLE || hasUnclosedQuotes(codeArg)))
       return nestedResult;
-    return containsDangerousCode(codeArg, context.scanWork) ? filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) : null;
+    if (containsDangerousCode(codeArg, context.scanWork))
+      return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) ?? getDynamicSourceReason(options2, context);
+    return getDynamicSourceReason(options2, context);
   }
-  if (normalizedHead === "rm" && hasRecursiveForceFlags(tokens))
-    return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
+  if (normalizedHead === "rm" && (hasRecursiveForceFlags(tokens) || options2.dynamicRmInput))
+    return (hasRecursiveForceFlags(tokens) ? filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       strict: context.strict,
       paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar
-    }), context.policy) ?? getDynamicRmReason(options2, context);
+      allowTmpdirVar: context.allowTmpdirVar,
+      tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+      tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+      trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+      policy: context.policy
+    }), context.policy) : null) ?? (options2.dynamicRmInput ? getDynamicSourceReason(options2, context) : null) ?? getDynamicRmReason(options2, context);
   if (normalizedHead === "find")
-    return filterDestructiveCommandMatch(analyzeFindMatch(tokens, {
+    return analyzeFindMatch(tokens, {
       ...context,
       derivedCommandWorkBudget: context.derivedCommandWorkBudget,
       analyzeTokens: (nestedTokens, cwd) => analyzeChildCommandMatch(nestedTokens, {
@@ -9497,639 +11421,249 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
         cwd: cwd ?? void 0,
         derivedCommandWorkBudget: context.derivedCommandWorkBudget
       }, options2)
-    }), context.policy);
+    }) ?? checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ?? getDynamicSourceReason(options2, context);
   if (normalizedHead === "git")
     return filterDestructiveCommandMatch(analyzeGitMatch(tokens, {
       cwd: context.cwd,
       envAssignments: context.envAssignments,
       policy: context.policy,
       worktreeMode: options2.dynamicInput ? !1 : context.worktreeMode
-    }), context.policy);
-  return null;
+    }), context.policy) ?? checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ?? getDynamicSourceReason(options2, context);
+  return checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ?? getDynamicSourceReason(options2, context);
+}
+function getShellDynamicReason(options2, context) {
+  let match = options2.shellDynamicMatch ?? (options2.shellDynamicReason ? { id: "", reason: options2.shellDynamicReason, intent: "manual_only" } : void 0);
+  return match ? filterDestructiveCommandMatch(match, context.policy) : null;
+}
+function getDynamicSourceReason(options2, context) {
+  return options2.dynamicSourceInput && options2.dynamicSourceMatch ? filterDestructiveCommandMatch(options2.dynamicSourceMatch, context.policy) : null;
 }
 function getDynamicRmReason(options2, context) {
   let rmDynamicMatch = options2.rmDynamicMatch ?? (options2.rmDynamicReason ? { id: "", reason: options2.rmDynamicReason, intent: "manual_only" } : void 0);
   return options2.dynamicInput && rmDynamicMatch ? filterDestructiveCommandMatch(rmDynamicMatch, context.policy) : null;
 }
 
-// src/core/analyze/child-command.ts
-function normalizeChildCommand(tokens, context) {
-  let wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd), envAssignments = new Map(context.envAssignments ?? []);
-  for (let [k, v] of wrapperInfo.envAssignments)
-    envAssignments.set(k, v);
-  let childTokens = unwrapTransparentWrappers(wrapperInfo.tokens, context.policy ?? { rules: [], transparentWrappers: [] });
-  return {
-    tokens: childTokens,
-    cwd: wrapperInfo.cwd === null ? void 0 : wrapperInfo.cwd ?? context.cwd,
-    wrapperCwd: wrapperInfo.cwd,
-    envAssignments,
-    head: getBasename(childTokens[0] ?? "").toLowerCase()
-  };
-}
-function stripBusybox(tokens) {
-  return getBasename(tokens[0] ?? "").toLowerCase() === "busybox" && tokens.length > 1 ? [...tokens.slice(1)] : [...tokens];
-}
-function unwrapTransparentWrappers(tokens, policy) {
-  let strippedTokens = stripBusybox(tokens), transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
-  if (!transparentWrapper)
-    return strippedTokens;
-  return unwrapTransparentWrappers(transparentWrapper.tokens, policy);
-}
-function collectCommandTemplate(tokens, start) {
-  let templateTokens = [], i = start;
-  while (i < tokens.length) {
-    let token = tokens[i];
-    if (token === void 0 || token === ":::")
-      break;
-    templateTokens.push(token), i++;
-  }
-  return {
-    markerIndex: i < tokens.length && tokens[i] === ":::" ? i : -1,
-    templateTokens
-  };
-}
-
-// src/core/analyze/parallel.ts
-var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.", PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/, UTF8_ENCODER2 = /* @__PURE__ */ new TextEncoder, MAX_EXPANDED_BYTE_OVERCOUNT = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements;
-function analyzeParallel(tokens, context) {
-  let parseResult = parseParallelCommand(tokens);
-  if (!parseResult)
-    return null;
-  let {
-    template,
-    args,
-    templateHasPlaceholder,
-    runsRemotely,
-    usesStdin,
-    envNames,
-    readsCommandsFromInput
-  } = parseResult;
-  if (readsCommandsFromInput)
-    return parallelCommandStreamDynamicReason(context);
-  if (template.length === 0) {
-    reserveParallelAnalysis(context.budget, commandsModeWork(args));
-    let nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
-    for (let arg of args) {
-      let reason = context.analyzeNested(arg, nestedOverrides2);
-      if (reason)
-        return reason;
-    }
-    return null;
-  }
-  let childCommand = normalizeChildCommand(template, context), childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments), envHasPlaceholder = dynamicEnvValues.entries.some((entry) => entry.hasPlaceholder), hasPlaceholder = templateHasPlaceholder || envHasPlaceholder, hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder, nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
-  if (SHELL_WRAPPERS.has(childCommand.head)) {
-    let dashCArg = extractDashCArg(childTokens);
-    if (dashCArg) {
-      if (isOnlyParallelPlaceholder(dashCArg))
-        return parallelShellDynamicReason(context);
-      if (hasParallelPlaceholder(dashCArg)) {
-        if (args.length > 0) {
-          reserveParallelAnalysis(context.budget, expandedStringWork(dashCArg, args, "generic"));
-          for (let arg of args) {
-            let expandedScript = replaceParallelPlaceholder(dashCArg, arg), reason3 = context.analyzeNested(expandedScript, nestedOverrides);
-            if (reason3)
-              return reason3;
-          }
-          return null;
-        }
-        reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
-        let reason2 = context.analyzeNested(dashCArg, nestedOverrides);
-        if (reason2)
-          return reason2;
-        return null;
-      }
-      reserveParallelAnalysis(context.budget, combineParallelWork(staticStringWork(dashCArg), dynamicEnvWork(dynamicEnvValues.entries, args)));
-      let reason = context.analyzeNested(dashCArg, nestedOverrides);
-      if (reason)
-        return reason;
-      let envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, args, context);
-      if (envReason)
-        return envReason;
-      if (hasPlaceholder)
-        return parallelShellDynamicReason(context);
-      return null;
-    }
-    if (args.length > 0)
-      return parallelShellDynamicReason(context);
-    if (hasPlaceholder)
-      return parallelShellDynamicReason(context);
-    return null;
-  }
-  if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
-    if (templateHasPlaceholder && args.length > 0) {
-      reserveParallelAnalysis(context.budget, expandedTokenWork(childTokens, args, "rm"));
-      for (let arg of args) {
-        let result = analyzeParallelRmExpansion(childTokens.map((token) => replaceParallelRmPlaceholder(token, arg)), childCommand.cwd, context);
-        if (result)
-          return result;
-      }
-      return null;
-    }
-    if (args.length > 0) {
-      reserveParallelAnalysis(context.budget, appendedTokenWork(childTokens, args));
-      for (let arg of args) {
-        let result = analyzeParallelRmExpansion([...childTokens, arg], childCommand.cwd, context);
-        if (result)
-          return result;
-      }
-      return null;
-    }
-    return parallelRmDynamicReason(context);
-  }
-  reserveParallelAnalysis(context.budget, templateHasPlaceholder && args.length > 0 ? expandedTokenWork(childTokens, args, "generic") : args.length > 0 ? appendedTokenWork(childTokens, args) : staticTokenWork(childTokens));
-  let childArgs = args.length > 0 ? args : [void 0];
-  for (let arg of childArgs) {
-    let tokens2 = arg === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelPlaceholder(token, arg)) : [...childTokens, arg], result = analyzeChildCommandMatch(tokens2, {
+// src/core/analyze/xargs.ts
+var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_XARGS_SHELL = "xargs dynamic input can supply arbitrary executable command source. Use an explicit child command and arguments instead.", XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__", XARGS_INTERPRETER_INPUT = "__CC_SAFETY_NET_XARGS_INTERPRETER_INPUT__", XARGS_DYNAMIC_WRAPPER_CHILD = "rm", EXECUTED_SHELL_EXPANSION_RE = /(?:^|[;&|]\s*|\b(?:eval|source)\s+|\b(?:ba|da|z|k)?sh\s+-c\s+)\s*["']?\$(?:([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)|\{!?([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)(?:[^}]*)\})/g, EVAL_SHELL_SOURCE_RE = /(?:^|[;&|]\s*)\s*eval\b((?:\\.|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\\'";&|\r\n])*)/g, SHELL_EXPANSION_RE = /\$(?:([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)|\{!?([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)(?:[^}]*)\})/g, POSITIONAL_SHELL_PARAMETER_RE2 = /^(?:[0-9]+|[@*])$/, PROTECTED_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
+  "branch",
+  "checkout",
+  "clean",
+  "push",
+  "reset",
+  "restore",
+  "switch",
+  "tag"
+]);
+function analyzeXargs(tokens, context) {
+  let { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens), shellDynamicMatch = destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL);
+  if (xargsInputCanSupplyWrapperChild(rawChildTokens, replacementToken, context) && filterDestructiveCommandMatch(shellDynamicMatch, context.policy))
+    return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
+  for (let childCommand of normalizeChildCommands(rawChildTokens, context)) {
+    let childTokens = childCommand.tokens, dynamicExecutableResult = replacementToken !== null && childTokens[0] !== rawChildTokens[0] && (childTokens[0]?.includes(replacementToken) ?? !1) ? filterDestructiveCommandMatch(shellDynamicMatch, context.policy) : null;
+    if (dynamicExecutableResult)
+      return dynamicExecutableResult;
+    let dynamicInput = xargsInputIsDynamic(childTokens, replacementToken, childCommand.wrapperEnvAssignments), dynamicRmInput = childCommand.head === "rm" && replacementToken !== null && replacementCanChangeRmOptions(childTokens, replacementToken), childResult = analyzeChildCommandMatch(childTokens, {
       ...context,
       cwd: childCommand.cwd,
-      envAssignments: childCommand.envAssignments,
-      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode
+      envAssignments: childCommand.envAssignments
     }, {
-      dynamicInput: usesStdin || hasPlaceholder,
-      shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
-      rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
+      dynamicInput,
+      dynamicSourceInput: dynamicRmInput || xargsInputCanChangeExecutedSource(childTokens, childCommand.head, replacementToken, childCommand.wrapperEnvAssignments, dynamicInput, context.scanWork),
+      dynamicRmInput,
+      shellDynamicMatch,
+      dynamicSourceMatch: shellDynamicMatch,
+      rmDynamicMatch: destructiveCommandMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
     });
+    if (childResult)
+      return childResult;
+    let dynamicCustomResult = matchDynamicPolicyRule(childTokens, replacementToken, context.policy?.rules ?? []);
+    if (dynamicCustomResult)
+      return dynamicCustomResult;
+    if (childCommand.head === "git") {
+      let gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens, hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken))), gitResult = analyzeChildCommandMatch(gitTokens, {
+        ...context,
+        cwd: childCommand.cwd,
+        envAssignments: childCommand.envAssignments,
+        worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode
+      });
+      if (gitResult)
+        return gitResult;
+    }
+    let customResult = checkPolicyRuleMatch(childTokens, context.policy?.rules ?? []);
+    if (customResult)
+      return customResult;
+  }
+  return null;
+}
+function matchDynamicPolicyRule(tokens, replacementToken, rules) {
+  if (rules.length === 0)
+    return null;
+  if (replacementToken === null) {
+    for (let rule of rules) {
+      let result = checkPolicyRuleMatch([...tokens, ...rule.subcommand ? [rule.subcommand] : [], ...rule.block_args], rules);
+      if (result)
+        return result;
+    }
+    return null;
+  }
+  let values = new Set(rules.flatMap((rule) => [rule.subcommand, ...rule.block_args].flatMap((target) => target ? tokens.flatMap((token) => replacementValuesThatProduce(token, replacementToken, target)) : [])));
+  for (let value of values) {
+    let result = checkPolicyRuleMatch(tokens.map((token) => token.replaceAll(replacementToken, value)), rules);
     if (result)
       return result;
   }
   return null;
 }
-function parallelShellDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.policy);
+function replacementValuesThatProduce(token, replacementToken, target) {
+  let first = token.indexOf(replacementToken);
+  if (first === -1 || token.indexOf(replacementToken, first + replacementToken.length) !== -1)
+    return [];
+  let prefix = token.slice(0, first), suffix = token.slice(first + replacementToken.length);
+  return target.startsWith(prefix) && target.endsWith(suffix) ? [target.slice(prefix.length, target.length - suffix.length)] : [];
 }
-function parallelCommandStreamDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.policy);
-}
-function parallelRmDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
-}
-function analyzeParallelRmExpansion(tokens, cwd, context) {
-  return filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
-    cwd,
-    originalCwd: context.originalCwd,
-    strict: context.strict,
-    paranoid: context.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar
-  }), context.policy);
-}
-function commandsModeWork(args) {
-  return {
-    childAnalyses: args.length,
-    derivedTokens: args.length,
-    derivedBytes: sumUtf8Bytes(args)
-  };
-}
-function staticStringWork(value) {
-  return {
-    childAnalyses: 1,
-    derivedTokens: 1,
-    derivedBytes: limitedValue(utf8ByteLength(value), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-  };
-}
-function staticTokenWork(tokens) {
-  return {
-    childAnalyses: 1,
-    derivedTokens: tokens.length,
-    derivedBytes: sumUtf8Bytes(tokens)
-  };
-}
-function appendedTokenWork(tokens, args) {
-  return {
-    childAnalyses: args.length,
-    derivedTokens: limitedMultiply(tokens.length + 1, args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
-    derivedBytes: limitedAdd([
-      limitedMultiply(sumUtf8Bytes(tokens), args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
-      sumUtf8Bytes(args)
-    ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-  };
-}
-function expandedStringWork(value, args, placeholderKind) {
-  let stats = getReplacementStats(value, placeholderKind), placeholderReplacements = limitedMultiply(stats.occurrences, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
-  return {
-    childAnalyses: args.length,
-    derivedTokens: args.length,
-    derivedBytes: expandedUtf8Bytes(stats, args, placeholderReplacements),
-    placeholderReplacements
-  };
-}
-function expandedTokenWork(tokens, args, placeholderKind) {
-  let stats = combineReplacementStats(tokens.map((token) => getReplacementStats(token, placeholderKind))), placeholderReplacements = limitedMultiply(stats.occurrences, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
-  return {
-    childAnalyses: args.length,
-    derivedTokens: limitedMultiply(tokens.length, args.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
-    derivedBytes: expandedUtf8Bytes(stats, args, placeholderReplacements),
-    placeholderReplacements
-  };
-}
-function dynamicEnvWork(entries, args) {
-  let dynamicEntries = entries.filter((entry) => entry.hasPlaceholder), dynamicValueCount = limitedAdd(dynamicEntries.map((entry) => entry.frequency), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), childAnalyses = limitedMultiply(dynamicValueCount, Math.max(args.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), derivedTokens = limitedMultiply(dynamicValueCount, Math.max(args.length, 1), PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
-  if (childAnalyses > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses || derivedTokens > PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
-    return { childAnalyses, derivedTokens };
-  if (args.length === 0)
-    return {
-      childAnalyses,
-      derivedTokens,
-      derivedBytes: limitedAdd(dynamicEntries.map((entry) => limitedMultiply(utf8ByteLength(entry.value), entry.frequency, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-    };
-  let stats = [], placeholderReplacements = 0;
-  for (let entry of dynamicEntries) {
-    let multiplicity = limitedMultiply(entry.frequency, args.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
-    if (multiplicity > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements || multiplicity > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements - placeholderReplacements)
-      return {
-        childAnalyses,
-        derivedTokens,
-        placeholderReplacements: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1
-      };
-    let maxOccurrences = Math.floor((PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements - placeholderReplacements) / multiplicity), valueStats = getReplacementStats(entry.value, "generic", maxOccurrences);
-    if (valueStats.occurrences > maxOccurrences)
-      return {
-        childAnalyses,
-        derivedTokens,
-        placeholderReplacements: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1
-      };
-    placeholderReplacements += valueStats.occurrences * multiplicity, stats.push(scaleReplacementStats(valueStats, entry.frequency));
-  }
-  let combinedStats = combineReplacementStats(stats);
-  return {
-    childAnalyses,
-    derivedTokens,
-    derivedBytes: expandedUtf8Bytes(combinedStats, args, placeholderReplacements),
-    placeholderReplacements
-  };
-}
-function combineParallelWork(first, second) {
-  return {
-    childAnalyses: limitedAdd([first.childAnalyses ?? 0, second.childAnalyses ?? 0], PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses),
-    derivedTokens: limitedAdd([first.derivedTokens ?? 0, second.derivedTokens ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
-    derivedBytes: limitedAdd([first.derivedBytes ?? 0, second.derivedBytes ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
-    placeholderReplacements: limitedAdd([first.placeholderReplacements ?? 0, second.placeholderReplacements ?? 0], PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
-  };
-}
-function getReplacementStats(value, placeholderKind, maxOccurrences = PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
-  let matches = placeholderKind === "generic" ? value.matchAll(/\{[^{}\s]*\}/g) : value.matchAll(/\{\}/g), parts = [], lastIndex = 0;
-  for (let match of matches) {
-    if (parts.length >= maxOccurrences)
-      return { occurrences: maxOccurrences + 1, fixedBytes: 0, templates: [] };
-    parts.push(value.slice(lastIndex, match.index)), lastIndex = match.index + match[0].length;
-  }
-  return parts.push(value.slice(lastIndex)), {
-    occurrences: parts.length - 1,
-    fixedBytes: parts.length === 1 ? utf8ByteLength(value) : limitedAdd(parts.map(utf8ByteLength), MAX_EXPANDED_BYTE_OVERCOUNT),
-    templates: parts.length === 1 ? [] : [{ parts, frequency: 1 }]
-  };
-}
-function scaleReplacementStats(stats, frequency) {
-  return {
-    occurrences: limitedMultiply(stats.occurrences, frequency, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
-    fixedBytes: limitedMultiply(stats.fixedBytes, frequency, MAX_EXPANDED_BYTE_OVERCOUNT),
-    templates: stats.templates.map((template) => ({
-      ...template,
-      frequency: limitedMultiply(template.frequency, frequency, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
-    }))
-  };
-}
-function combineReplacementStats(stats) {
-  return {
-    occurrences: limitedAdd(stats.map((value) => value.occurrences), PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
-    fixedBytes: limitedAdd(stats.map((value) => value.fixedBytes), MAX_EXPANDED_BYTE_OVERCOUNT),
-    templates: stats.flatMap((value) => value.templates)
-  };
-}
-function expandedUtf8Bytes(stats, args, placeholderReplacements) {
-  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
-    return PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1;
-  let overcountedBytes = limitedAdd([
-    limitedMultiply(stats.fixedBytes, args.length, MAX_EXPANDED_BYTE_OVERCOUNT),
-    limitedMultiply(stats.occurrences, sumUtf8Bytes(args, MAX_EXPANDED_BYTE_OVERCOUNT), MAX_EXPANDED_BYTE_OVERCOUNT)
-  ], MAX_EXPANDED_BYTE_OVERCOUNT);
-  if (overcountedBytes > MAX_EXPANDED_BYTE_OVERCOUNT)
-    return PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1;
-  return limitedValue(overcountedBytes - 2 * countSurrogateBoundaryPairs(stats.templates, args), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes);
-}
-function countSurrogateBoundaryPairs(templates, args) {
-  let pairs = 0;
-  for (let template of templates)
-    for (let arg of args) {
-      let previousLastCodeUnit;
-      for (let index = 0;index < template.parts.length; index++) {
-        let part = template.parts[index] ?? "";
-        if (part.length > 0) {
-          if (isHighSurrogate(previousLastCodeUnit) && isLowSurrogate(part.charCodeAt(0)))
-            pairs += template.frequency;
-          previousLastCodeUnit = part.charCodeAt(part.length - 1);
-        }
-        if (index === template.parts.length - 1 || arg.length === 0)
-          continue;
-        if (isHighSurrogate(previousLastCodeUnit) && isLowSurrogate(arg.charCodeAt(0)))
-          pairs += template.frequency;
-        previousLastCodeUnit = arg.charCodeAt(arg.length - 1);
-      }
+function xargsInputCanChangeExecutedSource(childTokens, childHead, replacementToken, wrapperEnvAssignments, dynamicInput, scanWork) {
+  if (SHELL_WRAPPERS.has(childHead)) {
+    if (isShellSyntaxCheck(childTokens))
+      return !1;
+    if (replacementToken !== null && shellArgvTokensCanSelectExecutableSource(childTokens, replacementToken))
+      return !0;
+    let source = extractDashCArg(childTokens);
+    if (!source) {
+      let scriptSource = extractShellScriptOperandSource(childTokens, void 0);
+      if (scriptSource.kind === "literal")
+        return replacementToken !== null && scriptSource.source.includes(replacementToken);
+      return scriptSource.kind === "none" && dynamicInput;
     }
-  return pairs;
-}
-function isHighSurrogate(value) {
-  return value !== void 0 && value >= 55296 && value <= 56319;
-}
-function isLowSurrogate(value) {
-  return value !== void 0 && value >= 56320 && value <= 57343;
-}
-function sumUtf8Bytes(values, limit = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) {
-  return limitedAdd(values.map(utf8ByteLength), limit);
-}
-function utf8ByteLength(value) {
-  return UTF8_ENCODER2.encode(value).byteLength;
-}
-function limitedAdd(values, limit) {
-  let total = 0;
-  for (let value of values) {
-    if (!Number.isSafeInteger(value) || value < 0 || value > limit - total)
-      return limit + 1;
-    total += value;
+    if (replacementToken !== null && source.includes(replacementToken))
+      return !0;
+    if (dangerousInTextMatch(source, scanWork))
+      return !0;
+    return shellSourceExecutesDynamicInput(source, replacementToken, wrapperEnvAssignments);
   }
-  return total;
-}
-function limitedMultiply(left, right, limit) {
-  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0 || left !== 0 && right > Math.floor(limit / left))
-    return limit + 1;
-  return left * right;
-}
-function limitedValue(value, limit) {
-  return Number.isSafeInteger(value) && value >= 0 && value <= limit ? value : limit + 1;
-}
-function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
-  let values = [];
-  for (let name of envNames) {
-    let value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
-    if (value !== void 0)
-      values.push(value);
+  if (isInterpreterCommand(childHead))
+    return executableSourceInputCanChange(childTokens, replacementToken, parseInterpreterArgv, getInterpreterExecutableSourceSelectors(childHead));
+  if (AWK_INTERPRETERS.has(childHead))
+    return executableSourceInputCanChange(childTokens, replacementToken, parseAwkArgv, AWK_EXECUTABLE_SOURCE_SELECTORS);
+  if (childHead === "eval") {
+    let source = extractEvalSource(childTokens, void 0);
+    if (source.kind === "dynamic")
+      return !0;
+    if (replacementToken !== null)
+      return source.kind === "literal" && source.source.includes(replacementToken);
+    return dynamicInput;
   }
-  return values.push(...childEnvAssignments.values()), prepareDynamicEnvValues(values);
+  if (childHead === "find")
+    return findInputCanChangeExecutedSource(childTokens, replacementToken, scanWork);
+  if (childHead === "git") {
+    let parsed = extractGitSubcommandAndRest(childTokens);
+    return replacementToken === null ? parsed.subcommand === null : (parsed.subcommand?.includes(replacementToken) ?? !1) || parsed.subcommand !== null && PROTECTED_GIT_SUBCOMMANDS.has(parsed.subcommand.toLowerCase()) && tokensBeforeStableOptionTerminator(parsed.rest, replacementToken).some((token) => token.includes(replacementToken));
+  }
+  return !1;
 }
-function prepareDynamicEnvValues(values) {
-  let frequencies = /* @__PURE__ */ new Map;
-  for (let value of values)
-    frequencies.set(value, (frequencies.get(value) ?? 0) + 1);
-  let entries = [...frequencies].map(([value, frequency]) => ({
-    value,
-    frequency,
-    hasPlaceholder: hasParallelPlaceholder(value)
+function executableSourceInputCanChange(tokens, replacementToken, parse2, selectors) {
+  let parsed = parse2(tokens);
+  if (replacementToken === null)
+    return parsed.optionsOpen || parse2([...tokens, XARGS_INTERPRETER_INPUT]).sources.some((source) => source.value === XARGS_INTERPRETER_INPUT);
+  if (parsed.sources.some((source) => source.value.includes(replacementToken)))
+    return !0;
+  let existingSources = new Set(parsed.sources.map((source) => `${source.tokenIndex}\x00${source.kind}\x00${source.value}`)), targets = selectors.flatMap((source) => [
+    source.selector,
+    ...source.valueForm === "attached-only" || source.valueForm === "attached-or-separate" ? [`${source.selector}${XARGS_INTERPRETER_INPUT}`] : [],
+    ...source.valueForm === "equals-or-separate" ? [`${source.selector}=${XARGS_INTERPRETER_INPUT}`] : []
+  ]), candidates = new Set(targets.flatMap((target) => tokens.flatMap((token) => replacementValuesThatProduce(token, replacementToken, target))));
+  return Array.from(candidates).some((candidate) => parse2(tokens.map((token) => token.replaceAll(replacementToken, candidate))).sources.some((source) => !existingSources.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
+}
+function xargsInputCanSupplyWrapperChild(tokens, replacementToken, context) {
+  if (tokens.length === 0 || (tokens[0] ?? "").toLowerCase() === "command")
+    return !1;
+  let originalHeads = new Set(Array.from(normalizeChildCommands(tokens, context), (child) => child.head)), candidateTokens = replacementToken === null ? [...tokens, XARGS_DYNAMIC_WRAPPER_CHILD] : tokens.map((token, index) => index === 0 ? token : token.replaceAll(replacementToken, XARGS_DYNAMIC_WRAPPER_CHILD));
+  return Array.from(normalizeChildCommands(candidateTokens, context)).some((child) => child.head === XARGS_DYNAMIC_WRAPPER_CHILD && !originalHeads.has(XARGS_DYNAMIC_WRAPPER_CHILD));
+}
+function replacementCanChangeRmOptions(tokens, replacementToken) {
+  return tokensBeforeStableOptionTerminator(tokens.slice(1), replacementToken).some((token) => token.includes(replacementToken) && (token.startsWith("-") || token.startsWith(replacementToken)));
+}
+function tokensBeforeStableOptionTerminator(tokens, replacementToken) {
+  let index = tokens.findIndex((token) => token === "--" && !token.includes(replacementToken));
+  return index === -1 ? tokens : tokens.slice(0, index);
+}
+function xargsInputIsDynamic(childTokens, replacementToken, wrapperEnvAssignments) {
+  if (replacementToken === null)
+    return !0;
+  return childTokens.some((token) => token.includes(replacementToken)) || Array.from(wrapperEnvAssignments.values()).some((value) => value.includes(replacementToken));
+}
+function shellArgvTokensCanSelectExecutableSource(tokens, replacementToken) {
+  let baseline = parseShellArgv(tokens);
+  if (baseline.commandIndex !== null && (tokens[baseline.commandIndex] ?? "").includes(replacementToken) || baseline.scriptIndex !== null && (tokens[baseline.scriptIndex] ?? "").includes(replacementToken))
+    return !0;
+  return ["-c", "-nc", "-cn", `--${replacementToken}`, replacementToken].some((target) => tokens.some((token, tokenIndex) => {
+    if (tokenIndex === 0 || !token.includes(replacementToken))
+      return !1;
+    return replacementValuesThatProduce(token, replacementToken, target).some((candidate) => {
+      let replaced = tokens.map((value, index) => index === tokenIndex ? value.replaceAll(replacementToken, candidate) : value), parsed = parseShellArgv(replaced);
+      if (parsed.commandIndex === null && parsed.scriptIndex === null)
+        return !1;
+      if (baseline.commandIndex === null && parsed.commandIndex !== null)
+        return !0;
+      if (baseline.scriptIndex === null && parsed.scriptIndex !== null)
+        return !0;
+      if (parsed.commandIndex !== null && (replaced[parsed.commandIndex] ?? "").includes(candidate))
+        return !0;
+      return parsed.scriptIndex !== null && (replaced[parsed.scriptIndex] ?? "").includes(candidate);
+    });
   }));
-  return {
-    values,
-    entries,
-    byValue: new Map(entries.map((entry) => [entry.value, entry]))
-  };
 }
-function analyzeParallelDynamicEnvValues(values, args, context) {
-  for (let value of values.values) {
-    if (!values.byValue.get(value)?.hasPlaceholder)
+function shellSourceExecutesDynamicInput(source, replacementToken, wrapperEnvAssignments) {
+  let dynamicEnvNames = new Set(replacementToken === null ? [] : Array.from(wrapperEnvAssignments).filter(([, value]) => value.includes(replacementToken)).map(([name]) => name));
+  for (let match of source.matchAll(EXECUTED_SHELL_EXPANSION_RE))
+    if (isDynamicShellParameter(match, dynamicEnvNames))
+      return !0;
+  for (let evalMatch of source.matchAll(EVAL_SHELL_SOURCE_RE))
+    for (let match of (evalMatch[1] ?? "").matchAll(SHELL_EXPANSION_RE))
+      if (isDynamicShellParameter(match, dynamicEnvNames))
+        return !0;
+  return shellSourceHasDynamicExecutionCarrier(source, dynamicEnvNames);
+}
+function isDynamicShellParameter(match, dynamicEnvNames) {
+  let parameter = match[1] ?? match[2];
+  return parameter !== void 0 && (POSITIONAL_SHELL_PARAMETER_RE2.test(parameter) || dynamicEnvNames.has(parameter));
+}
+function findInputCanChangeExecutedSource(childTokens, replacementToken, scanWork) {
+  if (replacementToken === null)
+    return !0;
+  let inExpression = !1, expressionDataArgs = 0;
+  for (let index = 1;index < childTokens.length; index++) {
+    let token = childTokens[index] ?? "";
+    if (!inExpression && !token.startsWith("-") && token !== "!" && token !== "(") {
+      if (token.indexOf(replacementToken) === 0)
+        return !0;
       continue;
-    let valueArgs = args.length > 0 ? args : [void 0];
-    for (let arg of valueArgs) {
-      let command2 = arg === void 0 ? value : replaceParallelPlaceholder(value, arg), reason = context.analyzeNested(command2, {
-        envAssignments: context.envAssignments,
-        effectiveCwd: context.cwd
-      });
-      if (reason)
-        return reason;
     }
+    if (inExpression = !0, expressionDataArgs > 0) {
+      expressionDataArgs--;
+      continue;
+    }
+    if (isFindExecPrimary(token)) {
+      let execCommand = getFindExecCommand(childTokens, index);
+      index = execCommand.nextIndex - 1;
+      for (let childCommand of normalizeChildCommands(execCommand.tokens, {
+        cwd: void 0
+      })) {
+        let dynamicInput = xargsInputIsDynamic(childCommand.tokens, replacementToken, childCommand.wrapperEnvAssignments);
+        if (childCommand.head === "rm" && replacementCanChangeRmOptions(childCommand.tokens, replacementToken) || xargsInputCanChangeExecutedSource(childCommand.tokens, childCommand.head, replacementToken, childCommand.wrapperEnvAssignments, dynamicInput, scanWork))
+          return !0;
+      }
+      continue;
+    }
+    let arity = getFindPrimaryArity(token);
+    if (arity > 0) {
+      if (expressionDataArgs = arity, token.includes(replacementToken))
+        return !0;
+      continue;
+    }
+    if (token.includes(replacementToken))
+      return !0;
   }
-  return null;
-}
-function buildNestedOverrides(envAssignments, cwd, runsRemotely) {
-  let overrides = { envAssignments };
-  if (cwd !== void 0)
-    overrides.effectiveCwd = cwd;
-  if (runsRemotely)
-    overrides.worktreeMode = !1;
-  return overrides;
-}
-function buildCommandsModeOverrides(context, runsRemotely) {
-  let overrides = {};
-  if (context.envAssignments)
-    overrides.envAssignments = context.envAssignments;
-  if (context.cwd !== void 0)
-    overrides.effectiveCwd = context.cwd;
-  if (runsRemotely)
-    overrides.worktreeMode = !1;
-  return Object.keys(overrides).length > 0 ? overrides : void 0;
-}
-function replaceParallelPlaceholder(token, arg) {
-  return token.replace(/\{[^{}\s]*\}/g, () => arg);
-}
-function replaceParallelRmPlaceholder(token, arg) {
-  return token.replace(/\{\}/g, () => arg);
-}
-function hasParallelPlaceholder(token) {
-  return PARALLEL_PLACEHOLDER_RE.test(token);
-}
-function isOnlyParallelPlaceholder(token) {
-  return /^\{[^{}\s]*\}$/.test(token);
-}
-function parseParallelCommand(tokens) {
-  let parallelOptsWithValue = /* @__PURE__ */ new Set([
-    "-a",
-    "--arg-file",
-    "--colsep",
-    "-I",
-    "--replace",
-    "--results",
-    "--result",
-    "--res"
-  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, envNames = [];
-  while (i < tokens.length) {
-    let token = tokens[i];
-    if (!token)
-      break;
-    if (token === ":::") {
-      markerIndex = i;
-      break;
-    }
-    if (token === "--") {
-      let template = collectCommandTemplate(tokens, i + 1);
-      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i + 1)], markerIndex = template.markerIndex;
-      break;
-    }
-    if (token.startsWith("-")) {
-      if (token === "--pipe" || token === "--pipepart") {
-        usesPipe = !0, i++;
-        continue;
-      }
-      if (token === "--env") {
-        envNames.push(...splitParallelEnvNames(tokens[i + 1])), i += 2;
-        continue;
-      }
-      if (token.startsWith("--env=")) {
-        envNames.push(...splitParallelEnvNames(token.slice(6))), i++;
-        continue;
-      }
-      if (token === "-S" || token === "--sshlogin" || token === "--slf" || token === "--sshloginfile") {
-        runsRemotely = !0, i += 2;
-        continue;
-      }
-      if (token.startsWith("-S") && token.length > 2) {
-        runsRemotely = !0, i++;
-        continue;
-      }
-      if (token.startsWith("--sshlogin=") || token.startsWith("--slf=") || token.startsWith("--sshloginfile=")) {
-        runsRemotely = !0, i++;
-        continue;
-      }
-      if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
-        i++;
-        continue;
-      }
-      if (token.startsWith("--") && token.includes("=")) {
-        i++;
-        continue;
-      }
-      if (parallelOptsWithValue.has(token)) {
-        i += 2;
-        continue;
-      }
-      if (token === "-j" || token === "--jobs") {
-        i += 2;
-        continue;
-      }
-      i++;
-    } else {
-      let template = collectCommandTemplate(tokens, i);
-      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i)], markerIndex = template.markerIndex;
-      break;
-    }
-  }
-  let args = [];
-  if (markerIndex !== -1)
-    for (let j = markerIndex + 1;j < tokens.length; j++) {
-      let token = tokens[j];
-      if (token && token !== ":::")
-        args.push(token);
-    }
-  let templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
-  if (templateTokens.length === 0 && markerIndex === -1)
-    return {
-      template: [],
-      args: [],
-      childCommandTokens: [],
-      templateHasPlaceholder: !1,
-      runsRemotely,
-      usesStdin: !0,
-      envNames,
-      readsCommandsFromInput: !0
-    };
-  return {
-    template: templateTokens,
-    args,
-    childCommandTokens,
-    templateHasPlaceholder,
-    runsRemotely,
-    usesStdin: usesPipe || markerIndex === -1,
-    envNames,
-    readsCommandsFromInput: !1
-  };
-}
-function splitParallelEnvNames(value) {
-  return (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
-}
-function extractParallelChildCommand(tokens) {
-  return parseParallelCommand(tokens)?.childCommandTokens ?? [];
-}
-
-// src/core/analyze/tmpdir.ts
-import { existsSync as existsSync4, lstatSync as lstatSync4, realpathSync as realpathSync8 } from "node:fs";
-import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute10, join as join11, normalize as normalize3, parse as parsePath3, sep as sep6 } from "node:path";
-var INITIAL_SYSTEM_TMPDIR = tmpdir2(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
-function isTmpdirOverriddenToNonTemp(envAssignments) {
-  if (!envAssignments.has("TMPDIR"))
-    return !1;
-  let tmpdirValue = envAssignments.get("TMPDIR") ?? "";
-  if (tmpdirValue === "")
-    return !0;
-  let normalizedTmpdirValue = tryResolveExistingPathComponents(tmpdirValue);
-  if (normalizedTmpdirValue === null)
-    return !0;
-  if (getTrustedTempRoots().some((root) => isPathOrSubpath(normalizedTmpdirValue, root)))
-    return !1;
-  return !0;
-}
-function getTrustedTempRoots() {
-  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize3(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
-  if (!initialTmpdir)
-    return roots;
-  if (process.platform === "win32")
-    return [...roots, initialTmpdir];
-  if (process.platform === "darwin" && isMacOSPerUserTempRoot(initialTmpdir))
-    return [...roots, initialTmpdir];
-  return roots;
-}
-function isMacOSPerUserTempRoot(path) {
-  return /^\/(?:private\/)?var\/folders\/[^/]{2}\/[^/]+\/T$/.test(path);
-}
-function tryResolveExistingPathComponents(path) {
-  try {
-    return resolveExistingPathComponents(path);
-  } catch {
-    return null;
-  }
-}
-function resolveExistingPathComponents(path) {
-  let normalized = normalize3(path);
-  if (!isAbsolute10(normalized))
-    return normalized;
-  let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
-  for (let i = 0;i < components.length; i++) {
-    let candidate = join11(current, components[i] ?? "");
-    if (!existsSync4(candidate))
-      return join11(candidate, ...components.slice(i + 1));
-    current = lstatSync4(candidate).isSymbolicLink() ? realpathSync8(candidate) : candidate;
-  }
-  return current;
-}
-function isPathOrSubpath(path, basePath) {
-  if (path === basePath)
-    return !0;
-  let baseWithSlash = basePath.endsWith(sep6) ? basePath : `${basePath}${sep6}`;
-  return path.startsWith(baseWithSlash);
-}
-
-// src/core/analyze/xargs.ts
-var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
-function analyzeXargs(tokens, context) {
-  let { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens), childCommand = normalizeChildCommand(rawChildTokens, context), childTokens = childCommand.tokens, childResult = analyzeChildCommandMatch(childTokens, {
-    ...context,
-    cwd: childCommand.cwd,
-    envAssignments: childCommand.envAssignments
-  }, {
-    dynamicInput: childCommand.head !== "git" && xargsInputCanChangeExecutedSource(childTokens, childCommand.head, replacementToken, context.scanWork),
-    shellDynamicMatch: destructiveCommandMatch("xargs.shell-dynamic", REASON_XARGS_SHELL),
-    rmDynamicMatch: destructiveCommandMatch("xargs.rm-recursive-force-dynamic", REASON_XARGS_RM)
-  });
-  if (childResult)
-    return childResult;
-  if (childCommand.head !== "git")
-    return null;
-  let gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens, hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
-  return analyzeChildCommandMatch(gitTokens, {
-    ...context,
-    cwd: childCommand.cwd,
-    envAssignments: childCommand.envAssignments,
-    worktreeMode: replacementToken === null || hasDynamicReplacement ? !1 : context.worktreeMode
-  });
-}
-function xargsInputCanChangeExecutedSource(childTokens, childHead, replacementToken, scanWork) {
-  if (!SHELL_WRAPPERS.has(childHead))
-    return !0;
-  if (isShellSyntaxCheck(childTokens))
-    return !1;
-  let source = extractDashCArg(childTokens);
-  if (!source)
-    return !0;
-  if (replacementToken && source.includes(replacementToken))
-    return !0;
-  if (dangerousInTextMatch(source, scanWork))
-    return !0;
-  return /(?:^|[;&|]\s*|\b(?:eval|source)\s+|\b(?:ba|z|k)?sh\s+-c\s+)["']?\$[0-9@*]/.test(source);
+  return !1;
 }
 function extractXargsChildCommandWithInfo(tokens) {
   let xargsOptsWithValue = /* @__PURE__ */ new Set([
@@ -10178,7 +11712,7 @@ function extractXargsChildCommandWithInfo(tokens) {
         continue;
       }
       if (token === "-J") {
-        i += 2;
+        replacementToken = tokens[i + 1] ?? "{}", i += 2;
         continue;
       }
       if (xargsOptsWithValue.has(token))
@@ -10195,8 +11729,997 @@ function extractXargsChildCommandWithInfo(tokens) {
   return { childTokens: [], replacementToken };
 }
 
+// src/core/analyze/parallel.ts
+var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.", REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.", REASON_PARALLEL_COMMAND_STREAM = "parallel without a command reads executable commands from dynamic input. Use an explicit command template or ::: arguments instead.", REASON_PARALLEL_UNSUPPORTED = "parallel command construction cannot be verified safely. Use the default ::: separator, literal arguments, and built-in replacement strings.", PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/, PARALLEL_RM_PLACEHOLDER_RE = /\{\}|\{-?\d+\}/g, PROTECTED_GIT_SUBCOMMANDS2 = /* @__PURE__ */ new Set([
+  "branch",
+  "checkout",
+  "clean",
+  "merge",
+  "push",
+  "rebase",
+  "reflog",
+  "reset",
+  "restore",
+  "stash",
+  "switch",
+  "tag",
+  "worktree"
+]), AWK_SOURCE_OPTION_INPUTS = ["e", "f", "source", "file", "-e", "-f", "--source", "--file"], INTERPRETER_SOURCE_OPTION_INPUTS = [
+  "c",
+  "e",
+  "eval",
+  "m",
+  "r",
+  "Mmodule",
+  "import",
+  "require",
+  "-c",
+  "-e",
+  "-m",
+  "-r",
+  "--eval",
+  "--import",
+  "--require"
+], PARALLEL_APPENDED_SOURCE = "__CC_SAFETY_NET_PARALLEL_SOURCE__", UTF8_ENCODER2 = /* @__PURE__ */ new TextEncoder, MAX_EXPANDED_BYTE_OVERCOUNT = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements;
+function analyzeParallel(tokens, context) {
+  if ((context.envAssignments?.has("PARALLEL") ? context.envAssignments.get("PARALLEL") : process.env.PARALLEL)?.trim()) {
+    let reason = parallelUnsupportedReason(context);
+    if (reason)
+      return reason;
+  }
+  let parseResult = parseParallelCommand(tokens);
+  if (!parseResult)
+    return null;
+  let { template, jobs, runsRemotely, envNames, readsCommandsFromInput, unsupported, workdir } = parseResult;
+  if (unsupported) {
+    let reason = parallelUnsupportedReason(context);
+    if (reason)
+      return reason;
+  }
+  if (readsCommandsFromInput) {
+    let reason = parallelCommandStreamDynamicReason(context);
+    if (reason)
+      return reason;
+  }
+  if (workdir !== void 0 && runsRemotely) {
+    let reason = parallelUnsupportedReason(context);
+    if (reason)
+      return reason;
+  }
+  let workdirCwd = resolveParallelWorkdir(workdir, context.cwd);
+  if (workdirCwd === null) {
+    let reason = parallelUnsupportedReason(context);
+    if (reason)
+      return reason;
+  }
+  let executionContext = runsRemotely ? { ...context, cwd: void 0, originalCwd: void 0 } : workdirCwd === null || workdirCwd === void 0 || workdirCwd === context.cwd ? context : { ...context, cwd: workdirCwd };
+  if (template.length === 0) {
+    if (envNames.length > 0 || jobs.some((job) => job.length !== 1)) {
+      let reason = parallelUnsupportedReason(context);
+      if (reason)
+        return reason;
+    }
+    let commands = jobs.map((job) => job[0] ?? "");
+    reserveParallelAnalysis(context.budget, commandsModeWork(commands));
+    let nestedOverrides = buildCommandsModeOverrides(executionContext, runsRemotely);
+    for (let command2 of commands) {
+      let reason = context.analyzeNested(command2, nestedOverrides);
+      if (reason)
+        return reason;
+    }
+    return null;
+  }
+  for (let childCommand of normalizeChildCommands(template, executionContext)) {
+    let result = analyzeParallelChildCommand(childCommand, parseResult, context, executionContext);
+    if (result)
+      return result;
+  }
+  return null;
+}
+function analyzeParallelChildCommand(childCommand, parseResult, context, executionContext) {
+  let { jobs, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult, childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments);
+  if (dynamicEnvValues.entries.some((entry) => hasUnsupportedParallelPlaceholder(entry.value))) {
+    let reason = parallelUnsupportedReason(context);
+    if (reason)
+      return reason;
+  }
+  let envHasPlaceholder = dynamicEnvValues.entries.some((entry) => entry.hasPlaceholder), hasPlaceholder = templateHasPlaceholder || envHasPlaceholder, hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder, nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
+  if (SHELL_WRAPPERS.has(childCommand.head)) {
+    let analyzeExpandedShellArgv = () => {
+      if (!templateHasPlaceholder || jobs.length === 0)
+        return null;
+      reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "generic"));
+      for (let job of jobs) {
+        let result = analyzeChildCommandMatch(childTokens.map((token) => replaceParallelJobPlaceholder(token, job)), {
+          ...executionContext,
+          cwd: childCommand.cwd,
+          envAssignments: childCommand.envAssignments
+        });
+        if (result)
+          return result;
+      }
+      return null;
+    };
+    if (isShellSyntaxCheck(childTokens))
+      return analyzeExpandedShellArgv();
+    let dashCArg = extractDashCArg(childTokens);
+    if (dashCArg) {
+      if (isOnlyParallelPlaceholder(dashCArg)) {
+        let reason2 = parallelShellDynamicReason(context);
+        if (reason2)
+          return reason2;
+        if (jobs.length === 0)
+          return null;
+        reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, "generic"));
+        for (let job of jobs) {
+          let nestedReason = context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides);
+          if (nestedReason)
+            return nestedReason;
+        }
+        return null;
+      }
+      if (hasParallelPlaceholder(dashCArg)) {
+        if (jobs.length > 0) {
+          reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, "generic"));
+          for (let job of jobs) {
+            let expandedScript = replaceParallelJobPlaceholder(dashCArg, job), reason2 = context.analyzeNested(expandedScript, nestedOverrides);
+            if (reason2)
+              return reason2;
+          }
+          return null;
+        }
+        reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
+        let scriptTokens = parseSimpleWords(dashCArg);
+        if (scriptTokens?.[0] && normalizeCommandToken(scriptTokens[0]) === "rm" && hasRecursiveForceFlags(scriptTokens)) {
+          let reason2 = parallelRmDynamicReason(context);
+          if (reason2)
+            return reason2;
+        }
+        let dynamicReason = scriptTokens ? analyzeChildCommandMatch(scriptTokens, {
+          ...executionContext,
+          cwd: childCommand.cwd,
+          envAssignments: childCommand.envAssignments
+        }, {
+          dynamicInput: usesStdin,
+          shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
+          rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
+        }) : null;
+        if (dynamicReason)
+          return dynamicReason;
+        return context.analyzeNested(dashCArg, nestedOverrides);
+      }
+      let positionalSources = !envHasPlaceholder && (!templateHasPlaceholder || jobs.length > 0) ? (jobs.length > 0 ? jobs : [void 0]).map((job) => extractPositionalShellSource(job === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job)) : [...childTokens, ...job], void 0, dashCArg)) : [];
+      if (positionalSources.some((source) => source.kind === "dynamic")) {
+        let reason2 = parallelShellDynamicReason(context);
+        if (reason2)
+          return reason2;
+      }
+      let literalPositionalSources = positionalSources.flatMap((source) => source.kind === "literal" ? [source.source] : []);
+      if (literalPositionalSources.length > 0) {
+        reserveParallelAnalysis(context.budget, commandsModeWork(literalPositionalSources));
+        for (let source of literalPositionalSources) {
+          let reason2 = context.analyzeNested(source, nestedOverrides);
+          if (reason2)
+            return reason2;
+        }
+        return null;
+      }
+      reserveParallelAnalysis(context.budget, combineParallelWork(staticStringWork(dashCArg), dynamicEnvJobWork(dynamicEnvValues.entries, jobs)));
+      let hasUnresolvedDynamicCarrier = shellSourceHasUnresolvedDynamicExecutionCarrier(dashCArg);
+      if (hasUnresolvedDynamicCarrier && dynamicEnvValues.entries.length > 0) {
+        let envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, jobs, executionContext, runsRemotely);
+        if (envReason)
+          return envReason;
+      }
+      if (hasUnresolvedDynamicCarrier) {
+        let dynamicReason = parallelShellDynamicReason(context);
+        if (dynamicReason)
+          return dynamicReason;
+      }
+      let reason = context.analyzeNested(dashCArg, nestedOverrides);
+      if (reason)
+        return reason;
+      if (!hasUnresolvedDynamicCarrier) {
+        let envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, jobs, executionContext, runsRemotely);
+        if (envReason)
+          return envReason;
+      }
+      if (hasPlaceholder)
+        return parallelShellDynamicReason(context);
+      return null;
+    }
+    let scriptSource = extractShellScriptOperandSource(childTokens, void 0);
+    if (scriptSource.kind === "dynamic" || scriptSource.kind === "literal" && hasParallelPlaceholder(scriptSource.source))
+      return parallelShellDynamicReason(context) ?? analyzeExpandedShellArgv();
+    if (scriptSource.kind === "literal")
+      return analyzeExpandedShellArgv();
+    if (jobs.length > 0) {
+      let reason = parallelShellDynamicReason(context);
+      if (reason)
+        return reason;
+      let expandedArgvReason = analyzeExpandedShellArgv();
+      if (expandedArgvReason)
+        return expandedArgvReason;
+      if (templateHasPlaceholder)
+        return null;
+      let sources = jobs.flatMap((job) => job[0] === void 0 ? [] : [job[0]]);
+      reserveParallelAnalysis(context.budget, commandsModeWork(sources));
+      for (let source of sources) {
+        let nestedReason = context.analyzeNested(source, nestedOverrides);
+        if (nestedReason)
+          return nestedReason;
+      }
+      return null;
+    }
+    if (hasPlaceholder || usesStdin)
+      return parallelShellDynamicReason(context) ?? analyzeExpandedShellArgv();
+    return null;
+  }
+  if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
+    if (templateHasPlaceholder && jobs.length > 0) {
+      reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "rm"));
+      for (let job of jobs) {
+        let result = analyzeParallelRmExpansion(childTokens.map((token) => replaceParallelRmJobPlaceholder(token, job)), childCommand.cwd, executionContext);
+        if (result)
+          return result;
+      }
+      return null;
+    }
+    if (jobs.length > 0) {
+      reserveParallelAnalysis(context.budget, appendedTokenJobWork(childTokens, jobs));
+      for (let job of jobs) {
+        let result = analyzeParallelRmExpansion([...childTokens, ...job], childCommand.cwd, executionContext);
+        if (result)
+          return result;
+      }
+      return null;
+    }
+    let staticResult = analyzeParallelRmExpansion(childTokens.flatMap((token, index) => {
+      if (index === 0 || !hasParallelPlaceholder(token))
+        return [token];
+      return token.startsWith("-") ? [replaceParallelRmJobPlaceholder(token, [""])] : [];
+    }), childCommand.cwd, executionContext);
+    if (staticResult)
+      return staticResult;
+    return parallelRmDynamicReason(context);
+  }
+  reserveParallelAnalysis(context.budget, templateHasPlaceholder && jobs.length > 0 ? expandedTokenJobWork(childTokens, jobs, "generic") : jobs.length > 0 ? appendedTokenJobWork(childTokens, jobs) : staticTokenWork(childTokens));
+  let childJobs = jobs.length > 0 ? jobs : [void 0];
+  for (let job of childJobs) {
+    let tokens = job === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job)) : [...childTokens, ...job], shellDynamicMatch = destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), findDynamicInput = usesStdin && childCommand.head === "find" ? analyzeDynamicParallelFind(tokens, executionContext) : null, dynamicCustomResult = matchDynamicParallelPolicyRule(tokens, usesStdin, context.policy?.rules ?? [], context.budget) ?? findDynamicInput?.customResult ?? null, dynamicInput = parallelDynamicInputAnalysis(tokens, childCommand.head, usesStdin, findDynamicInput), result = analyzeChildCommandMatch(tokens, {
+      ...executionContext,
+      cwd: childCommand.cwd,
+      envAssignments: childCommand.envAssignments,
+      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode
+    }, {
+      dynamicInput: usesStdin || hasPlaceholder,
+      dynamicRmInput: dynamicInput.rmOptions,
+      dynamicSourceInput: dynamicCustomResult !== null || dynamicInput.executedSource || dynamicInput.rmOptions,
+      shellDynamicMatch,
+      dynamicSourceMatch: shellDynamicMatch,
+      rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
+    });
+    if (dynamicInput.executedSource) {
+      let parallelDynamic = filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
+      if (parallelDynamic)
+        return parallelDynamic;
+    }
+    if (result)
+      return result;
+    if (dynamicCustomResult)
+      return dynamicCustomResult;
+    let customResult = checkPolicyRuleMatch(tokens, context.policy?.rules ?? []);
+    if (customResult)
+      return customResult;
+  }
+  return null;
+}
+function parallelDynamicInputAnalysis(tokens, childHead, usesStdin, findAnalysis) {
+  if (!usesStdin)
+    return { executedSource: !1, rmOptions: !1 };
+  let normalizedHead = normalizeCommandToken(childHead), rmOptions = normalizedHead === "rm" && parallelInputCanChangeRmOptions(tokens) || normalizedHead === "xargs" && nestedRmInputCanChangeOptions(tokens) || findAnalysis?.rmOptions === !0;
+  return {
+    executedSource: rmOptions || findAnalysis?.executedSource === !0 || findAnalysis === null && parallelInputCanChangeExecutedSource(tokens, normalizedHead),
+    rmOptions
+  };
+}
+function parallelInputCanChangeExecutedSource(tokens, childHead) {
+  if (hasParallelPlaceholder(tokens[0] ?? ""))
+    return !0;
+  if (childHead === "eval" || childHead === "source" || childHead === ".")
+    return !0;
+  if (childHead === "parallel" || childHead === "xargs")
+    return !0;
+  if (SHELL_WRAPPERS.has(childHead))
+    return shellArgvHasParallelSource(tokens);
+  if (childHead === "git")
+    return gitInputCanChangeProtectedOperation(tokens);
+  if (childHead === "find")
+    return !0;
+  if (AWK_INTERPRETERS.has(childHead))
+    return awkInputCanChangeExecutedSource(tokens);
+  if (isInterpreterCommand(childHead))
+    return interpreterInputCanChangeExecutedSource(tokens);
+  return !1;
+}
+function parallelInputCanChangeRmOptions(tokens) {
+  let optionTerminator = tokens.indexOf("--"), optionTokens = tokens.slice(1, optionTerminator === -1 ? void 0 : optionTerminator);
+  if (!tokens.some(hasParallelPlaceholder))
+    return optionTerminator === -1;
+  return optionTokens.some((token) => hasParallelPlaceholder(token) && (token.startsWith("-") || isOnlyParallelPlaceholder(token)));
+}
+function gitInputCanChangeProtectedOperation(tokens) {
+  if (gitGlobalConfigCanChange(tokens))
+    return !0;
+  let parsed = extractGitSubcommandAndRest(tokens);
+  if (parsed.subcommand === null || hasParallelPlaceholder(parsed.subcommand))
+    return !0;
+  if (!PROTECTED_GIT_SUBCOMMANDS2.has(parsed.subcommand.toLowerCase()))
+    return !1;
+  let optionTerminator = parsed.rest.indexOf("--"), structuralTokens = parsed.rest.slice(0, optionTerminator === -1 ? void 0 : optionTerminator);
+  if (!tokens.some(hasParallelPlaceholder))
+    return optionTerminator === -1;
+  return structuralTokens.some(hasParallelPlaceholder);
+}
+function gitGlobalConfigCanChange(tokens) {
+  for (let index = 1;index < tokens.length; index++) {
+    let token = tokens[index];
+    if (!token || token === "--" || !token.startsWith("-"))
+      return !1;
+    if (token === "-c" || token === "--config-env") {
+      if (hasParallelPlaceholder(tokens[index + 1] ?? ""))
+        return !0;
+      index++;
+      continue;
+    }
+    if (token.startsWith("-c") && token.length > 2 || token.startsWith("--config-env=")) {
+      if (hasParallelPlaceholder(token))
+        return !0;
+      continue;
+    }
+    if (hasParallelPlaceholder(token))
+      return !0;
+  }
+  return !1;
+}
+function shellArgvHasParallelSource(tokens) {
+  if (isShellSyntaxCheck(tokens))
+    return !1;
+  let dashCArg = extractDashCArg(tokens);
+  if (dashCArg !== null)
+    return hasParallelPlaceholder(dashCArg);
+  let scriptSource = extractShellScriptOperandSource(tokens, void 0);
+  if (scriptSource.kind === "literal")
+    return hasParallelPlaceholder(scriptSource.source);
+  if (scriptSource.kind === "dynamic")
+    return !0;
+  return !tokens.some(hasParallelPlaceholder);
+}
+function awkInputCanChangeExecutedSource(tokens) {
+  let sources = extractAwkExecutableSources(tokens);
+  if (sources.some((source) => hasParallelPlaceholder(source.value)))
+    return !0;
+  if (!tokens.some(hasParallelPlaceholder))
+    return extractAwkExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some((source) => source.value === PARALLEL_APPENDED_SOURCE);
+  return inputCanCreateExecutableSource(tokens, sources, AWK_SOURCE_OPTION_INPUTS, extractAwkExecutableSources);
+}
+function interpreterInputCanChangeExecutedSource(tokens) {
+  let sources = extractInterpreterExecutableSources(tokens);
+  if (sources.some((source) => hasParallelPlaceholder(source.value)))
+    return !0;
+  if (!tokens.some(hasParallelPlaceholder))
+    return extractInterpreterExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some((source) => source.value === PARALLEL_APPENDED_SOURCE);
+  return inputCanCreateExecutableSource(tokens, sources, INTERPRETER_SOURCE_OPTION_INPUTS, extractInterpreterExecutableSources);
+}
+function inputCanCreateExecutableSource(tokens, existingSources, candidates, extractSources) {
+  let existing = new Set(existingSources.map((source) => `${source.tokenIndex}\x00${source.kind}\x00${source.value}`));
+  return candidates.some((candidate) => extractSources(tokens.map((token) => replaceParallelJobPlaceholder(token, [candidate]))).some((source) => !existing.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
+}
+function matchDynamicParallelPolicyRule(tokens, usesStdin, rules, budget) {
+  if (!usesStdin || rules.length === 0)
+    return null;
+  let relevantRules = rules.filter((rule) => normalizeCommandToken(rule.command) === normalizeCommandToken(tokens[0] ?? ""));
+  if (relevantRules.length === 0)
+    return null;
+  let hasPlaceholder = tokens.some(hasParallelPlaceholder);
+  if (reserveParallelAnalysis(budget, dynamicCustomRuleWork(tokens, relevantRules, hasPlaceholder)), !hasPlaceholder) {
+    for (let rule of relevantRules) {
+      let result = checkPolicyRuleMatch([...tokens, ...rule.subcommand ? [rule.subcommand] : [], ...rule.block_args], [rule]);
+      if (result)
+        return result;
+    }
+    return null;
+  }
+  for (let rule of relevantRules) {
+    let inputCandidates = new Set([rule.subcommand, ...rule.block_args].flatMap((target) => target ? parallelInputsThatProduce(tokens, target) : []));
+    for (let input of inputCandidates) {
+      let result = checkPolicyRuleMatch(tokens.map((token) => replaceParallelJobPlaceholder(token, [input])), [rule]);
+      if (result)
+        return result;
+    }
+  }
+  return null;
+}
+function dynamicCustomRuleWork(tokens, rules, hasPlaceholder) {
+  let candidateCount = hasPlaceholder ? limitedMultiply(limitedAdd(rules.map((rule) => rule.block_args.length + (rule.subcommand ? 1 : 0)), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), 2 * Math.max(tokens.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses) : rules.length;
+  return {
+    childAnalyses: candidateCount,
+    derivedTokens: limitedMultiply(candidateCount, tokens.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
+  };
+}
+function parallelInputsThatProduce(tokens, target) {
+  return tokens.flatMap((token) => {
+    let matches = [...token.matchAll(/\{[^{}\s]*\}/g)];
+    if (matches.length !== 1)
+      return [];
+    let match = matches[0];
+    if (!match || match.index === void 0)
+      return [];
+    let prefix = token.slice(0, match.index), suffix = token.slice(match.index + match[0].length);
+    if (!target.startsWith(prefix) || !target.endsWith(suffix))
+      return [target];
+    let input = target.slice(prefix.length, target.length - suffix.length);
+    return input !== target ? [target, input] : [target];
+  });
+}
+function analyzeDynamicParallelFind(tokens, context) {
+  let analysis = {
+    customResult: null,
+    executedSource: !tokens.some(hasParallelPlaceholder),
+    rmOptions: !1
+  }, inExpression = !1, expressionDataArgs = 0, execTokens = null, analyzeExec = () => {
+    if (!execTokens?.some(hasParallelPlaceholder))
+      return;
+    for (let childCommand of normalizeChildCommands(execTokens, context))
+      analysis.executedSource ||= parallelInputCanChangeExecutedSource(childCommand.tokens, childCommand.head), analysis.rmOptions ||= childCommand.head === "rm" && parallelInputCanChangeRmOptions(childCommand.tokens) || childCommand.head === "xargs" && nestedRmInputCanChangeOptions(childCommand.tokens), analysis.customResult ??= matchDynamicParallelPolicyRule(childCommand.tokens, !0, context.policy?.rules ?? [], context.budget);
+  };
+  for (let token of tokens.slice(1)) {
+    if (!inExpression && !token.startsWith("-") && token !== "!" && token !== "(") {
+      analysis.executedSource ||= hasParallelPlaceholder(token);
+      continue;
+    }
+    if (inExpression = !0, execTokens) {
+      if (token === ";" || token === "+") {
+        analyzeExec(), execTokens = null;
+        continue;
+      }
+      execTokens.push(token);
+      continue;
+    }
+    if (expressionDataArgs > 0) {
+      expressionDataArgs--;
+      continue;
+    }
+    if (isFindExecPrimary(token)) {
+      execTokens = [], analysis.executedSource ||= hasParallelPlaceholder(token);
+      continue;
+    }
+    let arity = getFindPrimaryArity(token);
+    if (arity > 0) {
+      expressionDataArgs = arity, analysis.executedSource ||= hasParallelPlaceholder(token);
+      continue;
+    }
+    analysis.executedSource ||= hasParallelPlaceholder(token);
+  }
+  return analyzeExec(), analysis;
+}
+function nestedRmInputCanChangeOptions(tokens) {
+  let childTokens = extractXargsChildCommandWithInfo(tokens).childTokens;
+  return normalizeCommandToken(childTokens[0] ?? "") === "rm" && parallelInputCanChangeRmOptions(childTokens);
+}
+function parallelShellDynamicReason(context) {
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.policy);
+}
+function parallelCommandStreamDynamicReason(context) {
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.policy);
+}
+function parallelUnsupportedReason(context) {
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_UNSUPPORTED), context.policy);
+}
+function parallelRmDynamicReason(context) {
+  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
+}
+function analyzeParallelRmExpansion(tokens, cwd, context) {
+  return filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
+    cwd,
+    originalCwd: context.originalCwd,
+    strict: context.strict,
+    paranoid: context.paranoidRm,
+    allowTmpdirVar: context.allowTmpdirVar,
+    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments ?? /* @__PURE__ */ new Map),
+    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? /* @__PURE__ */ new Map),
+    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? /* @__PURE__ */ new Map),
+    policy: context.policy
+  }), context.policy);
+}
+function commandsModeWork(args) {
+  return {
+    childAnalyses: args.length,
+    derivedTokens: args.length,
+    derivedBytes: sumUtf8Bytes(args)
+  };
+}
+function staticStringWork(value) {
+  return {
+    childAnalyses: 1,
+    derivedTokens: 1,
+    derivedBytes: limitedValue(utf8ByteLength(value), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+  };
+}
+function staticTokenWork(tokens) {
+  return {
+    childAnalyses: 1,
+    derivedTokens: tokens.length,
+    derivedBytes: sumUtf8Bytes(tokens)
+  };
+}
+function appendedTokenJobWork(tokens, jobs) {
+  if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
+    return { childAnalyses: jobs.length };
+  return {
+    childAnalyses: jobs.length,
+    derivedTokens: limitedAdd(jobs.map((job) => tokens.length + job.length), PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
+    derivedBytes: limitedAdd([
+      limitedMultiply(sumUtf8Bytes(tokens), jobs.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
+      limitedAdd(jobs.map((job) => sumUtf8Bytes(job)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+    ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+  };
+}
+function expandedStringJobWork(value, jobs, placeholderKind) {
+  if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
+    return { childAnalyses: jobs.length };
+  let stats = getReplacementStats(value, placeholderKind), placeholderReplacements = limitedMultiply(stats.occurrences, jobs.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    return { childAnalyses: jobs.length, placeholderReplacements };
+  if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements))
+    return {
+      childAnalyses: jobs.length,
+      derivedTokens: jobs.length,
+      derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
+      placeholderReplacements
+    };
+  let derivedBytes = 0;
+  for (let job of jobs)
+    if (derivedBytes = limitedAdd([derivedBytes, utf8ByteLength(replaceParallelJobPlaceholder(value, job))], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+      break;
+  return {
+    childAnalyses: jobs.length,
+    derivedTokens: jobs.length,
+    derivedBytes,
+    placeholderReplacements
+  };
+}
+function expandedTokenJobWork(tokens, jobs, placeholderKind) {
+  if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
+    return { childAnalyses: jobs.length };
+  let derivedTokens = limitedMultiply(tokens.length, jobs.length, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
+  if (derivedTokens > PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
+    return { childAnalyses: jobs.length, derivedTokens };
+  let stats = combineReplacementStats(tokens.map((token) => getReplacementStats(token, placeholderKind))), placeholderReplacements = limitedMultiply(stats.occurrences, jobs.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    return { childAnalyses: jobs.length, derivedTokens, placeholderReplacements };
+  if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements))
+    return {
+      childAnalyses: jobs.length,
+      derivedTokens,
+      derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
+      placeholderReplacements
+    };
+  let derivedBytes = 0;
+  outer:
+    for (let job of jobs)
+      for (let token of tokens)
+        if (derivedBytes = limitedAdd([
+          derivedBytes,
+          utf8ByteLength(placeholderKind === "generic" ? replaceParallelJobPlaceholder(token, job) : replaceParallelRmJobPlaceholder(token, job))
+        ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+          break outer;
+  return {
+    childAnalyses: jobs.length,
+    derivedTokens,
+    derivedBytes,
+    placeholderReplacements
+  };
+}
+function expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements) {
+  let byteCeiling = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * placeholderReplacements;
+  return limitedAdd([
+    limitedMultiply(stats.fixedBytes, jobs.length, byteCeiling),
+    limitedMultiply(stats.occurrences, limitedAdd(jobs.map((job) => job.reduce((largest, arg) => Math.max(largest, utf8ByteLength(arg)), 0)), byteCeiling), byteCeiling)
+  ], byteCeiling) > byteCeiling;
+}
+function dynamicEnvJobWork(entries, jobs) {
+  let dynamicEntries = entries.filter((entry) => entry.hasPlaceholder), dynamicValueCount = limitedAdd(dynamicEntries.map((entry) => entry.frequency), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), childAnalyses = limitedMultiply(dynamicValueCount, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), derivedTokens = limitedMultiply(dynamicValueCount, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
+  if (childAnalyses > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses || derivedTokens > PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
+    return { childAnalyses, derivedTokens };
+  if (jobs.length === 0)
+    return {
+      childAnalyses,
+      derivedTokens,
+      derivedBytes: limitedAdd(dynamicEntries.map((entry) => limitedMultiply(utf8ByteLength(entry.value), entry.frequency, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+    };
+  let stats = combineReplacementStats(dynamicEntries.map((entry) => scaleReplacementStats(getReplacementStats(entry.value, "generic"), entry.frequency))), placeholderReplacements = limitedMultiply(stats.occurrences, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    return { childAnalyses, placeholderReplacements };
+  if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements))
+    return {
+      childAnalyses,
+      derivedTokens,
+      derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
+      placeholderReplacements
+    };
+  let derivedBytes = 0;
+  outer:
+    for (let entry of dynamicEntries)
+      for (let index = 0;index < entry.frequency; index++) {
+        let valueJobs = jobs.length > 0 ? jobs : [void 0];
+        for (let job of valueJobs)
+          if (derivedBytes = limitedAdd([
+            derivedBytes,
+            utf8ByteLength(job === void 0 ? entry.value : replaceParallelJobPlaceholder(entry.value, job))
+          ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
+            break outer;
+      }
+  return {
+    childAnalyses,
+    derivedTokens,
+    derivedBytes,
+    placeholderReplacements
+  };
+}
+function combineParallelWork(first, second) {
+  return {
+    childAnalyses: limitedAdd([first.childAnalyses ?? 0, second.childAnalyses ?? 0], PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses),
+    derivedTokens: limitedAdd([first.derivedTokens ?? 0, second.derivedTokens ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens),
+    derivedBytes: limitedAdd([first.derivedBytes ?? 0, second.derivedBytes ?? 0], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
+    placeholderReplacements: limitedAdd([first.placeholderReplacements ?? 0, second.placeholderReplacements ?? 0], PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+  };
+}
+function getReplacementStats(value, placeholderKind) {
+  let matches = placeholderKind === "generic" ? value.matchAll(/\{[^{}\s]*\}/g) : value.matchAll(PARALLEL_RM_PLACEHOLDER_RE), parts = [], lastIndex = 0;
+  for (let match of matches) {
+    if (parts.length >= PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+      return {
+        occurrences: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1,
+        fixedBytes: 0
+      };
+    parts.push(value.slice(lastIndex, match.index)), lastIndex = match.index + match[0].length;
+  }
+  return parts.push(value.slice(lastIndex)), {
+    occurrences: parts.length - 1,
+    fixedBytes: parts.length === 1 ? utf8ByteLength(value) : limitedAdd(parts.map(utf8ByteLength), MAX_EXPANDED_BYTE_OVERCOUNT)
+  };
+}
+function scaleReplacementStats(stats, frequency) {
+  return {
+    occurrences: limitedMultiply(stats.occurrences, frequency, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
+    fixedBytes: limitedMultiply(stats.fixedBytes, frequency, MAX_EXPANDED_BYTE_OVERCOUNT)
+  };
+}
+function combineReplacementStats(stats) {
+  return {
+    occurrences: limitedAdd(stats.map((value) => value.occurrences), PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements),
+    fixedBytes: limitedAdd(stats.map((value) => value.fixedBytes), MAX_EXPANDED_BYTE_OVERCOUNT)
+  };
+}
+function sumUtf8Bytes(values, limit = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) {
+  return limitedAdd(values.map(utf8ByteLength), limit);
+}
+function utf8ByteLength(value) {
+  return UTF8_ENCODER2.encode(value).byteLength;
+}
+function limitedAdd(values, limit) {
+  let total = 0;
+  for (let value of values) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > limit - total)
+      return limit + 1;
+    total += value;
+  }
+  return total;
+}
+function limitedMultiply(left, right, limit) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0 || left !== 0 && right > Math.floor(limit / left))
+    return limit + 1;
+  return left * right;
+}
+function limitedValue(value, limit) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= limit ? value : limit + 1;
+}
+function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
+  let values = [];
+  for (let name of envNames) {
+    let value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
+    if (value !== void 0)
+      values.push(value);
+  }
+  return values.push(...childEnvAssignments.values()), prepareDynamicEnvValues(values);
+}
+function prepareDynamicEnvValues(values) {
+  let frequencies = /* @__PURE__ */ new Map;
+  for (let value of values)
+    frequencies.set(value, (frequencies.get(value) ?? 0) + 1);
+  let entries = [...frequencies].map(([value, frequency]) => ({
+    value,
+    frequency,
+    hasPlaceholder: hasParallelPlaceholder(value)
+  }));
+  return {
+    values,
+    entries,
+    byValue: new Map(entries.map((entry) => [entry.value, entry]))
+  };
+}
+function analyzeParallelDynamicEnvValues(values, jobs, context, runsRemotely) {
+  for (let value of values.values) {
+    if (!values.byValue.get(value)?.hasPlaceholder)
+      continue;
+    let valueJobs = jobs.length > 0 ? jobs : [void 0];
+    for (let job of valueJobs) {
+      let command2 = job === void 0 ? value : replaceParallelJobPlaceholder(value, job), reason = context.analyzeNested(command2, {
+        envAssignments: context.envAssignments,
+        effectiveCwd: runsRemotely ? null : context.cwd
+      });
+      if (reason)
+        return reason;
+    }
+  }
+  return null;
+}
+function buildNestedOverrides(envAssignments, cwd, runsRemotely) {
+  let overrides = { envAssignments };
+  if (runsRemotely)
+    return overrides.effectiveCwd = null, overrides.worktreeMode = !1, overrides;
+  if (cwd !== void 0)
+    overrides.effectiveCwd = cwd;
+  return overrides;
+}
+function buildCommandsModeOverrides(context, runsRemotely) {
+  let overrides = {};
+  if (context.envAssignments)
+    overrides.envAssignments = context.envAssignments;
+  if (runsRemotely)
+    overrides.effectiveCwd = null, overrides.worktreeMode = !1;
+  if (!runsRemotely && context.cwd !== void 0)
+    overrides.effectiveCwd = context.cwd;
+  return Object.keys(overrides).length > 0 ? overrides : void 0;
+}
+function replaceParallelJobPlaceholder(token, job) {
+  return token.replace(/\{[^{}\s]*\}/g, (placeholder) => getParallelPlaceholderValue(placeholder, job));
+}
+function replaceParallelRmJobPlaceholder(token, job) {
+  return token.replace(PARALLEL_RM_PLACEHOLDER_RE, (placeholder) => getParallelPlaceholderValue(placeholder, job));
+}
+function getParallelPlaceholderValue(placeholder, job) {
+  let position = /^\{(-?\d+)[^{}\s]*\}$/.exec(placeholder)?.[1];
+  if (position === void 0)
+    return job[0] ?? "";
+  let parsed = Number(position), index = parsed > 0 ? parsed - 1 : job.length + parsed;
+  return job[index] ?? "";
+}
+function hasParallelPlaceholder(token) {
+  return PARALLEL_PLACEHOLDER_RE.test(token);
+}
+function hasUnsupportedParallelPlaceholder(token) {
+  let perlStart = token.indexOf("{=");
+  if (perlStart !== -1 && token.indexOf("=}", perlStart + 2) !== -1)
+    return !0;
+  for (let match of token.matchAll(/\{[^{}\s]*\}/g))
+    if (!/^(?:\{\}|\{-?\d+\})$/.test(match[0]))
+      return !0;
+  return !1;
+}
+function isOnlyParallelPlaceholder(token) {
+  return /^\{[^{}\s]*\}$/.test(token);
+}
+function parseParallelCommand(tokens) {
+  let parallelOptsWithValue = /* @__PURE__ */ new Set([
+    "-L",
+    "-d",
+    "-n",
+    "--delay",
+    "--delimiter",
+    "--header",
+    "--joblog",
+    "--jl",
+    "--max-args",
+    "--max-lines",
+    "--nice",
+    "--results",
+    "--result",
+    "--res",
+    "--tagstring",
+    "--timeout"
+  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, workdir, unsupported = tokens.some((token) => token === "::::" || token === "::::+" || token === ":::+"), envNames = [];
+  while (i < tokens.length) {
+    let token = tokens[i];
+    if (token === void 0)
+      break;
+    if (token === ":::") {
+      markerIndex = i;
+      break;
+    }
+    if (token === "--") {
+      let template = collectCommandTemplate(tokens, i + 1);
+      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i + 1)], markerIndex = template.markerIndex;
+      break;
+    }
+    if (token.startsWith("-")) {
+      if (token === "-I") {
+        unsupported ||= tokens[i + 1] !== "{}", i += 2;
+        continue;
+      }
+      if (token.startsWith("-I") && token.length > 2) {
+        unsupported ||= token.slice(2) !== "{}", i++;
+        continue;
+      }
+      if (token === "--replace" || token === "-i") {
+        unsupported = !0, i += 2;
+        continue;
+      }
+      if (token.startsWith("--replace=") || token.startsWith("-i") && token.length > 2) {
+        let replacement = token.startsWith("--replace=") ? token.slice(10) : token.slice(2);
+        unsupported ||= replacement !== "" && replacement !== "{}", i++;
+        continue;
+      }
+      if (token === "-a" || token === "--arg-file" || token === "--colsep" || token === "--rpl" || token === "--arg-sep" || token === "--arg-file-sep") {
+        unsupported = !0, i += 2;
+        continue;
+      }
+      if (token.startsWith("--arg-file=") || token.startsWith("--colsep=") || token.startsWith("--rpl=") || token.startsWith("--arg-sep=") || token.startsWith("--arg-file-sep=")) {
+        unsupported = !0, i++;
+        continue;
+      }
+      if (token === "--pipe" || token === "--pipepart") {
+        usesPipe = !0, i++;
+        continue;
+      }
+      if (token === "--env") {
+        envNames.push(...splitParallelEnvNames(tokens[i + 1])), i += 2;
+        continue;
+      }
+      if (token.startsWith("--env=")) {
+        envNames.push(...splitParallelEnvNames(token.slice(6))), i++;
+        continue;
+      }
+      if (token === "-S" || token === "--sshlogin" || token === "--slf" || token === "--sshloginfile") {
+        runsRemotely = !0, i += 2;
+        continue;
+      }
+      if (token.startsWith("-S") && token.length > 2) {
+        runsRemotely = !0, i++;
+        continue;
+      }
+      if (token === "--workdir" || token === "--wd") {
+        let value = tokens[i + 1];
+        if (value === void 0 || value === ":::" || value === "--") {
+          unsupported = !0, i++;
+          continue;
+        }
+        workdir = value, i += 2;
+        continue;
+      }
+      if (token.startsWith("--workdir=") || token.startsWith("--wd=")) {
+        let value = token.slice(token.indexOf("=") + 1);
+        unsupported ||= value === "", workdir = value, i++;
+        continue;
+      }
+      if (token.startsWith("--sshlogin=") || token.startsWith("--slf=") || token.startsWith("--sshloginfile=")) {
+        runsRemotely = !0, i++;
+        continue;
+      }
+      if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
+        i++;
+        continue;
+      }
+      if (token.startsWith("--") && token.includes("=")) {
+        i++;
+        continue;
+      }
+      if (parallelOptsWithValue.has(token)) {
+        if (tokens[i + 1] === void 0 || tokens[i + 1] === ":::" || tokens[i + 1] === "--") {
+          unsupported = !0, i++;
+          continue;
+        }
+        i += 2;
+        continue;
+      }
+      if (token === "-j" || token === "--jobs") {
+        i += 2;
+        continue;
+      }
+      i++;
+    } else {
+      let template = collectCommandTemplate(tokens, i);
+      templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i)], markerIndex = template.markerIndex;
+      break;
+    }
+  }
+  unsupported ||= templateTokens.some(hasUnsupportedParallelPlaceholder);
+  let argumentGroups = [];
+  if (markerIndex !== -1) {
+    let group = [];
+    for (let j = markerIndex + 1;j < tokens.length; j++) {
+      let token = tokens[j];
+      if (token === ":::") {
+        argumentGroups.push(group), group = [];
+        continue;
+      }
+      if (token !== void 0)
+        group.push(token);
+    }
+    argumentGroups.push(group);
+  }
+  let jobs = expandParallelJobs(argumentGroups), templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
+  if (templateTokens.length === 0 && markerIndex === -1)
+    return {
+      template: [],
+      jobs: [],
+      childCommandTokens: [],
+      templateHasPlaceholder: !1,
+      runsRemotely,
+      usesStdin: !0,
+      envNames,
+      readsCommandsFromInput: !0,
+      unsupported,
+      workdir
+    };
+  return {
+    template: templateTokens,
+    jobs,
+    childCommandTokens,
+    templateHasPlaceholder,
+    runsRemotely,
+    usesStdin: usesPipe || markerIndex === -1,
+    envNames,
+    readsCommandsFromInput: !1,
+    unsupported,
+    workdir
+  };
+}
+function resolveParallelWorkdir(workdir, cwd) {
+  if (workdir === void 0)
+    return;
+  if (workdir === "..." || /[{}$`*?~[]/.test(workdir))
+    return null;
+  if (!cwd && !isAbsolute12(workdir))
+    return null;
+  try {
+    return resolveChdirTarget(cwd ?? workdir, workdir);
+  } catch {
+    return null;
+  }
+}
+function expandParallelJobs(argumentGroups) {
+  if (argumentGroups.length === 0 || argumentGroups.some((group) => group.length === 0))
+    return [];
+  let jobs = [[]];
+  for (let group of argumentGroups) {
+    if (group.length === 1) {
+      let arg = group[0];
+      if (arg === void 0)
+        return [];
+      for (let job of jobs)
+        job.push(arg);
+      continue;
+    }
+    let expanded = [];
+    for (let job of jobs)
+      for (let arg of group)
+        if (expanded.push([...job, arg]), expanded.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
+          return expanded;
+    jobs = expanded;
+  }
+  return jobs;
+}
+function splitParallelEnvNames(value) {
+  return (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+}
+function extractParallelChildCommand(tokens) {
+  return parseParallelCommand(tokens)?.childCommandTokens ?? [];
+}
+
 // src/core/analyze/segment.ts
-var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
+var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", REASON_DYNAMIC_SHELL_SOURCE = "shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.", RM_TARGET_BRACE_EXPANSION_LIMIT = 64, RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16384, STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "branch",
   "checkout",
   "clean",
@@ -10238,8 +12761,16 @@ function analyzeSegment(tokens, depth, options2) {
   let {
     tokens: stripped,
     envAssignments: wrapperEnvAssignments,
-    cwd: wrapperCwd
-  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm), normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = { ...options2, commandView: normalizedCommandView };
+    cwd: wrapperCwd,
+    unverifiableEnvSplit
+  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm, new Map([...options2.envAssignments ?? [], ...leadingEnvAssignments]));
+  if (unverifiableEnvSplit)
+    throw new EnvSplitStringExpansionError;
+  let normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = {
+    ...options2,
+    commandView: normalizedCommandView,
+    wrapperNormalizationBudget: options2.wrapperNormalizationBudget ?? { iterations: 0 }
+  };
   if (trace && strippedEnv.length > stripped.length) {
     let removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
     trace?.recordSegment({
@@ -10261,7 +12792,9 @@ function analyzeSegment(tokens, depth, options2) {
     return null;
   if (options2.invalidReason)
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
-  let normalizedHead = normalizeCommandToken(head), basename3 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = filterDestructiveCommandMatch(analyzeDynamicCommandStructure(normalizedCommandView, options2.strict), options2.policy);
+  if (isStandardCommandWrapper(head))
+    throw new DerivedCommandWorkLimitError;
+  let normalizedHead = normalizeCommandToken(head), basename3 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = analyzeDynamicCommandStructure(normalizedCommandView, options2.strict, options2.policy);
   if (dynamicCommandMatch)
     return trace?.recordSegment({
       type: "rule-check",
@@ -10271,24 +12804,80 @@ function analyzeSegment(tokens, depth, options2) {
       reason: dynamicCommandMatch.reason
     }), blockResultFromMatch(dynamicCommandMatch);
   let transparentWrapper = unwrapTransparentWrapper(stripped, options2.policy);
-  if (transparentWrapper)
-    return trace?.recordSegment({
-      type: "transparent-wrapper",
-      wrapper: transparentWrapper.wrapper,
-      output: transparentWrapper.tokens
-    }), analyzeSegment(transparentWrapper.tokens, depth, {
-      ...normalizedOptions,
-      commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, transparentWrapper.childIndex) : void 0,
-      effectiveCwd: nestedEffectiveCwd,
-      envAssignments
-    });
+  if (transparentWrapper) {
+    for (let childIndex of [
+      transparentWrapper.childIndex,
+      ...transparentWrapper.alternativeChildIndices
+    ]) {
+      reserveWrapperNormalization(normalizedOptions.wrapperNormalizationBudget);
+      let candidateTokens = childIndex === transparentWrapper.childIndex ? transparentWrapper.tokens : [...stripped.slice(childIndex)];
+      trace?.recordSegment({
+        type: "transparent-wrapper",
+        wrapper: transparentWrapper.wrapper,
+        output: candidateTokens
+      });
+      let result = analyzeSegment(candidateTokens, depth, {
+        ...normalizedOptions,
+        commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, childIndex) : void 0,
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments
+      });
+      if (result)
+        return result;
+    }
+    return null;
+  }
+  if (normalizedHead === "eval") {
+    let source = extractEvalSource(stripped, normalizedCommandView);
+    if (source.kind === "dynamic")
+      return dynamicShellSourceResult(trace);
+    if (source.kind === "literal") {
+      trace?.recordSegment({
+        type: "recurse",
+        reason: "shell-eval",
+        innerCommand: source.source,
+        depth: depth + 1
+      });
+      let result = options2.analyzeNested(source.source, {
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments
+      });
+      if (result)
+        return result;
+    }
+  }
+  if (normalizedHead === "trap") {
+    let source = extractTrapSource(stripped, normalizedCommandView);
+    if (source.kind === "dynamic")
+      return dynamicShellSourceResult(trace);
+    if (source.kind === "literal") {
+      trace?.recordSegment({
+        type: "recurse",
+        reason: "shell-trap",
+        innerCommand: source.source,
+        depth: depth + 1
+      });
+      let result = options2.analyzeNested(source.source, {
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments
+      });
+      if (result)
+        return result;
+    }
+  }
   if (isShellWrapperCommand(head, normalizedHead)) {
     if (isShellSyntaxCheck(stripped))
       return null;
+    let startupResult = analyzeShellStartupSources(stripped, envAssignments, nestedEffectiveCwd, options2, trace, depth);
+    if (startupResult)
+      return startupResult;
     let dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
-      let traceInnerCommand = unwrapTraceQuotes(dashCArg);
-      return trace?.recordSegment({
+      let positionalSource = extractPositionalShellSource(stripped, normalizedCommandView, dashCArg);
+      if (positionalSource.kind === "dynamic")
+        return dynamicShellSourceResult(trace);
+      let source = positionalSource.kind === "literal" ? positionalSource.source : dashCArg, traceInnerCommand = unwrapTraceQuotes(source);
+      trace?.recordSegment({
         type: "shell-wrapper",
         wrapper: normalizedHead,
         innerCommand: traceInnerCommand
@@ -10297,13 +12886,53 @@ function analyzeSegment(tokens, depth, options2) {
         reason: "shell-wrapper",
         innerCommand: traceInnerCommand,
         depth: depth + 1
-      }), options2.analyzeNested(dashCArg, {
+      });
+      let result = options2.analyzeNested(source, {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
+      if (result)
+        return result;
+      return shellSourceHasUnresolvedDynamicExecutionCarrier(source) ? dynamicShellSourceResult(trace) : null;
     }
+    let scriptSource = extractShellScriptOperandSource(stripped, normalizedCommandView);
+    if (scriptSource.kind === "dynamic")
+      return dynamicShellSourceResult(trace);
+    if (scriptSource.kind === "literal")
+      return analyzeTrackedHeredocScript(scriptSource.source, nestedEffectiveCwd, envAssignments, options2, trace, depth);
+    let stdinSource = extractShellStdinSource(stripped, normalizedCommandView, options2.hasPipelineInput ?? !1, options2.literalShellInput);
+    if (stdinSource.kind === "dynamic")
+      return dynamicShellSourceResult(trace);
+    if (stdinSource.kind === "literal")
+      return trace?.recordSegment({
+        type: "recurse",
+        reason: "shell-stdin",
+        innerCommand: stdinSource.source,
+        depth: depth + 1
+      }), options2.analyzeNested(stdinSource.source, {
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments
+      });
+  }
+  if (normalizedHead === "source" || normalizedHead === ".") {
+    let sourceSearchPathIndex = stripped[1] === "-p" ? 2 : null;
+    if (sourceSearchPathIndex !== null) {
+      let sourceSearchPath = normalizedCommandView?.words[sourceSearchPathIndex];
+      if (!sourceSearchPath)
+        return null;
+      if (sourceSearchPath.provenance !== "literal")
+        return dynamicShellSourceResult(trace);
+    }
+    let sourceCandidateIndex = sourceSearchPathIndex === null ? 1 : 3, sourceOperandIndex = stripped[sourceCandidateIndex] === "--" ? sourceCandidateIndex + 1 : sourceCandidateIndex, source = normalizedCommandView?.words[sourceOperandIndex];
+    if (!source)
+      return null;
+    if (source.provenance !== "literal")
+      return dynamicShellSourceResult(trace);
+    return analyzeTrackedHeredocScript(source.text, nestedEffectiveCwd, envAssignments, options2, trace, depth);
   }
   if (AWK_INTERPRETERS.has(normalizedHead)) {
+    if (options2.strict && hasDynamicExecutableSource(extractAwkExecutableSources(stripped), normalizedCommandView))
+      return dynamicShellSourceResult(trace);
     let awkMatch = analyzeAwkSystemCallMatch(stripped, (command2) => matchFromBlockResult(options2.analyzeNested(command2, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments
@@ -10318,6 +12947,8 @@ function analyzeSegment(tokens, depth, options2) {
       }), blockResultFromMatch(awkReason);
   }
   if (isInterpreterCommand(normalizedHead)) {
+    if (options2.strict && hasDynamicExecutableSource(extractInterpreterExecutableSources(stripped), normalizedCommandView))
+      return dynamicShellSourceResult(trace);
     let codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
       if (trace?.recordSegment({
@@ -10342,7 +12973,7 @@ function analyzeSegment(tokens, depth, options2) {
         effectiveCwd: nestedEffectiveCwd,
         envAssignments
       });
-      if (innerReason)
+      if (innerReason && innerReason.ruleId !== "raw-text.dangerous-command" && (innerReason.reason !== REASON_STRICT_UNPARSEABLE || hasUnclosedQuotes(codeArg)))
         return innerReason;
       if (containsDangerousCode(codeArg, options2.scanWork)) {
         let interpreterMatch = destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
@@ -10358,7 +12989,7 @@ function analyzeSegment(tokens, depth, options2) {
     }
   }
   if (normalizedHead === "busybox" && stripped.length > 1)
-    return trace?.recordSegment({ type: "busybox", subcommand: stripped[1] ?? "unknown" }), trace?.recordSegment({
+    return reserveWrapperNormalization(normalizedOptions.wrapperNormalizationBudget), trace?.recordSegment({ type: "busybox", subcommand: stripped[1] ?? "unknown" }), trace?.recordSegment({
       type: "recurse",
       reason: "busybox",
       innerCommand: stripped.slice(1).join(" "),
@@ -10389,7 +13020,7 @@ function analyzeSegment(tokens, depth, options2) {
       isOverriddenToNonTemp: !allowTmpdirVar,
       allowTmpdirVar
     });
-  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" && unfilteredCommandResult?.id !== "rm.recursive-force-dynamic-target" ? unfilteredCommandResult : filterDestructiveCommandMatch(unfilteredCommandResult, options2.policy);
+  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" && unfilteredCommandResult?.id !== "rm.recursive-force-dynamic-target" ? unfilteredCommandResult : filterBuiltInCommandMatch(unfilteredCommandResult, options2.policy);
   if (trace)
     recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult)
@@ -10403,7 +13034,7 @@ function analyzeSegment(tokens, depth, options2) {
         if (!token)
           continue;
         tokensScanned?.push(token);
-        let embeddedMatch = analyzeEmbeddedCommand(commandContext, i), match = options2.compatibility === "explain-legacy" ? embeddedMatch : filterDestructiveCommandMatch(embeddedMatch, options2.policy);
+        let embeddedMatch = analyzeEmbeddedCommand(commandContext, i), match = options2.compatibility === "explain-legacy" ? embeddedMatch : filterBuiltInCommandMatch(embeddedMatch, options2.policy);
         if (match)
           return trace?.recordSegment({
             type: "fallback-scan",
@@ -10432,6 +13063,54 @@ function analyzeSegment(tokens, depth, options2) {
       matched: !1
     });
   return null;
+}
+function analyzeShellStartupSources(tokens, envAssignments, effectiveCwd, options2, trace, depth) {
+  let startup = extractShellStartupLoaderMetadata(tokens);
+  if (startup.argvSource?.kind === "absent")
+    return dynamicShellSourceResult(trace);
+  if (startup.argvSourceApplies && startup.argvSource) {
+    let result = analyzeStartupSourcePath(startup.argvSource.value, effectiveCwd, envAssignments, options2, trace, depth);
+    if (result)
+      return result;
+  }
+  if (!startup.envSourceApplies || !startup.envName)
+    return null;
+  let envSource = envAssignments.get(startup.envName);
+  if (!envSource)
+    return null;
+  return analyzeStartupSourcePath(envSource, effectiveCwd, envAssignments, options2, trace, depth);
+}
+function analyzeStartupSourcePath(source, effectiveCwd, envAssignments, options2, trace, depth) {
+  if (/[$`*?[\]]/.test(source))
+    return dynamicShellSourceResult(trace);
+  let path = resolveTrackedHeredocPath(source, effectiveCwd), body = path ? options2.literalHeredocFiles?.get(path) : void 0;
+  if (body === void 0)
+    return dynamicShellSourceResult(trace);
+  return reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, 1), trace?.recordSegment({
+    type: "recurse",
+    reason: "heredoc-file",
+    innerCommand: body,
+    depth: depth + 1
+  }), options2.analyzeNested(body, { effectiveCwd, envAssignments });
+}
+function analyzeTrackedHeredocScript(source, effectiveCwd, envAssignments, options2, trace, depth) {
+  let path = resolveTrackedHeredocPath(source, effectiveCwd), body = path ? options2.literalHeredocFiles?.get(path) : void 0;
+  if (body === void 0)
+    return null;
+  return reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, 1), trace?.recordSegment({
+    type: "recurse",
+    reason: "heredoc-file",
+    innerCommand: body,
+    depth: depth + 1
+  }), options2.analyzeNested(body, { effectiveCwd, envAssignments });
+}
+function hasDynamicExecutableSource(sources, command2) {
+  return sources.some((source) => {
+    if (source.value === "-" && (source.kind === "main-script" || source.kind === "program-file"))
+      return !0;
+    let word = command2?.words[source.tokenIndex];
+    return word ? word.provenance !== "literal" : /[$`*?[\]]/.test(source.value);
+  });
 }
 function unwrapTraceQuotes(command2) {
   let first = command2[0];
@@ -10465,16 +13144,27 @@ function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
     return;
   return sliceCommandView(view, leadingAssignments + wrapperPrefix);
 }
+function reserveWrapperNormalization(budget) {
+  if (budget.iterations >= MAX_STRIP_ITERATIONS)
+    throw new DerivedCommandWorkLimitError;
+  budget.iterations++;
+}
 function blockResultFromMatch(match) {
   return { reason: match.reason, ruleId: match.id || void 0, intent: match.intent };
+}
+function dynamicShellSourceResult(trace) {
+  return trace?.recordSegment({ type: "error", message: REASON_DYNAMIC_SHELL_SOURCE }), blockResultFromMatch(dynamicShellSourceMatch());
+}
+function dynamicShellSourceMatch() {
+  return { id: "", reason: REASON_DYNAMIC_SHELL_SOURCE, intent: "stop_and_explain" };
 }
 function analyzeDynamicExecutable(dynamic, strict) {
   return dynamic && strict ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
 }
-function analyzeDynamicCommandStructure(command2, strict = !1) {
-  return analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict) ?? analyzeDynamicStructure(command2, strict);
+function analyzeDynamicCommandStructure(command2, strict = !1, policy) {
+  return filterDestructiveCommandMatch(analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict), policy) ?? analyzeDynamicStructure(command2, strict, policy);
 }
-function analyzeDynamicStructure(command2, strict) {
+function analyzeDynamicStructure(command2, strict, policy) {
   if (!command2 || command2.words.length < 2)
     return null;
   let dynamicIndexes = command2.words.flatMap((word, index) => hasCommandSubstitutionPart(word) ? [index] : []);
@@ -10484,20 +13174,20 @@ function analyzeDynamicStructure(command2, strict) {
   if (head === "git") {
     let subcommandIndex = findGitSubcommandIndex(command2.analysisTokens);
     if (strict && dynamicIndexes.some((index) => index <= subcommandIndex))
-      return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
-    if (analyzeGitMatch(command2.analysisTokens))
+      return filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy);
+    if (filterDestructiveCommandMatch(analyzeGitMatch(command2.analysisTokens), policy))
       return null;
     let subcommand = command2.words[subcommandIndex]?.text.toLowerCase(), dataBoundary = command2.analysisTokens.indexOf("--", subcommandIndex + 1);
     if (strict && subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
-      return destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE);
+      return filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy);
     return null;
   }
   if (head === "find")
-    return strict && hasDynamicFindStructure(command2) ? destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE) : null;
+    return strict && hasDynamicFindStructure(command2) ? filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy) : null;
   if (head === "xargs")
-    return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs", strict);
+    return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs", strict, policy);
   if (head === "parallel")
-    return analyzeDynamicChildStructure(command2, extractParallelChildCommand(command2.analysisTokens), "parallel", strict);
+    return analyzeDynamicChildStructure(command2, extractParallelChildCommand(command2.analysisTokens), "parallel", strict, policy);
   return null;
 }
 function hasDynamicFindStructure(command2) {
@@ -10538,17 +13228,20 @@ function hasDynamicFindStructure(command2) {
   }
   return !1;
 }
-function analyzeDynamicChildStructure(command2, childTokens, kind, strict) {
+function analyzeDynamicChildStructure(command2, childTokens, kind, strict, policy) {
   if (childTokens.length === 0)
     return null;
   let childStart = command2.analysisTokens.length - childTokens.length, childView = normalizeChildCommandView(sliceCommandView(command2, childStart));
-  if (childView.dynamicExecutable)
-    return destructiveCommandMatch(`${kind}.shell-dynamic`, kind === "xargs" ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL);
-  let nestedStructure = analyzeDynamicStructure(childView, strict);
+  if (childView.dynamicExecutable) {
+    let match = filterDestructiveCommandMatch(destructiveCommandMatch(`${kind}.shell-dynamic`, kind === "xargs" ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL), policy);
+    if (match)
+      return match;
+  }
+  let nestedStructure = analyzeDynamicStructure(childView, strict, policy);
   if (nestedStructure)
     return nestedStructure;
   if (childView.words[0]?.text === "rm" && childView.words.slice(1).some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word)))
-    return destructiveCommandMatch(`${kind}.rm-recursive-force-dynamic`, kind === "xargs" ? REASON_XARGS_RM : REASON_PARALLEL_RM);
+    return filterDestructiveCommandMatch(destructiveCommandMatch(`${kind}.rm-recursive-force-dynamic`, kind === "xargs" ? REASON_XARGS_RM : REASON_PARALLEL_RM), policy);
   return null;
 }
 function normalizeChildCommandView(view) {
@@ -10584,37 +13277,64 @@ function getCommandAnalyzer(context) {
   return COMMAND_ANALYZERS.get(context.normalizedHead);
 }
 function analyzeEmbeddedCommand(context, index) {
-  let token = context.tokens[index];
+  let childCommands = normalizeChildCommands(context.tokens.slice(index), {
+    cwd: context.cwdForRm,
+    envAssignments: context.envAssignments,
+    policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy
+  });
+  for (let childCommand of childCommands) {
+    let result = analyzeNormalizedEmbeddedCommand(context, index, childCommand);
+    if (result)
+      return result;
+  }
+  return null;
+}
+function analyzeNormalizedEmbeddedCommand(context, index, childCommand) {
+  let token = childCommand.tokens[0];
   if (!token)
     return null;
   let cmd = normalizeCommandToken(token);
   if (isShellWrapperCommand(token, cmd)) {
     reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
-    let shellTokens = [token, ...context.tokens.slice(index + 1)];
+    let shellTokens = childCommand.tokens;
     if (isShellSyntaxCheck(shellTokens))
       return null;
     let dashCArg = extractDashCArg(shellTokens);
-    if (!dashCArg)
-      return null;
+    if (!dashCArg) {
+      if (extractShellScriptOperandSource(shellTokens, void 0).kind === "dynamic")
+        return dynamicShellSourceMatch();
+      return matchEmbeddedCustomRule(context, childCommand);
+    }
     let result = context.options.analyzeNested(dashCArg, {
-      effectiveCwd: context.effectiveCwd,
-      envAssignments: context.envAssignments
+      effectiveCwd: childCommand.wrapperCwd === void 0 ? context.effectiveCwd : childCommand.wrapperCwd,
+      envAssignments: childCommand.envAssignments
     });
-    return result ? matchFromBlockResult(result) : null;
+    return result ? matchFromBlockResult(result) : matchEmbeddedCustomRule(context, childCommand);
   }
   let analyzer = COMMAND_ANALYZERS.get(cmd);
-  if (!analyzer || cmd === "xargs" || cmd === "parallel")
-    return null;
+  if (!analyzer || cmd === "xargs" || cmd === "parallel") {
+    if (childCommand.wrappedByTransparent && context.options.policy.rules.length > 0)
+      reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
+    return matchEmbeddedCustomRule(context, childCommand);
+  }
   reserveDerivedCommandTokens(context.options.derivedCommandWorkBudget, context.tokens.length - index);
   let embeddedContext = {
     ...context,
-    tokens: [cmd, ...context.tokens.slice(index + 1)],
+    tokens: [cmd, ...childCommand.tokens.slice(1)],
     head: cmd,
     normalizedHead: cmd,
     basename: cmd,
+    cwdForRm: childCommand.cwd,
+    originalCwd: childCommand.wrapperCwd === null ? void 0 : context.originalCwd,
+    envAssignments: childCommand.envAssignments,
+    allowTmpdirVar: !isTmpdirOverriddenToNonTemp(childCommand.envAssignments),
+    effectiveCwd: childCommand.wrapperCwd === void 0 ? context.effectiveCwd : childCommand.wrapperCwd,
     options: cmd === "git" ? { ...context.options, worktreeMode: !1 } : context.options
   };
-  return analyzer(embeddedContext);
+  return analyzer(embeddedContext) ?? matchEmbeddedCustomRule(context, childCommand);
+}
+function matchEmbeddedCustomRule(context, childCommand) {
+  return childCommand.wrappedByTransparent ? checkPolicyRuleMatch(childCommand.tokens, context.options.policy.rules) : null;
 }
 function analyzeGitCommand(context) {
   return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
@@ -10627,30 +13347,83 @@ function getGitAnalyzeOptions(context) {
     cwd: context.cwdForRm,
     dynamicArguments: context.options.commandView?.words.some((word) => word.provenance === "command-substitution"),
     envAssignments: context.envAssignments,
-    policy: context.options.policy,
+    policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy,
     worktreeMode: context.options.worktreeMode
   };
 }
 function analyzeRmCommand(context) {
+  let targetMetadata = getRmTargetTokenMetadata(context.tokens, context.options.commandView);
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
     strict: context.options.strict,
     paranoid: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar
+    allowTmpdirVar: context.allowTmpdirVar,
+    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    literalTargetTokenIndexes: targetMetadata?.literal,
+    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
+    expandedTargetTokens: targetMetadata?.expanded,
+    unsafeBraceExpansionTargetTokenIndexes: targetMetadata?.unsafeBraceExpansion,
+    policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy
   });
+}
+function getRmTargetTokenMetadata(tokens, view) {
+  if (!view || view.dialect !== "posix" || view.words.length !== tokens.length || view.analysisTokens.length !== tokens.length || !tokens.every((token, index) => view.analysisTokens[index] === token))
+    return;
+  let braceExpansions = view.words.map((word) => expandPosixLiteralBraceWord(word, RM_TARGET_BRACE_EXPANSION_LIMIT, RM_TARGET_BRACE_EXPANSION_LIMIT, RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT));
+  return {
+    literal: new Set(view.words.flatMap((word, index) => braceExpansions[index] === void 0 && word.provenance === "literal" && (word.quoted || word.raw !== word.text) ? [index] : [])),
+    wordSplittingProtected: new Set(view.words.flatMap((word, index) => isTmpdirExpansionWordSplittingProtected(word) ? [index] : [])),
+    expanded: new Map(braceExpansions.flatMap((expansion, index) => {
+      if (!expansion || !("words" in expansion) || expansion.words === void 0)
+        return [];
+      return [[index, expansion.words]];
+    })),
+    unsafeBraceExpansion: new Set(braceExpansions.flatMap((expansion, index) => expansion && ("limited" in expansion) ? [index] : []))
+  };
+}
+function isTmpdirExpansionWordSplittingProtected(word) {
+  let tmpdirParts = word.parts.filter((part) => part.provenance === "variable" && /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(part.raw));
+  return tmpdirParts.length > 0 && tmpdirParts.every((part) => isRawOffsetDoubleQuoted(word.raw, part.span.start - word.span.start));
+}
+function isRawOffsetDoubleQuoted(raw, offset) {
+  let quote = null, escaped = !1;
+  for (let index = 0;index < offset; index++) {
+    let char = raw[index];
+    if (escaped) {
+      escaped = !1;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = !0;
+      continue;
+    }
+    if (quote === char) {
+      quote = null;
+      continue;
+    }
+    if (quote === null && (char === "'" || char === '"'))
+      quote = char;
+  }
+  return quote === '"';
 }
 function analyzeFindCommand(context) {
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
-    analyzeTokens: (tokens, cwd) => matchFromBlockResult(analyzeSegment([...tokens], context.depth + 1, {
-      ...context.options,
-      derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
-      effectiveCwd: cwd,
-      envAssignments: context.envAssignments
-    })),
+    policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy,
+    analyzeTokens: (tokens, cwd) => {
+      return matchFromBlockResult(analyzeSegment([...tokens], context.depth + 1, {
+        ...context.options,
+        commandView: void 0,
+        derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
+        effectiveCwd: cwd,
+        envAssignments: context.envAssignments
+      })) ?? checkPolicyRuleMatch(tokens, context.options.policy.rules);
+    },
     analyzeNested: (command2, overrides) => matchFromBlockResult(context.options.analyzeNested(command2, overrides))
   });
 }
@@ -10674,6 +13447,9 @@ function matchFromBlockResult(result) {
     intent: result.intent ?? "manual_only"
   } : null;
 }
+function filterBuiltInCommandMatch(match, policy) {
+  return match?.id.startsWith("custom.") ? match : filterDestructiveCommandMatch(match, policy);
+}
 function getNestedCommandAnalyzeContext(context) {
   return {
     cwd: context.cwdForRm,
@@ -10689,8 +13465,21 @@ function getNestedCommandAnalyzeContext(context) {
     scanWork: context.options.scanWork
   };
 }
-var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
-function segmentChangesCwd(segment) {
+var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/, POWERSHELL_LOCATION_COMMANDS = /* @__PURE__ */ new Set([
+  "cd",
+  "chdir",
+  "pop-location",
+  "popd",
+  "push-location",
+  "pushd",
+  "set-location",
+  "sl"
+]), POWERSHELL_SET_LOCATION_COMMANDS = /* @__PURE__ */ new Set(["cd", "chdir", "set-location", "sl"]), POWERSHELL_MODULE_LOCATION_COMMANDS = /* @__PURE__ */ new Set([
+  "pop-location",
+  "push-location",
+  "set-location"
+]), POWERSHELL_MANAGEMENT_COMMAND_REGEX = /(?:^|[\\/])microsoft\.powershell\.management\\([^\\/]+)$/;
+function posixSegmentChangesCwd(segment) {
   let unwrapped = getCwdChangeTokens(segment);
   if (unwrapped.length === 0)
     return !1;
@@ -10704,15 +13493,28 @@ function segmentChangesCwd(segment) {
   let joined = segment.join(" ");
   return CWD_CHANGE_REGEX.test(joined);
 }
-function resolveCwdAfterSegment(segment, cwd) {
-  if (!segmentChangesCwd(segment))
+function resolveCwdAfterCommandView(commandView, cwd, literalPipelineInput) {
+  if (commandView.dialect === "powershell") {
+    let effect = getPowerShellLocationEffect(commandView.words, literalPipelineInput);
+    if (effect.kind === "none")
+      return;
+    if (!cwd || effect.kind === "unknown")
+      return null;
+    if (effect.kind === "unchanged")
+      return cwd;
+    return resolveKnownCwdTarget(normalizePowerShellLocationTarget(effect.target), cwd);
+  }
+  let segment = commandView.analysisTokens;
+  if (!posixSegmentChangesCwd(segment))
     return;
   if (!cwd)
     return null;
   let unwrapped = getCwdChangeTokens(segment, cwd), cdIndex = getCdCommandIndex(unwrapped);
   if (cdIndex === -1 || unwrapped[cdIndex] !== "cd")
     return null;
-  let target = unwrapped[cdIndex + 1];
+  return resolveKnownCwdTarget(unwrapped[cdIndex + 1], cwd);
+}
+function resolveKnownCwdTarget(target, cwd) {
   if (!target || target === "-" || target.includes("$") || target.includes("`"))
     return null;
   try {
@@ -10723,6 +13525,103 @@ function resolveCwdAfterSegment(segment, cwd) {
     return null;
   }
   return null;
+}
+function getPowerShellLocationEffect(words, literalPipelineInput) {
+  let commandIndex = isBarePowerShellCallOperator(words[0]) ? 1 : 0, commandWord = words[commandIndex];
+  if (!isStaticPowerShellCommandWord(commandWord, commandIndex === 1))
+    return { kind: "none" };
+  let command2 = normalizePowerShellManagementCommand(commandWord.text);
+  if (!POWERSHELL_LOCATION_COMMANDS.has(command2))
+    return { kind: "none" };
+  if (command2 === "pop-location" || command2 === "popd")
+    return { kind: "unknown" };
+  return getPowerShellLocationArgumentEffect(words.slice(commandIndex + 1), literalPipelineInput, POWERSHELL_SET_LOCATION_COMMANDS.has(command2));
+}
+function normalizePowerShellManagementCommand(command2) {
+  let normalized = command2.toLowerCase(), moduleCommand = normalized.match(POWERSHELL_MANAGEMENT_COMMAND_REGEX)?.[1];
+  return moduleCommand && POWERSHELL_MODULE_LOCATION_COMMANDS.has(moduleCommand) ? moduleCommand : normalized;
+}
+function isBarePowerShellCallOperator(word) {
+  return word?.provenance === "literal" && !word.quoted && word.raw === word.text && (word.text === "&" || word.text === ".");
+}
+function isStaticPowerShellCommandWord(word, invoked) {
+  return word?.provenance === "literal" && (invoked || !word.quoted && word.raw === word.text);
+}
+function getPowerShellLocationArgumentEffect(args, literalPipelineInput, supportsStackName) {
+  let target, stackOnly = !1;
+  for (let index = 0;index < args.length; index++) {
+    let word = args[index];
+    if (!word)
+      continue;
+    if (!isBarePowerShellParameter(word) || word.text === "-") {
+      if (word.provenance !== "literal" || target !== void 0 || stackOnly)
+        return { kind: "unknown" };
+      target = word.text;
+      continue;
+    }
+    if (word.text === "--") {
+      let positional = args[index + 1];
+      if (!positional || positional.provenance !== "literal" || target !== void 0 || stackOnly || index + 2 !== args.length)
+        return { kind: "unknown" };
+      return { kind: "target", target: positional.text };
+    }
+    let parameter = parsePowerShellParameter(word.text);
+    if (isPowerShellPathParameter(parameter.name)) {
+      let value = parameter.value === void 0 ? args[++index] : void 0, path = parameter.value ?? value?.text;
+      if (path === void 0 || value && value.provenance !== "literal" || target !== void 0 || stackOnly)
+        return { kind: "unknown" };
+      target = path;
+      continue;
+    }
+    if (supportsStackName && isPowerShellStackName(parameter.name)) {
+      let value = parameter.value === void 0 ? args[++index] : void 0;
+      if (parameter.value === void 0 && !value || target !== void 0 || stackOnly)
+        return { kind: "unknown" };
+      stackOnly = !0;
+      continue;
+    }
+    if (isPowerShellSafeSwitch(parameter.name))
+      continue;
+    if (isPowerShellCommonValueParameter(parameter.name)) {
+      if (parameter.value === void 0 && !args[++index])
+        return { kind: "unknown" };
+      continue;
+    }
+    return { kind: "unknown" };
+  }
+  if (target !== void 0)
+    return { kind: "target", target };
+  if (stackOnly)
+    return { kind: "unchanged" };
+  return literalPipelineInput === void 0 ? { kind: "unknown" } : { kind: "target", target: literalPipelineInput };
+}
+function isBarePowerShellParameter(word) {
+  return word.provenance === "literal" && !word.quoted && word.raw === word.text && ["-", "–", "—", "―"].includes(word.text[0] ?? "");
+}
+function parsePowerShellParameter(parameter) {
+  let colonIndex = parameter.indexOf(":");
+  return {
+    name: parameter.slice(1, colonIndex === -1 ? void 0 : colonIndex).toLowerCase(),
+    value: colonIndex === -1 ? void 0 : parameter.slice(colonIndex + 1)
+  };
+}
+function isPowerShellPathParameter(name) {
+  return name === "lp" || name === "pspath" || name.length >= 1 && "literalpath".startsWith(name) || name.length >= 3 && "path".startsWith(name);
+}
+function isPowerShellStackName(name) {
+  return name.length >= 1 && "stackname".startsWith(name);
+}
+function isPowerShellSafeSwitch(name) {
+  return name === "passthru" || name === "verbose";
+}
+function isPowerShellCommonValueParameter(name) {
+  return name === "erroraction" || name === "ea";
+}
+function normalizePowerShellLocationTarget(target) {
+  let providerPrefix = /^(?:microsoft\.powershell\.core\\)?filesystem::/i.exec(target)?.[0];
+  if (!providerPrefix && target.includes("::"))
+    return;
+  return target.slice(providerPrefix?.length ?? 0).replaceAll("\\", "/");
 }
 function getHeadAfterTimePrefix(tokens, startIndex) {
   let i = startIndex;
@@ -10747,7 +13646,7 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize4(realpathSync9(a)) === normalize4(realpathSync9(b));
+    return normalize4(realpathSync8(a)) === normalize4(realpathSync8(b));
   } catch {
     return normalize4(a) === normalize4(b);
   }
@@ -10765,7 +13664,7 @@ function stripLeadingGrouping(tokens) {
 }
 
 // src/core/analyze/shell-git-env.ts
-var TMPDIR_ENV_NAME = "TMPDIR";
+var TMPDIR_ENV_NAME = "TMPDIR", IFS_ENV_NAME = "IFS", ENV_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/, ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function createShellGitContextEnvState(effectiveEnvAssignments) {
   let initialEffectiveEnvAssignments = getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
   return {
@@ -10786,15 +13685,18 @@ function cloneShellGitContextEnvState(state) {
   };
 }
 function applyShellGitContextEnvSegment(tokens, state) {
-  let commandInfo = getShellCommandInfo(tokens);
+  let commandInfo = getShellCommandInfo(tokens, state);
   if (!commandInfo)
     return;
-  let { command: command2, commandIndex, leadingAssignments } = commandInfo;
+  let { command: command2, commandIndex, leadingAssignments, prefixAssignmentsPersist } = commandInfo;
   if (command2 === null) {
     for (let assignment of leadingAssignments.values())
       setShellGitContextAssignment(state, assignment);
     return;
   }
+  if (prefixAssignmentsPersist)
+    for (let assignment of leadingAssignments.values())
+      state.shellAssignments.set(assignment.name, assignment.value), state.exportedNames.add(assignment.name), setEffectiveGitContextAssignment(state, assignment);
   if (command2 === "set") {
     let changes = getSetOptionChanges(tokens, commandIndex);
     if (changes.allexport !== null)
@@ -10832,31 +13734,34 @@ function applyShellGitContextEnvSegment(tokens, state) {
 function getSegmentGitContextEnvAssignments(tokens, state) {
   if (!state.keywordExport)
     return state.effectiveEnvAssignments;
-  let nextEnvAssignments = null;
+  let nextEnvAssignments = null, currentValues = getCurrentShellAssignmentValues(state);
   for (let token of tokens) {
-    let assignment = parseGitContextEnvAssignment(token);
+    let assignment = parseShellContextEnvAssignment(token, currentValues);
     if (!assignment)
       continue;
-    nextEnvAssignments ??= new Map(state.effectiveEnvAssignments ?? []), nextEnvAssignments.set(assignment.name, assignment.value);
+    nextEnvAssignments ??= new Map(state.effectiveEnvAssignments ?? []), nextEnvAssignments.set(assignment.name, assignment.value), currentValues.set(assignment.name, assignment.value);
   }
   return nextEnvAssignments ?? state.effectiveEnvAssignments;
 }
-function getShellCommandInfo(tokens) {
+function getShellCommandInfo(tokens, state) {
   let leadingAssignments = /* @__PURE__ */ new Map, i = 0;
   while (i < tokens.length) {
     let token = tokens[i];
     if (!token)
       return null;
-    let assignment = parseShellAssignment(token);
+    let assignment = parseShellAssignment(token, getCurrentShellAssignmentValues(state, leadingAssignments));
     if (!assignment)
       break;
-    if (isTrackedShellEnvName(assignment.name))
-      leadingAssignments.set(assignment.name, assignment);
-    i++;
+    leadingAssignments.set(assignment.name, assignment), i++;
   }
   if (i >= tokens.length)
-    return { command: null, commandIndex: i, leadingAssignments };
-  let commandIndex = i, command2 = tokens[commandIndex] ?? null;
+    return {
+      command: null,
+      commandIndex: i,
+      leadingAssignments,
+      prefixAssignmentsPersist: !1
+    };
+  let directCommandIndex = i, commandIndex = i, command2 = tokens[commandIndex] ?? null;
   while (command2 === "builtin" || command2 === "command" || command2 === "time") {
     if (command2 === "builtin") {
       if (commandIndex++, tokens[commandIndex] === "--")
@@ -10878,7 +13783,12 @@ function getShellCommandInfo(tokens) {
   }
   if (command2 === null)
     return null;
-  return { command: command2, commandIndex, leadingAssignments };
+  return {
+    command: command2,
+    commandIndex,
+    leadingAssignments,
+    prefixAssignmentsPersist: commandIndex === directCommandIndex && (command2 === "unset" || command2 === "set" || command2 === "export" || command2 === "readonly")
+  };
 }
 function getCommandBuiltinTarget(tokens, commandIndex) {
   return getPrefixedCommandTarget(tokens, commandIndex, (token) => {
@@ -10912,21 +13822,38 @@ function getPrefixedCommandTarget(tokens, commandIndex, optionAction) {
   let command2 = tokens[i];
   return command2 ? { command: command2, commandIndex: i } : null;
 }
-function parseShellAssignment(token) {
-  return parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
+function parseShellAssignment(token, currentValues) {
+  return parseEnvAssignment(token) ?? parseAppendEnvAssignment(token, currentValues);
 }
-function parseGitContextEnvAssignment(token) {
-  let assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-  if (!assignment || !isTrackedShellEnvName(assignment.name))
+function parseShellContextEnvAssignment(token, currentValues) {
+  return parseEnvAssignment(token) ?? parseAppendEnvAssignment(token, currentValues);
+}
+function parseAppendEnvAssignment(token, currentValues) {
+  let gitAssignment = parseGitContextAppendEnvAssignment(token, currentValues);
+  if (gitAssignment)
+    return gitAssignment;
+  let name = token.match(ENV_APPEND_ASSIGNMENT_RE)?.[1];
+  if (!name)
     return null;
-  return assignment;
+  let eqIdx = token.indexOf("=");
+  return {
+    name,
+    value: `${currentValues.has(name) ? currentValues.get(name) : getOwnEnvValue(name) ?? ""}${token.slice(eqIdx + 1)}`
+  };
 }
 function isTrackedShellEnvName(name) {
-  return name === TMPDIR_ENV_NAME || isTrackedGitEnvName(name);
+  return name === TMPDIR_ENV_NAME || name === IFS_ENV_NAME || isTrackedGitEnvName(name);
+}
+function getCurrentShellAssignmentValues(state, pendingAssignments) {
+  return new Map([
+    ...state.effectiveEnvAssignments ?? [],
+    ...state.shellAssignments,
+    ...[...pendingAssignments?.values() ?? []].map((assignment) => [assignment.name, assignment.value])
+  ]);
 }
 function getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments) {
-  let inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME].map((name) => {
-    let value = process.env[name];
+  let inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME, IFS_ENV_NAME].map((name) => {
+    let value = getOwnEnvValue(name);
     return value === void 0 ? null : [name, value];
   }).filter((assignment) => assignment !== null);
   if (inheritedAssignments.length === 0)
@@ -10944,7 +13871,7 @@ function getInitiallyExportedShellEnvNames(effectiveEnvAssignments) {
   return exportedNames;
 }
 function setShellGitContextAssignment(state, assignment) {
-  if (state.shellAssignments.set(assignment.name, assignment.value), assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
+  if (state.shellAssignments.set(assignment.name, assignment.value), assignment.name === TMPDIR_ENV_NAME || assignment.name === IFS_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
     setEffectiveGitContextAssignment(state, assignment);
 }
 function setEffectiveGitContextAssignment(state, assignment) {
@@ -10952,20 +13879,20 @@ function setEffectiveGitContextAssignment(state, assignment) {
   nextEnvAssignments.set(assignment.name, assignment.value), state.effectiveEnvAssignments = nextEnvAssignments;
 }
 function addExportedGitContextEnvAssignment(state, token) {
-  let assignment = parseGitContextEnvAssignment(token);
+  let assignment = parseShellContextEnvAssignment(token, getCurrentShellAssignmentValues(state));
   if (assignment) {
     state.shellAssignments.set(assignment.name, assignment.value), state.exportedNames.add(assignment.name), setEffectiveGitContextAssignment(state, assignment);
     return;
   }
-  if (isTrackedShellEnvName(token))
+  if (ENV_NAME_RE.test(token))
     exportTrackedGitContextEnvName(state, token);
 }
 function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadingAssignments) {
-  let assignment = parseGitContextEnvAssignment(token);
+  let assignment = parseShellContextEnvAssignment(token, getCurrentShellAssignmentValues(state));
   if (assignment) {
     if (state.shellAssignments.set(assignment.name, assignment.value), exports)
       state.exportedNames.add(assignment.name), setEffectiveGitContextAssignment(state, assignment);
-    else if (assignment.name === TMPDIR_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
+    else if (assignment.name === TMPDIR_ENV_NAME || assignment.name === IFS_ENV_NAME || state.allexport || state.exportedNames.has(assignment.name))
       setEffectiveGitContextAssignment(state, assignment);
     return;
   }
@@ -10974,19 +13901,19 @@ function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadin
     state.exportedNames.add(token), setEffectiveGitContextAssignment(state, readonlyAssignment);
     return;
   }
-  if (exports && isTrackedShellEnvName(token))
+  if (exports && ENV_NAME_RE.test(token))
     exportTrackedGitContextEnvName(state, token);
 }
 function exportTrackedGitContextEnvName(state, name) {
   state.exportedNames.add(name), setEffectiveGitContextAssignment(state, {
     name,
-    value: state.shellAssignments.get(name) ?? ""
+    value: state.shellAssignments.get(name) ?? state.effectiveEnvAssignments?.get(name) ?? getOwnEnvValue(name) ?? ""
   });
 }
 function unsetTrackedGitContextEnvName(state, name) {
-  if (!isTrackedShellEnvName(name))
+  if (!isTrackedShellEnvName(name) && !ENV_NAME_RE.test(name))
     return;
-  if (state.shellAssignments.delete(name), state.exportedNames.delete(name), name === TMPDIR_ENV_NAME) {
+  if (state.shellAssignments.set(name, ""), state.exportedNames.delete(name), !isTrackedShellEnvName(name) || name === TMPDIR_ENV_NAME || name === IFS_ENV_NAME || isGitConfigEnvName(name)) {
     setEffectiveGitContextAssignment(state, { name, value: "" });
     return;
   }
@@ -11083,7 +14010,7 @@ function getSetOptionChanges(tokens, commandIndex) {
 }
 
 // src/core/analyze/analyze-command.ts
-var REASON_UNQUOTED_HEREDOC = "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.", REASON_UNSUPPORTED_HEREDOC = "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.";
+var REASON_UNQUOTED_HEREDOC = "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.", REASON_UNSUPPORTED_HEREDOC = "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.", MAX_CONTROL_FLOW_STATES = 64;
 function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
   let ownsDerivedCommandWorkBudget = options2.derivedCommandWorkBudget === void 0, ownsParallelBudget = options2.parallelBudget === void 0;
   try {
@@ -11093,7 +14020,7 @@ function analyzeCommandInternal(command2, depth, options2, parsedProgram) {
       parallelBudget: options2.parallelBudget ?? createParallelAnalysisBudget()
     }, parsedProgram);
   } catch (error) {
-    let reason = error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget ? REASON_DERIVED_COMMAND_WORK_LIMIT : error instanceof ParallelAnalysisLimitError && ownsParallelBudget ? REASON_PARALLEL_ANALYSIS_LIMIT : void 0;
+    let reason = error instanceof EnvSplitStringExpansionError ? REASON_ENV_SPLIT_STRING_UNVERIFIABLE : error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget ? REASON_DERIVED_COMMAND_WORK_LIMIT : error instanceof ParallelAnalysisLimitError && ownsParallelBudget ? REASON_PARALLEL_ANALYSIS_LIMIT : void 0;
     if (!reason)
       throw error;
     if (options2.trace?.currentSegmentIndex !== void 0)
@@ -11125,42 +14052,125 @@ function analyzeCommandWithBudget(command2, depth, options2, parsedProgram) {
     }
     return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
   }
-  let hasUnclosedQuote = program.issues.some((issue) => issue.code.includes("quote"));
-  if (options2.strict && hasUnclosedQuote && command2.includes(" "))
+  if (options2.strict && program.status === "partial")
     return recordStrictUnparseable(command2, options2), { reason: REASON_STRICT_UNPARSEABLE, segment: command2, intent: "stop_and_explain" };
-  if (hasUnclosedQuote && !options2.analyzePartialProgram)
+  if (program.issues.some((issue) => issue.code.includes("quote")) && !options2.analyzePartialProgram)
     return analyzeUnparseableCommand(command2, options2);
   let originalCwd = options2.cwd, effectiveCwd = options2.effectiveCwd !== void 0 ? options2.effectiveCwd : options2.cwd, shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  return analyzeProgram(program, depth, options2, originalCwd, {
-    effectiveCwd,
-    shellGitContextState
-  });
+  return analyzeProgram(program, depth, options2, originalCwd, [
+    {
+      effectiveCwd,
+      shellGitContextState,
+      literalHeredocFiles: new Map(options2.literalHeredocFiles)
+    }
+  ]).result;
 }
-function analyzeProgram(program, depth, options2, originalCwd, state) {
-  let hasPipelineInput = !1;
-  for (let node of program.nodes) {
+function analyzeProgram(program, depth, options2, originalCwd, initialStates) {
+  let states = [...initialStates], conditionalStates, previousConnector;
+  for (let [nodeIndex, node] of program.nodes.entries()) {
     if (node.kind === "connector") {
-      hasPipelineInput = node.operator === "|";
+      previousConnector = node.operator;
       continue;
     }
+    let nextNode = program.nodes[nodeIndex + 1], nextConnector = nextNode?.kind === "connector" ? nextNode.operator : void 0, isolated = isAnalysisNodeIsolated(program, nodeIndex, node, previousConnector, nextConnector), conditional = previousConnector === "&&" || previousConnector === "||", priorConditionalStates = conditional ? conditionalStates : void 0, executionStates = previousConnector === "&&" ? priorConditionalStates?.success ?? states : previousConnector === "||" ? priorConditionalStates?.failure ?? states : states, skippedSuccessStates = previousConnector === "||" ? priorConditionalStates?.success ?? [] : [], skippedFailureStates = previousConnector === "&&" ? priorConditionalStates?.failure ?? [] : [], tracksCommandOutcome = conditional || isConditionalConnector(nextConnector);
     if (node.kind === "group") {
-      let result2 = analyzeProgram(node.body, depth, options2, originalCwd, node.style === "subshell" ? cloneAnalysisState(state) : state);
-      if (result2)
-        return result2;
-      hasPipelineInput = !1;
+      let successStates2 = [], failureStates2 = [];
+      for (let state of executionStates) {
+        let analysis = analyzeProgram(node.body, depth, options2, originalCwd, [
+          cloneAnalysisState(state)
+        ]);
+        if (analysis.result)
+          return analysis;
+        if (successStates2.push(...getSuccessfulAnalysisStates(state, analysis.states, isolated, nextConnector === "&", isConditionalConnector(nextConnector))), tracksCommandOutcome)
+          failureStates2.push(state, ...isolated ? analysis.states.map((nextState) => isolateFilesystemState(state, nextState)) : analysis.states);
+      }
+      let next2 = finishControlFlowStep(successStates2, failureStates2, skippedSuccessStates, skippedFailureStates, previousConnector, nextConnector);
+      states = next2.states, conditionalStates = next2.conditionalStates, previousConnector = void 0;
       continue;
     }
     if (node.kind !== "command")
       continue;
-    let nestedState = cloneAnalysisState(state), nestedResult = analyzeNestedPrograms(node.nested, depth, options2, originalCwd, nestedState);
-    if (nestedResult)
-      return nestedResult;
-    let segmentIndex = options2.trace?.flattenNested ? options2.trace.currentSegmentIndex : options2.trace?.allocateSegment(), result = analyzeCommandView(node, depth, options2.trace ? { ...options2, trace: withTraceSegment(options2.trace, segmentIndex) } : options2, originalCwd, state, hasPipelineInput);
-    if (result)
-      return result;
-    hasPipelineInput = !1;
+    let segmentIndex = options2.trace?.flattenNested ? options2.trace.currentSegmentIndex : options2.trace?.allocateSegment(), pipelineSource = program.nodes[nodeIndex - 2], literalShellInput = isPipelineConnector(previousConnector) && pipelineSource?.kind === "command" ? extractLiteralPrintfOutput(pipelineSource) ?? extractLiteralPowerShellPipelineOutput(pipelineSource) : void 0, successStates = [], failureStates = [];
+    for (let state of executionStates) {
+      let nestedAnalysis = analyzeCommandNestedPrograms(program, nodeIndex, node, depth, options2, originalCwd, [cloneAnalysisState(state)]);
+      if (nestedAnalysis.result)
+        return { result: nestedAnalysis.result, states };
+      let commandStates = program.dialect === "powershell" ? nestedAnalysis.states : nestedAnalysis.states.map((nestedState) => isolateFilesystemState(state, nestedState));
+      for (let commandState of commandStates) {
+        let analyzedState = cloneAnalysisState(commandState), result = analyzeCommandView(node, depth, options2.trace ? { ...options2, trace: withTraceSegment(options2.trace, segmentIndex) } : options2, originalCwd, analyzedState, isPipelineConnector(previousConnector), literalShellInput);
+        if (result)
+          return { result, states };
+        if (successStates.push(...getSuccessfulAnalysisStates(state, [analyzedState], isolated, nextConnector === "&", isConditionalConnector(nextConnector))), tracksCommandOutcome)
+          failureStates.push(state), failureStates.push(isolated ? isolateFilesystemState(state, analyzedState) : analyzedState);
+      }
+    }
+    let next = finishControlFlowStep(successStates, failureStates, skippedSuccessStates, skippedFailureStates, previousConnector, nextConnector);
+    states = next.states, conditionalStates = next.conditionalStates, previousConnector = void 0;
   }
-  return null;
+  return { result: null, states };
+}
+function isAnalysisNodeIsolated(program, nodeIndex, node, previousConnector, nextConnector) {
+  if (node.kind === "group" && node.style === "subshell")
+    return !0;
+  if (program.dialect === "posix" && (isPipelineConnector(previousConnector) || isPipelineConnector(nextConnector)))
+    return !0;
+  if (nextConnector === "&")
+    return !0;
+  return program.dialect === "powershell" && node.kind === "group" && node.style === "brace" && powerShellBraceStateIsIsolated(program, nodeIndex);
+}
+function getSuccessfulAnalysisStates(initialState, analyzedStates, isolated, background, retainInitialFilesystemState) {
+  let completedStates = isolated ? analyzedStates.map((state) => isolateFilesystemState(initialState, state)) : [...analyzedStates], filesystemStates = retainInitialFilesystemState ? completedStates.flatMap((state) => optionalMapsEqual(initialState.literalHeredocFiles, state.literalHeredocFiles) ? [state] : [
+    {
+      ...state,
+      literalHeredocFiles: new Map(initialState.literalHeredocFiles)
+    },
+    state
+  ]) : completedStates;
+  return background ? [initialState, ...filesystemStates] : filesystemStates;
+}
+function isolateFilesystemState(initialState, analyzedState) {
+  return {
+    ...initialState,
+    literalHeredocFiles: new Map(analyzedState.literalHeredocFiles)
+  };
+}
+function powerShellBraceStateIsIsolated(program, nodeIndex) {
+  let header = [...program.nodes.slice(0, nodeIndex)].reverse().find((node) => node.kind === "command" || node.kind === "connector");
+  if (!header || header.kind !== "command")
+    return !0;
+  let head = header.words[0]?.text.toLowerCase();
+  if (head === "&" || head === ".")
+    return !1;
+  if (head === "write-output" || head === "function" || head === "start-job")
+    return !0;
+  if (getPowerShellScriptBlockAssignmentName(header))
+    return !0;
+  return header.source.replaceAll(/\s/g, "").toLowerCase() === "if($false)";
+}
+function isPipelineConnector(connector2) {
+  return connector2 === "|" || connector2 === "|&";
+}
+function extractLiteralPowerShellPipelineOutput(command2) {
+  if (command2?.dialect !== "powershell")
+    return;
+  if (command2.words.length === 1 && command2.words[0]?.quoted && command2.words[0].provenance === "literal")
+    return command2.words[0].text;
+  if (command2.words[0]?.text.toLowerCase() === "write-output" && command2.words.length === 2 && command2.words[1]?.provenance === "literal")
+    return command2.words[1].text;
+  return;
+}
+function isConditionalConnector(connector2) {
+  return connector2 === "&&" || connector2 === "||";
+}
+function finishControlFlowStep(successStates, failureStates, skippedSuccessStates, skippedFailureStates, previousConnector, nextConnector) {
+  let outcomes = {
+    success: deduplicateAnalysisStates([...skippedSuccessStates, ...successStates]),
+    failure: deduplicateAnalysisStates([...skippedFailureStates, ...failureStates])
+  }, conditionalStates = isConditionalConnector(nextConnector) ? outcomes : void 0;
+  return {
+    states: isConditionalConnector(previousConnector) || conditionalStates ? deduplicateAnalysisStates([...outcomes.success, ...outcomes.failure]) : outcomes.success,
+    conditionalStates
+  };
 }
 function withTraceSegment(trace, currentSegmentIndex, flattenNested = trace.flattenNested) {
   return {
@@ -11172,15 +14182,97 @@ function withTraceSegment(trace, currentSegmentIndex, flattenNested = trace.flat
     recordSegment: (step, segmentIndex = currentSegmentIndex) => trace.recordSegment(step, segmentIndex)
   };
 }
-function analyzeNestedPrograms(programs, depth, options2, originalCwd, state) {
-  for (let program of programs) {
-    let result = analyzeProgram(program, depth, options2, originalCwd, cloneAnalysisState(state));
-    if (result)
-      return result;
+function analyzeCommandNestedPrograms(containingProgram, nodeIndex, commandView, depth, options2, originalCwd, initialStates) {
+  let programs = commandView.nested.map((program) => ({
+    program,
+    depth
+  }));
+  if (commandView.dialect === "powershell") {
+    let invokedScriptBlock = getInvokedPowerShellScriptBlock(containingProgram, nodeIndex, commandView);
+    if (invokedScriptBlock)
+      programs.push({ program: invokedScriptBlock, depth });
+    let recoveredSource = getRecoveredPowerShellExpressionSource(containingProgram, nodeIndex, commandView);
+    if (recoveredSource)
+      programs.push({ program: parseCommand(recoveredSource, "powershell"), depth });
+    let evaluatedSource = getLiteralPowerShellEvaluationSource(commandView);
+    if (evaluatedSource) {
+      if (depth + 1 >= MAX_RECURSION_DEPTH)
+        return recursionLimitAnalysis(evaluatedSource, options2, initialStates);
+      let evaluatedProgram = parseCommand(evaluatedSource, "powershell");
+      if (evaluatedProgram.status === "limited")
+        return recursionLimitAnalysis(evaluatedSource, options2, initialStates);
+      if (evaluatedProgram.status !== "complete")
+        return analyzeNestedPrograms(programs, options2, originalCwd, initialStates);
+      reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, countCommandProgramWords(evaluatedProgram)), programs.push({ program: evaluatedProgram, depth: depth + 1 });
+    }
   }
-  return null;
+  return analyzeNestedPrograms(programs, options2, originalCwd, initialStates);
 }
-function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput) {
+function getInvokedPowerShellScriptBlock(containingProgram, nodeIndex, commandView) {
+  let operator = commandView.words[0], variable = commandView.words[1];
+  if (commandView.words.length !== 2 || operator?.provenance !== "literal" || operator.quoted || operator.raw !== operator.text || operator.text !== "&" && operator.text !== "." || variable?.provenance !== "variable")
+    return;
+  let variableName = variable.text.toLowerCase();
+  for (let index = nodeIndex - 1;index >= 0; index--) {
+    let candidate = containingProgram.nodes[index];
+    if (candidate?.kind !== "command")
+      continue;
+    if (candidate.words[0]?.text.toLowerCase() !== variableName)
+      continue;
+    if (getPowerShellScriptBlockAssignmentName(candidate) !== variableName)
+      return;
+    let scriptBlock = containingProgram.nodes[index + 1];
+    return scriptBlock?.kind === "group" && scriptBlock.style === "brace" ? scriptBlock.body : void 0;
+  }
+  return;
+}
+function getPowerShellScriptBlockAssignmentName(commandView) {
+  let variable = commandView.words[0];
+  return variable?.provenance === "variable" && commandView.words.at(-1)?.text === "=" ? variable.text.toLowerCase() : void 0;
+}
+function analyzeNestedPrograms(programs, options2, originalCwd, initialStates) {
+  let states = [...initialStates];
+  for (let target of programs) {
+    let nextStates = [];
+    for (let state of states) {
+      let analysis = analyzeProgram(target.program, target.depth, options2, originalCwd, [
+        cloneAnalysisState(state)
+      ]);
+      if (analysis.result)
+        return analysis;
+      nextStates.push(...analysis.states);
+    }
+    states = deduplicateAnalysisStates(nextStates);
+  }
+  return { result: null, states };
+}
+function getRecoveredPowerShellExpressionSource(containingProgram, nodeIndex, commandView) {
+  let nextNode = containingProgram.nodes[nodeIndex + 1];
+  if (containingProgram.status !== "partial" || commandView.nested.length > 0 || nextNode?.kind !== "unknown" || nextNode.source !== ")")
+    return;
+  return (/^\s*\[void\]\(\s*(.+)$/i.exec(commandView.source)?.[1] ?? /^\s*@\{[^{}=]+\s*=\s*\(\s*(.+)$/i.exec(commandView.source)?.[1])?.trim();
+}
+function getLiteralPowerShellEvaluationSource(commandView) {
+  let invoked = commandView.words[0]?.provenance === "literal" && !commandView.words[0].quoted && commandView.words[0].raw === commandView.words[0].text && (commandView.words[0].text === "&" || commandView.words[0].text === "."), commandIndex = invoked ? 1 : 0, command2 = commandView.words[commandIndex];
+  if (command2?.provenance !== "literal" || !invoked && (command2.quoted || command2.raw !== command2.text) || !["iex", "invoke-expression"].includes(command2.text.toLowerCase()))
+    return;
+  let args = commandView.words.slice(commandIndex + 1), sourceIndex = args[0] && !args[0].quoted && args[0].raw === args[0].text && ["-c", "-command"].includes(args[0].text.toLowerCase()) ? 1 : 0, source = args[sourceIndex];
+  return args.length === sourceIndex + 1 && source?.quoted && source.provenance === "literal" ? source.text : void 0;
+}
+function countCommandProgramWords(program) {
+  return program.nodes.reduce((count, node) => count + (node.kind === "command" ? node.words.length + node.nested.reduce((sum, nested) => sum + countCommandProgramWords(nested), 0) : node.kind === "group" ? countCommandProgramWords(node.body) : 0), 0);
+}
+function recursionLimitAnalysis(segment, options2, states) {
+  return options2.trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), {
+    result: {
+      reason: REASON_RECURSION_LIMIT,
+      segment,
+      intent: "stop_and_explain"
+    },
+    states: [...states]
+  };
+}
+function analyzeCommandView(commandView, depth, options2, originalCwd, state, hasPipelineInput, literalShellInput) {
   let heredocReason = getHeredocReason(commandView);
   if (heredocReason && options2.strict)
     return options2.trace?.recordSegment({ type: "error", message: heredocReason }), {
@@ -11188,6 +14280,7 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
       segment: commandView.source,
       intent: "stop_and_explain"
     };
+  invalidateLiteralHeredocFiles(commandView, state, "before-consumer");
   let segment = [...commandView.analysisTokens], segmentStr = commandView.legacyNormalized, segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, state.shellGitContextState);
   if (commandView.dialect === "powershell" && !options2.invalidReason && (options2.compatibility !== "explain-legacy" || options2.policySnapshot.state === "ready")) {
     let match = filterDestructiveCommandMatch(analyzePowerShellCommandViewMatch(commandView, hasPipelineInput, getPowerShellRemoveItemOptions(options2, state.effectiveCwd)), options2.policy);
@@ -11215,10 +14308,10 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
         intent: textMatch.intent
       };
     options2.trace?.recordSegment({ type: "dangerous-text", token: segment[0], matched: !1 });
-    let heredocResult2 = analyzeUnsupportedHeredoc(commandView, heredocReason, options2);
+    let heredocResult2 = analyzeUnsupportedHeredoc(commandView, heredocReason, depth, state, segmentEnvAssignments ?? /* @__PURE__ */ new Map, options2);
     if (heredocResult2)
       return heredocResult2;
-    return updateCwdAfterSegment(segment, state, options2.trace), null;
+    return invalidateLiteralHeredocFiles(commandView, state, "after-consumer"), state.literalHeredocFiles.clear(), trackLiteralHeredocFiles(commandView, heredocReason, state), updateCwdAfterCommandView(commandView, state, literalShellInput, options2.trace), null;
   }
   let result = analyzeSegment(segment, depth, {
     ...options2,
@@ -11226,12 +14319,16 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
     cwd: originalCwd,
     effectiveCwd: state.effectiveCwd,
     envAssignments: segmentEnvAssignments,
+    literalHeredocFiles: state.literalHeredocFiles,
+    hasPipelineInput,
+    literalShellInput,
     analyzeNested: (nestedCommand, overrides) => {
       let nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : state.effectiveCwd, nestedResult = analyzeCommandInternal(nestedCommand, depth + 1, {
         ...options2,
         derivedCommandWorkBudget: options2.derivedCommandWorkBudget,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
+        literalHeredocFiles: state.literalHeredocFiles,
         worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode,
         trace: options2.trace ? withTraceSegment(options2.trace, options2.trace.currentSegmentIndex, !0) : void 0
       });
@@ -11245,10 +14342,111 @@ function analyzeCommandView(commandView, depth, options2, originalCwd, state, ha
   });
   if (result)
     return { ...result, segment: segmentStr };
-  let heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options2);
+  let heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, depth, state, segmentEnvAssignments ?? /* @__PURE__ */ new Map, options2);
   if (heredocResult)
     return heredocResult;
-  return updateCwdAfterSegment(segment, state, options2.trace), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+  return invalidateLiteralHeredocFiles(commandView, state, "after-consumer"), state.literalHeredocFiles.clear(), trackLiteralHeredocFiles(commandView, heredocReason, state), updateCwdAfterCommandView(commandView, state, literalShellInput, options2.trace), applyShellGitContextEnvSegment(segment, state.shellGitContextState), null;
+}
+var FILE_NONTRUNCATING_WRITE_REDIRECTIONS = /* @__PURE__ */ new Set([">>", "<>"]);
+function invalidateLiteralHeredocFiles(commandView, state, phase) {
+  for (let redirection of commandView.redirections) {
+    if (!(phase === "before-consumer" ? isTruncatingFileRedirection(redirection) : FILE_NONTRUNCATING_WRITE_REDIRECTIONS.has(redirection.operator)))
+      continue;
+    invalidateLiteralHeredocFile(redirection.target, state);
+  }
+  if (phase !== "before-consumer" || !isBareCommandWord(commandView.words[0], "tee"))
+    return;
+  let teeArguments = getTeeArguments(commandView.words.slice(1));
+  if (!teeArguments)
+    return;
+  for (let operand of teeArguments.operands)
+    invalidateLiteralHeredocFile(operand, state);
+}
+function isTruncatingFileRedirection(redirection) {
+  if (redirection.operator === ">" || redirection.operator === ">|")
+    return !0;
+  return redirection.operator === ">&" && redirection.fd === void 0 && redirection.target?.provenance === "literal" && !/^(?:[0-9]+|-)$/.test(redirection.target.text);
+}
+function invalidateLiteralHeredocFile(target, state) {
+  let path = target?.provenance === "literal" ? resolveTrackedHeredocPath(target.text, state.effectiveCwd) : void 0;
+  if (!path)
+    return;
+  state.literalHeredocFiles.delete(path);
+}
+function trackLiteralHeredocFiles(commandView, heredocReason, state) {
+  if (heredocReason)
+    return;
+  let heredoc = commandView.redirections.find((redirection) => redirection.operator === "<<" || redirection.operator === "<<-")?.heredoc;
+  if (!heredoc?.quotedDelimiter)
+    return;
+  for (let target of getLiteralHeredocOutputTargets(commandView)) {
+    let path = resolveTrackedHeredocPath(target.text, state.effectiveCwd);
+    if (!path || !isPersistentHeredocFilePath(path))
+      continue;
+    if (!state.literalHeredocFiles.has(path) && state.literalHeredocFiles.size >= MAX_TRACKED_HEREDOC_FILES)
+      throw new DerivedCommandWorkLimitError;
+    state.literalHeredocFiles.set(path, heredoc.body);
+  }
+}
+function getLiteralHeredocOutputTargets(commandView) {
+  let stdoutTarget = getFinalStdoutRedirection(commandView.redirections)?.target, literalStdoutTarget = isTrackableLiteralFileWord(stdoutTarget) ? [stdoutTarget] : [];
+  if (isBareCommandWord(commandView.words[0], "cat"))
+    return catWritesHeredocVerbatim(commandView.words) ? literalStdoutTarget : [];
+  if (!isBareCommandWord(commandView.words[0], "tee"))
+    return [];
+  let teeArguments = getTeeArguments(commandView.words.slice(1));
+  if (!teeArguments || teeArguments.append || teeArguments.hasUnsupportedOptions || !teeArguments.operands.every(isTrackableLiteralFileWord))
+    return [];
+  return [...teeArguments.operands, ...literalStdoutTarget];
+}
+function catWritesHeredocVerbatim(words) {
+  let optionTerminated = !1;
+  for (let word of words.slice(1)) {
+    if (optionTerminated || word.provenance !== "literal")
+      return !1;
+    if (word.text === "--") {
+      optionTerminated = !0;
+      continue;
+    }
+    if (!/^-u+$/.test(word.text))
+      return !1;
+  }
+  return !0;
+}
+function getFinalStdoutRedirection(redirections) {
+  let redirection = redirections.findLast((candidate) => (candidate.fd ?? ([">", ">|", ">>", ">&"].includes(candidate.operator) ? 1 : 0)) === 1);
+  return redirection?.operator === ">" || redirection?.operator === ">|" ? redirection : void 0;
+}
+function getTeeArguments(words) {
+  let operands = [], parsesOptions = !0, append = !1, hasUnsupportedOptions = !1;
+  for (let word of words) {
+    if (word.provenance !== "literal")
+      return;
+    if (parsesOptions && isBareCommandWord(word, "--")) {
+      parsesOptions = !1;
+      continue;
+    }
+    if (parsesOptions && !word.quoted && word.raw === word.text && /^-[^-]/.test(word.text)) {
+      append ||= word.text.slice(1).includes("a"), hasUnsupportedOptions ||= [...word.text.slice(1)].some((option) => option !== "a" && option !== "i");
+      continue;
+    }
+    if (parsesOptions && !word.quoted && word.raw === word.text && word.text.startsWith("--")) {
+      append ||= word.text === "--append", hasUnsupportedOptions ||= word.text !== "--append" && word.text !== "--ignore-interrupts";
+      continue;
+    }
+    operands.push(word);
+  }
+  return { operands, append, hasUnsupportedOptions };
+}
+function isTrackableLiteralFileWord(word) {
+  if (!word || word.provenance !== "literal" || word.text.length === 0)
+    return !1;
+  if (word.quoted || word.raw !== word.text)
+    return !0;
+  return !word.raw.startsWith("~") && !/[{}]/.test(word.raw);
+}
+function isBareCommandWord(word, value) {
+  return word?.text === value && word.raw === value && word.provenance === "literal" && !word.quoted;
 }
 function getHeredocReason(commandView) {
   let heredocs = commandView.redirections.filter((redirection) => redirection.operator === "<<" || redirection.operator === "<<-");
@@ -11265,29 +14463,63 @@ function getHeredocReason(commandView) {
     return REASON_UNSUPPORTED_HEREDOC;
   if (commandView.redirections.some((redirection) => redirection !== heredoc && ["<", "<<", "<<-", "<<<", "<&", "<>"].includes(redirection.operator)))
     return REASON_UNSUPPORTED_HEREDOC;
-  let bareWord = (index, value) => {
-    let word = commandView.words[index];
-    return word?.text === value && word.raw === value && word.provenance === "literal" && !word.quoted;
-  };
-  if (bareWord(0, "cat") || bareWord(0, "tee"))
-    return;
-  if (bareWord(0, "git") && bareWord(1, "apply"))
+  let outputProcessSubstitution = commandView.redirections.some((redirection) => redirection !== heredoc && hasOutputProcessSubstitution(redirection.target));
+  if (isBareCommandWord(commandView.words[0], "cat"))
+    return outputProcessSubstitution ? REASON_UNSUPPORTED_HEREDOC : void 0;
+  if (isBareCommandWord(commandView.words[0], "tee"))
+    return outputProcessSubstitution || commandView.words.slice(1).some(hasOutputProcessSubstitution) ? REASON_UNSUPPORTED_HEREDOC : void 0;
+  if (isBareCommandWord(commandView.words[0], "git") && isBareCommandWord(commandView.words[1], "apply"))
     return;
   return REASON_UNSUPPORTED_HEREDOC;
 }
-function analyzeUnsupportedHeredoc(commandView, reason, options2) {
+function hasOutputProcessSubstitution(word) {
+  return word?.parts.some((part) => part.provenance === "command-substitution" && part.raw.startsWith(">(")) ?? !1;
+}
+function analyzeUnsupportedHeredoc(commandView, reason, depth, state, envAssignments, options2) {
   if (!reason)
     return null;
-  let heredocs = commandView.redirections.filter((redirection) => redirection.operator === "<<" || redirection.operator === "<<-"), bodies = heredocs.flatMap((redirection) => redirection.heredoc ? [redirection.heredoc.body] : []), result = analyzeUnparseableCommand(bodies.length === heredocs.length ? bodies.join(`
+  let heredocs = commandView.redirections.filter((redirection) => redirection.operator === "<<" || redirection.operator === "<<-"), bodies = heredocs.flatMap((redirection) => redirection.heredoc ? [redirection.heredoc.body] : []), shellHeredoc = getQuotedShellHeredoc(commandView, heredocs, state, envAssignments);
+  if (shellHeredoc?.kind === "inert")
+    return null;
+  if (shellHeredoc?.kind === "source") {
+    reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, 1), options2.trace?.recordSegment({
+      type: "recurse",
+      reason: "shell-heredoc",
+      innerCommand: shellHeredoc.body,
+      depth: depth + 1
+    });
+    let result2 = analyzeCommandInternal(shellHeredoc.body, depth + 1, {
+      ...options2,
+      effectiveCwd: shellHeredoc.effectiveCwd,
+      envAssignments: shellHeredoc.envAssignments,
+      literalHeredocFiles: state.literalHeredocFiles,
+      trace: options2.trace ? withTraceSegment(options2.trace, options2.trace.currentSegmentIndex, !0) : void 0
+    });
+    return result2 ? { ...result2, segment: commandView.legacyNormalized } : null;
+  }
+  let result = analyzeUnparseableCommand(bodies.length === heredocs.length ? bodies.join(`
 `) : commandView.source, options2);
   return result ? { ...result, segment: commandView.legacyNormalized } : null;
 }
-function updateCwdAfterSegment(segment, state, trace) {
-  let nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+function getQuotedShellHeredoc(commandView, heredocs, state, envAssignments) {
+  let heredoc = heredocs.length === 1 ? heredocs[0] : void 0;
+  if (!heredoc?.heredoc?.quotedDelimiter || heredoc.fd !== void 0 && heredoc.fd !== 0)
+    return;
+  let stripped = stripWrappersWithInfo([...commandView.analysisTokens], state.effectiveCwd, envAssignments), head = normalizeCommandToken(stripped.tokens[0] ?? "");
+  if (stripped.unverifiableEnvSplit || !SHELL_WRAPPERS.has(head) && !SHELL_WRAPPERS.has(getBasename(head)))
+    return;
+  if (isShellSyntaxCheck(stripped.tokens))
+    return { kind: "inert" };
+  if (extractDashCArg(stripped.tokens) !== null || extractShellScriptOperandSource(stripped.tokens, void 0).kind !== "none")
+    return;
+  return;
+}
+function updateCwdAfterCommandView(commandView, state, literalPipelineInput, trace) {
+  let nextCwd = resolveCwdAfterCommandView(commandView, state.effectiveCwd, literalPipelineInput);
   if (nextCwd === null)
     trace?.recordSegment({
       type: "cwd-change",
-      segment: segment.join(" "),
+      segment: commandView.analysisTokens.join(" "),
       effectiveCwdNowUnknown: !0
     });
   if (nextCwd !== void 0)
@@ -11296,8 +14528,32 @@ function updateCwdAfterSegment(segment, state, trace) {
 function cloneAnalysisState(state) {
   return {
     effectiveCwd: state.effectiveCwd,
-    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState)
+    shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
+    literalHeredocFiles: new Map(state.literalHeredocFiles)
   };
+}
+function deduplicateAnalysisStates(states) {
+  let uniqueStates = [];
+  for (let state of states) {
+    if (!uniqueStates.some((candidate) => analysisStatesEqual(candidate, state)))
+      uniqueStates.push(state);
+    if (uniqueStates.length > MAX_CONTROL_FLOW_STATES)
+      throw new DerivedCommandWorkLimitError;
+  }
+  return uniqueStates;
+}
+function analysisStatesEqual(left, right) {
+  return left.effectiveCwd === right.effectiveCwd && optionalMapsEqual(left.literalHeredocFiles, right.literalHeredocFiles) && optionalMapsEqual(left.shellGitContextState.effectiveEnvAssignments, right.shellGitContextState.effectiveEnvAssignments) && optionalMapsEqual(left.shellGitContextState.shellAssignments, right.shellGitContextState.shellAssignments) && setsEqual(left.shellGitContextState.exportedNames, right.shellGitContextState.exportedNames) && left.shellGitContextState.allexport === right.shellGitContextState.allexport && left.shellGitContextState.keywordExport === right.shellGitContextState.keywordExport;
+}
+function optionalMapsEqual(left, right) {
+  if (left === right)
+    return !0;
+  if (!left || !right || left.size !== right.size)
+    return !1;
+  return [...left].every(([key, value]) => right.get(key) === value && right.has(key));
+}
+function setsEqual(left, right) {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 function resultFromCommandMatch(command2, match) {
   if (!match)
@@ -11316,7 +14572,8 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
     originalCwd: cwdUnknown ? void 0 : options2.cwd,
     strict: options2.strict,
     paranoid: options2.paranoidRm,
-    allowTmpdirVar: options2.allowTmpdirVar
+    allowTmpdirVar: options2.allowTmpdirVar,
+    policy: options2.policy
   };
 }
 function analyzeUnparseableCommand(command2, options2) {
@@ -11396,7 +14653,7 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 
 // src/core/policy-protection.ts
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute11, normalize as normalize5, resolve as resolve9 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute13, normalize as normalize5, resolve as resolve10 } from "node:path";
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
@@ -11606,8 +14863,8 @@ function normalizePolicyCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve9(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize5(isAbsolute11(expanded) ? expanded : resolve9(cwd, expanded)), budget).replace(/\\/g, "/");
+  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize5(isAbsolute13(expanded) ? expanded : resolve10(cwd, expanded)), budget).replace(/\\/g, "/");
 }
 function comparePath(path) {
   return process.platform === "win32" ? path.toLowerCase() : path;
@@ -11615,7 +14872,7 @@ function comparePath(path) {
 
 // src/core/secret-protection.ts
 import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute12, resolve as resolve10 } from "node:path";
+import { isAbsolute as isAbsolute14, resolve as resolve11 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
   "-delete",
@@ -12439,9 +15696,9 @@ function normalizeCandidatePath(target, cwd, budget) {
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute12(expanded) ? expanded : normalizePathText(resolve10(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute14(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute12(expanded))
+    if (isAbsolute14(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -12453,7 +15710,7 @@ function normalizeAbsoluteCandidatePath(target, cwd, budget) {
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute12(expanded) ? expanded : resolve10(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute14(expanded) ? expanded : resolve11(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -12955,7 +16212,7 @@ function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
   let route = getAntigravityCliToolRoute(toolName), targets = [
     ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
     ...route.kind === "patch" ? extractPatchTargetsFromToolInput(toolInput) : []
-  ].filter(isAbsolute13), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
+  ].filter(isAbsolute15), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
     let root = mostSpecificContainingRoot(resolveExistingPath(target, budget), configRoots);
     return root ? [root] : [];
   }));
@@ -12968,7 +16225,7 @@ function mostSpecificContainingRoot(path, roots) {
 }
 function isSameOrInside(path, root) {
   let rel = relative5(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute13(rel);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute15(rel);
 }
 function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
   let command2 = toolInput && typeof toolInput === "object" ? toolInput.command : void 0;
@@ -12997,9 +16254,9 @@ function normalizeAntigravityToolArgs(args, toolName) {
 
 // src/bin/hook/agent-detection.ts
 import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute14, join as join12 } from "node:path";
+import { isAbsolute as isAbsolute16, join as join12 } from "node:path";
 function detectClaudeShapeAgent(transcriptPath) {
-  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute14(transcriptPath))
+  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute16(transcriptPath))
     return "unknown";
   try {
     let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir7(), roots = [
@@ -13007,7 +16264,7 @@ function detectClaudeShapeAgent(transcriptPath) {
       ["copilot-cli", process.env.COPILOT_HOME || join12(home, ".copilot")],
       ["claude-code", process.env.CLAUDE_CONFIG_DIR || join12(home, ".claude")]
     ], matches = transcript ? roots.flatMap(([agent, root]) => {
-      if (!isAbsolute14(root))
+      if (!isAbsolute16(root))
         return [];
       return isSameOrInsidePath(transcript, resolveExistingPath(root, budget)) ? [agent] : [];
     }) : [];
@@ -13579,7 +16836,7 @@ function insertRecentEntry(entries, entry, ts) {
 import { dirname as dirname11 } from "node:path";
 
 // src/core/config.ts
-import { resolve as resolve11 } from "node:path";
+import { resolve as resolve12 } from "node:path";
 function validateConfig(config) {
   let errors = [], ruleNames = /* @__PURE__ */ new Set;
   if (!config || typeof config !== "object")
@@ -13612,7 +16869,7 @@ function readConfigFileInput(path) {
   }
 }
 function getLegacyProjectConfigPath(cwd) {
-  return resolve11(cwd ?? process.cwd(), ".safety-net.json");
+  return resolve12(cwd ?? process.cwd(), ".safety-net.json");
 }
 function validateRulesConfigFile(path) {
   let loaded = readConfigFileInput(path);
@@ -13628,7 +16885,7 @@ function validateParsedConfigFile(path, validate) {
   return validate(loaded.parsed);
 }
 // src/core/rules/policy/sync.ts
-import { isAbsolute as isAbsolute15, join as join13, relative as relative6, resolve as resolve12, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute17, join as join13, relative as relative6, resolve as resolve13, sep as sep8 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
 }
@@ -13916,8 +17173,8 @@ function getLocalSourceDirsForDelete(configDir, specs, lock, filesystemScope) {
   return allErrors.length > 0 ? { ok: !1, result: { ok: !1, errors: allErrors, warnings: [], entries: [] } } : { ok: !0, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
-  let resolvedConfigDir = resolve12(configDir), resolvedDir = resolve12(dir), relativeDir = relative6(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep7}`) || isAbsolute15(relativeDir))
+  let resolvedConfigDir = resolve13(configDir), resolvedDir = resolve13(dir), relativeDir = relative6(resolvedConfigDir, resolvedDir);
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep8}`) || isAbsolute17(relativeDir))
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   let target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir), entries = readPolicyDirectoryEntries(target);
   if (!entries)
@@ -14409,7 +17666,7 @@ All checks passed.`);
 }
 
 // src/bin/doctor/hooks.ts
-import { existsSync as existsSync5, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
+import { existsSync as existsSync4, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
 import { join as join16 } from "node:path";
 
@@ -14482,7 +17739,7 @@ function getAntigravityHooksPath(homeDir) {
 }
 
 // src/integrations/self-test.ts
-import { tmpdir as tmpdir3 } from "node:os";
+import { tmpdir as tmpdir2 } from "node:os";
 import { join as join15 } from "node:path";
 var CASES = Object.freeze([
   { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
@@ -14518,7 +17775,7 @@ var CASES = Object.freeze([
   }
 };
 function runIntegrationSelfTest() {
-  let cwd = join15(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+  let cwd = join15(tmpdir2(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
     let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
       guard: {
         dependencies: {
@@ -14594,7 +17851,7 @@ function detectOpenCode(homeDir) {
   let errors = [], configDir = join16(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
     let configPath = join16(configDir, filename);
-    if (existsSync5(configPath))
+    if (existsSync4(configPath))
       try {
         let content = readFileSync7(configPath, "utf-8"), json = stripJsonComments(content);
         if ((JSON.parse(json).plugin ?? []).some((p) => p.includes("cc-safety-net")))
@@ -14672,7 +17929,7 @@ function _findAntigravitySafetyNetHooks(config) {
 }
 function detectAntigravityCli(homeDir) {
   let configPath = getAntigravityHooksPath(homeDir);
-  if (!existsSync5(configPath))
+  if (!existsSync4(configPath))
     return { platform: "antigravity-cli", status: "n/a", configPath };
   let matches;
   try {
@@ -14706,7 +17963,7 @@ function detectAntigravityCli(homeDir) {
 }
 function detectKimiCode(homeDir) {
   let configPath = _getKimiConfigPath(homeDir);
-  if (!existsSync5(configPath))
+  if (!existsSync4(configPath))
     return { platform: "kimi-code", status: "n/a", configPath };
   try {
     if (!KIMI_HOOK_COMMAND_PATTERN.test(readFileSync7(configPath, "utf-8")))
@@ -14856,7 +18113,7 @@ function _listJsonFiles(dirPath, errors) {
   }
 }
 function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
-  if (!existsSync5(dirPath))
+  if (!existsSync4(dirPath))
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
@@ -14867,7 +18124,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
   return matches;
 }
 function _collectCopilotInlineConfig(configPath, errors) {
-  if (!existsSync5(configPath))
+  if (!existsSync4(configPath))
     return;
   let config = _readCopilotConfigFile(configPath, errors);
   if (!config)
@@ -14909,7 +18166,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
       return { activeConfigPaths: [], disabledBy: disableSource };
     }
   }
-  let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync5(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
+  let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync4(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
     let configPath = join16(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
@@ -14999,9 +18256,9 @@ function detectAllHooks(cwd, options2) {
 
 // src/bin/doctor/system-info.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync6 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir as tmpdir4 } from "node:os";
+import { tmpdir as tmpdir3 } from "node:os";
 import { delimiter, extname, join as join17 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
@@ -15029,8 +18286,8 @@ function resolveWindowsCommand(command2, env) {
     command2
   ];
   if (command2.includes("/") || command2.includes("\\"))
-    return candidates.find((candidate) => existsSync6(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync6(candidate)) ?? command2;
+    return candidates.find((candidate) => existsSync5(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync5(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -15057,7 +18314,7 @@ var defaultVersionFetcher = async (args, timeoutMs = VERSION_FETCH_TIMEOUT_MS) =
   let [cmd, ...rest] = args;
   if (!cmd)
     return null;
-  return new Promise((resolve13) => {
+  return new Promise((resolve14) => {
     try {
       let spawnCommand = getSpawnCommand([cmd, ...rest], process.env), proc = spawn(spawnCommand.cmd, spawnCommand.args, {
         stdio: ["ignore", "pipe", "pipe"]
@@ -15070,7 +18327,7 @@ var defaultVersionFetcher = async (args, timeoutMs = VERSION_FETCH_TIMEOUT_MS) =
       let finish = (value) => {
         if (isSettled)
           return;
-        isSettled = !0, clearTimeout(timeoutId), resolve13(value);
+        isSettled = !0, clearTimeout(timeoutId), resolve14(value);
       }, timeoutId = setTimeout(() => {
         proc.kill(), finish(null);
       }, timeoutMs);
@@ -15080,7 +18337,7 @@ var defaultVersionFetcher = async (args, timeoutMs = VERSION_FETCH_TIMEOUT_MS) =
         finish(null);
       });
     } catch {
-      resolve13(null);
+      resolve14(null);
     }
   });
 }, PI_PROBE_EXTENSION = `
@@ -15129,7 +18386,7 @@ function runCommand(args, options2) {
   let [cmd, ...rest] = args;
   if (!cmd)
     return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: !1 });
-  return new Promise((resolve13) => {
+  return new Promise((resolve14) => {
     try {
       let env = { ...process.env, ...options2.env ?? {} }, spawnCommand = getSpawnCommand([cmd, ...rest], env), proc = spawn(spawnCommand.cmd, spawnCommand.args, {
         cwd: options2.cwd,
@@ -15144,7 +18401,7 @@ function runCommand(args, options2) {
       let finish = (result) => {
         if (isSettled)
           return;
-        isSettled = !0, clearTimeout(timeoutId), resolve13(result);
+        isSettled = !0, clearTimeout(timeoutId), resolve14(result);
       }, timeoutId = setTimeout(() => {
         proc.kill(), finish({ code: null, stdout, stderr, timedOut: !0 });
       }, options2.timeoutMs);
@@ -15154,7 +18411,7 @@ function runCommand(args, options2) {
         finish({ code: null, stdout, stderr, timedOut: !1, error: error.message });
       });
     } catch (error) {
-      resolve13({
+      resolve14({
         code: null,
         stdout: "",
         stderr: "",
@@ -15165,7 +18422,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join17(tmpdir4(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join17(tmpdir3(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -15383,19 +18640,19 @@ import * as readline from "node:readline";
 var CURSOR_DOWN = (rows) => `\x1B[${rows}B`;
 var SCRAMBLE_POOL = ["░", "▒", "▓", "╱", "╲", "┃", "━", "┏", "┓", "┗", "┛", "╋"];
 function wait(milliseconds) {
-  return new Promise((resolve13) => setTimeout(resolve13, milliseconds));
+  return new Promise((resolve14) => setTimeout(resolve14, milliseconds));
 }
 function waitForAnimationFrame(milliseconds, sleep, signal) {
   if (!signal)
     return sleep(milliseconds);
   if (signal.aborted)
     return Promise.resolve();
-  return new Promise((resolve13, reject) => {
+  return new Promise((resolve14, reject) => {
     let cleanup = () => signal.removeEventListener("abort", onAbort), onAbort = () => {
-      cleanup(), resolve13();
+      cleanup(), resolve14();
     };
     signal.addEventListener("abort", onAbort, { once: !0 }), sleep(milliseconds).then(() => {
-      cleanup(), resolve13();
+      cleanup(), resolve14();
     }, (error) => {
       cleanup(), reject(error);
     });
@@ -15561,7 +18818,7 @@ async function printInstallBanner(options2 = {}) {
 // src/bin/startup/banner.ts
 var CLEAR_LINE = "\r\x1B[2K", HIDE_CURSOR = "\x1B[?25l", RESET_FOREGROUND = "\x1B[39m", SHOW_CURSOR = "\x1B[?25h", SPINNER_DELAY = 100, SPINNER_HUE_STEP = 0.55, SPINNER_INTERVAL = 80, SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 function wait2(milliseconds) {
-  return new Promise((resolve13) => setTimeout(resolve13, milliseconds));
+  return new Promise((resolve14) => setTimeout(resolve14, milliseconds));
 }
 async function waitForReady(ready, options2) {
   let output = options2.output ?? process.stdout;
@@ -15667,7 +18924,7 @@ function printReport(report) {
 }
 
 // src/bin/explain/config.ts
-import { resolve as resolve13 } from "node:path";
+import { resolve as resolve14 } from "node:path";
 function getConfigSource(options2) {
   let projectPath = getProjectRulesConfigPath(options2?.cwd), userPath = options2?.userConfigPath ?? getUserRulesConfigPath(options2), paths = getPolicyPaths({
     cwd: options2?.cwd,
@@ -15698,7 +18955,7 @@ function getConfigSource(options2) {
   }
 }
 function buildAnalyzeOptions(explainOptions) {
-  let cwd = resolve13(explainOptions?.cwd ?? process.cwd()), policySnapshot = explainOptions?.policySnapshot ?? loadPolicySnapshot({ cwd, userConfigDir: explainOptions?.userConfigDir }), modes = getCCSafetyNetEnvModes(policySnapshot.policy);
+  let cwd = resolve14(explainOptions?.cwd ?? process.cwd()), policySnapshot = explainOptions?.policySnapshot ?? loadPolicySnapshot({ cwd, userConfigDir: explainOptions?.userConfigDir }), modes = getCCSafetyNetEnvModes(policySnapshot.policy);
   return {
     cwd,
     effectiveCwd: cwd,
@@ -15839,7 +19096,7 @@ function sanitizeTerminal(terminal, limits, sensitiveHashes) {
 function collectSensitiveHashes(value, hashes, limits, depth = 0, seen = /* @__PURE__ */ new WeakSet) {
   if (typeof value === "string") {
     let bounded = value.slice(0, limits.maxTextLength);
-    if (!bounded.includes("="))
+    if (!mightContainEnvAssignment(bounded))
       return;
     for (let assignment of getEnvAssignmentValues(bounded))
       for (let token of assignment.match(/[^\s"'()$]+/g) ?? [])
@@ -15902,7 +19159,7 @@ function sanitizeValue(value, limits, sensitiveHashes, depth = 0, seen = /* @__P
   return sanitized;
 }
 function sanitizeText(value, limits, sensitiveHashes) {
-  let bounded = value.slice(0, limits.maxTextLength), assignmentsRedacted = bounded.includes("=") ? redactEnvAssignmentValues(bounded) : bounded, derivedRedacted = sensitiveHashes.size > 0 ? redactDerivedSecrets(assignmentsRedacted, sensitiveHashes) : assignmentsRedacted;
+  let bounded = value.slice(0, limits.maxTextLength), assignmentsRedacted = mightContainEnvAssignment(bounded) ? redactEnvAssignmentValues(bounded) : bounded, derivedRedacted = sensitiveHashes.size > 0 ? redactDerivedSecrets(assignmentsRedacted, sensitiveHashes) : assignmentsRedacted;
   return (mightContainNonAssignmentSecret(derivedRedacted) ? redactNonAssignmentSecrets(derivedRedacted) : derivedRedacted).slice(0, limits.maxTextLength);
 }
 function mightContainNonAssignmentSecret(text) {
@@ -15946,11 +19203,9 @@ function evaluateCommandWithTrace(command2, options2, suppliedProgram, suppliedF
     compatibility: "explain-legacy",
     factStore,
     trace
-  }, program), strictUnclosedQuote = !!options2.strict && program.issues.some((issue) => issue.code.includes("quote"));
-  if (analysis && !strictUnclosedQuote && trace.getNextSegmentIndex() < entries.length) {
-    let index = trace.getNextSegmentIndex();
+  }, program), index = trace.getNextSegmentIndex();
+  if (analysis && index > 0 && index < entries.length)
     trace.recordSegment({ type: "segment-skipped", index, reason: "prior-segment-blocked" }, index);
-  }
   return Object.freeze({
     analysis,
     trace: recorder.finish(analysis ? {
@@ -18132,9 +21387,9 @@ async function createPolicyGuiServer(options2 = {}) {
   let token = options2.token ?? randomBytes3(24).toString("base64url"), server = createServer((request, response) => {
     handleRequest(request, response, token, options2);
   });
-  await new Promise((resolve14, reject) => {
+  await new Promise((resolve15, reject) => {
     server.once("error", reject), server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject), resolve14();
+      server.off("error", reject), resolve15();
     });
   });
   let origin = `http://127.0.0.1:${server.address().port}`;
@@ -18243,27 +21498,27 @@ function sendJson(response, status, body) {
   }), response.end(JSON.stringify(body));
 }
 function closeServer(server) {
-  return new Promise((resolve14, reject) => {
-    server.close((error) => error ? reject(error) : resolve14());
+  return new Promise((resolve15, reject) => {
+    server.close((error) => error ? reject(error) : resolve15());
   });
 }
 function waitForShutdown(server) {
-  return new Promise((resolve14) => {
+  return new Promise((resolve15) => {
     let cleanup = () => {
       process.off("SIGINT", shutdown), process.off("SIGTERM", shutdown);
     }, shutdown = () => {
-      cleanup(), server.close().then(resolve14);
+      cleanup(), server.close().then(resolve15);
     };
     process.once("SIGINT", shutdown), process.once("SIGTERM", shutdown);
   });
 }
 function openBrowser(url) {
   let command2 = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open", args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  return new Promise((resolve14, reject) => {
+  return new Promise((resolve15, reject) => {
     let child = spawn2(command2, args, { detached: !0, stdio: "ignore" }), handleError = (error) => {
       child.off("spawn", handleSpawn), reject(error);
     }, handleSpawn = () => {
-      child.off("error", handleError), child.unref(), resolve14();
+      child.off("error", handleError), child.unref(), resolve15();
     };
     child.once("error", handleError), child.once("spawn", handleSpawn);
   });
@@ -18292,7 +21547,7 @@ async function userHasStarredRepo(command2 = "gh", timeoutMs = STAR_TIMEOUT_MS) 
   return !1;
 }
 function runGhCommand(command2, args, timeoutMs) {
-  return new Promise((resolve14) => {
+  return new Promise((resolve15) => {
     let child = spawn2(command2, args, {
       stdio: "ignore",
       windowsHide: !0
@@ -18301,7 +21556,7 @@ function runGhCommand(command2, args, timeoutMs) {
         return;
       if (settled = !0, timeout)
         clearTimeout(timeout);
-      resolve14(code);
+      resolve15(code);
     };
     child.once("error", () => finish(null)), child.once("close", finish), timeout = setTimeout(() => {
       child.kill(), finish(null);
@@ -18394,7 +21649,7 @@ function showCommandHelp(commandName) {
 import { homedir as homedir9 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
-import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname12 } from "node:path";
 var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli", MANAGED_HOOK_NAME = "cc-safety-net";
 function managedHookEntry() {
@@ -18478,7 +21733,7 @@ function writeAntigravityHooksConfig(configPath, config) {
 }
 function installAntigravityCli(homeDir) {
   let configPath = getAntigravityHooksPath(homeDir);
-  if (mkdirSync4(dirname12(configPath), { recursive: !0 }), !existsSync7(configPath))
+  if (mkdirSync4(dirname12(configPath), { recursive: !0 }), !existsSync6(configPath))
     return writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() }), { path: configPath, alreadyInstalled: !1 };
   let config = parseAntigravityHooksConfig(configPath);
   if (hasActiveManagedHook(config))
@@ -18489,7 +21744,7 @@ function installAntigravityCli(homeDir) {
 }
 function uninstallAntigravityCli(homeDir) {
   let configPath = getAntigravityHooksPath(homeDir);
-  if (!existsSync7(configPath))
+  if (!existsSync6(configPath))
     return { path: configPath, alreadyInstalled: !1 };
   let config = parseAntigravityHooksConfig(configPath);
   if (!removeManagedHook(config))
@@ -18498,7 +21753,7 @@ function uninstallAntigravityCli(homeDir) {
 }
 
 // src/bin/hook/install/kimi-code.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname13, join as join18 } from "node:path";
 
 // src/bin/hook/config-edit.ts
@@ -18655,7 +21910,7 @@ function removeKimiInlineHook(content, hooksRange) {
 }
 function installKimiCode(homeDir) {
   let configPath = getKimiConfigPath(homeDir);
-  if (mkdirSync5(dirname13(configPath), { recursive: !0 }), !existsSync8(configPath))
+  if (mkdirSync5(dirname13(configPath), { recursive: !0 }), !existsSync7(configPath))
     return writeFileSync3(configPath, `${KIMI_HOOK_BLOCK}
 `), { path: configPath, alreadyInstalled: !1 };
   let content = readFileSync9(configPath, "utf-8");
@@ -18665,7 +21920,7 @@ function installKimiCode(homeDir) {
 }
 function uninstallKimiCode(homeDir) {
   let configPath = getKimiConfigPath(homeDir);
-  if (!existsSync8(configPath))
+  if (!existsSync7(configPath))
     return { path: configPath, alreadyInstalled: !1 };
   let content = readFileSync9(configPath, "utf-8");
   if (!content.includes(KIMI_HOOK_COMMAND))
@@ -18703,7 +21958,7 @@ ${output}`.trim()));
 }
 
 // src/bin/hook/install/opencode.ts
-import { existsSync as existsSync9, readFileSync as readFileSync10, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync10, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join19 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
@@ -18842,9 +22097,9 @@ function removeManagedPlugins(content, configPath) {
 }
 function uninstallOpenCode(homeDir) {
   clearOpenCodeCache(homeDir);
-  let configPaths = getOpenCodeConfigPaths(homeDir), existingConfigPath = configPaths.find((configPath) => existsSync9(configPath)), errors = [];
+  let configPaths = getOpenCodeConfigPaths(homeDir), existingConfigPath = configPaths.find((configPath) => existsSync8(configPath)), errors = [];
   for (let configPath of configPaths) {
-    if (!existsSync9(configPath))
+    if (!existsSync8(configPath))
       continue;
     try {
       let content = readFileSync10(configPath, "utf-8");
@@ -18930,14 +22185,14 @@ function defaultInstallTargetProbe(command2) {
   return !result.error && result.status === 0;
 }
 function defaultAsyncInstallTargetProbe(command2) {
-  return new Promise((resolve14) => {
+  return new Promise((resolve15) => {
     let proc = spawn3(command2[0], command2.slice(1), {
       env: process.env,
       stdio: "ignore"
     }), settled = !1, finish = (available) => {
       if (settled)
         return;
-      settled = !0, clearTimeout(timeoutId), resolve14(available);
+      settled = !0, clearTimeout(timeoutId), resolve15(available);
     }, timeoutId = setTimeout(() => {
       proc.kill(), finish(!1);
     }, ASYNC_PROBE_TIMEOUT_MS);
@@ -19038,14 +22293,14 @@ function promptInstallTargets(action, choices, options2 = {}) {
 `), renderedLines = frame.split(`
 `).length;
   };
-  return new Promise((resolve14) => {
+  return new Promise((resolve15) => {
     let cleanup = () => {
       input.off("keypress", onKeyPress), input.setRawMode(wasRaw), input.pause(), clearFrame();
     }, finish = (targets) => {
       if (cleanup(), targets && targets.length > 0)
         output.write(`${activeVerb(action)} selected integrations...
 `);
-      resolve14(targets);
+      resolve15(targets);
     };
     function onKeyPress(inputValue, key) {
       let mappedKey = mapKeyPress(inputValue, key);
@@ -19551,7 +22806,7 @@ function getMigratedFrom(target) {
 }
 
 // src/bin/rule/verify.ts
-import { dirname as dirname15, join as join21, resolve as resolve14 } from "node:path";
+import { dirname as dirname15, join as join21, resolve as resolve15 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   try {
@@ -19563,7 +22818,7 @@ function runRulesVerify(options2 = {}) {
   }
 }
 function runRulesVerifyInternal(options2) {
-  let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve14(cwd, RULES_DIR), userConfigDir = dirname15(userConfig), paths = getPolicyPaths({
+  let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve15(cwd, RULES_DIR), userConfigDir = dirname15(userConfig), paths = getPolicyPaths({
     cwd,
     userConfigPath: userConfig,
     projectConfigPath: projectConfig
@@ -19602,7 +22857,7 @@ function runRulesVerifyInternal(options2) {
       userConfigDir
     }, paths.projectScope)), configsChecked.push({
       scope: "Project",
-      path: resolve14(projectConfig),
+      path: resolve15(projectConfig),
       result,
       schema: "rules",
       sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig, paths.projectScope),
@@ -19616,7 +22871,7 @@ function runRulesVerifyInternal(options2) {
     let result = validateConfigFile(legacyProjectTarget);
     configsChecked.push({
       scope: "Project",
-      path: resolve14(legacyProjectConfig),
+      path: resolve15(legacyProjectConfig),
       result,
       schema: "legacy",
       sourceDisplayMap: /* @__PURE__ */ new Map,
@@ -20010,21 +23265,21 @@ function printTransparentWrappers(wrappers2) {
 }
 
 // src/bin/statusline.ts
-import { existsSync as existsSync10, readFileSync as readFileSync11 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync11 } from "node:fs";
 import { homedir as homedir10 } from "node:os";
 import { join as join23 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
     return null;
-  return new Promise((resolve15) => {
+  return new Promise((resolve16) => {
     let data = "";
     process.stdin.setEncoding("utf-8"), process.stdin.on("data", (chunk) => {
       data += chunk;
     }), process.stdin.on("end", () => {
       let trimmed = data.trim();
-      resolve15(trimmed || null);
+      resolve16(trimmed || null);
     }), process.stdin.on("error", () => {
-      resolve15(null);
+      resolve16(null);
     });
   });
 }
@@ -20035,7 +23290,7 @@ function getSettingsPath() {
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();
-  if (!existsSync10(settingsPath))
+  if (!existsSync9(settingsPath))
     return !1;
   try {
     let content = readFileSync11(settingsPath, "utf-8"), settings = JSON.parse(content);

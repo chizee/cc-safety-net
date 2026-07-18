@@ -1,4 +1,7 @@
-import { describe, expect, spyOn, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import {
   estimateParallelDynamicEnvWork,
@@ -36,6 +39,28 @@ describe('parallel analysis budgets', () => {
       'true',
       PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses + 1,
     )}`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('counts the Cartesian product of multiple argument sources', () => {
+    const accepted = `parallel true ::: ${repeatedArgs('left', 32)} ::: ${repeatedArgs(
+      'right',
+      32,
+    )}`;
+    const denied = `parallel true ::: ${repeatedArgs('left', 32)} ::: ${repeatedArgs('right', 33)}`;
+
+    expect(analyzeTestCommand(accepted)).toBeNull();
+    expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
+  });
+
+  test('retains empty arguments when enforcing the child-analysis limit', () => {
+    const accepted = `parallel true ::: ${repeatedArgs(
+      "''",
+      PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses,
+    )}`;
+    const denied = `${accepted} ''`;
 
     expect(analyzeTestCommand(accepted)).toBeNull();
     expect(analyzeTestCommand(denied)).toEqual(limitedResult(denied));
@@ -194,21 +219,14 @@ describe('parallel analysis budgets', () => {
     expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
   });
 
-  test('classifies and scans each unique dynamic env value once', () => {
+  test('tracks one unique-value scan while charging duplicate dynamic env executions', () => {
     const value = `echo ${'{}'.repeat(512)}`;
-    const testSpy = spyOn(RegExp.prototype, 'test');
-    const matchAllSpy = spyOn(String.prototype, 'matchAll');
-    try {
-      expect(estimateParallelDynamicEnvWork([value, value], ['arg'])).toMatchObject({
-        childAnalyses: 2,
-        placeholderReplacements: 1_024,
-      });
-      expect(testSpy).toHaveBeenCalledTimes(1);
-      expect(matchAllSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      testSpy.mockRestore();
-      matchAllSpy.mockRestore();
-    }
+
+    expect(estimateParallelDynamicEnvWork([value, value], ['arg'])).toMatchObject({
+      childAnalyses: 2,
+      placeholderReplacements: 1_024,
+      uniqueValueScans: 1,
+    });
   });
 
   test('charges every rm scan when only modifier placeholders are present', () => {
@@ -264,7 +282,9 @@ describe('parallel analysis budgets', () => {
   test('preserves balanced generic placeholders and exact rm placeholders under limits', () => {
     expect(analyzeTestCommand("parallel sh -c 'rm -rf {1}' ::: build", { cwd: '/tmp' })).toBeNull();
     expect(analyzeTestCommand('parallel rm -rf {} ::: build', { cwd: '/tmp' })).toBeNull();
-    expect(analyzeTestCommand('parallel rm -rf {1} ::: /', { cwd: '/tmp' })).toBeNull();
+    expect(analyzeTestCommand('parallel rm -rf {1} ::: /', { cwd: '/tmp' })?.ruleId).toBe(
+      'rm.recursive-force-root-or-home',
+    );
   });
 
   test('records a preset trace index without allocating a segment for an overage', () => {
@@ -306,5 +326,277 @@ describe('parallel analysis budgets', () => {
         step: { type: 'error', message: REASON_PARALLEL_ANALYSIS_LIMIT },
       },
     ]);
+  });
+});
+
+describe('parallel policy candidate fallthrough', () => {
+  test.each([
+    ['--nice', '10'],
+    ['-n', '1'],
+    ['--max-args', '1'],
+    ['-L', '1'],
+    ['--delimiter', ','],
+    ['--header', ':'],
+  ])('does not mistake the value of %s for the command template', (option, value) => {
+    expect(analyzeTestCommand(`parallel ${option} ${value} git reset --hard ::: x`)?.ruleId).toBe(
+      'git.reset-hard',
+    );
+  });
+
+  test.each([
+    ['parallel rm -rf /'],
+    ['parallel rm -rf {} /'],
+  ])('reports a known static rm target before the dynamic-input candidate in %s', (command) => {
+    expect(analyzeTestCommand(command)?.ruleId).toBe('rm.recursive-force-root-or-home');
+    expect(
+      analyzeTestCommand(command, {
+        config: {
+          disabledDestructiveCommandRules: ['parallel.rm-recursive-force-dynamic'],
+        },
+      })?.ruleId,
+    ).toBe('rm.recursive-force-root-or-home');
+  });
+
+  test.each([
+    ['parallel git -c {} status'],
+    ['parallel git --config-env={} status'],
+  ])('fails closed when input can supply executable Git configuration in %s', (command) => {
+    expect(analyzeTestCommand(command)?.ruleId).toBe('parallel.shell-dynamic');
+  });
+
+  test('workdir cwd-self falls through to the original-anchor policy when disabled', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-parallel-workdir-rm-'));
+    const cwd = join(root, 'subdir');
+    mkdirSync(cwd);
+    const command = 'parallel --workdir .. rm -rf . ::: x';
+    try {
+      expect(analyzeTestCommand(command, { cwd })?.ruleId).toBe('rm.recursive-force-cwd-self');
+      expect(
+        analyzeTestCommand(command, {
+          cwd,
+          config: { disabledDestructiveCommandRules: ['rm.recursive-force-cwd-self'] },
+        })?.ruleId,
+      ).toBe('rm.recursive-force-outside-cwd');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['unsupported column separator', 'parallel --colsep , git reset --hard ::: value', undefined],
+    ['remote workdir', 'parallel --workdir /tmp -S host git reset --hard ::: value', undefined],
+    [
+      'ambient configuration',
+      'parallel git reset --hard ::: value',
+      new Map([['PARALLEL', '-I X']]),
+    ],
+    ['selected environment', "parallel --env FOO ::: 'git reset --hard'", undefined],
+  ])('continues past a disabled dynamic precheck for %s', (_name, command, envAssignments) => {
+    expect(
+      analyzeTestCommand(command, {
+        envAssignments,
+        config: { disabledDestructiveCommandRules: ['parallel.command-stream-dynamic'] },
+      })?.ruleId,
+    ).toBe('git.reset-hard');
+  });
+
+  test('allows an explicitly empty ambient configuration', () => {
+    expect(
+      analyzeTestCommand('parallel echo ::: ok', {
+        envAssignments: new Map([['PARALLEL', '']]),
+      }),
+    ).toBeNull();
+    expect(analyzeTestCommand('env PARALLEL= parallel echo ::: ok')).toBeNull();
+  });
+
+  test.each([
+    ["parallel bash -c {} ::: 'git reset --hard'"],
+    ["parallel bash -c {} ::: 'printf safe' 'git reset --hard'"],
+    ["parallel bash -c ::: 'git reset --hard'"],
+    ["parallel bash -c '$1' _ {} ::: '$DYNAMIC' 'git reset --hard'"],
+  ])('analyzes known literal jobs after disabling the broad shell rule in %s', (command) => {
+    expect(
+      analyzeTestCommand(command, {
+        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+      })?.ruleId,
+    ).toBe('git.reset-hard');
+  });
+
+  test.each([
+    ['parallel {} arg'],
+    ['parallel git {} --hard'],
+    ['parallel git reset {}'],
+    ['parallel git push'],
+    ['parallel find . -exec {} \\;'],
+    ['parallel find . -exec sh -c {} \\;'],
+    ['parallel find .'],
+    [`parallel awk 'BEGIN { system("{}") }'`],
+    ['parallel awk -f {}'],
+    [`parallel python -c 'print("{}")'`],
+    ['parallel python -m {}'],
+    ['parallel node --require {}'],
+    ['parallel ruby -r{}'],
+    ['parallel perl -M{} -e safe'],
+    ['parallel node --{} safe'],
+    ['parallel eval {}'],
+    ["parallel eval 'printf safe'"],
+  ])('fails closed when stdin can change an executed source in %s', (command) => {
+    expect(analyzeTestCommand(command)?.ruleId).toBe('parallel.shell-dynamic');
+  });
+
+  test('falls through a disabled literal eval finding to dynamic stdin source', () => {
+    expect(
+      analyzeTestCommand("parallel eval 'git reset --hard'", {
+        config: { disabledDestructiveCommandRules: ['git.reset-hard'] },
+      })?.ruleId,
+    ).toBe('parallel.shell-dynamic');
+  });
+
+  test.each([
+    ['parallel rm {} /'],
+    ['parallel rm -r{} /'],
+    ['parallel rm'],
+  ])('falls through the broad source rule to the rm option rule in %s', (command) => {
+    expect(analyzeTestCommand(command)?.ruleId).toBe('parallel.shell-dynamic');
+    expect(
+      analyzeTestCommand(command, {
+        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+      })?.ruleId,
+    ).toBe('parallel.rm-recursive-force-dynamic');
+  });
+
+  test('falls through broad protection to custom rules completed by dynamic input', () => {
+    const config = {
+      rules: [
+        {
+          name: 'block-docker-system-prune',
+          command: 'docker',
+          subcommand: 'system',
+          block_args: ['prune'],
+          reason: 'Use targeted cleanup.',
+        },
+      ],
+    };
+
+    for (const command of [
+      'parallel docker system {}',
+      'parallel docker {} prune',
+      'parallel docker system',
+    ]) {
+      expect(analyzeTestCommand(command, { config })?.ruleId).toBe('parallel.shell-dynamic');
+      expect(
+        analyzeTestCommand(command, {
+          config: {
+            ...config,
+            disabledDestructiveCommandRules: ['parallel.shell-dynamic'],
+          },
+        })?.ruleId,
+      ).toBe('custom.block-docker-system-prune');
+      expect(
+        analyzeTestCommand(command, {
+          config: { ...config, destructiveCommandProtectionEnabled: false },
+        })?.ruleId,
+      ).toBe('custom.block-docker-system-prune');
+    }
+  });
+
+  test.each([
+    ['parallel docker system inspect id-{}'],
+    ['parallel docker inspect {}'],
+  ])('does not invent a configured custom-rule completion in %s', (command) => {
+    expect(
+      analyzeTestCommand(command, {
+        config: {
+          rules: [
+            {
+              name: 'block-docker-system-prune',
+              command: 'docker',
+              subcommand: 'system',
+              block_args: ['prune'],
+              reason: 'Use targeted cleanup.',
+            },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+
+  test('preflights custom completion work before expanding an adversarial rule', () => {
+    const command = 'parallel docker {}';
+
+    expect(
+      analyzeTestCommand(command, {
+        config: {
+          destructiveCommandProtectionEnabled: false,
+          rules: [
+            {
+              name: 'large-docker-rule',
+              command: 'docker',
+              block_args: Array.from({ length: 1_025 }, (_, index) => `arg-${index}`),
+              reason: 'Use a smaller operation.',
+            },
+          ],
+        },
+      }),
+    ).toEqual(limitedResult(command));
+  });
+
+  test('reanalyzes placeholders that form shell options', () => {
+    expect(analyzeTestCommand("parallel bash '-{}' 'git reset --hard' ::: c")?.ruleId).toBe(
+      'git.reset-hard',
+    );
+    expect(
+      analyzeTestCommand("parallel bash '{}' 'git reset --hard' ::: -c", {
+        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+      })?.ruleId,
+    ).toBe('git.reset-hard');
+  });
+
+  test.each([
+    ['parallel git status -- {}'],
+    ['parallel git log --format={}'],
+    ['parallel git show {}'],
+    ['parallel git reset -- {}'],
+    ['parallel rm -- {}'],
+    ['parallel find . -fprintf -exec {}'],
+    ['parallel find . -exec echo -exec {} \\;'],
+    ["parallel awk '{ print }' {}"],
+    ['parallel node --title {} app.js'],
+    ['parallel node app.js {}'],
+    ['parallel python -W {} script.py'],
+  ])('keeps data-only stdin placeholders out of executable-source classification in %s', (command) => {
+    expect(analyzeTestCommand(command)).toBeNull();
+  });
+
+  test('continues from an unsupported selected env value to a known literal command', () => {
+    expect(
+      analyzeTestCommand('parallel --env FOO git reset --hard ::: ok', {
+        envAssignments: new Map([['FOO', '{/.}']]),
+        config: { disabledDestructiveCommandRules: ['parallel.command-stream-dynamic'] },
+      })?.ruleId,
+    ).toBe('git.reset-hard');
+  });
+
+  test.each([
+    ['parallel --colsep , printf safe ::: value', undefined],
+    ['parallel --workdir /tmp -S host printf safe ::: value', undefined],
+    ['parallel printf safe ::: value', new Map([['PARALLEL', '-I X']])],
+    ["parallel bash -c {} ::: 'printf safe'", undefined],
+    ["parallel bash -c ::: 'printf safe'", undefined],
+    ['parallel echo {}', undefined],
+    ["parallel awk '{ print }'", undefined],
+    ['parallel python -c \'print("safe")\'', undefined],
+  ])('preserves safe explicit work after disabling only the broad rule in %s', (command, envAssignments) => {
+    expect(
+      analyzeTestCommand(command, {
+        envAssignments,
+        config: {
+          disabledDestructiveCommandRules: [
+            'parallel.command-stream-dynamic',
+            'parallel.shell-dynamic',
+          ],
+        },
+      }),
+    ).toBeNull();
   });
 });

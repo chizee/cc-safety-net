@@ -1,5 +1,6 @@
 import {
   getEnvAssignmentValues,
+  mightContainEnvAssignment,
   redactEnvAssignmentValues,
   redactNonAssignmentSecrets,
 } from '@/core/sanitize';
@@ -179,7 +180,7 @@ function collectSensitiveHashes(
 ): void {
   if (typeof value === 'string') {
     const bounded = value.slice(0, limits.maxTextLength);
-    if (!bounded.includes('=')) return;
+    if (!mightContainEnvAssignment(bounded)) return;
     for (const assignment of getEnvAssignmentValues(bounded)) {
       for (const token of assignment.match(/[^\s"'()$]+/g) ?? []) hashes.add(hashText(token));
     }
@@ -264,7 +265,9 @@ function sanitizeText(
   sensitiveHashes: ReadonlySet<string>,
 ): string {
   const bounded = value.slice(0, limits.maxTextLength);
-  const assignmentsRedacted = bounded.includes('=') ? redactEnvAssignmentValues(bounded) : bounded;
+  const assignmentsRedacted = mightContainEnvAssignment(bounded)
+    ? redactEnvAssignmentValues(bounded)
+    : bounded;
   const derivedRedacted =
     sensitiveHashes.size > 0
       ? redactDerivedSecrets(assignmentsRedacted, sensitiveHashes)

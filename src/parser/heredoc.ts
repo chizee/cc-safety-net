@@ -152,5 +152,5 @@ function readLine(source: string, start: number, end: number) {
 }
 
 function stripLeadingTabs(body: string): string {
-  return body.replace(/(^|\r?\n)\t+/g, '$1');
+  return body.replace(/(^|\r\n?|\n)\t+/g, '$1');
 }

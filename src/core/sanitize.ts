@@ -88,6 +88,11 @@ export function getEnvAssignmentValues(text: string): readonly string[] {
   );
 }
 
+/** @internal Fast gate for whether assignment scanning is worth running. */
+export function mightContainEnvAssignment(text: string): boolean {
+  return /[A-Za-z_][A-Za-z0-9_]*=/.test(text);
+}
+
 type EnvAssignment = { valueStart: number; valueEnd: number };
 
 function findEnvAssignments(text: string): EnvAssignment[] {

@@ -25,9 +25,21 @@ export function sliceCommandView(
     words: Object.freeze(words),
     tokens: Object.freeze(view.tokens.slice(start, end)),
     analysisTokens: Object.freeze(view.analysisTokens.slice(start, end)),
-    dynamicExecutable: words[0]?.provenance === 'command-substitution',
+    dynamicExecutable: isDynamicExecutable(view.dialect, words),
     legacyNormalized: words.map((word) => word.text).join(' '),
   });
+}
+
+function isDynamicExecutable(
+  dialect: CommandView['dialect'],
+  words: CommandView['words'],
+): boolean {
+  if (dialect !== 'powershell') {
+    return words[0]?.provenance === 'command-substitution';
+  }
+  const executableIndex = words[0]?.text === '&' || words[0]?.text === '.' ? 1 : 0;
+  const provenance = words[executableIndex]?.provenance;
+  return provenance !== undefined && provenance !== 'literal';
 }
 
 /** @internal */

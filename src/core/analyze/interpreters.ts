@@ -1,4 +1,7 @@
-import { hasLinearInterpreterDanger } from '@/core/analyze/linear-danger-scanner';
+import {
+  hasLinearDangerousText,
+  hasLinearInterpreterDanger,
+} from '@/core/analyze/linear-danger-scanner';
 import { chargeNativeLinearPass } from '@/core/analyze/text-scanner';
 import { getBasename } from '@/core/shell/command';
 import { PYTHON_INTERPRETER_PATTERN } from '@/types';
@@ -15,6 +18,8 @@ const CODE_FLAGS = new Map([
   ['perl', new Set(['-e', '-E'])],
 ]);
 
+const NODE_PRINT_FLAGS = new Set(['-p', '--print']);
+
 const CLUSTERED_CODE_FLAGS = new Map([
   ['python', new Set(['c'])],
   ['node', new Set(['e'])],
@@ -22,26 +27,478 @@ const CLUSTERED_CODE_FLAGS = new Map([
   ['perl', new Set(['e', 'E'])],
 ]);
 
+const SHORT_VALUE_FLAGS = new Map([
+  ['python', new Set(['W', 'X'])],
+  ['node', new Set(['C', 'r'])],
+  ['ruby', new Set(['C', 'E', 'F', 'I', 'r'])],
+  ['perl', new Set(['F', 'I', 'M', 'm'])],
+]);
+
+const ATTACHED_VALUE_FLAGS = new Map([
+  ['ruby', new Set(['0', 'K', 'W', 'x'])],
+  ['perl', new Set(['0', 'C', 'D', 'V', 'd', 'i', 'l', 'x'])],
+]);
+
+const PROGRAM_FLAGS = new Map([['python', new Set(['m'])]]);
+
+const LONG_VALUE_FLAGS = new Map([
+  [
+    'node',
+    new Set([
+      '--allow-fs-read',
+      '--allow-fs-write',
+      '--conditions',
+      '--cpu-prof-dir',
+      '--cpu-prof-interval',
+      '--cpu-prof-name',
+      '--debug-port',
+      '--diagnostic-dir',
+      '--disable-proto',
+      '--disable-warning',
+      '--dns-result-order',
+      '--env-file',
+      '--env-file-if-exists',
+      '--experimental-loader',
+      '--experimental-package-map',
+      '--experimental-test-isolation',
+      '--experimental-test-tag-filter',
+      '--heap-prof-dir',
+      '--heap-prof-interval',
+      '--heap-prof-name',
+      '--heapsnapshot-near-heap-limit',
+      '--heapsnapshot-signal',
+      '--icu-data-dir',
+      '--import',
+      '--input-type',
+      '--inspect-port',
+      '--inspect-publish-uid',
+      '--loader',
+      '--localstorage-file',
+      '--max-http-header-size',
+      '--max-old-space-size-percentage',
+      '--network-family-autoselection-attempt-timeout',
+      '--openssl-config',
+      '--redirect-warnings',
+      '--report-dir',
+      '--report-directory',
+      '--report-filename',
+      '--report-signal',
+      '--require',
+      '--secure-heap',
+      '--secure-heap-min',
+      '--test-concurrency',
+      '--test-coverage-branches',
+      '--test-coverage-exclude',
+      '--test-coverage-functions',
+      '--test-coverage-include',
+      '--test-coverage-lines',
+      '--test-global-setup',
+      '--test-isolation',
+      '--test-name-pattern',
+      '--test-random-seed',
+      '--test-reporter',
+      '--test-reporter-destination',
+      '--test-rerun-failures',
+      '--test-shard',
+      '--test-skip-pattern',
+      '--test-timeout',
+      '--title',
+      '--tls-cipher-list',
+      '--tls-keylog',
+      '--trace-event-categories',
+      '--trace-event-file-pattern',
+      '--trace-require-module',
+      '--unhandled-rejections',
+      '--use-largepages',
+      '--v8-pool-size',
+      '--watch-kill-signal',
+    ]),
+  ],
+  ['python', new Set(['--check-hash-based-pycs'])],
+  [
+    'ruby',
+    new Set([
+      '--backtrace-limit',
+      '--crash-report',
+      '--disable',
+      '--enable',
+      '--encoding',
+      '--external-encoding',
+      '--internal-encoding',
+      '--parser',
+    ]),
+  ],
+]);
+
+const PYTHON_HASH_PYC_MODES = new Set(['always', 'default', 'never']);
+const RUBY_DASH_VALUE_FLAGS = new Set([
+  '--backtrace-limit',
+  '--crash-report',
+  '--disable',
+  '--enable',
+]);
+const INTERPRETER_SHELL_CONTINUATION =
+  /\\\r?\n|(?:\\\\|\\x5[cC]|\\u005[cC]|\\134)(?:\\n|\\x0[aA]|\\u000[aA]|\\012|\r?\n)/g;
+
+/** @internal */
+export type InterpreterExecutableSourceKind =
+  | 'inline-code'
+  | 'main-script'
+  | 'node-import'
+  | 'node-loader'
+  | 'node-require'
+  | 'perl-module'
+  | 'python-module'
+  | 'ruby-require';
+
+/** @internal */
+export interface InterpreterExecutableSource {
+  readonly tokenIndex: number;
+  readonly kind: InterpreterExecutableSourceKind;
+  readonly value: string;
+}
+
+/** @internal */
+export type ExecutableSourceSelectorValueForm =
+  | 'attached-only'
+  | 'attached-or-separate'
+  | 'equals-or-separate'
+  | 'separate-only';
+
+/** @internal */
+export interface InterpreterExecutableSourceSelector {
+  readonly selector: string;
+  readonly kind: InterpreterExecutableSourceKind;
+  readonly valueForm: ExecutableSourceSelectorValueForm;
+}
+
+/** @internal */
+export interface InterpreterArgvMetadata {
+  readonly code: string | null;
+  readonly sources: readonly InterpreterExecutableSource[];
+  readonly optionsOpen: boolean;
+}
+
+const INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = new Map<
+  string,
+  readonly InterpreterExecutableSourceSelector[]
+>([
+  [
+    'python',
+    [
+      { selector: '-c', kind: 'inline-code', valueForm: 'attached-or-separate' },
+      { selector: '-m', kind: 'python-module', valueForm: 'attached-or-separate' },
+    ],
+  ],
+  [
+    'node',
+    [
+      { selector: '-e', kind: 'inline-code', valueForm: 'separate-only' },
+      { selector: '--eval', kind: 'inline-code', valueForm: 'equals-or-separate' },
+      { selector: '-p', kind: 'inline-code', valueForm: 'separate-only' },
+      { selector: '--print', kind: 'inline-code', valueForm: 'separate-only' },
+      { selector: '-r', kind: 'node-require', valueForm: 'separate-only' },
+      { selector: '--require', kind: 'node-require', valueForm: 'equals-or-separate' },
+      { selector: '--import', kind: 'node-import', valueForm: 'equals-or-separate' },
+      { selector: '--loader', kind: 'node-loader', valueForm: 'equals-or-separate' },
+      {
+        selector: '--experimental-loader',
+        kind: 'node-loader',
+        valueForm: 'equals-or-separate',
+      },
+    ],
+  ],
+  [
+    'ruby',
+    [
+      { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
+      { selector: '-r', kind: 'ruby-require', valueForm: 'attached-or-separate' },
+    ],
+  ],
+  [
+    'perl',
+    [
+      { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
+      { selector: '-E', kind: 'inline-code', valueForm: 'attached-or-separate' },
+      { selector: '-M', kind: 'perl-module', valueForm: 'attached-only' },
+      { selector: '-m', kind: 'perl-module', valueForm: 'attached-only' },
+    ],
+  ],
+]);
+
 export function extractInterpreterCodeArg(tokens: readonly string[]): string | null {
+  return parseInterpreterArgv(tokens).code;
+}
+
+/** @internal */
+export function extractInterpreterExecutableSources(
+  tokens: readonly string[],
+): readonly InterpreterExecutableSource[] {
+  return parseInterpreterArgv(tokens).sources;
+}
+
+/** @internal */
+export function getInterpreterExecutableSourceSelectors(
+  command: string,
+): readonly InterpreterExecutableSourceSelector[] {
+  return INTERPRETER_EXECUTABLE_SOURCE_SELECTORS.get(normalizeInterpreter(command)) ?? [];
+}
+
+/** @internal */
+export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgvMetadata {
   const interpreter = normalizeInterpreter(tokens[0] ?? '');
+
+  if (!CODE_FLAGS.has(interpreter)) return { code: null, sources: [], optionsOpen: false };
+
+  const codeArgs: { tokenIndex: number; value: string }[] = [];
+  const sources: InterpreterExecutableSource[] = [];
+  let executableSourcesValid = true;
 
   for (let i = 1; i < tokens.length; i++) {
     const token = tokens[i];
-    if (!token) continue;
+    if (token === undefined) break;
+    if (token === '--') {
+      return finishInterpreterArgv(
+        interpreter,
+        codeArgs,
+        sources,
+        executableSourcesValid,
+        tokens[i + 1] === undefined ? undefined : i + 1,
+        tokens[i + 1],
+      );
+    }
+    if (token === '' || token === '-' || !token.startsWith('-')) {
+      return finishInterpreterArgv(
+        interpreter,
+        codeArgs,
+        sources,
+        executableSourcesValid,
+        i,
+        token,
+      );
+    }
+
+    if (interpreter === 'node' && NODE_PRINT_FLAGS.has(token)) {
+      const code = tokens[i + 1];
+      if (code === undefined) {
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      if (code.startsWith('-')) continue;
+      codeArgs.push({ tokenIndex: i + 1, value: code });
+      sources.push({ tokenIndex: i + 1, kind: 'inline-code', value: code });
+      i++;
+      continue;
+    }
 
     if (isInterpreterCodeFlag(interpreter, token)) {
-      return tokens[i + 1] || null;
+      const code = tokens[i + 1];
+      if (code === undefined) {
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      codeArgs.push({ tokenIndex: i + 1, value: code });
+      sources.push({ tokenIndex: i + 1, kind: 'inline-code', value: code });
+      if (interpreter === 'python') {
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      i++;
+      continue;
     }
 
     const inlineEval = /^--eval=(.*)$/s.exec(token);
-    if (supportsInlineEval(interpreter) && inlineEval?.[1]) {
-      return inlineEval[1];
+    if (supportsInlineEval(interpreter) && inlineEval) {
+      const code = inlineEval[1] ?? '';
+      codeArgs.push({ tokenIndex: i, value: code });
+      sources.push({ tokenIndex: i, kind: 'inline-code', value: code });
+      continue;
     }
 
-    const shortCodeArg = extractShortCodeArg(interpreter, token, tokens[i + 1]);
-    if (shortCodeArg) return shortCodeArg;
+    if (interpreter === 'node') {
+      const loader = extractNodeLongLoader(token);
+      if (loader) {
+        if (loader.attached) {
+          executableSourcesValid &&= loader.value !== '';
+          if (loader.value !== '') {
+            sources.push({ tokenIndex: i, kind: loader.kind, value: loader.value });
+          }
+          continue;
+        }
+        const value = tokens[i + 1];
+        if (value === undefined || value.startsWith('-')) {
+          executableSourcesValid = false;
+          return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+        }
+        sources.push({ tokenIndex: i + 1, kind: loader.kind, value });
+        i++;
+        continue;
+      }
+    }
+
+    if (
+      (interpreter === 'python' && token.startsWith('--check-hash-based-pycs=')) ||
+      (interpreter === 'node' &&
+        (token === '--conditions=' || token === '--diagnostic-dir=' || token === '--title=')) ||
+      (interpreter === 'ruby' && (token === '--disable=' || token === '--enable='))
+    ) {
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+    }
+
+    if (LONG_VALUE_FLAGS.get(interpreter)?.has(token)) {
+      const value = tokens[i + 1];
+      if (
+        value === undefined ||
+        (value.startsWith('-') && !(interpreter === 'ruby' && RUBY_DASH_VALUE_FLAGS.has(token))) ||
+        (interpreter === 'python' && !PYTHON_HASH_PYC_MODES.has(value))
+      ) {
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      i++;
+      continue;
+    }
+    if (token.startsWith('--')) continue;
+
+    let codeArg: string | undefined;
+    let consumesNext = false;
+    for (let optionIndex = 1; optionIndex < token.length; optionIndex++) {
+      const option = token[optionIndex];
+      if (option === undefined) break;
+      if (PROGRAM_FLAGS.get(interpreter)?.has(option)) {
+        const attached = token.slice(optionIndex + 1);
+        const value = attached || tokens[i + 1];
+        if (value !== undefined) {
+          sources.push({
+            tokenIndex: attached ? i : i + 1,
+            kind: 'python-module',
+            value,
+          });
+        }
+        return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+      }
+      if (CLUSTERED_CODE_FLAGS.get(interpreter)?.has(option)) {
+        // For node/python/ruby/perl, everything after the code flag in the same token is code.
+        codeArg = token.slice(optionIndex + 1) || tokens[i + 1];
+        consumesNext = optionIndex + 1 === token.length;
+        break;
+      }
+      if (interpreter === 'node' && option === 'r') {
+        if (token === '-r') {
+          const value = tokens[i + 1];
+          executableSourcesValid &&= value !== undefined && !value.startsWith('-');
+          if (executableSourcesValid && value !== undefined) {
+            sources.push({ tokenIndex: i + 1, kind: 'node-require', value });
+          }
+          i++;
+        } else {
+          executableSourcesValid = false;
+        }
+        break;
+      }
+      if (interpreter === 'ruby' && option === 'r') {
+        const attached = token.slice(optionIndex + 1);
+        const value = attached || tokens[i + 1];
+        executableSourcesValid &&= value !== undefined;
+        if (value !== undefined) {
+          sources.push({
+            tokenIndex: attached ? i : i + 1,
+            kind: 'ruby-require',
+            value,
+          });
+        }
+        if (!attached) i++;
+        break;
+      }
+      if (interpreter === 'perl' && (option === 'M' || option === 'm')) {
+        const value = token.slice(optionIndex + 1);
+        if (value) {
+          sources.push({ tokenIndex: i, kind: 'perl-module', value });
+        } else {
+          executableSourcesValid = false;
+          if (optionIndex + 1 === token.length) i++;
+        }
+        break;
+      }
+      if (SHORT_VALUE_FLAGS.get(interpreter)?.has(option)) {
+        if (optionIndex + 1 === token.length) i++;
+        break;
+      }
+      if (ATTACHED_VALUE_FLAGS.get(interpreter)?.has(option) && optionIndex + 1 < token.length) {
+        break;
+      }
+    }
+    if (codeArg === undefined) continue;
+    const tokenIndex = consumesNext ? i + 1 : i;
+    codeArgs.push({ tokenIndex, value: codeArg });
+    sources.push({ tokenIndex, kind: 'inline-code', value: codeArg });
+    if (interpreter === 'python') {
+      return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
+    }
+    if (consumesNext) i++;
   }
-  return null;
+  return finishInterpreterArgv(
+    interpreter,
+    codeArgs,
+    sources,
+    executableSourcesValid,
+    undefined,
+    undefined,
+    true,
+  );
+}
+
+function finishInterpreterArgv(
+  interpreter: string,
+  codeArgs: readonly { tokenIndex: number; value: string }[],
+  sources: readonly InterpreterExecutableSource[],
+  executableSourcesValid: boolean,
+  mainScriptIndex?: number,
+  mainScript?: string,
+  optionsOpen = false,
+): InterpreterArgvMetadata {
+  const effectiveCodeArgs = interpreter === 'node' ? codeArgs.slice(-1) : codeArgs;
+  const effectiveCodeIndexes = new Set(effectiveCodeArgs.map((codeArg) => codeArg.tokenIndex));
+  const executableSources = sources.filter(
+    (source) => source.kind !== 'inline-code' || effectiveCodeIndexes.has(source.tokenIndex),
+  );
+  if (
+    executableSourcesValid &&
+    codeArgs.length === 0 &&
+    mainScriptIndex !== undefined &&
+    mainScript !== undefined
+  ) {
+    executableSources.push({
+      tokenIndex: mainScriptIndex,
+      kind: 'main-script',
+      value: mainScript,
+    });
+  }
+  return {
+    code:
+      (interpreter === 'node'
+        ? effectiveCodeArgs[0]?.value
+        : effectiveCodeArgs.map((codeArg) => codeArg.value).join('\n')) || null,
+    sources: executableSourcesValid ? executableSources : [],
+    optionsOpen: executableSourcesValid && optionsOpen,
+  };
+}
+
+function extractNodeLongLoader(token: string):
+  | {
+      attached: boolean;
+      kind: 'node-import' | 'node-loader' | 'node-require';
+      value: string;
+    }
+  | undefined {
+  for (const [option, kind] of [
+    ['--import', 'node-import'],
+    ['--loader', 'node-loader'],
+    ['--experimental-loader', 'node-loader'],
+    ['--require', 'node-require'],
+  ] as const) {
+    if (token === option) return { attached: false, kind, value: '' };
+    if (token.startsWith(`${option}=`)) {
+      return { attached: true, kind, value: token.slice(option.length + 1) };
+    }
+  }
+  return undefined;
 }
 
 export function isInterpreterCommand(command: string): boolean {
@@ -70,37 +527,49 @@ function supportsInlineEval(interpreter: string): boolean {
   return CODE_FLAGS.get(interpreter)?.has('--eval') ?? false;
 }
 
-function extractShortCodeArg(
-  interpreter: string,
-  token: string,
-  nextToken: string | undefined,
-): string | null {
-  if (!token.startsWith('-') || token.startsWith('--') || token.length <= 2) {
-    return null;
-  }
-  const flags = CLUSTERED_CODE_FLAGS.get(interpreter);
-  const codeFlagIndex = Array.from(token.slice(1)).findIndex((flag) => flags?.has(flag) ?? false);
-  if (codeFlagIndex < 0) return null;
-  return token.slice(codeFlagIndex + 2) || nextToken || null;
-}
-
 export function containsDangerousCode(code: string, scanWork?: { units: number }): boolean {
-  if (hasLinearInterpreterDanger(code, 'rm', scanWork)) return true;
+  const executableCode = collapseInterpreterShellContinuations(code, scanWork);
+  if (hasLinearInterpreterDanger(executableCode, 'rm', scanWork)) return true;
   for (const pattern of [
-    /\bgit\s+reset\s+--hard\b/,
-    /\bgit\s+checkout\s+--\b/,
-    /\bgit\s+clean\s+-f\b/,
-    /\bgit\s+stash\s+(drop|clear)\b/,
+    /\bgit[^\S\n]+reset[^\S\n]+--ha(?:r(?:d)?)?\b/,
+    /\bgit[^\S\n]+reset[^\S\n]+--me(?:r(?:g(?:e)?)?)?\b/,
+    /\bgit[^\S\n]+checkout[^\S\n]+--[^\S\n]/,
+    /\bgit[^\S\n]+clean[^\S\n]+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
+    /\bgit[^\S\n]+stash[^\S\n]+(drop|clear)\b/,
   ]) {
-    chargeNativeLinearPass(scanWork, code);
-    if (pattern.test(code)) {
+    chargeNativeLinearPass(scanWork, executableCode);
+    if (pattern.test(executableCode)) {
       return true;
     }
   }
-  if (hasLinearInterpreterDanger(code, 'dd', scanWork)) return true;
+  if (hasLinearInterpreterDanger(executableCode, 'dd', scanWork)) return true;
   for (const pattern of [/\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/, /\bshred\b\s+/]) {
-    chargeNativeLinearPass(scanWork, code);
-    if (pattern.test(code)) return true;
+    chargeNativeLinearPass(scanWork, executableCode);
+    if (pattern.test(executableCode)) return true;
   }
-  return hasLinearInterpreterDanger(code, 'find', scanWork);
+  if (hasLinearInterpreterDanger(executableCode, 'find', scanWork)) return true;
+
+  const lines = executableCode.split(/[\n\r\u2028\u2029]/);
+  return (
+    [
+      'reset-hard',
+      'reset-merge',
+      'clean',
+      'checkout',
+      'push-force',
+      'push-refspec',
+      'push-delete',
+      'branch',
+      'tag',
+      'restore',
+    ] as const
+  ).some((kind) => {
+    chargeNativeLinearPass(scanWork, executableCode);
+    return lines.some((line) => hasLinearDangerousText(line, kind));
+  });
+}
+
+function collapseInterpreterShellContinuations(code: string, scanWork?: { units: number }): string {
+  chargeNativeLinearPass(scanWork, code);
+  return code.replace(INTERPRETER_SHELL_CONTINUATION, '');
 }

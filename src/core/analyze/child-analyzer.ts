@@ -11,13 +11,26 @@ import {
 } from '@/core/analyze/interpreters';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
+import {
+  extractEvalSource,
+  extractShellScriptOperandSource,
+  shellSourceHasUnresolvedDynamicExecutionCarrier,
+} from '@/core/analyze/shell-execution';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
+import {
+  hasUnsafeTmpdirWordSplitting,
+  isTmpdirKnownEmpty,
+  isTmpdirValueTrusted,
+} from '@/core/analyze/tmpdir';
 import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
+import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
+import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
+import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type { EffectivePolicy } from '@/domain/policy';
 import {
   type AnalyzeNestedOverrides,
@@ -39,7 +52,8 @@ export interface ChildCommandAnalysisContext {
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
-  >;
+  > &
+    Partial<Pick<EffectivePolicy, 'rules'>>;
   analyzeNested?: (
     command: string,
     overrides?: AnalyzeNestedOverrides,
@@ -48,9 +62,12 @@ export interface ChildCommandAnalysisContext {
 
 export interface ChildCommandAnalysisOptions {
   dynamicInput?: boolean;
+  dynamicRmInput?: boolean;
+  dynamicSourceInput?: boolean;
   shellDynamicReason?: string;
   rmDynamicReason?: string;
   shellDynamicMatch?: DestructiveCommandRuleMatch;
+  dynamicSourceMatch?: DestructiveCommandRuleMatch;
   rmDynamicMatch?: DestructiveCommandRuleMatch;
 }
 
@@ -79,89 +96,137 @@ export function analyzeChildCommandMatch(
 
   const normalizedHead = normalizeCommandToken(head);
 
-  if (SHELL_WRAPPERS.has(normalizedHead)) {
-    if (isShellSyntaxCheck(tokens)) return null;
-    const shellDynamicMatch =
-      options.shellDynamicMatch ??
-      (options.shellDynamicReason
-        ? { id: '', reason: options.shellDynamicReason, intent: 'manual_only' as const }
-        : undefined);
-    if (options.dynamicInput && shellDynamicMatch) {
-      return filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
-    }
-
-    const dashCArg = extractDashCArg(tokens);
-    if (dashCArg && context.analyzeNested) {
-      return context.analyzeNested(dashCArg, {
+  if (normalizedHead === 'eval') {
+    const source = extractEvalSource(tokens, undefined);
+    if (source.kind === 'dynamic') return getShellDynamicReason(options, context);
+    if (source.kind === 'literal' && context.analyzeNested) {
+      const result = context.analyzeNested(source.source, {
         effectiveCwd: context.cwd,
         envAssignments: context.envAssignments,
       });
+      if (result) return result;
+    }
+    return getDynamicSourceReason(options, context);
+  }
+
+  if (SHELL_WRAPPERS.has(normalizedHead)) {
+    if (isShellSyntaxCheck(tokens)) return null;
+    const dashCArg = extractDashCArg(tokens);
+    if (dashCArg) {
+      if (options.dynamicSourceInput ?? options.dynamicInput) {
+        const result = getShellDynamicReason(options, context);
+        if (result) return result;
+      }
+      if (shellSourceHasUnresolvedDynamicExecutionCarrier(dashCArg)) {
+        const result = getShellDynamicReason(options, context);
+        if (result) return result;
+      }
+      if (!context.analyzeNested) return null;
+      const result = context.analyzeNested(dashCArg, {
+        effectiveCwd: context.cwd,
+        envAssignments: context.envAssignments,
+      });
+      if (result) return result;
+      return null;
+    }
+
+    const scriptSource = extractShellScriptOperandSource(tokens, undefined);
+    if (scriptSource.kind === 'dynamic') return getShellDynamicReason(options, context);
+    if (scriptSource.kind === 'literal') {
+      if (options.dynamicSourceInput) return getShellDynamicReason(options, context);
+      return null;
+    }
+    if (options.dynamicSourceInput ?? options.dynamicInput) {
+      return getShellDynamicReason(options, context);
     }
     return null;
   }
 
   if (AWK_INTERPRETERS.has(normalizedHead)) {
-    return filterDestructiveCommandMatch(
-      analyzeAwkSystemCallMatch(tokens, (command) =>
-        context.analyzeNested
-          ? context.analyzeNested(command, {
-              effectiveCwd: context.cwd,
-              envAssignments: context.envAssignments,
-            })
-          : null,
-      ),
-      context.policy,
+    return (
+      filterDestructiveCommandMatch(
+        analyzeAwkSystemCallMatch(tokens, (command) =>
+          context.analyzeNested
+            ? context.analyzeNested(command, {
+                effectiveCwd: context.cwd,
+                envAssignments: context.envAssignments,
+              })
+            : null,
+        ),
+        context.policy,
+      ) ??
+      checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ??
+      getDynamicSourceReason(options, context)
     );
   }
 
   if (isInterpreterCommand(normalizedHead)) {
     const codeArg = extractInterpreterCodeArg(tokens);
     if (!codeArg) {
-      return null;
+      return getDynamicSourceReason(options, context);
     }
 
     if (context.paranoidInterpreters) {
-      return filterDestructiveCommandMatch(
+      const paranoidMatch = filterDestructiveCommandMatch(
         destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
         context.policy,
       );
+      if (paranoidMatch) return paranoidMatch;
     }
 
-    if (isInterpreterDisplayOnly(normalizedHead, codeArg)) return null;
+    if (isInterpreterDisplayOnly(normalizedHead, codeArg)) {
+      return getDynamicSourceReason(options, context);
+    }
 
     const nestedResult = context.analyzeNested?.(codeArg, {
       effectiveCwd: context.cwd,
       envAssignments: context.envAssignments,
     });
-    if (nestedResult) {
+    if (
+      nestedResult &&
+      nestedResult.id !== 'raw-text.dangerous-command' &&
+      (nestedResult.reason !== REASON_STRICT_UNPARSEABLE || hasUnclosedQuotes(codeArg))
+    ) {
       return nestedResult;
     }
 
-    return containsDangerousCode(codeArg, context.scanWork)
-      ? filterDestructiveCommandMatch(
+    if (containsDangerousCode(codeArg, context.scanWork)) {
+      return (
+        filterDestructiveCommandMatch(
           destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+          context.policy,
+        ) ?? getDynamicSourceReason(options, context)
+      );
+    }
+    return getDynamicSourceReason(options, context);
+  }
+
+  if (normalizedHead === 'rm' && (hasRecursiveForceFlags(tokens) || options.dynamicRmInput)) {
+    const rmMatch = hasRecursiveForceFlags(tokens)
+      ? filterDestructiveCommandMatch(
+          analyzeRmMatch([...tokens], {
+            cwd: context.cwd,
+            originalCwd: context.originalCwd,
+            strict: context.strict,
+            paranoid: context.paranoidRm,
+            allowTmpdirVar: context.allowTmpdirVar,
+            tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+            tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+            trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+            policy: context.policy,
+          }),
           context.policy,
         )
       : null;
-  }
-
-  if (normalizedHead === 'rm' && hasRecursiveForceFlags(tokens)) {
     return (
-      filterDestructiveCommandMatch(
-        analyzeRmMatch([...tokens], {
-          cwd: context.cwd,
-          originalCwd: context.originalCwd,
-          strict: context.strict,
-          paranoid: context.paranoidRm,
-          allowTmpdirVar: context.allowTmpdirVar,
-        }),
-        context.policy,
-      ) ?? getDynamicRmReason(options, context)
+      rmMatch ??
+      (options.dynamicRmInput ? getDynamicSourceReason(options, context) : null) ??
+      getDynamicRmReason(options, context)
     );
   }
 
   if (normalizedHead === 'find') {
-    return filterDestructiveCommandMatch(
+    return (
       analyzeFindMatch(tokens, {
         ...context,
         derivedCommandWorkBudget: context.derivedCommandWorkBudget,
@@ -175,24 +240,53 @@ export function analyzeChildCommandMatch(
             },
             options,
           ),
-      }),
-      context.policy,
+      }) ??
+      checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ??
+      getDynamicSourceReason(options, context)
     );
   }
 
   if (normalizedHead === 'git') {
-    return filterDestructiveCommandMatch(
-      analyzeGitMatch(tokens, {
-        cwd: context.cwd,
-        envAssignments: context.envAssignments,
-        policy: context.policy,
-        worktreeMode: options.dynamicInput ? false : context.worktreeMode,
-      }),
-      context.policy,
+    return (
+      filterDestructiveCommandMatch(
+        analyzeGitMatch(tokens, {
+          cwd: context.cwd,
+          envAssignments: context.envAssignments,
+          policy: context.policy,
+          worktreeMode: options.dynamicInput ? false : context.worktreeMode,
+        }),
+        context.policy,
+      ) ??
+      checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ??
+      getDynamicSourceReason(options, context)
     );
   }
 
-  return null;
+  return (
+    checkPolicyRuleMatch(tokens, context.policy?.rules ?? []) ??
+    getDynamicSourceReason(options, context)
+  );
+}
+
+function getShellDynamicReason(
+  options: ChildCommandAnalysisOptions,
+  context: ChildCommandAnalysisContext,
+): DestructiveCommandRuleMatch | null {
+  const match =
+    options.shellDynamicMatch ??
+    (options.shellDynamicReason
+      ? { id: '', reason: options.shellDynamicReason, intent: 'manual_only' as const }
+      : undefined);
+  return match ? filterDestructiveCommandMatch(match, context.policy) : null;
+}
+
+function getDynamicSourceReason(
+  options: ChildCommandAnalysisOptions,
+  context: ChildCommandAnalysisContext,
+): DestructiveCommandRuleMatch | null {
+  return options.dynamicSourceInput && options.dynamicSourceMatch
+    ? filterDestructiveCommandMatch(options.dynamicSourceMatch, context.policy)
+    : null;
 }
 
 function getDynamicRmReason(

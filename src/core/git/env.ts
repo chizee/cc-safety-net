@@ -58,7 +58,11 @@ export function getGitEnvValue(
   name: string,
   envAssignments?: ReadonlyMap<string, string>,
 ): string | undefined {
-  return envAssignments?.has(name) ? envAssignments.get(name) : process.env[name];
+  return envAssignments?.has(name)
+    ? envAssignments.get(name)
+    : Object.hasOwn(process.env, name)
+      ? process.env[name]
+      : undefined;
 }
 
 export function resolveGitConfigCount(
@@ -82,6 +86,7 @@ export function resolveGitConfigCount(
 
 export function parseGitContextAppendEnvAssignment(
   token: string,
+  envAssignments?: ReadonlyMap<string, string>,
 ): { name: string; value: string } | null {
   const match = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE);
   const name = match?.[1];
@@ -89,7 +94,10 @@ export function parseGitContextAppendEnvAssignment(
     return null;
   }
   const eqIdx = token.indexOf('=');
-  return { name, value: token.slice(eqIdx + 1) };
+  return {
+    name,
+    value: `${getGitEnvValue(name, envAssignments) ?? ''}${token.slice(eqIdx + 1)}`,
+  };
 }
 
 export function hasGitSshEnvAssignment(envAssignments?: ReadonlyMap<string, string>): boolean {

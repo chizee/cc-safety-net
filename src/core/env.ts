@@ -121,23 +121,27 @@ export function getCCSafetyNetEnvModes(
 }
 
 export function envTruthy(flag: string | EnvFlag): boolean {
-  const value = typeof flag === 'string' ? process.env[flag] : getEnvFlagValue(flag);
+  const value = typeof flag === 'string' ? getOwnEnvValue(flag) : getEnvFlagValue(flag);
   return value === '1' || value?.toLowerCase() === 'true';
 }
 
+/** @internal */
+export function getOwnEnvValue(name: string): string | undefined {
+  return Object.hasOwn(process.env, name) ? process.env[name] : undefined;
+}
+
 export function getEnvFlagValue(flag: EnvFlag): string | undefined {
-  if (process.env[flag.name] !== undefined) {
-    return process.env[flag.name];
-  }
+  const value = getOwnEnvValue(flag.name);
+  if (value !== undefined) return value;
   if (flag.legacyName) {
-    return process.env[flag.legacyName];
+    return getOwnEnvValue(flag.legacyName);
   }
   return undefined;
 }
 
 export function envFlagIsSet(flag: EnvFlag): boolean {
   return (
-    process.env[flag.name] !== undefined ||
-    (!!flag.legacyName && process.env[flag.legacyName] !== undefined)
+    getOwnEnvValue(flag.name) !== undefined ||
+    (!!flag.legacyName && getOwnEnvValue(flag.legacyName) !== undefined)
   );
 }

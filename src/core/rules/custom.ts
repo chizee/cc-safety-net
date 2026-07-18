@@ -18,14 +18,14 @@ export function checkCustomRuleMatch(
 
 /** @internal */
 export function checkPolicyRuleMatch(
-  tokens: string[],
+  tokens: readonly string[],
   rules: readonly PolicyRule[],
 ): DestructiveCommandRuleMatch | null {
   return checkRuleMatch(tokens, rules);
 }
 
 function checkRuleMatch(
-  tokens: string[],
+  tokens: readonly string[],
   rules: readonly PolicyRule[],
 ): DestructiveCommandRuleMatch | null {
   if (tokens.length === 0 || rules.length === 0) {

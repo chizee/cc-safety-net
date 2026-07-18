@@ -1099,9 +1099,10 @@ describe('git linked worktree mode', () => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked(
           "printf 'HEAD~1\\n' | parallel git reset --hard",
-          'git reset --hard',
+          'parallel with shell -c',
           fixture.linkedWorktree,
         );
+        // Placeholder only on non-source git data still reaches the concrete git rule.
         assertBlocked('parallel git clean -f {} ::: -ffdx', 'git clean -f', fixture.linkedWorktree);
       });
     } finally {

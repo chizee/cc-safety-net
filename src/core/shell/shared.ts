@@ -45,6 +45,7 @@ function stripShellComments(command: string): string {
   let result = '';
   const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
   let inComment = false;
+  let atTokenStart = true;
 
   for (let i = 0; i < command.length; i++) {
     const char = command[i];
@@ -59,20 +60,19 @@ function stripShellComments(command: string): string {
       continue;
     }
 
-    if (char === '#' && !state.inSingle && !state.inDouble && startsShellComment(command, i)) {
+    if (char === '#' && !state.inSingle && !state.inDouble && atTokenStart) {
       inComment = true;
       continue;
     }
 
     result += char;
+    if (!state.inSingle && !state.inDouble && !state.escaped) {
+      atTokenStart = /[\s;&|()<>]/.test(char);
+    }
     advanceQuoteScanState(char, state);
   }
 
   return result;
-}
-
-function startsShellComment(command: string, index: number): boolean {
-  return index === 0 || /\s/.test(command[index - 1] ?? '');
 }
 
 /** @internal */

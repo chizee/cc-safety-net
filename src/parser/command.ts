@@ -15,7 +15,10 @@ export function parseCommand(
   dialect: ShellKind = 'auto',
   limits: CommandParserLimits = DEFAULT_COMMAND_PARSER_LIMITS,
 ): CommandProgram {
-  if (dialect === 'powershell' || (dialect === 'auto' && shouldUsePowerShellParser(source))) {
+  if (
+    dialect === 'powershell' ||
+    (dialect === 'auto' && shouldUsePowerShellParser(source.slice(0, limits.maxInputLength)))
+  ) {
     return parsePowerShellCommand(source, limits);
   }
   return parsePosixCommand(source, 'posix', limits);

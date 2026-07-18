@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 
 export function resolveContainedCwd(
@@ -35,5 +35,5 @@ function canonicalDirectory(path: string): string[] {
 /** @internal */
 export function isSameOrInsidePath(path: string, root: string): boolean {
   const rel = relative(root, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }

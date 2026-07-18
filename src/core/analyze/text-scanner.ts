@@ -81,19 +81,6 @@ export function wordAt(text: ScannedText, index: number, word: string): boolean 
   );
 }
 
-export function sequenceAt(
-  text: ScannedText,
-  index: number,
-  first: string,
-  second: string,
-): number {
-  if (!wordAt(text, index, first)) return -1;
-  let cursor = index + first.length;
-  if (!isEcmaWhitespace(scanChar(text, cursor))) return -1;
-  while (isEcmaWhitespace(scanChar(text, cursor))) cursor++;
-  return wordAt(text, cursor, second) ? cursor + second.length : -1;
-}
-
 export function hasWordBoundaryAfter(text: ScannedText, end: number): boolean {
   return isAsciiWord(scanChar(text, end - 1)) !== isAsciiWord(scanChar(text, end));
 }

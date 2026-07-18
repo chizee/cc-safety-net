@@ -201,22 +201,32 @@ export interface AnalyzeNestedOverrides {
   worktreeMode?: boolean;
 }
 
-/** Guard stage recorded for an unexpected evaluation failure. */
-export type AuditFailureStage =
-  | 'policy-protection'
-  | 'config-load'
-  | 'config-state'
-  | 'secret-protection'
-  | 'non-command'
-  | 'command-validation'
-  | 'command-analysis';
+/** Guard stages recorded for an unexpected evaluation failure. */
+/** @internal */
+export const AUDIT_FAILURE_STAGES = Object.freeze([
+  'policy-protection',
+  'config-load',
+  'config-state',
+  'secret-protection',
+  'non-command',
+  'command-validation',
+  'command-analysis',
+] as const);
+export type AuditFailureStage = (typeof AUDIT_FAILURE_STAGES)[number];
 
-/** Sanitized category recorded for an unexpected evaluation failure. */
-export type AuditErrorCode =
-  | 'path-canonicalization-limit'
-  | 'tool-input-limit'
-  | 'structural-shell-syntax-limit'
-  | 'unexpected-error';
+/** Sanitized categories recorded for an unexpected evaluation failure. */
+/** @internal */
+export const AUDIT_ERROR_CODES = Object.freeze([
+  'path-canonicalization-limit',
+  'tool-input-limit',
+  'structural-shell-syntax-limit',
+  'unexpected-error',
+] as const);
+export type AuditErrorCode = (typeof AUDIT_ERROR_CODES)[number];
+
+/** @internal */
+export const AUDIT_LOG_DECISIONS = Object.freeze(['allow', 'deny'] as const);
+export type AuditLogDecision = (typeof AUDIT_LOG_DECISIONS)[number];
 
 /** Audit log entry */
 export interface AuditLogEntry {
@@ -224,7 +234,7 @@ export interface AuditLogEntry {
   id?: string;
   v?: string;
   sessionId?: string;
-  decision?: 'allow' | 'deny';
+  decision?: AuditLogDecision;
   agent?: string;
   shape?: string;
   toolName?: string;

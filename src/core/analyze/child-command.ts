@@ -1,7 +1,15 @@
-import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
-import { unwrapTransparentWrapper } from '@/core/analyze/transparent-wrappers';
+import {
+  type DerivedCommandWorkBudget,
+  DerivedCommandWorkLimitError,
+  EnvSplitStringExpansionError,
+} from '@/core/analyze/derived-command-budget';
+import {
+  isStandardCommandWrapper,
+  unwrapTransparentWrapper,
+} from '@/core/analyze/transparent-wrappers';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
+import { MAX_STRIP_ITERATIONS } from '@/types';
 
 export interface ChildCommandContext {
   cwd: string | undefined;
@@ -26,43 +34,142 @@ export interface NestedCommandAnalyzeContext extends ChildCommandContext {
   scanWork?: { units: number };
 }
 
-export function normalizeChildCommand(tokens: readonly string[], context: ChildCommandContext) {
-  const wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd);
-  const envAssignments = new Map(context.envAssignments ?? []);
-  for (const [k, v] of wrapperInfo.envAssignments) {
-    envAssignments.set(k, v);
+export interface NormalizedChildCommand {
+  tokens: string[];
+  cwd: string | undefined;
+  wrapperCwd: string | null | undefined;
+  wrapperEnvAssignments: ReadonlyMap<string, string>;
+  envAssignments: ReadonlyMap<string, string>;
+  head: string;
+  wrappedByTransparent: boolean;
+}
+
+/** @internal */
+export function normalizeChildCommand(
+  tokens: readonly string[],
+  context: ChildCommandContext,
+): NormalizedChildCommand {
+  const childCommand = normalizeChildCommands(tokens, context).next().value;
+  if (!childCommand) throw new DerivedCommandWorkLimitError();
+  return childCommand;
+}
+
+export function normalizeChildCommands(
+  tokens: readonly string[],
+  context: ChildCommandContext,
+): Generator<NormalizedChildCommand> {
+  const policy = context.policy ?? { rules: [], transparentWrappers: [] };
+  return normalizeChildCommandCandidates(
+    [...tokens],
+    context.cwd,
+    context.cwd,
+    new Map(),
+    new Map(context.envAssignments ?? []),
+    policy,
+    { iterations: 0 },
+    false,
+  );
+}
+
+function* normalizeChildCommandCandidates(
+  tokens: string[],
+  wrapperCwd: string | null | undefined,
+  cwd: string | undefined,
+  wrapperEnvAssignments: Map<string, string>,
+  envAssignments: Map<string, string>,
+  policy: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'>,
+  budget: { iterations: number },
+  wrappedByTransparent: boolean,
+): Generator<NormalizedChildCommand> {
+  const wrapperInfo = stripWrappersWithInfo(tokens, wrapperCwd, envAssignments);
+  if (wrapperInfo.unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
+  for (const [key, value] of wrapperInfo.envAssignments) {
+    envAssignments.set(key, value);
+    wrapperEnvAssignments.set(key, value);
+  }
+  const childTokens = wrapperInfo.tokens;
+  const childWrapperCwd = wrapperInfo.cwd;
+
+  if (isStandardCommandWrapper(childTokens[0] ?? '')) {
+    throw new DerivedCommandWorkLimitError();
   }
 
-  const childTokens = unwrapTransparentWrappers(
-    wrapperInfo.tokens,
-    context.policy ?? { rules: [], transparentWrappers: [] },
-  );
+  const transparentWrapper = unwrapTransparentWrapper(childTokens, policy);
+  if (transparentWrapper) {
+    for (const childIndex of [
+      transparentWrapper.childIndex,
+      ...transparentWrapper.alternativeChildIndices,
+    ]) {
+      reserveChildNormalization(budget);
+      yield* normalizeChildCommandCandidates(
+        childIndex === transparentWrapper.childIndex
+          ? transparentWrapper.tokens
+          : [...childTokens.slice(childIndex)],
+        childWrapperCwd,
+        cwd,
+        new Map(wrapperEnvAssignments),
+        new Map(envAssignments),
+        policy,
+        budget,
+        true,
+      );
+    }
+    return;
+  }
 
-  return {
-    tokens: childTokens,
-    cwd: wrapperInfo.cwd === null ? undefined : (wrapperInfo.cwd ?? context.cwd),
-    wrapperCwd: wrapperInfo.cwd,
+  if (isBusyboxWrapper(childTokens)) {
+    reserveChildNormalization(budget);
+    yield* normalizeChildCommandCandidates(
+      [...childTokens.slice(1)],
+      childWrapperCwd,
+      cwd,
+      wrapperEnvAssignments,
+      envAssignments,
+      policy,
+      budget,
+      wrappedByTransparent,
+    );
+    return;
+  }
+
+  yield normalizedChildCommand(
+    childTokens,
+    childWrapperCwd,
+    cwd,
+    wrapperEnvAssignments,
     envAssignments,
-    head: getBasename(childTokens[0] ?? '').toLowerCase(),
+    wrappedByTransparent,
+  );
+}
+
+function normalizedChildCommand(
+  tokens: string[],
+  wrapperCwd: string | null | undefined,
+  cwd: string | undefined,
+  wrapperEnvAssignments: Map<string, string>,
+  envAssignments: Map<string, string>,
+  wrappedByTransparent: boolean,
+): NormalizedChildCommand {
+  return {
+    tokens,
+    cwd: wrapperCwd === null ? undefined : (wrapperCwd ?? cwd),
+    wrapperCwd,
+    wrapperEnvAssignments,
+    envAssignments,
+    head: getBasename(tokens[0] ?? '').toLowerCase(),
+    wrappedByTransparent,
   };
 }
 
-function stripBusybox(tokens: readonly string[]): string[] {
-  return getBasename(tokens[0] ?? '').toLowerCase() === 'busybox' && tokens.length > 1
-    ? [...tokens.slice(1)]
-    : [...tokens];
+function reserveChildNormalization(budget: { iterations: number }): void {
+  if (budget.iterations >= MAX_STRIP_ITERATIONS) {
+    throw new DerivedCommandWorkLimitError();
+  }
+  budget.iterations++;
 }
 
-function unwrapTransparentWrappers(
-  tokens: readonly string[],
-  policy: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'>,
-): string[] {
-  const strippedTokens = stripBusybox(tokens);
-  const transparentWrapper = unwrapTransparentWrapper(strippedTokens, policy);
-  if (!transparentWrapper) {
-    return strippedTokens;
-  }
-  return unwrapTransparentWrappers(transparentWrapper.tokens, policy);
+function isBusyboxWrapper(tokens: readonly string[]): boolean {
+  return getBasename(tokens[0] ?? '').toLowerCase() === 'busybox' && tokens.length > 1;
 }
 
 export function collectCommandTemplate(tokens: readonly string[], start: number) {

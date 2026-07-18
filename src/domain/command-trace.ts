@@ -9,7 +9,15 @@ export type TraceStep =
   | { type: 'transparent-wrapper'; wrapper: string; output: string[] }
   | {
       type: 'recurse';
-      reason: 'shell-wrapper' | 'interpreter' | 'busybox';
+      reason:
+        | 'shell-wrapper'
+        | 'interpreter'
+        | 'busybox'
+        | 'shell-eval'
+        | 'shell-trap'
+        | 'shell-stdin'
+        | 'shell-heredoc'
+        | 'heredoc-file';
       innerCommand: string;
       depth: number;
     }

@@ -556,8 +556,8 @@ describe('analyzeCommand (coverage)', () => {
         analyzeCommand('parallel bash -c', {
           cwd: '/tmp',
           config: EMPTY_CONFIG,
-        }),
-      ).toBeNull();
+        })?.ruleId,
+      ).toBe('parallel.shell-dynamic');
     });
 
     test('parallel bash with placeholder but missing -c arg is blocked', () => {

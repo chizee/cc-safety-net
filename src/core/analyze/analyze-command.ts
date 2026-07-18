@@ -3,8 +3,16 @@ import {
   createDerivedCommandWorkBudget,
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
+  EnvSplitStringExpansionError,
   REASON_DERIVED_COMMAND_WORK_LIMIT,
+  REASON_ENV_SPLIT_STRING_UNVERIFIABLE,
+  reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
+import {
+  isPersistentHeredocFilePath,
+  MAX_TRACKED_HEREDOC_FILES,
+  resolveTrackedHeredocPath,
+} from '@/core/analyze/heredoc-files';
 import {
   createParallelAnalysisBudget,
   type ParallelAnalysisBudget,
@@ -12,7 +20,11 @@ import {
   REASON_PARALLEL_ANALYSIS_LIMIT,
 } from '@/core/analyze/parallel-budget';
 import { analyzePowerShellCommandViewMatch } from '@/core/analyze/powershell/remove-item';
-import { analyzeSegment, resolveCwdAfterSegment } from '@/core/analyze/segment';
+import { analyzeSegment, resolveCwdAfterCommandView } from '@/core/analyze/segment';
+import {
+  extractLiteralPrintfOutput,
+  extractShellScriptOperandSource,
+} from '@/core/analyze/shell-execution';
 import {
   applyShellGitContextEnvSegment,
   cloneShellGitContextEnvState,
@@ -20,9 +32,16 @@ import {
   getSegmentGitContextEnvAssignments,
   type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
+import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import type { CommandProgram, CommandView } from '@/domain/command';
+import { getBasename, normalizeCommandToken, stripWrappersWithInfo } from '@/core/shell';
+import type {
+  CommandProgram,
+  CommandRedirection,
+  CommandView,
+  CommandWord,
+} from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
@@ -33,6 +52,7 @@ import {
   type AnalyzeResult,
   type DestructiveCommandRuleMatch,
   MAX_RECURSION_DEPTH,
+  SHELL_WRAPPERS,
 } from '@/types';
 
 export type InternalOptions = AnalyzeOptions & {
@@ -45,6 +65,7 @@ export type InternalOptions = AnalyzeOptions & {
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   parallelBudget?: ParallelAnalysisBudget;
   scanWork?: { units: number };
+  literalHeredocFiles?: ReadonlyMap<string, string>;
 };
 
 type ActiveInternalOptions = InternalOptions & {
@@ -56,6 +77,7 @@ const REASON_UNQUOTED_HEREDOC =
   'Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.';
 const REASON_UNSUPPORTED_HEREDOC =
   'This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.';
+const MAX_CONTROL_FLOW_STATES = 64;
 
 export function analyzeCommandInternal(
   command: string,
@@ -79,11 +101,13 @@ export function analyzeCommandInternal(
     );
   } catch (error) {
     const reason =
-      error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget
-        ? REASON_DERIVED_COMMAND_WORK_LIMIT
-        : error instanceof ParallelAnalysisLimitError && ownsParallelBudget
-          ? REASON_PARALLEL_ANALYSIS_LIMIT
-          : undefined;
+      error instanceof EnvSplitStringExpansionError
+        ? REASON_ENV_SPLIT_STRING_UNVERIFIABLE
+        : error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget
+          ? REASON_DERIVED_COMMAND_WORK_LIMIT
+          : error instanceof ParallelAnalysisLimitError && ownsParallelBudget
+            ? REASON_PARALLEL_ANALYSIS_LIMIT
+            : undefined;
     if (!reason) {
       throw error;
     }
@@ -136,12 +160,12 @@ function analyzeCommandWithBudget(
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
-  const hasUnclosedQuote = program.issues.some((issue) => issue.code.includes('quote'));
-  if (options.strict && hasUnclosedQuote && command.includes(' ')) {
+  if (options.strict && program.status === 'partial') {
     recordStrictUnparseable(command, options);
     return { reason: REASON_STRICT_UNPARSEABLE, segment: command, intent: 'stop_and_explain' };
   }
 
+  const hasUnclosedQuote = program.issues.some((issue) => issue.code.includes('quote'));
   if (hasUnclosedQuote && !options.analyzePartialProgram) {
     return analyzeUnparseableCommand(command, options);
   }
@@ -151,15 +175,29 @@ function analyzeCommandWithBudget(
   // undefined = use cwd, null = unknown (after cd/pushd)
   const effectiveCwd = options.effectiveCwd !== undefined ? options.effectiveCwd : options.cwd;
   const shellGitContextState = createShellGitContextEnvState(options.envAssignments);
-  return analyzeProgram(program, depth, options, originalCwd, {
-    effectiveCwd,
-    shellGitContextState,
-  });
+  return analyzeProgram(program, depth, options, originalCwd, [
+    {
+      effectiveCwd,
+      shellGitContextState,
+      literalHeredocFiles: new Map(options.literalHeredocFiles),
+    },
+  ]).result;
 }
 
 type AnalysisState = {
   effectiveCwd: string | null | undefined;
   shellGitContextState: ShellGitContextEnvState;
+  literalHeredocFiles: Map<string, string>;
+};
+
+type ProgramAnalysis = {
+  result: AnalyzeResult | null;
+  states: AnalysisState[];
+};
+
+type ConditionalAnalysisStates = {
+  success: AnalysisState[];
+  failure: AnalysisState[];
 };
 
 function analyzeProgram(
@@ -167,54 +205,274 @@ function analyzeProgram(
   depth: number,
   options: ActiveInternalOptions,
   originalCwd: string | undefined,
-  state: AnalysisState,
-): AnalyzeResult | null {
-  let hasPipelineInput = false;
-  for (const node of program.nodes) {
+  initialStates: readonly AnalysisState[],
+): ProgramAnalysis {
+  let states = [...initialStates];
+  let conditionalStates: ConditionalAnalysisStates | undefined;
+  let previousConnector: string | undefined;
+  for (const [nodeIndex, node] of program.nodes.entries()) {
     if (node.kind === 'connector') {
-      hasPipelineInput = node.operator === '|';
+      previousConnector = node.operator;
       continue;
     }
+    const nextNode = program.nodes[nodeIndex + 1];
+    const nextConnector = nextNode?.kind === 'connector' ? nextNode.operator : undefined;
+    const isolated = isAnalysisNodeIsolated(
+      program,
+      nodeIndex,
+      node,
+      previousConnector,
+      nextConnector,
+    );
+    const conditional = previousConnector === '&&' || previousConnector === '||';
+    const priorConditionalStates = conditional ? conditionalStates : undefined;
+    const executionStates =
+      previousConnector === '&&'
+        ? (priorConditionalStates?.success ?? states)
+        : previousConnector === '||'
+          ? (priorConditionalStates?.failure ?? states)
+          : states;
+    const skippedSuccessStates =
+      previousConnector === '||' ? (priorConditionalStates?.success ?? []) : [];
+    const skippedFailureStates =
+      previousConnector === '&&' ? (priorConditionalStates?.failure ?? []) : [];
+    const tracksCommandOutcome = conditional || isConditionalConnector(nextConnector);
+
     if (node.kind === 'group') {
-      const result = analyzeProgram(
-        node.body,
-        depth,
-        options,
-        originalCwd,
-        node.style === 'subshell' ? cloneAnalysisState(state) : state,
+      const successStates: AnalysisState[] = [];
+      const failureStates: AnalysisState[] = [];
+      for (const state of executionStates) {
+        const analysis = analyzeProgram(node.body, depth, options, originalCwd, [
+          cloneAnalysisState(state),
+        ]);
+        if (analysis.result) return analysis;
+        successStates.push(
+          ...getSuccessfulAnalysisStates(
+            state,
+            analysis.states,
+            isolated,
+            nextConnector === '&',
+            isConditionalConnector(nextConnector),
+          ),
+        );
+        if (tracksCommandOutcome) {
+          failureStates.push(
+            state,
+            ...(isolated
+              ? analysis.states.map((nextState) => isolateFilesystemState(state, nextState))
+              : analysis.states),
+          );
+        }
+      }
+      const next = finishControlFlowStep(
+        successStates,
+        failureStates,
+        skippedSuccessStates,
+        skippedFailureStates,
+        previousConnector,
+        nextConnector,
       );
-      if (result) return result;
-      hasPipelineInput = false;
+      states = next.states;
+      conditionalStates = next.conditionalStates;
+      previousConnector = undefined;
       continue;
     }
     if (node.kind !== 'command') continue;
 
-    const nestedState = cloneAnalysisState(state);
-    const nestedResult = analyzeNestedPrograms(
-      node.nested,
-      depth,
-      options,
-      originalCwd,
-      nestedState,
-    );
-    if (nestedResult) return nestedResult;
     const segmentIndex = options.trace?.flattenNested
       ? options.trace.currentSegmentIndex
       : options.trace?.allocateSegment();
-    const result = analyzeCommandView(
-      node,
-      depth,
-      options.trace
-        ? { ...options, trace: withTraceSegment(options.trace, segmentIndex) }
-        : options,
-      originalCwd,
-      state,
-      hasPipelineInput,
+    const pipelineSource = program.nodes[nodeIndex - 2];
+    const literalShellInput =
+      isPipelineConnector(previousConnector) && pipelineSource?.kind === 'command'
+        ? (extractLiteralPrintfOutput(pipelineSource) ??
+          extractLiteralPowerShellPipelineOutput(pipelineSource))
+        : undefined;
+    const successStates: AnalysisState[] = [];
+    const failureStates: AnalysisState[] = [];
+    for (const state of executionStates) {
+      const nestedAnalysis = analyzeCommandNestedPrograms(
+        program,
+        nodeIndex,
+        node,
+        depth,
+        options,
+        originalCwd,
+        [cloneAnalysisState(state)],
+      );
+      if (nestedAnalysis.result) return { result: nestedAnalysis.result, states };
+
+      const commandStates =
+        program.dialect === 'powershell'
+          ? nestedAnalysis.states
+          : nestedAnalysis.states.map((nestedState) => isolateFilesystemState(state, nestedState));
+      for (const commandState of commandStates) {
+        const analyzedState = cloneAnalysisState(commandState);
+        const result = analyzeCommandView(
+          node,
+          depth,
+          options.trace
+            ? { ...options, trace: withTraceSegment(options.trace, segmentIndex) }
+            : options,
+          originalCwd,
+          analyzedState,
+          isPipelineConnector(previousConnector),
+          literalShellInput,
+        );
+        if (result) return { result, states };
+        successStates.push(
+          ...getSuccessfulAnalysisStates(
+            state,
+            [analyzedState],
+            isolated,
+            nextConnector === '&',
+            isConditionalConnector(nextConnector),
+          ),
+        );
+        if (tracksCommandOutcome) {
+          failureStates.push(state);
+          failureStates.push(
+            isolated ? isolateFilesystemState(state, analyzedState) : analyzedState,
+          );
+        }
+      }
+    }
+    const next = finishControlFlowStep(
+      successStates,
+      failureStates,
+      skippedSuccessStates,
+      skippedFailureStates,
+      previousConnector,
+      nextConnector,
     );
-    if (result) return result;
-    hasPipelineInput = false;
+    states = next.states;
+    conditionalStates = next.conditionalStates;
+    previousConnector = undefined;
   }
-  return null;
+  return { result: null, states };
+}
+
+function isAnalysisNodeIsolated(
+  program: CommandProgram,
+  nodeIndex: number,
+  node: CommandProgram['nodes'][number],
+  previousConnector: string | undefined,
+  nextConnector: string | undefined,
+): boolean {
+  if (node.kind === 'group' && node.style === 'subshell') return true;
+  if (
+    program.dialect === 'posix' &&
+    (isPipelineConnector(previousConnector) || isPipelineConnector(nextConnector))
+  ) {
+    return true;
+  }
+  if (nextConnector === '&') return true;
+  return (
+    program.dialect === 'powershell' &&
+    node.kind === 'group' &&
+    node.style === 'brace' &&
+    powerShellBraceStateIsIsolated(program, nodeIndex)
+  );
+}
+
+function getSuccessfulAnalysisStates(
+  initialState: AnalysisState,
+  analyzedStates: readonly AnalysisState[],
+  isolated: boolean,
+  background: boolean,
+  retainInitialFilesystemState: boolean,
+): AnalysisState[] {
+  const completedStates = isolated
+    ? analyzedStates.map((state) => isolateFilesystemState(initialState, state))
+    : [...analyzedStates];
+  const filesystemStates = retainInitialFilesystemState
+    ? completedStates.flatMap((state) =>
+        optionalMapsEqual(initialState.literalHeredocFiles, state.literalHeredocFiles)
+          ? [state]
+          : [
+              {
+                ...state,
+                literalHeredocFiles: new Map(initialState.literalHeredocFiles),
+              },
+              state,
+            ],
+      )
+    : completedStates;
+  return background ? [initialState, ...filesystemStates] : filesystemStates;
+}
+
+function isolateFilesystemState(
+  initialState: AnalysisState,
+  analyzedState: AnalysisState,
+): AnalysisState {
+  return {
+    ...initialState,
+    literalHeredocFiles: new Map(analyzedState.literalHeredocFiles),
+  };
+}
+
+function powerShellBraceStateIsIsolated(program: CommandProgram, nodeIndex: number): boolean {
+  const header = [...program.nodes.slice(0, nodeIndex)]
+    .reverse()
+    .find((node) => node.kind === 'command' || node.kind === 'connector');
+  if (!header || header.kind !== 'command') return true;
+
+  const head = header.words[0]?.text.toLowerCase();
+  if (head === '&' || head === '.') return false;
+  if (head === 'write-output' || head === 'function' || head === 'start-job') return true;
+  if (getPowerShellScriptBlockAssignmentName(header)) return true;
+  return header.source.replaceAll(/\s/g, '').toLowerCase() === 'if($false)';
+}
+
+function isPipelineConnector(connector: string | undefined): boolean {
+  return connector === '|' || connector === '|&';
+}
+
+function extractLiteralPowerShellPipelineOutput(
+  command: CommandView | undefined,
+): string | undefined {
+  if (command?.dialect !== 'powershell') return undefined;
+  if (
+    command.words.length === 1 &&
+    command.words[0]?.quoted &&
+    command.words[0].provenance === 'literal'
+  ) {
+    return command.words[0].text;
+  }
+  if (
+    command.words[0]?.text.toLowerCase() === 'write-output' &&
+    command.words.length === 2 &&
+    command.words[1]?.provenance === 'literal'
+  ) {
+    return command.words[1].text;
+  }
+  return undefined;
+}
+
+function isConditionalConnector(connector: string | undefined): boolean {
+  return connector === '&&' || connector === '||';
+}
+
+function finishControlFlowStep(
+  successStates: readonly AnalysisState[],
+  failureStates: readonly AnalysisState[],
+  skippedSuccessStates: readonly AnalysisState[],
+  skippedFailureStates: readonly AnalysisState[],
+  previousConnector: string | undefined,
+  nextConnector: string | undefined,
+) {
+  const outcomes = {
+    success: deduplicateAnalysisStates([...skippedSuccessStates, ...successStates]),
+    failure: deduplicateAnalysisStates([...skippedFailureStates, ...failureStates]),
+  };
+  const conditionalStates = isConditionalConnector(nextConnector) ? outcomes : undefined;
+  return {
+    states:
+      isConditionalConnector(previousConnector) || conditionalStates
+        ? deduplicateAnalysisStates([...outcomes.success, ...outcomes.failure])
+        : outcomes.success,
+    conditionalStates,
+  };
 }
 
 function withTraceSegment(
@@ -233,18 +491,202 @@ function withTraceSegment(
   };
 }
 
-function analyzeNestedPrograms(
-  programs: readonly CommandProgram[],
+type NestedProgramAnalysisTarget = {
+  program: CommandProgram;
+  depth: number;
+};
+
+function analyzeCommandNestedPrograms(
+  containingProgram: CommandProgram,
+  nodeIndex: number,
+  commandView: CommandView,
   depth: number,
   options: ActiveInternalOptions,
   originalCwd: string | undefined,
-  state: AnalysisState,
-): AnalyzeResult | null {
-  for (const program of programs) {
-    const result = analyzeProgram(program, depth, options, originalCwd, cloneAnalysisState(state));
-    if (result) return result;
+  initialStates: readonly AnalysisState[],
+): ProgramAnalysis {
+  const programs: NestedProgramAnalysisTarget[] = commandView.nested.map((program) => ({
+    program,
+    depth,
+  }));
+  if (commandView.dialect === 'powershell') {
+    const invokedScriptBlock = getInvokedPowerShellScriptBlock(
+      containingProgram,
+      nodeIndex,
+      commandView,
+    );
+    if (invokedScriptBlock) programs.push({ program: invokedScriptBlock, depth });
+
+    const recoveredSource = getRecoveredPowerShellExpressionSource(
+      containingProgram,
+      nodeIndex,
+      commandView,
+    );
+    if (recoveredSource) {
+      programs.push({ program: parseCommand(recoveredSource, 'powershell'), depth });
+    }
+
+    const evaluatedSource = getLiteralPowerShellEvaluationSource(commandView);
+    if (evaluatedSource) {
+      if (depth + 1 >= MAX_RECURSION_DEPTH) {
+        return recursionLimitAnalysis(evaluatedSource, options, initialStates);
+      }
+      const evaluatedProgram = parseCommand(evaluatedSource, 'powershell');
+      if (evaluatedProgram.status === 'limited') {
+        return recursionLimitAnalysis(evaluatedSource, options, initialStates);
+      }
+      if (evaluatedProgram.status !== 'complete') {
+        return analyzeNestedPrograms(programs, options, originalCwd, initialStates);
+      }
+      reserveDerivedCommandTokens(
+        options.derivedCommandWorkBudget,
+        countCommandProgramWords(evaluatedProgram),
+      );
+      programs.push({ program: evaluatedProgram, depth: depth + 1 });
+    }
   }
-  return null;
+
+  return analyzeNestedPrograms(programs, options, originalCwd, initialStates);
+}
+
+function getInvokedPowerShellScriptBlock(
+  containingProgram: CommandProgram,
+  nodeIndex: number,
+  commandView: CommandView,
+): CommandProgram | undefined {
+  const operator = commandView.words[0];
+  const variable = commandView.words[1];
+  if (
+    commandView.words.length !== 2 ||
+    operator?.provenance !== 'literal' ||
+    operator.quoted ||
+    operator.raw !== operator.text ||
+    (operator.text !== '&' && operator.text !== '.') ||
+    variable?.provenance !== 'variable'
+  ) {
+    return undefined;
+  }
+
+  const variableName = variable.text.toLowerCase();
+  for (let index = nodeIndex - 1; index >= 0; index--) {
+    const candidate = containingProgram.nodes[index];
+    if (candidate?.kind !== 'command') continue;
+    if (candidate.words[0]?.text.toLowerCase() !== variableName) continue;
+    if (getPowerShellScriptBlockAssignmentName(candidate) !== variableName) return undefined;
+    const scriptBlock = containingProgram.nodes[index + 1];
+    return scriptBlock?.kind === 'group' && scriptBlock.style === 'brace'
+      ? scriptBlock.body
+      : undefined;
+  }
+  return undefined;
+}
+
+function getPowerShellScriptBlockAssignmentName(commandView: CommandView): string | undefined {
+  const variable = commandView.words[0];
+  return variable?.provenance === 'variable' && commandView.words.at(-1)?.text === '='
+    ? variable.text.toLowerCase()
+    : undefined;
+}
+
+function analyzeNestedPrograms(
+  programs: readonly NestedProgramAnalysisTarget[],
+  options: ActiveInternalOptions,
+  originalCwd: string | undefined,
+  initialStates: readonly AnalysisState[],
+): ProgramAnalysis {
+  let states = [...initialStates];
+  for (const target of programs) {
+    const nextStates: AnalysisState[] = [];
+    for (const state of states) {
+      const analysis = analyzeProgram(target.program, target.depth, options, originalCwd, [
+        cloneAnalysisState(state),
+      ]);
+      if (analysis.result) return analysis;
+      nextStates.push(...analysis.states);
+    }
+    states = deduplicateAnalysisStates(nextStates);
+  }
+  return { result: null, states };
+}
+
+function getRecoveredPowerShellExpressionSource(
+  containingProgram: CommandProgram,
+  nodeIndex: number,
+  commandView: CommandView,
+): string | undefined {
+  const nextNode = containingProgram.nodes[nodeIndex + 1];
+  if (
+    containingProgram.status !== 'partial' ||
+    commandView.nested.length > 0 ||
+    nextNode?.kind !== 'unknown' ||
+    nextNode.source !== ')'
+  ) {
+    return undefined;
+  }
+  return (
+    /^\s*\[void\]\(\s*(.+)$/i.exec(commandView.source)?.[1] ??
+    /^\s*@\{[^{}=]+\s*=\s*\(\s*(.+)$/i.exec(commandView.source)?.[1]
+  )?.trim();
+}
+
+function getLiteralPowerShellEvaluationSource(commandView: CommandView): string | undefined {
+  const invoked =
+    commandView.words[0]?.provenance === 'literal' &&
+    !commandView.words[0].quoted &&
+    commandView.words[0].raw === commandView.words[0].text &&
+    (commandView.words[0].text === '&' || commandView.words[0].text === '.');
+  const commandIndex = invoked ? 1 : 0;
+  const command = commandView.words[commandIndex];
+  if (
+    command?.provenance !== 'literal' ||
+    (!invoked && (command.quoted || command.raw !== command.text)) ||
+    !['iex', 'invoke-expression'].includes(command.text.toLowerCase())
+  ) {
+    return undefined;
+  }
+
+  const args = commandView.words.slice(commandIndex + 1);
+  const sourceIndex =
+    args[0] &&
+    !args[0].quoted &&
+    args[0].raw === args[0].text &&
+    ['-c', '-command'].includes(args[0].text.toLowerCase())
+      ? 1
+      : 0;
+  const source = args[sourceIndex];
+  return args.length === sourceIndex + 1 && source?.quoted && source.provenance === 'literal'
+    ? source.text
+    : undefined;
+}
+
+function countCommandProgramWords(program: CommandProgram): number {
+  return program.nodes.reduce(
+    (count, node) =>
+      count +
+      (node.kind === 'command'
+        ? node.words.length +
+          node.nested.reduce((sum, nested) => sum + countCommandProgramWords(nested), 0)
+        : node.kind === 'group'
+          ? countCommandProgramWords(node.body)
+          : 0),
+    0,
+  );
+}
+
+function recursionLimitAnalysis(
+  segment: string,
+  options: ActiveInternalOptions,
+  states: readonly AnalysisState[],
+): ProgramAnalysis {
+  options.trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
+  return {
+    result: {
+      reason: REASON_RECURSION_LIMIT,
+      segment,
+      intent: 'stop_and_explain',
+    },
+    states: [...states],
+  };
 }
 
 function analyzeCommandView(
@@ -254,6 +696,7 @@ function analyzeCommandView(
   originalCwd: string | undefined,
   state: AnalysisState,
   hasPipelineInput: boolean,
+  literalShellInput: string | undefined,
 ): AnalyzeResult | null {
   const heredocReason = getHeredocReason(commandView);
   if (heredocReason && options.strict) {
@@ -264,6 +707,7 @@ function analyzeCommandView(
       intent: 'stop_and_explain',
     };
   }
+  invalidateLiteralHeredocFiles(commandView, state, 'before-consumer');
   const segment = [...commandView.analysisTokens];
   const segmentStr = commandView.legacyNormalized;
   const segmentEnvAssignments = getSegmentGitContextEnvAssignments(
@@ -315,9 +759,19 @@ function analyzeCommandView(
       };
     }
     options.trace?.recordSegment({ type: 'dangerous-text', token: segment[0], matched: false });
-    const heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options);
+    const heredocResult = analyzeUnsupportedHeredoc(
+      commandView,
+      heredocReason,
+      depth,
+      state,
+      segmentEnvAssignments ?? new Map(),
+      options,
+    );
     if (heredocResult) return heredocResult;
-    updateCwdAfterSegment(segment, state, options.trace);
+    invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
+    state.literalHeredocFiles.clear();
+    trackLiteralHeredocFiles(commandView, heredocReason, state);
+    updateCwdAfterCommandView(commandView, state, literalShellInput, options.trace);
     return null;
   }
 
@@ -327,6 +781,9 @@ function analyzeCommandView(
     cwd: originalCwd,
     effectiveCwd: state.effectiveCwd,
     envAssignments: segmentEnvAssignments,
+    literalHeredocFiles: state.literalHeredocFiles,
+    hasPipelineInput,
+    literalShellInput,
     analyzeNested: (
       nestedCommand: string,
       overrides?: AnalyzeNestedOverrides,
@@ -340,6 +797,7 @@ function analyzeCommandView(
         derivedCommandWorkBudget: options.derivedCommandWorkBudget,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
+        literalHeredocFiles: state.literalHeredocFiles,
         worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
         trace: options.trace
           ? withTraceSegment(options.trace, options.trace.currentSegmentIndex, true)
@@ -357,12 +815,176 @@ function analyzeCommandView(
   });
   if (result) return { ...result, segment: segmentStr };
 
-  const heredocResult = analyzeUnsupportedHeredoc(commandView, heredocReason, options);
+  const heredocResult = analyzeUnsupportedHeredoc(
+    commandView,
+    heredocReason,
+    depth,
+    state,
+    segmentEnvAssignments ?? new Map(),
+    options,
+  );
   if (heredocResult) return heredocResult;
 
-  updateCwdAfterSegment(segment, state, options.trace);
+  invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
+  state.literalHeredocFiles.clear();
+  trackLiteralHeredocFiles(commandView, heredocReason, state);
+  updateCwdAfterCommandView(commandView, state, literalShellInput, options.trace);
   applyShellGitContextEnvSegment(segment, state.shellGitContextState);
   return null;
+}
+
+const FILE_NONTRUNCATING_WRITE_REDIRECTIONS = new Set(['>>', '<>']);
+
+function invalidateLiteralHeredocFiles(
+  commandView: CommandView,
+  state: AnalysisState,
+  phase: 'before-consumer' | 'after-consumer',
+): void {
+  for (const redirection of commandView.redirections) {
+    const writesFile =
+      phase === 'before-consumer'
+        ? isTruncatingFileRedirection(redirection)
+        : FILE_NONTRUNCATING_WRITE_REDIRECTIONS.has(redirection.operator);
+    if (!writesFile) continue;
+    invalidateLiteralHeredocFile(redirection.target, state);
+  }
+
+  if (phase !== 'before-consumer' || !isBareCommandWord(commandView.words[0], 'tee')) return;
+  const teeArguments = getTeeArguments(commandView.words.slice(1));
+  if (!teeArguments) return;
+  for (const operand of teeArguments.operands) invalidateLiteralHeredocFile(operand, state);
+}
+
+function isTruncatingFileRedirection(redirection: CommandRedirection): boolean {
+  if (redirection.operator === '>' || redirection.operator === '>|') return true;
+  return (
+    redirection.operator === '>&' &&
+    redirection.fd === undefined &&
+    redirection.target?.provenance === 'literal' &&
+    !/^(?:[0-9]+|-)$/.test(redirection.target.text)
+  );
+}
+
+function invalidateLiteralHeredocFile(target: CommandWord | undefined, state: AnalysisState): void {
+  const path =
+    target?.provenance === 'literal'
+      ? resolveTrackedHeredocPath(target.text, state.effectiveCwd)
+      : undefined;
+  if (!path) return;
+  state.literalHeredocFiles.delete(path);
+}
+
+function trackLiteralHeredocFiles(
+  commandView: CommandView,
+  heredocReason: string | undefined,
+  state: AnalysisState,
+): void {
+  if (heredocReason) return;
+  const heredoc = commandView.redirections.find(
+    (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
+  )?.heredoc;
+  if (!heredoc?.quotedDelimiter) return;
+
+  for (const target of getLiteralHeredocOutputTargets(commandView)) {
+    const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd);
+    if (!path || !isPersistentHeredocFilePath(path)) continue;
+    if (
+      !state.literalHeredocFiles.has(path) &&
+      state.literalHeredocFiles.size >= MAX_TRACKED_HEREDOC_FILES
+    ) {
+      throw new DerivedCommandWorkLimitError();
+    }
+    state.literalHeredocFiles.set(path, heredoc.body);
+  }
+}
+
+function getLiteralHeredocOutputTargets(commandView: CommandView): CommandWord[] {
+  const stdoutTarget = getFinalStdoutRedirection(commandView.redirections)?.target;
+  const literalStdoutTarget = isTrackableLiteralFileWord(stdoutTarget) ? [stdoutTarget] : [];
+  if (isBareCommandWord(commandView.words[0], 'cat')) {
+    return catWritesHeredocVerbatim(commandView.words) ? literalStdoutTarget : [];
+  }
+  if (!isBareCommandWord(commandView.words[0], 'tee')) return [];
+
+  const teeArguments = getTeeArguments(commandView.words.slice(1));
+  if (
+    !teeArguments ||
+    teeArguments.append ||
+    teeArguments.hasUnsupportedOptions ||
+    !teeArguments.operands.every(isTrackableLiteralFileWord)
+  ) {
+    return [];
+  }
+  return [...teeArguments.operands, ...literalStdoutTarget];
+}
+
+function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {
+  let optionTerminated = false;
+  for (const word of words.slice(1)) {
+    if (optionTerminated || word.provenance !== 'literal') return false;
+    if (word.text === '--') {
+      optionTerminated = true;
+      continue;
+    }
+    if (!/^-u+$/.test(word.text)) return false;
+  }
+  return true;
+}
+
+function getFinalStdoutRedirection(
+  redirections: readonly CommandRedirection[],
+): CommandRedirection | undefined {
+  const redirection = redirections.findLast(
+    (candidate) =>
+      (candidate.fd ?? (['>', '>|', '>>', '>&'].includes(candidate.operator) ? 1 : 0)) === 1,
+  );
+  return redirection?.operator === '>' || redirection?.operator === '>|' ? redirection : undefined;
+}
+
+function getTeeArguments(words: readonly CommandWord[]):
+  | {
+      operands: CommandWord[];
+      append: boolean;
+      hasUnsupportedOptions: boolean;
+    }
+  | undefined {
+  const operands: CommandWord[] = [];
+  let parsesOptions = true;
+  let append = false;
+  let hasUnsupportedOptions = false;
+  for (const word of words) {
+    if (word.provenance !== 'literal') return undefined;
+    if (parsesOptions && isBareCommandWord(word, '--')) {
+      parsesOptions = false;
+      continue;
+    }
+    if (parsesOptions && !word.quoted && word.raw === word.text && /^-[^-]/.test(word.text)) {
+      append ||= word.text.slice(1).includes('a');
+      hasUnsupportedOptions ||= [...word.text.slice(1)].some(
+        (option) => option !== 'a' && option !== 'i',
+      );
+      continue;
+    }
+    if (parsesOptions && !word.quoted && word.raw === word.text && word.text.startsWith('--')) {
+      append ||= word.text === '--append';
+      hasUnsupportedOptions ||= word.text !== '--append' && word.text !== '--ignore-interrupts';
+      continue;
+    }
+    operands.push(word);
+  }
+  return { operands, append, hasUnsupportedOptions };
+}
+
+function isTrackableLiteralFileWord(word: CommandWord | undefined): word is CommandWord {
+  if (!word || word.provenance !== 'literal' || word.text.length === 0) return false;
+  if (word.quoted || word.raw !== word.text) return true;
+  return !word.raw.startsWith('~') && !/[{}]/.test(word.raw);
+}
+
+function isBareCommandWord(word: CommandWord | undefined, value: string): boolean {
+  return (
+    word?.text === value && word.raw === value && word.provenance === 'literal' && !word.quoted
+  );
 }
 
 function getHeredocReason(commandView: CommandView): string | undefined {
@@ -386,20 +1008,41 @@ function getHeredocReason(commandView: CommandView): string | undefined {
     return REASON_UNSUPPORTED_HEREDOC;
   }
 
-  const bareWord = (index: number, value: string) => {
-    const word = commandView.words[index];
-    return (
-      word?.text === value && word.raw === value && word.provenance === 'literal' && !word.quoted
-    );
-  };
-  if (bareWord(0, 'cat') || bareWord(0, 'tee')) return undefined;
-  if (bareWord(0, 'git') && bareWord(1, 'apply')) return undefined;
+  const outputProcessSubstitution = commandView.redirections.some(
+    (redirection) => redirection !== heredoc && hasOutputProcessSubstitution(redirection.target),
+  );
+  if (isBareCommandWord(commandView.words[0], 'cat')) {
+    return outputProcessSubstitution ? REASON_UNSUPPORTED_HEREDOC : undefined;
+  }
+  if (isBareCommandWord(commandView.words[0], 'tee')) {
+    return outputProcessSubstitution ||
+      commandView.words.slice(1).some(hasOutputProcessSubstitution)
+      ? REASON_UNSUPPORTED_HEREDOC
+      : undefined;
+  }
+  if (
+    isBareCommandWord(commandView.words[0], 'git') &&
+    isBareCommandWord(commandView.words[1], 'apply')
+  ) {
+    return undefined;
+  }
   return REASON_UNSUPPORTED_HEREDOC;
+}
+
+function hasOutputProcessSubstitution(word: CommandWord | undefined): boolean {
+  return (
+    word?.parts.some(
+      (part) => part.provenance === 'command-substitution' && part.raw.startsWith('>('),
+    ) ?? false
+  );
 }
 
 function analyzeUnsupportedHeredoc(
   commandView: CommandView,
   reason: string | undefined,
+  depth: number,
+  state: AnalysisState,
+  envAssignments: ReadonlyMap<string, string>,
   options: ActiveInternalOptions,
 ): AnalyzeResult | null {
   if (!reason) return null;
@@ -409,6 +1052,27 @@ function analyzeUnsupportedHeredoc(
   const bodies = heredocs.flatMap((redirection) =>
     redirection.heredoc ? [redirection.heredoc.body] : [],
   );
+  const shellHeredoc = getQuotedShellHeredoc(commandView, heredocs, state, envAssignments);
+  if (shellHeredoc?.kind === 'inert') return null;
+  if (shellHeredoc?.kind === 'source') {
+    reserveDerivedCommandTokens(options.derivedCommandWorkBudget, 1);
+    options.trace?.recordSegment({
+      type: 'recurse',
+      reason: 'shell-heredoc',
+      innerCommand: shellHeredoc.body,
+      depth: depth + 1,
+    });
+    const result = analyzeCommandInternal(shellHeredoc.body, depth + 1, {
+      ...options,
+      effectiveCwd: shellHeredoc.effectiveCwd,
+      envAssignments: shellHeredoc.envAssignments,
+      literalHeredocFiles: state.literalHeredocFiles,
+      trace: options.trace
+        ? withTraceSegment(options.trace, options.trace.currentSegmentIndex, true)
+        : undefined,
+    });
+    return result ? { ...result, segment: commandView.legacyNormalized } : null;
+  }
   const result = analyzeUnparseableCommand(
     bodies.length === heredocs.length ? bodies.join('\n') : commandView.source,
     options,
@@ -416,16 +1080,59 @@ function analyzeUnsupportedHeredoc(
   return result ? { ...result, segment: commandView.legacyNormalized } : null;
 }
 
-function updateCwdAfterSegment(
-  segment: readonly string[],
+function getQuotedShellHeredoc(
+  commandView: CommandView,
+  heredocs: readonly CommandRedirection[],
   state: AnalysisState,
+  envAssignments: ReadonlyMap<string, string>,
+):
+  | { kind: 'inert' }
+  | {
+      kind: 'source';
+      body: string;
+      effectiveCwd: string | null | undefined;
+      envAssignments: ReadonlyMap<string, string>;
+    }
+  | undefined {
+  const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
+  if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
+    return undefined;
+  }
+
+  const stripped = stripWrappersWithInfo(
+    [...commandView.analysisTokens],
+    state.effectiveCwd,
+    envAssignments,
+  );
+  const head = normalizeCommandToken(stripped.tokens[0] ?? '');
+  if (
+    stripped.unverifiableEnvSplit ||
+    (!SHELL_WRAPPERS.has(head) && !SHELL_WRAPPERS.has(getBasename(head)))
+  ) {
+    return undefined;
+  }
+  if (isShellSyntaxCheck(stripped.tokens)) return { kind: 'inert' };
+  if (
+    extractDashCArg(stripped.tokens) !== null ||
+    extractShellScriptOperandSource(stripped.tokens, undefined).kind !== 'none'
+  ) {
+    return undefined;
+  }
+  // Unsupported shell-heredoc form in standard mode: keep raw-text fallback semantics.
+  return undefined;
+}
+
+function updateCwdAfterCommandView(
+  commandView: CommandView,
+  state: AnalysisState,
+  literalPipelineInput: string | undefined,
   trace?: CommandTraceContext,
 ): void {
-  const nextCwd = resolveCwdAfterSegment(segment, state.effectiveCwd);
+  const nextCwd = resolveCwdAfterCommandView(commandView, state.effectiveCwd, literalPipelineInput);
   if (nextCwd === null) {
     trace?.recordSegment({
       type: 'cwd-change',
-      segment: segment.join(' '),
+      segment: commandView.analysisTokens.join(' '),
       effectiveCwdNowUnknown: true,
     });
   }
@@ -436,7 +1143,52 @@ function cloneAnalysisState(state: AnalysisState): AnalysisState {
   return {
     effectiveCwd: state.effectiveCwd,
     shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
+    literalHeredocFiles: new Map(state.literalHeredocFiles),
   };
+}
+
+function deduplicateAnalysisStates(states: readonly AnalysisState[]): AnalysisState[] {
+  const uniqueStates: AnalysisState[] = [];
+  for (const state of states) {
+    if (!uniqueStates.some((candidate) => analysisStatesEqual(candidate, state))) {
+      uniqueStates.push(state);
+    }
+    if (uniqueStates.length > MAX_CONTROL_FLOW_STATES) {
+      throw new DerivedCommandWorkLimitError();
+    }
+  }
+  return uniqueStates;
+}
+
+function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean {
+  return (
+    left.effectiveCwd === right.effectiveCwd &&
+    optionalMapsEqual(left.literalHeredocFiles, right.literalHeredocFiles) &&
+    optionalMapsEqual(
+      left.shellGitContextState.effectiveEnvAssignments,
+      right.shellGitContextState.effectiveEnvAssignments,
+    ) &&
+    optionalMapsEqual(
+      left.shellGitContextState.shellAssignments,
+      right.shellGitContextState.shellAssignments,
+    ) &&
+    setsEqual(left.shellGitContextState.exportedNames, right.shellGitContextState.exportedNames) &&
+    left.shellGitContextState.allexport === right.shellGitContextState.allexport &&
+    left.shellGitContextState.keywordExport === right.shellGitContextState.keywordExport
+  );
+}
+
+function optionalMapsEqual(
+  left: ReadonlyMap<string, string> | undefined,
+  right: ReadonlyMap<string, string> | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.size !== right.size) return false;
+  return [...left].every(([key, value]) => right.get(key) === value && right.has(key));
+}
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function resultFromCommandMatch(
@@ -463,6 +1215,7 @@ function getPowerShellRemoveItemOptions(
     strict: options.strict,
     paranoid: options.paranoidRm,
     allowTmpdirVar: options.allowTmpdirVar,
+    policy: options.policy,
   };
 }
 

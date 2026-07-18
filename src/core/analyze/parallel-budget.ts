@@ -68,5 +68,12 @@ export function reserveParallelAnalysis(
 }
 
 function exceedsLimit(current: number, amount: number, limit: number): boolean {
-  return !Number.isSafeInteger(amount) || amount < 0 || amount > limit - current;
+  return (
+    !Number.isSafeInteger(current) ||
+    current < 0 ||
+    current > limit ||
+    !Number.isSafeInteger(amount) ||
+    amount < 0 ||
+    amount > limit - current
+  );
 }
