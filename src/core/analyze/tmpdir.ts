@@ -19,9 +19,15 @@ export function isTmpdirValueTrusted(envAssignments: ReadonlyMap<string, string>
   if (envAssignments.has('TMPDIR')) {
     return isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
   }
-  const tmpdirValue = getOwnEnvValue('TMPDIR');
+  const tmpdirValue = getEffectiveTmpdirValue(envAssignments);
   if (tmpdirValue === undefined) return true;
   return isAssignedTmpdirValueTrusted(tmpdirValue);
+}
+
+export function getEffectiveTmpdirValue(
+  envAssignments: ReadonlyMap<string, string>,
+): string | undefined {
+  return getEffectiveShellEnvValue(envAssignments, 'TMPDIR');
 }
 
 export function isTmpdirKnownEmpty(envAssignments: ReadonlyMap<string, string>): boolean {
@@ -48,6 +54,11 @@ export function isTrustedTempPath(path: string): boolean {
     normalizedPath !== null &&
     TRUSTED_TEMP_ROOTS.some((root) => isPathOrSubpath(normalizedPath, root))
   );
+}
+
+export function isTrustedTempRootPath(path: string): boolean {
+  const normalizedPath = tryResolveExistingPathComponents(path);
+  return normalizedPath !== null && TRUSTED_TEMP_ROOTS.includes(normalizedPath);
 }
 
 function buildTrustedTempRoots(): string[] {

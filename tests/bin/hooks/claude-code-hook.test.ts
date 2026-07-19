@@ -203,6 +203,15 @@ describe('Claude Code hook', () => {
       await expectNoHookOutput(runClaudeCodeHook, claudeCodeBashInput('git status'));
     });
 
+    test('allows find delete for an explicit trusted temporary descendant', async () => {
+      await withHookTestContext(async (context) => {
+        await expectNoHookOutput(
+          context.runClaudeCodeHook,
+          context.claudeCodeBashInput('find /tmp/ccsn-perf-head.1T5B58 -depth -delete'),
+        );
+      });
+    });
+
     test.each([
       `BASE_SOURCE="$(git show 849d475eddafc04fd57ab73887e53e8d5abfc1ea:username.py)" PYTHONDONTWRITEBYTECODE=1 python3 -c 'import os, runpy, sys, types, unittest; module = types.ModuleType("username"); exec(os.environ["BASE_SOURCE"], module.__dict__); sys.modules["username"] = module; namespace = runpy.run_path("tests/test_username.py", run_name="red_check"); suite = unittest.TestSuite([namespace["NormalizeUsernameTest"]("test_strips_surrounding_whitespace")]); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)'`,
       `cd /Users/kenryu/Developer/420024-lab/pi-grok-cli && git add src/provider/billing.ts tests/provider/register.test.ts && git commit -m "fix: keep weekly usage block visible when creditUsagePercent is omitted

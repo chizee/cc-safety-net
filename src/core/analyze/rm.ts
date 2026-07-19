@@ -4,6 +4,7 @@ import {
   type RecursiveDeleteTargetClassification,
   type RecursiveDeleteTargetClassificationOptions,
   type RecursiveDeleteTargetContext,
+  type RecursiveDeleteTargetOptions,
 } from '@/core/analyze/recursive-delete-targets';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import {
@@ -23,15 +24,7 @@ const REASON_RM_RF_ROOT_HOME =
 const REASON_RM_HOME_CWD =
   'rm -rf in home directory is dangerous. Change to a project directory first.';
 
-export interface AnalyzeRmOptions {
-  cwd?: string;
-  originalCwd?: string;
-  strict?: boolean;
-  paranoid?: boolean;
-  allowTmpdirVar?: boolean;
-  tmpdirVarExpandsEmpty?: boolean;
-  tmpdirWordSplittingUnsafe?: boolean;
-  trustedTmpdirValue?: boolean;
+export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
   literalTargetTokenIndexes?: ReadonlySet<number>;
   tmpdirWordSplittingProtectedTargetTokenIndexes?: ReadonlySet<number>;
   expandedTargetTokens?: ReadonlyMap<number, readonly string[]>;

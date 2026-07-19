@@ -4004,7 +4004,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     id: "find.delete",
     category: "Filesystem",
     label: "find delete",
-    description: "Blocks find -delete operations.",
+    description: "Blocks unsafe find -delete operations.",
     intent: "scope_down"
   },
   {
@@ -9292,10 +9292,13 @@ function isTmpdirOverriddenToNonTemp(envAssignments) {
 function isTmpdirValueTrusted(envAssignments) {
   if (envAssignments.has("TMPDIR"))
     return isAssignedTmpdirValueTrusted(envAssignments.get("TMPDIR") ?? "");
-  let tmpdirValue = getOwnEnvValue("TMPDIR");
+  let tmpdirValue = getEffectiveTmpdirValue(envAssignments);
   if (tmpdirValue === void 0)
     return !0;
   return isAssignedTmpdirValueTrusted(tmpdirValue);
+}
+function getEffectiveTmpdirValue(envAssignments) {
+  return getEffectiveShellEnvValue(envAssignments, "TMPDIR");
 }
 function isTmpdirKnownEmpty(envAssignments) {
   if (envAssignments.has("TMPDIR"))
@@ -9316,6 +9319,10 @@ function hasUnsafeTmpdirWordSplitting(envAssignments) {
 function isTrustedTempPath(path) {
   let normalizedPath = tryResolveExistingPathComponents(path);
   return normalizedPath !== null && TRUSTED_TEMP_ROOTS.some((root) => isPathOrSubpath(normalizedPath, root));
+}
+function isTrustedTempRootPath(path) {
+  let normalizedPath = tryResolveExistingPathComponents(path);
+  return normalizedPath !== null && TRUSTED_TEMP_ROOTS.includes(normalizedPath);
 }
 function buildTrustedTempRoots() {
   let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
@@ -9404,6 +9411,17 @@ function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
   }
   return { kind: "outside_anchored_cwd" };
 }
+function isTrustedTempDescendantTarget(target, ctx, options2 = {}) {
+  let { containmentTarget, ...classificationOptions } = options2;
+  if (classifyRecursiveDeleteTarget(target, ctx, classificationOptions).kind !== "temp_target")
+    return !1;
+  let normalized = target.trim();
+  if (isTrustedTmpdirVariableRootTarget(normalized))
+    return !1;
+  if (isTrustedTempRootPath(normalized))
+    return !1;
+  return ![ctx.anchoredCwd, ctx.resolvedCwd].some((workspace) => isWorkspaceWithinTarget(containmentTarget ?? normalized, workspace, ctx.pathCanonicalizationBudget));
+}
 function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
   let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/");
   if (normalized === "/" || normalized === "/*")
@@ -9447,6 +9465,12 @@ function isTrustedTmpdirVariableTarget(path, posixShell) {
       return !1;
     return !isDynamicTarget(path.slice(prefix.length + 1), posixShell);
   });
+}
+function isTrustedTmpdirVariableRootTarget(path) {
+  let match = /^(?:\$TMPDIR|\$\{TMPDIR\})(?:\/(.*))?$/.exec(path);
+  if (!match)
+    return !1;
+  return posix.normalize(`/${match[1] ?? ""}`) === "/";
 }
 function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
@@ -9555,6 +9579,15 @@ function isResolvedPathWithinCwd(resolvedTarget, cwd, budget) {
     return isNormalizedPathWithin(resolveExistingPath(resolvedTarget, budget), resolveExistingPath(cwd, budget));
   } catch {
     return !1;
+  }
+}
+function isWorkspaceWithinTarget(target, workspace, budget) {
+  if (!workspace)
+    return !1;
+  try {
+    return isNormalizedPathWithin(resolveExistingPath(workspace, budget), resolveExistingPath(target, budget));
+  } catch {
+    return !0;
   }
 }
 function isNormalizedPathWithin(target, cwd) {
@@ -9860,7 +9893,7 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ["-fprintf", 2]
 ]);
 function analyzeFindMatch(tokens, context = {}) {
-  if (findHasDelete(tokens, 1)) {
+  if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
     let match = filterDestructiveCommandMatch(destructiveCommandMatch("find.delete", REASON_FIND_DELETE), context.policy);
     if (match)
       return match;
@@ -9893,6 +9926,53 @@ function analyzeFindMatch(tokens, context = {}) {
       return match;
   }
   return null;
+}
+function hasOnlyTrustedTempDeleteTargets(tokens, context) {
+  if (tokens.includes("-L") || tokens.includes("-f") || tokens.includes("-follow"))
+    return !1;
+  let targets = getFindStartingPoints(tokens);
+  if (!targets)
+    return !1;
+  let envAssignments = context.envAssignments ?? /* @__PURE__ */ new Map, effectiveTmpdirValue = getEffectiveTmpdirValue(envAssignments), trustedTmpdirValue = context.trustedTmpdirValue ?? isTmpdirValueTrusted(envAssignments), allowTmpdirVar = context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments), targetContext = createRecursiveDeleteTargetContext({
+    cwd: context.cwd,
+    originalCwd: context.originalCwd,
+    strict: context.strict,
+    allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
+    posixShell: !0,
+    tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
+    tmpdirWordSplittingUnsafe: context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
+    trustedTmpdirValue
+  });
+  return targets.every((target) => {
+    if (context.unsafeBraceExpansionTargetTokenIndexes?.has(target.index))
+      return !1;
+    let expandedTargets = context.expandedTargetTokens?.get(target.index);
+    return (expandedTargets ?? [target.text]).every((expandedTarget) => isTrustedTempDescendantTarget(expandedTarget, targetContext, {
+      containmentTarget: expandTmpdirTarget(expandedTarget, effectiveTmpdirValue),
+      targetIsLiteral: expandedTargets !== void 0 || context.literalTargetTokenIndexes?.has(target.index),
+      tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
+    }));
+  });
+}
+function expandTmpdirTarget(target, tmpdirValue) {
+  if (!tmpdirValue)
+    return target;
+  return target.replace(/^(?:\$TMPDIR|\$\{TMPDIR\})/, () => tmpdirValue);
+}
+function getFindStartingPoints(tokens) {
+  let index = 1;
+  while (tokens[index] === "-H" || tokens[index] === "-P")
+    index++;
+  if (tokens[index] === "--")
+    index++;
+  let targets = [];
+  while (index < tokens.length) {
+    let token = tokens[index];
+    if (!token || token.startsWith("-") || token === "!" || token === "(" || token === ")")
+      break;
+    targets.push({ text: token, index }), index++;
+  }
+  return targets.length > 0 ? targets : null;
 }
 function analyzeFindExecCommand(tokens) {
   let execCommand = stripWrappers([...tokens]);
@@ -12719,7 +12799,7 @@ function extractParallelChildCommand(tokens) {
 }
 
 // src/core/analyze/segment.ts
-var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", REASON_DYNAMIC_SHELL_SOURCE = "shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.", RM_TARGET_BRACE_EXPANSION_LIMIT = 64, RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16384, STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
+var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.", REASON_DYNAMIC_STRUCTURE = "shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.", REASON_DYNAMIC_SHELL_SOURCE = "shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.", DELETE_TARGET_BRACE_EXPANSION_LIMIT = 64, DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16384, STRUCTURAL_GIT_SUBCOMMANDS = /* @__PURE__ */ new Set([
   "branch",
   "checkout",
   "clean",
@@ -13352,7 +13432,7 @@ function getGitAnalyzeOptions(context) {
   };
 }
 function analyzeRmCommand(context) {
-  let targetMetadata = getRmTargetTokenMetadata(context.tokens, context.options.commandView);
+  let targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
@@ -13369,10 +13449,10 @@ function analyzeRmCommand(context) {
     policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy
   });
 }
-function getRmTargetTokenMetadata(tokens, view) {
+function getDeleteTargetTokenMetadata(tokens, view) {
   if (!view || view.dialect !== "posix" || view.words.length !== tokens.length || view.analysisTokens.length !== tokens.length || !tokens.every((token, index) => view.analysisTokens[index] === token))
     return;
-  let braceExpansions = view.words.map((word) => expandPosixLiteralBraceWord(word, RM_TARGET_BRACE_EXPANSION_LIMIT, RM_TARGET_BRACE_EXPANSION_LIMIT, RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT));
+  let braceExpansions = view.words.map((word) => expandPosixLiteralBraceWord(word, DELETE_TARGET_BRACE_EXPANSION_LIMIT, DELETE_TARGET_BRACE_EXPANSION_LIMIT, DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT));
   return {
     literal: new Set(view.words.flatMap((word, index) => braceExpansions[index] === void 0 && word.provenance === "literal" && (word.quoted || word.raw !== word.text) ? [index] : [])),
     wordSplittingProtected: new Set(view.words.flatMap((word, index) => isTmpdirExpansionWordSplittingProtected(word) ? [index] : [])),
@@ -13410,8 +13490,19 @@ function isRawOffsetDoubleQuoted(raw, offset) {
   return quote === '"';
 }
 function analyzeFindCommand(context) {
+  let targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
+    originalCwd: context.originalCwd,
+    strict: context.options.strict,
+    allowTmpdirVar: context.allowTmpdirVar,
+    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    literalTargetTokenIndexes: targetMetadata?.literal,
+    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
+    expandedTargetTokens: targetMetadata?.expanded,
+    unsafeBraceExpansionTargetTokenIndexes: targetMetadata?.unsafeBraceExpansion,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === "explain-legacy" ? void 0 : context.options.policy,

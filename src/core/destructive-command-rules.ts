@@ -356,7 +356,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     id: 'find.delete',
     category: 'Filesystem',
     label: 'find delete',
-    description: 'Blocks find -delete operations.',
+    description: 'Blocks unsafe find -delete operations.',
     intent: 'scope_down',
   },
   {

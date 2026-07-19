@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { normalize, posix, resolve, sep } from 'node:path';
-import { isTrustedTempPath } from '@/core/analyze/tmpdir';
+import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
 import { getOwnEnvValue } from '@/core/env';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 import {
@@ -11,16 +11,19 @@ import {
 
 const IS_WINDOWS = process.platform === 'win32';
 
-export interface RecursiveDeleteTargetOptions {
+export interface RecursiveDeleteTargetTrustOptions {
   cwd?: string;
   originalCwd?: string;
   strict?: boolean;
-  paranoid?: boolean;
   allowTmpdirVar?: boolean;
-  posixShell?: boolean;
   tmpdirVarExpandsEmpty?: boolean;
   tmpdirWordSplittingUnsafe?: boolean;
   trustedTmpdirValue?: boolean;
+}
+
+export interface RecursiveDeleteTargetOptions extends RecursiveDeleteTargetTrustOptions {
+  paranoid?: boolean;
+  posixShell?: boolean;
 }
 
 export interface RecursiveDeleteTargetContext {
@@ -42,6 +45,11 @@ export interface RecursiveDeleteTargetClassificationOptions {
   tmpdirWordSplittingProtected?: boolean;
   skipHomeCwd?: boolean;
   skipCwdSelf?: boolean;
+}
+
+export interface TrustedTempDescendantTargetOptions
+  extends RecursiveDeleteTargetClassificationOptions {
+  containmentTarget?: string;
 }
 
 export type RecursiveDeleteTargetClassification =
@@ -153,6 +161,27 @@ export function classifyRecursiveDeleteTarget(
   return { kind: 'outside_anchored_cwd' };
 }
 
+export function isTrustedTempDescendantTarget(
+  target: string,
+  ctx: RecursiveDeleteTargetContext,
+  options: TrustedTempDescendantTargetOptions = {},
+): boolean {
+  const { containmentTarget, ...classificationOptions } = options;
+  if (classifyRecursiveDeleteTarget(target, ctx, classificationOptions).kind !== 'temp_target') {
+    return false;
+  }
+  const normalized = target.trim();
+  if (isTrustedTmpdirVariableRootTarget(normalized)) return false;
+  if (isTrustedTempRootPath(normalized)) return false;
+  return ![ctx.anchoredCwd, ctx.resolvedCwd].some((workspace) =>
+    isWorkspaceWithinTarget(
+      containmentTarget ?? normalized,
+      workspace,
+      ctx.pathCanonicalizationBudget,
+    ),
+  );
+}
+
 export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = false): boolean {
   const trimmed = path.trim();
   const normalized = posix.normalize(trimmed);
@@ -244,6 +273,12 @@ function isTrustedTmpdirVariableTarget(path: string, posixShell: boolean): boole
     if (!path.startsWith(`${prefix}/`)) return false;
     return !isDynamicTarget(path.slice(prefix.length + 1), posixShell);
   });
+}
+
+function isTrustedTmpdirVariableRootTarget(path: string): boolean {
+  const match = /^(?:\$TMPDIR|\$\{TMPDIR\})(?:\/(.*))?$/.exec(path);
+  if (!match) return false;
+  return posix.normalize(`/${match[1] ?? ''}`) === '/';
 }
 
 function hasParentDirectoryComponent(path: string): boolean {
@@ -415,6 +450,22 @@ function isResolvedPathWithinCwd(
     );
   } catch {
     return false;
+  }
+}
+
+function isWorkspaceWithinTarget(
+  target: string,
+  workspace: string | null,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  if (!workspace) return false;
+  try {
+    return isNormalizedPathWithin(
+      resolveExistingPath(workspace, budget),
+      resolveExistingPath(target, budget),
+    );
+  } catch {
+    return true;
   }
 }
 

@@ -3,7 +3,19 @@ import {
   type DerivedCommandWorkBudget,
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
+import {
+  createRecursiveDeleteTargetContext,
+  isTrustedTempDescendantTarget,
+  type RecursiveDeleteTargetTrustOptions,
+} from '@/core/analyze/recursive-delete-targets';
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
+import {
+  getEffectiveTmpdirValue,
+  hasUnsafeTmpdirWordSplitting,
+  isTmpdirKnownEmpty,
+  isTmpdirOverriddenToNonTemp,
+  isTmpdirValueTrusted,
+} from '@/core/analyze/tmpdir';
 import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
@@ -69,8 +81,11 @@ const FIND_PRIMARY_ARITY = new Map<string, number>([
   ['-fprintf', 2],
 ]);
 
-export interface AnalyzeFindContext {
-  cwd?: string;
+export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
+  literalTargetTokenIndexes?: ReadonlySet<number>;
+  tmpdirWordSplittingProtectedTargetTokenIndexes?: ReadonlySet<number>;
+  expandedTargetTokens?: ReadonlyMap<number, readonly string[]>;
+  unsafeBraceExpansionTargetTokenIndexes?: ReadonlySet<number>;
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   envAssignments?: ReadonlyMap<string, string>;
   policy?: Pick<
@@ -100,7 +115,7 @@ export function analyzeFindMatch(
   context: AnalyzeFindContext = {},
 ): DestructiveCommandRuleMatch | null {
   // Check for -delete outside of -exec/-execdir blocks
-  if (findHasDelete(tokens, 1)) {
+  if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
     const match = filterDestructiveCommandMatch(
       destructiveCommandMatch('find.delete', REASON_FIND_DELETE),
       context.policy,
@@ -149,6 +164,67 @@ export function analyzeFindMatch(
   }
 
   return null;
+}
+
+function hasOnlyTrustedTempDeleteTargets(
+  tokens: readonly string[],
+  context: AnalyzeFindContext,
+): boolean {
+  if (tokens.includes('-L') || tokens.includes('-f') || tokens.includes('-follow')) return false;
+  const targets = getFindStartingPoints(tokens);
+  if (!targets) return false;
+  const envAssignments = context.envAssignments ?? new Map();
+  const effectiveTmpdirValue = getEffectiveTmpdirValue(envAssignments);
+  const trustedTmpdirValue = context.trustedTmpdirValue ?? isTmpdirValueTrusted(envAssignments);
+  const allowTmpdirVar = context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments);
+  const targetContext = createRecursiveDeleteTargetContext({
+    cwd: context.cwd,
+    originalCwd: context.originalCwd,
+    strict: context.strict,
+    allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
+    posixShell: true,
+    tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
+    tmpdirWordSplittingUnsafe:
+      context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
+    trustedTmpdirValue,
+  });
+
+  return targets.every((target) => {
+    if (context.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) return false;
+    const expandedTargets = context.expandedTargetTokens?.get(target.index);
+    return (expandedTargets ?? [target.text]).every((expandedTarget) =>
+      isTrustedTempDescendantTarget(expandedTarget, targetContext, {
+        containmentTarget: expandTmpdirTarget(expandedTarget, effectiveTmpdirValue),
+        targetIsLiteral:
+          expandedTargets !== undefined || context.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
+          target.index,
+        ),
+      }),
+    );
+  });
+}
+
+function expandTmpdirTarget(target: string, tmpdirValue: string | undefined): string {
+  if (!tmpdirValue) return target;
+  return target.replace(/^(?:\$TMPDIR|\$\{TMPDIR\})/, () => tmpdirValue);
+}
+
+function getFindStartingPoints(
+  tokens: readonly string[],
+): { text: string; index: number }[] | null {
+  let index = 1;
+  while (tokens[index] === '-H' || tokens[index] === '-P') index++;
+  if (tokens[index] === '--') index++;
+
+  const targets: { text: string; index: number }[] = [];
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (!token || token.startsWith('-') || token === '!' || token === '(' || token === ')') break;
+    targets.push({ text: token, index });
+    index++;
+  }
+  return targets.length > 0 ? targets : null;
 }
 
 function analyzeFindExecCommand(tokens: readonly string[]): DestructiveCommandRuleMatch | null {

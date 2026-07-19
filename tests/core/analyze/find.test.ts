@@ -1,5 +1,9 @@
-import { describe, test } from 'bun:test';
-import { assertAllowed, assertBlocked } from '../../helpers.ts';
+import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { analyzeTestCommand } from '../../helpers/policy.ts';
+import { assertAllowed, assertBlocked, withEnv } from '../../helpers.ts';
 
 describe('find -delete tests', () => {
   test('find delete blocked', () => {
@@ -8,6 +12,124 @@ describe('find -delete tests', () => {
 
   test('find empty delete blocked', () => {
     assertBlocked('find . -empty -delete', 'find -delete');
+  });
+
+  test('find delete allows explicit trusted temporary descendants', () => {
+    assertAllowed('find /tmp/ccsn-perf-head.1T5B58 -depth -delete');
+    assertAllowed('find /var/tmp/ccsn-cache -name "*.tmp" -delete');
+    assertAllowed(`find ${join(tmpdir(), 'ccsn-native')} -depth -delete`);
+    assertAllowed('find /tmp/ccsn-a /var/tmp/ccsn-b -depth -delete');
+  });
+
+  test('find delete allows trusted TMPDIR descendants', () => {
+    withEnv({ TMPDIR: '/tmp/ccsn-find-root' }, () => {
+      assertAllowed('find $TMPDIR/child -depth -delete');
+      assertAllowed('find "$TMPDIR/child" -depth -delete');
+    });
+  });
+
+  test('find delete allows trusted temporary descendants in strict mode', () => {
+    expect(analyzeTestCommand('find /tmp/ccsn-strict -depth -delete', { strict: true })).toBeNull();
+  });
+
+  test('find delete protects trusted temporary roots', () => {
+    assertBlocked('find /tmp -depth -delete', 'find -delete');
+    assertBlocked('find /var/tmp/ -depth -delete', 'find -delete');
+    assertBlocked(`find ${tmpdir()} -depth -delete`, 'find -delete');
+    withEnv({ TMPDIR: '/tmp/ccsn-find-root' }, () => {
+      assertBlocked('find $TMPDIR -depth -delete', 'find -delete');
+      assertBlocked('find "$TMPDIR/." -depth -delete', 'find -delete');
+      assertBlocked('find "${TMPDIR}//" -depth -delete', 'find -delete');
+    });
+  });
+
+  test('find delete blocks missing relative mixed and dynamic starting paths', () => {
+    assertBlocked('find -delete', 'find -delete');
+    assertBlocked('find . -delete', 'find -delete', '/tmp/ccsn-find-root');
+    assertBlocked('find /tmp/ccsn-safe /Users -delete', 'find -delete');
+    assertBlocked('find /tmp/ccsn-safe/../other -delete', 'find -delete');
+    assertBlocked('find /tmp/ccsn-* -delete', 'find -delete');
+    assertBlocked('find $OTHER_TMP/child -delete', 'find -delete');
+    assertBlocked('find "$(printf /tmp/ccsn-safe)" -delete', 'find -delete');
+    assertBlocked('find -f /tmp/ccsn-safe -delete', 'find -delete');
+  });
+
+  test('find delete blocks unsafe TMPDIR expansion', () => {
+    withEnv({ TMPDIR: '' }, () => {
+      assertBlocked('find "$TMPDIR/child" -delete', 'find -delete');
+    });
+    withEnv({ TMPDIR: '/Users' }, () => {
+      assertBlocked('find "$TMPDIR/child" -delete', 'find -delete');
+    });
+    withEnv({ IFS: ':', TMPDIR: '/tmp/ccsn-find-root' }, () => {
+      assertBlocked('find $TMPDIR/child -delete', 'find -delete');
+      assertAllowed('find "$TMPDIR/child" -delete');
+    });
+  });
+
+  test('find delete blocks traversal through followed symlinks', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ccsn-find-delete-'));
+    const external = join(root, 'external');
+    symlinkSync(homedir(), external, 'dir');
+    try {
+      assertBlocked(`find ${external} -delete`, 'find -delete');
+      assertBlocked(`find -L ${root} -delete`, 'find -delete');
+      assertBlocked(`find ${root} -follow -delete`, 'find -delete');
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test('find delete protects original and effective workspaces under temporary targets', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ccsn-find-workspace-'));
+    const repo = join(root, 'repo');
+    const other = mkdtempSync(join(tmpdir(), 'ccsn-find-other-'));
+    mkdirSync(repo);
+    try {
+      assertBlocked(`find ${root} -depth -delete`, 'find -delete', repo);
+      assertBlocked(`find ${repo} -depth -delete`, 'find -delete', repo);
+      assertAllowed(`find ${other} -depth -delete`, repo);
+      withEnv({ TMPDIR: tmpdir() }, () => {
+        assertBlocked(`find "$TMPDIR/${basename(root)}" -depth -delete`, 'find -delete', repo);
+      });
+      assertBlocked(`env -C ${repo} find ${root} -depth -delete`, 'find -delete', other);
+      assertBlocked(`env -C ${other} find ${root} -depth -delete`, 'find -delete', repo);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+      rmSync(other, { force: true, recursive: true });
+    }
+  });
+
+  test('find delete exemption preserves nested and dynamic command protection', () => {
+    assertAllowed("bash -c 'find /tmp/ccsn-safe -depth -delete'");
+    assertBlocked('find /tmp/ccsn-safe -delete -exec git reset --hard \\;', 'git reset --hard');
+    assertBlocked(
+      "printf '/tmp/ccsn-other\\n' | xargs find /tmp/ccsn-safe -delete",
+      'xargs dynamic input',
+    );
+    assertBlocked('parallel find /tmp/ccsn-safe -delete', 'dynamic input');
+  });
+
+  test('find delete exemption preserves custom and disabled rules', () => {
+    expect(
+      analyzeTestCommand('find /tmp/ccsn-safe -delete', {
+        config: {
+          rules: [
+            {
+              name: 'block-find-delete',
+              command: 'find',
+              block_args: ['-delete'],
+              reason: 'Custom find cleanup policy.',
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ ruleId: 'custom.block-find-delete' });
+    expect(
+      analyzeTestCommand('find /Users -delete', {
+        config: { disabledDestructiveCommandRules: ['find.delete'] },
+      }),
+    ).toBeNull();
   });
 
   test('find name argument delete allowed', () => {
@@ -30,6 +152,10 @@ describe('find -delete tests', () => {
 
   test('busybox find delete blocked', () => {
     assertBlocked('busybox find . -name "*.pyc" -delete', 'find -delete');
+  });
+
+  test('busybox find delete allows trusted temporary descendants', () => {
+    assertAllowed('busybox find /tmp/ccsn-busybox -depth -delete');
   });
 
   test('find print allowed', () => {

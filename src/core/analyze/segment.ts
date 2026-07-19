@@ -138,8 +138,8 @@ const REASON_DYNAMIC_STRUCTURE =
   'shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.';
 const REASON_DYNAMIC_SHELL_SOURCE =
   'shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.';
-const RM_TARGET_BRACE_EXPANSION_LIMIT = 64;
-const RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16_384;
+const DELETE_TARGET_BRACE_EXPANSION_LIMIT = 64;
+const DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16_384;
 const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'branch',
   'checkout',
@@ -1168,7 +1168,7 @@ function getGitAnalyzeOptions(context: CommandAnalysisContext) {
 }
 
 function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  const targetMetadata = getRmTargetTokenMetadata(context.tokens, context.options.commandView);
+  const targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
   return analyzeRmMatch(context.tokens, {
     cwd: context.cwdForRm,
     originalCwd: context.originalCwd,
@@ -1186,7 +1186,7 @@ function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRu
   });
 }
 
-function getRmTargetTokenMetadata(
+function getDeleteTargetTokenMetadata(
   tokens: readonly string[],
   view: CommandView | undefined,
 ):
@@ -1210,9 +1210,9 @@ function getRmTargetTokenMetadata(
   const braceExpansions = view.words.map((word) =>
     expandPosixLiteralBraceWord(
       word,
-      RM_TARGET_BRACE_EXPANSION_LIMIT,
-      RM_TARGET_BRACE_EXPANSION_LIMIT,
-      RM_TARGET_BRACE_EXPANDED_LENGTH_LIMIT,
+      DELETE_TARGET_BRACE_EXPANSION_LIMIT,
+      DELETE_TARGET_BRACE_EXPANSION_LIMIT,
+      DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT,
     ),
   );
   return {
@@ -1280,8 +1280,19 @@ function isRawOffsetDoubleQuoted(raw: string, offset: number): boolean {
 }
 
 function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
+  const targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
   return analyzeFindMatch(context.tokens, {
     cwd: context.cwdForRm,
+    originalCwd: context.originalCwd,
+    strict: context.options.strict,
+    allowTmpdirVar: context.allowTmpdirVar,
+    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    literalTargetTokenIndexes: targetMetadata?.literal,
+    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
+    expandedTargetTokens: targetMetadata?.expanded,
+    unsafeBraceExpansionTargetTokenIndexes: targetMetadata?.unsafeBraceExpansion,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
