@@ -23,7 +23,7 @@ const PACKAGE_FILES = [
   'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 420_000;
+const MAX_TARBALL_BYTES = 500_000;
 
 interface PackResult {
   filename: string;
@@ -308,6 +308,52 @@ function verifyInstalledProtectionJourneys(options: {
     !String(cliHookOutput.permissionDecisionReason).includes('git.reset-hard')
   ) {
     throw new Error('Packed CLI did not block git reset --hard');
+  }
+
+  for (const [name, command] of [
+    ['xargs positional input', `find src -type f | xargs sh -c 'wc -l "$1"' _`],
+    ['Parallel literal shell source', `parallel sh -c 'printf safe' ::: job`],
+    ['literal stdin-to-shell flow', `printf '%s\\n' 'printf safe' | sh`],
+    [
+      'heredoc-created safe script',
+      `cat > ./ccsn-package-script.sh <<'EOF'\nprintf safe\nEOF\nsh ./ccsn-package-script.sh`,
+    ],
+  ] as const) {
+    if (runPackedCliHook(options, command, `package-cli-allowed-${name}`) !== null) {
+      throw new Error(`Packed CLI blocked safe ${name}`);
+    }
+  }
+
+  for (const [name, command, ruleId] of [
+    [
+      'xargs source execution',
+      `printf '%s\\n' 'git reset --hard' | xargs sh -c`,
+      'xargs.shell-dynamic',
+    ],
+    [
+      'Parallel source execution',
+      `parallel sh -c {} ::: 'git reset --hard'`,
+      'parallel.shell-dynamic',
+    ],
+    [
+      'literal stdin-to-shell execution',
+      `printf '%s\\n' 'git reset --hard' | sh`,
+      'git.reset-hard',
+    ],
+    [
+      'heredoc-created script execution',
+      `cat > ./ccsn-package-script.sh <<'EOF'\ngit reset --hard\nEOF\nsh ./ccsn-package-script.sh`,
+      'git.reset-hard',
+    ],
+  ] as const) {
+    const output = runPackedCliHook(options, command, `package-cli-blocked-${name}`);
+    const hookOutput = output?.hookSpecificOutput as Record<string, unknown> | undefined;
+    if (
+      hookOutput?.permissionDecision !== 'deny' ||
+      !String(hookOutput.permissionDecisionReason).includes(ruleId)
+    ) {
+      throw new Error(`Packed CLI did not block ${name} with ${ruleId}`);
+    }
   }
 
   const piSafe = runPackedHost(

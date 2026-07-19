@@ -165,6 +165,12 @@ describe('built CLI protection contract', () => {
     ['bash syntax', "bash -n -c '(( rm -rf / root ))'"],
     ['Node data', `node -e 'console.log("rm -rf /")'`],
     ['xargs positional input', `find src -type f | xargs sh -c 'wc -l "$1"' _`],
+    ['Parallel literal shell source', `parallel sh -c 'printf safe' ::: job`],
+    ['literal stdin-to-shell flow', `printf '%s\\n' 'printf safe' | sh`],
+    [
+      'heredoc-created safe script',
+      `cat > ./ccsn-e2e-script.sh <<'EOF'\nprintf safe\nEOF\nsh ./ccsn-e2e-script.sh`,
+    ],
     ['parallel probe', 'command -v parallel'],
     ['secret metadata', 'test -f "$HOME/.ssh/id_rsa"'],
     [
@@ -216,6 +222,24 @@ describe('built CLI protection contract', () => {
       'xargs-source',
       `find src -type f | xargs -I{} sh -c 'echo {}; sed -n 1,20p {}'`,
       'xargs.shell-dynamic',
+    ],
+    [
+      'Parallel source execution',
+      'parallel-source',
+      `parallel sh -c {} ::: 'git reset --hard'`,
+      'parallel.shell-dynamic',
+    ],
+    [
+      'literal stdin-to-shell execution',
+      'stdin-shell',
+      `printf '%s\\n' 'git reset --hard' | sh`,
+      'git.reset-hard',
+    ],
+    [
+      'heredoc-created script execution',
+      'heredoc-script',
+      `cat > ./ccsn-e2e-script.sh <<'EOF'\ngit reset --hard\nEOF\nsh ./ccsn-e2e-script.sh`,
+      'git.reset-hard',
     ],
     ['parallel command stream', 'parallel-stream', 'parallel', 'parallel.command-stream-dynamic'],
     ['secret content', 'secret-content', 'cat "$HOME/.ssh/id_rsa"', 'secret.home.ssh'],
