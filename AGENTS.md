@@ -4,6 +4,17 @@
 - Ignore the dist folder, it will get auto rebuilt by husky's precommit hook.
 - Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 
+## Threat model and review boundary
+
+- Treat standard mode as protection for helpful, non-adversarial coding agents making accidental mistakes. Follow the standard/strict/paranoid contract documented in `SECURITY.md`.
+- Standard mode must block recognizable destructive operations, but it is not expected to be bypass-proof against deliberately crafted shell syntax, placeholder combinations, or runtime mutation.
+- Adversarial commands, prompt injection, and unverifiable execution belong to strict/paranoid mode. Those modes should fail closed without requiring exact emulation of every shell or utility.
+- Do not add exact shell, interpreter, xargs, GNU Parallel, or tool-language emulation solely to close a crafted standard-mode bypass. Prefer a simpler ownership boundary, bounded conservative check, strict-only denial, documented residual risk, or OS-level sandbox.
+- A review finding is merge-blocking when it demonstrates a plausible accidental command from a helpful agent, violates the documented mode contract, causes a false negative for recognizable danger, or creates an availability/resource-exhaustion problem.
+- Findings that require intentionally adversarial construction in standard mode should be classified as accepted residual risk or follow-up hardening unless the user explicitly expands the threat model.
+- Allow one review-driven remediation pass and one confirmation review. If another independent bypass family appears, stop and classify the remaining findings as must-fix, accepted residual risk, or evidence-invalid before adding more parser logic.
+- When invoking isolated autoreview, pass this threat model explicitly through `--prompt` or a repository-relative `--prompt-file`.
+
 ## Style Guide
 
 ### General Principles
