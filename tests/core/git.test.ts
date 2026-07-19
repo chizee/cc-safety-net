@@ -338,6 +338,13 @@ describe('git switch', () => {
 });
 
 describe('git restore', () => {
+  test('git restore without a pathspec is allowed', () => {
+    assertAllowed('git restore');
+    assertAllowed('/usr/bin/git restore --no-staged');
+    assertAllowed('git restore -h');
+    assertAllowed('git restore --worktree');
+  });
+
   test('git restore file blocked', () => {
     assertBlocked('git restore file.txt', 'git restore');
   });
@@ -360,6 +367,69 @@ describe('git restore', () => {
 
   test('git restore --help allowed', () => {
     assertAllowed('git restore --help');
+  });
+
+  test('git restore treats every token after -- as a pathspec', () => {
+    assertAllowed('git restore --');
+    assertBlocked('git restore -- -h', 'git restore');
+    assertBlocked('git restore -- --staged', 'git restore');
+    assertBlocked('git restore file.txt --', 'git restore');
+  });
+
+  test('git restore consumes values for known long options', () => {
+    assertAllowed('git restore --source --worktree');
+    assertBlocked('git restore --conflict --staged file.txt', 'git restore');
+    assertBlocked('git restore --unified --staged file.txt', 'git restore');
+    assertBlocked('git restore --inter-hunk-context --staged file.txt', 'git restore');
+    assertBlocked('git restore --source=HEAD file.txt', 'git restore');
+    assertBlocked('git restore --future-option file.txt', 'git restore');
+    assertAllowed('git restore --no-source --staged file.txt');
+    assertAllowed('git restore --recurse-submodules --staged file.txt');
+  });
+
+  test('git restore parses staged and worktree short option clusters', () => {
+    assertAllowed('git restore -qS file.txt');
+    assertBlocked('git restore -SW file.txt', 'git restore --worktree');
+    assertBlocked('git restore -sHEAD file.txt', 'git restore');
+    assertBlocked('git restore -U3 file.txt', 'git restore');
+    assertBlocked('git restore -s --staged file.txt', 'git restore');
+    assertBlocked('git restore -U --worktree file.txt', 'git restore');
+  });
+
+  test('git restore detects pathspec-from-file without parsing its operand as flags', () => {
+    assertBlocked('git restore --pathspec-from-file paths.txt', 'git restore');
+    assertBlocked('git restore --pathspec-from-file=paths.txt', 'git restore');
+    assertBlocked('git restore --pathspec-from-file --staged', 'git restore');
+    assertAllowed('git restore --staged --pathspec-from-file --worktree');
+  });
+
+  test('git restore treats lone - as a pathspec', () => {
+    assertBlocked('git restore -', 'git restore');
+  });
+
+  test('git restore applies location flags in order', () => {
+    assertAllowed('git restore --no-staged file.txt');
+    assertAllowed('git restore --no-worktree file.txt');
+    assertAllowed('git restore -S --no-staged file.txt');
+    assertBlocked('git restore --no-staged -W file.txt', 'git restore --worktree');
+    assertAllowed('git restore -W --no-worktree file.txt');
+    assertBlocked('git restore -S -W file.txt', 'git restore --worktree');
+  });
+
+  test('git restore patch mode is a target without a pathspec', () => {
+    assertBlocked('git restore -p', 'git restore');
+    assertBlocked('git restore --patch', 'git restore');
+    assertAllowed('git restore -p -S');
+    assertAllowed('git restore -p --no-patch');
+    assertBlocked('git restore --no-patch -p', 'git restore');
+  });
+
+  test('git restore only treats unconsumed help and version options as terminal', () => {
+    assertAllowed('git restore file.txt -h');
+    assertAllowed('git restore file.txt --help');
+    assertAllowed('git restore file.txt --version');
+    assertBlocked('git restore --source --help file.txt', 'git restore');
+    assertBlocked('git restore -- file.txt --help', 'git restore');
   });
 });
 

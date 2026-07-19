@@ -64,6 +64,13 @@ const CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = new Set(['--recurse-submodules', '--tr
 export const CHECKOUT_SHORT_OPTS_WITH_VALUE = new Set(['-b', '-B', '-U']);
 export const SWITCH_SHORT_OPTS_WITH_VALUE = new Set(['-c', '-C']);
 
+const RESTORE_OPTS_WITH_VALUE = new Set([
+  '--source',
+  '--conflict',
+  '--unified',
+  '--inter-hunk-context',
+]);
+
 const CHECKOUT_KNOWN_OPTS_NO_VALUE = new Set([
   '-q',
   '--quiet',
@@ -272,19 +279,129 @@ function getCheckoutPositionalArgs(tokens: readonly string[]): string[] {
 }
 
 function analyzeGitRestore(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
-  let hasStaged = false;
-  for (const token of tokens) {
-    if (token === '--help' || token === '--version') {
-      return null;
+  const facts = parseGitRestoreFacts(tokens);
+  if (facts.isTerminal || (!facts.hasPathspec && !facts.hasPatch) || !facts.hasWorktree) {
+    return null;
+  }
+  return facts.hasExplicitLocation
+    ? destructiveCommandMatch('git.restore-worktree', REASON_RESTORE_WORKTREE)
+    : destructiveCommandMatch('git.restore-unstaged', REASON_RESTORE);
+}
+
+function parseGitRestoreFacts(tokens: readonly string[]) {
+  let hasPathspec = false;
+  let hasPatch = false;
+  let hasWorktree = true;
+  let hasExplicitLocation = false;
+
+  const setLocation = (worktree?: boolean) => {
+    if (!hasExplicitLocation) {
+      hasWorktree = false;
+      hasExplicitLocation = true;
     }
-    if (token === '--worktree' || token === '-W') {
-      return destructiveCommandMatch('git.restore-worktree', REASON_RESTORE_WORKTREE);
+    if (worktree !== undefined) {
+      hasWorktree = worktree;
     }
-    if (token === '--staged' || token === '-S') {
-      hasStaged = true;
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined) break;
+    if (token === '--') {
+      hasPathspec ||= i + 1 < tokens.length;
+      break;
+    }
+    if (token === '--pathspec-from-file') {
+      hasPathspec = true;
+      i++;
+      continue;
+    }
+    if (token.startsWith('--pathspec-from-file=')) {
+      hasPathspec = true;
+      continue;
+    }
+    if (token === '-h' || token === '--help' || token === '--version') {
+      return {
+        hasPathspec,
+        hasPatch,
+        hasWorktree,
+        hasExplicitLocation,
+        isTerminal: true,
+      };
+    }
+    if (token === '--staged') {
+      setLocation();
+      continue;
+    }
+    if (token === '--no-staged') {
+      setLocation();
+      continue;
+    }
+    if (token === '--worktree') {
+      setLocation(true);
+      continue;
+    }
+    if (token === '--no-worktree') {
+      setLocation(false);
+      continue;
+    }
+    if (token === '--patch') {
+      hasPatch = true;
+      continue;
+    }
+    if (token === '--no-patch') {
+      hasPatch = false;
+      continue;
+    }
+    if (RESTORE_OPTS_WITH_VALUE.has(token)) {
+      i++;
+      continue;
+    }
+    if (token.startsWith('--')) {
+      continue;
+    }
+    if (token === '-') {
+      hasPathspec = true;
+      continue;
+    }
+    if (!token.startsWith('-')) {
+      hasPathspec = true;
+      continue;
+    }
+
+    for (let j = 1; j < token.length; j++) {
+      const option = token.charAt(j);
+      if (option === 'h') {
+        return {
+          hasPathspec,
+          hasPatch,
+          hasWorktree,
+          hasExplicitLocation,
+          isTerminal: true,
+        };
+      }
+      if (option === 'S') {
+        setLocation();
+        continue;
+      }
+      if (option === 'W') {
+        setLocation(true);
+        continue;
+      }
+      if (option === 'p') {
+        hasPatch = true;
+        continue;
+      }
+      if (option === 's' || option === 'U') {
+        if (j === token.length - 1) {
+          i++;
+        }
+        break;
+      }
     }
   }
-  return hasStaged ? null : destructiveCommandMatch('git.restore-unstaged', REASON_RESTORE);
+
+  return { hasPathspec, hasPatch, hasWorktree, hasExplicitLocation, isTerminal: false };
 }
 
 function analyzeGitReset(tokens: readonly string[]): GitRuleMatch | null {

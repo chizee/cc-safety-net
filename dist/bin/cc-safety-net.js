@@ -10835,7 +10835,12 @@ var REASON_CHECKOUT_DOUBLE_DASH = "git checkout -- discards uncommitted changes 
   "--inter-hunk-context",
   "--pathspec-from-file",
   "--unified"
-]), CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = /* @__PURE__ */ new Set(["--recurse-submodules", "--track", "-t"]), CHECKOUT_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-b", "-B", "-U"]), SWITCH_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-c", "-C"]), CHECKOUT_KNOWN_OPTS_NO_VALUE = /* @__PURE__ */ new Set([
+]), CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = /* @__PURE__ */ new Set(["--recurse-submodules", "--track", "-t"]), CHECKOUT_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-b", "-B", "-U"]), SWITCH_SHORT_OPTS_WITH_VALUE = /* @__PURE__ */ new Set(["-c", "-C"]), RESTORE_OPTS_WITH_VALUE = /* @__PURE__ */ new Set([
+  "--source",
+  "--conflict",
+  "--unified",
+  "--inter-hunk-context"
+]), CHECKOUT_KNOWN_OPTS_NO_VALUE = /* @__PURE__ */ new Set([
   "-q",
   "--quiet",
   "--no-quiet",
@@ -10979,16 +10984,110 @@ function getCheckoutPositionalArgs(tokens) {
   return positional;
 }
 function analyzeGitRestore(tokens) {
-  let hasStaged = !1;
-  for (let token of tokens) {
-    if (token === "--help" || token === "--version")
-      return null;
-    if (token === "--worktree" || token === "-W")
-      return destructiveCommandMatch("git.restore-worktree", REASON_RESTORE_WORKTREE);
-    if (token === "--staged" || token === "-S")
-      hasStaged = !0;
+  let facts = parseGitRestoreFacts(tokens);
+  if (facts.isTerminal || !facts.hasPathspec && !facts.hasPatch || !facts.hasWorktree)
+    return null;
+  return facts.hasExplicitLocation ? destructiveCommandMatch("git.restore-worktree", REASON_RESTORE_WORKTREE) : destructiveCommandMatch("git.restore-unstaged", REASON_RESTORE);
+}
+function parseGitRestoreFacts(tokens) {
+  let hasPathspec = !1, hasPatch = !1, hasWorktree = !0, hasExplicitLocation = !1, setLocation = (worktree) => {
+    if (!hasExplicitLocation)
+      hasWorktree = !1, hasExplicitLocation = !0;
+    if (worktree !== void 0)
+      hasWorktree = worktree;
+  };
+  for (let i = 0;i < tokens.length; i++) {
+    let token = tokens[i];
+    if (token === void 0)
+      break;
+    if (token === "--") {
+      hasPathspec ||= i + 1 < tokens.length;
+      break;
+    }
+    if (token === "--pathspec-from-file") {
+      hasPathspec = !0, i++;
+      continue;
+    }
+    if (token.startsWith("--pathspec-from-file=")) {
+      hasPathspec = !0;
+      continue;
+    }
+    if (token === "-h" || token === "--help" || token === "--version")
+      return {
+        hasPathspec,
+        hasPatch,
+        hasWorktree,
+        hasExplicitLocation,
+        isTerminal: !0
+      };
+    if (token === "--staged") {
+      setLocation();
+      continue;
+    }
+    if (token === "--no-staged") {
+      setLocation();
+      continue;
+    }
+    if (token === "--worktree") {
+      setLocation(!0);
+      continue;
+    }
+    if (token === "--no-worktree") {
+      setLocation(!1);
+      continue;
+    }
+    if (token === "--patch") {
+      hasPatch = !0;
+      continue;
+    }
+    if (token === "--no-patch") {
+      hasPatch = !1;
+      continue;
+    }
+    if (RESTORE_OPTS_WITH_VALUE.has(token)) {
+      i++;
+      continue;
+    }
+    if (token.startsWith("--"))
+      continue;
+    if (token === "-") {
+      hasPathspec = !0;
+      continue;
+    }
+    if (!token.startsWith("-")) {
+      hasPathspec = !0;
+      continue;
+    }
+    for (let j = 1;j < token.length; j++) {
+      let option = token.charAt(j);
+      if (option === "h")
+        return {
+          hasPathspec,
+          hasPatch,
+          hasWorktree,
+          hasExplicitLocation,
+          isTerminal: !0
+        };
+      if (option === "S") {
+        setLocation();
+        continue;
+      }
+      if (option === "W") {
+        setLocation(!0);
+        continue;
+      }
+      if (option === "p") {
+        hasPatch = !0;
+        continue;
+      }
+      if (option === "s" || option === "U") {
+        if (j === token.length - 1)
+          i++;
+        break;
+      }
+    }
   }
-  return hasStaged ? null : destructiveCommandMatch("git.restore-unstaged", REASON_RESTORE);
+  return { hasPathspec, hasPatch, hasWorktree, hasExplicitLocation, isTerminal: !1 };
 }
 function analyzeGitReset(tokens) {
   let match = null;
