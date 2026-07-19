@@ -544,35 +544,77 @@ function hasGitShortOption(
     excludedShortStarts: string;
   },
 ): boolean {
-  let outerActive = false;
-  let shortActive = false;
-  let hasShortFlag = false;
+  const contexts = [
+    {
+      outerActive: false,
+      shortActive: false,
+      hasShortFlag: false,
+      depth: 0,
+      quote: '' as string,
+      escaped: false,
+    },
+  ];
   for (let i = 0; i < scanLength(text); i++) {
     const char = scanChar(text, i);
+    const context = contexts[contexts.length - 1];
+    if (!context) return false;
+    const escaped = context.escaped;
+    context.escaped = !escaped && context.quote !== "'" && char === '\\';
+    if (!escaped && char === "'" && context.quote !== '"') {
+      context.quote = context.quote === "'" ? '' : "'";
+    }
+    if (!escaped && char === '"' && context.quote !== "'") {
+      context.quote = context.quote === '"' ? '' : '"';
+    }
+    if (
+      char === '$' &&
+      scanChar(text, i + 1) === '(' &&
+      (contexts.length === 1 || (!escaped && context.quote !== "'"))
+    ) {
+      contexts.push({
+        outerActive: false,
+        shortActive: false,
+        hasShortFlag: false,
+        depth: 1,
+        quote: '',
+        escaped: false,
+      });
+      i++;
+      continue;
+    }
+    if (!escaped && !context.quote && contexts.length > 1 && char === '(') {
+      context.depth++;
+      continue;
+    }
+    if (!escaped && !context.quote && contexts.length > 1 && char === ')') {
+      context.depth--;
+      if (context.depth === 0) contexts.pop();
+      continue;
+    }
     if (isEcmaWhitespace(char)) {
-      shortActive = false;
-      hasShortFlag = false;
+      context.shortActive = false;
+      context.hasShortFlag = false;
     }
 
-    if (!outerActive) {
+    if (!context.outerActive) {
       const gitCommand = scanGitCommandAt(text, i, options.command);
       if (gitCommand) {
-        outerActive =
+        context.outerActive =
           gitCommand.commandEnd >= 0 && isEcmaWhitespace(scanChar(text, gitCommand.commandEnd));
-        shortActive = false;
-        hasShortFlag = false;
-        i = Math.max(i, (outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
+        context.shortActive = false;
+        context.hasShortFlag = false;
+        i = Math.max(i, (context.outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }
 
-    if (outerActive && char === '-') {
+    if (context.outerActive && char === '-') {
       if (isPartialLongOption(text, i, options.longPrefix, options.longOptional)) return true;
-      shortActive ||= !options.excludedShortStarts.includes(scanChar(text, i + 1) ?? '');
+      context.shortActive ||= !options.excludedShortStarts.includes(scanChar(text, i + 1) ?? '');
     }
-    hasShortFlag ||= shortActive && char === options.shortFlag;
-    if (hasShortFlag && hasWordBoundaryAfter(text, i + 1)) return true;
-    if (isPipeSemicolonStop(char)) outerActive = false;
+    context.hasShortFlag ||= context.shortActive && char === options.shortFlag;
+    if (context.hasShortFlag && hasWordBoundaryAfter(text, i + 1)) return true;
+    if (isPipeSemicolonStop(char)) context.outerActive = false;
   }
   return false;
 }

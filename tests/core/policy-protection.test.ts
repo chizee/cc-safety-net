@@ -57,6 +57,7 @@ describe('policy config protection', () => {
       }
       for (const command of [
         `cat ${policyPath}`,
+        `jq '.' ${policyPath}`,
         `FOO=1 sed -n 1p ${policyPath} > policy-copy.txt`,
         `ls -la ${safetyNetHome}`,
         `file ${safetyNetHome}`,
@@ -64,8 +65,6 @@ describe('policy config protection', () => {
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
       }
-
-      expect(findPolicyMutation('Bash', { command: `jq . ${policyPath}` }, cwd)).not.toBeNull();
     });
   });
 
@@ -148,6 +147,10 @@ describe('policy config protection', () => {
         `sed -i.bak s/a/b/ ${policyPath}`,
         `dd if=/dev/zero of=${policyPath}`,
         `curl --output=${policyPath} https://example.com/config`,
+        `ln -sf /tmp/replacement.json ${policyPath}`,
+        `jq '.' ${policyPath} > ${policyPath}`,
+        `jq '.' ${policyPath} | tee ${policyPath}`,
+        `jq '.' ${policyPath} | sponge ${policyPath}`,
         `cat package.json > $CC_SAFETY_NET_HOME/policy.json`,
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toContain(

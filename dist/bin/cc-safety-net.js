@@ -5257,27 +5257,63 @@ function hasTagDelete(text) {
   });
 }
 function hasGitShortOption(text, options) {
-  let outerActive = !1, shortActive = !1, hasShortFlag = !1;
+  let contexts = [
+    {
+      outerActive: !1,
+      shortActive: !1,
+      hasShortFlag: !1,
+      depth: 0,
+      quote: "",
+      escaped: !1
+    }
+  ];
   for (let i = 0;i < scanLength(text); i++) {
-    let char = scanChar(text, i);
+    let char = scanChar(text, i), context = contexts[contexts.length - 1];
+    if (!context)
+      return !1;
+    let escaped = context.escaped;
+    if (context.escaped = !escaped && context.quote !== "'" && char === "\\", !escaped && char === "'" && context.quote !== '"')
+      context.quote = context.quote === "'" ? "" : "'";
+    if (!escaped && char === '"' && context.quote !== "'")
+      context.quote = context.quote === '"' ? "" : '"';
+    if (char === "$" && scanChar(text, i + 1) === "(" && (contexts.length === 1 || !escaped && context.quote !== "'")) {
+      contexts.push({
+        outerActive: !1,
+        shortActive: !1,
+        hasShortFlag: !1,
+        depth: 1,
+        quote: "",
+        escaped: !1
+      }), i++;
+      continue;
+    }
+    if (!escaped && !context.quote && contexts.length > 1 && char === "(") {
+      context.depth++;
+      continue;
+    }
+    if (!escaped && !context.quote && contexts.length > 1 && char === ")") {
+      if (context.depth--, context.depth === 0)
+        contexts.pop();
+      continue;
+    }
     if (isEcmaWhitespace(char))
-      shortActive = !1, hasShortFlag = !1;
-    if (!outerActive) {
+      context.shortActive = !1, context.hasShortFlag = !1;
+    if (!context.outerActive) {
       let gitCommand = scanGitCommandAt(text, i, options.command);
       if (gitCommand) {
-        outerActive = gitCommand.commandEnd >= 0 && isEcmaWhitespace(scanChar(text, gitCommand.commandEnd)), shortActive = !1, hasShortFlag = !1, i = Math.max(i, (outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
+        context.outerActive = gitCommand.commandEnd >= 0 && isEcmaWhitespace(scanChar(text, gitCommand.commandEnd)), context.shortActive = !1, context.hasShortFlag = !1, i = Math.max(i, (context.outerActive ? gitCommand.commandEnd : gitCommand.next) - 1);
         continue;
       }
     }
-    if (outerActive && char === "-") {
+    if (context.outerActive && char === "-") {
       if (isPartialLongOption(text, i, options.longPrefix, options.longOptional))
         return !0;
-      shortActive ||= !options.excludedShortStarts.includes(scanChar(text, i + 1) ?? "");
+      context.shortActive ||= !options.excludedShortStarts.includes(scanChar(text, i + 1) ?? "");
     }
-    if (hasShortFlag ||= shortActive && char === options.shortFlag, hasShortFlag && hasWordBoundaryAfter(text, i + 1))
+    if (context.hasShortFlag ||= context.shortActive && char === options.shortFlag, context.hasShortFlag && hasWordBoundaryAfter(text, i + 1))
       return !0;
     if (isPipeSemicolonStop(char))
-      outerActive = !1;
+      context.outerActive = !1;
   }
   return !1;
 }
@@ -11847,10 +11883,21 @@ function analyzeParallel(tokens, context) {
     if (reason)
       return reason;
   }
+  if (tokens.length === 2 && (tokens[1] === "--version" || tokens[1] === "--help"))
+    return null;
   let parseResult = parseParallelCommand(tokens);
   if (!parseResult)
     return null;
-  let { template, jobs, runsRemotely, envNames, readsCommandsFromInput, unsupported, workdir } = parseResult;
+  let {
+    template,
+    jobs,
+    runsRemotely,
+    envNames,
+    readsCommandsFromInput,
+    unsupported,
+    workdir,
+    dryRun
+  } = parseResult;
   if (unsupported) {
     let reason = parallelUnsupportedReason(context);
     if (reason)
@@ -11873,6 +11920,15 @@ function analyzeParallel(tokens, context) {
       return reason;
   }
   let executionContext = runsRemotely ? { ...context, cwd: void 0, originalCwd: void 0 } : workdirCwd === null || workdirCwd === void 0 || workdirCwd === context.cwd ? context : { ...context, cwd: workdirCwd };
+  if (dryRun) {
+    let childCommands = [...normalizeChildCommands(template, executionContext)];
+    if ((childCommands.length === 0 ? getParallelDynamicEnvValues(envNames, context.envAssignments, /* @__PURE__ */ new Map).values : childCommands.flatMap((childCommand) => getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments).values)).some(hasExecutableParallelPlaceholder)) {
+      let reason = parallelUnsupportedReason(context);
+      if (reason)
+        return reason;
+    }
+    return null;
+  }
   if (template.length === 0) {
     if (envNames.length > 0 || jobs.some((job) => job.length !== 1)) {
       let reason = parallelUnsupportedReason(context);
@@ -12580,13 +12636,16 @@ function hasParallelPlaceholder(token) {
   return PARALLEL_PLACEHOLDER_RE.test(token);
 }
 function hasUnsupportedParallelPlaceholder(token) {
-  let perlStart = token.indexOf("{=");
-  if (perlStart !== -1 && token.indexOf("=}", perlStart + 2) !== -1)
+  if (hasExecutableParallelPlaceholder(token))
     return !0;
   for (let match of token.matchAll(/\{[^{}\s]*\}/g))
     if (!/^(?:\{\}|\{-?\d+\})$/.test(match[0]))
       return !0;
   return !1;
+}
+function hasExecutableParallelPlaceholder(token) {
+  let perlStart = token.indexOf("{=");
+  return perlStart !== -1 && token.indexOf("=}", perlStart + 2) !== -1;
 }
 function isOnlyParallelPlaceholder(token) {
   return /^\{[^{}\s]*\}$/.test(token);
@@ -12609,7 +12668,7 @@ function parseParallelCommand(tokens) {
     "--res",
     "--tagstring",
     "--timeout"
-  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, workdir, unsupported = tokens.some((token) => token === "::::" || token === "::::+" || token === ":::+"), envNames = [];
+  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, dryRun = !1, workdir, unsupported = tokens.some((token) => token === "::::" || token === "::::+" || token === ":::+"), envNames = [];
   while (i < tokens.length) {
     let token = tokens[i];
     if (token === void 0)
@@ -12624,6 +12683,10 @@ function parseParallelCommand(tokens) {
       break;
     }
     if (token.startsWith("-")) {
+      if (token === "--dry-run") {
+        dryRun = !0, i++;
+        continue;
+      }
       if (token === "-I") {
         unsupported ||= tokens[i + 1] !== "{}", i += 2;
         continue;
@@ -12714,7 +12777,7 @@ function parseParallelCommand(tokens) {
       break;
     }
   }
-  unsupported ||= templateTokens.some(hasUnsupportedParallelPlaceholder);
+  unsupported ||= templateTokens.some(dryRun ? hasExecutableParallelPlaceholder : hasUnsupportedParallelPlaceholder);
   let argumentGroups = [];
   if (markerIndex !== -1) {
     let group = [];
@@ -12741,7 +12804,8 @@ function parseParallelCommand(tokens) {
       envNames,
       readsCommandsFromInput: !0,
       unsupported,
-      workdir
+      workdir,
+      dryRun
     };
   return {
     template: templateTokens,
@@ -12753,7 +12817,8 @@ function parseParallelCommand(tokens) {
     envNames,
     readsCommandsFromInput: !1,
     unsupported,
-    workdir
+    workdir,
+    dryRun
   };
 }
 function resolveParallelWorkdir(workdir, cwd) {
@@ -14765,6 +14830,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "file",
   "grep",
   "head",
+  "jq",
   "less",
   "ls",
   "more",

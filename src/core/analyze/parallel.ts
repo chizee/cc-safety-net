@@ -120,14 +120,26 @@ export function analyzeParallel(
     if (reason) return reason;
   }
 
+  if (tokens.length === 2 && (tokens[1] === '--version' || tokens[1] === '--help')) {
+    return null;
+  }
+
   const parseResult = parseParallelCommand(tokens);
 
   if (!parseResult) {
     return null;
   }
 
-  const { template, jobs, runsRemotely, envNames, readsCommandsFromInput, unsupported, workdir } =
-    parseResult;
+  const {
+    template,
+    jobs,
+    runsRemotely,
+    envNames,
+    readsCommandsFromInput,
+    unsupported,
+    workdir,
+    dryRun,
+  } = parseResult;
 
   if (unsupported) {
     const reason = parallelUnsupportedReason(context);
@@ -153,6 +165,26 @@ export function analyzeParallel(
     : workdirCwd === null || workdirCwd === undefined || workdirCwd === context.cwd
       ? context
       : { ...context, cwd: workdirCwd };
+
+  if (dryRun) {
+    const childCommands = [...normalizeChildCommands(template, executionContext)];
+    const envValues =
+      childCommands.length === 0
+        ? getParallelDynamicEnvValues(envNames, context.envAssignments, new Map()).values
+        : childCommands.flatMap(
+            (childCommand) =>
+              getParallelDynamicEnvValues(
+                envNames,
+                context.envAssignments,
+                childCommand.envAssignments,
+              ).values,
+          );
+    if (envValues.some(hasExecutableParallelPlaceholder)) {
+      const reason = parallelUnsupportedReason(context);
+      if (reason) return reason;
+    }
+    return null;
+  }
 
   if (template.length === 0) {
     if (envNames.length > 0 || jobs.some((job) => job.length !== 1)) {
@@ -1420,6 +1452,7 @@ interface ParallelParseResult {
   readsCommandsFromInput: boolean;
   unsupported: boolean;
   workdir: string | undefined;
+  dryRun: boolean;
 }
 
 /** @internal */
@@ -1454,16 +1487,18 @@ function hasParallelPlaceholder(token: string): boolean {
 }
 
 function hasUnsupportedParallelPlaceholder(token: string): boolean {
-  const perlStart = token.indexOf('{=');
-  if (perlStart !== -1 && token.indexOf('=}', perlStart + 2) !== -1) {
-    return true;
-  }
+  if (hasExecutableParallelPlaceholder(token)) return true;
   for (const match of token.matchAll(/\{[^{}\s]*\}/g)) {
     if (!/^(?:\{\}|\{-?\d+\})$/.test(match[0])) {
       return true;
     }
   }
   return false;
+}
+
+function hasExecutableParallelPlaceholder(token: string): boolean {
+  const perlStart = token.indexOf('{=');
+  return perlStart !== -1 && token.indexOf('=}', perlStart + 2) !== -1;
 }
 
 function isOnlyParallelPlaceholder(token: string): boolean {
@@ -1497,6 +1532,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
   let markerIndex = -1;
   let runsRemotely = false;
   let usesPipe = false;
+  let dryRun = false;
   let workdir: string | undefined;
   let unsupported = tokens.some(
     (token) => token === '::::' || token === '::::+' || token === ':::+',
@@ -1523,6 +1559,12 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
     }
 
     if (token.startsWith('-')) {
+      if (token === '--dry-run') {
+        dryRun = true;
+        i++;
+        continue;
+      }
+
       if (token === '-I') {
         unsupported ||= tokens[i + 1] !== '{}';
         i += 2;
@@ -1681,7 +1723,9 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
     }
   }
 
-  unsupported ||= templateTokens.some(hasUnsupportedParallelPlaceholder);
+  unsupported ||= templateTokens.some(
+    dryRun ? hasExecutableParallelPlaceholder : hasUnsupportedParallelPlaceholder,
+  );
 
   // Extract argument sources after ::: and generate their Cartesian product.
   const argumentGroups: string[][] = [];
@@ -1718,6 +1762,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
       readsCommandsFromInput: true,
       unsupported,
       workdir,
+      dryRun,
     };
   }
 
@@ -1732,6 +1777,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
     readsCommandsFromInput: false,
     unsupported,
     workdir,
+    dryRun,
   };
 }
 

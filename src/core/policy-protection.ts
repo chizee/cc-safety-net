@@ -41,6 +41,7 @@ const READ_ONLY_COMMANDS = new Set([
   'file',
   'grep',
   'head',
+  'jq',
   'less',
   'ls',
   'more',

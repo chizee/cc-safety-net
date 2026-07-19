@@ -95,6 +95,19 @@ describe('linear dangerous-text scan work', () => {
     expect(large).toBeLessThanOrEqual(small * 3);
   });
 
+  test('tag command substitutions keep linear work', () => {
+    const measureCandidates = (count: number) => {
+      const work = { units: 0 };
+      const text = 'git tag --contains $(git log -Sneedle);'.repeat(count);
+      expect(hasLinearDangerousText(text, 'tag', work)).toBe(false);
+      return work.units;
+    };
+
+    const small = measureCandidates(128);
+    const large = measureCandidates(256);
+    expect(large).toBeLessThanOrEqual(small * 3);
+  });
+
   test.each([
     'rm\n--recursive --force /tmp/x',
     'git push origin\n+main',

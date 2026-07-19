@@ -32,6 +32,69 @@ const analyzeWithInheritedParallelEnv = (command: string) =>
     config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
   });
 
+describe('parallel diagnostics', () => {
+  test.each([
+    'parallel --version',
+    'parallel --help',
+  ])('allows terminal information command %s', (command) => {
+    expect(analyzeTestCommand(command)).toBeNull();
+  });
+
+  test('does not treat information options as terminal when work follows them', () => {
+    expect(analyzeTestCommand('parallel --version rm -rf /')?.ruleId).toBe(
+      'rm.recursive-force-root-or-home',
+    );
+    expect(
+      analyzeTestCommand('parallel --help', {
+        envAssignments: new Map([['PARALLEL', '-I X']]),
+      })?.ruleId,
+    ).toBe('parallel.command-stream-dynamic');
+  });
+
+  test.each([
+    "parallel --dry-run rm -rf '{1}' ::: /",
+    "parallel --dry-run rm -rf '{/}' ::: /",
+  ])('allows a dry-run that only prints a destructive child command in %s', (command) => {
+    expect(analyzeTestCommand(command)).toBeNull();
+  });
+
+  test.each([
+    [
+      'ambient configuration',
+      'parallel --dry-run printf safe ::: value',
+      new Map([['PARALLEL', '-I X']]),
+    ],
+    ['command stream input', 'parallel --dry-run', undefined],
+    [
+      'custom replacement',
+      'parallel --dry-run --rpl "{x} s/.*/rm -rf/" echo {x} ::: value',
+      undefined,
+    ],
+    [
+      'executable replacement',
+      'parallel --dry-run echo \'{= system("rm -rf /") =}\' ::: value',
+      undefined,
+    ],
+    [
+      'remote workdir',
+      'parallel --dry-run --workdir /tmp -S host printf safe ::: value',
+      undefined,
+    ],
+  ])('keeps blocking %s in dry-run mode', (_name, command, envAssignments) => {
+    expect(analyzeTestCommand(command, { envAssignments })?.ruleId).toBe(
+      'parallel.command-stream-dynamic',
+    );
+  });
+
+  test('keeps blocking executable replacement code supplied through a selected environment value', () => {
+    expect(
+      analyzeTestCommand('parallel --dry-run --env FOO echo ::: value', {
+        envAssignments: new Map([['FOO', '{= system("rm -rf /") =}']]),
+      })?.ruleId,
+    ).toBe('parallel.command-stream-dynamic');
+  });
+});
+
 describe('parallel analysis budgets', () => {
   test('accepts the exact child-analysis limit and denies the first child over it', () => {
     const accepted = `parallel ::: ${repeatedArgs('true', PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)}`;

@@ -209,6 +209,10 @@ describe('linear raw danger matcher parity', () => {
     'git tag -x;git tag -d',
     'git tag -x|git tag -d',
     'git tag -d;git tag -x',
+    'git tag --contains $(git tag -d v1)',
+    'git tag --contains $(git log -Sneedle) -d v1',
+    `git tag --contains "$(git log --fixed-strings --grep='(' -1 --format=%H)" -d v1`,
+    String.raw`git tag --contains $(printf \() -d v1`,
   ])('preserves tag delete match %s', (text) => expectLabel(text, 'git tag -d'));
 
   test.each([
@@ -218,6 +222,9 @@ describe('linear raw danger matcher parity', () => {
     'git tag -x|z -d',
     'git tag -x;git tag -x',
     'git tag -x|git tag -x',
+    "git tag --contains $(git log --all --format='%H' -Sneedle -- src/file.ts | tail -n 1)",
+    `git tag --contains "$(git log --fixed-strings --grep=')' -1 --format='-d')"`,
+    String.raw`git tag --contains $(printf \) -d)`,
   ])('preserves tag delete non-match %s', (text) => expect(dangerousInText(text)).toBeNull());
 
   test.each([
