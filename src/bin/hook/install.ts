@@ -166,7 +166,7 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
     copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
     piSafetyNetProbe,
   })
-    .filter((hook) => hook.status !== 'n/a')
+    .filter((hook) => hook.detected)
     .map((hook) => hook.platform as InstallTarget);
 }
 

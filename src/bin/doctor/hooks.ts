@@ -1,16 +1,26 @@
 /**
- * Hook detection with integrated self-test for the doctor command.
+ * Hook discovery and configuration inspection for the doctor command.
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stripJsonComments } from '@/bin/config/jsonc';
-import type { HookStatus, PiProbeInfo } from '@/bin/doctor/types';
+import type { HookPlatform, HookStatus, PiProbeInfo } from '@/bin/doctor/types';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { doctorIntegrationOrder } from '@/integrations/catalog';
-import { runIntegrationSelfTest } from '@/integrations/self-test';
+
+type HookDetectionStatus = 'configured' | 'n/a' | 'disabled';
+
+interface HookDetection {
+  platform: HookPlatform;
+  status: HookDetectionStatus;
+  method?: string;
+  configPath?: string;
+  configPaths?: readonly string[];
+  errors?: string[];
+}
 
 interface HookDetectOptions extends PolicySnapshotOptions {
   homeDir?: string;
@@ -60,7 +70,7 @@ const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-c
 /**
  * Detect Claude Code hook configuration.
  */
-function detectClaudeCode(pluginListOutput: string | null | undefined): HookStatus {
+function detectClaudeCode(pluginListOutput: string | null | undefined): HookDetection {
   if (!pluginListOutput) {
     return { platform: 'claude-code', status: 'n/a' };
   }
@@ -85,7 +95,6 @@ function detectClaudeCode(pluginListOutput: string | null | undefined): HookStat
       status: 'configured',
       method: 'plugin list',
       configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-      selfTest: runIntegrationSelfTest(),
     };
   }
 
@@ -122,7 +131,7 @@ function _escapeRegExp(value: string): string {
  * Detect OpenCode plugin configuration.
  * OpenCode only has 'configured' or 'n/a' status (no disabled state).
  */
-function detectOpenCode(homeDir: string): HookStatus {
+function detectOpenCode(homeDir: string): HookDetection {
   const errors: string[] = [];
   const configDir = join(homeDir, '.config', 'opencode');
   const candidates = ['opencode.json', 'opencode.jsonc'];
@@ -144,7 +153,6 @@ function detectOpenCode(homeDir: string): HookStatus {
             status: 'configured',
             method: 'plugin array',
             configPath,
-            selfTest: runIntegrationSelfTest(),
             errors: errors.length > 0 ? errors : undefined,
           };
         }
@@ -174,7 +182,7 @@ function detectOpenCode(homeDir: string): HookStatus {
  * - 'disabled': Extension source is installed but effectively disabled
  * - 'n/a': Extension source is not installed, or list output is unavailable
  */
-function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookStatus {
+function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookDetection {
   if (!extensionsListOutput) {
     return { platform: 'gemini-cli', status: 'n/a' };
   }
@@ -211,7 +219,6 @@ function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookS
     status: 'configured',
     method: 'extension list',
     configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -248,7 +255,7 @@ function _findAntigravitySafetyNetHooks(
   });
 }
 
-function detectAntigravityCli(homeDir: string): HookStatus {
+function detectAntigravityCli(homeDir: string): HookDetection {
   const configPath = getAntigravityHooksPath(homeDir);
 
   if (!existsSync(configPath)) {
@@ -275,7 +282,6 @@ function detectAntigravityCli(homeDir: string): HookStatus {
       status: 'configured',
       method: 'hook config',
       configPath,
-      selfTest: runIntegrationSelfTest(),
     };
   }
 
@@ -291,7 +297,7 @@ function detectAntigravityCli(homeDir: string): HookStatus {
   return { platform: 'antigravity-cli', status: 'n/a', configPath };
 }
 
-function detectKimiCode(homeDir: string): HookStatus {
+function detectKimiCode(homeDir: string): HookDetection {
   const configPath = _getKimiConfigPath(homeDir);
 
   if (!existsSync(configPath)) {
@@ -316,11 +322,10 @@ function detectKimiCode(homeDir: string): HookStatus {
     status: 'configured',
     method: 'hook config',
     configPath,
-    selfTest: runIntegrationSelfTest(),
   };
 }
 
-function detectPi(probe: PiProbeInfo | undefined): HookStatus {
+function detectPi(probe: PiProbeInfo | undefined): HookDetection {
   if (!probe || probe.status === 'unavailable') {
     return { platform: 'pi', status: 'n/a' };
   }
@@ -348,7 +353,6 @@ function detectPi(probe: PiProbeInfo | undefined): HookStatus {
     method: 'pi probe',
     configPath: configPaths[0],
     configPaths: configPaths.length > 0 ? configPaths : undefined,
-    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -382,7 +386,7 @@ function _parseGeminiEnabledValue(block: string, scope: 'User' | 'Workspace'): b
 /**
  * Detect Codex plugin configuration.
  */
-function detectCodex(pluginListOutput: string | null | undefined): HookStatus {
+function detectCodex(pluginListOutput: string | null | undefined): HookDetection {
   if (!pluginListOutput) {
     return { platform: 'codex', status: 'n/a' };
   }
@@ -410,7 +414,6 @@ function detectCodex(pluginListOutput: string | null | undefined): HookStatus {
     status: 'configured',
     method: CODEX_PLUGIN_LIST_CONFIG_PATH,
     configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
-    selfTest: runIntegrationSelfTest(),
   };
 }
 
@@ -656,11 +659,11 @@ function _checkCopilotEnabled(
 }
 
 /**
- * Detect all hooks and run self-tests for configured ones.
+ * Detect all hooks and inspect their configuration.
  */
 export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookStatus[] {
   const homeDir = options?.homeDir ?? homedir();
-  const detectCopilotCLI = (): HookStatus => {
+  const detectCopilotCLI = (): HookDetection => {
     const errors: string[] = [];
     const hooksCheck = _checkCopilotEnabled(homeDir, cwd, options?.copilotCliVersion, errors);
 
@@ -685,7 +688,6 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
         configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : undefined),
         configPaths:
           hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : undefined,
-        selfTest: runIntegrationSelfTest(),
         errors: errors.length > 0 ? errors : undefined,
       };
     }
@@ -698,24 +700,45 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
   };
 
   return doctorIntegrationOrder.map((platform) => {
-    switch (platform) {
-      case 'claude-code':
-        return detectClaudeCode(options?.claudePluginListOutput);
-      case 'antigravity-cli':
-        return detectAntigravityCli(homeDir);
-      case 'opencode':
-        return detectOpenCode(homeDir);
-      case 'gemini-cli':
-        return detectGeminiCLI(options?.geminiExtensionsListOutput);
-      case 'copilot-cli':
-        return detectCopilotCLI();
-      case 'kimi-code':
-        return detectKimiCode(homeDir);
-      case 'pi':
-        return detectPi(options?.piSafetyNetProbe);
-      case 'codex':
-        return detectCodex(options?.codexPluginListOutput);
-    }
-    return platform satisfies never;
+    const detection = (() => {
+      switch (platform) {
+        case 'claude-code':
+          return detectClaudeCode(options?.claudePluginListOutput);
+        case 'antigravity-cli':
+          return detectAntigravityCli(homeDir);
+        case 'opencode':
+          return detectOpenCode(homeDir);
+        case 'gemini-cli':
+          return detectGeminiCLI(options?.geminiExtensionsListOutput);
+        case 'copilot-cli':
+          return detectCopilotCLI();
+        case 'kimi-code':
+          return detectKimiCode(homeDir);
+        case 'pi':
+          return detectPi(options?.piSafetyNetProbe);
+        case 'codex':
+          return detectCodex(options?.codexPluginListOutput);
+      }
+      return platform satisfies never;
+    })();
+    return _toHookStatus(detection);
   });
+}
+
+function _toHookStatus(detection: HookDetection): HookStatus {
+  return {
+    platform: detection.platform,
+    detected: detection.status !== 'n/a',
+    configured: detection.status === 'configured',
+    inspectionStatus:
+      detection.status !== 'n/a'
+        ? 'verified'
+        : detection.errors && detection.errors.length > 0
+          ? 'failed'
+          : 'not-applicable',
+    method: detection.method,
+    configPath: detection.configPath,
+    configPaths: detection.configPaths,
+    errors: detection.errors,
+  };
 }

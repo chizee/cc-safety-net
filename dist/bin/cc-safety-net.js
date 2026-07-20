@@ -242,6 +242,16 @@ var require_parse = __commonJS((exports, module) => {
 // src/bin/audit-log.ts
 import { basename, dirname, resolve } from "node:path";
 
+// src/bin/utils/terminal.ts
+function renderTerminalText(value) {
+  return Array.from(value, (character) => {
+    let code = character.charCodeAt(0);
+    if (code <= 31 || code >= 127 && code <= 159)
+      return `\\x${code.toString(16).padStart(2, "0")}`;
+    return character;
+  }).join("");
+}
+
 // src/core/audit.ts
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -612,14 +622,6 @@ function formatHumanTimestamp(timestamp, timeZone) {
     hourCycle: "h23",
     timeZone
   }).format(date);
-}
-function renderTerminalText(value) {
-  return Array.from(value, (character) => {
-    let code = character.charCodeAt(0);
-    if (code <= 31 || code >= 127 && code <= 159)
-      return `\\x${code.toString(16).padStart(2, "0")}`;
-    return character;
-  }).join("");
 }
 function parsePositiveNumber(value) {
   if (value === void 0)
@@ -17997,25 +17999,15 @@ function formatAsciiTable(options2) {
 function formatHooksSection(hooks) {
   let lines = [];
   lines.push("Hook Integration"), lines.push(formatHooksTable(hooks));
-  let failures = [], warnings = [], errors = [];
+  let warnings = [], errors = [];
   for (let hook of hooks) {
     let platformName = getIntegrationDisplayName(hook.platform);
-    if (hook.selfTest) {
-      for (let result of hook.selfTest.results)
-        if (!result.passed)
-          failures.push({ platform: platformName, result });
-    }
     if (hook.errors && hook.errors.length > 0)
       for (let err of hook.errors)
-        if (hook.status === "configured")
+        if (hook.configured)
           warnings.push({ platform: platformName, message: err });
         else
           errors.push({ platform: platformName, message: err });
-  }
-  if (failures.length > 0) {
-    lines.push(""), lines.push(colors.red("   Failures:"));
-    for (let f of failures)
-      lines.push(colors.red(`   • ${f.platform}: ${f.result.description}`)), lines.push(colors.red(`     expected ${f.result.expected}, got ${f.result.actual}`));
   }
   for (let w of warnings)
     lines.push(`   Warning (${w.platform}): ${w.message}`);
@@ -18025,27 +18017,24 @@ function formatHooksSection(hooks) {
 `);
 }
 function formatHooksTable(hooks) {
-  let headers = ["Platform", "Status", "Tests"], getStatusDisplay = (h) => {
-    switch (h.status) {
-      case "configured":
-        return { text: "Configured", colored: colors.green("Configured") };
-      case "disabled":
-        return { text: "Disabled", colored: colors.yellow("Disabled") };
-      case "n/a":
-        return { text: "N/A", colored: colors.dim("N/A") };
-    }
-  }, rowData = hooks.map((h) => {
-    let platformName = getIntegrationDisplayName(h.platform), statusDisplay = getStatusDisplay(h), testsText = "-";
-    if (h.status === "configured" && h.selfTest) {
-      let label = h.selfTest.failed > 0 ? "FAIL" : "OK";
-      testsText = `${h.selfTest.passed}/${h.selfTest.total} ${label}`;
-    }
+  let headers = ["Platform", "Discovery", "Configuration", "Inspection"], rowData = hooks.map((h) => {
+    let platformName = getIntegrationDisplayName(h.platform), discovery = h.detected ? { text: "Detected", colored: colors.green("Detected") } : h.inspectionStatus === "failed" ? { text: "Unknown", colored: colors.red("Unknown") } : { text: "Not detected", colored: colors.dim("Not detected") }, configuration = h.configured ? { text: "Configured", colored: colors.green("Configured") } : h.detected ? { text: "Not configured", colored: colors.yellow("Not configured") } : h.inspectionStatus === "failed" ? { text: "Unknown", colored: colors.red("Unknown") } : { text: "Not applicable", colored: colors.dim("Not applicable") }, inspection = h.inspectionStatus === "verified" ? { text: "Verified", colored: colors.green("Verified") } : h.inspectionStatus === "failed" ? { text: "Failed", colored: colors.red("Failed") } : { text: "Not applicable", colored: colors.dim("Not applicable") };
     return {
-      colored: [platformName, statusDisplay.colored, testsText],
-      raw: [platformName, statusDisplay.text, testsText]
+      colored: [platformName, discovery.colored, configuration.colored, inspection.colored],
+      raw: [platformName, discovery.text, configuration.text, inspection.text]
     };
   }), rows = rowData.map((r) => r.colored), rawRows = rowData.map((r) => r.raw);
   return formatAsciiTable({ headers, rows, rawRows });
+}
+function formatEngineSelfTestSection(selfTest) {
+  let lines = ["Guard Engine Verification", `   Synthetic self-test: ${selfTest.failed > 0 ? colors.red(`${selfTest.passed}/${selfTest.total} FAIL`) : colors.green(`${selfTest.passed}/${selfTest.total} passed`)}`], failures = selfTest.results.filter((result) => !result.passed);
+  if (failures.length > 0) {
+    lines.push(""), lines.push(colors.red("   Failures:"));
+    for (let failure of failures)
+      lines.push(colors.red(`   • ${failure.description}`)), lines.push(colors.red(`     expected ${failure.expected}, got ${failure.actual}`));
+  }
+  return lines.join(`
+`);
 }
 function formatRulesTable(rules) {
   if (rules.length === 0)
@@ -18134,7 +18123,7 @@ function formatActivitySection(activity) {
 }
 function formatActivityTable(entries) {
   let headers = ["Time", "Command"], rows = entries.map((e) => {
-    let cmd = e.command.length > 40 ? `${e.command.slice(0, 37)}...` : e.command;
+    let command2 = renderTerminalText(e.command.replace(/\r\n|\r|\n/g, " ↵ ").replace(/\t/g, " ")), cmd = command2.length > 40 ? `${command2.slice(0, 37)}...` : command2;
     return [e.relativeTime, cmd];
   });
   return formatAsciiTable({ headers, rows });
@@ -18229,7 +18218,7 @@ function formatSystemInfoTable(system) {
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatSummary(report) {
-  let hooksFailed = report.hooks.every((h) => h.status !== "configured"), selfTestFailed = report.hooks.some((h) => h.selfTest && h.selfTest.failed > 0), configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0, failures = [hooksFailed, selfTestFailed, configFailed].filter(Boolean).length, warnings = 0;
+  let hooksFailed = report.hooks.every((hook) => !hook.configured), inspectionFailed = report.hooks.some((hook) => hook.inspectionStatus === "failed"), selfTestFailed = report.engineSelfTest.failed > 0, configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0, failures = [hooksFailed, inspectionFailed, selfTestFailed, configFailed].filter(Boolean).length, warnings = 0;
   if (report.update.updateAvailable)
     warnings++;
   if (report.activity.totalBlocked === 0)
@@ -18247,7 +18236,7 @@ All checks passed.`);
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync4, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
-import { join as join16 } from "node:path";
+import { join as join15 } from "node:path";
 
 // src/bin/config/jsonc.ts
 function stripJsonComments(content) {
@@ -18317,81 +18306,6 @@ function getAntigravityHooksPath(homeDir) {
   return join14(homeDir, ".gemini", "config", "hooks.json");
 }
 
-// src/integrations/self-test.ts
-import { tmpdir as tmpdir2 } from "node:os";
-import { join as join15 } from "node:path";
-var CASES = Object.freeze([
-  { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
-  { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
-  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: !1 }
-]), SNAPSHOT = Object.freeze({
-  state: "ready",
-  diagnostics: Object.freeze([]),
-  policy: Object.freeze({
-    rules: Object.freeze([]),
-    transparentWrappers: Object.freeze([]),
-    safety: Object.freeze({}),
-    worktreeMode: !1,
-    destructiveCommandProtectionEnabled: !0,
-    destructiveCommandRuleOverrides: Object.freeze({}),
-    secretProtection: Object.freeze({
-      enabled: !0,
-      disabledRules: Object.freeze([]),
-      denyPaths: Object.freeze([])
-    })
-  })
-}), STANDARD_MODES = {
-  strict: !1,
-  paranoidRm: !1,
-  paranoidInterpreters: !1,
-  worktreeMode: !1,
-  effectiveLevel: "standard",
-  capabilities: {
-    fail_closed: { enabled: !1, source: "preset", sources: [] },
-    paranoid_rm: { enabled: !1, source: "preset", sources: [] },
-    paranoid_interpreters: {
-      enabled: !1,
-      source: "preset",
-      sources: []
-    }
-  },
-  sources: {
-    failClosed: [],
-    paranoidRm: [],
-    paranoidInterpreters: [],
-    worktreeMode: []
-  }
-};
-function runIntegrationSelfTest() {
-  let cwd = join15(tmpdir2(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
-    let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
-      guard: {
-        dependencies: {
-          loadPolicySnapshot: () => SNAPSHOT,
-          getModes: () => STANDARD_MODES
-        }
-      },
-      audit: { agent: "self-test", getSessionId: () => {
-        return;
-      } }
-    }), expected = testCase.expectBlocked ? "blocked" : "allowed", actual = evaluation.decision.kind === "deny" ? "blocked" : "allowed";
-    return {
-      command: testCase.command,
-      description: testCase.description,
-      expected,
-      actual,
-      passed: expected === actual,
-      reason: evaluation.decision.kind === "deny" ? evaluation.decision.reason : void 0
-    };
-  });
-  return {
-    passed: results.filter((result) => result.passed).length,
-    failed: results.filter((result) => !result.passed).length,
-    total: results.length,
-    results
-  };
-}
-
 // src/bin/doctor/hooks.ts
 var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 function detectClaudeCode(pluginListOutput) {
@@ -18412,8 +18326,7 @@ function detectClaudeCode(pluginListOutput) {
       platform: "claude-code",
       status: "configured",
       method: "plugin list",
-      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-      selfTest: runIntegrationSelfTest()
+      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH
     };
   return {
     platform: "claude-code",
@@ -18436,9 +18349,9 @@ function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  let errors = [], configDir = join16(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  let errors = [], configDir = join15(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
-    let configPath = join16(configDir, filename);
+    let configPath = join15(configDir, filename);
     if (existsSync4(configPath))
       try {
         let content = readFileSync7(configPath, "utf-8"), json = stripJsonComments(content);
@@ -18448,7 +18361,6 @@ function detectOpenCode(homeDir) {
             status: "configured",
             method: "plugin array",
             configPath,
-            selfTest: runIntegrationSelfTest(),
             errors: errors.length > 0 ? errors : void 0
           };
       } catch (e) {
@@ -18482,12 +18394,11 @@ function detectGeminiCLI(extensionsListOutput) {
     platform: "gemini-cli",
     status: "configured",
     method: "extension list",
-    configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-    selfTest: runIntegrationSelfTest()
+    configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join16(process.env.KIMI_CODE_HOME || join16(homeDir, ".kimi-code"), "config.toml");
+  return join15(process.env.KIMI_CODE_HOME || join15(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -18537,8 +18448,7 @@ function detectAntigravityCli(homeDir) {
       platform: "antigravity-cli",
       status: "configured",
       method: "hook config",
-      configPath,
-      selfTest: runIntegrationSelfTest()
+      configPath
     };
   if (matches.length > 0)
     return {
@@ -18568,8 +18478,7 @@ function detectKimiCode(homeDir) {
     platform: "kimi-code",
     status: "configured",
     method: "hook config",
-    configPath,
-    selfTest: runIntegrationSelfTest()
+    configPath
   };
 }
 function detectPi(probe) {
@@ -18590,8 +18499,7 @@ function detectPi(probe) {
     status: "configured",
     method: "pi probe",
     configPath: configPaths[0],
-    configPaths: configPaths.length > 0 ? configPaths : void 0,
-    selfTest: runIntegrationSelfTest()
+    configPaths: configPaths.length > 0 ? configPaths : void 0
   };
 }
 function _parseGeminiExtensionsList(output) {
@@ -18633,8 +18541,7 @@ function detectCodex(pluginListOutput) {
     platform: "codex",
     status: "configured",
     method: CODEX_PLUGIN_LIST_CONFIG_PATH,
-    configPath: CODEX_PLUGIN_LIST_CONFIG_PATH,
-    selfTest: runIntegrationSelfTest()
+    configPath: CODEX_PLUGIN_LIST_CONFIG_PATH
   };
 }
 function _isSafetyNetCopilotCommand(command2) {
@@ -18676,7 +18583,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join16(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join15(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   return (config.hooks?.preToolUse ?? []).some((hook) => {
@@ -18705,7 +18612,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
-    let configPath = join16(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    let configPath = join15(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
   }
@@ -18741,10 +18648,10 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join16(cwd, ".github", "hooks"), userHookDir = join16(configHome, "hooks"), repoConfigDir = join16(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join16(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.local.json"), inlineErrors)
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join15(cwd, ".github", "hooks"), userHookDir = join15(configHome, "hooks"), repoConfigDir = join15(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
+    userConfig: _collectCopilotInlineConfig(join15(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== !1) {
     let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -18756,7 +18663,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   }
   let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync4(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
-    let configPath = join16(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    let configPath = join15(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
   }
@@ -18809,7 +18716,6 @@ function detectAllHooks(cwd, options2) {
         method: viaPlugin ? "plugin list" : "hook config",
         configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : void 0),
         configPaths: hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : void 0,
-        selfTest: runIntegrationSelfTest(),
         errors: errors.length > 0 ? errors : void 0
       };
     }
@@ -18820,34 +18726,49 @@ function detectAllHooks(cwd, options2) {
     };
   };
   return doctorIntegrationOrder.map((platform) => {
-    switch (platform) {
-      case "claude-code":
-        return detectClaudeCode(options2?.claudePluginListOutput);
-      case "antigravity-cli":
-        return detectAntigravityCli(homeDir);
-      case "opencode":
-        return detectOpenCode(homeDir);
-      case "gemini-cli":
-        return detectGeminiCLI(options2?.geminiExtensionsListOutput);
-      case "copilot-cli":
-        return detectCopilotCLI();
-      case "kimi-code":
-        return detectKimiCode(homeDir);
-      case "pi":
-        return detectPi(options2?.piSafetyNetProbe);
-      case "codex":
-        return detectCodex(options2?.codexPluginListOutput);
-    }
-    return platform;
+    let detection = (() => {
+      switch (platform) {
+        case "claude-code":
+          return detectClaudeCode(options2?.claudePluginListOutput);
+        case "antigravity-cli":
+          return detectAntigravityCli(homeDir);
+        case "opencode":
+          return detectOpenCode(homeDir);
+        case "gemini-cli":
+          return detectGeminiCLI(options2?.geminiExtensionsListOutput);
+        case "copilot-cli":
+          return detectCopilotCLI();
+        case "kimi-code":
+          return detectKimiCode(homeDir);
+        case "pi":
+          return detectPi(options2?.piSafetyNetProbe);
+        case "codex":
+          return detectCodex(options2?.codexPluginListOutput);
+      }
+      return platform;
+    })();
+    return _toHookStatus(detection);
   });
+}
+function _toHookStatus(detection) {
+  return {
+    platform: detection.platform,
+    detected: detection.status !== "n/a",
+    configured: detection.status === "configured",
+    inspectionStatus: detection.status !== "n/a" ? "verified" : detection.errors && detection.errors.length > 0 ? "failed" : "not-applicable",
+    method: detection.method,
+    configPath: detection.configPath,
+    configPaths: detection.configPaths,
+    errors: detection.errors
+  };
 }
 
 // src/bin/doctor/system-info.ts
 import { spawn } from "node:child_process";
 import { existsSync as existsSync5 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir as tmpdir3 } from "node:os";
-import { delimiter, extname, join as join17 } from "node:path";
+import { tmpdir as tmpdir2 } from "node:os";
+import { delimiter, extname, join as join16 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
@@ -18875,7 +18796,7 @@ function resolveWindowsCommand(command2, env) {
   ];
   if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync5(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync5(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join16(dir, candidate))).find((candidate) => existsSync5(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -19010,7 +18931,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join17(tmpdir3(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join16(tmpdir2(), "cc-safety-net-pi-probe-")), probePath = join16(tempDir, "pi-extension-probe.ts"), resultPath = join16(tempDir, "result.json"), stdoutPath = join16(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -19442,6 +19363,81 @@ async function resolveAfterOptionalBanner(showBanner, startWork, printBanner, op
   return work.finish();
 }
 
+// src/integrations/self-test.ts
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join17 } from "node:path";
+var CASES = Object.freeze([
+  { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
+  { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
+  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: !1 }
+]), SNAPSHOT = Object.freeze({
+  state: "ready",
+  diagnostics: Object.freeze([]),
+  policy: Object.freeze({
+    rules: Object.freeze([]),
+    transparentWrappers: Object.freeze([]),
+    safety: Object.freeze({}),
+    worktreeMode: !1,
+    destructiveCommandProtectionEnabled: !0,
+    destructiveCommandRuleOverrides: Object.freeze({}),
+    secretProtection: Object.freeze({
+      enabled: !0,
+      disabledRules: Object.freeze([]),
+      denyPaths: Object.freeze([])
+    })
+  })
+}), STANDARD_MODES = {
+  strict: !1,
+  paranoidRm: !1,
+  paranoidInterpreters: !1,
+  worktreeMode: !1,
+  effectiveLevel: "standard",
+  capabilities: {
+    fail_closed: { enabled: !1, source: "preset", sources: [] },
+    paranoid_rm: { enabled: !1, source: "preset", sources: [] },
+    paranoid_interpreters: {
+      enabled: !1,
+      source: "preset",
+      sources: []
+    }
+  },
+  sources: {
+    failClosed: [],
+    paranoidRm: [],
+    paranoidInterpreters: [],
+    worktreeMode: []
+  }
+};
+function runIntegrationSelfTest() {
+  let cwd = join17(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+    let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
+      guard: {
+        dependencies: {
+          loadPolicySnapshot: () => SNAPSHOT,
+          getModes: () => STANDARD_MODES
+        }
+      },
+      audit: { agent: "self-test", getSessionId: () => {
+        return;
+      } }
+    }), expected = testCase.expectBlocked ? "blocked" : "allowed", actual = evaluation.decision.kind === "deny" ? "blocked" : "allowed";
+    return {
+      command: testCase.command,
+      description: testCase.description,
+      expected,
+      actual,
+      passed: expected === actual,
+      reason: evaluation.decision.kind === "deny" ? evaluation.decision.reason : void 0
+    };
+  });
+  return {
+    passed: results.filter((result) => result.passed).length,
+    failed: results.filter((result) => !result.passed).length,
+    total: results.length,
+    results
+  };
+}
+
 // src/bin/doctor/flags.ts
 function parseDoctorFlags(args) {
   return {
@@ -19463,7 +19459,7 @@ async function runDoctor(options2 = {}) {
     console.log(JSON.stringify(report, null, 2));
   else
     printReport(report);
-  return doctorHasFailure(report.hooks, {
+  return doctorHasFailure(report.hooks, report.engineSelfTest, {
     userConfig: report.userConfig,
     projectConfig: report.projectConfig
   }) ? 1 : 0;
@@ -19483,6 +19479,7 @@ async function collectDoctorReport(options2) {
   } : await checkForUpdates();
   return {
     hooks,
+    engineSelfTest: runIntegrationSelfTest(),
     userConfig: configInfo.userConfig,
     projectConfig: configInfo.projectConfig,
     effectiveRules: configInfo.effectiveRules,
@@ -19503,11 +19500,11 @@ async function collectDoctorReport(options2) {
     system
   };
 }
-function doctorHasFailure(hooks, configInfo) {
-  return hooks.length > 0 && hooks.every((h) => h.status !== "configured") || hooks.some((h) => h.selfTest && h.selfTest.failed > 0) || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
+function doctorHasFailure(hooks, engineSelfTest, configInfo) {
+  return hooks.length > 0 && hooks.every((hook) => !hook.configured) || hooks.some((hook) => hook.inspectionStatus === "failed") || engineSelfTest.failed > 0 || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
 }
 function printReport(report) {
-  console.log(), console.log(formatHooksSection(report.hooks)), console.log(), console.log(formatConfigSection(report)), console.log(), console.log(formatEnvironmentSection(report.environment)), console.log(), console.log(formatEffectiveSafetySection(report)), console.log(), console.log(formatActivitySection(report.activity)), console.log(), console.log(formatSystemInfoSection(report.system)), console.log(), console.log(formatUpdateSection(report.update)), console.log(formatSummary(report));
+  console.log(), console.log(formatHooksSection(report.hooks)), console.log(), console.log(formatEngineSelfTestSection(report.engineSelfTest)), console.log(), console.log(formatConfigSection(report)), console.log(), console.log(formatEnvironmentSection(report.environment)), console.log(), console.log(formatEffectiveSafetySection(report)), console.log(), console.log(formatActivitySection(report.activity)), console.log(), console.log(formatSystemInfoSection(report.system)), console.log(), console.log(formatUpdateSection(report.update)), console.log(formatSummary(report));
 }
 
 // src/bin/explain/config.ts
@@ -23440,7 +23437,7 @@ async function detectConfiguredInstallTargets() {
     copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
     copilotPluginInstalled: hasCopilotSafetyNetPlugin2(copilotPluginListOutput),
     piSafetyNetProbe
-  }).filter((hook) => hook.status !== "n/a").map((hook) => hook.platform);
+  }).filter((hook) => hook.detected).map((hook) => hook.platform);
 }
 function hasCopilotSafetyNetPlugin2(output) {
   return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? "");

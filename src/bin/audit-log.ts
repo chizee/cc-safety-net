@@ -1,4 +1,5 @@
 import { basename, dirname, resolve } from 'node:path';
+import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
 import { listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
@@ -264,16 +265,6 @@ function formatHumanTimestamp(timestamp: string, timeZone?: string): string {
     hourCycle: 'h23',
     timeZone,
   }).format(date);
-}
-
-function renderTerminalText(value: string): string {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
-      return `\\x${code.toString(16).padStart(2, '0')}`;
-    }
-    return character;
-  }).join('');
 }
 
 function parsePositiveNumber(value: string | undefined): number | null {

@@ -8,6 +8,7 @@ import {
   formatActivitySection,
   formatConfigSection,
   formatEffectiveSafetySection,
+  formatEngineSelfTestSection,
   formatEnvironmentSection,
   formatHooksSection,
   formatRulesTable,
@@ -50,6 +51,12 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
 function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport {
   return {
     hooks: [],
+    engineSelfTest: {
+      passed: 3,
+      failed: 0,
+      total: 3,
+      results: [],
+    },
     userConfig: { path: '', exists: false, valid: false, ruleCount: 0 },
     projectConfig: { path: '', exists: false, valid: false, ruleCount: 0 },
     effectiveRules: [],
@@ -138,46 +145,52 @@ describe('formatRulesTable', () => {
 });
 
 describe('formatHooksSection', () => {
-  test('formats configured hooks with self-test', () => {
+  test('formats detected and configured integrations without host-test wording', () => {
     const hooks: HookStatus[] = [
       {
         platform: 'claude-code',
-        status: 'configured',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
         method: 'marketplace plugin',
-        selfTest: {
-          passed: 5,
-          failed: 0,
-          total: 5,
-          results: [
-            {
-              command: 'git reset --hard',
-              description: 'git reset --hard',
-              expected: 'blocked',
-              actual: 'blocked',
-              passed: true,
-            },
-          ],
-        },
       },
     ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Hook Integration');
     expect(output).toContain('Claude Code');
+    expect(output).toContain('Detected');
     expect(output).toContain('Configured');
-    expect(output).toContain('5/5 OK');
+    expect(output).toContain('Verified');
+    expect(output).not.toContain('Tests');
+    expect(output).not.toContain('3/3');
   });
 
-  test('formats unconfigured hooks', () => {
-    const hooks: HookStatus[] = [{ platform: 'gemini-cli', status: 'n/a' }];
+  test('formats not-applicable integrations explicitly', () => {
+    const hooks: HookStatus[] = [
+      {
+        platform: 'gemini-cli',
+        detected: false,
+        configured: false,
+        inspectionStatus: 'not-applicable',
+      },
+    ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Gemini CLI');
-    expect(output).toContain('N/A');
+    expect(output).toContain('Not detected');
+    expect(output).toContain('Not applicable');
   });
 
   test('formats Copilot CLI hooks', () => {
-    const hooks: HookStatus[] = [{ platform: 'copilot-cli', status: 'configured' }];
+    const hooks: HookStatus[] = [
+      {
+        platform: 'copilot-cli',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
+      },
+    ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Copilot CLI');
@@ -185,7 +198,14 @@ describe('formatHooksSection', () => {
   });
 
   test('formats Kimi Code hooks', () => {
-    const hooks: HookStatus[] = [{ platform: 'kimi-code', status: 'configured' }];
+    const hooks: HookStatus[] = [
+      {
+        platform: 'kimi-code',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
+      },
+    ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Kimi Code');
@@ -193,7 +213,9 @@ describe('formatHooksSection', () => {
   });
 
   test('formats Pi hooks', () => {
-    const hooks: HookStatus[] = [{ platform: 'pi', status: 'configured' }];
+    const hooks: HookStatus[] = [
+      { platform: 'pi', detected: true, configured: true, inspectionStatus: 'verified' },
+    ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Pi');
@@ -204,7 +226,9 @@ describe('formatHooksSection', () => {
     const hooks: HookStatus[] = [
       {
         platform: 'copilot-cli',
-        status: 'configured',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
         configPaths: ['/repo/.github/copilot/settings.json', '/repo/.github/hooks/safety-net.json'],
       },
     ];
@@ -216,7 +240,15 @@ describe('formatHooksSection', () => {
   });
 
   test('shows error for failed detection', () => {
-    const hooks: HookStatus[] = [{ platform: 'opencode', status: 'n/a', errors: ['Parse error'] }];
+    const hooks: HookStatus[] = [
+      {
+        platform: 'opencode',
+        detected: false,
+        configured: false,
+        inspectionStatus: 'failed',
+        errors: ['Parse error'],
+      },
+    ];
 
     const output = formatHooksSection(hooks);
     expect(output).toContain('Error (OpenCode): Parse error');
@@ -225,7 +257,13 @@ describe('formatHooksSection', () => {
   test('shows hook errors in red when colors are enabled', () => {
     withStdoutColor(true, () => {
       const hooks: HookStatus[] = [
-        { platform: 'codex', status: 'disabled', errors: ['Parse error'] },
+        {
+          platform: 'codex',
+          detected: false,
+          configured: false,
+          inspectionStatus: 'failed',
+          errors: ['Parse error'],
+        },
       ];
       expect(formatHooksSection(hooks)).toContain('\x1b[31m   Error (Codex): Parse error\x1b[0m');
     });
@@ -235,7 +273,9 @@ describe('formatHooksSection', () => {
     const hooks: HookStatus[] = [
       {
         platform: 'claude-code',
-        status: 'configured',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
         errors: ['Something went wrong during detection'],
       },
     ];
@@ -244,48 +284,57 @@ describe('formatHooksSection', () => {
     expect(output).toContain('Warning (Claude Code): Something went wrong during detection');
   });
 
-  test('formats disabled hooks', () => {
-    const hooks: HookStatus[] = [{ platform: 'claude-code', status: 'disabled' }];
-
-    const output = formatHooksSection(hooks);
-    expect(output).toContain('Claude Code');
-    expect(output).toContain('Disabled');
-  });
-
-  test('shows failures below table in red', () => {
+  test('formats detected but misconfigured hooks', () => {
     const hooks: HookStatus[] = [
       {
         platform: 'claude-code',
-        status: 'configured',
-        selfTest: {
-          passed: 2,
-          failed: 1,
-          total: 3,
-          results: [
-            {
-              command: 'git reset --hard',
-              description: 'git reset --hard',
-              expected: 'blocked',
-              actual: 'blocked',
-              passed: true,
-            },
-            {
-              command: 'rm -rf /',
-              description: 'rm -rf /',
-              expected: 'blocked',
-              actual: 'allowed',
-              passed: false,
-            },
-          ],
-        },
+        detected: true,
+        configured: false,
+        inspectionStatus: 'verified',
       },
     ];
 
     const output = formatHooksSection(hooks);
+    expect(output).toContain('Claude Code');
+    expect(output).toContain('Not configured');
+  });
+});
+
+describe('formatEngineSelfTestSection', () => {
+  test('formats the shared guard-engine self-test in its own section', () => {
+    const output = formatEngineSelfTestSection({
+      passed: 3,
+      failed: 0,
+      total: 3,
+      results: [],
+    });
+
+    expect(output).toContain('Guard Engine Verification');
+    expect(output).toContain('Synthetic self-test');
+    expect(output).toContain('3/3 passed');
+  });
+
+  test('shows shared engine failures without host-integration wording', () => {
+    const output = formatEngineSelfTestSection({
+      passed: 2,
+      failed: 1,
+      total: 3,
+      results: [
+        {
+          command: 'rm -rf /',
+          description: 'rm -rf /',
+          expected: 'blocked',
+          actual: 'allowed',
+          passed: false,
+        },
+      ],
+    });
+
     expect(output).toContain('2/3 FAIL');
     expect(output).toContain('Failures:');
-    expect(output).toContain('Claude Code: rm -rf /');
+    expect(output).toContain('rm -rf /');
     expect(output).toContain('expected blocked, got allowed');
+    expect(output).not.toContain('Claude Code');
   });
 });
 
@@ -404,6 +453,42 @@ describe('formatActivitySection', () => {
     // Should have table borders
     expect(output).toContain('┌');
     expect(output).toContain('┘');
+  });
+
+  test('keeps multiline commands within one table row', () => {
+    const output = formatActivitySection({
+      totalBlocked: 1,
+      sessionCount: 1,
+      recentEntries: [
+        {
+          timestamp: '2025-01-01T00:00:00Z',
+          command: 'git status --short\nfind src/secrets -maxdepth 2 -type f -print',
+          reason: 'Blocked',
+          relativeTime: '54m ago',
+        },
+      ],
+    });
+
+    expect(output).toContain('git status --short ↵ find src/secrets...');
+    expect(output).not.toContain('git status --short\nfind');
+  });
+
+  test('escapes terminal control bytes in activity commands', () => {
+    const output = formatActivitySection({
+      totalBlocked: 1,
+      sessionCount: 1,
+      recentEntries: [
+        {
+          timestamp: '2025-01-01T00:00:00Z',
+          command: 'printf \x1b[31mred',
+          reason: 'Blocked',
+          relativeTime: '1h ago',
+        },
+      ],
+    });
+
+    expect(output).toContain(String.raw`printf \x1b[31mred`);
+    expect(output).not.toContain('\x1b');
   });
 });
 
@@ -598,7 +683,14 @@ describe('formatConfigSection', () => {
 describe('formatSummary', () => {
   test('formats all passed', () => {
     const report = createDoctorReport({
-      hooks: [{ platform: 'claude-code', status: 'configured' }],
+      hooks: [
+        {
+          platform: 'claude-code',
+          detected: true,
+          configured: true,
+          inspectionStatus: 'verified',
+        },
+      ],
       activity: { totalBlocked: 1, sessionCount: 1, recentEntries: [] },
     });
     const output = formatSummary(report);
@@ -607,7 +699,14 @@ describe('formatSummary', () => {
 
   test('formats with warnings', () => {
     const report = createDoctorReport({
-      hooks: [{ platform: 'claude-code', status: 'configured' }],
+      hooks: [
+        {
+          platform: 'claude-code',
+          detected: true,
+          configured: true,
+          inspectionStatus: 'verified',
+        },
+      ],
       update: { currentVersion: '0.6.0', latestVersion: '0.7.0', updateAvailable: true },
     });
     const output = formatSummary(report);

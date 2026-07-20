@@ -11,18 +11,19 @@ import type { EffectiveSafetyLevel } from '@/types';
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;
 
-/** Hook configuration status */
-export type HookConfigStatus = 'configured' | 'n/a' | 'disabled';
+/** Hook configuration inspection status */
+export type HookInspectionStatus = 'verified' | 'failed' | 'not-applicable';
 
-/** Hook detection result with integrated self-test */
+/** Hook discovery and configuration inspection result */
 export interface HookStatus {
   platform: HookPlatform;
-  status: HookConfigStatus;
+  detected: boolean;
+  configured: boolean;
+  inspectionStatus: HookInspectionStatus;
   method?: string;
   configPath?: string;
   configPaths?: readonly string[];
   errors?: string[];
-  selfTest?: SelfTestSummary;
 }
 
 /** Config source info */
@@ -154,6 +155,7 @@ export interface SystemInfo {
 /** Full doctor report */
 export interface DoctorReport {
   hooks: HookStatus[];
+  engineSelfTest: SelfTestSummary;
   userConfig: ConfigSourceInfo;
   projectConfig: ConfigSourceInfo;
   effectiveRules: EffectiveRule[];

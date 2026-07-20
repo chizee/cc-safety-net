@@ -8,7 +8,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import { detectAllHooks } from '@/bin/doctor/hooks';
+import type { HookStatus } from '@/bin/doctor/types';
 import { withEnv } from '../../helpers.ts';
+
+function expectHookState(
+  hook: HookStatus | undefined,
+  state: 'configured' | 'disabled' | 'n/a',
+): void {
+  expect(hook).toMatchObject(
+    state === 'configured'
+      ? { detected: true, configured: true, inspectionStatus: 'verified' }
+      : state === 'disabled'
+        ? { detected: true, configured: false, inspectionStatus: 'verified' }
+        : { detected: false, configured: false },
+  );
+}
 
 function _writeCopilotHook(
   filePath: string,
@@ -101,7 +115,7 @@ function _writeAntigravityHooks(homeDir: string, config: unknown): string {
 }
 
 describe('detectAllHooks', () => {
-  test('detects configured hooks and runs self-test', () => {
+  test('detects configured hooks without attaching the shared engine self-test', () => {
     const tmpBase = join(tmpdir(), `doctor-hooks-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -130,28 +144,28 @@ describe('detectAllHooks', () => {
       });
 
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('configured');
+      expectHookState(claude, 'configured');
       expect(claude?.method).toBe('plugin list');
       expect(claude?.configPath).toBe('claude plugin list');
-      expect(claude?.selfTest?.failed).toBe(0);
+      expect(claude).not.toHaveProperty('selfTest');
 
       const opencode = hooks.find((hook) => hook.platform === 'opencode');
-      expect(opencode?.status).toBe('configured');
+      expectHookState(opencode, 'configured');
       expect(opencode?.method).toBe('plugin array');
-      expect(opencode?.selfTest?.total).toBe(3);
+      expect(opencode).not.toHaveProperty('selfTest');
 
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('configured');
+      expectHookState(gemini, 'configured');
       expect(gemini?.method).toBe('extension list');
-      expect(gemini?.selfTest?.passed).toBe(gemini?.selfTest?.total);
+      expect(gemini).not.toHaveProperty('selfTest');
 
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.method).toBe('hook config');
-      expect(copilot?.selfTest?.passed).toBe(copilot?.selfTest?.total);
+      expect(copilot).not.toHaveProperty('selfTest');
 
       const kimi = hooks.find((hook) => hook.platform === 'kimi-code');
-      expect(kimi?.status).toBe('n/a');
+      expectHookState(kimi, 'n/a');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -206,10 +220,10 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'antigravity-cli',
       );
 
-      expect(antigravity?.status).toBe('configured');
+      expectHookState(antigravity, 'configured');
       expect(antigravity?.method).toBe('hook config');
       expect(antigravity?.configPath).toBe(configPath);
-      expect(antigravity?.selfTest?.failed).toBe(0);
+      expect(antigravity).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -231,7 +245,7 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'antigravity-cli',
       );
 
-      expect(antigravity?.status).toBe('configured');
+      expectHookState(antigravity, 'configured');
       expect(antigravity?.configPath).toBe(configPath);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -255,10 +269,10 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'antigravity-cli',
       );
 
-      expect(antigravity?.status).toBe('disabled');
+      expectHookState(antigravity, 'disabled');
       expect(antigravity?.method).toBe('hook config');
       expect(antigravity?.configPath).toBe(configPath);
-      expect(antigravity?.selfTest).toBeUndefined();
+      expect(antigravity).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -276,9 +290,10 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'antigravity-cli',
       );
 
-      expect(antigravity?.status).toBe('n/a');
+      expectHookState(antigravity, 'n/a');
+      expect(antigravity?.inspectionStatus).toBe('not-applicable');
       expect(antigravity?.configPath).toBe(join(homeDir, '.gemini', 'config', 'hooks.json'));
-      expect(antigravity?.selfTest).toBeUndefined();
+      expect(antigravity).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -298,7 +313,8 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'antigravity-cli',
       );
 
-      expect(antigravity?.status).toBe('n/a');
+      expectHookState(antigravity, 'n/a');
+      expect(antigravity?.inspectionStatus).toBe('failed');
       expect(antigravity?.configPath).toBe(configPath);
       expect(
         antigravity?.errors?.some((error) =>
@@ -327,10 +343,10 @@ describe('detectAllHooks', () => {
         },
       }).find((hook) => hook.platform === 'pi');
 
-      expect(pi?.status).toBe('configured');
+      expectHookState(pi, 'configured');
       expect(pi?.method).toBe('pi probe');
       expect(pi?.configPath).toBe('/tmp/safety-net.js');
-      expect(pi?.selfTest?.failed).toBe(0);
+      expect(pi).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -353,8 +369,9 @@ describe('detectAllHooks', () => {
         },
       }).find((hook) => hook.platform === 'pi');
 
-      expect(pi?.status).toBe('n/a');
-      expect(pi?.selfTest).toBeUndefined();
+      expectHookState(pi, 'n/a');
+      expect(pi?.inspectionStatus).toBe('not-applicable');
+      expect(pi).not.toHaveProperty('selfTest');
       expect(pi?.errors).toBeUndefined();
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -379,9 +396,10 @@ describe('detectAllHooks', () => {
         },
       }).find((hook) => hook.platform === 'pi');
 
-      expect(pi?.status).toBe('n/a');
+      expectHookState(pi, 'n/a');
+      expect(pi?.inspectionStatus).toBe('failed');
       expect(pi?.errors).toEqual(['probe failed']);
-      expect(pi?.selfTest).toBeUndefined();
+      expect(pi).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -400,10 +418,10 @@ describe('detectAllHooks', () => {
         claudePluginListOutput: _claudePluginListOutput(),
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('configured');
+      expectHookState(claude, 'configured');
       expect(claude?.method).toBe('plugin list');
       expect(claude?.configPath).toBe('claude plugin list');
-      expect(claude?.selfTest?.failed).toBe(0);
+      expect(claude).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -422,7 +440,7 @@ describe('detectAllHooks', () => {
         claudePluginListOutput: _claudePluginListOutput({ status: 'Status: ✘ disabled' }),
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('disabled');
+      expectHookState(claude, 'disabled');
       expect(claude?.method).toBe('plugin list');
       expect(claude?.configPath).toBe('claude plugin list');
     } finally {
@@ -451,7 +469,7 @@ describe('detectAllHooks', () => {
     Status: ✔ enabled`,
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('configured');
+      expectHookState(claude, 'configured');
       expect(claude?.method).toBe('plugin list');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -475,7 +493,7 @@ describe('detectAllHooks', () => {
     Status: ✔ enabled`,
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('configured');
+      expectHookState(claude, 'configured');
       expect(claude?.method).toBe('plugin list');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -492,7 +510,7 @@ describe('detectAllHooks', () => {
     try {
       const hooks = detectAllHooks(projectDir, { homeDir, claudePluginListOutput: null });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('n/a');
+      expectHookState(claude, 'n/a');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -516,7 +534,7 @@ describe('detectAllHooks', () => {
     Status: ✔ enabled`,
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('n/a');
+      expectHookState(claude, 'n/a');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -537,7 +555,7 @@ describe('detectAllHooks', () => {
         }),
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('n/a');
+      expectHookState(claude, 'n/a');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -556,7 +574,7 @@ describe('detectAllHooks', () => {
         claudePluginListOutput: _claudePluginListOutput({ status: 'Status: pending' }),
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('disabled');
+      expectHookState(claude, 'disabled');
       expect(claude?.method).toBe('plugin list');
       expect(claude?.errors).toEqual(['Status is not enabled']);
     } finally {
@@ -579,15 +597,15 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
 
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('n/a');
+      expectHookState(claude, 'n/a');
       expect(claude?.errors).toBeUndefined();
 
       const opencode = hooks.find((hook) => hook.platform === 'opencode');
-      expect(opencode?.status).toBe('n/a');
+      expectHookState(opencode, 'n/a');
       expect(opencode?.errors?.some((e) => e.includes('Failed to parse'))).toBe(true);
 
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('n/a');
+      expectHookState(gemini, 'n/a');
       expect(gemini?.errors).toBeUndefined();
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -608,7 +626,7 @@ describe('detectAllHooks', () => {
     try {
       const hooks = detectAllHooks(projectDir, { homeDir, claudePluginListOutput: null });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
-      expect(claude?.status).toBe('n/a');
+      expectHookState(claude, 'n/a');
       expect(claude?.errors).toBeUndefined();
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -637,7 +655,7 @@ describe('detectAllHooks', () => {
     try {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const opencode = hooks.find((hook) => hook.platform === 'opencode');
-      expect(opencode?.status).toBe('configured');
+      expectHookState(opencode, 'configured');
       expect(opencode?.method).toBe('plugin array');
       expect(opencode?.errors?.some((e) => e.includes('Failed to parse'))).toBe(true);
     } finally {
@@ -658,9 +676,9 @@ describe('detectAllHooks', () => {
         geminiExtensionsListOutput: _geminiExtensionsListOutput({}),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('configured');
+      expectHookState(gemini, 'configured');
       expect(gemini?.method).toBe('extension list');
-      expect(gemini?.selfTest?.failed).toBe(0);
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -682,9 +700,9 @@ describe('detectAllHooks', () => {
         }),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('disabled');
+      expectHookState(gemini, 'disabled');
       expect(gemini?.errors?.some((e) => e.includes('Enabled (User)'))).toBe(true);
-      expect(gemini?.selfTest).toBeUndefined();
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -706,9 +724,9 @@ describe('detectAllHooks', () => {
         }),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('configured');
+      expectHookState(gemini, 'configured');
       expect(gemini?.method).toBe('extension list');
-      expect(gemini?.selfTest?.failed).toBe(0);
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -730,9 +748,9 @@ describe('detectAllHooks', () => {
         }),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('configured');
+      expectHookState(gemini, 'configured');
       expect(gemini?.method).toBe('extension list');
-      expect(gemini?.selfTest?.failed).toBe(0);
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -751,9 +769,9 @@ describe('detectAllHooks', () => {
         geminiExtensionsListOutput: _geminiExtensionsListOutput({ enabledWorkspace: false }),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('disabled');
+      expectHookState(gemini, 'disabled');
       expect(gemini?.errors?.some((e) => e.includes('Enabled (Workspace)'))).toBe(true);
-      expect(gemini?.selfTest).toBeUndefined();
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -774,8 +792,8 @@ describe('detectAllHooks', () => {
         }),
       });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('n/a');
-      expect(gemini?.selfTest).toBeUndefined();
+      expectHookState(gemini, 'n/a');
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -791,9 +809,9 @@ describe('detectAllHooks', () => {
     try {
       const hooks = detectAllHooks(projectDir, { homeDir, geminiExtensionsListOutput: null });
       const gemini = hooks.find((hook) => hook.platform === 'gemini-cli');
-      expect(gemini?.status).toBe('n/a');
+      expectHookState(gemini, 'n/a');
       expect(gemini?.errors).toBeUndefined();
-      expect(gemini?.selfTest).toBeUndefined();
+      expect(gemini).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -812,10 +830,10 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'kimi-code',
       );
 
-      expect(kimi?.status).toBe('configured');
+      expectHookState(kimi, 'configured');
       expect(kimi?.method).toBe('hook config');
       expect(kimi?.configPath).toBe(configPath);
-      expect(kimi?.selfTest?.failed).toBe(0);
+      expect(kimi).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -834,7 +852,7 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'kimi-code',
       );
 
-      expect(kimi?.status).toBe('configured');
+      expectHookState(kimi, 'configured');
       expect(kimi?.configPath).toBe(configPath);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -856,7 +874,7 @@ describe('detectAllHooks', () => {
         detectAllHooks(projectDir, { homeDir }).find((hook) => hook.platform === 'kimi-code'),
       );
 
-      expect(kimi?.status).toBe('configured');
+      expectHookState(kimi, 'configured');
       expect(kimi?.configPath).toBe(configPath);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -875,9 +893,9 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'kimi-code',
       );
 
-      expect(kimi?.status).toBe('n/a');
+      expectHookState(kimi, 'n/a');
       expect(kimi?.configPath).toBe(join(homeDir, '.kimi-code', 'config.toml'));
-      expect(kimi?.selfTest).toBeUndefined();
+      expect(kimi).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -896,9 +914,9 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'kimi-code',
       );
 
-      expect(kimi?.status).toBe('n/a');
+      expectHookState(kimi, 'n/a');
       expect(kimi?.configPath).toBe(configPath);
-      expect(kimi?.selfTest).toBeUndefined();
+      expect(kimi).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -917,7 +935,7 @@ describe('detectAllHooks', () => {
         (hook) => hook.platform === 'kimi-code',
       );
 
-      expect(kimi?.status).toBe('n/a');
+      expectHookState(kimi, 'n/a');
       expect(kimi?.configPath).toBe(configPath);
       expect(kimi?.errors?.some((error) => error.includes('Failed to read'))).toBe(true);
     } finally {
@@ -938,9 +956,9 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(copilotDir, 'safety-net.json'));
-      expect(copilot?.selfTest?.failed).toBe(0);
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -957,11 +975,11 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotPluginInstalled: true });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.method).toBe('plugin list');
       expect(copilot?.configPath).toBe('copilot-plugin');
       expect(copilot?.configPaths).toBeUndefined();
-      expect(copilot?.selfTest?.failed).toBe(0);
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -996,7 +1014,7 @@ describe('detectAllHooks', () => {
       });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.method).toBe('plugin list');
       expect(copilot?.errors?.some((error) => error.includes('Failed to parse')) ?? false).toBe(
         false,
@@ -1019,11 +1037,11 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotPluginInstalled: true });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.method).toBe('plugin list');
       expect(copilot?.configPath).toBe(join(copilotDir, 'safety-net.json'));
       expect(copilot?.configPaths).toEqual([join(copilotDir, 'safety-net.json')]);
-      expect(copilot?.selfTest?.failed).toBe(0);
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1046,10 +1064,10 @@ describe('detectAllHooks', () => {
       });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('disabled');
+      expectHookState(copilot, 'disabled');
       expect(copilot?.configPath).toBe(join(configDir, 'settings.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'settings.json')]);
-      expect(copilot?.selfTest).toBeUndefined();
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1068,7 +1086,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(copilotDir, 'global.json'));
       expect(copilot?.configPaths).toEqual([join(copilotDir, 'global.json')]);
     } finally {
@@ -1089,8 +1107,8 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '0.0.421' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
-      expect(copilot?.selfTest).toBeUndefined();
+      expectHookState(copilot, 'n/a');
+      expect(copilot).not.toHaveProperty('selfTest');
       expect(copilot?.errors?.some((e) => e.includes('does not support user hook files'))).toBe(
         true,
       );
@@ -1115,7 +1133,7 @@ describe('detectAllHooks', () => {
       );
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(
         copilot?.errors?.some((error) =>
           error.includes(`user hook files in ${join(customCopilotHome, 'hooks')}`),
@@ -1142,7 +1160,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '0.0.421' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.some((error) => error.includes('Failed to parse')) ?? false).toBe(
         false,
       );
@@ -1167,7 +1185,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.some((error) => error.includes('user hook files')) ?? false).toBe(
         false,
       );
@@ -1191,7 +1209,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(localDir, 'local.json'));
       expect(copilot?.configPaths).toEqual([
         join(localDir, 'local.json'),
@@ -1216,7 +1234,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.errors?.some((e) => e.includes('Failed to parse'))).toBe(true);
       expect(copilot?.configPath).toBe(join(copilotDir, 'safety-net.json'));
     } finally {
@@ -1237,8 +1255,8 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
-      expect(copilot?.selfTest).toBeUndefined();
+      expectHookState(copilot, 'n/a');
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1261,7 +1279,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(copilotDir, 'powershell.json'));
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -1282,7 +1300,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.length).toBe(2);
       expect(copilot?.errors?.every((e) => e.includes('Failed to parse'))).toBe(true);
     } finally {
@@ -1303,7 +1321,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(copilotDir, 'short-flag.json'));
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
@@ -1323,8 +1341,8 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
-      expect(copilot?.selfTest).toBeUndefined();
+      expectHookState(copilot, 'n/a');
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1343,7 +1361,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(configDir, 'config.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'config.json')]);
     } finally {
@@ -1364,7 +1382,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.7' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(
         copilot?.errors?.some((e) => e.includes('does not support inline hook definitions')),
       ).toBe(true);
@@ -1386,7 +1404,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.8' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(configDir, 'config.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'config.json')]);
     } finally {
@@ -1407,7 +1425,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(configDir, 'settings.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'settings.json')]);
     } finally {
@@ -1428,7 +1446,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(configDir, 'settings.local.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'settings.local.json')]);
     } finally {
@@ -1451,10 +1469,10 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('disabled');
+      expectHookState(copilot, 'disabled');
       expect(copilot?.configPath).toBe(join(configDir, 'config.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'config.json')]);
-      expect(copilot?.selfTest).toBeUndefined();
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1475,11 +1493,11 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('disabled');
+      expectHookState(copilot, 'disabled');
       expect(copilot?.configPath).toBe(join(configDir, 'settings.json'));
       expect(copilot?.configPaths).toEqual([join(configDir, 'settings.json')]);
       expect(copilot?.errors?.some((e) => e.includes('version unavailable'))).toBe(true);
-      expect(copilot?.selfTest).toBeUndefined();
+      expect(copilot).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1501,7 +1519,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(repoConfigDir, 'settings.local.json'));
       expect(copilot?.configPaths).toEqual([join(repoConfigDir, 'settings.local.json')]);
     } finally {
@@ -1528,7 +1546,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('disabled');
+      expectHookState(copilot, 'disabled');
       expect(copilot?.configPath).toBe(join(repoConfigDir, 'settings.local.json'));
       expect(copilot?.configPaths).toEqual([join(repoConfigDir, 'settings.local.json')]);
     } finally {
@@ -1551,7 +1569,7 @@ describe('detectAllHooks', () => {
       );
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.configPath).toBe(join(customCopilotHome, 'config.json'));
       expect(copilot?.configPaths).toEqual([join(customCopilotHome, 'config.json')]);
     } finally {
@@ -1572,7 +1590,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.some((e) => e.includes('Copilot CLI version unavailable'))).toBe(
         true,
       );
@@ -1594,7 +1612,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.7' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(
         copilot?.errors?.some((error) => error.includes('inline hook definitions')) ?? false,
       ).toBe(false);
@@ -1616,7 +1634,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.7' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.some((error) => error.includes('Failed to parse')) ?? false).toBe(
         false,
       );
@@ -1641,7 +1659,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
+      expectHookState(copilot, 'n/a');
       expect(copilot?.errors?.some((error) => error.includes('Failed to parse')) ?? false).toBe(
         false,
       );
@@ -1670,7 +1688,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, copilotCliVersion: '1.0.9' });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('configured');
+      expectHookState(copilot, 'configured');
       expect(copilot?.errors?.some((e) => e.includes('Failed to parse'))).toBe(true);
       expect(copilot?.configPaths).toEqual([join(homeDir, '.copilot', 'hooks', 'global.json')]);
     } finally {
@@ -1691,8 +1709,8 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir });
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
-      expect(copilot?.status).toBe('n/a');
-      expect(copilot?.selfTest).toBeUndefined();
+      expectHookState(copilot, 'n/a');
+      expect(copilot).not.toHaveProperty('selfTest');
       expect(
         copilot?.errors?.some(
           (error) =>
@@ -1719,11 +1737,11 @@ describe('detectAllHooks', () => {
       });
       const codex = hooks.find((hook) => hook.platform === 'codex');
 
-      expect(codex?.status).toBe('configured');
+      expectHookState(codex, 'configured');
       expect(codex?.method).toBe('codex plugin list');
       expect(codex?.configPath).toBe('codex plugin list');
       expect(codex?.errors).toBeUndefined();
-      expect(codex?.selfTest?.failed).toBe(0);
+      expect(codex).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1743,7 +1761,7 @@ describe('detectAllHooks', () => {
       });
       const codex = hooks.find((hook) => hook.platform === 'codex');
 
-      expect(codex?.status).toBe('configured');
+      expectHookState(codex, 'configured');
       expect(codex?.method).toBe('codex plugin list');
       expect(codex?.errors).toBeUndefined();
     } finally {
@@ -1769,8 +1787,8 @@ describe('detectAllHooks', () => {
           'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed',
       }).find((hook) => hook.platform === 'codex');
 
-      expect(installedDisabled?.status).toBe('disabled');
-      expect(missingEnabled?.status).toBe('disabled');
+      expectHookState(installedDisabled, 'disabled');
+      expectHookState(missingEnabled, 'disabled');
       expect(
         installedDisabled?.errors?.some((error) =>
           error.includes('must contain installed, enabled'),
@@ -1778,7 +1796,7 @@ describe('detectAllHooks', () => {
       ).toBe(true);
       expect(installedDisabled?.method).toBe('codex plugin list');
       expect(installedDisabled?.configPath).toBe('codex plugin list');
-      expect(installedDisabled?.selfTest).toBeUndefined();
+      expect(installedDisabled).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1800,8 +1818,8 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, { homeDir, codexPluginListOutput: null });
       const codex = hooks.find((hook) => hook.platform === 'codex');
 
-      expect(codex?.status).toBe('n/a');
-      expect(codex?.selfTest).toBeUndefined();
+      expectHookState(codex, 'n/a');
+      expect(codex).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1820,8 +1838,8 @@ describe('detectAllHooks', () => {
       });
       const codex = hooks.find((hook) => hook.platform === 'codex');
 
-      expect(codex?.status).toBe('n/a');
-      expect(codex?.selfTest).toBeUndefined();
+      expectHookState(codex, 'n/a');
+      expect(codex).not.toHaveProperty('selfTest');
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }

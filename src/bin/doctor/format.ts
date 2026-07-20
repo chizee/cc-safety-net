@@ -13,7 +13,9 @@ import type {
   UpdateInfo,
 } from '@/bin/doctor/types';
 import { colors } from '@/bin/utils/colors';
+import { renderTerminalText } from '@/bin/utils/terminal';
 import { getIntegrationDisplayName } from '@/integrations/catalog';
+import type { SelfTestSummary } from '@/integrations/self-test';
 
 interface TableOptions {
   headers?: string[];
@@ -46,7 +48,7 @@ function formatAsciiTable(options: TableOptions): string {
 }
 
 /**
- * Format the hooks section as a table with failure details below.
+ * Format integration discovery and configuration inspection.
  */
 export function formatHooksSection(hooks: HookStatus[]): string {
   const lines: string[] = [];
@@ -54,43 +56,20 @@ export function formatHooksSection(hooks: HookStatus[]): string {
   lines.push('Hook Integration');
   lines.push(formatHooksTable(hooks));
 
-  // Collect failures and errors
-  const failures: Array<{
-    platform: string;
-    result: { description: string; expected: string; actual: string };
-  }> = [];
   const warnings: Array<{ platform: string; message: string }> = [];
   const errors: Array<{ platform: string; message: string }> = [];
 
   for (const hook of hooks) {
     const platformName = getIntegrationDisplayName(hook.platform);
 
-    if (hook.selfTest) {
-      for (const result of hook.selfTest.results) {
-        if (!result.passed) {
-          failures.push({ platform: platformName, result });
-        }
-      }
-    }
-
     if (hook.errors && hook.errors.length > 0) {
       for (const err of hook.errors) {
-        if (hook.status === 'configured') {
+        if (hook.configured) {
           warnings.push({ platform: platformName, message: err });
         } else {
           errors.push({ platform: platformName, message: err });
         }
       }
-    }
-  }
-
-  // Show failures in red
-  if (failures.length > 0) {
-    lines.push('');
-    lines.push(colors.red('   Failures:'));
-    for (const f of failures) {
-      lines.push(colors.red(`   • ${f.platform}: ${f.result.description}`));
-      lines.push(colors.red(`     expected ${f.result.expected}, got ${f.result.actual}`));
     }
   }
 
@@ -111,32 +90,31 @@ export function formatHooksSection(hooks: HookStatus[]): string {
  * Format hooks as an ASCII table with colored status.
  */
 function formatHooksTable(hooks: HookStatus[]): string {
-  const headers = ['Platform', 'Status', 'Tests'];
+  const headers = ['Platform', 'Discovery', 'Configuration', 'Inspection'];
 
-  // Helper to get status display text and color
-  const getStatusDisplay = (h: HookStatus): { text: string; colored: string } => {
-    switch (h.status) {
-      case 'configured':
-        return { text: 'Configured', colored: colors.green('Configured') };
-      case 'disabled':
-        return { text: 'Disabled', colored: colors.yellow('Disabled') };
-      case 'n/a':
-        return { text: 'N/A', colored: colors.dim('N/A') };
-    }
-  };
-
-  // Build rows with both colored and raw text
   const rowData = hooks.map((h) => {
     const platformName = getIntegrationDisplayName(h.platform);
-    const statusDisplay = getStatusDisplay(h);
-    let testsText = '-';
-    if (h.status === 'configured' && h.selfTest) {
-      const label = h.selfTest.failed > 0 ? 'FAIL' : 'OK';
-      testsText = `${h.selfTest.passed}/${h.selfTest.total} ${label}`;
-    }
+    const discovery = h.detected
+      ? { text: 'Detected', colored: colors.green('Detected') }
+      : h.inspectionStatus === 'failed'
+        ? { text: 'Unknown', colored: colors.red('Unknown') }
+        : { text: 'Not detected', colored: colors.dim('Not detected') };
+    const configuration = h.configured
+      ? { text: 'Configured', colored: colors.green('Configured') }
+      : h.detected
+        ? { text: 'Not configured', colored: colors.yellow('Not configured') }
+        : h.inspectionStatus === 'failed'
+          ? { text: 'Unknown', colored: colors.red('Unknown') }
+          : { text: 'Not applicable', colored: colors.dim('Not applicable') };
+    const inspection =
+      h.inspectionStatus === 'verified'
+        ? { text: 'Verified', colored: colors.green('Verified') }
+        : h.inspectionStatus === 'failed'
+          ? { text: 'Failed', colored: colors.red('Failed') }
+          : { text: 'Not applicable', colored: colors.dim('Not applicable') };
     return {
-      colored: [platformName, statusDisplay.colored, testsText],
-      raw: [platformName, statusDisplay.text, testsText],
+      colored: [platformName, discovery.colored, configuration.colored, inspection.colored],
+      raw: [platformName, discovery.text, configuration.text, inspection.text],
     };
   });
 
@@ -144,6 +122,27 @@ function formatHooksTable(hooks: HookStatus[]): string {
   const rawRows = rowData.map((r) => r.raw);
 
   return formatAsciiTable({ headers, rows, rawRows });
+}
+
+/** Format the shared guard-engine synthetic self-test. */
+export function formatEngineSelfTestSection(selfTest: SelfTestSummary): string {
+  const status =
+    selfTest.failed > 0
+      ? colors.red(`${selfTest.passed}/${selfTest.total} FAIL`)
+      : colors.green(`${selfTest.passed}/${selfTest.total} passed`);
+  const lines = ['Guard Engine Verification', `   Synthetic self-test: ${status}`];
+  const failures = selfTest.results.filter((result) => !result.passed);
+
+  if (failures.length > 0) {
+    lines.push('');
+    lines.push(colors.red('   Failures:'));
+    for (const failure of failures) {
+      lines.push(colors.red(`   • ${failure.description}`));
+      lines.push(colors.red(`     expected ${failure.expected}, got ${failure.actual}`));
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /**
@@ -315,7 +314,8 @@ function formatActivityTable(entries: Array<{ relativeTime: string; command: str
 
   // Build rows - truncate long commands
   const rows = entries.map((e) => {
-    const cmd = e.command.length > 40 ? `${e.command.slice(0, 37)}...` : e.command;
+    const command = renderTerminalText(e.command.replace(/\r\n|\r|\n/g, ' ↵ ').replace(/\t/g, ' '));
+    const cmd = command.length > 40 ? `${command.slice(0, 37)}...` : command;
     return [e.relativeTime, cmd];
   });
 
@@ -472,12 +472,15 @@ function formatSystemInfoTable(system: SystemInfo): string {
  * Format the summary line.
  */
 export function formatSummary(report: DoctorReport): string {
-  const hooksFailed = report.hooks.every((h) => h.status !== 'configured');
-  const selfTestFailed = report.hooks.some((h) => h.selfTest && h.selfTest.failed > 0);
+  const hooksFailed = report.hooks.every((hook) => !hook.configured);
+  const inspectionFailed = report.hooks.some((hook) => hook.inspectionStatus === 'failed');
+  const selfTestFailed = report.engineSelfTest.failed > 0;
   const configFailed =
     (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0;
 
-  const failures = [hooksFailed, selfTestFailed, configFailed].filter(Boolean).length;
+  const failures = [hooksFailed, inspectionFailed, selfTestFailed, configFailed].filter(
+    Boolean,
+  ).length;
 
   // Count warnings
   let warnings = 0;

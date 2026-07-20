@@ -9,6 +9,7 @@ import {
   formatActivitySection,
   formatConfigSection,
   formatEffectiveSafetySection,
+  formatEngineSelfTestSection,
   formatEnvironmentSection,
   formatHooksSection,
   formatSummary,
@@ -25,6 +26,7 @@ import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { runIntegrationSelfTest } from '@/integrations/self-test';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
 
@@ -48,7 +50,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     printReport(report);
   }
 
-  return doctorHasFailure(report.hooks, {
+  return doctorHasFailure(report.hooks, report.engineSelfTest, {
     userConfig: report.userConfig,
     projectConfig: report.projectConfig,
   })
@@ -84,6 +86,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
 
   const report: DoctorReport = {
     hooks,
+    engineSelfTest: runIntegrationSelfTest(),
     userConfig: configInfo.userConfig,
     projectConfig: configInfo.projectConfig,
     effectiveRules: configInfo.effectiveRules,
@@ -108,43 +111,49 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
 
 function doctorHasFailure(
   hooks: readonly HookStatus[],
+  engineSelfTest: DoctorReport['engineSelfTest'],
   configInfo: { userConfig: ConfigSourceInfo; projectConfig: ConfigSourceInfo },
 ): boolean {
   return (
-    (hooks.length > 0 && hooks.every((h) => h.status !== 'configured')) ||
-    hooks.some((h) => h.selfTest && h.selfTest.failed > 0) ||
+    (hooks.length > 0 && hooks.every((hook) => !hook.configured)) ||
+    hooks.some((hook) => hook.inspectionStatus === 'failed') ||
+    engineSelfTest.failed > 0 ||
     (configInfo.userConfig.exists && !configInfo.userConfig.valid) ||
     (configInfo.projectConfig.exists && !configInfo.projectConfig.valid)
   );
 }
 
 function printReport(report: DoctorReport): void {
-  // 1. Hook Integration & Self-Test (merged)
+  // 1. Hook integration
   console.log();
   console.log(formatHooksSection(report.hooks));
   console.log();
 
-  // 2. Configuration with Rules Table
+  // 2. Shared guard engine verification
+  console.log(formatEngineSelfTestSection(report.engineSelfTest));
+  console.log();
+
+  // 3. Configuration with Rules Table
   console.log(formatConfigSection(report));
   console.log();
 
-  // 3. Environment
+  // 4. Environment
   console.log(formatEnvironmentSection(report.environment));
   console.log();
 
-  // 4. Effective safety
+  // 5. Effective safety
   console.log(formatEffectiveSafetySection(report));
   console.log();
 
-  // 5. Activity
+  // 6. Activity
   console.log(formatActivitySection(report.activity));
   console.log();
 
-  // 6. System Info
+  // 7. System Info
   console.log(formatSystemInfoSection(report.system));
   console.log();
 
-  // 7. Update Check (moved to end, before summary)
+  // 8. Update Check
   console.log(formatUpdateSection(report.update));
 
   // Summary
