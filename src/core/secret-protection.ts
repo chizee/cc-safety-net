@@ -92,6 +92,62 @@ const CODE_INTERPRETERS = new Set([
   'dash',
   'ksh',
 ]);
+// Standard mode may treat inline path literals as data only when the remaining
+// Node or Bun code has no recognizable filesystem or command-execution marker.
+const JAVASCRIPT_INLINE_INTERPRETERS = new Set(['node', 'bun']);
+const INLINE_ACCESS_NAMESPACES = new Set([
+  'bun',
+  'child_process',
+  'deno',
+  'dotenv',
+  'fs',
+  'subprocess',
+]);
+const INLINE_ACCESS_IDENTIFIER_PARTS = new Set([
+  'append',
+  'awk',
+  'base64',
+  'cat',
+  'chmod',
+  'chown',
+  'connect',
+  'copy',
+  'cp',
+  'database',
+  'dd',
+  'eval',
+  'exec',
+  'fetch',
+  'file',
+  'function',
+  'grep',
+  'head',
+  'include',
+  'load',
+  'move',
+  'mv',
+  'open',
+  'popen',
+  'read',
+  'remove',
+  'rename',
+  'require',
+  'rg',
+  'rm',
+  'sed',
+  'shell',
+  'source',
+  'spawn',
+  'strings',
+  'system',
+  'tail',
+  'tar',
+  'truncate',
+  'unlink',
+  'write',
+  'xxd',
+  'zip',
+]);
 const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
 const CC_SAFETY_NET_ENTRYPOINTS = new Set([
   'src/bin/cc-safety-net.ts',
@@ -179,6 +235,10 @@ type SecretInspectionOptions = {
   readonly strict?: boolean;
 };
 
+type PathExtractionOptions = {
+  readonly refineJavaScriptInlineData?: boolean;
+};
+
 /** @internal */
 export function findSensitivePathTarget(
   targets: readonly string[],
@@ -194,12 +254,14 @@ function findSensitivePolicyPathTarget(
   cwd: string,
   config: SecretProtectionPolicy | undefined,
   configCwd: string,
+  activeDefaultTargets?: ReadonlySet<string>,
 ): SecretTarget | null {
   const budget = createPathCanonicalizationBudget();
   for (const target of targets) {
     if (isDeniedByPolicy(target, cwd, config, configCwd, budget)) {
       return { target, ruleId: 'secret.deny-path' };
     }
+    if (activeDefaultTargets && !activeDefaultTargets.has(target)) continue;
     const ruleId = isSensitivePath(target, cwd, config, budget);
     if (ruleId) {
       return { target, ruleId };
@@ -247,20 +309,35 @@ export function findSensitiveTargetInSemanticFacts(
   config: SecretProtectionPolicy | undefined,
   options: SecretInspectionOptions = {},
 ): SecretTarget | null {
+  const targets = extractToolPathTargets(facts);
   const target = findSensitivePolicyPathTarget(
-    extractToolPathTargets(facts),
+    targets,
     facts.invocation.context.executionCwd,
     config,
     facts.invocation.context.configCwd,
   );
+  const refinedTargets =
+    target?.ruleId !== 'secret.deny-path' && options.strict === false
+      ? extractToolPathTargets(facts, { refineJavaScriptInlineData: true })
+      : targets;
+  const refinedTarget =
+    refinedTargets.length === targets.length
+      ? target
+      : findSensitivePolicyPathTarget(
+          targets,
+          facts.invocation.context.executionCwd,
+          config,
+          facts.invocation.context.configCwd,
+          new Set(refinedTargets),
+        );
   if (
-    target?.ruleId !== 'secret.deny-path' &&
+    refinedTarget?.ruleId !== 'secret.deny-path' &&
     options.strict === false &&
     isMetadataOnlyCommand(facts)
   ) {
     return null;
   }
-  return target;
+  return refinedTarget;
 }
 
 function isMetadataOnlyCommand(facts: SemanticFacts): boolean {
@@ -290,21 +367,28 @@ function isMetadataOnlyCommand(facts: SemanticFacts): boolean {
   return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
 }
 
-function extractToolPathTargets(facts: SemanticFacts): string[] {
+function extractToolPathTargets(
+  facts: SemanticFacts,
+  options: PathExtractionOptions = {},
+): string[] {
   if (facts.invocation.route.kind === 'command') {
     const command = getCommandSyntaxFact(facts, 'input-candidate');
-    return command ? extractCommandPathTargets(command.shell, facts.store) : [];
+    return command ? extractCommandPathTargets(command.shell, facts.store, options) : [];
   }
   if (facts.invocation.route.kind !== 'unknown') return facts.paths.map((path) => path.raw);
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   return [
-    ...(command ? extractCommandPathTargets(command.shell, facts.store) : []),
+    ...(command ? extractCommandPathTargets(command.shell, facts.store, options) : []),
     ...facts.paths.map((path) => path.raw),
   ];
 }
 
-function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFactStore): string[] {
+function extractCommandPathTargets(
+  syntax: ShellSyntaxFacts,
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): string[] {
   if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
   if (syntax.status === 'unclosed-quote') return [];
   if (syntax.status === 'invalid') throw new Error('Unable to parse command for secret protection');
@@ -312,6 +396,7 @@ function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFact
   const targets = extractCommandSubstitutionPathTargets(
     projectSensitiveShellText(syntax.source),
     store,
+    options,
   );
   let segment: string[] = [];
   let pipeProducer: string[] | null = null;
@@ -320,9 +405,9 @@ function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFact
     if (entry.kind === 'operator') {
       if (!entry.boundary) continue;
       if (segment.length > 0) {
-        targets.push(...extractSegmentPathTargets(segment, store));
+        targets.push(...extractSegmentPathTargets(segment, store, options));
         if (pipeProducer !== null) {
-          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store, options));
         }
         pipeProducer = PIPE_OPERATORS.has(entry.operator) ? segment : null;
         segment = [];
@@ -342,16 +427,20 @@ function extractCommandPathTargets(syntax: ShellSyntaxFacts, store: SemanticFact
   }
 
   if (segment.length > 0) {
-    targets.push(...extractSegmentPathTargets(segment, store));
+    targets.push(...extractSegmentPathTargets(segment, store, options));
     if (pipeProducer !== null) {
-      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store, options));
     }
   }
 
   return targets;
 }
 
-function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
+function extractSegmentPathTargets(
+  tokens: readonly string[],
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): string[] {
   // Capture the value bound by `VAR=value` assignments as a candidate path so
   // that later variable indirection (e.g. `f=.env; cat "$f"` or
   // `f=.env; python3 -c "open('$f')"`) is caught at the assignment site,
@@ -379,14 +468,14 @@ function extractSegmentPathTargets(tokens: readonly string[], store: SemanticFac
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   }
   if (PATH_ROOT_COMMANDS.has(command)) {
-    return [...assignmentValues, ...extractFindCommandTargets(post, store)];
+    return [...assignmentValues, ...extractFindCommandTargets(post, store, options)];
   }
   if (AWK_INTERPRETERS.has(command)) {
-    return [...assignmentValues, ...extractAwkPathTargets(post, store)];
+    return [...assignmentValues, ...extractAwkPathTargets(post, store, options)];
   }
   if (isCodeInterpreter(command)) {
     assertShellInterpreterBodiesWithinStructuralLimits(command, post, store);
-    return [...assignmentValues, ...extractInterpreterPathTargets(command, post)];
+    return [...assignmentValues, ...extractInterpreterPathTargets(command, post, options)];
   }
   return [
     ...assignmentValues,
@@ -445,8 +534,9 @@ function extractPipeCarrierPathTargets(
   producer: readonly string[],
   consumer: readonly string[],
   store: SemanticFactStore,
+  options: PathExtractionOptions,
 ): string[] {
-  if (xargsReadsPipeInputAsPath(consumer, store)) {
+  if (xargsReadsPipeInputAsPath(consumer, store, options)) {
     return extractDisplayCommandOperands(producer);
   }
 
@@ -457,7 +547,7 @@ function extractPipeCarrierPathTargets(
 
   return extractDisplayCommandBodies(producer).flatMap((body) =>
     SHELL_STDIN_INTERPRETERS.has(stdinInterpreter)
-      ? extractCommandPathTargets(store.getShellSyntax(body), store)
+      ? extractCommandPathTargets(store.getShellSyntax(body), store, options)
       : extractPathLiteralsFromCode(body),
   );
 }
@@ -542,7 +632,11 @@ function decodePrintfEscapes(value: string): string {
   return value.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
 }
 
-function xargsReadsPipeInputAsPath(tokens: readonly string[], store: SemanticFactStore): boolean {
+function xargsReadsPipeInputAsPath(
+  tokens: readonly string[],
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): boolean {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
   const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1 || basename(stripped[commandIndex] ?? '').toLowerCase() !== 'xargs') {
@@ -564,7 +658,7 @@ function xargsReadsPipeInputAsPath(tokens: readonly string[], store: SemanticFac
       : xargs.childTokens.map((token) =>
           token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER),
         );
-  return extractSegmentPathTargets(childTokens, store).some((target) =>
+  return extractSegmentPathTargets(childTokens, store, options).some((target) =>
     target.includes(PIPE_INPUT_PATH_MARKER),
   );
 }
@@ -670,15 +764,19 @@ function extractPathRootTargets(tokens: readonly string[]): string[] {
   return roots;
 }
 
-function extractFindCommandTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
+function extractFindCommandTargets(
+  tokens: readonly string[],
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): string[] {
   const targets = extractPathRootTargets(tokens);
   for (let i = 0; i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? '')) continue;
     const execCommand = getFindExecCommand(tokens, i);
     targets.push(
-      ...extractSegmentPathTargets(execCommand, store).filter((target) => target !== '{}'),
+      ...extractSegmentPathTargets(execCommand, store, options).filter((target) => target !== '{}'),
     );
-    if (findExecConsumesPlaceholder(execCommand, store)) {
+    if (findExecConsumesPlaceholder(execCommand, store, options)) {
       targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
     }
   }
@@ -691,8 +789,12 @@ function getFindExecCommand(tokens: readonly string[], execIndex: number): strin
   return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
 }
 
-function findExecConsumesPlaceholder(tokens: readonly string[], store: SemanticFactStore): boolean {
-  return extractSegmentPathTargets(tokens, store).includes('{}');
+function findExecConsumesPlaceholder(
+  tokens: readonly string[],
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): boolean {
+  return extractSegmentPathTargets(tokens, store, options).includes('{}');
 }
 
 function extractFindMatchedPathTargets(tokens: readonly string[]): string[] {
@@ -715,7 +817,11 @@ function isCodeInterpreter(command: string): boolean {
   return CODE_INTERPRETERS.has(command) || /^python\d/.test(command);
 }
 
-function extractInterpreterPathTargets(command: string, tokens: readonly string[]): string[] {
+function extractInterpreterPathTargets(
+  command: string,
+  tokens: readonly string[],
+  options: PathExtractionOptions,
+): string[] {
   const candidates: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -724,7 +830,7 @@ function extractInterpreterPathTargets(command: string, tokens: readonly string[
     if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command, token)) {
       const code = tokens[i + 1];
       if (code !== undefined) {
-        candidates.push(...extractPathLiteralsFromCode(code));
+        candidates.push(...extractInlineCodePathTargets(command, code, options));
         i++;
       }
       continue;
@@ -732,7 +838,7 @@ function extractInterpreterPathTargets(command: string, tokens: readonly string[
 
     const inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
     if (inlineEval !== null && inlineEval[1] !== undefined) {
-      candidates.push(...extractPathLiteralsFromCode(inlineEval[1]));
+      candidates.push(...extractInlineCodePathTargets(command, inlineEval[1], options));
       continue;
     }
 
@@ -752,19 +858,27 @@ function isClusteredCodeEvalFlag(command: string, token: string): boolean {
   return evalFlags?.has(token[token.length - 1] ?? '') ?? false;
 }
 
-function extractAwkPathTargets(tokens: readonly string[], store: SemanticFactStore): string[] {
+function extractAwkPathTargets(
+  tokens: readonly string[],
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): string[] {
   return [
     ...tokens.flatMap((token) => extractOperandPathCandidates('awk', token)),
-    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store)),
+    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store, options)),
     ...tokens.flatMap(extractAwkGetlineRedirectTargets),
   ];
 }
 
-function extractAwkSystemCommandTargets(code: string, store: SemanticFactStore): string[] {
+function extractAwkSystemCommandTargets(
+  code: string,
+  store: SemanticFactStore,
+  options: PathExtractionOptions,
+): string[] {
   if (!code.includes('system')) return [];
   return (
     extractAwkSystemCommands(code)?.commands.flatMap((command) =>
-      extractCommandPathTargets(store.getShellSyntax(command), store),
+      extractCommandPathTargets(store.getShellSyntax(command), store, options),
     ) ?? []
   );
 }
@@ -792,14 +906,104 @@ function extractPathLiteralsFromCode(code: string): string[] {
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 
+function extractInlineCodePathTargets(
+  command: string,
+  code: string,
+  options: PathExtractionOptions,
+): string[] {
+  const targets = extractPathLiteralsFromCode(code);
+  if (
+    !options.refineJavaScriptInlineData ||
+    !JAVASCRIPT_INLINE_INTERPRETERS.has(command) ||
+    targets.length === 0
+  ) {
+    return targets;
+  }
+
+  const executableCode = maskJavaScriptDataLiterals(code);
+  return executableCode !== null && !containsRecognizableInlineAccess(executableCode)
+    ? []
+    : targets;
+}
+
+function maskJavaScriptDataLiterals(code: string): string | null {
+  const masked = code.split('');
+  for (let index = 0; index < code.length; index++) {
+    const quote = code[index];
+    if (quote !== "'" && quote !== '"' && quote !== '`') continue;
+    if (quote === '`' && isTaggedTemplate(code, index)) return null;
+
+    masked[index] = ' ';
+    let closed = false;
+    for (let cursor = index + 1; cursor < code.length; cursor++) {
+      const char = code[cursor];
+      masked[cursor] = ' ';
+      if (char === '\\') {
+        cursor++;
+        if (cursor < code.length) masked[cursor] = ' ';
+        continue;
+      }
+      if (quote === '`' && char === '$' && code[cursor + 1] === '{') return null;
+      if (quote !== '`' && (char === '\n' || char === '\r')) return null;
+      if (char !== quote) continue;
+      index = cursor;
+      closed = true;
+      break;
+    }
+    if (!closed) return null;
+  }
+  return masked.join('');
+}
+
+function isTaggedTemplate(code: string, index: number): boolean {
+  for (let cursor = index - 1; cursor >= 0; cursor--) {
+    const char = code[cursor];
+    if (!char || /\s/.test(char)) continue;
+    return /[\w$\])]/.test(char);
+  }
+  return false;
+}
+
+function containsRecognizableInlineAccess(code: string): boolean {
+  for (const match of code.matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) {
+    const identifier = match[0];
+    const start = match.index;
+    if (INLINE_ACCESS_NAMESPACES.has(identifier.toLowerCase())) return true;
+    const parts = identifier
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .split(/[_$\s]+/)
+      .map((part) => part.toLowerCase());
+    if (!parts.some((part) => INLINE_ACCESS_IDENTIFIER_PARTS.has(part))) continue;
+    if (parts.length > 1) return true;
+    if (previousNonWhitespaceCharacter(code, start) === '.') return true;
+    if (nextNonWhitespaceCharacter(code, start + identifier.length) === '(') return true;
+  }
+  return false;
+}
+
+function previousNonWhitespaceCharacter(value: string, start: number): string | undefined {
+  for (let index = start - 1; index >= 0; index--) {
+    if (!/\s/.test(value[index] ?? '')) return value[index];
+  }
+  return undefined;
+}
+
+function nextNonWhitespaceCharacter(value: string, start: number): string | undefined {
+  for (let index = start; index < value.length; index++) {
+    if (!/\s/.test(value[index] ?? '')) return value[index];
+  }
+  return undefined;
+}
+
 function extractCommandSubstitutionPathTargets(
   command: string,
   store: SemanticFactStore,
+  options: PathExtractionOptions,
 ): string[] {
   return extractCommandSubstitutionBodies(command).flatMap((body) => {
     const syntax = store.getShellSyntax(body);
     return [
-      ...extractCommandPathTargets(syntax, store),
+      ...extractCommandPathTargets(syntax, store, options),
       ...(commandSubstitutionDecodesBase64(syntax)
         ? extractBase64DecodedPathCandidates(syntax)
         : []),

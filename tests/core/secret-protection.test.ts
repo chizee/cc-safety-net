@@ -532,6 +532,61 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('python3 ~/.ssh/id_rsa', cwd)).not.toBeNull();
   });
 
+  test('allows inert Node and Bun inline diagnostic data only in standard mode', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const diagnostic = `bun -e 'import { findSensitiveTargetInCommand } from "./src/core/secret-protection.ts"; const cases = ["cat .env", "cat .env.example", "test -f .env", "find . -name .env", "find . -name .env -exec cat {} ;", "python3 -c \\"open(\\\\\\".env\\\\\\").read()\\"", "echo .env", "echo .env | xargs cat"]; for (const command of cases) console.log(JSON.stringify({ command, standard: findSensitiveTargetInCommand(command, process.cwd(), undefined, { strict: false }), strict: findSensitiveTargetInCommand(command, process.cwd(), undefined, { strict: true }) }))'`;
+
+    for (const command of [
+      diagnostic,
+      `node -e 'const path = ".env"; console.log(path)'`,
+      `bun -e 'const paths = [".env"]; for (const path of paths) console.log(path)'`,
+      `node -e 'console.log("Bun.file(\\".env\\")")'`,
+      "node -e 'console.log(`.env`)'",
+    ]) {
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
+        command,
+      ).toBeNull();
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
+        command,
+      ).not.toBeNull();
+    }
+  });
+
+  test('keeps recognizable Node and Bun inline sensitive access blocked in standard mode', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const command of [
+      `node -e 'const path = ".env"; require("fs").readFileSync(path, "utf8")'`,
+      `bun -e 'const path = ".env"; Bun.file(path).text()'`,
+      `node -e 'const command = "cat .env"; require("node:child_process").execSync(command)'`,
+      `bun -e 'const path = ".env"; const read = Bun.file; read(path)'`,
+      `node -e 'const command = "cat .env"; eval(command)'`,
+      `node -e 'const path = ".env"; console.log(path); require("fs").readFileSync("README.md")'`,
+      'bun -e \'console.log(`${Bun.file(".env")}`)\'',
+      "bun -e 'console.log(String.raw`.env`)'",
+    ]) {
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
+        command,
+      ).not.toBeNull();
+    }
+  });
+
+  test('keeps configured deny paths protected in inert Node inline data', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(
+        `node -e 'console.log("protected.txt")'`,
+        cwd,
+        { denyPaths: ['protected.txt'] },
+        { strict: false },
+      ),
+    ).toMatchObject({ ruleId: 'secret.deny-path' });
+  });
+
   test('blocks clustered shell eval flags reading sensitive paths from inline code', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

@@ -15365,6 +15365,57 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   "zsh",
   "dash",
   "ksh"
+]), JAVASCRIPT_INLINE_INTERPRETERS = /* @__PURE__ */ new Set(["node", "bun"]), INLINE_ACCESS_NAMESPACES = /* @__PURE__ */ new Set([
+  "bun",
+  "child_process",
+  "deno",
+  "dotenv",
+  "fs",
+  "subprocess"
+]), INLINE_ACCESS_IDENTIFIER_PARTS = /* @__PURE__ */ new Set([
+  "append",
+  "awk",
+  "base64",
+  "cat",
+  "chmod",
+  "chown",
+  "connect",
+  "copy",
+  "cp",
+  "database",
+  "dd",
+  "eval",
+  "exec",
+  "fetch",
+  "file",
+  "function",
+  "grep",
+  "head",
+  "include",
+  "load",
+  "move",
+  "mv",
+  "open",
+  "popen",
+  "read",
+  "remove",
+  "rename",
+  "require",
+  "rg",
+  "rm",
+  "sed",
+  "shell",
+  "source",
+  "spawn",
+  "strings",
+  "system",
+  "tail",
+  "tar",
+  "truncate",
+  "unlink",
+  "write",
+  "xxd",
+  "zip"
 ]), CODE_EVAL_FLAGS = /* @__PURE__ */ new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]), CC_SAFETY_NET_ENTRYPOINTS = /* @__PURE__ */ new Set([
   "src/bin/cc-safety-net.ts",
   "dist/bin/cc-safety-net.js"
@@ -15401,11 +15452,13 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   ["python", /* @__PURE__ */ new Set(["-W", "-X"])],
   ["node", /* @__PURE__ */ new Set(["-r", "--require", "--loader", "--import", "--input-type"])]
 ]);
-function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
+function findSensitivePolicyPathTarget(targets, cwd, config, configCwd, activeDefaultTargets) {
   let budget = createPathCanonicalizationBudget();
   for (let target of targets) {
     if (isDeniedByPolicy(target, cwd, config, configCwd, budget))
       return { target, ruleId: "secret.deny-path" };
+    if (activeDefaultTargets && !activeDefaultTargets.has(target))
+      continue;
     let ruleId = isSensitivePath(target, cwd, config, budget);
     if (ruleId)
       return { target, ruleId };
@@ -15413,10 +15466,10 @@ function findSensitivePolicyPathTarget(targets, cwd, config, configCwd) {
   return null;
 }
 function findSensitiveTargetInSemanticFacts(facts, config, options2 = {}) {
-  let target = findSensitivePolicyPathTarget(extractToolPathTargets(facts), facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd);
-  if (target?.ruleId !== "secret.deny-path" && options2.strict === !1 && isMetadataOnlyCommand(facts))
+  let targets = extractToolPathTargets(facts), target = findSensitivePolicyPathTarget(targets, facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd), refinedTargets = target?.ruleId !== "secret.deny-path" && options2.strict === !1 ? extractToolPathTargets(facts, { refineJavaScriptInlineData: !0 }) : targets, refinedTarget = refinedTargets.length === targets.length ? target : findSensitivePolicyPathTarget(targets, facts.invocation.context.executionCwd, config, facts.invocation.context.configCwd, new Set(refinedTargets));
+  if (refinedTarget?.ruleId !== "secret.deny-path" && options2.strict === !1 && isMetadataOnlyCommand(facts))
     return null;
-  return target;
+  return refinedTarget;
 }
 function isMetadataOnlyCommand(facts) {
   if (facts.invocation.route.kind !== "command")
@@ -15445,34 +15498,34 @@ function isMetadataOnlyCommand(facts) {
     return !1;
   return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
 }
-function extractToolPathTargets(facts) {
+function extractToolPathTargets(facts, options2 = {}) {
   if (facts.invocation.route.kind === "command") {
     let command3 = getCommandSyntaxFact(facts, "input-candidate");
-    return command3 ? extractCommandPathTargets(command3.shell, facts.store) : [];
+    return command3 ? extractCommandPathTargets(command3.shell, facts.store, options2) : [];
   }
   if (facts.invocation.route.kind !== "unknown")
     return facts.paths.map((path) => path.raw);
   let command2 = getCommandSyntaxFact(facts, "input-candidate");
   return [
-    ...command2 ? extractCommandPathTargets(command2.shell, facts.store) : [],
+    ...command2 ? extractCommandPathTargets(command2.shell, facts.store, options2) : [],
     ...facts.paths.map((path) => path.raw)
   ];
 }
-function extractCommandPathTargets(syntax, store) {
+function extractCommandPathTargets(syntax, store, options2) {
   if (syntax.status === "structural-limit")
     throw new StructuralShellSyntaxLimitError;
   if (syntax.status === "unclosed-quote")
     return [];
   if (syntax.status === "invalid")
     throw Error("Unable to parse command for secret protection");
-  let targets = extractCommandSubstitutionPathTargets(projectSensitiveShellText(syntax.source), store), segment = [], pipeProducer = null;
+  let targets = extractCommandSubstitutionPathTargets(projectSensitiveShellText(syntax.source), store, options2), segment = [], pipeProducer = null;
   for (let entry of syntax.entries) {
     if (entry.kind === "operator") {
       if (!entry.boundary)
         continue;
       if (segment.length > 0) {
-        if (targets.push(...extractSegmentPathTargets(segment, store)), pipeProducer !== null)
-          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
+        if (targets.push(...extractSegmentPathTargets(segment, store, options2)), pipeProducer !== null)
+          targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store, options2));
         pipeProducer = PIPE_OPERATORS.has(entry.operator) ? segment : null, segment = [];
       } else
         pipeProducer = null;
@@ -15489,12 +15542,12 @@ function extractCommandPathTargets(syntax, store) {
     segment.push(projectSensitiveShellText(entry.text));
   }
   if (segment.length > 0) {
-    if (targets.push(...extractSegmentPathTargets(segment, store)), pipeProducer !== null)
-      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store));
+    if (targets.push(...extractSegmentPathTargets(segment, store, options2)), pipeProducer !== null)
+      targets.push(...extractPipeCarrierPathTargets(pipeProducer, segment, store, options2));
   }
   return targets;
 }
-function extractSegmentPathTargets(tokens, store) {
+function extractSegmentPathTargets(tokens, store, options2) {
   let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1)
     return assignmentValues;
@@ -15506,11 +15559,11 @@ function extractSegmentPathTargets(tokens, store) {
   if (PATTERN_FIRST_COMMANDS.has(command2))
     return [...assignmentValues, ...extractPatternCommandTargets(post)];
   if (PATH_ROOT_COMMANDS.has(command2))
-    return [...assignmentValues, ...extractFindCommandTargets(post, store)];
+    return [...assignmentValues, ...extractFindCommandTargets(post, store, options2)];
   if (AWK_INTERPRETERS.has(command2))
-    return [...assignmentValues, ...extractAwkPathTargets(post, store)];
+    return [...assignmentValues, ...extractAwkPathTargets(post, store, options2)];
   if (isCodeInterpreter(command2))
-    return assertShellInterpreterBodiesWithinStructuralLimits(command2, post, store), [...assignmentValues, ...extractInterpreterPathTargets(command2, post)];
+    return assertShellInterpreterBodiesWithinStructuralLimits(command2, post, store), [...assignmentValues, ...extractInterpreterPathTargets(command2, post, options2)];
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
@@ -15547,13 +15600,13 @@ function assertShellInterpreterBodiesWithinStructuralLimits(command2, tokens, st
   if (body !== null && store.getShellSyntax(body).status === "structural-limit")
     throw new StructuralShellSyntaxLimitError;
 }
-function extractPipeCarrierPathTargets(producer, consumer, store) {
-  if (xargsReadsPipeInputAsPath(consumer, store))
+function extractPipeCarrierPathTargets(producer, consumer, store, options2) {
+  if (xargsReadsPipeInputAsPath(consumer, store, options2))
     return extractDisplayCommandOperands(producer);
   let stdinInterpreter = getStdinScriptInterpreter(consumer);
   if (stdinInterpreter === null)
     return [];
-  return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(store.getShellSyntax(body), store) : extractPathLiteralsFromCode(body));
+  return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(store.getShellSyntax(body), store, options2) : extractPathLiteralsFromCode(body));
 }
 function extractDisplayCommandOperands(tokens) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
@@ -15605,7 +15658,7 @@ function decodePrintfEscapes(value) {
   return value.replace(/\\n/g, `
 `).replace(/\\t/g, "\t").replace(/\\r/g, "\r");
 }
-function xargsReadsPipeInputAsPath(tokens, store) {
+function xargsReadsPipeInputAsPath(tokens, store, options2) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
   if (commandIndex === -1 || basename3(stripped[commandIndex] ?? "").toLowerCase() !== "xargs")
     return !1;
@@ -15615,7 +15668,7 @@ function xargsReadsPipeInputAsPath(tokens, store) {
   if (xargs.replacementToken === "")
     return !1;
   let replacementToken = xargs.replacementToken, childTokens = replacementToken === null ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER] : xargs.childTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
-  return extractSegmentPathTargets(childTokens, store).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
+  return extractSegmentPathTargets(childTokens, store, options2).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
 }
 function getStdinScriptInterpreter(tokens) {
   let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
@@ -15687,13 +15740,13 @@ function extractPathRootTargets(tokens) {
   }
   return roots;
 }
-function extractFindCommandTargets(tokens, store) {
+function extractFindCommandTargets(tokens, store, options2) {
   let targets = extractPathRootTargets(tokens);
   for (let i = 0;i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES2.has(tokens[i] ?? ""))
       continue;
     let execCommand = getFindExecCommand2(tokens, i);
-    if (targets.push(...extractSegmentPathTargets(execCommand, store).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand, store))
+    if (targets.push(...extractSegmentPathTargets(execCommand, store, options2).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand, store, options2))
       targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
   }
   return targets;
@@ -15702,8 +15755,8 @@ function getFindExecCommand2(tokens, execIndex) {
   let execTokens = tokens.slice(execIndex + 1), terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
   return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
 }
-function findExecConsumesPlaceholder(tokens, store) {
-  return extractSegmentPathTargets(tokens, store).includes("{}");
+function findExecConsumesPlaceholder(tokens, store, options2) {
+  return extractSegmentPathTargets(tokens, store, options2).includes("{}");
 }
 function extractFindMatchedPathTargets(tokens) {
   return tokens.flatMap((token, index) => {
@@ -15719,7 +15772,7 @@ function normalizeFindPathPattern(pattern) {
 function isCodeInterpreter(command2) {
   return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
 }
-function extractInterpreterPathTargets(command2, tokens) {
+function extractInterpreterPathTargets(command2, tokens, options2) {
   let candidates = [];
   for (let i = 0;i < tokens.length; i++) {
     let token = tokens[i];
@@ -15728,12 +15781,12 @@ function extractInterpreterPathTargets(command2, tokens) {
     if (CODE_EVAL_FLAGS.has(token) || isClusteredCodeEvalFlag(command2, token)) {
       let code = tokens[i + 1];
       if (code !== void 0)
-        candidates.push(...extractPathLiteralsFromCode(code)), i++;
+        candidates.push(...extractInlineCodePathTargets(command2, code, options2)), i++;
       continue;
     }
     let inlineEval = /^--(?:eval|exec)=(.*)$/.exec(token);
     if (inlineEval !== null && inlineEval[1] !== void 0) {
-      candidates.push(...extractPathLiteralsFromCode(inlineEval[1]));
+      candidates.push(...extractInlineCodePathTargets(command2, inlineEval[1], options2));
       continue;
     }
     if (!token.startsWith("-"))
@@ -15746,17 +15799,17 @@ function isClusteredCodeEvalFlag(command2, token) {
     return !1;
   return (/^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2))?.has(token[token.length - 1] ?? "") ?? !1;
 }
-function extractAwkPathTargets(tokens, store) {
+function extractAwkPathTargets(tokens, store, options2) {
   return [
     ...tokens.flatMap((token) => extractOperandPathCandidates("awk", token)),
-    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store)),
+    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store, options2)),
     ...tokens.flatMap(extractAwkGetlineRedirectTargets)
   ];
 }
-function extractAwkSystemCommandTargets(code, store) {
+function extractAwkSystemCommandTargets(code, store, options2) {
   if (!code.includes("system"))
     return [];
-  return extractAwkSystemCommands(code)?.commands.flatMap((command2) => extractCommandPathTargets(store.getShellSyntax(command2), store)) ?? [];
+  return extractAwkSystemCommands(code)?.commands.flatMap((command2) => extractCommandPathTargets(store.getShellSyntax(command2), store, options2)) ?? [];
 }
 function extractAwkGetlineRedirectTargets(code) {
   return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== void 0 && value !== "");
@@ -15765,11 +15818,88 @@ function extractPathLiteralsFromCode(code) {
   let quoted = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== void 0 && value !== ""), bare = (code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? []).filter((candidate) => candidate !== "process.versions.sqlite" || quoted.some((literal) => literal.includes(candidate)));
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
-function extractCommandSubstitutionPathTargets(command2, store) {
+function extractInlineCodePathTargets(command2, code, options2) {
+  let targets = extractPathLiteralsFromCode(code);
+  if (!options2.refineJavaScriptInlineData || !JAVASCRIPT_INLINE_INTERPRETERS.has(command2) || targets.length === 0)
+    return targets;
+  let executableCode = maskJavaScriptDataLiterals(code);
+  return executableCode !== null && !containsRecognizableInlineAccess(executableCode) ? [] : targets;
+}
+function maskJavaScriptDataLiterals(code) {
+  let masked = code.split("");
+  for (let index = 0;index < code.length; index++) {
+    let quote = code[index];
+    if (quote !== "'" && quote !== '"' && quote !== "`")
+      continue;
+    if (quote === "`" && isTaggedTemplate(code, index))
+      return null;
+    masked[index] = " ";
+    let closed = !1;
+    for (let cursor = index + 1;cursor < code.length; cursor++) {
+      let char = code[cursor];
+      if (masked[cursor] = " ", char === "\\") {
+        if (cursor++, cursor < code.length)
+          masked[cursor] = " ";
+        continue;
+      }
+      if (quote === "`" && char === "$" && code[cursor + 1] === "{")
+        return null;
+      if (quote !== "`" && (char === `
+` || char === "\r"))
+        return null;
+      if (char !== quote)
+        continue;
+      index = cursor, closed = !0;
+      break;
+    }
+    if (!closed)
+      return null;
+  }
+  return masked.join("");
+}
+function isTaggedTemplate(code, index) {
+  for (let cursor = index - 1;cursor >= 0; cursor--) {
+    let char = code[cursor];
+    if (!char || /\s/.test(char))
+      continue;
+    return /[\w$\])]/.test(char);
+  }
+  return !1;
+}
+function containsRecognizableInlineAccess(code) {
+  for (let match of code.matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) {
+    let identifier = match[0], start = match.index;
+    if (INLINE_ACCESS_NAMESPACES.has(identifier.toLowerCase()))
+      return !0;
+    let parts = identifier.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[_$\s]+/).map((part) => part.toLowerCase());
+    if (!parts.some((part) => INLINE_ACCESS_IDENTIFIER_PARTS.has(part)))
+      continue;
+    if (parts.length > 1)
+      return !0;
+    if (previousNonWhitespaceCharacter(code, start) === ".")
+      return !0;
+    if (nextNonWhitespaceCharacter(code, start + identifier.length) === "(")
+      return !0;
+  }
+  return !1;
+}
+function previousNonWhitespaceCharacter(value, start) {
+  for (let index = start - 1;index >= 0; index--)
+    if (!/\s/.test(value[index] ?? ""))
+      return value[index];
+  return;
+}
+function nextNonWhitespaceCharacter(value, start) {
+  for (let index = start;index < value.length; index++)
+    if (!/\s/.test(value[index] ?? ""))
+      return value[index];
+  return;
+}
+function extractCommandSubstitutionPathTargets(command2, store, options2) {
   return extractCommandSubstitutionBodies(command2).flatMap((body) => {
     let syntax = store.getShellSyntax(body);
     return [
-      ...extractCommandPathTargets(syntax, store),
+      ...extractCommandPathTargets(syntax, store, options2),
       ...commandSubstitutionDecodesBase64(syntax) ? extractBase64DecodedPathCandidates(syntax) : []
     ];
   });

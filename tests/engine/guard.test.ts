@@ -437,6 +437,27 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('allows inert JavaScript inline secret data in standard mode', async () => {
+    await withTempDir('cc-safety-net-guard-secret-inline-data-', (cwd) => {
+      const command = `node -e 'const cases = ["cat .env", "Bun.file(\\".env\\")"]; for (const value of cases) console.log(value)'`;
+
+      expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+        stage: 'command-analysis',
+        decision: { kind: 'allow' },
+      });
+
+      for (const activeCommand of [
+        `node -e 'const path = ".env"; require("fs").readFileSync(path, "utf8")'`,
+        `bun -e 'const path = ".env"; Bun.file(path).text()'`,
+      ]) {
+        expect(evaluateGuard(commandInvocation(cwd, activeCommand)), activeCommand).toMatchObject({
+          stage: 'secret-protection',
+          decision: { kind: 'deny', ruleId: 'secret.basename.env' },
+        });
+      }
+    });
+  });
+
   test('does not analyze command-looking input on an unknown non-command route', async () => {
     await withTempDir('cc-safety-net-guard-unknown-', (cwd) => {
       let analyzed = false;
