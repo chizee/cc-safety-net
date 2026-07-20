@@ -137,6 +137,18 @@ describe('writeAnimatedLolcat', () => {
     expect(renderTerminal(chunks)).toBe('AB\nCD');
   });
 
+  test('reserves enough viewport rows when the cursor starts at the bottom', async () => {
+    const { chunks, output } = createLolcatOutput();
+
+    await writeAnimatedLolcat('AB\nCD\nEF', {
+      duration: 2,
+      output,
+      sleep: async () => {},
+    });
+
+    expect(renderTerminal(chunks, { height: 4, initialCursorRow: 3 })).toBe('AB\nCD\nEF');
+  });
+
   test('preserves the total animation time at the default frame rate', async () => {
     const { output } = createLolcatOutput();
     const sleeps: number[] = [];

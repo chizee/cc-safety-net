@@ -18,12 +18,15 @@ export function stripAnsi(value: string) {
   return value.replace(new RegExp(`${esc}\\[[0-?]*[ -/]*[@-~]|${esc}[78]`, 'g'), '');
 }
 
-export function renderTerminal(chunks: string[]) {
+export function renderTerminal(
+  chunks: string[],
+  options: { height?: number; initialCursorRow?: number } = {},
+) {
   const ansiSequence = new RegExp(`^${String.fromCharCode(27)}\\[([0-9;?]*)([A-Za-z])`);
-  const screen: string[][] = [[]];
+  const screen: string[][] = Array.from({ length: options.height ?? 1 }, () => []);
   const input = chunks.join('');
-  const savedCursor = { column: 0, row: 0 };
-  const cursor = { column: 0, row: 0 };
+  const savedCursor = { column: 0, row: options.initialCursorRow ?? 0 };
+  const cursor = { column: 0, row: options.initialCursorRow ?? 0 };
 
   for (let index = 0; index < input.length; ) {
     if (input.startsWith('\x1b7', index)) {
@@ -44,7 +47,12 @@ export function renderTerminal(chunks: string[]) {
       const sequence = input.slice(index).match(ansiSequence);
       if (!sequence) throw new Error('Unexpected ANSI escape sequence');
       const distance = Number(sequence[1]) || 1;
-      if (sequence[2] === 'B') cursor.row += distance;
+      if (sequence[2] === 'A') cursor.row = Math.max(0, cursor.row - distance);
+      if (sequence[2] === 'B') {
+        cursor.row = options.height
+          ? Math.min(options.height - 1, cursor.row + distance)
+          : cursor.row + distance;
+      }
       if (sequence[2] === 'C') cursor.column += distance;
       index += sequence[0].length;
       continue;
@@ -52,7 +60,12 @@ export function renderTerminal(chunks: string[]) {
 
     if (input[index] === '\n') {
       cursor.column = 0;
-      cursor.row += 1;
+      if (options.height && cursor.row === options.height - 1) {
+        screen.shift();
+        screen.push([]);
+      } else {
+        cursor.row += 1;
+      }
       index += 1;
       continue;
     }

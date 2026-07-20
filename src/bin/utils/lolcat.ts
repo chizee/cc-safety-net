@@ -72,6 +72,7 @@ const DEFAULT_FREQUENCY = 0.1;
 const DEFAULT_SPEED = 40;
 const DEFAULT_SPREAD = 3;
 const CURSOR_DOWN = (rows: number) => `\x1b[${rows}B`;
+const CURSOR_UP = (rows: number) => `\x1b[${rows}A`;
 const HIDE_CURSOR = '\x1b[?25l';
 const RESTORE_CURSOR = '\x1b8';
 const SAVE_CURSOR = '\x1b7';
@@ -343,7 +344,9 @@ export async function writeAnimatedLolcat(text: string, options: LolcatAnimation
   const frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / frameRate))) : 0;
   const frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
 
-  output.write(`${HIDE_CURSOR}${SAVE_CURSOR}`);
+  output.write(
+    `${HIDE_CURSOR}${lines.length > 1 ? `${'\n'.repeat(lines.length - 1)}${CURSOR_UP(lines.length - 1)}` : ''}${SAVE_CURSOR}`,
+  );
 
   try {
     for (let frame = 1; frame <= frameCount; frame += 1) {

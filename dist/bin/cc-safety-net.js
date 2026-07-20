@@ -19305,7 +19305,7 @@ async function checkForUpdates() {
 import * as readline from "node:readline";
 
 // src/bin/utils/lolcat.ts
-var CURSOR_DOWN = (rows) => `\x1B[${rows}B`;
+var CURSOR_DOWN = (rows) => `\x1B[${rows}B`, CURSOR_UP = (rows) => `\x1B[${rows}A`;
 var SCRAMBLE_POOL = ["░", "▒", "▓", "╱", "╲", "┃", "━", "┏", "┓", "┗", "┛", "╋"];
 function wait(milliseconds) {
   return new Promise((resolve14) => setTimeout(resolve14, milliseconds));
@@ -19416,7 +19416,8 @@ async function writeAnimatedLolcat(text, options2 = {}) {
     return;
   let output = options2.output ?? process.stdout, sleep = options2.sleep ?? wait, frequency = positiveOrDefault(options2.frequency, 0.1), seed = options2.seed ?? 0, speed = positiveOrDefault(options2.speed, 40), spread = positiveOrDefault(options2.spread, 3), frameRate = positiveOrDefault(options2.frameRate, 60), duration = Math.max(1, Math.floor(positiveOrDefault(options2.duration, 12))), lines = text.split(`
 `).map((line) => Array.from(line)), width = Math.max(...lines.map((line) => line.length)), totalDuration = 1000 * duration * lines.filter((line) => line.length > 0).length / speed, frameCount = width > 0 ? Math.max(1, Math.ceil(totalDuration / (1000 / frameRate))) : 0, frameDelay = frameCount > 0 ? totalDuration / frameCount : 0;
-  output.write("\x1B[?25l\x1B7");
+  output.write(`\x1B[?25l${lines.length > 1 ? `${`
+`.repeat(lines.length - 1)}${CURSOR_UP(lines.length - 1)}` : ""}\x1B7`);
   try {
     for (let frame = 1;frame <= frameCount; frame += 1) {
       if (options2.signal?.aborted)
