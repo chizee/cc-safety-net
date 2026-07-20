@@ -632,9 +632,17 @@ describe('secret protection command target extraction', () => {
   test('blocks clustered shell eval flags reading sensitive paths from inline code', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
-    expect(findSensitiveTargetInCommand('bash -c "cat .env"', cwd)?.target).toBe('.env');
-    expect(findSensitiveTargetInCommand('bash -lc "cat .env"', cwd)?.target).toBe('.env');
-    expect(findSensitiveTargetInCommand('zsh -fc "cat .env"', cwd)?.target).toBe('.env');
+    for (const command of [
+      'bash -c "cat .env"',
+      'bash -lc "cat .env"',
+      'zsh -fc "cat .env"',
+      `python3 -vc "open('.env')"`,
+      `node -pe "require('fs').readFileSync('.env')"`,
+      `perl -wE "open('.env')"`,
+      `php -nr "file_get_contents('.env')"`,
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd)?.target, command).toBe('.env');
+    }
     expect(findSensitiveTargetInCommand('zsh -fl "cat .env"', cwd)).toBeNull();
   });
 
@@ -797,11 +805,18 @@ for runtime in /Users/kenryu/.nvm/versions/node/v26.0.0/bin/node /Users/kenryu/.
 
     for (const command of [
       "printf 'cat .env' | bash",
+      "printf 'cat .env' | bash -O extglob",
       `printf "print(open('.env').read())" | python3`,
+      `printf "print(open('.env').read())" | python3 -W ignore`,
       `echo "require('fs').readFileSync('.env','utf8')" | node`,
+      `echo "require('fs').readFileSync('.env','utf8')" | node --require fs`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
     }
+
+    expect(
+      findSensitiveTargetInCommand(`printf "print(open('.env').read())" | python3 -m module`, cwd),
+    ).toBeNull();
   });
 
   test('allows benign display-fed stdin interpreter scripts', () => {

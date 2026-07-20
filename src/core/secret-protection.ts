@@ -152,23 +152,11 @@ const CC_SAFETY_NET_ENTRYPOINTS = new Set([
   'src/bin/cc-safety-net.ts',
   'dist/bin/cc-safety-net.js',
 ]);
-const CLUSTERED_CODE_EVAL_FLAGS = new Map([
-  ['bash', new Set(['c'])],
-  ['sh', new Set(['c'])],
-  ['zsh', new Set(['c'])],
-  ['dash', new Set(['c'])],
-  ['ksh', new Set(['c'])],
-  ['python', new Set(['c'])],
-  ['python2', new Set(['c'])],
-  ['python3', new Set(['c'])],
-  ['node', new Set(['e'])],
-  ['deno', new Set(['e'])],
-  ['bun', new Set(['e'])],
-  ['ruby', new Set(['e'])],
-  ['perl', new Set(['e', 'E'])],
-  ['php', new Set(['r'])],
-  ['rscript', new Set(['e'])],
-  ['osascript', new Set(['e'])],
+const INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG = new Map([
+  ['c', new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'python'])],
+  ['e', new Set(['node', 'deno', 'bun', 'ruby', 'perl', 'rscript', 'osascript'])],
+  ['E', new Set(['perl'])],
+  ['r', new Set(['php'])],
 ]);
 
 // grep/rg read the search PATTERN either from the first positional operand
@@ -208,7 +196,6 @@ const PATTERN_ARG_LONG = new Set([
 const PIPE_OPERATORS = new Set(['|', '|&']);
 const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
 const SHELL_STDIN_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
-const PROGRAM_SELECTING_INTERPRETER_FLAGS = new Map([['python', new Set(['-m'])]]);
 const VALUE_CONSUMING_INTERPRETER_FLAGS = new Map([
   ['bash', new Set(['-O'])],
   ['sh', new Set(['-O'])],
@@ -257,7 +244,7 @@ function findSensitivePolicyPathTarget(
 ): SecretTarget | null {
   const budget = createPathCanonicalizationBudget();
   for (const target of targets) {
-    if (isDeniedByPolicy(target, cwd, config, configCwd, budget)) {
+    if (matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget)) {
       return { target, ruleId: 'secret.deny-path' };
     }
     if (activeDefaultTargets && !activeDefaultTargets.has(target)) continue;
@@ -357,10 +344,9 @@ function isMetadataOnlyCommand(facts: SemanticFacts): boolean {
   }
 
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) return false;
-  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
-  const args = stripped.slice(commandIndex + 1);
+  if (stripped.length === 0) return false;
+  const command = basename(stripped[0] ?? '').toLowerCase();
+  const args = stripped.slice(1);
   if (command === 'test') return args.length === 2 && (args[0] === '-e' || args[0] === '-f');
   if (command !== 'find') return false;
   return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
@@ -446,14 +432,11 @@ function extractSegmentPathTargets(
   // regardless of how the variable is dereferenced afterwards.
   const assignmentValues = extractLeadingAssignmentValues(tokens);
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
-    return assignmentValues;
-  }
+  if (stripped.length === 0) return assignmentValues;
 
-  const executable = stripped[commandIndex] ?? '';
+  const executable = stripped[0] ?? '';
   const command = basename(executable).toLowerCase();
-  const post = stripped.slice(commandIndex + 1);
+  const post = stripped.slice(1);
   const explainTargets = extractSafetyNetExplainPathTargets(executable, command, post);
 
   if (explainTargets) {
@@ -470,10 +453,20 @@ function extractSegmentPathTargets(
     return [...assignmentValues, ...extractFindCommandTargets(post, store, options)];
   }
   if (AWK_INTERPRETERS.has(command)) {
-    return [...assignmentValues, ...extractAwkPathTargets(post, store, options)];
+    return [
+      ...assignmentValues,
+      ...post.flatMap((token) => extractOperandPathCandidates('awk', token)),
+      ...post.flatMap((token) => extractAwkSystemCommandTargets(token, store, options)),
+      ...post.flatMap(extractAwkGetlineRedirectTargets),
+    ];
   }
   if (isCodeInterpreter(command)) {
-    assertShellInterpreterBodiesWithinStructuralLimits(command, post, store);
+    if (SHELL_STDIN_INTERPRETERS.has(command)) {
+      const body = getShellCommandString(command, post);
+      if (body !== null && store.getShellSyntax(body).status === 'structural-limit') {
+        throw new StructuralShellSyntaxLimitError();
+      }
+    }
     return [...assignmentValues, ...extractInterpreterPathTargets(command, post, options)];
   }
   return [
@@ -517,18 +510,6 @@ function isSafetyNetEntrypoint(value: string | undefined): boolean {
   );
 }
 
-function assertShellInterpreterBodiesWithinStructuralLimits(
-  command: string,
-  tokens: readonly string[],
-  store: SemanticFactStore,
-): void {
-  if (!SHELL_STDIN_INTERPRETERS.has(command)) return;
-  const body = getShellCommandString(command, tokens);
-  if (body !== null && store.getShellSyntax(body).status === 'structural-limit') {
-    throw new StructuralShellSyntaxLimitError();
-  }
-}
-
 function extractPipeCarrierPathTargets(
   producer: readonly string[],
   consumer: readonly string[],
@@ -553,40 +534,28 @@ function extractPipeCarrierPathTargets(
 
 function extractDisplayCommandOperands(tokens: readonly string[]): string[] {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
-    return [];
-  }
+  if (stripped.length === 0) return [];
 
-  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
-  if (!NON_PATH_OPERAND_COMMANDS.has(command)) {
-    return [];
-  }
+  const command = basename(stripped[0] ?? '').toLowerCase();
+  if (!NON_PATH_OPERAND_COMMANDS.has(command)) return [];
 
-  return stripped.slice(commandIndex + 1);
+  return stripped.slice(1);
 }
 
 function extractDisplayCommandBodies(tokens: readonly string[]): string[] {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
-    return [];
-  }
+  if (stripped.length === 0) return [];
 
-  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
-  const args = stripped.slice(commandIndex + 1);
+  const command = basename(stripped[0] ?? '').toLowerCase();
+  const args = stripped.slice(1);
   if (command === 'echo') {
-    return [stripEchoDisplayOptions(args).join(' ')];
+    const optionEnd = args.findIndex((token) => !/^-[neE]+$/.test(token));
+    return [(optionEnd === -1 ? [] : args.slice(optionEnd)).join(' ')];
   }
   if (command === 'printf') {
     return extractPrintfDisplayBodies(args);
   }
   return [];
-}
-
-function stripEchoDisplayOptions(tokens: readonly string[]): readonly string[] {
-  const optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
-  return optionEnd === -1 ? [] : tokens.slice(optionEnd);
 }
 
 function extractPrintfDisplayBodies(tokens: readonly string[]): string[] {
@@ -595,7 +564,9 @@ function extractPrintfDisplayBodies(tokens: readonly string[]): string[] {
     return [];
   }
 
-  const valuesPerFormat = getPrintfStringConversionCount(format);
+  const valuesPerFormat = (format.match(/%%|%[bqs]/g) ?? []).filter(
+    (specifier) => specifier !== '%%',
+  ).length;
   if (valuesPerFormat === 0 || tokens.length === 1) {
     return [decodePrintfEscapes(format)];
   }
@@ -607,10 +578,6 @@ function extractPrintfDisplayBodies(tokens: readonly string[]): string[] {
       values.slice(index * valuesPerFormat, (index + 1) * valuesPerFormat),
     ),
   );
-}
-
-function getPrintfStringConversionCount(format: string): number {
-  return (format.match(/%%|%[bqs]/g) ?? []).filter((specifier) => specifier !== '%%').length;
 }
 
 function applyPrintfStringArguments(format: string, values: readonly string[]): string {
@@ -637,12 +604,11 @@ function xargsReadsPipeInputAsPath(
   options: PathExtractionOptions,
 ): boolean {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1 || basename(stripped[commandIndex] ?? '').toLowerCase() !== 'xargs') {
+  if (stripped.length === 0 || basename(stripped[0] ?? '').toLowerCase() !== 'xargs') {
     return false;
   }
 
-  const xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
+  const xargs = extractXargsChildCommandWithInfo(stripped);
   if (xargs.childTokens.length === 0) {
     return false;
   }
@@ -664,19 +630,15 @@ function xargsReadsPipeInputAsPath(
 
 function getStdinScriptInterpreter(tokens: readonly string[]): string | null {
   const stripped = stripLeadingWrappersAndEnvAssignments(tokens);
-  const commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1) {
-    return null;
-  }
+  if (stripped.length === 0) return null;
 
-  const command = basename(stripped[commandIndex] ?? '').toLowerCase();
-  if (!isCodeInterpreter(command)) {
-    return null;
-  }
-  return interpreterReadsStdinScript(command, stripped.slice(commandIndex + 1)) ? command : null;
+  const command = basename(stripped[0] ?? '').toLowerCase();
+  if (!isCodeInterpreter(command)) return null;
+  return interpreterReadsStdinScript(command, stripped.slice(1)) ? command : null;
 }
 
 function interpreterReadsStdinScript(command: string, tokens: readonly string[]): boolean {
+  const normalizedCommand = normalizeInterpreterName(command);
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token === undefined) break;
@@ -691,29 +653,13 @@ function interpreterReadsStdinScript(command: string, tokens: readonly string[])
       return true;
     }
     if (token.startsWith('-')) {
-      if (interpreterFlagSelectsProgram(command, token)) {
-        return false;
-      }
-      if (interpreterFlagConsumesValue(command, token)) {
-        i++;
-      }
+      if (normalizedCommand === 'python' && token === '-m') return false;
+      if (VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizedCommand)?.has(token)) i++;
       continue;
     }
     return false;
   }
   return true;
-}
-
-function interpreterFlagSelectsProgram(command: string, token: string): boolean {
-  return (
-    PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command))?.has(token) ?? false
-  );
-}
-
-function interpreterFlagConsumesValue(command: string, token: string): boolean {
-  return (
-    VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command))?.has(token) ?? false
-  );
 }
 
 function normalizeInterpreterName(command: string): string {
@@ -738,29 +684,15 @@ function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
 }
 
 function extractOperandPathCandidates(command: string, token: string): string[] {
-  if (token === '--') {
-    return [];
-  }
+  if (token === '--') return [];
   const candidates: string[] = [];
   const equals = token.indexOf('=');
-  if (equals > 0 && equals < token.length - 1) {
-    candidates.push(token.slice(equals + 1));
-  }
-  if (isFileOperand(command, token)) {
-    candidates.push(token);
-  }
+  if (equals > 0 && equals < token.length - 1) candidates.push(token.slice(equals + 1));
+  if (token.startsWith('-')) return candidates;
+  if (command === 'tar' && /\.(?:tar|tgz|tar\.gz|zip)$/i.test(token)) return candidates;
+  if (command === 'zip' && /\.zip$/i.test(token)) return candidates;
+  candidates.push(token);
   return candidates;
-}
-
-function extractPathRootTargets(tokens: readonly string[]): string[] {
-  const roots: string[] = [];
-  for (const token of tokens) {
-    if (token.startsWith('-') || token === '(' || token === '!' || token === ';') {
-      break;
-    }
-    roots.push(token);
-  }
-  return roots;
 }
 
 function extractFindCommandTargets(
@@ -768,48 +700,36 @@ function extractFindCommandTargets(
   store: SemanticFactStore,
   options: PathExtractionOptions,
 ): string[] {
-  const targets = extractPathRootTargets(tokens);
+  const expressionIndex = tokens.findIndex(
+    (token) => token.startsWith('-') || token === '(' || token === '!' || token === ';',
+  );
+  const targets = [...tokens.slice(0, expressionIndex === -1 ? tokens.length : expressionIndex)];
   for (let i = 0; i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES.has(tokens[i] ?? '')) continue;
-    const execCommand = getFindExecCommand(tokens, i);
+    const execTokens = tokens.slice(i + 1);
+    const terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
+    const execCommand = terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
+    const execTargets = extractSegmentPathTargets(execCommand, store, options);
+    targets.push(...execTargets.filter((target) => target !== '{}'));
+    if (!execTargets.includes('{}')) continue;
     targets.push(
-      ...extractSegmentPathTargets(execCommand, store, options).filter((target) => target !== '{}'),
+      ...tokens.slice(0, i).flatMap((token, index, expression) => {
+        if (!FIND_MATCH_PATH_PRIMARIES.has(token)) return [];
+        const value = expression[index + 1];
+        return value === undefined
+          ? []
+          : [
+              value,
+              value
+                .replace(/^\*+\//, '')
+                .replace(/\/\*+$/g, '')
+                .replace(/^\*+/, '')
+                .replace(/\*+$/g, ''),
+            ];
+      }),
     );
-    if (findExecConsumesPlaceholder(execCommand, store, options)) {
-      targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
-    }
   }
   return targets;
-}
-
-function getFindExecCommand(tokens: readonly string[], execIndex: number): string[] {
-  const execTokens = tokens.slice(execIndex + 1);
-  const terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
-  return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
-}
-
-function findExecConsumesPlaceholder(
-  tokens: readonly string[],
-  store: SemanticFactStore,
-  options: PathExtractionOptions,
-): boolean {
-  return extractSegmentPathTargets(tokens, store, options).includes('{}');
-}
-
-function extractFindMatchedPathTargets(tokens: readonly string[]): string[] {
-  return tokens.flatMap((token, index) => {
-    if (!FIND_MATCH_PATH_PRIMARIES.has(token)) return [];
-    const value = tokens[index + 1];
-    return value === undefined ? [] : [value, normalizeFindPathPattern(value)];
-  });
-}
-
-function normalizeFindPathPattern(pattern: string): string {
-  return pattern
-    .replace(/^\*+\//, '')
-    .replace(/\/\*+$/g, '')
-    .replace(/^\*+/, '')
-    .replace(/\*+$/g, '');
 }
 
 function isCodeInterpreter(command: string): boolean {
@@ -850,23 +770,11 @@ function extractInterpreterPathTargets(
 
 function isClusteredCodeEvalFlag(command: string, token: string): boolean {
   if (!token.startsWith('-') || token.startsWith('--') || token.length <= 2) return false;
-
-  const evalFlags = /^python\d/.test(command)
-    ? CLUSTERED_CODE_EVAL_FLAGS.get('python')
-    : CLUSTERED_CODE_EVAL_FLAGS.get(command);
-  return evalFlags?.has(token[token.length - 1] ?? '') ?? false;
-}
-
-function extractAwkPathTargets(
-  tokens: readonly string[],
-  store: SemanticFactStore,
-  options: PathExtractionOptions,
-): string[] {
-  return [
-    ...tokens.flatMap((token) => extractOperandPathCandidates('awk', token)),
-    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store, options)),
-    ...tokens.flatMap(extractAwkGetlineRedirectTargets),
-  ];
+  return (
+    INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG.get(token[token.length - 1] ?? '')?.has(
+      normalizeInterpreterName(command),
+    ) ?? false
+  );
 }
 
 function extractAwkSystemCommandTargets(
@@ -1023,9 +931,11 @@ function commandSubstitutionDecodesBase64(syntax: ShellSyntaxFacts): boolean {
     for (let j = i + 1; j < entries.length; j++) {
       const candidate = entries[j];
       if (candidate?.kind === 'operator') break;
+      if (candidate?.kind !== 'word') continue;
+      const flag = projectSensitiveShellText(candidate.text);
       if (
-        candidate?.kind === 'word' &&
-        isBase64DecodeFlag(projectSensitiveShellText(candidate.text))
+        flag === '--decode' ||
+        (!flag.startsWith('--') && flag.startsWith('-') && /[dD]/.test(flag))
       ) {
         return true;
       }
@@ -1070,12 +980,6 @@ function normalizeBase64Token(token: string): string | null {
   return `${unpadded.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat(
     (4 - (unpadded.length % 4)) % 4,
   )}`;
-}
-
-function isBase64DecodeFlag(flag: string): boolean {
-  return (
-    flag === '--decode' || (!flag.startsWith('--') && flag.startsWith('-') && /[dD]/.test(flag))
-  );
 }
 
 function extractCommandSubstitutionBodies(command: string): string[] {
@@ -1249,19 +1153,6 @@ function isWrapperToken(token: string): boolean {
   return token === 'env' || token === 'command' || token === 'builtin' || token === 'sudo';
 }
 
-function isFileOperand(command: string, token: string): boolean {
-  if (token === '--') {
-    return false;
-  }
-  if (command === 'tar') {
-    return !token.startsWith('-') && !/\.(?:tar|tgz|tar\.gz|zip)$/i.test(token);
-  }
-  if (command === 'zip') {
-    return !token.startsWith('-') && !/\.zip$/i.test(token);
-  }
-  return !token.startsWith('-');
-}
-
 const PUBLIC_KEY_BASENAMES = new Set(['id_rsa.pub', 'id_ed25519.pub', 'id_ecdsa.pub']);
 
 const ENV_PREFIX = '.env.';
@@ -1298,13 +1189,19 @@ function isSensitivePath(
 
   // Env templates (.env.example, ...) stay readable even inside sensitive
   // directories, matching the original caller-side exemption.
-  if (isAllowedSensitiveTemplate(comparableName)) return null;
+  if (
+    ENV_EXEMPTION_BASENAMES.has(comparableName) ||
+    ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix))
+  ) {
+    return null;
+  }
 
   // Sensitive home directories (~/.ssh, ~/.aws, ...) are deny-by-default
   // wholesale and take priority over the public-key exemption below.
   for (const rule of SECRET_HOME_PATH_RULES) {
+    const suffix = rule.suffixParts.join('/');
     if (
-      matchesHomePathSuffix(comparablePath, rule.suffixParts.join('/')) &&
+      (comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`)) &&
       isSecretRuleEnabled(rule.id, config)
     ) {
       return rule.id;
@@ -1346,7 +1243,8 @@ function isSensitivePath(
 
   if (isSkippablePathForBroadSignatures(comparablePath)) return null;
   if (
-    hasBroadSshKeyBasename(comparableName) &&
+    !comparableName.includes('.') &&
+    SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName) &&
     isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config)
   ) {
     return SECRET_BROAD_SSH_KEY_BASENAME_RULE.id;
@@ -1355,10 +1253,6 @@ function isSensitivePath(
   if (extensionRuleId) return extensionRuleId;
 
   return null;
-}
-
-function matchesHomePathSuffix(comparablePath: string, suffix: string): boolean {
-  return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
 }
 
 function matchesCodingCliPath(
@@ -1370,143 +1264,101 @@ function matchesCodingCliPath(
   return (
     SECRET_CODING_CLI_RULES.find((rule) => {
       if (!isSecretRuleEnabled(rule.id, config)) return false;
-      if (rule.id === 'secret.cli.claude-code') {
-        return matchesClaudeCodePath(normalized, cwd, budget);
+      switch (rule.id) {
+        case 'secret.cli.claude-code':
+          return (
+            matchesFileInRoot(
+              normalized,
+              codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
+              ['settings.json', 'settings.local.json', '.credentials.json'],
+            ) || matchesExactPath(normalized, '~/.claude.json', cwd, budget)
+          );
+        case 'secret.cli.antigravity':
+          return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
+        case 'secret.cli.codex':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
+            ['config.toml', 'auth.json', '.credentials.json'],
+          );
+        case 'secret.cli.gemini':
+          return matchesFileInRoot(
+            normalized,
+            appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
+            [
+              'oauth_creds.json',
+              'mcp-oauth-tokens.json',
+              'a2a-oauth-tokens.json',
+              'google_accounts.json',
+              'settings.json',
+              'gemini-credentials.json',
+            ],
+          );
+        case 'secret.cli.copilot-cli': {
+          const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
+          return (
+            matchesFileInRoot(normalized, root, ['config.json']) ||
+            matchesDirInRoot(normalized, root, ['mcp-oauth-config'])
+          );
+        }
+        case 'secret.cli.kimi-code': {
+          const currentRoot = codingCliRoot(
+            process.env.KIMI_CODE_HOME,
+            '~/.kimi-code',
+            cwd,
+            budget,
+          );
+          const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd, budget);
+          return (
+            matchesFileInRoot(normalized, currentRoot, [
+              'config.toml',
+              'mcp.json',
+              'server.token',
+            ]) ||
+            matchesDirInRoot(normalized, currentRoot, ['credentials']) ||
+            matchesFileInRoot(normalized, legacyRoot, ['config.toml', 'mcp.json']) ||
+            matchesDirInRoot(normalized, legacyRoot, ['credentials', 'mcp-oauth'])
+          );
+        }
+        case 'secret.cli.opencode': {
+          const dataRoot = appendPath(
+            codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd, budget),
+            'opencode',
+          );
+          const configRoot = process.env.OPENCODE_CONFIG_DIR
+            ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd, budget)
+            : appendPath(
+                codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget),
+                'opencode',
+              );
+          const programDataConfig = process.env.ProgramData
+            ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
+            : [];
+          return (
+            matchesFileInRoot(normalized, dataRoot, ['auth.json', 'mcp-auth.json']) ||
+            matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
+            (process.env.OPENCODE_CONFIG?.trim()
+              ? matchesExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget)
+              : false) ||
+            ['/Library/Application Support/opencode', '/etc/opencode', ...programDataConfig].some(
+              (root) =>
+                matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
+                  'opencode.json',
+                  'opencode.jsonc',
+                ]),
+            )
+          );
+        }
+        case 'secret.cli.pi':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
+            ['auth.json'],
+          );
+        default:
+          return false;
       }
-      if (rule.id === 'secret.cli.antigravity') {
-        return matchesAntigravityPath(normalized, cwd, budget);
-      }
-      if (rule.id === 'secret.cli.codex') return matchesCodexPath(normalized, cwd, budget);
-      if (rule.id === 'secret.cli.gemini') return matchesGeminiPath(normalized, cwd, budget);
-      if (rule.id === 'secret.cli.copilot-cli') {
-        return matchesCopilotCliPath(normalized, cwd, budget);
-      }
-      if (rule.id === 'secret.cli.kimi-code') return matchesKimiCodePath(normalized, cwd, budget);
-      if (rule.id === 'secret.cli.opencode') return matchesOpenCodePath(normalized, cwd, budget);
-      if (rule.id === 'secret.cli.pi') return matchesPiPath(normalized, cwd, budget);
-      return false;
     })?.id ?? null
-  );
-}
-
-function matchesClaudeCodePath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return (
-    matchesFileInRoot(
-      normalized,
-      codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
-      ['settings.json', 'settings.local.json', '.credentials.json'],
-    ) || matchesExactPath(normalized, '~/.claude.json', cwd, budget)
-  );
-}
-
-function matchesAntigravityPath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
-}
-
-function matchesCodexPath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return matchesFileInRoot(
-    normalized,
-    codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
-    ['config.toml', 'auth.json', '.credentials.json'],
-  );
-}
-
-function matchesGeminiPath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return matchesFileInRoot(
-    normalized,
-    appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
-    [
-      'oauth_creds.json',
-      'mcp-oauth-tokens.json',
-      'a2a-oauth-tokens.json',
-      'google_accounts.json',
-      'settings.json',
-      'gemini-credentials.json',
-    ],
-  );
-}
-
-function matchesCopilotCliPath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
-  return (
-    matchesFileInRoot(normalized, root, ['config.json']) ||
-    matchesDirInRoot(normalized, root, ['mcp-oauth-config'])
-  );
-}
-
-function matchesKimiCodePath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  const currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, '~/.kimi-code', cwd, budget);
-  const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd, budget);
-  return (
-    matchesFileInRoot(normalized, currentRoot, ['config.toml', 'mcp.json', 'server.token']) ||
-    matchesDirInRoot(normalized, currentRoot, ['credentials']) ||
-    matchesFileInRoot(normalized, legacyRoot, ['config.toml', 'mcp.json']) ||
-    matchesDirInRoot(normalized, legacyRoot, ['credentials', 'mcp-oauth'])
-  );
-}
-
-function matchesOpenCodePath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  const dataRoot = appendPath(
-    codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd, budget),
-    'opencode',
-  );
-  const configRoot = process.env.OPENCODE_CONFIG_DIR
-    ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd, budget)
-    : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget), 'opencode');
-  const programDataConfig = process.env.ProgramData
-    ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
-    : [];
-
-  return (
-    matchesFileInRoot(normalized, dataRoot, ['auth.json', 'mcp-auth.json']) ||
-    matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
-    matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) ||
-    ['/Library/Application Support/opencode', '/etc/opencode', ...programDataConfig].some((root) =>
-      matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
-        'opencode.json',
-        'opencode.jsonc',
-      ]),
-    )
-  );
-}
-
-function matchesPiPath(
-  normalized: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return matchesFileInRoot(
-    normalized,
-    codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
-    ['auth.json'],
   );
 }
 
@@ -1538,38 +1390,12 @@ function matchesExactPath(
   return sameComparablePath(normalized, normalizeCandidatePath(path, cwd, budget));
 }
 
-function matchesOptionalExactPath(
-  normalized: string,
-  path: string | undefined,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return path?.trim() ? matchesExactPath(normalized, path, cwd, budget) : false;
-}
-
 function sameComparablePath(a: string, b: string): boolean {
   return comparable(a) === comparable(b);
 }
 
 function appendPath(root: string, ...parts: readonly string[]): string {
   return normalizePathText([root, ...parts].filter(Boolean).join('/'));
-}
-
-function isAllowedSensitiveTemplate(comparableName: string): boolean {
-  return (
-    ENV_EXEMPTION_BASENAMES.has(comparableName) ||
-    ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix))
-  );
-}
-
-function isDeniedByPolicy(
-  target: string,
-  cwd: string,
-  config: SecretProtectionPolicy | undefined,
-  configCwd: string,
-  budget: PathCanonicalizationBudget,
-): boolean {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget);
 }
 
 function matchesPolicyPath(
@@ -1599,17 +1425,13 @@ function isSkippablePathForBroadSignatures(comparablePath: string): boolean {
   );
 }
 
-function hasBroadSshKeyBasename(comparableName: string): boolean {
-  return (
-    !comparableName.includes('.') && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName)
-  );
-}
-
 function hasSensitiveExtension(
   comparableName: string,
   config: SecretProtectionPolicy | undefined,
 ): string | null {
-  const extension = getExtension(comparableName);
+  const index = comparableName.lastIndexOf('.');
+  const extension =
+    index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : '';
   if (extension === '') return null;
   for (const rule of SECRET_EXTENSION_RULES) {
     if (extension === rule.extension && isSecretRuleEnabled(rule.id, config)) return rule.id;
@@ -1618,11 +1440,6 @@ function hasSensitiveExtension(
     if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config)) return rule.id;
   }
   return null;
-}
-
-function getExtension(comparableName: string): string {
-  const index = comparableName.lastIndexOf('.');
-  return index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : '';
 }
 
 function comparable(value: string): string {

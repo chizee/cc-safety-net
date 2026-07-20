@@ -15215,23 +15215,11 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
 ]), CODE_EVAL_FLAGS = /* @__PURE__ */ new Set(["-c", "-e", "-r", "-E", "--eval", "--exec"]), CC_SAFETY_NET_ENTRYPOINTS = /* @__PURE__ */ new Set([
   "src/bin/cc-safety-net.ts",
   "dist/bin/cc-safety-net.js"
-]), CLUSTERED_CODE_EVAL_FLAGS = /* @__PURE__ */ new Map([
-  ["bash", /* @__PURE__ */ new Set(["c"])],
-  ["sh", /* @__PURE__ */ new Set(["c"])],
-  ["zsh", /* @__PURE__ */ new Set(["c"])],
-  ["dash", /* @__PURE__ */ new Set(["c"])],
-  ["ksh", /* @__PURE__ */ new Set(["c"])],
-  ["python", /* @__PURE__ */ new Set(["c"])],
-  ["python2", /* @__PURE__ */ new Set(["c"])],
-  ["python3", /* @__PURE__ */ new Set(["c"])],
-  ["node", /* @__PURE__ */ new Set(["e"])],
-  ["deno", /* @__PURE__ */ new Set(["e"])],
-  ["bun", /* @__PURE__ */ new Set(["e"])],
-  ["ruby", /* @__PURE__ */ new Set(["e"])],
-  ["perl", /* @__PURE__ */ new Set(["e", "E"])],
-  ["php", /* @__PURE__ */ new Set(["r"])],
-  ["rscript", /* @__PURE__ */ new Set(["e"])],
-  ["osascript", /* @__PURE__ */ new Set(["e"])]
+]), INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG = /* @__PURE__ */ new Map([
+  ["c", /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh", "python"])],
+  ["e", /* @__PURE__ */ new Set(["node", "deno", "bun", "ruby", "perl", "rscript", "osascript"])],
+  ["E", /* @__PURE__ */ new Set(["perl"])],
+  ["r", /* @__PURE__ */ new Set(["php"])]
 ]), PATTERN_FIRST_COMMANDS = /* @__PURE__ */ new Set(["grep", "rg"]), PATTERN_FILE_SHORT = "f", PATTERN_FILE_LONG = "file", PATTERNLESS_FILES_LONG = "files", PATTERN_SUPPLY_SHORT = /* @__PURE__ */ new Set(["e", "f"]), PATTERN_SUPPLY_LONG = /* @__PURE__ */ new Set(["regexp", "file"]), PATTERN_ARG_SHORT = /* @__PURE__ */ new Set(["e", "f", "A", "B", "C", "m"]), PATTERN_ARG_LONG = /* @__PURE__ */ new Set([
   "regexp",
   "file",
@@ -15239,7 +15227,7 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
   "before-context",
   "context",
   "max-count"
-]), PIPE_OPERATORS = /* @__PURE__ */ new Set(["|", "|&"]), PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__", SHELL_STDIN_INTERPRETERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh"]), PROGRAM_SELECTING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([["python", /* @__PURE__ */ new Set(["-m"])]]), VALUE_CONSUMING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([
+]), PIPE_OPERATORS = /* @__PURE__ */ new Set(["|", "|&"]), PIPE_INPUT_PATH_MARKER = "__CC_SAFETY_NET_PIPE_INPUT__", SHELL_STDIN_INTERPRETERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "dash", "ksh"]), VALUE_CONSUMING_INTERPRETER_FLAGS = /* @__PURE__ */ new Map([
   ["bash", /* @__PURE__ */ new Set(["-O"])],
   ["sh", /* @__PURE__ */ new Set(["-O"])],
   ["zsh", /* @__PURE__ */ new Set(["-o"])],
@@ -15251,7 +15239,7 @@ var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON
 function findSensitivePolicyPathTarget(targets, cwd, config, configCwd, activeDefaultTargets) {
   let budget = createPathCanonicalizationBudget();
   for (let target of targets) {
-    if (isDeniedByPolicy(target, cwd, config, configCwd, budget))
+    if (matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget))
       return { target, ruleId: "secret.deny-path" };
     if (activeDefaultTargets && !activeDefaultTargets.has(target))
       continue;
@@ -15284,10 +15272,10 @@ function isMetadataOnlyCommand(facts) {
     if (entry.kind !== "operator")
       tokens.push(projectSensitiveShellText(entry.text));
   }
-  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1)
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0)
     return !1;
-  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase(), args = stripped.slice(commandIndex + 1);
+  let command2 = basename3(stripped[0] ?? "").toLowerCase(), args = stripped.slice(1);
   if (command2 === "test")
     return args.length === 2 && (args[0] === "-e" || args[0] === "-f");
   if (command2 !== "find")
@@ -15344,10 +15332,10 @@ function extractCommandPathTargets(syntax, store, options2) {
   return targets;
 }
 function extractSegmentPathTargets(tokens, store, options2) {
-  let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1)
+  let assignmentValues = extractLeadingAssignmentValues(tokens), stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0)
     return assignmentValues;
-  let executable = stripped[commandIndex] ?? "", command2 = basename3(executable).toLowerCase(), post = stripped.slice(commandIndex + 1), explainTargets = extractSafetyNetExplainPathTargets(executable, command2, post);
+  let executable = stripped[0] ?? "", command2 = basename3(executable).toLowerCase(), post = stripped.slice(1), explainTargets = extractSafetyNetExplainPathTargets(executable, command2, post);
   if (explainTargets)
     return [...assignmentValues, ...explainTargets];
   if (NON_PATH_OPERAND_COMMANDS.has(command2))
@@ -15357,9 +15345,20 @@ function extractSegmentPathTargets(tokens, store, options2) {
   if (PATH_ROOT_COMMANDS.has(command2))
     return [...assignmentValues, ...extractFindCommandTargets(post, store, options2)];
   if (AWK_INTERPRETERS.has(command2))
-    return [...assignmentValues, ...extractAwkPathTargets(post, store, options2)];
-  if (isCodeInterpreter(command2))
-    return assertShellInterpreterBodiesWithinStructuralLimits(command2, post, store), [...assignmentValues, ...extractInterpreterPathTargets(command2, post, options2)];
+    return [
+      ...assignmentValues,
+      ...post.flatMap((token) => extractOperandPathCandidates("awk", token)),
+      ...post.flatMap((token) => extractAwkSystemCommandTargets(token, store, options2)),
+      ...post.flatMap(extractAwkGetlineRedirectTargets)
+    ];
+  if (isCodeInterpreter(command2)) {
+    if (SHELL_STDIN_INTERPRETERS.has(command2)) {
+      let body = getShellCommandString(command2, post);
+      if (body !== null && store.getShellSyntax(body).status === "structural-limit")
+        throw new StructuralShellSyntaxLimitError;
+    }
+    return [...assignmentValues, ...extractInterpreterPathTargets(command2, post, options2)];
+  }
   return [
     ...assignmentValues,
     ...post.flatMap((token) => extractOperandPathCandidates(command2, token))
@@ -15389,13 +15388,6 @@ function isSafetyNetEntrypoint(value) {
   let normalized = value?.replaceAll("\\", "/");
   return [...CC_SAFETY_NET_ENTRYPOINTS].some((entrypoint) => normalized === entrypoint || normalized?.endsWith(`/${entrypoint}`));
 }
-function assertShellInterpreterBodiesWithinStructuralLimits(command2, tokens, store) {
-  if (!SHELL_STDIN_INTERPRETERS.has(command2))
-    return;
-  let body = getShellCommandString(command2, tokens);
-  if (body !== null && store.getShellSyntax(body).status === "structural-limit")
-    throw new StructuralShellSyntaxLimitError;
-}
 function extractPipeCarrierPathTargets(producer, consumer, store, options2) {
   if (xargsReadsPipeInputAsPath(consumer, store, options2))
     return extractDisplayCommandOperands(producer);
@@ -15405,41 +15397,36 @@ function extractPipeCarrierPathTargets(producer, consumer, store, options2) {
   return extractDisplayCommandBodies(producer).flatMap((body) => SHELL_STDIN_INTERPRETERS.has(stdinInterpreter) ? extractCommandPathTargets(store.getShellSyntax(body), store, options2) : extractPathLiteralsFromCode(body));
 }
 function extractDisplayCommandOperands(tokens) {
-  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1)
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0)
     return [];
-  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  let command2 = basename3(stripped[0] ?? "").toLowerCase();
   if (!NON_PATH_OPERAND_COMMANDS.has(command2))
     return [];
-  return stripped.slice(commandIndex + 1);
+  return stripped.slice(1);
 }
 function extractDisplayCommandBodies(tokens) {
-  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1)
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0)
     return [];
-  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase(), args = stripped.slice(commandIndex + 1);
-  if (command2 === "echo")
-    return [stripEchoDisplayOptions(args).join(" ")];
+  let command2 = basename3(stripped[0] ?? "").toLowerCase(), args = stripped.slice(1);
+  if (command2 === "echo") {
+    let optionEnd = args.findIndex((token) => !/^-[neE]+$/.test(token));
+    return [(optionEnd === -1 ? [] : args.slice(optionEnd)).join(" ")];
+  }
   if (command2 === "printf")
     return extractPrintfDisplayBodies(args);
   return [];
-}
-function stripEchoDisplayOptions(tokens) {
-  let optionEnd = tokens.findIndex((token) => !/^-[neE]+$/.test(token));
-  return optionEnd === -1 ? [] : tokens.slice(optionEnd);
 }
 function extractPrintfDisplayBodies(tokens) {
   let format = tokens[0];
   if (format === void 0)
     return [];
-  let valuesPerFormat = getPrintfStringConversionCount(format);
+  let valuesPerFormat = (format.match(/%%|%[bqs]/g) ?? []).filter((specifier) => specifier !== "%%").length;
   if (valuesPerFormat === 0 || tokens.length === 1)
     return [decodePrintfEscapes(format)];
   let values = tokens.slice(1);
   return Array.from({ length: Math.ceil(values.length / valuesPerFormat) }, (_, index) => applyPrintfStringArguments(format, values.slice(index * valuesPerFormat, (index + 1) * valuesPerFormat)));
-}
-function getPrintfStringConversionCount(format) {
-  return (format.match(/%%|%[bqs]/g) ?? []).filter((specifier) => specifier !== "%%").length;
 }
 function applyPrintfStringArguments(format, values) {
   let valueIndex = 0;
@@ -15455,10 +15442,10 @@ function decodePrintfEscapes(value) {
 `).replace(/\\t/g, "\t").replace(/\\r/g, "\r");
 }
 function xargsReadsPipeInputAsPath(tokens, store, options2) {
-  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1 || basename3(stripped[commandIndex] ?? "").toLowerCase() !== "xargs")
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0 || basename3(stripped[0] ?? "").toLowerCase() !== "xargs")
     return !1;
-  let xargs = extractXargsChildCommandWithInfo(stripped.slice(commandIndex));
+  let xargs = extractXargsChildCommandWithInfo(stripped);
   if (xargs.childTokens.length === 0)
     return !1;
   if (xargs.replacementToken === "")
@@ -15467,15 +15454,16 @@ function xargsReadsPipeInputAsPath(tokens, store, options2) {
   return extractSegmentPathTargets(childTokens, store, options2).some((target) => target.includes(PIPE_INPUT_PATH_MARKER));
 }
 function getStdinScriptInterpreter(tokens) {
-  let stripped = stripLeadingWrappersAndEnvAssignments(tokens), commandIndex = stripped.findIndex((token) => !isWrapperToken(token));
-  if (commandIndex === -1)
+  let stripped = stripLeadingWrappersAndEnvAssignments(tokens);
+  if (stripped.length === 0)
     return null;
-  let command2 = basename3(stripped[commandIndex] ?? "").toLowerCase();
+  let command2 = basename3(stripped[0] ?? "").toLowerCase();
   if (!isCodeInterpreter(command2))
     return null;
-  return interpreterReadsStdinScript(command2, stripped.slice(commandIndex + 1)) ? command2 : null;
+  return interpreterReadsStdinScript(command2, stripped.slice(1)) ? command2 : null;
 }
 function interpreterReadsStdinScript(command2, tokens) {
+  let normalizedCommand = normalizeInterpreterName(command2);
   for (let i = 0;i < tokens.length; i++) {
     let token = tokens[i];
     if (token === void 0)
@@ -15485,21 +15473,15 @@ function interpreterReadsStdinScript(command2, tokens) {
     if (token === "-")
       return !0;
     if (token.startsWith("-")) {
-      if (interpreterFlagSelectsProgram(command2, token))
+      if (normalizedCommand === "python" && token === "-m")
         return !1;
-      if (interpreterFlagConsumesValue(command2, token))
+      if (VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizedCommand)?.has(token))
         i++;
       continue;
     }
     return !1;
   }
   return !0;
-}
-function interpreterFlagSelectsProgram(command2, token) {
-  return PROGRAM_SELECTING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? !1;
-}
-function interpreterFlagConsumesValue(command2, token) {
-  return VALUE_CONSUMING_INTERPRETER_FLAGS.get(normalizeInterpreterName(command2))?.has(token) ?? !1;
 }
 function normalizeInterpreterName(command2) {
   return /^python\d/.test(command2) ? "python" : command2;
@@ -15523,47 +15505,33 @@ function extractOperandPathCandidates(command2, token) {
   let candidates = [], equals = token.indexOf("=");
   if (equals > 0 && equals < token.length - 1)
     candidates.push(token.slice(equals + 1));
-  if (isFileOperand(command2, token))
-    candidates.push(token);
-  return candidates;
-}
-function extractPathRootTargets(tokens) {
-  let roots = [];
-  for (let token of tokens) {
-    if (token.startsWith("-") || token === "(" || token === "!" || token === ";")
-      break;
-    roots.push(token);
-  }
-  return roots;
+  if (token.startsWith("-"))
+    return candidates;
+  if (command2 === "tar" && /\.(?:tar|tgz|tar\.gz|zip)$/i.test(token))
+    return candidates;
+  if (command2 === "zip" && /\.zip$/i.test(token))
+    return candidates;
+  return candidates.push(token), candidates;
 }
 function extractFindCommandTargets(tokens, store, options2) {
-  let targets = extractPathRootTargets(tokens);
+  let expressionIndex = tokens.findIndex((token) => token.startsWith("-") || token === "(" || token === "!" || token === ";"), targets = [...tokens.slice(0, expressionIndex === -1 ? tokens.length : expressionIndex)];
   for (let i = 0;i < tokens.length; i++) {
     if (!FIND_EXEC_PRIMARIES2.has(tokens[i] ?? ""))
       continue;
-    let execCommand = getFindExecCommand2(tokens, i);
-    if (targets.push(...extractSegmentPathTargets(execCommand, store, options2).filter((target) => target !== "{}")), findExecConsumesPlaceholder(execCommand, store, options2))
-      targets.push(...extractFindMatchedPathTargets(tokens.slice(0, i)));
+    let execTokens = tokens.slice(i + 1), terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token)), execCommand = terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex), execTargets = extractSegmentPathTargets(execCommand, store, options2);
+    if (targets.push(...execTargets.filter((target) => target !== "{}")), !execTargets.includes("{}"))
+      continue;
+    targets.push(...tokens.slice(0, i).flatMap((token, index, expression) => {
+      if (!FIND_MATCH_PATH_PRIMARIES.has(token))
+        return [];
+      let value = expression[index + 1];
+      return value === void 0 ? [] : [
+        value,
+        value.replace(/^\*+\//, "").replace(/\/\*+$/g, "").replace(/^\*+/, "").replace(/\*+$/g, "")
+      ];
+    }));
   }
   return targets;
-}
-function getFindExecCommand2(tokens, execIndex) {
-  let execTokens = tokens.slice(execIndex + 1), terminatorIndex = execTokens.findIndex((token) => FIND_EXEC_TERMINATORS.has(token));
-  return terminatorIndex === -1 ? execTokens : execTokens.slice(0, terminatorIndex);
-}
-function findExecConsumesPlaceholder(tokens, store, options2) {
-  return extractSegmentPathTargets(tokens, store, options2).includes("{}");
-}
-function extractFindMatchedPathTargets(tokens) {
-  return tokens.flatMap((token, index) => {
-    if (!FIND_MATCH_PATH_PRIMARIES.has(token))
-      return [];
-    let value = tokens[index + 1];
-    return value === void 0 ? [] : [value, normalizeFindPathPattern(value)];
-  });
-}
-function normalizeFindPathPattern(pattern) {
-  return pattern.replace(/^\*+\//, "").replace(/\/\*+$/g, "").replace(/^\*+/, "").replace(/\*+$/g, "");
 }
 function isCodeInterpreter(command2) {
   return CODE_INTERPRETERS.has(command2) || /^python\d/.test(command2);
@@ -15593,14 +15561,7 @@ function extractInterpreterPathTargets(command2, tokens, options2) {
 function isClusteredCodeEvalFlag(command2, token) {
   if (!token.startsWith("-") || token.startsWith("--") || token.length <= 2)
     return !1;
-  return (/^python\d/.test(command2) ? CLUSTERED_CODE_EVAL_FLAGS.get("python") : CLUSTERED_CODE_EVAL_FLAGS.get(command2))?.has(token[token.length - 1] ?? "") ?? !1;
-}
-function extractAwkPathTargets(tokens, store, options2) {
-  return [
-    ...tokens.flatMap((token) => extractOperandPathCandidates("awk", token)),
-    ...tokens.flatMap((token) => extractAwkSystemCommandTargets(token, store, options2)),
-    ...tokens.flatMap(extractAwkGetlineRedirectTargets)
-  ];
+  return INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG.get(token[token.length - 1] ?? "")?.has(normalizeInterpreterName(command2)) ?? !1;
 }
 function extractAwkSystemCommandTargets(code, store, options2) {
   if (!code.includes("system"))
@@ -15710,7 +15671,10 @@ function commandSubstitutionDecodesBase64(syntax) {
       let candidate = entries[j];
       if (candidate?.kind === "operator")
         break;
-      if (candidate?.kind === "word" && isBase64DecodeFlag(projectSensitiveShellText(candidate.text)))
+      if (candidate?.kind !== "word")
+        continue;
+      let flag = projectSensitiveShellText(candidate.text);
+      if (flag === "--decode" || !flag.startsWith("--") && flag.startsWith("-") && /[dD]/.test(flag))
         return !0;
     }
   }
@@ -15743,9 +15707,6 @@ function normalizeBase64Token(token) {
   if (unpadded.length % 4 === 1)
     return null;
   return `${unpadded.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat((4 - unpadded.length % 4) % 4)}`;
-}
-function isBase64DecodeFlag(flag) {
-  return flag === "--decode" || !flag.startsWith("--") && flag.startsWith("-") && /[dD]/.test(flag);
 }
 function extractCommandSubstitutionBodies(command2) {
   let bodies = [], quoteState = { inSingle: !1, inDouble: !1, escaped: !1 };
@@ -15879,15 +15840,6 @@ function stripLeadingWrappersAndEnvAssignments(tokens) {
 function isWrapperToken(token) {
   return token === "env" || token === "command" || token === "builtin" || token === "sudo";
 }
-function isFileOperand(command2, token) {
-  if (token === "--")
-    return !1;
-  if (command2 === "tar")
-    return !token.startsWith("-") && !/\.(?:tar|tgz|tar\.gz|zip)$/i.test(token);
-  if (command2 === "zip")
-    return !token.startsWith("-") && !/\.zip$/i.test(token);
-  return !token.startsWith("-");
-}
 var PUBLIC_KEY_BASENAMES = /* @__PURE__ */ new Set(["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"]), ENV_PREFIX = ".env.", ENV_EXEMPTION_BASENAMES = /* @__PURE__ */ new Set([
   ".env.example",
   ".env.sample",
@@ -15902,11 +15854,13 @@ function isSensitivePath(target, cwd, config, budget) {
   if (!normalized)
     return null;
   let comparableName = comparable(normalized.split("/").pop() ?? ""), comparablePath = comparable(normalized);
-  if (isAllowedSensitiveTemplate(comparableName))
+  if (ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix)))
     return null;
-  for (let rule of SECRET_HOME_PATH_RULES)
-    if (matchesHomePathSuffix(comparablePath, rule.suffixParts.join("/")) && isSecretRuleEnabled(rule.id, config))
+  for (let rule of SECRET_HOME_PATH_RULES) {
+    let suffix = rule.suffixParts.join("/");
+    if ((comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`)) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
+  }
   let codingCliRuleId = matchesCodingCliPath(normalized, cwd, config, budget);
   if (codingCliRuleId)
     return codingCliRuleId;
@@ -15930,75 +15884,58 @@ function isSensitivePath(target, cwd, config, budget) {
     }
   if (isSkippablePathForBroadSignatures(comparablePath))
     return null;
-  if (hasBroadSshKeyBasename(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config))
+  if (!comparableName.includes(".") && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName) && isSecretRuleEnabled(SECRET_BROAD_SSH_KEY_BASENAME_RULE.id, config))
     return SECRET_BROAD_SSH_KEY_BASENAME_RULE.id;
   let extensionRuleId = hasSensitiveExtension(comparableName, config);
   if (extensionRuleId)
     return extensionRuleId;
   return null;
 }
-function matchesHomePathSuffix(comparablePath, suffix) {
-  return comparablePath === `~/${suffix}` || comparablePath.startsWith(`~/${suffix}/`);
-}
 function matchesCodingCliPath(normalized, cwd, config, budget) {
   return SECRET_CODING_CLI_RULES.find((rule) => {
     if (!isSecretRuleEnabled(rule.id, config))
       return !1;
-    if (rule.id === "secret.cli.claude-code")
-      return matchesClaudeCodePath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.antigravity")
-      return matchesAntigravityPath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.codex")
-      return matchesCodexPath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.gemini")
-      return matchesGeminiPath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.copilot-cli")
-      return matchesCopilotCliPath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.kimi-code")
-      return matchesKimiCodePath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.opencode")
-      return matchesOpenCodePath(normalized, cwd, budget);
-    if (rule.id === "secret.cli.pi")
-      return matchesPiPath(normalized, cwd, budget);
-    return !1;
+    switch (rule.id) {
+      case "secret.cli.claude-code":
+        return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd, budget), ["settings.json", "settings.local.json", ".credentials.json"]) || matchesExactPath(normalized, "~/.claude.json", cwd, budget);
+      case "secret.cli.antigravity":
+        return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd, budget);
+      case "secret.cli.codex":
+        return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd, budget), ["config.toml", "auth.json", ".credentials.json"]);
+      case "secret.cli.gemini":
+        return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd, budget), ".gemini"), [
+          "oauth_creds.json",
+          "mcp-oauth-tokens.json",
+          "a2a-oauth-tokens.json",
+          "google_accounts.json",
+          "settings.json",
+          "gemini-credentials.json"
+        ]);
+      case "secret.cli.copilot-cli": {
+        let root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd, budget);
+        return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
+      }
+      case "secret.cli.kimi-code": {
+        let currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd, budget), legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd, budget);
+        return matchesFileInRoot(normalized, currentRoot, [
+          "config.toml",
+          "mcp.json",
+          "server.token"
+        ]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
+      }
+      case "secret.cli.opencode": {
+        let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd, budget), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd, budget) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd, budget), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd, budget), "opencode")] : [];
+        return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || (process.env.OPENCODE_CONFIG?.trim() ? matchesExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) : !1) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
+          "opencode.json",
+          "opencode.jsonc"
+        ]));
+      }
+      case "secret.cli.pi":
+        return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd, budget), ["auth.json"]);
+      default:
+        return !1;
+    }
   })?.id ?? null;
-}
-function matchesClaudeCodePath(normalized, cwd, budget) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.CLAUDE_CONFIG_DIR, "~/.claude", cwd, budget), ["settings.json", "settings.local.json", ".credentials.json"]) || matchesExactPath(normalized, "~/.claude.json", cwd, budget);
-}
-function matchesAntigravityPath(normalized, cwd, budget) {
-  return matchesExactPath(normalized, "~/.gemini/config/hooks.json", cwd, budget);
-}
-function matchesCodexPath(normalized, cwd, budget) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.CODEX_HOME, "~/.codex", cwd, budget), ["config.toml", "auth.json", ".credentials.json"]);
-}
-function matchesGeminiPath(normalized, cwd, budget) {
-  return matchesFileInRoot(normalized, appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, "~", cwd, budget), ".gemini"), [
-    "oauth_creds.json",
-    "mcp-oauth-tokens.json",
-    "a2a-oauth-tokens.json",
-    "google_accounts.json",
-    "settings.json",
-    "gemini-credentials.json"
-  ]);
-}
-function matchesCopilotCliPath(normalized, cwd, budget) {
-  let root = codingCliRoot(process.env.COPILOT_HOME, "~/.copilot", cwd, budget);
-  return matchesFileInRoot(normalized, root, ["config.json"]) || matchesDirInRoot(normalized, root, ["mcp-oauth-config"]);
-}
-function matchesKimiCodePath(normalized, cwd, budget) {
-  let currentRoot = codingCliRoot(process.env.KIMI_CODE_HOME, "~/.kimi-code", cwd, budget), legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, "~/.kimi", cwd, budget);
-  return matchesFileInRoot(normalized, currentRoot, ["config.toml", "mcp.json", "server.token"]) || matchesDirInRoot(normalized, currentRoot, ["credentials"]) || matchesFileInRoot(normalized, legacyRoot, ["config.toml", "mcp.json"]) || matchesDirInRoot(normalized, legacyRoot, ["credentials", "mcp-oauth"]);
-}
-function matchesOpenCodePath(normalized, cwd, budget) {
-  let dataRoot = appendPath(codingCliRoot(process.env.XDG_DATA_HOME, "~/.local/share", cwd, budget), "opencode"), configRoot = process.env.OPENCODE_CONFIG_DIR ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, "~/.config/opencode", cwd, budget) : appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, "~/.config", cwd, budget), "opencode"), programDataConfig = process.env.ProgramData ? [appendPath(codingCliRoot(process.env.ProgramData, "", cwd, budget), "opencode")] : [];
-  return matchesFileInRoot(normalized, dataRoot, ["auth.json", "mcp-auth.json"]) || matchesFileInRoot(normalized, configRoot, ["opencode.json", "opencode.jsonc"]) || matchesOptionalExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget) || ["/Library/Application Support/opencode", "/etc/opencode", ...programDataConfig].some((root) => matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
-    "opencode.json",
-    "opencode.jsonc"
-  ]));
-}
-function matchesPiPath(normalized, cwd, budget) {
-  return matchesFileInRoot(normalized, codingCliRoot(process.env.PI_CODING_AGENT_DIR, "~/.pi/agent", cwd, budget), ["auth.json"]);
 }
 function codingCliRoot(envValue, fallback, cwd, budget) {
   return normalizeCandidatePath(envValue?.trim() ? envValue : fallback, cwd, budget);
@@ -16012,20 +15949,11 @@ function matchesDirInRoot(normalized, root, dirs) {
 function matchesExactPath(normalized, path, cwd, budget) {
   return sameComparablePath(normalized, normalizeCandidatePath(path, cwd, budget));
 }
-function matchesOptionalExactPath(normalized, path, cwd, budget) {
-  return path?.trim() ? matchesExactPath(normalized, path, cwd, budget) : !1;
-}
 function sameComparablePath(a, b) {
   return comparable(a) === comparable(b);
 }
 function appendPath(root, ...parts) {
   return normalizePathText([root, ...parts].filter(Boolean).join("/"));
-}
-function isAllowedSensitiveTemplate(comparableName) {
-  return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
-}
-function isDeniedByPolicy(target, cwd, config, configCwd, budget) {
-  return matchesPolicyPath(target, cwd, config?.denyPaths ?? [], configCwd, budget);
 }
 function matchesPolicyPath(target, cwd, paths, configCwd, budget) {
   if (paths.length === 0)
@@ -16037,11 +15965,8 @@ function isSkippablePathForBroadSignatures(comparablePath) {
   let parts = comparablePath.split("/");
   return parts.some((part) => SKIPPABLE_PATH_SEGMENTS.has(part)) || SKIPPABLE_PATH_SEGMENT_PAIRS.some(([parent, child]) => parts.some((part, index) => part === parent && parts[index + 1] === child));
 }
-function hasBroadSshKeyBasename(comparableName) {
-  return !comparableName.includes(".") && SECRET_BROAD_SSH_KEY_BASENAME_RULE.pattern.test(comparableName);
-}
 function hasSensitiveExtension(comparableName, config) {
-  let extension = getExtension(comparableName);
+  let index = comparableName.lastIndexOf("."), extension = index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : "";
   if (extension === "")
     return null;
   for (let rule of SECRET_EXTENSION_RULES)
@@ -16051,10 +15976,6 @@ function hasSensitiveExtension(comparableName, config) {
     if (rule.pattern.test(extension) && isSecretRuleEnabled(rule.id, config))
       return rule.id;
   return null;
-}
-function getExtension(comparableName) {
-  let index = comparableName.lastIndexOf(".");
-  return index > 0 && index < comparableName.length - 1 ? comparableName.slice(index + 1) : "";
 }
 function comparable(value) {
   return value.toLowerCase();
