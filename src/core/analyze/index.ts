@@ -1,5 +1,5 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
-import { getCCSafetyNetEnvModes } from '@/core/env';
+import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
 import type { CommandProgram } from '@/domain/command';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import type { AnalyzeOptions, AnalyzeResult } from '@/types';
@@ -16,25 +16,14 @@ export function analyzeCommandWithProgram(
   program?: CommandProgram,
   factStore?: SemanticFactStore,
 ): AnalyzeResult | null {
-  const modes =
-    options.strict !== undefined &&
-    options.paranoidRm !== undefined &&
-    options.paranoidInterpreters !== undefined &&
-    options.worktreeMode !== undefined
-      ? options
-      : getCCSafetyNetEnvModes(options.policySnapshot.policy);
   return analyzeCommandInternal(
     command,
     0,
     {
       ...options,
-      policy: options.policySnapshot.policy,
+      ...resolveCommandAnalysisContext(options),
       invalidReason:
         options.policySnapshot.state === 'invalid' ? options.policySnapshot.reason : undefined,
-      strict: options.strict ?? modes.strict,
-      paranoidRm: options.paranoidRm ?? modes.paranoidRm,
-      paranoidInterpreters: options.paranoidInterpreters ?? modes.paranoidInterpreters,
-      worktreeMode: options.worktreeMode ?? modes.worktreeMode,
       factStore,
     },
     program,

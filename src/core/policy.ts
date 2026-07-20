@@ -1,7 +1,11 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getUserPolicyDiagnostics, getUserPolicySchema, type UserPolicy } from '@/config/schema';
-import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
+import {
+  DESTRUCTIVE_COMMAND_RULE_ID_SET,
+  resolveEffectiveDestructiveCommandRules,
+} from '@/core/destructive-command-rules';
+import { getCCSafetyNetEnvModes } from '@/core/env';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
@@ -10,6 +14,11 @@ export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules'
 import { writeJsonAtomic } from '@/core/rules/policy/config-file';
 import { getUserRulesDir } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
+import type {
+  DestructiveCommandRuleOverride,
+  EffectiveDestructiveCommandRuleState,
+  EffectiveSafetyCapabilities,
+} from '@/domain/policy';
 import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 
 const POLICY_FILE = 'policy.json';
@@ -19,7 +28,7 @@ type PolicyConfig = {
   safety: PolicySafety;
   worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
-  disabledDestructiveCommandRules: Set<string>;
+  destructiveCommandRuleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
   secretProtection: SecretProtectionConfig;
   errors: string[];
 };
@@ -28,7 +37,7 @@ type PartialPolicy = {
   safety: PolicySafety;
   worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
-  disabledDestructiveCommandRules: string[];
+  destructiveCommandRuleOverrides: Record<string, DestructiveCommandRuleOverride>;
   secretProtection: SecretProtectionConfig;
 };
 
@@ -48,7 +57,7 @@ export type GuiPolicy = {
   };
   destructive_command_protection: {
     enabled: boolean;
-    overrides: Record<string, 'off'>;
+    overrides: Record<string, DestructiveCommandRuleOverride>;
   };
   secret_protection: {
     enabled: boolean;
@@ -89,6 +98,23 @@ export interface GuiPolicyWriteResult {
   path: string;
   policy: GuiPolicy;
   errors: string[];
+}
+
+/** @internal */
+export interface PolicyPreview {
+  selectedPreset: PolicySafetyLevel;
+  effectiveLevel: ReturnType<typeof getCCSafetyNetEnvModes>['effectiveLevel'];
+  capabilities: EffectiveSafetyCapabilities;
+  rules: Readonly<Record<string, EffectiveDestructiveCommandRuleState>>;
+  counts: {
+    enabled: number;
+    disabled: number;
+    explicitOn: number;
+    explicitOff: number;
+    effectiveCustomizations: number;
+    inheritedRequiresStrict: number;
+    inheritedRequiresParanoid: number;
+  };
 }
 
 export function getUserPolicyPath(options?: RulesPolicyOptions): string {
@@ -157,6 +183,54 @@ export function writeUserPolicyFromGui(
   return { path, policy: normalizedPolicy, errors: [] };
 }
 
+/** @internal */
+export function previewUserPolicyForGui(policy: unknown): {
+  preview?: PolicyPreview;
+  errors: string[];
+} {
+  const errors = getUserPolicyDiagnostics(policy);
+  if (errors.length > 0) return { errors };
+  return { preview: createPolicyPreview(normalizeGuiPolicy(policy)), errors: [] };
+}
+
+/** @internal */
+export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
+  const modes = getCCSafetyNetEnvModes({ safety: normalizeSafety(policy.safety) });
+  const rules = resolveEffectiveDestructiveCommandRules(
+    {
+      destructiveCommandProtectionEnabled: policy.destructive_command_protection.enabled,
+      destructiveCommandRuleOverrides: policy.destructive_command_protection.overrides,
+    },
+    modes.capabilities,
+  );
+  const values = Object.values(rules);
+  const overrides = Object.values(policy.destructive_command_protection.overrides);
+  return {
+    selectedPreset: policy.safety.level,
+    effectiveLevel: modes.effectiveLevel,
+    capabilities: modes.capabilities,
+    rules,
+    counts: {
+      enabled: values.filter((state) => state.enabled).length,
+      disabled: values.filter((state) => !state.enabled).length,
+      explicitOn: overrides.filter((value) => value === 'on').length,
+      explicitOff: overrides.filter((value) => value === 'off').length,
+      effectiveCustomizations: values.filter((state) => state.changesInherited).length,
+      inheritedRequiresStrict: values.filter(
+        (state) =>
+          !state.enabled && !state.override && state.activationCapability === 'fail_closed',
+      ).length,
+      inheritedRequiresParanoid: values.filter(
+        (state) =>
+          !state.enabled &&
+          !state.override &&
+          (state.activationCapability === 'paranoid_rm' ||
+            state.activationCapability === 'paranoid_interpreters'),
+      ).length,
+    },
+  };
+}
+
 export function repairUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPolicyWriteResult {
   const path = getUserPolicyPath(options);
   if (!existsSync(path)) return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
@@ -177,7 +251,7 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     safety: user.policy.safety,
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
+    destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
   };
@@ -216,7 +290,7 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === 'boolean' ? destructiveCommand.enabled : true,
-      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET),
+      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides),
     },
     secret_protection: {
       enabled: typeof secret.enabled === 'boolean' ? secret.enabled : true,
@@ -224,6 +298,19 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
       deny_paths: repairDenyPaths(secret.deny_paths),
     },
   };
+}
+
+function repairDestructiveCommandOverrides(
+  value: unknown,
+): Record<string, DestructiveCommandRuleOverride> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, override]) =>
+      DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id) && (override === 'on' || override === 'off')
+        ? [[id, override]]
+        : [],
+    ),
+  );
 }
 
 function repairOffOverrides(
@@ -302,9 +389,9 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
       enabled: (destructiveCommandPolicy.enabled as boolean | undefined) ?? true,
       overrides: Object.fromEntries(
         Object.entries(destructiveCommandOverrides).flatMap(([id, value]) =>
-          value === 'off' ? [[id, 'off']] : [],
+          value === 'on' || value === 'off' ? [[id, value]] : [],
         ),
-      ) as Record<string, 'off'>,
+      ) as Record<string, DestructiveCommandRuleOverride>,
     },
     secret_protection: {
       enabled: (secret.enabled as boolean | undefined) ?? true,
@@ -345,7 +432,7 @@ function createEmptyPolicy(): PartialPolicy {
     safety: {},
     worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
-    disabledDestructiveCommandRules: [],
+    destructiveCommandRuleOverrides: {},
     secretProtection: { enabled: true, disabledRules: new Set(), denyPaths: [] },
   };
 }
@@ -362,9 +449,11 @@ function normalizePolicyConfig(config: UserPolicy): PartialPolicy {
     worktreeMode: workflow?.worktree_mode ?? false,
     destructiveCommandProtectionEnabled:
       (destructiveCommand?.enabled as boolean | undefined) ?? true,
-    disabledDestructiveCommandRules: Object.entries(
-      (destructiveCommand?.overrides as Record<string, unknown> | undefined) ?? {},
-    ).flatMap(([id, value]) => (value === 'off' ? [id] : [])),
+    destructiveCommandRuleOverrides: Object.fromEntries(
+      Object.entries(
+        (destructiveCommand?.overrides as Record<string, unknown> | undefined) ?? {},
+      ).flatMap(([id, value]) => (value === 'on' || value === 'off' ? [[id, value]] : [])),
+    ) as Record<string, DestructiveCommandRuleOverride>,
     secretProtection: {
       enabled: (secret?.enabled as boolean | undefined) ?? true,
       disabledRules: new Set(

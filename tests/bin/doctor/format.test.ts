@@ -56,12 +56,27 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
     shadowedRules: [],
     environment: [],
     effectiveSafety: {
+      selectedPreset: 'standard',
       level: 'standard',
       capabilities: {
-        fail_closed: { enabled: false, sources: ['policy safety.level=standard'] },
-        paranoid_rm: { enabled: false, sources: ['policy safety.level=standard'] },
-        paranoid_interpreters: { enabled: false, sources: ['policy safety.level=standard'] },
+        fail_closed: {
+          enabled: false,
+          source: 'preset',
+          sources: ['policy safety.level=standard'],
+        },
+        paranoid_rm: {
+          enabled: false,
+          source: 'preset',
+          sources: ['policy safety.level=standard'],
+        },
+        paranoid_interpreters: {
+          enabled: false,
+          source: 'preset',
+          sources: ['policy safety.level=standard'],
+        },
       },
+      ruleOverrides: {},
+      ruleCounts: { stored: 0, effective: 0 },
     },
     activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [] },
     update: { currentVersion: '0.6.0', latestVersion: '0.6.0', updateAvailable: false },
@@ -328,15 +343,23 @@ describe('formatEffectiveSafetySection', () => {
     const output = formatEffectiveSafetySection(
       createDoctorReport({
         effectiveSafety: {
+          selectedPreset: 'standard',
           level: 'custom',
           capabilities: {
-            fail_closed: { enabled: true, sources: ['env CC_SAFETY_NET_STRICT'] },
-            paranoid_rm: { enabled: false, sources: [] },
+            fail_closed: {
+              enabled: true,
+              source: 'environment',
+              sources: ['env CC_SAFETY_NET_STRICT'],
+            },
+            paranoid_rm: { enabled: false, source: 'preset', sources: [] },
             paranoid_interpreters: {
               enabled: true,
+              source: 'capability_override',
               sources: ['policy safety.overrides.paranoid_interpreters'],
             },
           },
+          ruleOverrides: { 'shell.dynamic-executable': 'on' },
+          ruleCounts: { stored: 1, effective: 1 },
         },
       }),
     );

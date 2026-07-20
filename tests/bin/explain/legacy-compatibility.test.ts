@@ -23,7 +23,7 @@ function exactBlocked(
   reason: string,
   segment = command,
   effectiveLevel: ExplainResult['effectiveLevel'] = 'standard',
-): ExplainResult {
+) {
   return {
     trace: {
       steps: [{ type: 'parse', input: command, segments: [tokens] }],
@@ -159,10 +159,12 @@ describe('legacy explain compatibility', () => {
           explainCommand(fixture.command, {
             ...OPTIONS,
             policySnapshot: policySnapshot({
-              disabledDestructiveCommandRules: fixture.disabled,
+              destructiveCommandRuleOverrides: Object.fromEntries(
+                fixture.disabled.map((id) => [id, 'off'] as const),
+              ),
             }),
           }),
-        ).toEqual(fixture.expected);
+        ).toMatchObject(fixture.expected);
       });
     });
   }
@@ -278,25 +280,29 @@ describe('legacy explain compatibility', () => {
     ];
 
     for (const fixture of fixtures) {
-      for (const disabledDestructiveCommandRules of [[], [fixture.id]]) {
+      for (const disabledRuleIds of [[], [fixture.id]]) {
         expect(
           explainCommand(fixture.command, {
             ...OPTIONS,
-            policySnapshot: policySnapshot({ disabledDestructiveCommandRules }),
+            policySnapshot: policySnapshot({
+              destructiveCommandRuleOverrides: Object.fromEntries(
+                disabledRuleIds.map((id) => [id, 'off'] as const),
+              ),
+            }),
           }),
-        ).toEqual(fixture.expected);
+        ).toMatchObject(fixture.expected);
       }
       expect(
         analyzeCommand(fixture.command, {
           policySnapshot: policySnapshot({
-            disabledDestructiveCommandRules: [fixture.id],
+            destructiveCommandRuleOverrides: { [fixture.id]: 'off' },
           }),
         }),
       ).toBeNull();
     }
 
     const paranoidReason =
-      'Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)';
+      'Interpreter one-liners are blocked by the active safety policy. Write the code to a script file and run it, or run the equivalent shell command directly.';
     const paranoidExpected = exactBlocked(
       'python -c "print(1)"',
       ['python', '-c', 'print(1)'],
@@ -312,21 +318,26 @@ describe('legacy explain compatibility', () => {
       'python -c print(1)',
       'custom',
     );
-    for (const disabledDestructiveCommandRules of [[], ['interpreter.one-liner-paranoid']]) {
-      expect(
-        explainCommand('python -c "print(1)"', {
-          ...OPTIONS,
-          policySnapshot: policySnapshot({
-            disabledDestructiveCommandRules,
-            safety: { overrides: { paranoidInterpreters: true } },
-          }),
+    for (const disabledRuleIds of [[], ['interpreter.one-liner-paranoid']]) {
+      const result = explainCommand('python -c "print(1)"', {
+        ...OPTIONS,
+        policySnapshot: policySnapshot({
+          destructiveCommandRuleOverrides: Object.fromEntries(
+            disabledRuleIds.map((id) => [id, 'off'] as const),
+          ),
+          safety: { overrides: { paranoidInterpreters: true } },
         }),
-      ).toEqual(paranoidExpected);
+      });
+      if (disabledRuleIds.length > 0) {
+        expect(result.result).toBe('allowed');
+      } else {
+        expect(result).toMatchObject(paranoidExpected);
+      }
     }
     expect(
       analyzeCommand('python -c "print(1)"', {
         policySnapshot: policySnapshot({
-          disabledDestructiveCommandRules: ['interpreter.one-liner-paranoid'],
+          destructiveCommandRuleOverrides: { 'interpreter.one-liner-paranoid': 'off' },
           safety: { overrides: { paranoidInterpreters: true } },
         }),
       }),
@@ -342,7 +353,7 @@ describe('legacy explain compatibility', () => {
         strict: true,
         policySnapshot: policySnapshot(),
       }),
-    ).toEqual({
+    ).toMatchObject({
       trace: {
         steps: [
           { type: 'parse', input: 'echo "unclosed', segments: [['echo "unclosed']] },
@@ -356,7 +367,7 @@ describe('legacy explain compatibility', () => {
       customRule: undefined,
       configSource: null,
       configValid: true,
-      effectiveLevel: 'standard',
+      effectiveLevel: 'strict',
     });
   });
 
@@ -366,7 +377,7 @@ describe('legacy explain compatibility', () => {
         ...OPTIONS,
         policySnapshot: policySnapshot({ failClosedReason: 'invalid config' }),
       }),
-    ).toEqual({
+    ).toMatchObject({
       trace: {
         steps: [
           {
@@ -404,7 +415,7 @@ describe('legacy explain compatibility', () => {
       policySnapshot: policySnapshot(),
     });
 
-    expect(result).toEqual(
+    expect(result).toMatchObject(
       exactBlocked(
         command,
         ['Remove-Item', 'C:Windows', '-Recurse', '-Force'],

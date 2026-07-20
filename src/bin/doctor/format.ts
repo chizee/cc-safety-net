@@ -239,7 +239,11 @@ export function formatEnvironmentSection(envVars: EnvVarInfo[]): string {
 }
 
 export function formatEffectiveSafetySection(report: DoctorReport): string {
-  const lines = [`Effective Safety`, `   Effective: ${report.effectiveSafety.level}`];
+  const lines = [
+    `Effective Safety`,
+    `   Selected preset: ${report.effectiveSafety.selectedPreset}`,
+    `   Effective: ${report.effectiveSafety.level}`,
+  ];
   const capabilityLabels = [
     ['fail_closed', 'fail_closed'],
     ['paranoid_rm', 'paranoid_rm'],
@@ -250,7 +254,13 @@ export function formatEffectiveSafetySection(report: DoctorReport): string {
     const capability = report.effectiveSafety.capabilities[key];
     const state = capability.enabled ? colors.green('ON') : colors.dim('OFF');
     const sources = capability.sources.length > 0 ? ` (${capability.sources.join(', ')})` : '';
-    lines.push(`   ${label}: ${state}${sources}`);
+    lines.push(`   ${label}: ${state} via ${capability.source}${sources}`);
+  }
+
+  lines.push(`   Stored rule customizations: ${report.effectiveSafety.ruleCounts.stored}`);
+  lines.push(`   Effective rule customizations: ${report.effectiveSafety.ruleCounts.effective}`);
+  for (const [id, override] of Object.entries(report.effectiveSafety.ruleOverrides)) {
+    lines.push(`   ${id}: ${override}`);
   }
 
   return lines.join('\n');

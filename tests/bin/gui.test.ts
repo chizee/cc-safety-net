@@ -27,7 +27,10 @@ interface PolicyApiResponse {
   };
   destructiveCommandRules: unknown[];
   secretPatterns: unknown[];
-  environmentOverrides: string[];
+  preview: {
+    selectedPreset: string;
+    counts: { enabled: number; inheritedRequiresStrict: number; inheritedRequiresParanoid: number };
+  } | null;
 }
 
 interface WriteApiResponse {
@@ -39,6 +42,14 @@ interface StarContextApiResponse {
   starCount: number | null;
   blockedTotal: number;
 }
+
+const DEFAULT_POLICY_BODY = {
+  version: 1,
+  safety: { level: 'standard', overrides: {} },
+  workflow: { worktree_mode: false },
+  destructive_command_protection: { enabled: true, overrides: {} },
+  secret_protection: { enabled: true, overrides: {}, deny_paths: [] },
+};
 
 describe('policy GUI server', () => {
   let tempDir: string;
@@ -97,6 +108,34 @@ describe('policy GUI server', () => {
       expect(html).toContain("setAppStatus('Loaded', 'ok');");
       expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
+      expect(html).toContain('Safety preset');
+      expect(html).toContain('Available in every preset');
+      expect(html).toContain('Strict tier');
+      expect(html).toContain('Paranoid tier');
+      expect(html).toContain('Use inherited setting');
+      expect(html).toContain('Reset rule customizations');
+      expect(html).toContain('id="rule-example-popover"');
+      expect(html).toContain('popover="auto"');
+      expect(html).toContain('role="dialog"');
+      expect(html).toContain('id="rule-example-title"');
+      expect(html).toContain('id="rule-example-command"');
+      expect(html).toContain('data-rule-example=');
+      expect(html).toContain('Show blocked example for');
+      expect(html).toContain('const openRuleExample = ');
+      expect(html).toContain("qs('rule-example-title').textContent = rule.label;");
+      expect(html).toContain("qs('rule-example-command').textContent = rule.example;");
+      expect(html).toContain('popover.showPopover();');
+      expect(html).toContain('.rule-example-button {');
+      expect(html).toContain('.rule-example-popover {');
+      expect(html).toContain("requestJson('/api/policy/preview'");
+      expect(html).toContain('let previewRequestId = 0;');
+      expect(html).toContain('const requestId = ++previewRequestId;');
+      expect(html).toContain('if (requestId !== previewRequestId) return false;');
+      expect(html).toContain('const tierExpanded = new Map([');
+      expect(html).toContain("['strict', false]");
+      expect(html).not.toContain("['strict', true]");
+      expect(html).toContain('const searchCollapsedTiers = new Set();');
+      expect(html).toContain('if (searchActive && expanded) searchCollapsedTiers.add(tier);');
       expect(html).toContain('Destructive command protection');
       expect(html).toContain('Custom rules remain active when disabled.');
       expect(html).not.toContain('secret protection unchanged');
@@ -148,6 +187,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
       expect(html).toContain('Protection disabled. Saved rule settings are preserved.');
+      expect(html).toContain(
+        '`${preview.counts.enabled} active, ${preview.counts.disabled} disabled`',
+      );
+      expect(html).not.toContain('require Strict ·');
+      expect(html).not.toContain('require Paranoid ·');
+      expect(html).not.toContain('user-disabled`');
       expect(html).toContain('Disable secret protection?');
       expect(html).toContain(
         'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.',
@@ -168,7 +213,7 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Deny paths remain active');
       expect(html).not.toContain('Deny paths are always blocked');
       expect(html).not.toContain('trusted user policy');
-      expect(html).toContain('disabled: !draftPolicy.secret_protection.enabled');
+      expect(html).toContain('const disabled = !draftPolicy.secret_protection.enabled;');
       expect(html).not.toContain("qs('deny-paths')");
       expect(html).not.toContain('One path per line');
       expect(html).toContain('id="deny-paths-input"');
@@ -210,7 +255,7 @@ describe('policy GUI server', () => {
       expect(html).not.toContain(
         '<strong>${escapeHtml(rule.label)}</strong> <code class="rule-id">${escapeHtml(rule.id)}</code>',
       );
-      expect(html).toContain('label.row .rule-id {');
+      expect(html).toContain(':is(label.row, .rule-control) .rule-id {');
       expect(html).toContain('display: block;');
       expect(html).toContain(
         'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
@@ -342,7 +387,10 @@ describe('policy GUI server', () => {
       expect(missing.policy.version).toBe(1);
       expect(missing.destructiveCommandRules.length).toBeGreaterThan(0);
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
-      expect(missing.environmentOverrides).toEqual([]);
+      expect(missing.preview).toMatchObject({
+        selectedPreset: 'standard',
+        counts: { enabled: 45, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },
+      });
 
       mkdirSync(safetyNetHome, { recursive: true });
       writeFileSync(join(safetyNetHome, 'policy.json'), '{bad json', 'utf-8');
@@ -353,6 +401,70 @@ describe('policy GUI server', () => {
       expect(invalid.exists).toBe(true);
       expect(invalid.raw).toBe('{bad json');
       expect(invalid.errors[0]).toContain('Invalid JSON');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST api policy preview resolves draft overrides without writing', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect(
+        (
+          await fetch(`${server.origin}/api/policy/preview`, {
+            method: 'POST',
+            body: '{}',
+          })
+        ).status,
+      ).toBe(403);
+      const invalidResponse = await fetch(
+        `${server.origin}/api/policy/preview?token=${server.token}`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-cc-safety-net-token': server.token,
+          },
+          body: JSON.stringify({
+            ...DEFAULT_POLICY_BODY,
+            destructive_command_protection: {
+              enabled: true,
+              overrides: { 'shell.dynamic-executable': 'maybe' },
+            },
+          }),
+        },
+      );
+      expect(invalidResponse.status).toBe(400);
+      expect(await invalidResponse.json()).toMatchObject({
+        errors: [expect.stringContaining('must be "on" or "off"')],
+      });
+      const result = await postJson<{
+        errors: string[];
+        preview: {
+          selectedPreset: string;
+          counts: { enabled: number; explicitOn: number; effectiveCustomizations: number };
+          rules: Record<string, { enabled: boolean; source: string }>;
+        };
+      }>(`${server.origin}/api/policy/preview?token=${server.token}`, server.token, {
+        ...DEFAULT_POLICY_BODY,
+        destructive_command_protection: {
+          enabled: true,
+          overrides: { 'shell.dynamic-executable': 'on' },
+        },
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.preview.selectedPreset).toBe('standard');
+      expect(result.preview.counts).toMatchObject({
+        enabled: 46,
+        explicitOn: 1,
+        effectiveCustomizations: 1,
+      });
+      expect(result.preview.rules['shell.dynamic-executable']).toMatchObject({
+        enabled: true,
+        source: 'rule_override',
+      });
+      expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
     } finally {
       await server.close();
     }

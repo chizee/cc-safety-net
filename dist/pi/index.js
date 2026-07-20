@@ -399,7 +399,7 @@ function parseEnvLevel() {
     console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
   return;
 }
-function deriveEffectiveLevel(values) {
+function deriveEffectiveSafetyLevel(values) {
   if (values.failClosed && values.paranoidRm && values.paranoidInterpreters)
     return "paranoid";
   if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters)
@@ -409,28 +409,32 @@ function deriveEffectiveLevel(values) {
   return "custom";
 }
 function getCCSafetyNetEnvModes(policy = {}) {
-  let policyLevel = policy.safety?.level ?? "standard", envLevel = parseEnvLevel(), baseLevel = maxSafetyLevel(policyLevel, envLevel), values = expandSafetyLevel(baseLevel), sources = {
+  let policyLevel = policy.safety?.level ?? "standard", envLevel = parseEnvLevel(), baseLevel = maxSafetyLevel(policyLevel, envLevel), values = expandSafetyLevel(baseLevel), capabilitySources = {
+    failClosed: baseLevel === policyLevel ? "preset" : "environment",
+    paranoidRm: baseLevel === policyLevel ? "preset" : "environment",
+    paranoidInterpreters: baseLevel === policyLevel ? "preset" : "environment"
+  }, sources = {
     failClosed: [`policy safety.level=${policyLevel}`],
     paranoidRm: [`policy safety.level=${policyLevel}`],
     paranoidInterpreters: [`policy safety.level=${policyLevel}`],
     worktreeMode: []
   };
-  if (envLevel && envLevel !== policyLevel)
+  if (baseLevel !== policyLevel)
     sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`), sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`), sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
   if (policy.safety?.overrides?.failClosed !== void 0)
-    values.failClosed = policy.safety.overrides.failClosed, sources.failClosed.push("policy safety.overrides.fail_closed");
+    values.failClosed = policy.safety.overrides.failClosed, capabilitySources.failClosed = "capability_override", sources.failClosed.push("policy safety.overrides.fail_closed");
   if (policy.safety?.overrides?.paranoidRm !== void 0)
-    values.paranoidRm = policy.safety.overrides.paranoidRm, sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
+    values.paranoidRm = policy.safety.overrides.paranoidRm, capabilitySources.paranoidRm = "capability_override", sources.paranoidRm.push("policy safety.overrides.paranoid_rm");
   if (policy.safety?.overrides?.paranoidInterpreters !== void 0)
-    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters, sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
+    values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters, capabilitySources.paranoidInterpreters = "capability_override", sources.paranoidInterpreters.push("policy safety.overrides.paranoid_interpreters");
   if (envTruthy(ENV_FLAGS.strict))
-    values.failClosed = !0, sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
+    values.failClosed = !0, capabilitySources.failClosed = "environment", sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
   if (envTruthy(ENV_FLAGS.paranoid))
-    values.paranoidRm = !0, values.paranoidInterpreters = !0, sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`), sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
+    values.paranoidRm = !0, values.paranoidInterpreters = !0, capabilitySources.paranoidRm = "environment", capabilitySources.paranoidInterpreters = "environment", sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`), sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
   if (envTruthy(ENV_FLAGS.paranoidRm))
-    values.paranoidRm = !0, sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
+    values.paranoidRm = !0, capabilitySources.paranoidRm = "environment", sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
   if (envTruthy(ENV_FLAGS.paranoidInterpreters))
-    values.paranoidInterpreters = !0, sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
+    values.paranoidInterpreters = !0, capabilitySources.paranoidInterpreters = "environment", sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
   let worktreeMode = !!policy.worktreeMode || envTruthy(ENV_FLAGS.worktree);
   if (policy.worktreeMode)
     sources.worktreeMode.push("policy workflow.worktree_mode");
@@ -441,7 +445,24 @@ function getCCSafetyNetEnvModes(policy = {}) {
     paranoidRm: values.paranoidRm,
     paranoidInterpreters: values.paranoidInterpreters,
     worktreeMode,
-    effectiveLevel: deriveEffectiveLevel(values),
+    effectiveLevel: deriveEffectiveSafetyLevel(values),
+    capabilities: {
+      fail_closed: {
+        enabled: values.failClosed,
+        source: capabilitySources.failClosed,
+        sources: sources.failClosed
+      },
+      paranoid_rm: {
+        enabled: values.paranoidRm,
+        source: capabilitySources.paranoidRm,
+        sources: sources.paranoidRm
+      },
+      paranoid_interpreters: {
+        enabled: values.paranoidInterpreters,
+        source: capabilitySources.paranoidInterpreters,
+        sources: sources.paranoidInterpreters
+      }
+    },
     sources
   };
 }
@@ -3486,6 +3507,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git SSH environment override",
     description: "Blocks Git network operations with SSH environment overrides.",
+    example: 'GIT_SSH_COMMAND="./ssh-wrapper" git push',
     intent: "manual_only"
   },
   {
@@ -3493,6 +3515,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git command-line alias",
     description: "Blocks command-line Git aliases that cannot be safely resolved.",
+    example: "git -c alias.wipe='!rm -rf /' wipe",
     intent: "manual_only"
   },
   {
@@ -3500,6 +3523,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git executable config",
     description: "Blocks Git operations that may invoke an executable configured by Git.",
+    example: "git -c core.editor=/tmp/editor commit",
     intent: "manual_only"
   },
   {
@@ -3507,6 +3531,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git checkout force",
     description: "Blocks forced checkout operations that discard local changes.",
+    example: "git checkout --force main",
     intent: "use_alternative"
   },
   {
@@ -3514,6 +3539,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git checkout path restore",
     description: "Blocks checkout path restores after --.",
+    example: "git checkout -- src/app.ts",
     intent: "use_alternative"
   },
   {
@@ -3521,6 +3547,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git checkout ref and path",
     description: "Blocks checkout forms that mix a ref and path restore.",
+    example: "git checkout HEAD -- src/app.ts",
     intent: "use_alternative"
   },
   {
@@ -3528,6 +3555,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git checkout pathspec file",
     description: "Blocks checkout pathspec loading from a file.",
+    example: "git checkout --pathspec-from-file=paths.txt",
     intent: "use_alternative"
   },
   {
@@ -3535,6 +3563,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git checkout ambiguous targets",
     description: "Blocks ambiguous checkout arguments that may restore paths.",
+    example: "git checkout main src/app.ts",
     intent: "use_alternative"
   },
   {
@@ -3542,6 +3571,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git switch discard changes",
     description: "Blocks branch switches that explicitly discard local changes.",
+    example: "git switch --discard-changes main",
     intent: "use_alternative"
   },
   {
@@ -3549,6 +3579,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git switch force",
     description: "Blocks forced branch switches.",
+    example: "git switch --force main",
     intent: "use_alternative"
   },
   {
@@ -3556,6 +3587,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git restore worktree",
     description: "Blocks worktree restore operations.",
+    example: "git restore --worktree src/app.ts",
     intent: "use_alternative"
   },
   {
@@ -3563,6 +3595,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git restore unstaged",
     description: "Blocks unstaged restore operations.",
+    example: "git restore src/app.ts",
     intent: "use_alternative"
   },
   {
@@ -3570,6 +3603,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git reset hard",
     description: "Blocks hard resets.",
+    example: "git reset --hard",
     intent: "use_alternative"
   },
   {
@@ -3577,6 +3611,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git reset merge",
     description: "Blocks merge resets.",
+    example: "git reset --merge",
     intent: "use_alternative"
   },
   {
@@ -3584,6 +3619,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git clean force",
     description: "Blocks forced clean operations.",
+    example: "git clean -fd",
     intent: "use_alternative"
   },
   {
@@ -3591,6 +3627,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git push force",
     description: "Blocks force pushes.",
+    example: "git push --force origin main",
     intent: "use_alternative"
   },
   {
@@ -3598,6 +3635,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git push delete",
     description: "Blocks remote ref deletion through push.",
+    example: "git push --delete origin old-branch",
     intent: "manual_only"
   },
   {
@@ -3605,6 +3643,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git push mirror",
     description: "Blocks mirror pushes that can force-update or delete remote refs.",
+    example: "git push --mirror origin",
     intent: "manual_only"
   },
   {
@@ -3612,6 +3651,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git branch force delete",
     description: "Blocks forced branch deletion.",
+    example: "git branch -D old-branch",
     intent: "use_alternative"
   },
   {
@@ -3619,6 +3659,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git rebase abort",
     description: "Blocks rebase abort operations.",
+    example: "git rebase --abort",
     intent: "use_alternative"
   },
   {
@@ -3626,6 +3667,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git merge abort",
     description: "Blocks merge abort operations.",
+    example: "git merge --abort",
     intent: "use_alternative"
   },
   {
@@ -3633,6 +3675,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git tag delete",
     description: "Blocks tag deletion.",
+    example: "git tag --delete v1.0.0",
     intent: "manual_only"
   },
   {
@@ -3640,6 +3683,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git reflog delete",
     description: "Blocks reflog deletion.",
+    example: "git reflog delete HEAD@{1}",
     intent: "manual_only"
   },
   {
@@ -3647,6 +3691,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git stash drop",
     description: "Blocks dropping stash entries.",
+    example: "git stash drop stash@{0}",
     intent: "use_alternative"
   },
   {
@@ -3654,6 +3699,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git stash clear",
     description: "Blocks clearing all stash entries.",
+    example: "git stash clear",
     intent: "manual_only"
   },
   {
@@ -3661,6 +3707,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Git",
     label: "Git worktree force remove",
     description: "Blocks forced worktree removal.",
+    example: "git worktree remove --force ../feature",
     intent: "use_alternative"
   },
   {
@@ -3668,6 +3715,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "rm -rf root or home",
     description: "Blocks recursive forced removal of root or home paths.",
+    example: "rm -rf /",
     intent: "hard_stop"
   },
   {
@@ -3675,13 +3723,16 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "rm -rf dynamic target",
     description: "Blocks recursive forced removal with dynamic targets in strict mode.",
-    intent: "scope_down"
+    example: 'rm -rf "$target"',
+    intent: "scope_down",
+    activationCapability: "fail_closed"
   },
   {
     id: "rm.recursive-force-home-cwd",
     category: "Filesystem",
     label: "rm -rf from home cwd",
     description: "Blocks recursive forced removal while working in home.",
+    example: 'cd "$HOME" && rm -rf build',
     intent: "scope_down"
   },
   {
@@ -3689,6 +3740,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "rm -rf current directory",
     description: "Blocks recursive forced removal of the current directory.",
+    example: "rm -rf .",
     intent: "scope_down"
   },
   {
@@ -3696,6 +3748,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "rm -rf outside cwd",
     description: "Blocks recursive forced removal outside the original cwd.",
+    example: "rm -rf ../outside",
     intent: "scope_down"
   },
   {
@@ -3703,13 +3756,16 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "rm -rf paranoid mode",
     description: "Blocks non-temp recursive forced removal when paranoid rm is enabled.",
-    intent: "scope_down"
+    example: "rm -rf ./cache",
+    intent: "scope_down",
+    activationCapability: "paranoid_rm"
   },
   {
     id: "powershell.remove-item-root-or-home",
     category: "PowerShell",
     label: "Remove-Item root or home",
     description: "Blocks PowerShell Remove-Item targeting root or home paths.",
+    example: "Remove-Item C:\\",
     intent: "hard_stop"
   },
   {
@@ -3717,6 +3773,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "PowerShell",
     label: "Remove-Item recursive force root or home",
     description: "Blocks recursive forced PowerShell removal of root or home paths.",
+    example: "Remove-Item C:\\ -Recurse -Force",
     intent: "hard_stop"
   },
   {
@@ -3724,13 +3781,16 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "PowerShell",
     label: "Remove-Item recursive force dynamic target",
     description: "Blocks recursive forced PowerShell removal with dynamic targets in strict mode.",
-    intent: "scope_down"
+    example: "Remove-Item $target -Recurse -Force",
+    intent: "scope_down",
+    activationCapability: "fail_closed"
   },
   {
     id: "powershell.remove-item-recursive-force-home-cwd",
     category: "PowerShell",
     label: "Remove-Item recursive force from home cwd",
     description: "Blocks recursive forced PowerShell removal while working in home.",
+    example: "Set-Location $HOME; Remove-Item ./build -Recurse -Force",
     intent: "scope_down"
   },
   {
@@ -3738,6 +3798,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "PowerShell",
     label: "Remove-Item recursive force current directory",
     description: "Blocks recursive forced PowerShell removal of the current directory.",
+    example: "Remove-Item . -Recurse -Force",
     intent: "scope_down"
   },
   {
@@ -3745,6 +3806,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "PowerShell",
     label: "Remove-Item recursive force outside cwd",
     description: "Blocks recursive forced PowerShell removal outside the original cwd.",
+    example: "Remove-Item ../outside -Recurse -Force",
     intent: "scope_down"
   },
   {
@@ -3752,20 +3814,25 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "PowerShell",
     label: "Remove-Item recursive force paranoid mode",
     description: "Blocks non-temp recursive forced PowerShell removal when paranoid rm is enabled.",
-    intent: "scope_down"
+    example: "Remove-Item ./cache -Recurse -Force",
+    intent: "scope_down",
+    activationCapability: "paranoid_rm"
   },
   {
     id: "powershell.remove-item-pipeline-dynamic-target",
     category: "PowerShell",
     label: "Remove-Item pipeline dynamic target",
     description: "Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode.",
-    intent: "scope_down"
+    example: "Get-ChildItem . -Recurse | Remove-Item -Force",
+    intent: "scope_down",
+    activationCapability: "fail_closed"
   },
   {
     id: "find.delete",
     category: "Filesystem",
     label: "find delete",
     description: "Blocks unsafe find -delete operations.",
+    example: "find . -delete",
     intent: "scope_down"
   },
   {
@@ -3773,6 +3840,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Filesystem",
     label: "find exec rm -rf",
     description: "Blocks find -exec rm -rf operations.",
+    example: "find . -exec rm -rf {} +",
     intent: "scope_down"
   },
   {
@@ -3780,6 +3848,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "Interpreter dangerous command",
     description: "Blocks interpreter one-liners containing dangerous commands.",
+    example: `python -c "import os; os.system('rm -rf /')"`,
     intent: "use_alternative"
   },
   {
@@ -3787,13 +3856,16 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "Interpreter one-liner paranoid mode",
     description: "Blocks interpreter one-liners when paranoid interpreters is enabled.",
-    intent: "use_alternative"
+    example: 'python -c "print(1)"',
+    intent: "use_alternative",
+    activationCapability: "paranoid_interpreters"
   },
   {
     id: "awk.system-dynamic",
     category: "Execution",
     label: "Awk dynamic system call",
     description: "Blocks awk system calls that cannot be safely analyzed.",
+    example: "awk '{ system($0) }'",
     intent: "stop_and_explain"
   },
   {
@@ -3801,6 +3873,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "xargs dynamic rm -rf",
     description: "Blocks xargs rm -rf with dynamic input.",
+    example: "printf / | xargs rm -rf",
     intent: "scope_down"
   },
   {
@@ -3808,6 +3881,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "xargs dynamic shell",
     description: "Blocks xargs shell execution with dynamic input.",
+    example: "xargs r$(printf m) -rf",
     intent: "scope_down"
   },
   {
@@ -3815,6 +3889,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "parallel dynamic rm -rf",
     description: "Blocks parallel rm -rf with dynamic input.",
+    example: "printf / | parallel rm -rf",
     intent: "scope_down"
   },
   {
@@ -3822,6 +3897,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "parallel dynamic shell",
     description: "Blocks parallel shell execution with dynamic input.",
+    example: "parallel r$(printf m) -rf ::: child",
     intent: "scope_down"
   },
   {
@@ -3829,6 +3905,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "parallel dynamic command stream",
     description: "Blocks parallel command streams from dynamic input.",
+    example: "parallel --dry-run",
     intent: "scope_down"
   },
   {
@@ -3836,20 +3913,25 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     category: "Execution",
     label: "Dynamic command structure",
     description: "Blocks guarded subcommands and options assembled from substitution output in strict mode.",
-    intent: "stop_and_explain"
+    example: "git reset $(printf --hard)",
+    intent: "stop_and_explain",
+    activationCapability: "fail_closed"
   },
   {
     id: "shell.dynamic-executable",
     category: "Execution",
     label: "Dynamic executable name",
     description: "Blocks executable names assembled from command substitution output in strict mode.",
-    intent: "manual_only"
+    example: "$(printf r)m -rf /",
+    intent: "manual_only",
+    activationCapability: "fail_closed"
   },
   {
     id: "raw-text.dangerous-command",
     category: "Execution",
     label: "Raw text dangerous command",
     description: "Blocks dangerous commands detected in raw command text.",
+    example: "git reset --hard 'unterminated",
     intent: "stop_and_explain"
   }
 ], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
@@ -3865,7 +3947,51 @@ function filterDestructiveCommandMatch(match, policy) {
     return null;
   if (policy?.destructiveCommandProtectionEnabled === !1)
     return null;
-  return policy?.disabledDestructiveCommandRules.includes(match.id) ? null : match;
+  let effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
+  if (effectiveRule)
+    return effectiveRule.enabled ? match : null;
+  return policy?.destructiveCommandRuleOverrides[match.id] === "off" ? null : match;
+}
+function destructiveCommandRuleIsEnabled(policy, id, inheritedEnabled) {
+  if (policy?.destructiveCommandProtectionEnabled === !1)
+    return !1;
+  let resolved = policy?.effectiveDestructiveCommandRules?.[id];
+  if (resolved)
+    return resolved.enabled;
+  let override = policy?.destructiveCommandRuleOverrides[id];
+  return override ? override === "on" : inheritedEnabled;
+}
+function resolveEffectiveDestructiveCommandRules(policy, capabilities) {
+  return Object.freeze(Object.fromEntries(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => {
+    let capability = rule.activationCapability ? capabilities[rule.activationCapability] : void 0, inheritedEnabled = capability?.enabled ?? !0, override = policy.destructiveCommandRuleOverrides[rule.id], state = policy.destructiveCommandProtectionEnabled ? override ? {
+      enabled: override === "on",
+      inheritedEnabled,
+      changesInherited: override === "on" !== inheritedEnabled,
+      source: "rule_override",
+      ...rule.activationCapability ? { activationCapability: rule.activationCapability } : {},
+      override
+    } : {
+      enabled: inheritedEnabled,
+      inheritedEnabled,
+      changesInherited: !1,
+      source: capability?.source ?? "built_in_default",
+      ...rule.activationCapability ? { activationCapability: rule.activationCapability } : {}
+    } : {
+      enabled: !1,
+      inheritedEnabled,
+      changesInherited: !1,
+      source: "master_disabled",
+      ...rule.activationCapability ? { activationCapability: rule.activationCapability } : {},
+      ...override ? { override } : {}
+    };
+    return [rule.id, Object.freeze(state)];
+  })));
+}
+function createCommandAnalysisPolicy(policy, capabilities) {
+  return Object.freeze({
+    ...policy,
+    effectiveDestructiveCommandRules: resolveEffectiveDestructiveCommandRules(policy, capabilities)
+  });
 }
 
 // src/core/analyze/awk.ts
@@ -5236,7 +5362,7 @@ var AUDIT_FAILURE_STAGES = Object.freeze([
 ]), AUDIT_LOG_DECISIONS = Object.freeze(["allow", "deny"]), MAX_RECURSION_DEPTH = 10, MAX_STRIP_ITERATIONS = 20, COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/, MAX_REASON_LENGTH = 256, SHELL_WRAPPERS = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]), INTERPRETERS = /* @__PURE__ */ new Set(["python", "python3", "python2", "node", "ruby", "perl"]), PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
 
 // src/core/analyze/interpreters.ts
-var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.", REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode. Write the code to a script file and run it, or run the equivalent shell command directly. (Paranoid mode enabled.)", CODE_FLAGS = /* @__PURE__ */ new Map([
+var REASON_INTERPRETER_DANGEROUS = "Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.", REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked by the active safety policy. Write the code to a script file and run it, or run the equivalent shell command directly.", CODE_FLAGS = /* @__PURE__ */ new Map([
   ["python", /* @__PURE__ */ new Set(["-c"])],
   ["node", /* @__PURE__ */ new Set(["-e", "--eval"])],
   ["ruby", /* @__PURE__ */ new Set(["-e"])],
@@ -6562,14 +6688,17 @@ function createSchemas() {
     fail_closed: z.boolean().optional(),
     paranoid_rm: z.boolean().optional(),
     paranoid_interpreters: z.boolean().optional()
-  }), OffOverridesSchema = z.record(z.string(), z.literal("off")), UserPolicySchema = z.strictObject({
+  }), DestructiveCommandOverridesSchema = z.record(z.string(), z.enum(["on", "off"])), OffOverridesSchema = z.record(z.string(), z.literal("off")), UserPolicySchema = z.strictObject({
     version: z.literal(1),
     safety: z.strictObject({
       level: z.enum(["standard", "strict", "paranoid"]).optional(),
       overrides: SafetyOverridesSchema.optional()
     }).optional(),
     workflow: z.strictObject({ worktree_mode: z.boolean().optional() }).optional(),
-    destructive_command_protection: z.strictObject({ enabled: z.boolean().optional(), overrides: OffOverridesSchema.optional() }).optional(),
+    destructive_command_protection: z.strictObject({
+      enabled: z.boolean().optional(),
+      overrides: DestructiveCommandOverridesSchema.optional()
+    }).optional(),
     secret_protection: z.strictObject({
       enabled: z.boolean().optional(),
       overrides: OffOverridesSchema.optional(),
@@ -6745,7 +6874,7 @@ function validateUserDestructivePolicy(value, errors) {
   }
   if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
     errors.push("destructive_command_protection.enabled must be a boolean");
-  validateOffOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors);
+  validateKnownOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors, (override) => override === "on" || override === "off" ? void 0 : 'must be "on" or "off"');
 }
 function validateUserSecretPolicy(value, errors) {
   if (value === void 0)
@@ -6769,6 +6898,9 @@ function validateUserSecretPolicy(value, errors) {
   }
 }
 function validateOffOverrides(value, field, knownIds, label, errors) {
+  validateKnownOverrides(value, field, knownIds, label, errors, (override) => override === "off" ? void 0 : 'must be "off"');
+}
+function validateKnownOverrides(value, field, knownIds, label, errors, validate) {
   if (value === void 0)
     return;
   if (!isRecord(value)) {
@@ -6778,8 +6910,9 @@ function validateOffOverrides(value, field, knownIds, label, errors) {
   for (let [id, override] of Object.entries(value)) {
     if (!knownIds.has(id))
       errors.push(`unknown ${label} rule id "${id}"`);
-    if (override !== "off")
-      errors.push(`${field}.overrides.${id} must be "off"`);
+    let error = validate(override);
+    if (error)
+      errors.push(`${field}.overrides.${id} ${error}`);
   }
 }
 function isRecord(value) {
@@ -7350,6 +7483,33 @@ function writeUserPolicyFromGui(policy, options2 = {}) {
     return { path, policy: normalizedPolicy, errors };
   return mkdirSync3(dirname5(path), { recursive: !0, mode: 448 }), writeJsonAtomic(path, normalizedPolicy, 384), chmodSync(path, 384), { path, policy: normalizedPolicy, errors: [] };
 }
+function previewUserPolicyForGui(policy) {
+  let errors = getUserPolicyDiagnostics(policy);
+  if (errors.length > 0)
+    return { errors };
+  return { preview: createPolicyPreview(normalizeGuiPolicy(policy)), errors: [] };
+}
+function createPolicyPreview(policy) {
+  let modes = getCCSafetyNetEnvModes({ safety: normalizeSafety(policy.safety) }), rules = resolveEffectiveDestructiveCommandRules({
+    destructiveCommandProtectionEnabled: policy.destructive_command_protection.enabled,
+    destructiveCommandRuleOverrides: policy.destructive_command_protection.overrides
+  }, modes.capabilities), values = Object.values(rules), overrides = Object.values(policy.destructive_command_protection.overrides);
+  return {
+    selectedPreset: policy.safety.level,
+    effectiveLevel: modes.effectiveLevel,
+    capabilities: modes.capabilities,
+    rules,
+    counts: {
+      enabled: values.filter((state) => state.enabled).length,
+      disabled: values.filter((state) => !state.enabled).length,
+      explicitOn: overrides.filter((value) => value === "on").length,
+      explicitOff: overrides.filter((value) => value === "off").length,
+      effectiveCustomizations: values.filter((state) => state.changesInherited).length,
+      inheritedRequiresStrict: values.filter((state) => !state.enabled && !state.override && state.activationCapability === "fail_closed").length,
+      inheritedRequiresParanoid: values.filter((state) => !state.enabled && !state.override && (state.activationCapability === "paranoid_rm" || state.activationCapability === "paranoid_interpreters")).length
+    }
+  };
+}
 function repairUserPolicyForGui(options2 = {}) {
   let path = getUserPolicyPath(options2);
   if (!existsSync2(path))
@@ -7369,7 +7529,7 @@ function loadPolicyConfig(options2 = {}) {
     safety: user.policy.safety,
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: new Set(user.policy.disabledDestructiveCommandRules),
+    destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
@@ -7393,7 +7553,7 @@ function repairPolicyConfig(value) {
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : !0,
-      overrides: repairOffOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET)
+      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides)
     },
     secret_protection: {
       enabled: typeof secret.enabled === "boolean" ? secret.enabled : !0,
@@ -7401,6 +7561,11 @@ function repairPolicyConfig(value) {
       deny_paths: repairDenyPaths(secret.deny_paths)
     }
   };
+}
+function repairDestructiveCommandOverrides(value) {
+  if (!isRecord2(value))
+    return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id, override]) => DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id) && (override === "on" || override === "off") ? [[id, override]] : []));
 }
 function repairOffOverrides(value, knownRuleIds) {
   if (!isRecord2(value))
@@ -7451,7 +7616,7 @@ function normalizeGuiPolicy(policy) {
     },
     destructive_command_protection: {
       enabled: destructiveCommandPolicy.enabled ?? !0,
-      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "off" ? [[id, "off"]] : []))
+      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : []))
     },
     secret_protection: {
       enabled: secret.enabled ?? !0,
@@ -7484,7 +7649,7 @@ function createEmptyPolicy() {
     safety: {},
     worktreeMode: !1,
     destructiveCommandProtectionEnabled: !0,
-    disabledDestructiveCommandRules: [],
+    destructiveCommandRuleOverrides: {},
     secretProtection: { enabled: !0, disabledRules: /* @__PURE__ */ new Set, denyPaths: [] }
   };
 }
@@ -7494,7 +7659,7 @@ function normalizePolicyConfig(config) {
     safety,
     worktreeMode: workflow?.worktree_mode ?? !1,
     destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? !0,
-    disabledDestructiveCommandRules: Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : []),
+    destructiveCommandRuleOverrides: Object.fromEntries(Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : [])),
     secretProtection: {
       enabled: secret?.enabled ?? !0,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
@@ -8878,7 +9043,7 @@ function loadPolicySnapshot(options2 = {}) {
     safety: normalizeSafety2(userPolicy.safety),
     worktreeMode: userPolicy.worktreeMode,
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: [...userPolicy.disabledDestructiveCommandRules],
+    destructiveCommandRuleOverrides: { ...userPolicy.destructiveCommandRuleOverrides },
     secretProtection: {
       enabled: userPolicy.secretProtection.enabled ?? !0,
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
@@ -8947,7 +9112,9 @@ function freezePolicy(policy) {
       ...policy.safety,
       ...policy.safety.overrides ? { overrides: Object.freeze({ ...policy.safety.overrides }) } : {}
     }),
-    disabledDestructiveCommandRules: Object.freeze([...policy.disabledDestructiveCommandRules]),
+    destructiveCommandRuleOverrides: Object.freeze({
+      ...policy.destructiveCommandRuleOverrides
+    }),
     secretProtection: Object.freeze({
       ...policy.secretProtection,
       disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),
@@ -9393,32 +9560,32 @@ function isNormalizedPathWithin(target, cwd) {
 }
 
 // src/core/analyze/powershell/remove-item.ts
-var REMOVE_ITEM_ALIASES = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]), REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.", REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.", REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.", REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
+var REMOVE_ITEM_ALIASES = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]), REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_RF_POLICY = "PowerShell Remove-Item -Recurse -Force for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.", REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.", REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.", REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
 function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext(options2)) {
   return analyzePowerShellSegment(command2.words.map((word) => ({
     kind: "word",
     text: word.text,
     dynamic: word.provenance !== "literal"
-  })), hasPipelineInput, ctx);
+  })), hasPipelineInput, ctx, options2.policy);
 }
-function analyzePowerShellSegment(segment, hasPipelineInput, ctx) {
+function analyzePowerShellSegment(segment, hasPipelineInput, ctx, policy) {
   let words = segment.filter((token) => token.kind === "word"), commandIndex = getCommandIndex(words), command2 = words[commandIndex];
   if (!command2 || !REMOVE_ITEM_ALIASES.has(normalizeCommandName(command2.text)))
     return null;
   let parsed = parseRemoveItem(words.slice(commandIndex + 1));
   if (parsed.whatIfProtected)
     return null;
-  if (ctx.strict && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
+  if (destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-pipeline-dynamic-target", ctx.strict) && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
     return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
   for (let target of parsed.targets)
     if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
   if (!parsed.recursive || !parsed.force)
     return null;
-  if (ctx.strict && (parsed.hasDynamicTarget || parsed.targets.length === 0))
+  if (destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-recursive-force-dynamic-target", ctx.strict) && (parsed.hasDynamicTarget || parsed.targets.length === 0))
     return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
   for (let target of parsed.targets) {
-    let match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx);
+    let match = matchForClassification(classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx), ctx, policy);
     if (match)
       return match;
   }
@@ -9523,14 +9690,14 @@ function isProtectiveSwitchValue(value) {
 function normalizeCommandName(name) {
   return name.toLowerCase();
 }
-function matchForClassification(classification, ctx) {
+function matchForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
     case "temp_target":
       return null;
     case "dynamic_target":
-      if (!ctx.strict)
+      if (!destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-recursive-force-dynamic-target", ctx.strict))
         return null;
       return destructiveCommandMatch("powershell.remove-item-recursive-force-dynamic-target", REASON_REMOVE_ITEM_DYNAMIC_TARGET);
     case "home_cwd_target":
@@ -9538,9 +9705,9 @@ function matchForClassification(classification, ctx) {
     case "cwd_self_target":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-cwd-self", REASON_REMOVE_ITEM_RF);
     case "within_anchored_cwd":
-      if (!ctx.paranoid)
+      if (!destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-recursive-force-paranoid", ctx.paranoid))
         return null;
-      return destructiveCommandMatch("powershell.remove-item-recursive-force-paranoid", `${REASON_REMOVE_ITEM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
+      return destructiveCommandMatch("powershell.remove-item-recursive-force-paranoid", REASON_REMOVE_ITEM_RF_POLICY);
     case "outside_anchored_cwd":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-outside-cwd", REASON_REMOVE_ITEM_RF);
   }
@@ -9825,7 +9992,7 @@ function isFindExecPrimary(token) {
 import { isAbsolute as isAbsolute12 } from "node:path";
 
 // src/core/analyze/rm.ts
-var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
+var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_POLICY = "rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRmMatch(tokens, options2 = {}) {
   let ctx = createRecursiveDeleteTargetContext({ ...options2, posixShell: !0 });
   if (!hasRecursiveForceFlags(tokens))
@@ -9833,7 +10000,7 @@ function analyzeRmMatch(tokens, options2 = {}) {
   let targets = extractTargets(tokens);
   for (let target of targets) {
     if (options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
-      let match = filterDestructiveCommandMatch(reasonForClassification({ kind: "outside_anchored_cwd" }, ctx), options2.policy);
+      let match = filterDestructiveCommandMatch(reasonForClassification({ kind: "outside_anchored_cwd" }, ctx, options2.policy), options2.policy);
       if (match)
         return match;
       continue;
@@ -9845,7 +10012,7 @@ function analyzeRmMatch(tokens, options2 = {}) {
         tmpdirWordSplittingProtected: options2.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
       };
       for (let classification of orderedTargetClassifications(expandedTarget, ctx, classificationOptions)) {
-        let candidate = reasonForClassification(classification, ctx), match = filterDestructiveCommandMatch(candidate, options2.policy);
+        let candidate = reasonForClassification(classification, ctx, options2.policy), match = filterDestructiveCommandMatch(candidate, options2.policy);
         if (match)
           return match;
       }
@@ -9894,14 +10061,14 @@ function extractTargets(tokens) {
   }
   return targets;
 }
-function reasonForClassification(classification, ctx) {
+function reasonForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
     case "temp_target":
       return null;
     case "dynamic_target":
-      if (!ctx.strict)
+      if (!destructiveCommandRuleIsEnabled(policy, "rm.recursive-force-dynamic-target", ctx.strict))
         return null;
       return destructiveCommandMatch("rm.recursive-force-dynamic-target", REASON_RM_RF_DYNAMIC_TARGET);
     case "home_cwd_target":
@@ -9909,8 +10076,8 @@ function reasonForClassification(classification, ctx) {
     case "cwd_self_target":
       return destructiveCommandMatch("rm.recursive-force-cwd-self", REASON_RM_RF);
     case "within_anchored_cwd":
-      if (ctx.paranoid)
-        return destructiveCommandMatch("rm.recursive-force-paranoid", `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`);
+      if (destructiveCommandRuleIsEnabled(policy, "rm.recursive-force-paranoid", ctx.paranoid))
+        return destructiveCommandMatch("rm.recursive-force-paranoid", REASON_RM_RF_POLICY);
       return null;
     case "outside_anchored_cwd":
       return destructiveCommandMatch("rm.recursive-force-outside-cwd", REASON_RM_RF);
@@ -11252,7 +11419,7 @@ function analyzeGitMatch(tokens, options2 = {}) {
   return evaluateGit(tokens, options2);
 }
 function evaluateGit(tokens, options2, onRelaxation) {
-  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments), aliasConfigDisabled = options2.policy?.disabledDestructiveCommandRules.includes("git.alias-config");
+  let aliasResolution = resolveGitCommandLineAliases(tokens, options2.envAssignments), aliasConfigDisabled = options2.policy?.destructiveCommandRuleOverrides["git.alias-config"] === "off";
   if (aliasResolution.blockedReason && !aliasConfigDisabled)
     return destructiveCommandMatch("git.alias-config", aliasResolution.blockedReason);
   let analysisTokens = aliasResolution.tokens;
@@ -11359,7 +11526,7 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
     let codeArg = extractInterpreterCodeArg(tokens);
     if (!codeArg)
       return getDynamicSourceReason(options2, context);
-    if (context.paranoidInterpreters) {
+    if (destructiveCommandRuleIsEnabled(context.policy, "interpreter.one-liner-paranoid", !!context.paranoidInterpreters)) {
       let paranoidMatch = filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), context.policy);
       if (paranoidMatch)
         return paranoidMatch;
@@ -12956,12 +13123,13 @@ function analyzeSegment(tokens, depth, options2) {
       return dynamicShellSourceResult(trace);
     let codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
+      let paranoidInterpreterRuleEnabled = destructiveCommandRuleIsEnabled(options2.policy, "interpreter.one-liner-paranoid", !!options2.paranoidInterpreters);
       if (trace?.recordSegment({
         type: "interpreter",
         interpreter: normalizedHead,
         codeArg,
-        paranoidBlocked: !!options2.paranoidInterpreters
-      }), options2.paranoidInterpreters) {
+        paranoidBlocked: paranoidInterpreterRuleEnabled
+      }), paranoidInterpreterRuleEnabled) {
         let interpreterMatch = destructiveCommandMatch("interpreter.one-liner-paranoid", REASON_INTERPRETER_BLOCKED), match = options2.compatibility === "explain-legacy" ? interpreterMatch : filterDestructiveCommandMatch(interpreterMatch, options2.policy);
         if (match)
           return blockResultFromMatch(match);
@@ -13163,11 +13331,11 @@ function dynamicShellSourceResult(trace) {
 function dynamicShellSourceMatch() {
   return { id: "", reason: REASON_DYNAMIC_SHELL_SOURCE, intent: "stop_and_explain" };
 }
-function analyzeDynamicExecutable(dynamic, strict) {
-  return dynamic && strict ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
+function analyzeDynamicExecutable(dynamic, strict, policy) {
+  return dynamic && destructiveCommandRuleIsEnabled(policy, "shell.dynamic-executable", !!strict) ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
 }
 function analyzeDynamicCommandStructure(command2, strict = !1, policy) {
-  return filterDestructiveCommandMatch(analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict), policy) ?? analyzeDynamicStructure(command2, strict, policy);
+  return filterDestructiveCommandMatch(analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict, policy), policy) ?? analyzeDynamicStructure(command2, strict, policy);
 }
 function analyzeDynamicStructure(command2, strict, policy) {
   if (!command2 || command2.words.length < 2)
@@ -13178,17 +13346,17 @@ function analyzeDynamicStructure(command2, strict, policy) {
   let head = normalizeCommandToken(command2.words[0]?.text ?? "");
   if (head === "git") {
     let subcommandIndex = findGitSubcommandIndex(command2.analysisTokens);
-    if (strict && dynamicIndexes.some((index) => index <= subcommandIndex))
+    if (destructiveCommandRuleIsEnabled(policy, "shell.dynamic-structure", strict) && dynamicIndexes.some((index) => index <= subcommandIndex))
       return filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy);
     if (filterDestructiveCommandMatch(analyzeGitMatch(command2.analysisTokens), policy))
       return null;
     let subcommand = command2.words[subcommandIndex]?.text.toLowerCase(), dataBoundary = command2.analysisTokens.indexOf("--", subcommandIndex + 1);
-    if (strict && subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
+    if (destructiveCommandRuleIsEnabled(policy, "shell.dynamic-structure", strict) && subcommand && STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) && dynamicIndexes.some((index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary)))
       return filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy);
     return null;
   }
   if (head === "find")
-    return strict && hasDynamicFindStructure(command2) ? filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy) : null;
+    return destructiveCommandRuleIsEnabled(policy, "shell.dynamic-structure", strict) && hasDynamicFindStructure(command2) ? filterDestructiveCommandMatch(destructiveCommandMatch("shell.dynamic-structure", REASON_DYNAMIC_STRUCTURE), policy) : null;
   if (head === "xargs")
     return analyzeDynamicChildStructure(command2, extractXargsChildCommandWithInfo(command2.analysisTokens).childTokens, "xargs", strict, policy);
   if (head === "parallel")
@@ -14652,17 +14820,49 @@ function isCCSafetyNetPackage(value) {
   return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? "");
 }
 
+// src/core/analyze/policy-context.ts
+function resolveCommandAnalysisContext(options2) {
+  let modes = options2.effectiveCapabilities ? void 0 : getCCSafetyNetEnvModes(options2.policySnapshot.policy), capabilities = options2.effectiveCapabilities ?? modes?.capabilities;
+  if (!capabilities)
+    throw Error("Effective safety capabilities could not be resolved.");
+  let strict = options2.strict ?? capabilities.fail_closed.enabled, paranoidRm = options2.paranoidRm ?? capabilities.paranoid_rm.enabled, paranoidInterpreters = options2.paranoidInterpreters ?? capabilities.paranoid_interpreters.enabled, effectiveCapabilities = {
+    fail_closed: applyAnalysisOverride(capabilities.fail_closed, options2.strict, "strict"),
+    paranoid_rm: applyAnalysisOverride(capabilities.paranoid_rm, options2.paranoidRm, "paranoidRm"),
+    paranoid_interpreters: applyAnalysisOverride(capabilities.paranoid_interpreters, options2.paranoidInterpreters, "paranoidInterpreters")
+  };
+  return {
+    policy: createCommandAnalysisPolicy(options2.policySnapshot.policy, effectiveCapabilities),
+    effectiveCapabilities,
+    effectiveLevel: deriveEffectiveSafetyLevel({
+      failClosed: strict,
+      paranoidRm,
+      paranoidInterpreters
+    }),
+    strict,
+    paranoidRm,
+    paranoidInterpreters,
+    worktreeMode: options2.worktreeMode ?? modes?.worktreeMode ?? !1
+  };
+}
+function applyAnalysisOverride(capability, override, option) {
+  if (override === void 0 || override === capability.enabled)
+    return capability;
+  return {
+    enabled: override,
+    source: "capability_override",
+    sources: [...capability.sources, `analysis options.${option}`]
+  };
+}
+
 // src/core/analyze/index.ts
+function analyzeCommand(command2, options2) {
+  return analyzeCommandWithProgram(command2, options2);
+}
 function analyzeCommandWithProgram(command2, options2, program, factStore) {
-  let modes = options2.strict !== void 0 && options2.paranoidRm !== void 0 && options2.paranoidInterpreters !== void 0 && options2.worktreeMode !== void 0 ? options2 : getCCSafetyNetEnvModes(options2.policySnapshot.policy);
   return analyzeCommandInternal(command2, 0, {
     ...options2,
-    policy: options2.policySnapshot.policy,
+    ...resolveCommandAnalysisContext(options2),
     invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : void 0,
-    strict: options2.strict ?? modes.strict,
-    paranoidRm: options2.paranoidRm ?? modes.paranoidRm,
-    paranoidInterpreters: options2.paranoidInterpreters ?? modes.paranoidInterpreters,
-    worktreeMode: options2.worktreeMode ?? modes.worktreeMode,
     factStore
   }, program);
 }
@@ -15870,6 +16070,7 @@ function evaluateGuard(invocation, options2 = {}) {
       cwd: invocation.context.executionCwd,
       shell: invocation.route.shell,
       policySnapshot: snapshot,
+      effectiveCapabilities: modes.capabilities,
       strict: modes.strict,
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,

@@ -23,6 +23,7 @@ import { checkForUpdates } from '@/bin/doctor/updates';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
+import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
@@ -69,7 +70,9 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
   });
   const configInfo = getConfigInfo(cwd);
   const environment = getEnvironmentInfo();
-  const modes = getCCSafetyNetEnvModes(loadPolicySnapshot({ cwd }).policy);
+  const policy = loadPolicySnapshot({ cwd }).policy;
+  const modes = getCCSafetyNetEnvModes(policy);
+  const ruleStates = resolveEffectiveDestructiveCommandRules(policy, modes.capabilities);
   const activity = getActivitySummary(7);
   const update = options.skipUpdateCheck
     ? {
@@ -87,14 +90,13 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
     shadowedRules: configInfo.shadowedRules,
     environment,
     effectiveSafety: {
+      selectedPreset: policy.safety.level ?? 'standard',
       level: modes.effectiveLevel,
-      capabilities: {
-        fail_closed: { enabled: modes.strict, sources: modes.sources.failClosed },
-        paranoid_rm: { enabled: modes.paranoidRm, sources: modes.sources.paranoidRm },
-        paranoid_interpreters: {
-          enabled: modes.paranoidInterpreters,
-          sources: modes.sources.paranoidInterpreters,
-        },
+      capabilities: modes.capabilities,
+      ruleOverrides: policy.destructiveCommandRuleOverrides,
+      ruleCounts: {
+        stored: Object.keys(policy.destructiveCommandRuleOverrides).length,
+        effective: Object.values(ruleStates).filter((state) => state.changesInherited).length,
       },
     },
     activity,

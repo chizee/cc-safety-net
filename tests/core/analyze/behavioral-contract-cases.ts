@@ -38,9 +38,6 @@ function options(values: OptionValues): BehavioralContractCase['options'] {
           ...rule,
           block_args: [...rule.block_args],
         })) ?? [],
-      disabledDestructiveCommandRules: values.policy?.disabledDestructiveCommandRules
-        ? new Set(values.policy.disabledDestructiveCommandRules)
-        : undefined,
     }),
     cwd: values.cwd,
     shell: values.shell ?? 'posix',
@@ -243,7 +240,7 @@ export function behavioralContractCases(paths: {
       command: 'git reset --hard && git clean -f',
       options: options({
         cwd: paths.cwd,
-        policy: { disabledDestructiveCommandRules: new Set(['git.reset-hard']) },
+        policy: { destructiveCommandRuleOverrides: { 'git.reset-hard': 'off' } },
       }),
       expected: {
         kind: 'block',

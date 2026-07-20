@@ -47,7 +47,7 @@ function evaluateGit(
 ): DestructiveCommandRuleMatch | null {
   const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
   const aliasConfigDisabled =
-    options.policy?.disabledDestructiveCommandRules.includes('git.alias-config');
+    options.policy?.destructiveCommandRuleOverrides['git.alias-config'] === 'off';
   if (aliasResolution.blockedReason && !aliasConfigDisabled) {
     return destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason);
   }

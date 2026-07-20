@@ -1,4 +1,10 @@
-import type { EffectivePolicy } from '@/domain/policy';
+import type {
+  CommandAnalysisPolicy,
+  EffectiveDestructiveCommandRuleState,
+  EffectivePolicy,
+  EffectiveSafetyCapabilities,
+  RuleActivationCapability,
+} from '@/domain/policy';
 import type { BlockIntent, DestructiveCommandRuleMatch } from '@/types';
 
 export const DESTRUCTIVE_COMMAND_RULE_IDS = [
@@ -68,15 +74,18 @@ export interface DestructiveCommandRuleMetadata {
   category: string;
   label: string;
   description: string;
+  example: string;
   intent: BlockIntent;
+  activationCapability?: RuleActivationCapability;
 }
 
-export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
+export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleMetadata[] = [
   {
     id: 'git.ssh-env',
     category: 'Git',
     label: 'Git SSH environment override',
     description: 'Blocks Git network operations with SSH environment overrides.',
+    example: 'GIT_SSH_COMMAND="./ssh-wrapper" git push',
     intent: 'manual_only',
   },
   {
@@ -84,6 +93,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git command-line alias',
     description: 'Blocks command-line Git aliases that cannot be safely resolved.',
+    example: "git -c alias.wipe='!rm -rf /' wipe",
     intent: 'manual_only',
   },
   {
@@ -91,6 +101,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git executable config',
     description: 'Blocks Git operations that may invoke an executable configured by Git.',
+    example: 'git -c core.editor=/tmp/editor commit',
     intent: 'manual_only',
   },
   {
@@ -98,6 +109,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git checkout force',
     description: 'Blocks forced checkout operations that discard local changes.',
+    example: 'git checkout --force main',
     intent: 'use_alternative',
   },
   {
@@ -105,6 +117,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git checkout path restore',
     description: 'Blocks checkout path restores after --.',
+    example: 'git checkout -- src/app.ts',
     intent: 'use_alternative',
   },
   {
@@ -112,6 +125,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git checkout ref and path',
     description: 'Blocks checkout forms that mix a ref and path restore.',
+    example: 'git checkout HEAD -- src/app.ts',
     intent: 'use_alternative',
   },
   {
@@ -119,6 +133,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git checkout pathspec file',
     description: 'Blocks checkout pathspec loading from a file.',
+    example: 'git checkout --pathspec-from-file=paths.txt',
     intent: 'use_alternative',
   },
   {
@@ -126,6 +141,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git checkout ambiguous targets',
     description: 'Blocks ambiguous checkout arguments that may restore paths.',
+    example: 'git checkout main src/app.ts',
     intent: 'use_alternative',
   },
   {
@@ -133,6 +149,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git switch discard changes',
     description: 'Blocks branch switches that explicitly discard local changes.',
+    example: 'git switch --discard-changes main',
     intent: 'use_alternative',
   },
   {
@@ -140,6 +157,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git switch force',
     description: 'Blocks forced branch switches.',
+    example: 'git switch --force main',
     intent: 'use_alternative',
   },
   {
@@ -147,6 +165,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git restore worktree',
     description: 'Blocks worktree restore operations.',
+    example: 'git restore --worktree src/app.ts',
     intent: 'use_alternative',
   },
   {
@@ -154,6 +173,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git restore unstaged',
     description: 'Blocks unstaged restore operations.',
+    example: 'git restore src/app.ts',
     intent: 'use_alternative',
   },
   {
@@ -161,6 +181,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git reset hard',
     description: 'Blocks hard resets.',
+    example: 'git reset --hard',
     intent: 'use_alternative',
   },
   {
@@ -168,6 +189,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git reset merge',
     description: 'Blocks merge resets.',
+    example: 'git reset --merge',
     intent: 'use_alternative',
   },
   {
@@ -175,6 +197,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git clean force',
     description: 'Blocks forced clean operations.',
+    example: 'git clean -fd',
     intent: 'use_alternative',
   },
   {
@@ -182,6 +205,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git push force',
     description: 'Blocks force pushes.',
+    example: 'git push --force origin main',
     intent: 'use_alternative',
   },
   {
@@ -189,6 +213,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git push delete',
     description: 'Blocks remote ref deletion through push.',
+    example: 'git push --delete origin old-branch',
     intent: 'manual_only',
   },
   {
@@ -196,6 +221,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git push mirror',
     description: 'Blocks mirror pushes that can force-update or delete remote refs.',
+    example: 'git push --mirror origin',
     intent: 'manual_only',
   },
   {
@@ -203,6 +229,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git branch force delete',
     description: 'Blocks forced branch deletion.',
+    example: 'git branch -D old-branch',
     intent: 'use_alternative',
   },
   {
@@ -210,6 +237,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git rebase abort',
     description: 'Blocks rebase abort operations.',
+    example: 'git rebase --abort',
     intent: 'use_alternative',
   },
   {
@@ -217,6 +245,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git merge abort',
     description: 'Blocks merge abort operations.',
+    example: 'git merge --abort',
     intent: 'use_alternative',
   },
   {
@@ -224,6 +253,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git tag delete',
     description: 'Blocks tag deletion.',
+    example: 'git tag --delete v1.0.0',
     intent: 'manual_only',
   },
   {
@@ -231,6 +261,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git reflog delete',
     description: 'Blocks reflog deletion.',
+    example: 'git reflog delete HEAD@{1}',
     intent: 'manual_only',
   },
   {
@@ -238,6 +269,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git stash drop',
     description: 'Blocks dropping stash entries.',
+    example: 'git stash drop stash@{0}',
     intent: 'use_alternative',
   },
   {
@@ -245,6 +277,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git stash clear',
     description: 'Blocks clearing all stash entries.',
+    example: 'git stash clear',
     intent: 'manual_only',
   },
   {
@@ -252,6 +285,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Git',
     label: 'Git worktree force remove',
     description: 'Blocks forced worktree removal.',
+    example: 'git worktree remove --force ../feature',
     intent: 'use_alternative',
   },
   {
@@ -259,6 +293,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'rm -rf root or home',
     description: 'Blocks recursive forced removal of root or home paths.',
+    example: 'rm -rf /',
     intent: 'hard_stop',
   },
   {
@@ -266,13 +301,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'rm -rf dynamic target',
     description: 'Blocks recursive forced removal with dynamic targets in strict mode.',
+    example: 'rm -rf "$target"',
     intent: 'scope_down',
+    activationCapability: 'fail_closed',
   },
   {
     id: 'rm.recursive-force-home-cwd',
     category: 'Filesystem',
     label: 'rm -rf from home cwd',
     description: 'Blocks recursive forced removal while working in home.',
+    example: 'cd "$HOME" && rm -rf build',
     intent: 'scope_down',
   },
   {
@@ -280,6 +318,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'rm -rf current directory',
     description: 'Blocks recursive forced removal of the current directory.',
+    example: 'rm -rf .',
     intent: 'scope_down',
   },
   {
@@ -287,6 +326,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'rm -rf outside cwd',
     description: 'Blocks recursive forced removal outside the original cwd.',
+    example: 'rm -rf ../outside',
     intent: 'scope_down',
   },
   {
@@ -294,13 +334,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'rm -rf paranoid mode',
     description: 'Blocks non-temp recursive forced removal when paranoid rm is enabled.',
+    example: 'rm -rf ./cache',
     intent: 'scope_down',
+    activationCapability: 'paranoid_rm',
   },
   {
     id: 'powershell.remove-item-root-or-home',
     category: 'PowerShell',
     label: 'Remove-Item root or home',
     description: 'Blocks PowerShell Remove-Item targeting root or home paths.',
+    example: 'Remove-Item C:\\',
     intent: 'hard_stop',
   },
   {
@@ -308,6 +351,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'PowerShell',
     label: 'Remove-Item recursive force root or home',
     description: 'Blocks recursive forced PowerShell removal of root or home paths.',
+    example: 'Remove-Item C:\\ -Recurse -Force',
     intent: 'hard_stop',
   },
   {
@@ -315,13 +359,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'PowerShell',
     label: 'Remove-Item recursive force dynamic target',
     description: 'Blocks recursive forced PowerShell removal with dynamic targets in strict mode.',
+    example: 'Remove-Item $target -Recurse -Force',
     intent: 'scope_down',
+    activationCapability: 'fail_closed',
   },
   {
     id: 'powershell.remove-item-recursive-force-home-cwd',
     category: 'PowerShell',
     label: 'Remove-Item recursive force from home cwd',
     description: 'Blocks recursive forced PowerShell removal while working in home.',
+    example: 'Set-Location $HOME; Remove-Item ./build -Recurse -Force',
     intent: 'scope_down',
   },
   {
@@ -329,6 +376,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'PowerShell',
     label: 'Remove-Item recursive force current directory',
     description: 'Blocks recursive forced PowerShell removal of the current directory.',
+    example: 'Remove-Item . -Recurse -Force',
     intent: 'scope_down',
   },
   {
@@ -336,6 +384,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'PowerShell',
     label: 'Remove-Item recursive force outside cwd',
     description: 'Blocks recursive forced PowerShell removal outside the original cwd.',
+    example: 'Remove-Item ../outside -Recurse -Force',
     intent: 'scope_down',
   },
   {
@@ -343,20 +392,25 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'PowerShell',
     label: 'Remove-Item recursive force paranoid mode',
     description: 'Blocks non-temp recursive forced PowerShell removal when paranoid rm is enabled.',
+    example: 'Remove-Item ./cache -Recurse -Force',
     intent: 'scope_down',
+    activationCapability: 'paranoid_rm',
   },
   {
     id: 'powershell.remove-item-pipeline-dynamic-target',
     category: 'PowerShell',
     label: 'Remove-Item pipeline dynamic target',
     description: 'Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode.',
+    example: 'Get-ChildItem . -Recurse | Remove-Item -Force',
     intent: 'scope_down',
+    activationCapability: 'fail_closed',
   },
   {
     id: 'find.delete',
     category: 'Filesystem',
     label: 'find delete',
     description: 'Blocks unsafe find -delete operations.',
+    example: 'find . -delete',
     intent: 'scope_down',
   },
   {
@@ -364,6 +418,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Filesystem',
     label: 'find exec rm -rf',
     description: 'Blocks find -exec rm -rf operations.',
+    example: 'find . -exec rm -rf {} +',
     intent: 'scope_down',
   },
   {
@@ -371,6 +426,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'Interpreter dangerous command',
     description: 'Blocks interpreter one-liners containing dangerous commands.',
+    example: `python -c "import os; os.system('rm -rf /')"`,
     intent: 'use_alternative',
   },
   {
@@ -378,13 +434,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'Interpreter one-liner paranoid mode',
     description: 'Blocks interpreter one-liners when paranoid interpreters is enabled.',
+    example: 'python -c "print(1)"',
     intent: 'use_alternative',
+    activationCapability: 'paranoid_interpreters',
   },
   {
     id: 'awk.system-dynamic',
     category: 'Execution',
     label: 'Awk dynamic system call',
     description: 'Blocks awk system calls that cannot be safely analyzed.',
+    example: "awk '{ system($0) }'",
     intent: 'stop_and_explain',
   },
   {
@@ -392,6 +451,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'xargs dynamic rm -rf',
     description: 'Blocks xargs rm -rf with dynamic input.',
+    example: 'printf / | xargs rm -rf',
     intent: 'scope_down',
   },
   {
@@ -399,6 +459,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'xargs dynamic shell',
     description: 'Blocks xargs shell execution with dynamic input.',
+    example: 'xargs r$(printf m) -rf',
     intent: 'scope_down',
   },
   {
@@ -406,6 +467,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'parallel dynamic rm -rf',
     description: 'Blocks parallel rm -rf with dynamic input.',
+    example: 'printf / | parallel rm -rf',
     intent: 'scope_down',
   },
   {
@@ -413,6 +475,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'parallel dynamic shell',
     description: 'Blocks parallel shell execution with dynamic input.',
+    example: 'parallel r$(printf m) -rf ::: child',
     intent: 'scope_down',
   },
   {
@@ -420,6 +483,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     category: 'Execution',
     label: 'parallel dynamic command stream',
     description: 'Blocks parallel command streams from dynamic input.',
+    example: 'parallel --dry-run',
     intent: 'scope_down',
   },
   {
@@ -428,7 +492,9 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: 'Dynamic command structure',
     description:
       'Blocks guarded subcommands and options assembled from substitution output in strict mode.',
+    example: 'git reset $(printf --hard)',
     intent: 'stop_and_explain',
+    activationCapability: 'fail_closed',
   },
   {
     id: 'shell.dynamic-executable',
@@ -436,16 +502,19 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA = [
     label: 'Dynamic executable name',
     description:
       'Blocks executable names assembled from command substitution output in strict mode.',
+    example: '$(printf r)m -rf /',
     intent: 'manual_only',
+    activationCapability: 'fail_closed',
   },
   {
     id: 'raw-text.dangerous-command',
     category: 'Execution',
     label: 'Raw text dangerous command',
     description: 'Blocks dangerous commands detected in raw command text.',
+    example: "git reset --hard 'unterminated",
     intent: 'stop_and_explain',
   },
-] as const satisfies readonly DestructiveCommandRuleMetadata[];
+] as const;
 
 const DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(
   DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]),
@@ -466,13 +535,99 @@ export function destructiveCommandMatch(
 export function filterDestructiveCommandMatch(
   match: DestructiveCommandRuleMatch | null,
   policy:
-    | Pick<
+    | (Pick<
         EffectivePolicy,
-        'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
-      >
+        'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
+      > &
+        Partial<Pick<CommandAnalysisPolicy, 'effectiveDestructiveCommandRules'>>)
     | undefined,
 ): DestructiveCommandRuleMatch | null {
   if (!match) return null;
   if (policy?.destructiveCommandProtectionEnabled === false) return null;
-  return policy?.disabledDestructiveCommandRules.includes(match.id) ? null : match;
+  const effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
+  if (effectiveRule) return effectiveRule.enabled ? match : null;
+  return policy?.destructiveCommandRuleOverrides[match.id] === 'off' ? null : match;
+}
+
+/** @internal */
+export function destructiveCommandRuleIsEnabled(
+  policy:
+    | (Pick<
+        EffectivePolicy,
+        'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
+      > &
+        Partial<Pick<CommandAnalysisPolicy, 'effectiveDestructiveCommandRules'>>)
+    | undefined,
+  id: DestructiveCommandRuleId,
+  inheritedEnabled: boolean,
+): boolean {
+  if (policy?.destructiveCommandProtectionEnabled === false) return false;
+  const resolved = policy?.effectiveDestructiveCommandRules?.[id];
+  if (resolved) return resolved.enabled;
+  const override = policy?.destructiveCommandRuleOverrides[id];
+  return override ? override === 'on' : inheritedEnabled;
+}
+
+/** @internal */
+export function resolveEffectiveDestructiveCommandRules(
+  policy: Pick<
+    EffectivePolicy,
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
+  >,
+  capabilities: EffectiveSafetyCapabilities,
+): Readonly<Record<string, EffectiveDestructiveCommandRuleState>> {
+  return Object.freeze(
+    Object.fromEntries(
+      DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => {
+        const capability = rule.activationCapability
+          ? capabilities[rule.activationCapability]
+          : undefined;
+        const inheritedEnabled = capability?.enabled ?? true;
+        const override = policy.destructiveCommandRuleOverrides[rule.id];
+        const state = policy.destructiveCommandProtectionEnabled
+          ? override
+            ? {
+                enabled: override === 'on',
+                inheritedEnabled,
+                changesInherited: (override === 'on') !== inheritedEnabled,
+                source: 'rule_override' as const,
+                ...(rule.activationCapability
+                  ? { activationCapability: rule.activationCapability }
+                  : {}),
+                override,
+              }
+            : {
+                enabled: inheritedEnabled,
+                inheritedEnabled,
+                changesInherited: false,
+                source: capability?.source ?? ('built_in_default' as const),
+                ...(rule.activationCapability
+                  ? { activationCapability: rule.activationCapability }
+                  : {}),
+              }
+          : {
+              enabled: false,
+              inheritedEnabled,
+              changesInherited: false,
+              source: 'master_disabled' as const,
+              ...(rule.activationCapability
+                ? { activationCapability: rule.activationCapability }
+                : {}),
+              ...(override ? { override } : {}),
+            };
+        return [rule.id, Object.freeze(state)];
+      }),
+    ),
+  );
+}
+
+/** @internal */
+export function createCommandAnalysisPolicy(
+  policy: EffectivePolicy,
+  capabilities: EffectiveSafetyCapabilities,
+): CommandAnalysisPolicy {
+  return Object.freeze({
+    ...policy,
+    effectiveDestructiveCommandRules: resolveEffectiveDestructiveCommandRules(policy, capabilities),
+  });
 }

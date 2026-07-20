@@ -127,7 +127,7 @@ describe('find -delete tests', () => {
     ).toMatchObject({ ruleId: 'custom.block-find-delete' });
     expect(
       analyzeTestCommand('find /Users -delete', {
-        config: { disabledDestructiveCommandRules: ['find.delete'] },
+        config: { destructiveCommandRuleOverrides: { 'find.delete': 'off' } },
       }),
     ).toBeNull();
   });

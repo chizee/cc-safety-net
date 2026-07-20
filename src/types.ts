@@ -6,7 +6,12 @@ import { NAME_PATTERN } from './core/rules/policy/source-syntax.js';
 import type { ShellKind } from './domain/command.js';
 import type { TraceStep } from './domain/command-trace.js';
 import { BLOCK_INTENTS, type BlockIntent } from './domain/decision.js';
-import type { PolicySnapshot } from './domain/policy.js';
+import type {
+  DestructiveCommandRuleOverride,
+  EffectiveDestructiveCommandRuleState,
+  EffectiveSafetyCapabilities,
+  PolicySnapshot,
+} from './domain/policy.js';
 
 export { BLOCK_INTENTS, type BlockIntent };
 /** @internal Compatibility re-exports for existing direct module consumers. */
@@ -175,6 +180,8 @@ export interface AntigravityCliHookOutput {
 export interface AnalyzeOptions {
   /** Immutable policy snapshot to evaluate. */
   policySnapshot: PolicySnapshot;
+  /** Capability values and provenance already resolved at the caller boundary. */
+  effectiveCapabilities?: EffectiveSafetyCapabilities;
   /** Current working directory */
   cwd?: string;
   /** Shell syntax to use for command-specific analysis */
@@ -300,4 +307,8 @@ export interface ExplainResult {
   configSource: string | null;
   configValid: boolean;
   effectiveLevel: EffectiveSafetyLevel;
+  selectedPreset: PolicySafetyLevel;
+  effectiveCapabilities: EffectiveSafetyCapabilities;
+  destructiveCommandRuleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
+  ruleActivation?: EffectiveDestructiveCommandRuleState & { id: string };
 }

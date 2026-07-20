@@ -1,3 +1,4 @@
+import type { EffectiveCapabilitySource } from '@/domain/policy';
 import type { EffectiveSafetyLevel, PolicySafety, PolicySafetyLevel } from '@/types';
 
 export interface EnvFlag {
@@ -47,7 +48,10 @@ function parseEnvLevel(): PolicySafetyLevel | undefined {
   return undefined;
 }
 
-function deriveEffectiveLevel(values: Record<Capability, boolean>): EffectiveSafetyLevel {
+/** @internal */
+export function deriveEffectiveSafetyLevel(
+  values: Record<Capability, boolean>,
+): EffectiveSafetyLevel {
   if (values.failClosed && values.paranoidRm && values.paranoidInterpreters) return 'paranoid';
   if (values.failClosed && !values.paranoidRm && !values.paranoidInterpreters) return 'strict';
   if (!values.failClosed && !values.paranoidRm && !values.paranoidInterpreters) return 'standard';
@@ -61,6 +65,11 @@ export function getCCSafetyNetEnvModes(
   const envLevel = parseEnvLevel();
   const baseLevel = maxSafetyLevel(policyLevel, envLevel);
   const values = expandSafetyLevel(baseLevel);
+  const capabilitySources: Record<Capability, EffectiveCapabilitySource> = {
+    failClosed: baseLevel === policyLevel ? 'preset' : 'environment',
+    paranoidRm: baseLevel === policyLevel ? 'preset' : 'environment',
+    paranoidInterpreters: baseLevel === policyLevel ? 'preset' : 'environment',
+  };
   const sources: Record<Capability | 'worktreeMode', string[]> = {
     failClosed: [`policy safety.level=${policyLevel}`],
     paranoidRm: [`policy safety.level=${policyLevel}`],
@@ -68,7 +77,7 @@ export function getCCSafetyNetEnvModes(
     worktreeMode: [],
   };
 
-  if (envLevel && envLevel !== policyLevel) {
+  if (baseLevel !== policyLevel) {
     sources.failClosed.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
     sources.paranoidRm.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
     sources.paranoidInterpreters.push(`env ${ENV_FLAGS.level.name}=${envLevel}`);
@@ -76,33 +85,41 @@ export function getCCSafetyNetEnvModes(
 
   if (policy.safety?.overrides?.failClosed !== undefined) {
     values.failClosed = policy.safety.overrides.failClosed;
+    capabilitySources.failClosed = 'capability_override';
     sources.failClosed.push('policy safety.overrides.fail_closed');
   }
   if (policy.safety?.overrides?.paranoidRm !== undefined) {
     values.paranoidRm = policy.safety.overrides.paranoidRm;
+    capabilitySources.paranoidRm = 'capability_override';
     sources.paranoidRm.push('policy safety.overrides.paranoid_rm');
   }
   if (policy.safety?.overrides?.paranoidInterpreters !== undefined) {
     values.paranoidInterpreters = policy.safety.overrides.paranoidInterpreters;
+    capabilitySources.paranoidInterpreters = 'capability_override';
     sources.paranoidInterpreters.push('policy safety.overrides.paranoid_interpreters');
   }
 
   if (envTruthy(ENV_FLAGS.strict)) {
     values.failClosed = true;
+    capabilitySources.failClosed = 'environment';
     sources.failClosed.push(`env ${ENV_FLAGS.strict.name}`);
   }
   if (envTruthy(ENV_FLAGS.paranoid)) {
     values.paranoidRm = true;
     values.paranoidInterpreters = true;
+    capabilitySources.paranoidRm = 'environment';
+    capabilitySources.paranoidInterpreters = 'environment';
     sources.paranoidRm.push(`env ${ENV_FLAGS.paranoid.name}`);
     sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoid.name}`);
   }
   if (envTruthy(ENV_FLAGS.paranoidRm)) {
     values.paranoidRm = true;
+    capabilitySources.paranoidRm = 'environment';
     sources.paranoidRm.push(`env ${ENV_FLAGS.paranoidRm.name}`);
   }
   if (envTruthy(ENV_FLAGS.paranoidInterpreters)) {
     values.paranoidInterpreters = true;
+    capabilitySources.paranoidInterpreters = 'environment';
     sources.paranoidInterpreters.push(`env ${ENV_FLAGS.paranoidInterpreters.name}`);
   }
 
@@ -115,7 +132,24 @@ export function getCCSafetyNetEnvModes(
     paranoidRm: values.paranoidRm,
     paranoidInterpreters: values.paranoidInterpreters,
     worktreeMode,
-    effectiveLevel: deriveEffectiveLevel(values),
+    effectiveLevel: deriveEffectiveSafetyLevel(values),
+    capabilities: {
+      fail_closed: {
+        enabled: values.failClosed,
+        source: capabilitySources.failClosed,
+        sources: sources.failClosed,
+      },
+      paranoid_rm: {
+        enabled: values.paranoidRm,
+        source: capabilitySources.paranoidRm,
+        sources: sources.paranoidRm,
+      },
+      paranoid_interpreters: {
+        enabled: values.paranoidInterpreters,
+        source: capabilitySources.paranoidInterpreters,
+        sources: sources.paranoidInterpreters,
+      },
+    },
     sources,
   };
 }

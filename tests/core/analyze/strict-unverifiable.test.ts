@@ -43,6 +43,30 @@ const strictOnlyCases: {
   },
 ];
 
+const paranoidOnlyCases: Array<{
+  name: string;
+  command: string;
+  ruleId: string;
+  shell?: ShellKind;
+}> = [
+  {
+    name: 'rm inside the working directory',
+    command: 'rm -rf ./cache',
+    ruleId: 'rm.recursive-force-paranoid',
+  },
+  {
+    name: 'PowerShell removal inside the working directory',
+    command: 'Remove-Item ./cache -Recurse -Force',
+    ruleId: 'powershell.remove-item-recursive-force-paranoid',
+    shell: 'powershell',
+  },
+  {
+    name: 'interpreter one-liner',
+    command: 'python -c "print(1)"',
+    ruleId: 'interpreter.one-liner-paranoid',
+  },
+];
+
 function options(strict: boolean, shell?: ShellKind): Omit<AnalyzeOptions, 'policySnapshot'> {
   return {
     cwd: process.cwd(),
@@ -77,6 +101,33 @@ describe('strict-only unverifiable command checks', () => {
       ).toMatchObject({ ruleId: testCase.ruleId, intent: testCase.intent });
     });
   }
+
+  for (const testCase of [...strictOnlyCases, ...paranoidOnlyCases]) {
+    test(`force-enables ${testCase.name} under Standard`, () => {
+      expect(
+        analyzeTestCommand(testCase.command, {
+          ...options(false, testCase.shell),
+          config: { destructiveCommandRuleOverrides: { [testCase.ruleId]: 'on' } },
+        }),
+      ).toMatchObject({
+        ruleId: testCase.ruleId,
+        ...('intent' in testCase ? { intent: testCase.intent } : {}),
+      });
+    });
+  }
+
+  test('uses source-neutral reasons for Paranoid-tier rules enabled under Standard', () => {
+    for (const testCase of paranoidOnlyCases) {
+      const result = analyzeTestCommand(testCase.command, {
+        ...options(false, testCase.shell),
+        config: { destructiveCommandRuleOverrides: { [testCase.ruleId]: 'on' } },
+      });
+
+      expect(result?.ruleId).toBe(testCase.ruleId);
+      expect(result?.reason.toLowerCase()).not.toContain('paranoid');
+      expect(result?.reason).not.toContain('CC_SAFETY_NET');
+    }
+  });
 
   test('does not activate strict-only rm checks for paranoid_rm alone', () => {
     expect(
@@ -120,9 +171,53 @@ describe('strict-only unverifiable command checks', () => {
       expect(
         analyzeTestCommand(testCase.command, {
           ...options(true, testCase.shell),
-          config: { disabledDestructiveCommandRules: [testCase.ruleId] },
+          config: { destructiveCommandRuleOverrides: { [testCase.ruleId]: 'off' } },
         }),
       ).toBeNull();
     });
   }
+
+  for (const testCase of paranoidOnlyCases) {
+    test(`force-disables ${testCase.name} under Paranoid`, () => {
+      expect(
+        analyzeTestCommand(testCase.command, {
+          cwd: process.cwd(),
+          shell: testCase.shell,
+          config: {
+            safety: { level: 'paranoid' },
+            destructiveCommandRuleOverrides: { [testCase.ruleId]: 'off' },
+          },
+        }),
+      ).toBeNull();
+    });
+  }
+
+  test('master protection overrides an explicit rule enablement', () => {
+    expect(
+      analyzeTestCommand('rm -rf "$target"', {
+        ...options(false),
+        config: {
+          destructiveCommandProtectionEnabled: false,
+          destructiveCommandRuleOverrides: { 'rm.recursive-force-dynamic-target': 'on' },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  test('strict non-rule fail-closed behavior remains active when all strict-tier rules are off', () => {
+    expect(
+      analyzeTestCommand('echo "unclosed', {
+        cwd: process.cwd(),
+        config: {
+          safety: { level: 'strict' },
+          destructiveCommandRuleOverrides: Object.fromEntries(
+            strictOnlyCases.map((testCase) => [testCase.ruleId, 'off'] as const),
+          ),
+        },
+      }),
+    ).toMatchObject({
+      intent: 'stop_and_explain',
+      reason: expect.stringContaining('strict mode'),
+    });
+  });
 });

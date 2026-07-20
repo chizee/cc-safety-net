@@ -24,6 +24,7 @@ import {
 } from '@/core/analyze/tmpdir';
 import {
   destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
@@ -51,7 +52,7 @@ export interface ChildCommandAnalysisContext {
   scanWork?: { units: number };
   policy?: Pick<
     EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
   > &
     Partial<Pick<EffectivePolicy, 'rules'>>;
   analyzeNested?: (
@@ -166,7 +167,13 @@ export function analyzeChildCommandMatch(
       return getDynamicSourceReason(options, context);
     }
 
-    if (context.paranoidInterpreters) {
+    if (
+      destructiveCommandRuleIsEnabled(
+        context.policy,
+        'interpreter.one-liner-paranoid',
+        !!context.paranoidInterpreters,
+      )
+    ) {
       const paranoidMatch = filterDestructiveCommandMatch(
         destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
         context.policy,

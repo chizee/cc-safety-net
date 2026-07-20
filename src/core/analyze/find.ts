@@ -90,7 +90,7 @@ export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
   envAssignments?: ReadonlyMap<string, string>;
   policy?: Pick<
     EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
   >;
   analyzeTokens?: (
     tokens: readonly string[],

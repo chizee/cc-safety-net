@@ -5,9 +5,12 @@ import {
   type RecursiveDeleteTargetClassification,
   type RecursiveDeleteTargetContext,
 } from '@/core/analyze/recursive-delete-targets';
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import { ENV_FLAGS } from '@/core/env';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+} from '@/core/destructive-command-rules';
 import type { CommandView } from '@/domain/command';
+import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
 type PowerShellToken = {
@@ -20,6 +23,8 @@ const REMOVE_ITEM_ALIASES = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 
 
 const REASON_REMOVE_ITEM_RF =
   'PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
+const REASON_REMOVE_ITEM_RF_POLICY =
+  'PowerShell Remove-Item -Recurse -Force for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
 const REASON_REMOVE_ITEM_DYNAMIC_TARGET =
   'PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.';
 const REASON_REMOVE_ITEM_ROOT_HOME =
@@ -35,6 +40,10 @@ interface AnalyzePowerShellRemoveItemOptions {
   strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
+  policy?: Pick<
+    EffectivePolicy,
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
+  >;
 }
 
 interface RemoveItemTarget {
@@ -65,6 +74,7 @@ export function analyzePowerShellCommandViewMatch(
     })),
     hasPipelineInput,
     ctx,
+    options.policy,
   );
 }
 
@@ -72,6 +82,7 @@ function analyzePowerShellSegment(
   segment: PowerShellToken[],
   hasPipelineInput: boolean,
   ctx: RecursiveDeleteTargetContext,
+  policy: AnalyzePowerShellRemoveItemOptions['policy'],
 ): DestructiveCommandRuleMatch | null {
   const words = segment.filter((token) => token.kind === 'word');
   const commandIndex = getCommandIndex(words);
@@ -85,7 +96,15 @@ function analyzePowerShellSegment(
     return null;
   }
 
-  if (ctx.strict && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive)) {
+  if (
+    destructiveCommandRuleIsEnabled(
+      policy,
+      'powershell.remove-item-pipeline-dynamic-target',
+      ctx.strict,
+    ) &&
+    hasPipelineInput &&
+    (parsed.targets.length === 0 || parsed.recursive)
+  ) {
     return destructiveCommandMatch(
       'powershell.remove-item-pipeline-dynamic-target',
       REASON_REMOVE_ITEM_PIPELINE,
@@ -107,7 +126,14 @@ function analyzePowerShellSegment(
     return null;
   }
 
-  if (ctx.strict && (parsed.hasDynamicTarget || parsed.targets.length === 0)) {
+  if (
+    destructiveCommandRuleIsEnabled(
+      policy,
+      'powershell.remove-item-recursive-force-dynamic-target',
+      ctx.strict,
+    ) &&
+    (parsed.hasDynamicTarget || parsed.targets.length === 0)
+  ) {
     return destructiveCommandMatch(
       'powershell.remove-item-recursive-force-dynamic-target',
       REASON_REMOVE_ITEM_DYNAMIC_TARGET,
@@ -118,6 +144,7 @@ function analyzePowerShellSegment(
     const match = matchForClassification(
       classifyRecursiveDeleteTarget(powerShellTargetForPolicy(target.text), ctx),
       ctx,
+      policy,
     );
     if (match) return match;
   }
@@ -264,6 +291,7 @@ function normalizeCommandName(name: string): string {
 function matchForClassification(
   classification: RecursiveDeleteTargetClassification,
   ctx: RecursiveDeleteTargetContext,
+  policy: AnalyzePowerShellRemoveItemOptions['policy'],
 ): DestructiveCommandRuleMatch | null {
   switch (classification.kind) {
     case 'root_or_home_target':
@@ -274,7 +302,14 @@ function matchForClassification(
     case 'temp_target':
       return null;
     case 'dynamic_target':
-      if (!ctx.strict) return null;
+      if (
+        !destructiveCommandRuleIsEnabled(
+          policy,
+          'powershell.remove-item-recursive-force-dynamic-target',
+          ctx.strict,
+        )
+      )
+        return null;
       return destructiveCommandMatch(
         'powershell.remove-item-recursive-force-dynamic-target',
         REASON_REMOVE_ITEM_DYNAMIC_TARGET,
@@ -290,10 +325,17 @@ function matchForClassification(
         REASON_REMOVE_ITEM_RF,
       );
     case 'within_anchored_cwd':
-      if (!ctx.paranoid) return null;
+      if (
+        !destructiveCommandRuleIsEnabled(
+          policy,
+          'powershell.remove-item-recursive-force-paranoid',
+          ctx.paranoid,
+        )
+      )
+        return null;
       return destructiveCommandMatch(
         'powershell.remove-item-recursive-force-paranoid',
-        `${REASON_REMOVE_ITEM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`,
+        REASON_REMOVE_ITEM_RF_POLICY,
       );
     case 'outside_anchored_cwd':
       return destructiveCommandMatch(

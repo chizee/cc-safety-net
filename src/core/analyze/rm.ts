@@ -9,14 +9,16 @@ import {
 import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import {
   destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
-import { ENV_FLAGS } from '@/core/env';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_RM_RF =
   'rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
+const REASON_RM_RF_POLICY =
+  'rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';
 const REASON_RM_RF_DYNAMIC_TARGET =
   'rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.';
 const REASON_RM_RF_ROOT_HOME =
@@ -31,7 +33,7 @@ export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
   unsafeBraceExpansionTargetTokenIndexes?: ReadonlySet<number>;
   policy?: Pick<
     EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
   >;
 }
 
@@ -55,7 +57,7 @@ export function analyzeRmMatch(
   for (const target of targets) {
     if (options.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
       const match = filterDestructiveCommandMatch(
-        reasonForClassification({ kind: 'outside_anchored_cwd' }, ctx),
+        reasonForClassification({ kind: 'outside_anchored_cwd' }, ctx, options.policy),
         options.policy,
       );
       if (match) return match;
@@ -76,7 +78,7 @@ export function analyzeRmMatch(
         ctx,
         classificationOptions,
       )) {
-        const candidate = reasonForClassification(classification, ctx);
+        const candidate = reasonForClassification(classification, ctx, options.policy);
         const match = filterDestructiveCommandMatch(candidate, options.policy);
         if (match) return match;
       }
@@ -142,6 +144,7 @@ function extractTargets(tokens: readonly string[]): { text: string; index: numbe
 function reasonForClassification(
   classification: RecursiveDeleteTargetClassification,
   ctx: RecursiveDeleteTargetContext,
+  policy: AnalyzeRmOptions['policy'],
 ): DestructiveCommandRuleMatch | null {
   switch (classification.kind) {
     case 'root_or_home_target':
@@ -149,7 +152,8 @@ function reasonForClassification(
     case 'temp_target':
       return null;
     case 'dynamic_target':
-      if (!ctx.strict) return null;
+      if (!destructiveCommandRuleIsEnabled(policy, 'rm.recursive-force-dynamic-target', ctx.strict))
+        return null;
       return destructiveCommandMatch(
         'rm.recursive-force-dynamic-target',
         REASON_RM_RF_DYNAMIC_TARGET,
@@ -159,11 +163,8 @@ function reasonForClassification(
     case 'cwd_self_target':
       return destructiveCommandMatch('rm.recursive-force-cwd-self', REASON_RM_RF);
     case 'within_anchored_cwd':
-      if (ctx.paranoid) {
-        return destructiveCommandMatch(
-          'rm.recursive-force-paranoid',
-          `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`,
-        );
+      if (destructiveCommandRuleIsEnabled(policy, 'rm.recursive-force-paranoid', ctx.paranoid)) {
+        return destructiveCommandMatch('rm.recursive-force-paranoid', REASON_RM_RF_POLICY);
       }
       return null;
     case 'outside_anchored_cwd':

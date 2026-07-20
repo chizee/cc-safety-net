@@ -8,7 +8,7 @@ const aliasConfigReason =
   'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
 const aliasConfigDisabledPolicy = {
   destructiveCommandProtectionEnabled: true,
-  disabledDestructiveCommandRules: ['git.alias-config'],
+  destructiveCommandRuleOverrides: { 'git.alias-config': 'off' as const },
 };
 
 function configEnv(
@@ -248,7 +248,7 @@ describe('Git config count fail-closed behavior', () => {
 });
 
 describe('disabled Git alias-config policy', () => {
-  const config = { disabledDestructiveCommandRules: ['git.alias-config'] };
+  const config = { destructiveCommandRuleOverrides: { 'git.alias-config': 'off' as const } };
 
   test('continues to direct destructive Git rules without worktree relaxation', () => {
     expect(analyzeTestCommand('GIT_CONFIG_COUNT=1025 git reset --hard', { config })?.ruleId).toBe(

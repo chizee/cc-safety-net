@@ -67,6 +67,7 @@ import {
 } from '@/core/analyze/xargs';
 import {
   destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
 import { analyzeGitDetailed, analyzeGitMatch } from '@/core/git';
@@ -487,13 +488,18 @@ export function analyzeSegment(
     }
     const codeArg = extractInterpreterCodeArg(stripped);
     if (codeArg) {
+      const paranoidInterpreterRuleEnabled = destructiveCommandRuleIsEnabled(
+        options.policy,
+        'interpreter.one-liner-paranoid',
+        !!options.paranoidInterpreters,
+      );
       trace?.recordSegment({
         type: 'interpreter',
         interpreter: normalizedHead,
         codeArg,
-        paranoidBlocked: !!options.paranoidInterpreters,
+        paranoidBlocked: paranoidInterpreterRuleEnabled,
       });
-      if (options.paranoidInterpreters) {
+      if (paranoidInterpreterRuleEnabled) {
         const interpreterMatch = destructiveCommandMatch(
           'interpreter.one-liner-paranoid',
           REASON_INTERPRETER_BLOCKED,
@@ -825,8 +831,9 @@ function dynamicShellSourceMatch(): DestructiveCommandRuleMatch {
 function analyzeDynamicExecutable(
   dynamic: boolean,
   strict: boolean | undefined,
+  policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
-  return dynamic && strict
+  return dynamic && destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-executable', !!strict)
     ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
     : null;
 }
@@ -839,7 +846,7 @@ export function analyzeDynamicCommandStructure(
 ): DestructiveCommandRuleMatch | null {
   return (
     filterDestructiveCommandMatch(
-      analyzeDynamicExecutable(command?.dynamicExecutable ?? false, strict),
+      analyzeDynamicExecutable(command?.dynamicExecutable ?? false, strict, policy),
       policy,
     ) ?? analyzeDynamicStructure(command, strict, policy)
   );
@@ -859,7 +866,10 @@ function analyzeDynamicStructure(
   const head = normalizeCommandToken(command.words[0]?.text ?? '');
   if (head === 'git') {
     const subcommandIndex = findGitSubcommandIndex(command.analysisTokens);
-    if (strict && dynamicIndexes.some((index) => index <= subcommandIndex)) {
+    if (
+      destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
+      dynamicIndexes.some((index) => index <= subcommandIndex)
+    ) {
       return filterDestructiveCommandMatch(
         destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
         policy,
@@ -869,7 +879,7 @@ function analyzeDynamicStructure(
     const subcommand = command.words[subcommandIndex]?.text.toLowerCase();
     const dataBoundary = command.analysisTokens.indexOf('--', subcommandIndex + 1);
     if (
-      strict &&
+      destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
       subcommand &&
       STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) &&
       dynamicIndexes.some(
@@ -885,7 +895,8 @@ function analyzeDynamicStructure(
   }
 
   if (head === 'find') {
-    return strict && hasDynamicFindStructure(command)
+    return destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
+      hasDynamicFindStructure(command)
       ? filterDestructiveCommandMatch(
           destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
           policy,

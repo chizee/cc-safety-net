@@ -19,7 +19,7 @@ export interface ChildCommandContext {
     | 'rules'
     | 'transparentWrappers'
     | 'destructiveCommandProtectionEnabled'
-    | 'disabledDestructiveCommandRules'
+    | 'destructiveCommandRuleOverrides'
   >;
 }
 

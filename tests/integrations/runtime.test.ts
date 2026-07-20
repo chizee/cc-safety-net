@@ -3,7 +3,7 @@ import { createToolInvocation } from '@/domain/invocation';
 import { GuardEvaluationError } from '@/engine/guard';
 import { evaluateRuntimeGuard } from '@/integrations/runtime';
 import { readAuditLogEntriesForSession, withTempDir } from '../helpers';
-import { policySnapshot } from '../helpers/policy';
+import { policySnapshot, testModes } from '../helpers/policy';
 
 function invocation(command = 'echo ok') {
   return createToolInvocation(
@@ -21,19 +21,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     loadPolicySnapshot: () => policySnapshot(),
     findSensitiveTarget: () => null,
     analyzeCommand: () => null,
-    getModes: () => ({
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false,
-      worktreeMode: false,
-      effectiveLevel: 'standard' as const,
-      sources: {
-        failClosed: [],
-        paranoidRm: [],
-        paranoidInterpreters: [],
-        worktreeMode: [],
-      },
-    }),
+    getModes: () => testModes(),
     ...overrides,
   };
 }

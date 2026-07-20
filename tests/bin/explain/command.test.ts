@@ -14,6 +14,7 @@ import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/
 import { MAX_RECURSION_DEPTH } from '@/types';
 import {
   analyzeTestCommand,
+  commandAnalysisPolicy,
   policySnapshot,
   type TestExplainOptions,
   testExplainOptions,
@@ -153,7 +154,9 @@ describe('explainCommand', () => {
 
   test('matches dynamic-structure disablement for a substitution-derived Git global', () => {
     const command = `git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`;
-    const config = { disabledDestructiveCommandRules: ['shell.dynamic-structure'] };
+    const config = {
+      destructiveCommandRuleOverrides: { 'shell.dynamic-structure': 'off' as const },
+    };
 
     expect(analyzeTestCommand(command, { config })).toBeNull();
     expect(explainCommand(command, { config }).result).toBe('allowed');
@@ -749,21 +752,90 @@ describe('explainCommand strict-only unverifiable checks', () => {
   for (const [command, ruleId] of cases) {
     test(`${ruleId} matches enforcement in standard and strict modes`, () => {
       expect(analyzeTestCommand(command, { strict: false })).toBeNull();
-      expect(explainCommand(command, { strict: false }).result).toBe('allowed');
+      const standard = explainCommand(command, { strict: false });
+      expect(standard.result).toBe('allowed');
+      expect(standard.ruleActivation).toMatchObject({
+        id: ruleId,
+        activationCapability: 'fail_closed',
+        enabled: false,
+        inheritedEnabled: false,
+        changesInherited: false,
+        source: 'preset',
+      });
 
       const enforced = analyzeTestCommand(command, { strict: true });
       const explained = explainCommand(command, { strict: true });
       expect(enforced?.ruleId).toBe(ruleId);
-      expect(explained.result).toBe('blocked');
+      expect(explained).toMatchObject({
+        result: 'blocked',
+        effectiveLevel: 'strict',
+        effectiveCapabilities: {
+          fail_closed: { enabled: true, source: 'capability_override' },
+        },
+        ruleActivation: {
+          id: ruleId,
+          enabled: true,
+          source: 'capability_override',
+        },
+      });
       expect(explained.reason).toBe(enforced?.reason);
     });
 
     test(`${ruleId} disablement matches enforcement in strict mode`, () => {
-      const config = { disabledDestructiveCommandRules: [ruleId] };
+      const config = { destructiveCommandRuleOverrides: { [ruleId]: 'off' as const } };
       expect(analyzeTestCommand(command, { strict: true, config })).toBeNull();
       expect(explainCommand(command, { strict: true, config }).result).toBe('allowed');
     });
   }
+
+  test('reports policy, capability, override, and activation state for an inactive candidate', () => {
+    const result = explainCommand('rm -rf "$target"', {
+      config: {
+        safety: { level: 'strict' },
+        destructiveCommandRuleOverrides: { 'rm.recursive-force-dynamic-target': 'off' },
+      },
+    });
+
+    expect(result).toMatchObject({
+      result: 'allowed',
+      selectedPreset: 'strict',
+      effectiveLevel: 'strict',
+      effectiveCapabilities: {
+        fail_closed: { enabled: true, source: 'preset' },
+      },
+      destructiveCommandRuleOverrides: { 'rm.recursive-force-dynamic-target': 'off' },
+      ruleActivation: {
+        id: 'rm.recursive-force-dynamic-target',
+        activationCapability: 'fail_closed',
+        enabled: false,
+        inheritedEnabled: true,
+        changesInherited: true,
+        source: 'rule_override',
+        override: 'off',
+      },
+    });
+  });
+
+  test('reports an explicit Strict disablement against a Strict preset', () => {
+    const result = explainCommand('rm -rf "$target"', {
+      strict: false,
+      config: { safety: { level: 'strict' } },
+    });
+
+    expect(result).toMatchObject({
+      result: 'allowed',
+      selectedPreset: 'strict',
+      effectiveLevel: 'standard',
+      effectiveCapabilities: {
+        fail_closed: { enabled: false, source: 'capability_override' },
+      },
+      ruleActivation: {
+        id: 'rm.recursive-force-dynamic-target',
+        enabled: false,
+        source: 'capability_override',
+      },
+    });
+  });
 });
 
 describe('explainCommand CWD unknown parity with guard', () => {
@@ -1126,7 +1198,7 @@ describe('explainSegment direct depth limit', () => {
     const result = analyzeCommandInternal('rm -rf /', MAX_RECURSION_DEPTH, {
       cwd: '/tmp',
       policySnapshot: snapshot,
-      policy: snapshot.policy,
+      policy: commandAnalysisPolicy(snapshot),
       invalidReason: undefined,
       trace,
     });
@@ -1145,7 +1217,7 @@ describe('explainSegment direct depth limit', () => {
     const result = analyzeCommandInternal('git status', MAX_RECURSION_DEPTH + 5, {
       cwd: '/tmp',
       policySnapshot: snapshot,
-      policy: snapshot.policy,
+      policy: commandAnalysisPolicy(snapshot),
       invalidReason: undefined,
       trace,
     });

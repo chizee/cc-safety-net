@@ -212,6 +212,15 @@ export function formatTraceHuman(result: ExplainResult, options?: { asciiOnly?: 
   const configPath = result.configSource ?? 'none';
   const configStatus = result.configValid ? '' : ' (invalid)';
   lines.push(`  Path: ${configPath}${configStatus}`);
+  lines.push(`  Safety preset: ${result.selectedPreset ?? 'standard'}`);
+  lines.push(`  Effective capabilities: ${result.effectiveLevel}`);
+  const overrides = Object.entries(result.destructiveCommandRuleOverrides ?? {});
+  lines.push(`  Rule customizations: ${overrides.length}`);
+  if (result.ruleActivation) {
+    lines.push(
+      `  Rule activation: ${result.ruleActivation.id} — ${result.ruleActivation.enabled ? 'on' : 'off'} via ${result.ruleActivation.source}`,
+    );
+  }
 
   return lines.join('\n');
 }

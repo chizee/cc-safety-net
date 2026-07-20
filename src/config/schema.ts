@@ -115,6 +115,7 @@ function createSchemas() {
     paranoid_rm: z.boolean().optional(),
     paranoid_interpreters: z.boolean().optional(),
   });
+  const DestructiveCommandOverridesSchema = z.record(z.string(), z.enum(['on', 'off']));
   const OffOverridesSchema = z.record(z.string(), z.literal('off'));
   const UserPolicySchema = z
     .strictObject({
@@ -127,7 +128,10 @@ function createSchemas() {
         .optional(),
       workflow: z.strictObject({ worktree_mode: z.boolean().optional() }).optional(),
       destructive_command_protection: z
-        .strictObject({ enabled: z.boolean().optional(), overrides: OffOverridesSchema.optional() })
+        .strictObject({
+          enabled: z.boolean().optional(),
+          overrides: DestructiveCommandOverridesSchema.optional(),
+        })
         .optional(),
       secret_protection: z
         .strictObject({
@@ -367,12 +371,13 @@ function validateUserDestructivePolicy(value: unknown, errors: string[]): void {
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
     errors.push('destructive_command_protection.enabled must be a boolean');
   }
-  validateOffOverrides(
+  validateKnownOverrides(
     value.overrides,
     'destructive_command_protection',
     DESTRUCTIVE_COMMAND_RULE_ID_SET,
     'destructive command',
     errors,
+    (override) => (override === 'on' || override === 'off' ? undefined : 'must be "on" or "off"'),
   );
 }
 
@@ -418,6 +423,19 @@ function validateOffOverrides(
   label: string,
   errors: string[],
 ): void {
+  validateKnownOverrides(value, field, knownIds, label, errors, (override) =>
+    override === 'off' ? undefined : 'must be "off"',
+  );
+}
+
+function validateKnownOverrides(
+  value: unknown,
+  field: string,
+  knownIds: ReadonlySet<string>,
+  label: string,
+  errors: string[],
+  validate: (override: unknown) => string | undefined,
+): void {
   if (value === undefined) return;
   if (!isRecord(value)) {
     errors.push(`${field}.overrides must be an object if provided`);
@@ -425,7 +443,8 @@ function validateOffOverrides(
   }
   for (const [id, override] of Object.entries(value)) {
     if (!knownIds.has(id)) errors.push(`unknown ${label} rule id "${id}"`);
-    if (override !== 'off') errors.push(`${field}.overrides.${id} must be "off"`);
+    const error = validate(override);
+    if (error) errors.push(`${field}.overrides.${id} ${error}`);
   }
 }
 

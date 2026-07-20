@@ -76,7 +76,7 @@ describe('derived command work budget', () => {
 
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['git.reset-hard'] },
+        config: { destructiveCommandRuleOverrides: { 'git.reset-hard': 'off' } },
       }),
     ).toEqual(limitedResult(command));
   });

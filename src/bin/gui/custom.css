@@ -42,6 +42,13 @@
   --master-bg: light-dark(#eef4fe, #101a2b);
   --master-border: light-dark(#c5d6f6, #23446e);
 
+  --strict-fg: light-dark(#1e40af, #9ec3ff);
+  --strict-bg: light-dark(#eef4fe, #101a2b);
+  --strict-border: light-dark(#c5d6f6, #23446e);
+  --paranoid-fg: light-dark(#6b21a8, #d8b4fe);
+  --paranoid-bg: light-dark(#faf5ff, #21152c);
+  --paranoid-border: light-dark(#e4ccf4, #513064);
+
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -327,6 +334,49 @@ main {
   color: var(--ink);
 }
 
+.rule-example-popover {
+  position: fixed;
+  inset: auto;
+  width: min(360px, calc(100vw - 24px));
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 4px 8px rgb(0 0 0 / 18%);
+}
+
+.rule-example-popover::backdrop {
+  background: transparent;
+}
+
+.rule-example-popover > * {
+  display: block;
+}
+
+.rule-example-label {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rule-example-popover strong {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.rule-example-popover code {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .confirm-dialog::backdrop {
   background: rgb(0 0 0 / 48%);
 }
@@ -436,7 +486,8 @@ main {
   transition: transform 0.15s ease;
 }
 
-.panel-toggle[aria-expanded="false"] .panel-chevron {
+.panel-toggle[aria-expanded="false"] .panel-chevron,
+.tier-toggle[aria-expanded="false"] .panel-chevron {
   transform: rotate(-45deg);
 }
 
@@ -487,7 +538,7 @@ label.row.row-disabled:hover {
   background: var(--surface);
 }
 
-label.row input[type="checkbox"] {
+:is(label.row, .rule-control) input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -504,7 +555,7 @@ label.row input[type="checkbox"] {
     border-color 0.18s ease;
 }
 
-label.row input[type="checkbox"]::before {
+:is(label.row, .rule-control) input[type="checkbox"]::before {
   content: "";
   position: absolute;
   top: 2px;
@@ -517,16 +568,16 @@ label.row input[type="checkbox"]::before {
   transition: transform 0.18s ease;
 }
 
-label.row input[type="checkbox"]:checked {
+:is(label.row, .rule-control) input[type="checkbox"]:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-label.row input[type="checkbox"]:checked::before {
+:is(label.row, .rule-control) input[type="checkbox"]:checked::before {
   transform: translateX(14px);
 }
 
-label.row:hover input[type="checkbox"]:not(:checked) {
+:is(label.row, .rule-control):hover input[type="checkbox"]:not(:checked) {
   border-color: var(--switch-track-hover);
   background: var(--switch-track-hover);
 }
@@ -540,17 +591,17 @@ label.row.safety-override-row select {
   width: 100%;
 }
 
-label.row span {
+:is(label.row, .rule-control) span {
   display: block;
   min-width: 0;
 }
 
-label.row strong {
+:is(label.row, .rule-control) strong {
   font-weight: 650;
   font-size: 13px;
 }
 
-label.row .rule-id {
+:is(label.row, .rule-control) .rule-id {
   display: block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
@@ -559,7 +610,7 @@ label.row .rule-id {
   word-break: break-all;
 }
 
-label.row small {
+:is(label.row, .rule-control) small {
   display: block;
   margin-top: 4px;
   color: var(--muted);
@@ -568,6 +619,160 @@ label.row small {
 
 #destructive-command > label.row {
   margin-bottom: 16px;
+}
+
+.preset-status {
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.preset-status.customized {
+  color: var(--master-fg);
+}
+
+.rule-customization-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 12px;
+}
+
+.rule-tier {
+  overflow: clip;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.rule-tier + .rule-tier {
+  margin-top: 10px;
+}
+
+.rule-tier-strict {
+  border-color: var(--strict-border);
+}
+
+.rule-tier-paranoid {
+  border-color: var(--paranoid-border);
+}
+
+.rule-tier-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  background: var(--surface-2);
+}
+
+.rule-tier-strict .rule-tier-head {
+  background: var(--strict-bg);
+  color: var(--strict-fg);
+}
+
+.rule-tier-paranoid .rule-tier-head {
+  background: var(--paranoid-bg);
+  color: var(--paranoid-fg);
+}
+
+.tier-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.tier-toggle > span:last-child {
+  display: grid;
+  gap: 1px;
+}
+
+.tier-toggle small,
+.tier-counts {
+  color: inherit;
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.tier-counts {
+  flex: none;
+  text-align: right;
+}
+
+.tier-content {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.rule-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.rule-row.row-disabled {
+  background: var(--surface);
+}
+
+.rule-control {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.rule-row.row-disabled .rule-control {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.rule-example-button {
+  position: relative;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rule-example-button::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.rule-example-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.inherit-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  padding: 5px 8px;
+  font-size: 11px;
 }
 
 label.row.master {
@@ -1015,6 +1220,25 @@ textarea {
 
   .grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rule-tier-head,
+  .rule-tier-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rule-row {
+    align-items: start;
+  }
+
+  .tier-counts {
+    padding-left: 18px;
+    text-align: left;
+  }
+
+  .inherit-button {
+    align-self: flex-start;
   }
 }
 

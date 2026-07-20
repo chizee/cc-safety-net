@@ -3,10 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { getActivitySummary } from '@/bin/doctor/activity';
-import { ENV_FLAGS, envTruthy } from '@/core/env';
 import {
+  createPolicyPreview,
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
+  previewUserPolicyForGui,
   readUserPolicyForGui,
   repairUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
@@ -140,12 +141,24 @@ async function handleRequest(
   }
 
   if (request.method === 'GET' && url.pathname === '/api/policy') {
+    const result = readUserPolicyForGui(options);
     sendJson(response, 200, {
-      ...readUserPolicyForGui(options),
+      ...result,
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
-      environmentOverrides: getActiveEnvironmentOverrides(),
+      preview: result.errors.length > 0 ? null : createPolicyPreview(result.policy),
     });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/preview') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, 400, { errors: [body.error] });
+      return;
+    }
+    const result = previewUserPolicyForGui(body.value);
+    sendJson(response, result.errors.length > 0 ? 400 : 200, result);
     return;
   }
 
@@ -188,15 +201,6 @@ async function handleRequest(
   }
 
   sendJson(response, 404, { error: 'Not found' });
-}
-
-function getActiveEnvironmentOverrides(): string[] {
-  return [
-    ENV_FLAGS.strict,
-    ENV_FLAGS.paranoid,
-    ENV_FLAGS.paranoidRm,
-    ENV_FLAGS.paranoidInterpreters,
-  ].flatMap((flag) => (envTruthy(flag) ? [flag.name] : []));
 }
 
 function requestHasValidToken(request: IncomingMessage, url: URL, token: string): boolean {

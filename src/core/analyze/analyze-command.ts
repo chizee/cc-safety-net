@@ -43,7 +43,7 @@ import type {
   CommandWord,
 } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
-import type { EffectivePolicy } from '@/domain/policy';
+import type { CommandAnalysisPolicy } from '@/domain/policy';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import {
@@ -56,7 +56,7 @@ import {
 } from '@/types';
 
 export type InternalOptions = AnalyzeOptions & {
-  policy: EffectivePolicy;
+  policy: CommandAnalysisPolicy;
   invalidReason: string | undefined;
   factStore?: SemanticFactStore;
   trace?: CommandTraceContext;

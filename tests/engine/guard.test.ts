@@ -11,7 +11,7 @@ import {
 } from '@/engine/guard';
 import { parseCommand } from '@/parser/command';
 import { withTempDir } from '../helpers';
-import { policySnapshot } from '../helpers/policy';
+import { policySnapshot, testModes } from '../helpers/policy';
 
 const SNAPSHOT = policySnapshot();
 const REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT =
@@ -68,38 +68,12 @@ function dependencies(
       calls.push('analysis');
       return null;
     },
-    getModes: () => ({
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false,
-      worktreeMode: false,
-      effectiveLevel: 'standard',
-      sources: {
-        failClosed: [],
-        paranoidRm: [],
-        paranoidInterpreters: [],
-        worktreeMode: [],
-      },
-    }),
+    getModes: () => testModes(),
     ...overrides,
   };
 }
 
-function strictModes() {
-  return {
-    strict: true,
-    paranoidRm: false,
-    paranoidInterpreters: false,
-    worktreeMode: false,
-    effectiveLevel: 'strict' as const,
-    sources: {
-      failClosed: [],
-      paranoidRm: [],
-      paranoidInterpreters: [],
-      worktreeMode: [],
-    },
-  };
-}
+const strictModes = () => testModes('strict');
 
 function captureGuardError(run: () => unknown): GuardEvaluationError {
   try {

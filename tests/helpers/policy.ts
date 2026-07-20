@@ -4,13 +4,16 @@ import {
   type PolicySnapshotOptions,
 } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
-import type { PolicySnapshot } from '@/domain/policy';
+import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
+import { getCCSafetyNetEnvModes } from '@/core/env';
+import type { DestructiveCommandRuleOverride, PolicySnapshot } from '@/domain/policy';
 import type {
   AnalyzeOptions,
   AnalyzeResult,
   CustomRule,
   ExplainOptions,
   PolicySafety,
+  PolicySafetyLevel,
   SecretProtectionConfig,
 } from '@/types';
 
@@ -25,9 +28,32 @@ export interface TestPolicyInput {
   safety?: PolicySafety;
   worktreeMode?: boolean;
   destructiveCommandProtectionEnabled?: boolean;
-  disabledDestructiveCommandRules?: ReadonlySet<string> | readonly string[];
+  destructiveCommandRuleOverrides?: Readonly<Record<string, DestructiveCommandRuleOverride>>;
   secretProtection?: SecretProtectionConfig;
   failClosedReason?: string;
+}
+
+export function testModes(level: PolicySafetyLevel = 'standard') {
+  const strict = level === 'strict' || level === 'paranoid';
+  const paranoid = level === 'paranoid';
+  return {
+    strict,
+    paranoidRm: paranoid,
+    paranoidInterpreters: paranoid,
+    worktreeMode: false,
+    effectiveLevel: level,
+    capabilities: {
+      fail_closed: { enabled: strict, source: 'preset' as const, sources: [] },
+      paranoid_rm: { enabled: paranoid, source: 'preset' as const, sources: [] },
+      paranoid_interpreters: { enabled: paranoid, source: 'preset' as const, sources: [] },
+    },
+    sources: {
+      failClosed: [],
+      paranoidRm: [],
+      paranoidInterpreters: [],
+      worktreeMode: [],
+    },
+  };
 }
 
 export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
@@ -37,7 +63,7 @@ export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
     safety: input.safety ?? {},
     worktreeMode: input.worktreeMode ?? false,
     destructiveCommandProtectionEnabled: input.destructiveCommandProtectionEnabled ?? true,
-    disabledDestructiveCommandRules: Array.from(input.disabledDestructiveCommandRules ?? []),
+    destructiveCommandRuleOverrides: { ...input.destructiveCommandRuleOverrides },
     secretProtection: {
       enabled: input.secretProtection?.enabled ?? true,
       disabledRules: Array.from(input.secretProtection?.disabledRules ?? []),
@@ -49,6 +75,13 @@ export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
     input.failClosedReason
       ? { diagnostics: [input.failClosedReason], reason: input.failClosedReason }
       : undefined,
+  );
+}
+
+export function commandAnalysisPolicy(snapshot: PolicySnapshot = policySnapshot()) {
+  return createCommandAnalysisPolicy(
+    snapshot.policy,
+    getCCSafetyNetEnvModes(snapshot.policy).capabilities,
   );
 }
 
@@ -77,7 +110,7 @@ export function loadTestPolicy(
     safety: snapshot.policy.safety,
     worktreeMode: snapshot.policy.worktreeMode,
     destructiveCommandProtectionEnabled: snapshot.policy.destructiveCommandProtectionEnabled,
-    disabledDestructiveCommandRules: new Set(snapshot.policy.disabledDestructiveCommandRules),
+    destructiveCommandRuleOverrides: snapshot.policy.destructiveCommandRuleOverrides,
     secretProtection: {
       ...snapshot.policy.secretProtection,
       disabledRules: new Set(snapshot.policy.secretProtection.disabledRules),

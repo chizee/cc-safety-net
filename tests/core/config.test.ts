@@ -170,7 +170,8 @@ describe('runtime config loading', () => {
       config: loadTestPolicy(tempDir, { userConfigDir: userRulesDir }),
     });
 
-    expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
+    expect(result?.ruleId).toBe('rm.recursive-force-paranoid');
+    expect(result?.reason).toContain('active safety policy');
   });
 
   test('env flags still enable capabilities when policy sets false', () => {
@@ -185,7 +186,10 @@ describe('runtime config loading', () => {
         config: loadTestPolicy(tempDir, { userConfigDir: userRulesDir }),
       });
 
-      expect(result?.reason).toContain('CC_SAFETY_NET_PARANOID_RM');
+      expect(result).toMatchObject({
+        ruleId: 'rm.recursive-force-paranoid',
+        reason: expect.stringContaining('active safety policy'),
+      });
     });
   });
 
@@ -319,7 +323,7 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.failClosedReason).toBeUndefined();
-    expect(config.disabledDestructiveCommandRules).toEqual(new Set());
+    expect(config.destructiveCommandRuleOverrides).toEqual({});
     expect(config.secretProtection?.disabledRules).toEqual(new Set());
     expect(config.safety).toEqual({});
     expect(config.worktreeMode).toBe(false);
@@ -345,7 +349,7 @@ describe('runtime config loading', () => {
     );
     expect(config.failClosedReason).toContain('unknown destructive command rule id "git.unknown"');
     expect(config.failClosedReason).toContain(
-      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+      'destructive_command_protection.overrides.git.reset-hard must be "on" or "off"',
     );
     expect(config.failClosedReason).toContain('unknown secret protection rule id "secret.unknown"');
     expect(config.failClosedReason).toContain(

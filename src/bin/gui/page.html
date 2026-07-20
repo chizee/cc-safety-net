@@ -49,10 +49,11 @@
     <section class="panel">
       <div class="panel-head">
         <div class="panel-title">
-          <h2>Modes</h2>
-          <p class="panel-sub muted">Choose a safety level, then override individual capabilities only when needed.</p>
+          <h2>Safety preset</h2>
+          <p class="panel-sub muted">Choose inherited protection defaults, then customize only what this workspace needs.</p>
         </div>
       </div>
+      <div id="safety-preset-status" class="preset-status"></div>
       <div id="environment-overrides" class="status" hidden></div>
       <div class="grid" id="safety-level"></div>
       <div class="field field-toggle">
@@ -105,6 +106,11 @@
     <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
     <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
   </footer>
+  <div class="rule-example-popover" id="rule-example-popover" popover="auto" role="dialog" aria-labelledby="rule-example-title" aria-describedby="rule-example-command">
+    <span class="rule-example-label">Blocked command example</span>
+    <strong id="rule-example-title"></strong>
+    <code id="rule-example-command"></code>
+  </div>
   <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
     <form method="dialog">
       <h2 id="confirm-dialog-title"></h2>
@@ -144,9 +150,17 @@
     const searchPanelIds = ['destructive-command-panel-content', 'secret-panel-content'];
     let state;
     let draftPolicy;
+    let preview;
+    let previewRequestId = 0;
     let dirty = false;
     let searchActive = false;
     const searchExpandedPanels = new Set();
+    const tierExpanded = new Map([
+      ['normal', false],
+      ['strict', false],
+      ['paranoid', false]
+    ]);
+    const searchCollapsedTiers = new Set();
     let rawCopyResetTimer = null;
     let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
     const api = (path, init = {}) => fetch(`${path}?token=${encodeURIComponent(token)}`, {
@@ -174,6 +188,7 @@
       && !!value.policy && typeof value.policy === 'object'
       && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection
       && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
+      && (value.preview === null || (value.preview && typeof value.preview === 'object'))
       && Array.isArray(value.errors);
     const qs = (id) => document.getElementById(id);
     const setDetailStatus = (text, kind = '') => {
@@ -278,6 +293,7 @@
       const active = qs('policy-search').value.trim().length > 0;
       if (active === searchActive) return;
       searchActive = active;
+      if (!active) searchCollapsedTiers.clear();
       searchPanelIds.forEach((id) => {
         const button = document.querySelector(`[aria-controls="${id}"]`);
         if (active) {
@@ -449,55 +465,66 @@
       groups.push({ category: rule.category, rules: [rule] });
       return groups;
     }, []);
-    const ruleState = (active, sectionDisabled) => {
-      if (active && !sectionDisabled) return { label: 'Active', className: 'state-active' };
-      return { label: 'Disabled', className: 'state-disabled' };
-    };
-    const renderRuleToggles = (options) => {
+    const renderSecretPatterns = () => {
       const query = qs('policy-search').value.trim().toLowerCase();
-      const rules = options.rules.filter((rule) =>
+      const rules = state.secretPatterns.filter((rule) =>
         [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
       );
-      const disabledCount = Object.keys(options.overrides).length;
-      qs(options.summaryId).textContent = options.summaryText(disabledCount);
-      qs(options.targetId).innerHTML = rules.length === 0
-        ? `<p class="empty">${escapeHtml(options.emptyText)}</p>`
+      const overrides = draftPolicy.secret_protection.overrides;
+      const disabled = !draftPolicy.secret_protection.enabled;
+      const disabledCount = Object.keys(overrides).length;
+      qs('secret-summary').textContent = disabled
+        ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
+        : `${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`;
+      qs('secret-patterns').innerHTML = rules.length === 0
+        ? '<p class="empty">No secret protections match the search.</p>'
         : groupRules(rules).map((group) => `
           <section class="destructive-command-group">
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules.map((rule) => {
-              const active = options.overrides[rule.id] !== 'off';
-              const state = ruleState(active, options.disabled);
-              const disabled = options.disabled ? 'disabled' : '';
-              return `<label class="row ${options.disabled ? 'row-disabled' : ''}">
-                <input type="checkbox" ${options.dataAttribute}="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled}>
+              const active = overrides[rule.id] !== 'off';
+              const ruleState = active && !disabled
+                ? { label: 'Active', className: 'state-active' }
+                : { label: 'Disabled', className: 'state-disabled' };
+              return `<label class="row ${disabled ? 'row-disabled' : ''}">
+                <input type="checkbox" data-secret-active="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled ? 'disabled' : ''}>
                 <span>
                   <strong>${escapeHtml(rule.label)}</strong>
                   <code class="rule-id">${escapeHtml(rule.id)}</code>
-                  <small><span class="${state.className}">${state.label}</span> ${escapeHtml(rule.description)}</small>
+                  <small><span class="${ruleState.className}">${ruleState.label}</span> ${escapeHtml(rule.description)}</small>
                 </span>
               </label>`;
             }).join('')}</div>
           </section>
         `).join('');
     };
-    const destructiveCommandSummaryText = (disabledCount) =>
-      draftPolicy.destructive_command_protection.enabled
-        ? `${state.destructiveCommandRules.length - disabledCount} active, ${disabledCount} disabled`
-        : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
-    const secretSummaryText = (disabledCount) =>
-      draftPolicy.secret_protection.enabled
-        ? `${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`
-        : 'Protection disabled. Saved rule settings and deny paths are preserved.';
     const levelCapabilities = (level) => ({
       fail_closed: level === 'strict' || level === 'paranoid',
       paranoid_rm: level === 'paranoid',
       paranoid_interpreters: level === 'paranoid'
     });
+    const presetName = () => safetyLevels[draftPolicy.safety.level][0];
+    const renderPresetStatus = () => {
+      if (!preview) return;
+      const customized = preview.counts.effectiveCustomizations > 0
+        || Object.entries(draftPolicy.safety.overrides).some(([key, value]) =>
+          value !== levelCapabilities(draftPolicy.safety.level)[key]
+        );
+      qs('safety-preset-status').textContent = [
+        presetName(),
+        ...(customized ? ['Customized'] : [])
+      ].join(' · ');
+      qs('safety-preset-status').classList.toggle('customized', customized);
+    };
     const renderSafety = () => {
-      qs('environment-overrides').hidden = !state.environmentOverrides?.length;
-      qs('environment-overrides').textContent = state.environmentOverrides?.length
-        ? `Environment overrides active: ${state.environmentOverrides.join(', ')}`
+      const environmentSources = preview
+        ? [...new Set(Object.values(preview.capabilities)
+          .filter((capability) => capability.source === 'environment')
+          .flatMap((capability) => capability.sources.filter((source) => source.startsWith('env '))))]
+        : [];
+      qs('environment-overrides').hidden = environmentSources.length === 0;
+      qs('environment-overrides').textContent = environmentSources.length
+        ? `Environment-raised protection: ${environmentSources.join(', ')}`
         : '';
       qs('safety-level').innerHTML = Object.entries(safetyLevels).map(([level, meta]) =>
         `<label class="row"><input type="radio" name="safety-level" value="${level}" ${checkbox(draftPolicy.safety.level === level)}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`
@@ -507,52 +534,141 @@
         const value = draftPolicy.safety.overrides[key];
         const inheritedText = inherited[key] ? 'on' : 'off';
         return `<label class="row safety-override-row"><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span><select data-safety-override="${key}">
-          <option value="inherit" ${value === undefined ? 'selected' : ''}>Inherit from level (${inheritedText})</option>
+          <option value="inherit" ${value === undefined ? 'selected' : ''}>Inherit from preset (${inheritedText})</option>
           <option value="true" ${value === true ? 'selected' : ''}>Force on</option>
           <option value="false" ${value === false ? 'selected' : ''}>Force off</option>
         </select></label>`;
       }).join('');
       qs('workflow').innerHTML =
         `<label class="row"><input type="checkbox" data-workflow-worktree ${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>`;
+      renderPresetStatus();
     };
-    const updateRuleRow = (input, active, summaryId, overrides, summaryText) => {
-      const stateLabel = input.closest('.row')?.querySelector('small span');
-      if (stateLabel) {
-        const state = ruleState(active, false);
-        stateLabel.textContent = state.label;
-        stateLabel.className = state.className;
+    const tierForRule = (rule) => {
+      if (!rule.activationCapability) return 'normal';
+      return rule.activationCapability === 'fail_closed' ? 'strict' : 'paranoid';
+    };
+    const tierMeta = {
+      normal: ['Available in every preset', 'No additional capability required'],
+      strict: ['Strict tier', 'Inherits from Fail closed'],
+      paranoid: ['Paranoid tier', 'Inherits from Paranoid rm or Paranoid interpreters']
+    };
+    const ruleStateText = (rule, effective) => {
+      if (effective.source === 'master_disabled') return 'Off — destructive-command protection disabled';
+      if (effective.source === 'rule_override') return `${effective.enabled ? 'On' : 'Off'} — user rule override`;
+      if (effective.source === 'built_in_default') return 'On — available in every preset';
+      if (effective.source === 'environment') {
+        const capability = preview.capabilities[rule.activationCapability];
+        const source = [...capability.sources].reverse().find((item) => item.startsWith('env '));
+        return `${effective.enabled ? 'On' : 'Off'} — environment${source ? `; ${source.slice(4)}` : ''}`;
       }
-      qs(summaryId).textContent = summaryText(Object.keys(overrides).length);
+      if (effective.source === 'capability_override') {
+        return `${effective.enabled ? 'On' : 'Off'} — capability override; ${safetyOverrides[rule.activationCapability][0]} forced ${effective.enabled ? 'on' : 'off'}`;
+      }
+      if (effective.enabled) return `On — ${presetName()} preset`;
+      return `Off — ${presetName()} preset; requires ${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}`;
     };
-    const renderDestructiveCommands = () => renderRuleToggles({
-      rules: state.destructiveCommandRules,
-      overrides: draftPolicy.destructive_command_protection.overrides,
-      summaryId: 'destructive-command-summary',
-      targetId: 'destructive-command-rules',
-      dataAttribute: 'data-destructive-command-active',
-      emptyText: 'No built-in protections match the search.',
-      summaryText: destructiveCommandSummaryText,
-      disabled: !draftPolicy.destructive_command_protection.enabled
-    });
-    const renderSecretPatterns = () => {
-      renderRuleToggles({
-        rules: state.secretPatterns,
-        overrides: draftPolicy.secret_protection.overrides,
-        summaryId: 'secret-summary',
-        targetId: 'secret-patterns',
-        dataAttribute: 'data-secret-active',
-        emptyText: 'No secret protections match the search.',
-        summaryText: secretSummaryText,
-        disabled: !draftPolicy.secret_protection.enabled
+    const openRuleExample = (button) => {
+      const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+      if (!rule) return;
+      const popover = qs('rule-example-popover');
+      qs('rule-example-title').textContent = rule.label;
+      qs('rule-example-command').textContent = rule.example;
+      if (!popover.matches(':popover-open')) popover.showPopover();
+      const buttonRect = button.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const gap = 8;
+      const edge = 12;
+      const below = buttonRect.bottom + gap;
+      const top = below + popoverRect.height <= window.innerHeight - edge
+        ? below
+        : Math.max(edge, buttonRect.top - gap - popoverRect.height);
+      const left = Math.min(
+        window.innerWidth - popoverRect.width - edge,
+        Math.max(edge, buttonRect.right - popoverRect.width)
+      );
+      popover.style.top = `${top}px`;
+      popover.style.left = `${left}px`;
+    };
+    const renderDestructiveCommands = () => {
+      if (!preview) return;
+      const query = qs('policy-search').value.trim().toLowerCase();
+      const matchingRules = state.destructiveCommandRules.filter((rule) =>
+        [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]]
+          .join(' ').toLowerCase().includes(query)
+      );
+      qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
+        ? `${preview.counts.enabled} active, ${preview.counts.disabled} disabled`
+        : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
+      qs('destructive-command-rules').innerHTML = matchingRules.length === 0
+        ? '<p class="empty">No built-in protections match the search.</p>'
+        : Object.keys(tierMeta).map((tier) => {
+          const rules = matchingRules.filter((rule) => tierForRule(rule) === tier);
+          if (rules.length === 0) return '';
+          const allTierRules = state.destructiveCommandRules.filter((rule) => tierForRule(rule) === tier);
+          const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
+          const expanded = tierExpanded.get(tier)
+            || (searchActive && !searchCollapsedTiers.has(tier));
+          const contentId = `destructive-tier-${tier}`;
+          return `<section class="rule-tier rule-tier-${tier}">
+            <div class="rule-tier-head">
+              <button type="button" class="tier-toggle" data-tier-toggle="${tier}" aria-expanded="${expanded}" aria-controls="${contentId}">
+                <span class="panel-chevron" aria-hidden="true"></span>
+                <span><strong>${tierMeta[tier][0]}</strong><small>${tierMeta[tier][1]}</small></span>
+              </button>
+              <span class="tier-counts">${tierStates.filter((item) => item.enabled).length} on · ${tierStates.filter((item) => !item.enabled).length} off · ${tierStates.filter((item) => item.changesInherited).length} customized</span>
+            </div>
+            <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
+              ${groupRules(rules).map((group) => `<section class="destructive-command-group">
+                <h3>${escapeHtml(group.category)}</h3>
+                <div class="grid">${group.rules.map((rule) => {
+                  const effective = preview.rules[rule.id];
+                  const override = draftPolicy.destructive_command_protection.overrides[rule.id];
+                  const status = ruleStateText(rule, effective);
+                  const disabled = !draftPolicy.destructive_command_protection.enabled;
+                  return `<div class="row rule-row ${disabled ? 'row-disabled' : ''}">
+                    <label class="rule-control">
+                      <input type="checkbox" data-destructive-command-active="${escapeHtml(rule.id)}" ${checkbox(effective.enabled)} ${disabled ? 'disabled' : ''} aria-label="${escapeHtml(`${rule.label}: ${status}`)}">
+                      <span>
+                        <strong>${escapeHtml(rule.label)}</strong>
+                        <code class="rule-id">${escapeHtml(rule.id)}</code>
+                        <small><span class="${effective.enabled ? 'state-active' : 'state-disabled'}">${escapeHtml(status)}</span> ${escapeHtml(rule.description)}</small>
+                      </span>
+                    </label>
+                    <button type="button" class="rule-example-button" data-rule-example="${escapeHtml(rule.id)}" aria-label="${escapeHtml(`Show blocked example for ${rule.label}`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+                    ${override ? `<button type="button" class="inherit-button" data-use-inherited="${escapeHtml(rule.id)}">Use inherited setting</button>` : ''}
+                  </div>`;
+                }).join('')}</div>
+              </section>`).join('')}
+            </div>
+          </section>`;
+        }).join('');
+    };
+    const refreshPolicyPreview = async () => {
+      const requestId = ++previewRequestId;
+      const result = await requestJson('/api/policy/preview', {
+        method: 'POST',
+        body: JSON.stringify(collectFormPolicy())
       });
+      if (requestId !== previewRequestId) return false;
+      if (!result.ok || !result.data?.preview) {
+        setAppStatus('Preview failed', 'error');
+        setDetailStatus(`Error: ${errorText(result)}`, 'error');
+        return false;
+      }
+      preview = result.data.preview;
+      renderSafety();
+      renderDestructiveCommands();
+      return true;
     };
     function render() {
       draftPolicy = clonePolicy(state.policy);
+      preview = state.preview;
       dirty = false;
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
       renderSafety();
       qs('destructive-command').innerHTML =
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+        '<div class="rule-customization-actions"><button type="button" id="reset-rule-customizations">Reset rule customizations</button></div>' +
         '<div id="destructive-command-rules"></div>';
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
@@ -616,6 +732,7 @@
         renderSafety();
         syncRawFromForm();
         updateDirtyStatus();
+        void refreshPolicyPreview();
         return;
       }
       if (input.dataset?.safetyOverride) {
@@ -624,6 +741,7 @@
         if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
         syncRawFromForm();
         updateDirtyStatus();
+        void refreshPolicyPreview();
         return;
       }
       if ('workflowWorktree' in input.dataset) {
@@ -643,28 +761,31 @@
             return;
           }
           draftPolicy.destructive_command_protection.enabled = input.checked;
-          renderDestructiveCommands();
           syncRawFromForm();
           updateDirtyStatus();
+          void refreshPolicyPreview();
         })();
         return;
       }
       if (input.dataset?.destructiveCommandActive) {
-        if (input.checked) {
+        const ruleId = input.dataset.destructiveCommandActive;
+        const rule = state.destructiveCommandRules.find((item) => item.id === ruleId);
+        if (rule?.activationCapability) {
+          draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
+        } else if (input.checked) {
           delete draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive];
-        }
-        if (!input.checked) {
+        } else {
           draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive] = 'off';
         }
-        updateRuleRow(input, input.checked, 'destructive-command-summary', draftPolicy.destructive_command_protection.overrides, destructiveCommandSummaryText);
         syncRawFromForm();
         updateDirtyStatus();
+        void refreshPolicyPreview();
         return;
       }
       if (input.dataset?.secretActive) {
         if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
         else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
-        updateRuleRow(input, input.checked, 'secret-summary', draftPolicy.secret_protection.overrides, secretSummaryText);
+        renderSecretPatterns();
         syncRawFromForm();
         updateDirtyStatus();
         return;
@@ -687,9 +808,50 @@
       }
     });
     document.addEventListener('click', (event) => {
+      const ruleExampleButton = event.target.closest?.('[data-rule-example]');
+      if (ruleExampleButton) {
+        openRuleExample(ruleExampleButton);
+        return;
+      }
+      const tierButton = event.target.closest?.('[data-tier-toggle]');
+      if (tierButton) {
+        const tier = tierButton.dataset.tierToggle;
+        const expanded = tierButton.getAttribute('aria-expanded') === 'true';
+        tierExpanded.set(tier, !expanded);
+        if (searchActive && expanded) searchCollapsedTiers.add(tier);
+        if (!expanded) searchCollapsedTiers.delete(tier);
+        renderDestructiveCommands();
+        return;
+      }
       const button = event.target.closest?.('.panel-toggle');
       if (button) {
         togglePanel(button);
+        return;
+      }
+      const inheritedButton = event.target.closest?.('[data-use-inherited]');
+      if (inheritedButton) {
+        delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited];
+        syncRawFromForm();
+        updateDirtyStatus();
+        void refreshPolicyPreview();
+        return;
+      }
+      if (event.target.closest?.('#reset-rule-customizations')) {
+        if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
+          setAppStatus('No rule customizations to reset', 'ok');
+          return;
+        }
+        void (async () => {
+          if (!(await confirmDialog({
+            title: 'Reset rule customizations?',
+            body: 'All built-in destructive-command rules will return to their inherited preset settings.',
+            confirmLabel: 'Reset customizations'
+          }))) return;
+          draftPolicy.destructive_command_protection.overrides = {};
+          syncRawFromForm();
+          updateDirtyStatus();
+          void refreshPolicyPreview();
+        })();
         return;
       }
       if (event.target.closest?.('#deny-paths-add-button')) {

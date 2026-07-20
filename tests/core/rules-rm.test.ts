@@ -380,7 +380,7 @@ describe('rm -rf cwd-aware', () => {
     setup();
     try {
       withEnv({ SAFETY_NET_PARANOID_RM: '1' }, () => {
-        assertBlocked('rm -rf build', 'SAFETY_NET_PARANOID', tmpDir);
+        assertBlocked('rm -rf build', 'active safety policy', tmpDir);
       });
     } finally {
       cleanup();
@@ -391,7 +391,7 @@ describe('rm -rf cwd-aware', () => {
     setup();
     try {
       withEnv({ SAFETY_NET_PARANOID: '1' }, () => {
-        assertBlocked('rm -rf build', 'SAFETY_NET_PARANOID', tmpDir);
+        assertBlocked('rm -rf build', 'active safety policy', tmpDir);
       });
     } finally {
       cleanup();

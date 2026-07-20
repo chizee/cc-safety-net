@@ -12,7 +12,7 @@ import {
   REASON_PARALLEL_ANALYSIS_LIMIT,
 } from '@/core/analyze/parallel-budget';
 import type { CommandTraceContext, CommandTraceEvent } from '@/domain/command-trace';
-import { analyzeTestCommand, policySnapshot } from '../../helpers/policy';
+import { analyzeTestCommand, commandAnalysisPolicy, policySnapshot } from '../../helpers/policy';
 
 const limitedResult = (command: string) => ({
   reason: REASON_PARALLEL_ANALYSIS_LIMIT,
@@ -29,7 +29,7 @@ const quotedCommands = (value: string, count: number) =>
 const analyzeWithInheritedParallelEnv = (command: string) =>
   analyzeTestCommand(command, {
     envAssignments: new Map([['FOO', 'echo {}']]),
-    config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+    config: { destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' } },
   });
 
 describe('parallel diagnostics', () => {
@@ -306,7 +306,7 @@ describe('parallel analysis budgets', () => {
 
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['git.reset-hard'] },
+        config: { destructiveCommandRuleOverrides: { 'git.reset-hard': 'off' } },
       }),
     ).toEqual(limitedResult(command));
   });
@@ -371,7 +371,7 @@ describe('parallel analysis budgets', () => {
     expect(
       analyzeCommandInternal(command, 0, {
         policySnapshot: snapshot,
-        policy: snapshot.policy,
+        policy: commandAnalysisPolicy(snapshot),
         invalidReason: undefined,
         strict: false,
         paranoidRm: false,
@@ -414,7 +414,9 @@ describe('parallel policy candidate fallthrough', () => {
     expect(
       analyzeTestCommand(command, {
         config: {
-          disabledDestructiveCommandRules: ['parallel.rm-recursive-force-dynamic'],
+          destructiveCommandRuleOverrides: {
+            'parallel.rm-recursive-force-dynamic': 'off',
+          },
         },
       })?.ruleId,
     ).toBe('rm.recursive-force-root-or-home');
@@ -437,7 +439,9 @@ describe('parallel policy candidate fallthrough', () => {
       expect(
         analyzeTestCommand(command, {
           cwd,
-          config: { disabledDestructiveCommandRules: ['rm.recursive-force-cwd-self'] },
+          config: {
+            destructiveCommandRuleOverrides: { 'rm.recursive-force-cwd-self': 'off' },
+          },
         })?.ruleId,
       ).toBe('rm.recursive-force-outside-cwd');
     } finally {
@@ -458,7 +462,9 @@ describe('parallel policy candidate fallthrough', () => {
     expect(
       analyzeTestCommand(command, {
         envAssignments,
-        config: { disabledDestructiveCommandRules: ['parallel.command-stream-dynamic'] },
+        config: {
+          destructiveCommandRuleOverrides: { 'parallel.command-stream-dynamic': 'off' },
+        },
       })?.ruleId,
     ).toBe('git.reset-hard');
   });
@@ -480,7 +486,7 @@ describe('parallel policy candidate fallthrough', () => {
   ])('analyzes known literal jobs after disabling the broad shell rule in %s', (command) => {
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+        config: { destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' } },
       })?.ruleId,
     ).toBe('git.reset-hard');
   });
@@ -510,7 +516,7 @@ describe('parallel policy candidate fallthrough', () => {
   test('falls through a disabled literal eval finding to dynamic stdin source', () => {
     expect(
       analyzeTestCommand("parallel eval 'git reset --hard'", {
-        config: { disabledDestructiveCommandRules: ['git.reset-hard'] },
+        config: { destructiveCommandRuleOverrides: { 'git.reset-hard': 'off' } },
       })?.ruleId,
     ).toBe('parallel.shell-dynamic');
   });
@@ -523,7 +529,7 @@ describe('parallel policy candidate fallthrough', () => {
     expect(analyzeTestCommand(command)?.ruleId).toBe('parallel.shell-dynamic');
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+        config: { destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' } },
       })?.ruleId,
     ).toBe('parallel.rm-recursive-force-dynamic');
   });
@@ -551,7 +557,7 @@ describe('parallel policy candidate fallthrough', () => {
         analyzeTestCommand(command, {
           config: {
             ...config,
-            disabledDestructiveCommandRules: ['parallel.shell-dynamic'],
+            destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' },
           },
         })?.ruleId,
       ).toBe('custom.block-docker-system-prune');
@@ -610,7 +616,7 @@ describe('parallel policy candidate fallthrough', () => {
     );
     expect(
       analyzeTestCommand("parallel bash '{}' 'git reset --hard' ::: -c", {
-        config: { disabledDestructiveCommandRules: ['parallel.shell-dynamic'] },
+        config: { destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' } },
       })?.ruleId,
     ).toBe('git.reset-hard');
   });
@@ -635,7 +641,9 @@ describe('parallel policy candidate fallthrough', () => {
     expect(
       analyzeTestCommand('parallel --env FOO git reset --hard ::: ok', {
         envAssignments: new Map([['FOO', '{/.}']]),
-        config: { disabledDestructiveCommandRules: ['parallel.command-stream-dynamic'] },
+        config: {
+          destructiveCommandRuleOverrides: { 'parallel.command-stream-dynamic': 'off' },
+        },
       })?.ruleId,
     ).toBe('git.reset-hard');
   });
@@ -654,10 +662,10 @@ describe('parallel policy candidate fallthrough', () => {
       analyzeTestCommand(command, {
         envAssignments,
         config: {
-          disabledDestructiveCommandRules: [
-            'parallel.command-stream-dynamic',
-            'parallel.shell-dynamic',
-          ],
+          destructiveCommandRuleOverrides: {
+            'parallel.command-stream-dynamic': 'off',
+            'parallel.shell-dynamic': 'off',
+          },
         },
       }),
     ).toBeNull();

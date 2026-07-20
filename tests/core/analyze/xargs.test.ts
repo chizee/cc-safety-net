@@ -74,7 +74,7 @@ describe('xargs dynamic source analysis', () => {
     expect(analyzeTestCommand(command)?.ruleId).toBe('awk.system-dynamic');
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['awk.system-dynamic'] },
+        config: { destructiveCommandRuleOverrides: { 'awk.system-dynamic': 'off' } },
       })?.ruleId,
     ).toBe('xargs.shell-dynamic');
   });
@@ -151,7 +151,7 @@ describe('xargs dynamic source analysis', () => {
     expectDynamicSourceBlocked(command);
     expect(
       analyzeTestCommand(command, {
-        config: { disabledDestructiveCommandRules: ['xargs.shell-dynamic'] },
+        config: { destructiveCommandRuleOverrides: { 'xargs.shell-dynamic': 'off' } },
       })?.ruleId,
     ).toBe('xargs.rm-recursive-force-dynamic');
   });

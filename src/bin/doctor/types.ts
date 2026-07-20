@@ -2,6 +2,7 @@
  * Type definitions for the doctor command.
  */
 
+import type { DestructiveCommandRuleOverride, EffectiveSafetyCapabilities } from '@/domain/policy';
 import type { IntegrationId } from '@/integrations/catalog';
 
 import type { SelfTestSummary } from '@/integrations/self-test';
@@ -62,11 +63,13 @@ export interface EnvVarInfo {
 }
 
 export interface EffectiveSafetyInfo {
+  selectedPreset: 'standard' | 'strict' | 'paranoid';
   level: EffectiveSafetyLevel;
-  capabilities: {
-    fail_closed: { enabled: boolean; sources: string[] };
-    paranoid_rm: { enabled: boolean; sources: string[] };
-    paranoid_interpreters: { enabled: boolean; sources: string[] };
+  capabilities: EffectiveSafetyCapabilities;
+  ruleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
+  ruleCounts: {
+    stored: number;
+    effective: number;
   };
 }
 

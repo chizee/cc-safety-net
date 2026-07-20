@@ -2,15 +2,21 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DESTRUCTIVE_COMMAND_RULE_IDS } from '@/core/destructive-command-rules';
+import {
+  DESTRUCTIVE_COMMAND_RULE_IDS,
+  resolveEffectiveDestructiveCommandRules,
+} from '@/core/destructive-command-rules';
+import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
+  previewUserPolicyForGui,
   readUserPolicyForGui,
   repairUserPolicyForGui,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
+import { withEnv } from '../helpers';
 
 describe('policy GUI helpers', () => {
   let tempDir: string;
@@ -44,7 +50,10 @@ describe('policy GUI helpers', () => {
         version: 1,
         safety: { level: 'strict', overrides: { paranoid_rm: true } },
         workflow: { worktree_mode: true },
-        destructive_command_protection: { enabled: false, overrides: { 'git.reset-hard': 'off' } },
+        destructive_command_protection: {
+          enabled: false,
+          overrides: { 'git.reset-hard': 'off', 'shell.dynamic-executable': 'on' },
+        },
         secret_protection: {
           enabled: true,
           overrides: { 'secret.ext.pem': 'off' },
@@ -64,6 +73,7 @@ describe('policy GUI helpers', () => {
     expect(readResult.policy.destructive_command_protection.enabled).toBe(false);
     expect(readResult.policy.destructive_command_protection.overrides).toEqual({
       'git.reset-hard': 'off',
+      'shell.dynamic-executable': 'on',
     });
     expect(readResult.policy.secret_protection.overrides).toEqual({ 'secret.ext.pem': 'off' });
 
@@ -108,7 +118,7 @@ describe('policy GUI helpers', () => {
 
     expect(invalid.errors).toContain('destructive_command_protection.enabled must be a boolean');
     expect(invalid.errors).toContain(
-      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+      'destructive_command_protection.overrides.git.reset-hard must be "on" or "off"',
     );
   });
 
@@ -130,7 +140,7 @@ describe('policy GUI helpers', () => {
     );
 
     expect(writeResult.errors).toContain(
-      'destructive_command_protection.overrides.git.reset-hard must be "off"',
+      'destructive_command_protection.overrides.git.reset-hard must be "on" or "off"',
     );
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe('{bad json');
   });
@@ -156,6 +166,7 @@ describe('policy GUI helpers', () => {
           enabled: 'yes',
           overrides: {
             'git.reset-hard': 'off',
+            'shell.dynamic-executable': 'on',
             'git.unknown': 'off',
             'git.clean-force': 'allow',
           },
@@ -190,7 +201,7 @@ describe('policy GUI helpers', () => {
       },
       destructive_command_protection: {
         enabled: true,
-        overrides: { 'git.reset-hard': 'off' },
+        overrides: { 'git.reset-hard': 'off', 'shell.dynamic-executable': 'on' },
       },
       secret_protection: {
         enabled: false,
@@ -244,7 +255,98 @@ describe('policy GUI helpers', () => {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
       expect(entry.description).not.toBe('');
+      expect(typeof entry.example).toBe('string');
+      expect(entry.example.trim()).not.toBe('');
     }
+    expect(
+      DESTRUCTIVE_COMMAND_RULE_METADATA.filter((entry) => !entry.activationCapability),
+    ).toHaveLength(45);
+    expect(
+      DESTRUCTIVE_COMMAND_RULE_METADATA.filter(
+        (entry) => entry.activationCapability === 'fail_closed',
+      ),
+    ).toHaveLength(5);
+    expect(
+      DESTRUCTIVE_COMMAND_RULE_METADATA.filter(
+        (entry) =>
+          entry.activationCapability === 'paranoid_rm' ||
+          entry.activationCapability === 'paranoid_interpreters',
+      ),
+    ).toHaveLength(3);
+  });
+
+  test('resolves master, rule override, capability, and built-in precedence', () => {
+    const capabilities = getCCSafetyNetEnvModes({ safety: { level: 'standard' } }).capabilities;
+    const states = resolveEffectiveDestructiveCommandRules(
+      {
+        destructiveCommandProtectionEnabled: true,
+        destructiveCommandRuleOverrides: {
+          'git.reset-hard': 'off',
+          'shell.dynamic-executable': 'on',
+        },
+      },
+      capabilities,
+    );
+
+    expect(states['git.clean-force']).toMatchObject({
+      enabled: true,
+      inheritedEnabled: true,
+      source: 'built_in_default',
+    });
+    expect(states['git.reset-hard']).toMatchObject({
+      enabled: false,
+      inheritedEnabled: true,
+      changesInherited: true,
+      source: 'rule_override',
+    });
+    expect(states['shell.dynamic-structure']).toMatchObject({
+      enabled: false,
+      inheritedEnabled: false,
+      source: 'preset',
+    });
+    expect(states['shell.dynamic-executable']).toMatchObject({
+      enabled: true,
+      inheritedEnabled: false,
+      changesInherited: true,
+      source: 'rule_override',
+    });
+    expect(Object.isFrozen(states)).toBe(true);
+    expect(Object.isFrozen(states['shell.dynamic-executable'])).toBe(true);
+
+    expect(
+      resolveEffectiveDestructiveCommandRules(
+        {
+          destructiveCommandProtectionEnabled: false,
+          destructiveCommandRuleOverrides: { 'shell.dynamic-executable': 'on' },
+        },
+        capabilities,
+      )['shell.dynamic-executable'],
+    ).toMatchObject({ enabled: false, source: 'master_disabled', changesInherited: false });
+  });
+
+  test('reports environment-raised capability provenance separately from the preset', () => {
+    withEnv({ CC_SAFETY_NET_STRICT: '1' }, () => {
+      const result = previewUserPolicyForGui(DEFAULT_GUI_POLICY);
+
+      expect(result.errors).toEqual([]);
+      expect(result.preview).toMatchObject({
+        selectedPreset: 'standard',
+        effectiveLevel: 'strict',
+        capabilities: {
+          fail_closed: {
+            enabled: true,
+            source: 'environment',
+            sources: ['policy safety.level=standard', 'env CC_SAFETY_NET_STRICT'],
+          },
+        },
+        rules: {
+          'shell.dynamic-executable': {
+            enabled: true,
+            source: 'environment',
+          },
+        },
+      });
+    });
   });
 
   test('exports secret protection metadata for GUI responses', () => {

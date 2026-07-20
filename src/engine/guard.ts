@@ -202,6 +202,7 @@ export function evaluateGuard(
         cwd: invocation.context.executionCwd,
         shell: invocation.route.shell,
         policySnapshot: snapshot,
+        effectiveCapabilities: modes.capabilities,
         strict: modes.strict,
         paranoidRm: modes.paranoidRm,
         paranoidInterpreters: modes.paranoidInterpreters,

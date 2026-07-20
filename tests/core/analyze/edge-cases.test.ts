@@ -510,7 +510,7 @@ describe('edge cases', () => {
       expect(
         analyzeCommand(`git -c "$(printf 'alias.boom=!printf PROBE_OK')" boom`, {
           strict: true,
-          config: { disabledDestructiveCommandRules: ['shell.dynamic-structure'] },
+          config: { destructiveCommandRuleOverrides: { 'shell.dynamic-structure': 'off' } },
         }),
       ).toBeNull();
     });
@@ -1338,21 +1338,21 @@ describe('edge cases', () => {
   describe('paranoid mode', () => {
     test('paranoid mode python one liner denies', () => {
       withEnv({ SAFETY_NET_PARANOID_INTERPRETERS: '1' }, () => {
-        assertBlocked('python -c "print(\'ok\')"', 'Paranoid mode');
+        assertBlocked('python -c "print(\'ok\')"', 'active safety policy');
       });
     });
 
     test('global paranoid mode python one liner denies', () => {
       withEnv({ SAFETY_NET_PARANOID: '1' }, () => {
-        assertBlocked('python -c "print(\'ok\')"', 'Paranoid mode');
+        assertBlocked('python -c "print(\'ok\')"', 'active safety policy');
       });
     });
 
     test('paranoid mode blocks long and uppercase eval forms', () => {
       withEnv({ SAFETY_NET_PARANOID_INTERPRETERS: '1' }, () => {
-        assertBlocked('node --eval "console.log(1)"', 'Paranoid mode');
-        assertBlocked('node --eval="console.log(1)"', 'Paranoid mode');
-        assertBlocked('perl -E "say 1"', 'Paranoid mode');
+        assertBlocked('node --eval "console.log(1)"', 'active safety policy');
+        assertBlocked('node --eval="console.log(1)"', 'active safety policy');
+        assertBlocked('perl -E "say 1"', 'active safety policy');
       });
     });
   });

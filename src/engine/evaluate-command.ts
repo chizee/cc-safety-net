@@ -1,5 +1,5 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
-import { getCCSafetyNetEnvModes } from '@/core/env';
+import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
 import { createSemanticFactStore } from '@/core/semantic-facts';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
@@ -38,19 +38,14 @@ export function evaluateCommandWithTrace(
     input: command,
     segments: entries.map((entry) => [...entry.tokens]),
   });
-  const modes = getCCSafetyNetEnvModes(options.policySnapshot.policy);
   const analysis = analyzeCommandInternal(
     command,
     0,
     {
       ...options,
-      policy: options.policySnapshot.policy,
+      ...resolveCommandAnalysisContext(options),
       // `explain` historically reports invalid configuration but analyzes with the safe empty policy.
       invalidReason: undefined,
-      strict: options.strict ?? modes.strict,
-      paranoidRm: options.paranoidRm ?? modes.paranoidRm,
-      paranoidInterpreters: options.paranoidInterpreters ?? modes.paranoidInterpreters,
-      worktreeMode: options.worktreeMode ?? modes.worktreeMode,
       analyzePartialProgram: true,
       compatibility: 'explain-legacy',
       factStore,

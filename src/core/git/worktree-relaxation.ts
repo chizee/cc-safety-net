@@ -17,7 +17,7 @@ export interface GitAnalyzeOptions {
   dynamicArguments?: boolean;
   policy?: Pick<
     EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'disabledDestructiveCommandRules'
+    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
   >;
 }
 

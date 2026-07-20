@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import { formatTraceHuman, formatTraceJson } from '@/bin/explain/index';
 import type { ExplainResult, TraceStep } from '@/types';
+import { testModes } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
 import { explainTestCommand as explainCommand } from './test-helpers';
 
@@ -24,6 +25,9 @@ function mockExplainResult(
     configSource: null,
     configValid: true,
     effectiveLevel: 'standard',
+    selectedPreset: 'standard',
+    effectiveCapabilities: testModes().capabilities,
+    destructiveCommandRuleOverrides: {},
   };
 }
 

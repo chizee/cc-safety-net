@@ -11,6 +11,7 @@ function clearEnv(): void {
   delete process.env.CC_SAFETY_NET_PARANOID_RM;
   delete process.env.CC_SAFETY_NET_PARANOID_INTERPRETERS;
   delete process.env.CC_SAFETY_NET_WORKTREE;
+  delete process.env.CC_SAFETY_NET_HOME;
   delete process.env.SAFETY_NET_STRICT;
   delete process.env.SAFETY_NET_PARANOID;
   delete process.env.SAFETY_NET_PARANOID_RM;
@@ -120,6 +121,41 @@ describe('statusline command', () => {
         mode.output,
       );
     });
+  });
+
+  test('shows custom for a rule override that changes inherited behavior', async () => {
+    await writeFile(
+      join(tempDir, 'policy.json'),
+      JSON.stringify({
+        version: 1,
+        destructive_command_protection: {
+          overrides: { 'shell.dynamic-executable': 'on' },
+        },
+      }),
+    );
+
+    await expectStatusline(
+      { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+      '🛡️ CC Safety Net 🔧',
+    );
+  });
+
+  test('keeps the preset emoji for a redundant rule override', async () => {
+    await writeFile(
+      join(tempDir, 'policy.json'),
+      JSON.stringify({
+        version: 1,
+        safety: { level: 'strict' },
+        destructive_command_protection: {
+          overrides: { 'shell.dynamic-executable': 'on' },
+        },
+      }),
+    );
+
+    await expectStatusline(
+      { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+      '🛡️ CC Safety Net 🔒',
+    );
   });
 });
 

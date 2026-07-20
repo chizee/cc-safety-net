@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { loadPolicySnapshot } from '@/config/policy-snapshot';
+import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
 
 /**
@@ -84,13 +86,17 @@ export async function printStatusline(): Promise<void> {
   if (!enabled) {
     status = '🛡️ CC Safety Net ❌';
   } else {
-    const modes = getCCSafetyNetEnvModes();
+    const policy = loadPolicySnapshot({ cwd: process.cwd() }).policy;
+    const modes = getCCSafetyNetEnvModes(policy);
+    const hasEffectiveRuleCustomization = Object.values(
+      resolveEffectiveDestructiveCommandRules(policy, modes.capabilities),
+    ).some((rule) => rule.changesInherited);
     const levelEmoji = {
       standard: '✅',
       strict: '🔒',
       paranoid: '👁️',
       custom: '🔧',
-    }[modes.effectiveLevel];
+    }[hasEffectiveRuleCustomization ? 'custom' : modes.effectiveLevel];
 
     if (modes.worktreeMode) {
       status = `🛡️ CC Safety Net ${levelEmoji}🌳`;

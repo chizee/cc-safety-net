@@ -41,7 +41,7 @@ const SNAPSHOT: PolicySnapshot = Object.freeze({
     safety: Object.freeze({}),
     worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
-    disabledDestructiveCommandRules: Object.freeze([]),
+    destructiveCommandRuleOverrides: Object.freeze({}),
     secretProtection: Object.freeze({
       enabled: true,
       disabledRules: Object.freeze([]),
@@ -56,6 +56,15 @@ const STANDARD_MODES = {
   paranoidInterpreters: false,
   worktreeMode: false,
   effectiveLevel: 'standard' as const,
+  capabilities: {
+    fail_closed: { enabled: false, source: 'preset' as const, sources: [] as string[] },
+    paranoid_rm: { enabled: false, source: 'preset' as const, sources: [] as string[] },
+    paranoid_interpreters: {
+      enabled: false,
+      source: 'preset' as const,
+      sources: [] as string[],
+    },
+  },
   sources: {
     failClosed: [] as string[],
     paranoidRm: [] as string[],

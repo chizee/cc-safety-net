@@ -205,17 +205,30 @@ Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/d
 
 A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` *inside* the project directory, because the OS only sees writes to an allowed path. Sandboxing contains blast radius; CC Safety Net catches the destructive operations sandboxing permits — use both for defense-in-depth. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
-## Safety levels
+## Safety presets
 
 Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 
-| Level | Effect |
+| Preset | Effect |
 |---|---|
 | Standard | Blocks recognizable destructive Git and filesystem commands. Allows metadata-only checks of built-in sensitive paths while continuing to block content access. Recommended for normal coding. |
 | Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-Advanced policy users can set `safety.overrides.fail_closed`, `safety.overrides.paranoid_rm`, and `safety.overrides.paranoid_interpreters` in `policy.json`. Worktree relaxation is separate: `workflow.worktree_mode` or `CC_SAFETY_NET_WORKTREE=1` allows local git discards inside verified linked worktrees.
+Presets supply inherited defaults. Advanced policy users can set `safety.overrides.fail_closed`, `safety.overrides.paranoid_rm`, and `safety.overrides.paranoid_interpreters` in `policy.json`, or customize a registered built-in destructive-command rule with `"on"` or `"off"`:
+
+```json
+{
+  "version": 1,
+  "safety": { "level": "standard", "overrides": {} },
+  "destructive_command_protection": {
+    "enabled": true,
+    "overrides": { "shell.dynamic-executable": "on" }
+  }
+}
+```
+
+Only explicit deviations are stored. Changing presets does not rewrite rule overrides; the policy GUI provides **Use inherited setting** and **Reset rule customizations** actions, plus a `?` button on each rule card showing a concrete blocked-command example. Strict still controls fail-closed behavior that does not have a built-in destructive-command rule ID, so disabling its five tier rules does not make Strict equivalent to Standard. Worktree relaxation is separate: `workflow.worktree_mode` or `CC_SAFETY_NET_WORKTREE=1` allows local git discards inside verified linked worktrees.
 
 Legacy env flags are still supported and only raise protection:
 
