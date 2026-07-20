@@ -17915,6 +17915,115 @@ function getEnvironmentInfo() {
   ];
 }
 
+// src/bin/doctor/findings.ts
+var severityOrder = {
+  error: 0,
+  warning: 1,
+  info: 2
+}, directoryKinds = ["policy", "config", "audit"];
+function describeDirectoryIssues(issues) {
+  return issues.map((issue) => {
+    if (issue === "ownership")
+      return "is not owned by the current user";
+    if (issue === "permissions")
+      return "has unsafe permissions";
+    if (issue === "symlink")
+      return "is a symbolic link";
+    return "is not a directory";
+  }).join(" and ");
+}
+var findingRules = [
+  {
+    derive: (report) => report.hooks.length > 0 && report.hooks.every((hook) => !hook.configured) ? [
+      {
+        checkId: "integration.none-configured",
+        severity: "error",
+        title: "No integration configured",
+        detail: "CC Safety Net is not connected to any supported coding-agent integration.",
+        fixHint: "Run `cc-safety-net install` and configure at least one integration."
+      }
+    ] : []
+  },
+  {
+    derive: (report) => report.hooks.filter((hook) => hook.inspectionStatus === "failed").map((hook) => {
+      let integration = getIntegrationDisplayName(hook.platform);
+      return {
+        checkId: "integration.inspection-failed",
+        severity: "error",
+        title: `${integration} inspection failed`,
+        detail: `Doctor could not verify the ${integration} integration configuration.`,
+        fixHint: `Correct the reported ${integration} configuration error, then run \`cc-safety-net doctor\` again.`,
+        integration: hook.platform
+      };
+    })
+  },
+  {
+    derive: (report) => report.userConfig.exists && !report.userConfig.valid ? [
+      {
+        checkId: "config.user-invalid",
+        severity: "error",
+        title: "User configuration is invalid",
+        detail: "Doctor could not load a valid user rules configuration.",
+        fixHint: "Run `cc-safety-net rule verify`, correct the reported error, then rerun doctor.",
+        path: report.userConfig.path
+      }
+    ] : []
+  },
+  {
+    derive: (report) => report.projectConfig.exists && !report.projectConfig.valid ? [
+      {
+        checkId: "config.project-invalid",
+        severity: "error",
+        title: "Project configuration is invalid",
+        detail: "Doctor could not load a valid project rules configuration.",
+        fixHint: "Run `cc-safety-net rule verify`, correct the reported error, then rerun doctor.",
+        path: report.projectConfig.path
+      }
+    ] : []
+  },
+  {
+    derive: (report) => {
+      let debug = report.environment.find((item) => item.name === "CC_SAFETY_NET_DEBUG");
+      return debug?.value?.trim().toLowerCase() === "1" || debug?.value?.trim().toLowerCase() === "true" ? [
+        {
+          checkId: "environment.debug-allow-logging",
+          severity: "warning",
+          title: "Debug allow-logging is enabled",
+          detail: "Allowed hook commands may be written to debug output.",
+          fixHint: "Unset CC_SAFETY_NET_DEBUG, then restart the integration."
+        }
+      ] : [];
+    }
+  },
+  ...directoryKinds.map((kind) => ({
+    derive: (report) => report.posture.directories.filter((directory) => directory.kind === kind && directory.status === "unsafe").map((directory) => ({
+      checkId: `posture.${kind}-directory-unsafe`,
+      severity: "error",
+      title: `${kind[0]?.toUpperCase()}${kind.slice(1)} directory is unsafe`,
+      detail: `The ${kind} directory ${describeDirectoryIssues(directory.issues)}.`,
+      fixHint: "Ensure this is a real directory owned by the current user with no group or other write access, then rerun doctor.",
+      ...directory.path ? { path: directory.path } : {}
+    }))
+  })),
+  {
+    derive: (report) => {
+      let ids = [...report.effectiveSafety.weakenedRuleOverrides].sort();
+      return ids.length > 0 ? [
+        {
+          checkId: "posture.rule-overrides-weaken-preset",
+          severity: "warning",
+          title: "Rule overrides weaken the selected preset",
+          detail: `Explicit overrides disable rules the resolved preset would enable: ${ids.join(", ")}.`,
+          fixHint: `Remove these \`off\` overrides or set them to \`on\`: ${ids.join(", ")}.`
+        }
+      ] : [];
+    }
+  }
+];
+function deriveDoctorFindings(report) {
+  return findingRules.flatMap((rule, catalogOrder) => rule.derive(report).map((finding, occurrence) => ({ finding, catalogOrder, occurrence }))).sort((a, b) => severityOrder[a.finding.severity] - severityOrder[b.finding.severity] || a.catalogOrder - b.catalogOrder || a.occurrence - b.occurrence).map((entry) => entry.finding);
+}
+
 // src/bin/utils/colors.ts
 function shouldUseColor() {
   return Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
@@ -18101,6 +18210,21 @@ function formatEffectiveSafetySection(report) {
   return lines.join(`
 `);
 }
+function formatFindingsSection(findings) {
+  let lines = ["Findings"];
+  if (findings.length === 0)
+    return lines.push("   No findings from inspected doctor facts."), lines.join(`
+`);
+  for (let finding of findings) {
+    let label = `[${finding.severity.toUpperCase()}] ${finding.checkId}: ${renderTerminalText(finding.title)}`, color = finding.severity === "error" ? colors.red : finding.severity === "warning" ? colors.yellow : colors.blue;
+    if (lines.push(`   ${color(label)}`), lines.push(`      ${renderTerminalText(finding.detail)}`), finding.path)
+      lines.push(`      Path: ${renderTerminalText(finding.path)}`);
+    if (finding.fixHint)
+      lines.push(`      Fix: ${renderTerminalText(finding.fixHint)}`);
+  }
+  return lines.join(`
+`);
+}
 function formatEnvironmentTable(envVars) {
   let headers = ["Variable", "Status", "Legacy"], rows = envVars.map((v) => {
     let statusIcon = v.isSet ? colors.green("✓") : colors.dim("✗"), legacyStatus = v.legacyName && v.legacyIsSet ? `${v.legacyName} ${colors.green("✓")}` : v.legacyName ?? "";
@@ -18218,19 +18342,20 @@ function formatSystemInfoTable(system) {
   return formatAsciiTable({ headers, rows, rawRows });
 }
 function formatSummary(report) {
-  let hooksFailed = report.hooks.every((hook) => !hook.configured), inspectionFailed = report.hooks.some((hook) => hook.inspectionStatus === "failed"), selfTestFailed = report.engineSelfTest.failed > 0, configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0, failures = [hooksFailed, inspectionFailed, selfTestFailed, configFailed].filter(Boolean).length, warnings = 0;
-  if (report.update.updateAvailable)
-    warnings++;
-  if (report.activity.totalBlocked === 0)
-    warnings++;
-  if (warnings += report.shadowedRules.length, failures > 0)
-    return colors.red(`
-${failures} check(s) failed.`);
-  if (warnings > 0)
-    return colors.yellow(`
-All checks passed with ${warnings} warning(s).`);
-  return colors.green(`
-All checks passed.`);
+  if (report.findings.length === 0)
+    return colors.green(`
+No findings from inspected doctor facts.`);
+  let counts = {
+    error: report.findings.filter((finding) => finding.severity === "error").length,
+    warning: report.findings.filter((finding) => finding.severity === "warning").length,
+    info: report.findings.filter((finding) => finding.severity === "info").length
+  }, parts = ["error", "warning", "info"].filter((severity) => counts[severity] > 0).map((severity) => `${counts[severity]} ${severity}`), label = report.findings.length === 1 ? "finding" : "findings", message = `
+${report.findings.length} ${label}: ${parts.join(", ")}.`;
+  if (counts.error > 0)
+    return colors.red(message);
+  if (counts.warning > 0)
+    return colors.yellow(message);
+  return colors.blue(message);
 }
 
 // src/bin/doctor/hooks.ts
@@ -18760,6 +18885,40 @@ function _toHookStatus(detection) {
     configPath: detection.configPath,
     configPaths: detection.configPaths,
     errors: detection.errors
+  };
+}
+
+// src/bin/doctor/posture.ts
+import { lstatSync as lstatSync5 } from "node:fs";
+import { dirname as dirname12 } from "node:path";
+function inspectDirectory(kind, path) {
+  try {
+    let stat = lstatSync5(path);
+    if (stat.isSymbolicLink())
+      return { kind, path, status: "unsafe", issues: ["symlink"] };
+    if (!stat.isDirectory())
+      return { kind, path, status: "unsafe", issues: ["not-directory"] };
+    if (process.platform === "win32" || typeof process.getuid !== "function")
+      return { kind, path, status: "unknown", issues: [] };
+    let issues = [
+      ...stat.uid !== process.getuid() ? ["ownership"] : [],
+      ...(stat.mode & 18) !== 0 ? ["permissions"] : []
+    ];
+    return { kind, path, status: issues.length > 0 ? "unsafe" : "safe", issues };
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+      return { kind, path, status: "not-applicable", issues: [] };
+    return { kind, path, status: "unknown", issues: [] };
+  }
+}
+function getDoctorPosture(userConfigPath) {
+  let auditPath = getAuditLogsDir();
+  return {
+    directories: [
+      inspectDirectory("policy", dirname12(dirname12(userConfigPath))),
+      inspectDirectory("config", dirname12(userConfigPath)),
+      ...auditPath ? [inspectDirectory("audit", auditPath)] : [{ kind: "audit", status: "unknown", issues: [] }]
+    ]
   };
 }
 
@@ -19476,8 +19635,7 @@ async function collectDoctorReport(options2) {
     currentVersion: getPackageVersion(),
     latestVersion: null,
     updateAvailable: !1
-  } : await checkForUpdates();
-  return {
+  } : await checkForUpdates(), report = {
     hooks,
     engineSelfTest: runIntegrationSelfTest(),
     userConfig: configInfo.userConfig,
@@ -19490,21 +19648,24 @@ async function collectDoctorReport(options2) {
       level: modes.effectiveLevel,
       capabilities: modes.capabilities,
       ruleOverrides: policy.destructiveCommandRuleOverrides,
+      weakenedRuleOverrides: Object.entries(ruleStates).filter(([, state]) => state.source === "rule_override" && state.override === "off" && state.inheritedEnabled && state.changesInherited).map(([id]) => id),
       ruleCounts: {
         stored: Object.keys(policy.destructiveCommandRuleOverrides).length,
         effective: Object.values(ruleStates).filter((state) => state.changesInherited).length
       }
     },
+    posture: getDoctorPosture(configInfo.userConfig.path),
     activity,
     update,
     system
   };
+  return { ...report, findings: deriveDoctorFindings(report) };
 }
 function doctorHasFailure(hooks, engineSelfTest, configInfo) {
   return hooks.length > 0 && hooks.every((hook) => !hook.configured) || hooks.some((hook) => hook.inspectionStatus === "failed") || engineSelfTest.failed > 0 || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
 }
 function printReport(report) {
-  console.log(), console.log(formatHooksSection(report.hooks)), console.log(), console.log(formatEngineSelfTestSection(report.engineSelfTest)), console.log(), console.log(formatConfigSection(report)), console.log(), console.log(formatEnvironmentSection(report.environment)), console.log(), console.log(formatEffectiveSafetySection(report)), console.log(), console.log(formatActivitySection(report.activity)), console.log(), console.log(formatSystemInfoSection(report.system)), console.log(), console.log(formatUpdateSection(report.update)), console.log(formatSummary(report));
+  console.log(), console.log(formatHooksSection(report.hooks)), console.log(), console.log(formatEngineSelfTestSection(report.engineSelfTest)), console.log(), console.log(formatConfigSection(report)), console.log(), console.log(formatEnvironmentSection(report.environment)), console.log(), console.log(formatEffectiveSafetySection(report)), console.log(), console.log(formatFindingsSection(report.findings)), console.log(), console.log(formatActivitySection(report.activity)), console.log(), console.log(formatSystemInfoSection(report.system)), console.log(), console.log(formatUpdateSection(report.update)), console.log(formatSummary(report));
 }
 
 // src/bin/explain/config.ts
@@ -22655,7 +22816,7 @@ import { homedir as homedir9 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname12 } from "node:path";
+import { dirname as dirname13 } from "node:path";
 var ANTIGRAVITY_HOOK_COMMAND = "npx -y cc-safety-net hook --agy-cli", MANAGED_HOOK_NAME = "cc-safety-net";
 function managedHookEntry() {
   return {
@@ -22738,7 +22899,7 @@ function writeAntigravityHooksConfig(configPath, config) {
 }
 function installAntigravityCli(homeDir) {
   let configPath = getAntigravityHooksPath(homeDir);
-  if (mkdirSync4(dirname12(configPath), { recursive: !0 }), !existsSync6(configPath))
+  if (mkdirSync4(dirname13(configPath), { recursive: !0 }), !existsSync6(configPath))
     return writeAntigravityHooksConfig(configPath, { [MANAGED_HOOK_NAME]: managedHookEntry() }), { path: configPath, alreadyInstalled: !1 };
   let config = parseAntigravityHooksConfig(configPath);
   if (hasActiveManagedHook(config))
@@ -22759,7 +22920,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname13, join as join18 } from "node:path";
+import { dirname as dirname14, join as join18 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -22915,7 +23076,7 @@ function removeKimiInlineHook(content, hooksRange) {
 }
 function installKimiCode(homeDir) {
   let configPath = getKimiConfigPath(homeDir);
-  if (mkdirSync5(dirname13(configPath), { recursive: !0 }), !existsSync7(configPath))
+  if (mkdirSync5(dirname14(configPath), { recursive: !0 }), !existsSync7(configPath))
     return writeFileSync3(configPath, `${KIMI_HOOK_BLOCK}
 `), { path: configPath, alreadyInstalled: !1 };
   let content = readFileSync9(configPath, "utf-8");
@@ -23653,7 +23814,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { dirname as dirname14, join as join20 } from "node:path";
+import { dirname as dirname15, join as join20 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
   return [
@@ -23696,7 +23857,7 @@ async function migrateRulesScope(options2) {
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  }, rulebookName = getMigratedRulebookName(dirname14(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join20(dirname14(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join20(dirname15(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
     snapshotFile(scope.configTarget),
     snapshotFile(rulebookTarget),
     snapshotFile(scope.lockTarget)
@@ -23811,7 +23972,7 @@ function getMigratedFrom(target) {
 }
 
 // src/bin/rule/verify.ts
-import { dirname as dirname15, join as join21, resolve as resolve15 } from "node:path";
+import { dirname as dirname16, join as join21, resolve as resolve15 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   try {
@@ -23823,7 +23984,7 @@ function runRulesVerify(options2 = {}) {
   }
 }
 function runRulesVerifyInternal(options2) {
-  let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve15(cwd, RULES_DIR), userConfigDir = dirname15(userConfig), paths = getPolicyPaths({
+  let cwd = options2.cwd ?? process.cwd(), userConfig = options2.userConfigPath ?? getUserRulesConfigPath(), projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd), legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath(), legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd), githubSourceRulesDir = resolve15(cwd, RULES_DIR), userConfigDir = dirname16(userConfig), paths = getPolicyPaths({
     cwd,
     userConfigPath: userConfig,
     projectConfigPath: projectConfig

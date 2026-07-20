@@ -10,6 +10,7 @@ import {
   formatEffectiveSafetySection,
   formatEngineSelfTestSection,
   formatEnvironmentSection,
+  formatFindingsSection,
   formatHooksSection,
   formatRulesTable,
   formatSummary,
@@ -83,8 +84,11 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
         },
       },
       ruleOverrides: {},
+      weakenedRuleOverrides: [],
       ruleCounts: { stored: 0, effective: 0 },
     },
+    posture: { directories: [] },
+    findings: [],
     activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [] },
     update: { currentVersion: '0.6.0', latestVersion: '0.6.0', updateAvailable: false },
     system: createSystemInfo(),
@@ -408,6 +412,7 @@ describe('formatEffectiveSafetySection', () => {
             },
           },
           ruleOverrides: { 'shell.dynamic-executable': 'on' },
+          weakenedRuleOverrides: [],
           ruleCounts: { stored: 1, effective: 1 },
         },
       }),
@@ -681,7 +686,7 @@ describe('formatConfigSection', () => {
 });
 
 describe('formatSummary', () => {
-  test('formats all passed', () => {
+  test('reports no findings without claiming uninspected controls are healthy', () => {
     const report = createDoctorReport({
       hooks: [
         {
@@ -694,30 +699,63 @@ describe('formatSummary', () => {
       activity: { totalBlocked: 1, sessionCount: 1, recentEntries: [] },
     });
     const output = formatSummary(report);
-    expect(output).toContain('All checks passed');
+    expect(output).toContain('No findings from inspected doctor facts');
+    expect(output).not.toContain('All checks passed');
   });
 
-  test('formats with warnings', () => {
+  test('counts warnings from typed findings only', () => {
     const report = createDoctorReport({
-      hooks: [
+      findings: [
         {
-          platform: 'claude-code',
-          detected: true,
-          configured: true,
-          inspectionStatus: 'verified',
+          checkId: 'test.warning',
+          severity: 'warning',
+          title: 'Warning',
+          detail: 'Warning detail',
         },
       ],
       update: { currentVersion: '0.6.0', latestVersion: '0.7.0', updateAvailable: true },
     });
     const output = formatSummary(report);
-    expect(output).toContain('warning');
+    expect(output).toContain('1 finding: 1 warning');
   });
 
-  test('formats with failures', () => {
+  test('counts errors from typed findings only', () => {
     const report = createDoctorReport({
-      hooks: [],
+      findings: [
+        {
+          checkId: 'test.error',
+          severity: 'error',
+          title: 'Error',
+          detail: 'Error detail',
+        },
+      ],
     });
     const output = formatSummary(report);
-    expect(output).toContain('failed');
+    expect(output).toContain('1 finding: 1 error');
+  });
+});
+
+describe('formatFindingsSection', () => {
+  test('formats the same typed fields exposed by JSON', () => {
+    const output = formatFindingsSection([
+      {
+        checkId: 'config.user-invalid',
+        severity: 'error',
+        title: 'User configuration is invalid',
+        detail: 'Doctor could not load a valid user rules configuration.',
+        fixHint: 'Run `cc-safety-net rule verify`.',
+        path: '/home/user/.cc-safety-net/rules/rule.json',
+      },
+    ]);
+
+    expect(output).toContain('Findings');
+    expect(output).toContain('[ERROR] config.user-invalid');
+    expect(output).toContain('Doctor could not load a valid user rules configuration.');
+    expect(output).toContain('Path: /home/user/.cc-safety-net/rules/rule.json');
+    expect(output).toContain('Fix: Run `cc-safety-net rule verify`.');
+  });
+
+  test('reports no findings from the inspected facts', () => {
+    expect(formatFindingsSection([])).toContain('No findings from inspected doctor facts.');
   });
 });

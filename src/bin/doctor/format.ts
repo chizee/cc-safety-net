@@ -5,6 +5,7 @@
 import type {
   ActivitySummary,
   ConfigSourceInfo,
+  DoctorFinding,
   DoctorReport,
   EffectiveRule,
   EnvVarInfo,
@@ -265,6 +266,30 @@ export function formatEffectiveSafetySection(report: DoctorReport): string {
   return lines.join('\n');
 }
 
+export function formatFindingsSection(findings: DoctorFinding[]): string {
+  const lines = ['Findings'];
+  if (findings.length === 0) {
+    lines.push('   No findings from inspected doctor facts.');
+    return lines.join('\n');
+  }
+
+  for (const finding of findings) {
+    const label = `[${finding.severity.toUpperCase()}] ${finding.checkId}: ${renderTerminalText(finding.title)}`;
+    const color =
+      finding.severity === 'error'
+        ? colors.red
+        : finding.severity === 'warning'
+          ? colors.yellow
+          : colors.blue;
+    lines.push(`   ${color(label)}`);
+    lines.push(`      ${renderTerminalText(finding.detail)}`);
+    if (finding.path) lines.push(`      Path: ${renderTerminalText(finding.path)}`);
+    if (finding.fixHint) lines.push(`      Fix: ${renderTerminalText(finding.fixHint)}`);
+  }
+
+  return lines.join('\n');
+}
+
 /**
  * Format environment variables as an ASCII table with ✓/✗ icons.
  */
@@ -472,29 +497,21 @@ function formatSystemInfoTable(system: SystemInfo): string {
  * Format the summary line.
  */
 export function formatSummary(report: DoctorReport): string {
-  const hooksFailed = report.hooks.every((hook) => !hook.configured);
-  const inspectionFailed = report.hooks.some((hook) => hook.inspectionStatus === 'failed');
-  const selfTestFailed = report.engineSelfTest.failed > 0;
-  const configFailed =
-    (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0;
-
-  const failures = [hooksFailed, inspectionFailed, selfTestFailed, configFailed].filter(
-    Boolean,
-  ).length;
-
-  // Count warnings
-  let warnings = 0;
-  if (report.update.updateAvailable) warnings++;
-  if (report.activity.totalBlocked === 0) warnings++;
-  warnings += report.shadowedRules.length;
-
-  if (failures > 0) {
-    return colors.red(`\n${failures} check(s) failed.`);
+  if (report.findings.length === 0) {
+    return colors.green('\nNo findings from inspected doctor facts.');
   }
 
-  if (warnings > 0) {
-    return colors.yellow(`\nAll checks passed with ${warnings} warning(s).`);
-  }
-
-  return colors.green('\nAll checks passed.');
+  const counts = {
+    error: report.findings.filter((finding) => finding.severity === 'error').length,
+    warning: report.findings.filter((finding) => finding.severity === 'warning').length,
+    info: report.findings.filter((finding) => finding.severity === 'info').length,
+  };
+  const parts = (['error', 'warning', 'info'] as const)
+    .filter((severity) => counts[severity] > 0)
+    .map((severity) => `${counts[severity]} ${severity}`);
+  const label = report.findings.length === 1 ? 'finding' : 'findings';
+  const message = `\n${report.findings.length} ${label}: ${parts.join(', ')}.`;
+  if (counts.error > 0) return colors.red(message);
+  if (counts.warning > 0) return colors.yellow(message);
+  return colors.blue(message);
 }

@@ -5,19 +5,21 @@
 import { getActivitySummary } from '@/bin/doctor/activity';
 import { getConfigInfo } from '@/bin/doctor/config';
 import { getEnvironmentInfo } from '@/bin/doctor/environment';
+import { deriveDoctorFindings } from '@/bin/doctor/findings';
 import {
   formatActivitySection,
   formatConfigSection,
   formatEffectiveSafetySection,
   formatEngineSelfTestSection,
   formatEnvironmentSection,
+  formatFindingsSection,
   formatHooksSection,
   formatSummary,
   formatSystemInfoSection,
   formatUpdateSection,
 } from '@/bin/doctor/format';
-// These will be implemented in subsequent phases
 import { detectAllHooks } from '@/bin/doctor/hooks';
+import { getDoctorPosture } from '@/bin/doctor/posture';
 import { getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
 import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
@@ -84,7 +86,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
       }
     : await checkForUpdates();
 
-  const report: DoctorReport = {
+  const report: Omit<DoctorReport, 'findings'> = {
     hooks,
     engineSelfTest: runIntegrationSelfTest(),
     userConfig: configInfo.userConfig,
@@ -97,16 +99,26 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
       level: modes.effectiveLevel,
       capabilities: modes.capabilities,
       ruleOverrides: policy.destructiveCommandRuleOverrides,
+      weakenedRuleOverrides: Object.entries(ruleStates)
+        .filter(
+          ([, state]) =>
+            state.source === 'rule_override' &&
+            state.override === 'off' &&
+            state.inheritedEnabled &&
+            state.changesInherited,
+        )
+        .map(([id]) => id),
       ruleCounts: {
         stored: Object.keys(policy.destructiveCommandRuleOverrides).length,
         effective: Object.values(ruleStates).filter((state) => state.changesInherited).length,
       },
     },
+    posture: getDoctorPosture(configInfo.userConfig.path),
     activity,
     update,
     system,
   };
-  return report;
+  return { ...report, findings: deriveDoctorFindings(report) };
 }
 
 function doctorHasFailure(
@@ -145,15 +157,19 @@ function printReport(report: DoctorReport): void {
   console.log(formatEffectiveSafetySection(report));
   console.log();
 
-  // 6. Activity
+  // 6. Findings
+  console.log(formatFindingsSection(report.findings));
+  console.log();
+
+  // 7. Activity
   console.log(formatActivitySection(report.activity));
   console.log();
 
-  // 7. System Info
+  // 8. System Info
   console.log(formatSystemInfoSection(report.system));
   console.log();
 
-  // 8. Update Check
+  // 9. Update Check
   console.log(formatUpdateSection(report.update));
 
   // Summary

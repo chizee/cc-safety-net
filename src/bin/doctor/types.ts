@@ -68,10 +68,38 @@ export interface EffectiveSafetyInfo {
   level: EffectiveSafetyLevel;
   capabilities: EffectiveSafetyCapabilities;
   ruleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
+  weakenedRuleOverrides: string[];
   ruleCounts: {
     stored: number;
     effective: number;
   };
+}
+
+export type DoctorFindingSeverity = 'info' | 'warning' | 'error';
+
+export interface DoctorFinding {
+  checkId: string;
+  severity: DoctorFindingSeverity;
+  title: string;
+  detail: string;
+  fixHint?: string;
+  integration?: string;
+  path?: string;
+}
+
+export type ProtectedDirectoryKind = 'policy' | 'config' | 'audit';
+
+export type ProtectedDirectoryIssue = 'ownership' | 'permissions' | 'symlink' | 'not-directory';
+
+export interface ProtectedDirectoryPosture {
+  kind: ProtectedDirectoryKind;
+  path?: string;
+  status: 'safe' | 'unsafe' | 'unknown' | 'not-applicable';
+  issues: ProtectedDirectoryIssue[];
+}
+
+export interface DoctorPosture {
+  directories: ProtectedDirectoryPosture[];
 }
 
 /** Audit activity summary */
@@ -162,6 +190,8 @@ export interface DoctorReport {
   shadowedRules: ShadowedRule[];
   environment: EnvVarInfo[];
   effectiveSafety: EffectiveSafetyInfo;
+  posture: DoctorPosture;
+  findings: DoctorFinding[];
   activity: ActivitySummary;
   update: UpdateInfo;
   system: SystemInfo;
