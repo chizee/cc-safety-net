@@ -11894,7 +11894,38 @@ var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use e
   "--eval",
   "--import",
   "--require"
-], PARALLEL_APPENDED_SOURCE = "__CC_SAFETY_NET_PARALLEL_SOURCE__", UTF8_ENCODER2 = /* @__PURE__ */ new TextEncoder, MAX_EXPANDED_BYTE_OVERCOUNT = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements;
+], PARALLEL_OPTIONS_WITH_VALUE = /* @__PURE__ */ new Set([
+  "-L",
+  "-d",
+  "-n",
+  "--delay",
+  "--delimiter",
+  "--header",
+  "--joblog",
+  "--jl",
+  "--max-args",
+  "--max-lines",
+  "--nice",
+  "--results",
+  "--result",
+  "--res",
+  "--tagstring",
+  "--timeout"
+]), PARALLEL_UNSUPPORTED_INPUT_OPTIONS = /* @__PURE__ */ new Set([
+  "--arg-file",
+  "--colsep",
+  "--rpl",
+  "--arg-sep",
+  "--arg-file-sep"
+]), PARALLEL_REMOTE_OPTIONS = /* @__PURE__ */ new Set(["-S", "--sshlogin", "--slf", "--sshloginfile"]), PARALLEL_WORKDIR_OPTIONS = /* @__PURE__ */ new Set(["--workdir", "--wd"]), PARALLEL_APPENDED_SOURCE = "__CC_SAFETY_NET_PARALLEL_SOURCE__", UTF8_ENCODER2 = /* @__PURE__ */ new TextEncoder, MAX_EXPANDED_BYTE_OVERCOUNT = PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 4 * PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements;
+function firstMatch(values, analyze) {
+  for (let value of values) {
+    let result = analyze(value);
+    if (result)
+      return result;
+  }
+  return null;
+}
 function analyzeParallel(tokens, context) {
   if ((context.envAssignments?.has("PARALLEL") ? context.envAssignments.get("PARALLEL") : process.env.PARALLEL)?.trim()) {
     let reason = parallelUnsupportedReason(context);
@@ -11903,10 +11934,7 @@ function analyzeParallel(tokens, context) {
   }
   if (tokens.length === 2 && (tokens[1] === "--version" || tokens[1] === "--help"))
     return null;
-  let parseResult = parseParallelCommand(tokens);
-  if (!parseResult)
-    return null;
-  let {
+  let parseResult = parseParallelCommand(tokens), {
     template,
     jobs,
     runsRemotely,
@@ -11955,23 +11983,17 @@ function analyzeParallel(tokens, context) {
     }
     let commands2 = jobs.map((job) => job[0] ?? "");
     reserveParallelAnalysis(context.budget, commandsModeWork(commands2));
-    let nestedOverrides = buildCommandsModeOverrides(executionContext, runsRemotely);
-    for (let command2 of commands2) {
-      let reason = context.analyzeNested(command2, nestedOverrides);
-      if (reason)
-        return reason;
-    }
-    return null;
+    let nestedOverrides = buildNestedOverrides(executionContext.envAssignments, executionContext.cwd, runsRemotely);
+    return firstMatch(commands2, (command2) => context.analyzeNested(command2, nestedOverrides));
   }
-  for (let childCommand of normalizeChildCommands(template, executionContext)) {
-    let result = analyzeParallelChildCommand(childCommand, parseResult, context, executionContext);
-    if (result)
-      return result;
-  }
-  return null;
+  return firstMatch(normalizeChildCommands(template, executionContext), (childCommand) => analyzeParallelChildCommand(childCommand, parseResult, context, executionContext));
 }
 function analyzeParallelChildCommand(childCommand, parseResult, context, executionContext) {
-  let { jobs, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult, childTokens = childCommand.tokens, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments);
+  let { jobs, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult, childTokens = childCommand.tokens, childContext = {
+    ...executionContext,
+    cwd: childCommand.cwd,
+    envAssignments: childCommand.envAssignments
+  }, dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments);
   if (dynamicEnvValues.entries.some((entry) => hasUnsupportedParallelPlaceholder(entry.value))) {
     let reason = parallelUnsupportedReason(context);
     if (reason)
@@ -11982,17 +12004,7 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
     let analyzeExpandedShellArgv = () => {
       if (!templateHasPlaceholder || jobs.length === 0)
         return null;
-      reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "generic"));
-      for (let job of jobs) {
-        let result = analyzeChildCommandMatch(childTokens.map((token) => replaceParallelJobPlaceholder(token, job)), {
-          ...executionContext,
-          cwd: childCommand.cwd,
-          envAssignments: childCommand.envAssignments
-        });
-        if (result)
-          return result;
-      }
-      return null;
+      return reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "generic")), firstMatch(jobs, (job) => analyzeChildCommandMatch(childTokens.map((token) => replaceParallelJobPlaceholder(token, job)), childContext));
     };
     if (isShellSyntaxCheck(childTokens))
       return analyzeExpandedShellArgv();
@@ -12004,24 +12016,11 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
           return reason2;
         if (jobs.length === 0)
           return null;
-        reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, "generic"));
-        for (let job of jobs) {
-          let nestedReason = context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides);
-          if (nestedReason)
-            return nestedReason;
-        }
-        return null;
+        return reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs)), firstMatch(jobs, (job) => context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides));
       }
       if (hasParallelPlaceholder(dashCArg)) {
-        if (jobs.length > 0) {
-          reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, "generic"));
-          for (let job of jobs) {
-            let expandedScript = replaceParallelJobPlaceholder(dashCArg, job), reason2 = context.analyzeNested(expandedScript, nestedOverrides);
-            if (reason2)
-              return reason2;
-          }
-          return null;
-        }
+        if (jobs.length > 0)
+          return reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs)), firstMatch(jobs, (job) => context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides));
         reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
         let scriptTokens = parseSimpleWords(dashCArg);
         if (scriptTokens?.[0] && normalizeCommandToken(scriptTokens[0]) === "rm" && hasRecursiveForceFlags(scriptTokens)) {
@@ -12029,11 +12028,7 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
           if (reason2)
             return reason2;
         }
-        let dynamicReason = scriptTokens ? analyzeChildCommandMatch(scriptTokens, {
-          ...executionContext,
-          cwd: childCommand.cwd,
-          envAssignments: childCommand.envAssignments
-        }, {
+        let dynamicReason = scriptTokens ? analyzeChildCommandMatch(scriptTokens, childContext, {
           dynamicInput: usesStdin,
           shellDynamicMatch: destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL),
           rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
@@ -12049,15 +12044,8 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
           return reason2;
       }
       let literalPositionalSources = positionalSources.flatMap((source) => source.kind === "literal" ? [source.source] : []);
-      if (literalPositionalSources.length > 0) {
-        reserveParallelAnalysis(context.budget, commandsModeWork(literalPositionalSources));
-        for (let source of literalPositionalSources) {
-          let reason2 = context.analyzeNested(source, nestedOverrides);
-          if (reason2)
-            return reason2;
-        }
-        return null;
-      }
+      if (literalPositionalSources.length > 0)
+        return reserveParallelAnalysis(context.budget, commandsModeWork(literalPositionalSources)), firstMatch(literalPositionalSources, (source) => context.analyzeNested(source, nestedOverrides));
       reserveParallelAnalysis(context.budget, combineParallelWork(staticStringWork(dashCArg), dynamicEnvJobWork(dynamicEnvValues.entries, jobs)));
       let hasUnresolvedDynamicCarrier = shellSourceHasUnresolvedDynamicExecutionCarrier(dashCArg);
       if (hasUnresolvedDynamicCarrier && dynamicEnvValues.entries.length > 0) {
@@ -12097,37 +12085,17 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
       if (templateHasPlaceholder)
         return null;
       let sources = jobs.flatMap((job) => job[0] === void 0 ? [] : [job[0]]);
-      reserveParallelAnalysis(context.budget, commandsModeWork(sources));
-      for (let source of sources) {
-        let nestedReason = context.analyzeNested(source, nestedOverrides);
-        if (nestedReason)
-          return nestedReason;
-      }
-      return null;
+      return reserveParallelAnalysis(context.budget, commandsModeWork(sources)), firstMatch(sources, (source) => context.analyzeNested(source, nestedOverrides));
     }
     if (hasPlaceholder || usesStdin)
       return parallelShellDynamicReason(context) ?? analyzeExpandedShellArgv();
     return null;
   }
   if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
-    if (templateHasPlaceholder && jobs.length > 0) {
-      reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "rm"));
-      for (let job of jobs) {
-        let result = analyzeParallelRmExpansion(childTokens.map((token) => replaceParallelRmJobPlaceholder(token, job)), childCommand.cwd, executionContext);
-        if (result)
-          return result;
-      }
-      return null;
-    }
-    if (jobs.length > 0) {
-      reserveParallelAnalysis(context.budget, appendedTokenJobWork(childTokens, jobs));
-      for (let job of jobs) {
-        let result = analyzeParallelRmExpansion([...childTokens, ...job], childCommand.cwd, executionContext);
-        if (result)
-          return result;
-      }
-      return null;
-    }
+    if (templateHasPlaceholder && jobs.length > 0)
+      return reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, "rm")), firstMatch(jobs, (job) => analyzeParallelRmExpansion(childTokens.map((token) => replaceParallelRmJobPlaceholder(token, job)), childCommand.cwd, executionContext));
+    if (jobs.length > 0)
+      return reserveParallelAnalysis(context.budget, appendedTokenJobWork(childTokens, jobs)), firstMatch(jobs, (job) => analyzeParallelRmExpansion([...childTokens, ...job], childCommand.cwd, executionContext));
     let staticResult = analyzeParallelRmExpansion(childTokens.flatMap((token, index) => {
       if (index === 0 || !hasParallelPlaceholder(token))
         return [token];
@@ -12139,43 +12107,25 @@ function analyzeParallelChildCommand(childCommand, parseResult, context, executi
   }
   reserveParallelAnalysis(context.budget, templateHasPlaceholder && jobs.length > 0 ? expandedTokenJobWork(childTokens, jobs, "generic") : jobs.length > 0 ? appendedTokenJobWork(childTokens, jobs) : staticTokenWork(childTokens));
   let childJobs = jobs.length > 0 ? jobs : [void 0];
-  for (let job of childJobs) {
-    let tokens = job === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job)) : [...childTokens, ...job], shellDynamicMatch = destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), findDynamicInput = usesStdin && childCommand.head === "find" ? analyzeDynamicParallelFind(tokens, executionContext) : null, dynamicCustomResult = matchDynamicParallelPolicyRule(tokens, usesStdin, context.policy?.rules ?? [], context.budget) ?? findDynamicInput?.customResult ?? null, dynamicInput = parallelDynamicInputAnalysis(tokens, childCommand.head, usesStdin, findDynamicInput), result = analyzeChildCommandMatch(tokens, {
-      ...executionContext,
-      cwd: childCommand.cwd,
-      envAssignments: childCommand.envAssignments,
+  return firstMatch(childJobs, (job) => {
+    let tokens = job === void 0 ? childTokens : templateHasPlaceholder ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job)) : [...childTokens, ...job], shellDynamicMatch = destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), findDynamicInput = usesStdin && childCommand.head === "find" ? analyzeDynamicParallelFind(tokens, executionContext) : null, dynamicCustomResult = matchDynamicParallelPolicyRule(tokens, usesStdin, context.policy?.rules ?? [], context.budget) ?? findDynamicInput?.customResult ?? null, normalizedHead = normalizeCommandToken(childCommand.head), dynamicRmInput = usesStdin && (normalizedHead === "rm" && parallelInputCanChangeRmOptions(tokens) || normalizedHead === "xargs" && nestedRmInputCanChangeOptions(tokens) || findDynamicInput?.rmOptions === !0), dynamicSourceInput = usesStdin && (dynamicRmInput || findDynamicInput?.executedSource === !0 || findDynamicInput === null && parallelInputCanChangeExecutedSource(tokens, normalizedHead)), result = analyzeChildCommandMatch(tokens, {
+      ...childContext,
       worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? !1 : context.worktreeMode
     }, {
       dynamicInput: usesStdin || hasPlaceholder,
-      dynamicRmInput: dynamicInput.rmOptions,
-      dynamicSourceInput: dynamicCustomResult !== null || dynamicInput.executedSource || dynamicInput.rmOptions,
+      dynamicRmInput,
+      dynamicSourceInput: dynamicCustomResult !== null || dynamicSourceInput,
       shellDynamicMatch,
       dynamicSourceMatch: shellDynamicMatch,
       rmDynamicMatch: destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM)
     });
-    if (dynamicInput.executedSource) {
+    if (dynamicSourceInput) {
       let parallelDynamic = filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
       if (parallelDynamic)
         return parallelDynamic;
     }
-    if (result)
-      return result;
-    if (dynamicCustomResult)
-      return dynamicCustomResult;
-    let customResult = checkPolicyRuleMatch(tokens, context.policy?.rules ?? []);
-    if (customResult)
-      return customResult;
-  }
-  return null;
-}
-function parallelDynamicInputAnalysis(tokens, childHead, usesStdin, findAnalysis) {
-  if (!usesStdin)
-    return { executedSource: !1, rmOptions: !1 };
-  let normalizedHead = normalizeCommandToken(childHead), rmOptions = normalizedHead === "rm" && parallelInputCanChangeRmOptions(tokens) || normalizedHead === "xargs" && nestedRmInputCanChangeOptions(tokens) || findAnalysis?.rmOptions === !0;
-  return {
-    executedSource: rmOptions || findAnalysis?.executedSource === !0 || findAnalysis === null && parallelInputCanChangeExecutedSource(tokens, normalizedHead),
-    rmOptions
-  };
+    return result ?? dynamicCustomResult ?? checkPolicyRuleMatch(tokens, context.policy?.rules ?? []);
+  });
 }
 function parallelInputCanChangeExecutedSource(tokens, childHead) {
   if (hasParallelPlaceholder(tokens[0] ?? ""))
@@ -12191,9 +12141,9 @@ function parallelInputCanChangeExecutedSource(tokens, childHead) {
   if (childHead === "find")
     return !0;
   if (AWK_INTERPRETERS.has(childHead))
-    return awkInputCanChangeExecutedSource(tokens);
+    return executableSourceCanChange(tokens, AWK_SOURCE_OPTION_INPUTS, extractAwkExecutableSources);
   if (isInterpreterCommand(childHead))
-    return interpreterInputCanChangeExecutedSource(tokens);
+    return executableSourceCanChange(tokens, INTERPRETER_SOURCE_OPTION_INPUTS, extractInterpreterExecutableSources);
   return !1;
 }
 function parallelInputCanChangeRmOptions(tokens) {
@@ -12249,23 +12199,12 @@ function shellArgvHasParallelSource(tokens) {
     return !0;
   return !tokens.some(hasParallelPlaceholder);
 }
-function awkInputCanChangeExecutedSource(tokens) {
-  let sources = extractAwkExecutableSources(tokens);
-  if (sources.some((source) => hasParallelPlaceholder(source.value)))
+function executableSourceCanChange(tokens, candidates, extractSources) {
+  let existingSources = extractSources(tokens);
+  if (existingSources.some((source) => hasParallelPlaceholder(source.value)))
     return !0;
   if (!tokens.some(hasParallelPlaceholder))
-    return extractAwkExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some((source) => source.value === PARALLEL_APPENDED_SOURCE);
-  return inputCanCreateExecutableSource(tokens, sources, AWK_SOURCE_OPTION_INPUTS, extractAwkExecutableSources);
-}
-function interpreterInputCanChangeExecutedSource(tokens) {
-  let sources = extractInterpreterExecutableSources(tokens);
-  if (sources.some((source) => hasParallelPlaceholder(source.value)))
-    return !0;
-  if (!tokens.some(hasParallelPlaceholder))
-    return extractInterpreterExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some((source) => source.value === PARALLEL_APPENDED_SOURCE);
-  return inputCanCreateExecutableSource(tokens, sources, INTERPRETER_SOURCE_OPTION_INPUTS, extractInterpreterExecutableSources);
-}
-function inputCanCreateExecutableSource(tokens, existingSources, candidates, extractSources) {
+    return extractSources([...tokens, PARALLEL_APPENDED_SOURCE]).some((source) => source.value === PARALLEL_APPENDED_SOURCE);
   let existing = new Set(existingSources.map((source) => `${source.tokenIndex}\x00${source.kind}\x00${source.value}`));
   return candidates.some((candidate) => extractSources(tokens.map((token) => replaceParallelJobPlaceholder(token, [candidate]))).some((source) => !existing.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
 }
@@ -12276,23 +12215,12 @@ function matchDynamicParallelPolicyRule(tokens, usesStdin, rules, budget) {
   if (relevantRules.length === 0)
     return null;
   let hasPlaceholder = tokens.some(hasParallelPlaceholder);
-  if (reserveParallelAnalysis(budget, dynamicCustomRuleWork(tokens, relevantRules, hasPlaceholder)), !hasPlaceholder) {
-    for (let rule of relevantRules) {
-      let result = checkPolicyRuleMatch([...tokens, ...rule.subcommand ? [rule.subcommand] : [], ...rule.block_args], [rule]);
-      if (result)
-        return result;
-    }
-    return null;
-  }
-  for (let rule of relevantRules) {
+  if (reserveParallelAnalysis(budget, dynamicCustomRuleWork(tokens, relevantRules, hasPlaceholder)), !hasPlaceholder)
+    return firstMatch(relevantRules, (rule) => checkPolicyRuleMatch([...tokens, ...rule.subcommand ? [rule.subcommand] : [], ...rule.block_args], [rule]));
+  return firstMatch(relevantRules, (rule) => {
     let inputCandidates = new Set([rule.subcommand, ...rule.block_args].flatMap((target) => target ? parallelInputsThatProduce(tokens, target) : []));
-    for (let input of inputCandidates) {
-      let result = checkPolicyRuleMatch(tokens.map((token) => replaceParallelJobPlaceholder(token, [input])), [rule]);
-      if (result)
-        return result;
-    }
-  }
-  return null;
+    return firstMatch(inputCandidates, (input) => checkPolicyRuleMatch(tokens.map((token) => replaceParallelJobPlaceholder(token, [input])), [rule]));
+  });
 }
 function dynamicCustomRuleWork(tokens, rules, hasPlaceholder) {
   let candidateCount = hasPlaceholder ? limitedMultiply(limitedAdd(rules.map((rule) => rule.block_args.length + (rule.subcommand ? 1 : 0)), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), 2 * Math.max(tokens.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses) : rules.length;
@@ -12361,18 +12289,10 @@ function nestedRmInputCanChangeOptions(tokens) {
   let childTokens = extractXargsChildCommandWithInfo(tokens).childTokens;
   return normalizeCommandToken(childTokens[0] ?? "") === "rm" && parallelInputCanChangeRmOptions(childTokens);
 }
-function parallelShellDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.shell-dynamic", REASON_PARALLEL_SHELL), context.policy);
+function parallelReason(ruleId, reason) {
+  return (context) => filterDestructiveCommandMatch(destructiveCommandMatch(ruleId, reason), context.policy);
 }
-function parallelCommandStreamDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), context.policy);
-}
-function parallelUnsupportedReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.command-stream-dynamic", REASON_PARALLEL_UNSUPPORTED), context.policy);
-}
-function parallelRmDynamicReason(context) {
-  return filterDestructiveCommandMatch(destructiveCommandMatch("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM), context.policy);
-}
+var parallelShellDynamicReason = parallelReason("parallel.shell-dynamic", REASON_PARALLEL_SHELL), parallelCommandStreamDynamicReason = parallelReason("parallel.command-stream-dynamic", REASON_PARALLEL_COMMAND_STREAM), parallelUnsupportedReason = parallelReason("parallel.command-stream-dynamic", REASON_PARALLEL_UNSUPPORTED), parallelRmDynamicReason = parallelReason("parallel.rm-recursive-force-dynamic", REASON_PARALLEL_RM);
 function analyzeParallelRmExpansion(tokens, cwd, context) {
   return filterDestructiveCommandMatch(analyzeRmMatch(tokens, {
     cwd,
@@ -12394,11 +12314,7 @@ function commandsModeWork(args) {
   };
 }
 function staticStringWork(value) {
-  return {
-    childAnalyses: 1,
-    derivedTokens: 1,
-    derivedBytes: limitedValue(utf8ByteLength(value), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-  };
+  return staticTokenWork([value]);
 }
 function staticTokenWork(tokens) {
   return {
@@ -12419,29 +12335,8 @@ function appendedTokenJobWork(tokens, jobs) {
     ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
   };
 }
-function expandedStringJobWork(value, jobs, placeholderKind) {
-  if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
-    return { childAnalyses: jobs.length };
-  let stats = getReplacementStats(value, placeholderKind), placeholderReplacements = limitedMultiply(stats.occurrences, jobs.length, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
-  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
-    return { childAnalyses: jobs.length, placeholderReplacements };
-  if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements))
-    return {
-      childAnalyses: jobs.length,
-      derivedTokens: jobs.length,
-      derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
-      placeholderReplacements
-    };
-  let derivedBytes = 0;
-  for (let job of jobs)
-    if (derivedBytes = limitedAdd([derivedBytes, utf8ByteLength(replaceParallelJobPlaceholder(value, job))], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-      break;
-  return {
-    childAnalyses: jobs.length,
-    derivedTokens: jobs.length,
-    derivedBytes,
-    placeholderReplacements
-  };
+function expandedStringJobWork(value, jobs) {
+  return expandedTokenJobWork([value], jobs, "generic");
 }
 function expandedTokenJobWork(tokens, jobs, placeholderKind) {
   if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses)
@@ -12459,15 +12354,7 @@ function expandedTokenJobWork(tokens, jobs, placeholderKind) {
       derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
       placeholderReplacements
     };
-  let derivedBytes = 0;
-  outer:
-    for (let job of jobs)
-      for (let token of tokens)
-        if (derivedBytes = limitedAdd([
-          derivedBytes,
-          utf8ByteLength(placeholderKind === "generic" ? replaceParallelJobPlaceholder(token, job) : replaceParallelRmJobPlaceholder(token, job))
-        ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-          break outer;
+  let replace = placeholderKind === "generic" ? replaceParallelJobPlaceholder : replaceParallelRmJobPlaceholder, derivedBytes = limitedAdd(jobs.map((job) => sumUtf8Bytes(tokens.map((token) => replace(token, job)))), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes);
   return {
     childAnalyses: jobs.length,
     derivedTokens,
@@ -12483,7 +12370,7 @@ function expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements) {
   ], byteCeiling) > byteCeiling;
 }
 function dynamicEnvJobWork(entries, jobs) {
-  let dynamicEntries = entries.filter((entry) => entry.hasPlaceholder), dynamicValueCount = limitedAdd(dynamicEntries.map((entry) => entry.frequency), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), childAnalyses = limitedMultiply(dynamicValueCount, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), derivedTokens = limitedMultiply(dynamicValueCount, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
+  let dynamicEntries = entries.filter((entry) => entry.hasPlaceholder), jobCount = Math.max(jobs.length, 1), dynamicValueCount = limitedAdd(dynamicEntries.map((entry) => entry.frequency), PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), childAnalyses = limitedMultiply(dynamicValueCount, jobCount, PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses), derivedTokens = limitedMultiply(dynamicValueCount, jobCount, PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens);
   if (childAnalyses > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses || derivedTokens > PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens)
     return { childAnalyses, derivedTokens };
   if (jobs.length === 0)
@@ -12492,7 +12379,7 @@ function dynamicEnvJobWork(entries, jobs) {
       derivedTokens,
       derivedBytes: limitedAdd(dynamicEntries.map((entry) => limitedMultiply(utf8ByteLength(entry.value), entry.frequency, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
     };
-  let stats = combineReplacementStats(dynamicEntries.map((entry) => scaleReplacementStats(getReplacementStats(entry.value, "generic"), entry.frequency))), placeholderReplacements = limitedMultiply(stats.occurrences, Math.max(jobs.length, 1), PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
+  let stats = combineReplacementStats(dynamicEntries.map((entry) => scaleReplacementStats(getReplacementStats(entry.value, "generic"), entry.frequency))), placeholderReplacements = limitedMultiply(stats.occurrences, jobCount, PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements);
   if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
     return { childAnalyses, placeholderReplacements };
   if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements))
@@ -12502,18 +12389,7 @@ function dynamicEnvJobWork(entries, jobs) {
       derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
       placeholderReplacements
     };
-  let derivedBytes = 0;
-  outer:
-    for (let entry of dynamicEntries)
-      for (let index = 0;index < entry.frequency; index++) {
-        let valueJobs = jobs.length > 0 ? jobs : [void 0];
-        for (let job of valueJobs)
-          if (derivedBytes = limitedAdd([
-            derivedBytes,
-            utf8ByteLength(job === void 0 ? entry.value : replaceParallelJobPlaceholder(entry.value, job))
-          ], PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes), derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)
-            break outer;
-      }
+  let derivedBytes = limitedAdd(dynamicEntries.map((entry) => limitedMultiply(sumUtf8Bytes(jobs.map((job) => replaceParallelJobPlaceholder(entry.value, job))), entry.frequency, PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes)), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes);
   return {
     childAnalyses,
     derivedTokens,
@@ -12530,18 +12406,18 @@ function combineParallelWork(first, second) {
   };
 }
 function getReplacementStats(value, placeholderKind) {
-  let matches = placeholderKind === "generic" ? value.matchAll(/\{[^{}\s]*\}/g) : value.matchAll(PARALLEL_RM_PLACEHOLDER_RE), parts = [], lastIndex = 0;
+  let matches = placeholderKind === "generic" ? value.matchAll(/\{[^{}\s]*\}/g) : value.matchAll(PARALLEL_RM_PLACEHOLDER_RE), occurrences = 0, fixedBytes = 0, lastIndex = 0;
   for (let match of matches) {
-    if (parts.length >= PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
+    if (occurrences >= PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements)
       return {
         occurrences: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1,
         fixedBytes: 0
       };
-    parts.push(value.slice(lastIndex, match.index)), lastIndex = match.index + match[0].length;
+    fixedBytes = limitedAdd([fixedBytes, utf8ByteLength(value.slice(lastIndex, match.index))], MAX_EXPANDED_BYTE_OVERCOUNT), occurrences++, lastIndex = match.index + match[0].length;
   }
-  return parts.push(value.slice(lastIndex)), {
-    occurrences: parts.length - 1,
-    fixedBytes: parts.length === 1 ? utf8ByteLength(value) : limitedAdd(parts.map(utf8ByteLength), MAX_EXPANDED_BYTE_OVERCOUNT)
+  return {
+    occurrences,
+    fixedBytes: occurrences === 0 ? utf8ByteLength(value) : limitedAdd([fixedBytes, utf8ByteLength(value.slice(lastIndex))], MAX_EXPANDED_BYTE_OVERCOUNT)
   };
 }
 function scaleReplacementStats(stats, frequency) {
@@ -12576,9 +12452,6 @@ function limitedMultiply(left, right, limit) {
     return limit + 1;
   return left * right;
 }
-function limitedValue(value, limit) {
-  return Number.isSafeInteger(value) && value >= 0 && value <= limit ? value : limit + 1;
-}
 function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
   let values = [];
   for (let name of envNames) {
@@ -12604,37 +12477,27 @@ function prepareDynamicEnvValues(values) {
   };
 }
 function analyzeParallelDynamicEnvValues(values, jobs, context, runsRemotely) {
-  for (let value of values.values) {
+  return firstMatch(values.values, (value) => {
     if (!values.byValue.get(value)?.hasPlaceholder)
-      continue;
+      return null;
     let valueJobs = jobs.length > 0 ? jobs : [void 0];
-    for (let job of valueJobs) {
-      let command2 = job === void 0 ? value : replaceParallelJobPlaceholder(value, job), reason = context.analyzeNested(command2, {
+    return firstMatch(valueJobs, (job) => {
+      let command2 = job === void 0 ? value : replaceParallelJobPlaceholder(value, job);
+      return context.analyzeNested(command2, {
         envAssignments: context.envAssignments,
         effectiveCwd: runsRemotely ? null : context.cwd
       });
-      if (reason)
-        return reason;
-    }
-  }
-  return null;
+    });
+  });
 }
 function buildNestedOverrides(envAssignments, cwd, runsRemotely) {
-  let overrides = { envAssignments };
+  let overrides = {};
+  if (envAssignments)
+    overrides.envAssignments = envAssignments;
   if (runsRemotely)
     return overrides.effectiveCwd = null, overrides.worktreeMode = !1, overrides;
   if (cwd !== void 0)
     overrides.effectiveCwd = cwd;
-  return overrides;
-}
-function buildCommandsModeOverrides(context, runsRemotely) {
-  let overrides = {};
-  if (context.envAssignments)
-    overrides.envAssignments = context.envAssignments;
-  if (runsRemotely)
-    overrides.effectiveCwd = null, overrides.worktreeMode = !1;
-  if (!runsRemotely && context.cwd !== void 0)
-    overrides.effectiveCwd = context.cwd;
   return Object.keys(overrides).length > 0 ? overrides : void 0;
 }
 function replaceParallelJobPlaceholder(token, job) {
@@ -12669,24 +12532,7 @@ function isOnlyParallelPlaceholder(token) {
   return /^\{[^{}\s]*\}$/.test(token);
 }
 function parseParallelCommand(tokens) {
-  let parallelOptsWithValue = /* @__PURE__ */ new Set([
-    "-L",
-    "-d",
-    "-n",
-    "--delay",
-    "--delimiter",
-    "--header",
-    "--joblog",
-    "--jl",
-    "--max-args",
-    "--max-lines",
-    "--nice",
-    "--results",
-    "--result",
-    "--res",
-    "--tagstring",
-    "--timeout"
-  ]), i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, dryRun = !1, workdir, unsupported = tokens.some((token) => token === "::::" || token === "::::+" || token === ":::+"), envNames = [];
+  let i = 1, templateTokens = [], childCommandTokens = [], markerIndex = -1, runsRemotely = !1, usesPipe = !1, dryRun = !1, workdir, unsupported = tokens.some((token) => token === "::::" || token === "::::+" || token === ":::+"), envNames = [];
   while (i < tokens.length) {
     let token = tokens[i];
     if (token === void 0)
@@ -12700,100 +12546,71 @@ function parseParallelCommand(tokens) {
       templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i + 1)], markerIndex = template.markerIndex;
       break;
     }
-    if (token.startsWith("-")) {
-      if (token === "--dry-run") {
-        dryRun = !0, i++;
-        continue;
-      }
-      if (token === "-I") {
-        unsupported ||= tokens[i + 1] !== "{}", i += 2;
-        continue;
-      }
-      if (token.startsWith("-I") && token.length > 2) {
-        unsupported ||= token.slice(2) !== "{}", i++;
-        continue;
-      }
-      if (token === "--replace" || token === "-i") {
-        unsupported = !0, i += 2;
-        continue;
-      }
-      if (token.startsWith("--replace=") || token.startsWith("-i") && token.length > 2) {
-        let replacement = token.startsWith("--replace=") ? token.slice(10) : token.slice(2);
-        unsupported ||= replacement !== "" && replacement !== "{}", i++;
-        continue;
-      }
-      if (token === "-a" || token === "--arg-file" || token === "--colsep" || token === "--rpl" || token === "--arg-sep" || token === "--arg-file-sep") {
-        unsupported = !0, i += 2;
-        continue;
-      }
-      if (token.startsWith("--arg-file=") || token.startsWith("--colsep=") || token.startsWith("--rpl=") || token.startsWith("--arg-sep=") || token.startsWith("--arg-file-sep=")) {
-        unsupported = !0, i++;
-        continue;
-      }
-      if (token === "--pipe" || token === "--pipepart") {
-        usesPipe = !0, i++;
-        continue;
-      }
-      if (token === "--env") {
-        envNames.push(...splitParallelEnvNames(tokens[i + 1])), i += 2;
-        continue;
-      }
-      if (token.startsWith("--env=")) {
-        envNames.push(...splitParallelEnvNames(token.slice(6))), i++;
-        continue;
-      }
-      if (token === "-S" || token === "--sshlogin" || token === "--slf" || token === "--sshloginfile") {
-        runsRemotely = !0, i += 2;
-        continue;
-      }
-      if (token.startsWith("-S") && token.length > 2) {
-        runsRemotely = !0, i++;
-        continue;
-      }
-      if (token === "--workdir" || token === "--wd") {
-        let value = tokens[i + 1];
-        if (value === void 0 || value === ":::" || value === "--") {
-          unsupported = !0, i++;
-          continue;
-        }
-        workdir = value, i += 2;
-        continue;
-      }
-      if (token.startsWith("--workdir=") || token.startsWith("--wd=")) {
-        let value = token.slice(token.indexOf("=") + 1);
-        unsupported ||= value === "", workdir = value, i++;
-        continue;
-      }
-      if (token.startsWith("--sshlogin=") || token.startsWith("--slf=") || token.startsWith("--sshloginfile=")) {
-        runsRemotely = !0, i++;
-        continue;
-      }
-      if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
-        i++;
-        continue;
-      }
-      if (token.startsWith("--") && token.includes("=")) {
-        i++;
-        continue;
-      }
-      if (parallelOptsWithValue.has(token)) {
-        if (tokens[i + 1] === void 0 || tokens[i + 1] === ":::" || tokens[i + 1] === "--") {
-          unsupported = !0, i++;
-          continue;
-        }
-        i += 2;
-        continue;
-      }
-      if (token === "-j" || token === "--jobs") {
-        i += 2;
-        continue;
-      }
-      i++;
-    } else {
+    if (!token.startsWith("-")) {
       let template = collectCommandTemplate(tokens, i);
       templateTokens.push(...template.templateTokens), childCommandTokens = [...tokens.slice(i)], markerIndex = template.markerIndex;
       break;
     }
+    let nextToken = tokens[i + 1], equalsIndex = token.indexOf("="), optionName = equalsIndex === -1 ? token : token.slice(0, equalsIndex), attachedValue = equalsIndex === -1 ? void 0 : token.slice(equalsIndex + 1);
+    if (token === "--dry-run") {
+      dryRun = !0, i++;
+      continue;
+    }
+    if (token === "-I" || token.startsWith("-I") && token.length > 2) {
+      unsupported ||= (token === "-I" ? nextToken : token.slice(2)) !== "{}", i += token === "-I" ? 2 : 1;
+      continue;
+    }
+    if (token === "--replace" || token === "-i") {
+      unsupported = !0, i += 2;
+      continue;
+    }
+    if (optionName === "--replace" || token.startsWith("-i") && token.length > 2) {
+      let replacement = optionName === "--replace" ? attachedValue : token.slice(2);
+      unsupported ||= replacement !== "" && replacement !== "{}", i++;
+      continue;
+    }
+    if (token === "-a" || PARALLEL_UNSUPPORTED_INPUT_OPTIONS.has(optionName)) {
+      unsupported = !0, i += attachedValue === void 0 ? 2 : 1;
+      continue;
+    }
+    if (token === "--pipe" || token === "--pipepart") {
+      usesPipe = !0, i++;
+      continue;
+    }
+    if (optionName === "--env") {
+      envNames.push(...splitParallelEnvNames(attachedValue ?? nextToken)), i += attachedValue === void 0 ? 2 : 1;
+      continue;
+    }
+    if (PARALLEL_REMOTE_OPTIONS.has(optionName) || token.startsWith("-S") && token.length > 2) {
+      runsRemotely = !0, i += PARALLEL_REMOTE_OPTIONS.has(token) ? 2 : 1;
+      continue;
+    }
+    if (PARALLEL_WORKDIR_OPTIONS.has(optionName)) {
+      let value = attachedValue ?? nextToken;
+      if (value === void 0 || value === ":::" || value === "--") {
+        unsupported = !0, i++;
+        continue;
+      }
+      workdir = value, unsupported ||= attachedValue !== void 0 && value === "", i += attachedValue === void 0 ? 2 : 1;
+      continue;
+    }
+    if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
+      i++;
+      continue;
+    }
+    if (token.startsWith("--") && attachedValue !== void 0) {
+      i++;
+      continue;
+    }
+    if (PARALLEL_OPTIONS_WITH_VALUE.has(token)) {
+      if (nextToken === void 0 || nextToken === ":::" || nextToken === "--") {
+        unsupported = !0, i++;
+        continue;
+      }
+      i += 2;
+      continue;
+    }
+    i += token === "-j" || token === "--jobs" ? 2 : 1;
   }
   unsupported ||= templateTokens.some(dryRun ? hasExecutableParallelPlaceholder : hasUnsupportedParallelPlaceholder);
   let argumentGroups = [];
@@ -12810,21 +12627,7 @@ function parseParallelCommand(tokens) {
     }
     argumentGroups.push(group);
   }
-  let jobs = expandParallelJobs(argumentGroups), templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
-  if (templateTokens.length === 0 && markerIndex === -1)
-    return {
-      template: [],
-      jobs: [],
-      childCommandTokens: [],
-      templateHasPlaceholder: !1,
-      runsRemotely,
-      usesStdin: !0,
-      envNames,
-      readsCommandsFromInput: !0,
-      unsupported,
-      workdir,
-      dryRun
-    };
+  let jobs = expandParallelJobs(argumentGroups), templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder), readsCommandsFromInput = templateTokens.length === 0 && markerIndex === -1;
   return {
     template: templateTokens,
     jobs,
@@ -12833,7 +12636,7 @@ function parseParallelCommand(tokens) {
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
     envNames,
-    readsCommandsFromInput: !1,
+    readsCommandsFromInput,
     unsupported,
     workdir,
     dryRun
@@ -12878,7 +12681,7 @@ function splitParallelEnvNames(value) {
   return (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
 }
 function extractParallelChildCommand(tokens) {
-  return parseParallelCommand(tokens)?.childCommandTokens ?? [];
+  return parseParallelCommand(tokens).childCommandTokens;
 }
 
 // src/core/analyze/segment.ts

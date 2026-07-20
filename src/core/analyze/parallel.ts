@@ -33,6 +33,7 @@ import {
 } from '@/core/analyze/tmpdir';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
+  type DestructiveCommandRuleId,
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
@@ -93,6 +94,33 @@ const INTERPRETER_SOURCE_OPTION_INPUTS = [
   '--import',
   '--require',
 ];
+const PARALLEL_OPTIONS_WITH_VALUE = new Set([
+  '-L',
+  '-d',
+  '-n',
+  '--delay',
+  '--delimiter',
+  '--header',
+  '--joblog',
+  '--jl',
+  '--max-args',
+  '--max-lines',
+  '--nice',
+  '--results',
+  '--result',
+  '--res',
+  '--tagstring',
+  '--timeout',
+]);
+const PARALLEL_UNSUPPORTED_INPUT_OPTIONS = new Set([
+  '--arg-file',
+  '--colsep',
+  '--rpl',
+  '--arg-sep',
+  '--arg-file-sep',
+]);
+const PARALLEL_REMOTE_OPTIONS = new Set(['-S', '--sshlogin', '--slf', '--sshloginfile']);
+const PARALLEL_WORKDIR_OPTIONS = new Set(['--workdir', '--wd']);
 const PARALLEL_APPENDED_SOURCE = '__CC_SAFETY_NET_PARALLEL_SOURCE__';
 const UTF8_ENCODER = new TextEncoder();
 // Each replacement has two fragment boundaries, each overcounted by two bytes when it forms a pair.
@@ -106,6 +134,17 @@ export interface ParallelAnalyzeContext extends NestedCommandAnalyzeContext {
     command: string,
     overrides?: AnalyzeNestedOverrides,
   ) => DestructiveCommandRuleMatch | null;
+}
+
+function firstMatch<T>(
+  values: Iterable<T>,
+  analyze: (value: T) => DestructiveCommandRuleMatch | null,
+): DestructiveCommandRuleMatch | null {
+  for (const value of values) {
+    const result = analyze(value);
+    if (result) return result;
+  }
+  return null;
 }
 
 export function analyzeParallel(
@@ -125,11 +164,6 @@ export function analyzeParallel(
   }
 
   const parseResult = parseParallelCommand(tokens);
-
-  if (!parseResult) {
-    return null;
-  }
-
   const {
     template,
     jobs,
@@ -195,27 +229,17 @@ export function analyzeParallel(
     // Analyze each arg as a command
     const commands = jobs.map((job) => job[0] ?? '');
     reserveParallelAnalysis(context.budget, commandsModeWork(commands));
-    const nestedOverrides = buildCommandsModeOverrides(executionContext, runsRemotely);
-    for (const command of commands) {
-      const reason = context.analyzeNested(command, nestedOverrides);
-      if (reason) {
-        return reason;
-      }
-    }
-    return null;
-  }
-
-  for (const childCommand of normalizeChildCommands(template, executionContext)) {
-    const result = analyzeParallelChildCommand(
-      childCommand,
-      parseResult,
-      context,
-      executionContext,
+    const nestedOverrides = buildNestedOverrides(
+      executionContext.envAssignments,
+      executionContext.cwd,
+      runsRemotely,
     );
-    if (result) return result;
+    return firstMatch(commands, (command) => context.analyzeNested(command, nestedOverrides));
   }
 
-  return null;
+  return firstMatch(normalizeChildCommands(template, executionContext), (childCommand) =>
+    analyzeParallelChildCommand(childCommand, parseResult, context, executionContext),
+  );
 }
 
 function analyzeParallelChildCommand(
@@ -226,6 +250,11 @@ function analyzeParallelChildCommand(
 ): DestructiveCommandRuleMatch | null {
   const { jobs, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult;
   const childTokens = childCommand.tokens;
+  const childContext = {
+    ...executionContext,
+    cwd: childCommand.cwd,
+    envAssignments: childCommand.envAssignments,
+  };
   const dynamicEnvValues = getParallelDynamicEnvValues(
     envNames,
     context.envAssignments,
@@ -249,18 +278,12 @@ function analyzeParallelChildCommand(
     const analyzeExpandedShellArgv = () => {
       if (!templateHasPlaceholder || jobs.length === 0) return null;
       reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, 'generic'));
-      for (const job of jobs) {
-        const result = analyzeChildCommandMatch(
+      return firstMatch(jobs, (job) =>
+        analyzeChildCommandMatch(
           childTokens.map((token) => replaceParallelJobPlaceholder(token, job)),
-          {
-            ...executionContext,
-            cwd: childCommand.cwd,
-            envAssignments: childCommand.envAssignments,
-          },
-        );
-        if (result) return result;
-      }
-      return null;
+          childContext,
+        ),
+      );
     };
     if (isShellSyntaxCheck(childTokens)) return analyzeExpandedShellArgv();
     const dashCArg = extractDashCArg(childTokens);
@@ -270,29 +293,19 @@ function analyzeParallelChildCommand(
         const reason = parallelShellDynamicReason(context);
         if (reason) return reason;
         if (jobs.length === 0) return null;
-        reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, 'generic'));
-        for (const job of jobs) {
-          const nestedReason = context.analyzeNested(
-            replaceParallelJobPlaceholder(dashCArg, job),
-            nestedOverrides,
-          );
-          if (nestedReason) return nestedReason;
-        }
-        return null;
+        reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs));
+        return firstMatch(jobs, (job) =>
+          context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides),
+        );
       }
       // If script contains placeholder
       if (hasParallelPlaceholder(dashCArg)) {
         if (jobs.length > 0) {
           // Expand with actual args and analyze
-          reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs, 'generic'));
-          for (const job of jobs) {
-            const expandedScript = replaceParallelJobPlaceholder(dashCArg, job);
-            const reason = context.analyzeNested(expandedScript, nestedOverrides);
-            if (reason) {
-              return reason;
-            }
-          }
-          return null;
+          reserveParallelAnalysis(context.budget, expandedStringJobWork(dashCArg, jobs));
+          return firstMatch(jobs, (job) =>
+            context.analyzeNested(replaceParallelJobPlaceholder(dashCArg, job), nestedOverrides),
+          );
         }
         // Stdin mode with placeholder - analyze the script template
         // Check if the script pattern is dangerous (e.g., rm -rf {})
@@ -309,25 +322,17 @@ function analyzeParallelChildCommand(
           }
         }
         const dynamicReason = scriptTokens
-          ? analyzeChildCommandMatch(
-              scriptTokens,
-              {
-                ...executionContext,
-                cwd: childCommand.cwd,
-                envAssignments: childCommand.envAssignments,
-              },
-              {
-                dynamicInput: usesStdin,
-                shellDynamicMatch: destructiveCommandMatch(
-                  'parallel.shell-dynamic',
-                  REASON_PARALLEL_SHELL,
-                ),
-                rmDynamicMatch: destructiveCommandMatch(
-                  'parallel.rm-recursive-force-dynamic',
-                  REASON_PARALLEL_RM,
-                ),
-              },
-            )
+          ? analyzeChildCommandMatch(scriptTokens, childContext, {
+              dynamicInput: usesStdin,
+              shellDynamicMatch: destructiveCommandMatch(
+                'parallel.shell-dynamic',
+                REASON_PARALLEL_SHELL,
+              ),
+              rmDynamicMatch: destructiveCommandMatch(
+                'parallel.rm-recursive-force-dynamic',
+                REASON_PARALLEL_RM,
+              ),
+            })
           : null;
         if (dynamicReason) {
           return dynamicReason;
@@ -358,11 +363,9 @@ function analyzeParallelChildCommand(
       );
       if (literalPositionalSources.length > 0) {
         reserveParallelAnalysis(context.budget, commandsModeWork(literalPositionalSources));
-        for (const source of literalPositionalSources) {
-          const reason = context.analyzeNested(source, nestedOverrides);
-          if (reason) return reason;
-        }
-        return null;
+        return firstMatch(literalPositionalSources, (source) =>
+          context.analyzeNested(source, nestedOverrides),
+        );
       }
       reserveParallelAnalysis(
         context.budget,
@@ -427,11 +430,7 @@ function analyzeParallelChildCommand(
       if (templateHasPlaceholder) return null;
       const sources = jobs.flatMap((job) => (job[0] === undefined ? [] : [job[0]]));
       reserveParallelAnalysis(context.budget, commandsModeWork(sources));
-      for (const source of sources) {
-        const nestedReason = context.analyzeNested(source, nestedOverrides);
-        if (nestedReason) return nestedReason;
-      }
-      return null;
+      return firstMatch(sources, (source) => context.analyzeNested(source, nestedOverrides));
     }
     // Stdin provides the script - dangerous
     if (hasPlaceholder || usesStdin) {
@@ -446,29 +445,21 @@ function analyzeParallelChildCommand(
     if (templateHasPlaceholder && jobs.length > 0) {
       // Expand template with each arg and analyze
       reserveParallelAnalysis(context.budget, expandedTokenJobWork(childTokens, jobs, 'rm'));
-      for (const job of jobs) {
-        const result = analyzeParallelRmExpansion(
+      return firstMatch(jobs, (job) =>
+        analyzeParallelRmExpansion(
           childTokens.map((token) => replaceParallelRmJobPlaceholder(token, job)),
           childCommand.cwd,
           executionContext,
-        );
-        if (result) return result;
-      }
-      return null;
+        ),
+      );
     }
     // No placeholder or no args - analyze template as-is
     // If there are args (from :::), they get appended, analyze each expansion
     if (jobs.length > 0) {
       reserveParallelAnalysis(context.budget, appendedTokenJobWork(childTokens, jobs));
-      for (const job of jobs) {
-        const result = analyzeParallelRmExpansion(
-          [...childTokens, ...job],
-          childCommand.cwd,
-          executionContext,
-        );
-        if (result) return result;
-      }
-      return null;
+      return firstMatch(jobs, (job) =>
+        analyzeParallelRmExpansion([...childTokens, ...job], childCommand.cwd, executionContext),
+      );
     }
     const staticResult = analyzeParallelRmExpansion(
       childTokens.flatMap((token, index) => {
@@ -491,7 +482,7 @@ function analyzeParallelChildCommand(
         : staticTokenWork(childTokens),
   );
   const childJobs: readonly (ParallelJob | undefined)[] = jobs.length > 0 ? jobs : [undefined];
-  for (const job of childJobs) {
+  return firstMatch(childJobs, (job) => {
     const tokens =
       job === undefined
         ? childTokens
@@ -515,25 +506,28 @@ function analyzeParallelChildCommand(
       ) ??
       findDynamicInput?.customResult ??
       null;
-    const dynamicInput = parallelDynamicInputAnalysis(
-      tokens,
-      childCommand.head,
-      usesStdin,
-      findDynamicInput,
-    );
+    const normalizedHead = normalizeCommandToken(childCommand.head);
+    const dynamicRmInput =
+      usesStdin &&
+      ((normalizedHead === 'rm' && parallelInputCanChangeRmOptions(tokens)) ||
+        (normalizedHead === 'xargs' && nestedRmInputCanChangeOptions(tokens)) ||
+        findDynamicInput?.rmOptions === true);
+    const dynamicSourceInput =
+      usesStdin &&
+      (dynamicRmInput ||
+        findDynamicInput?.executedSource === true ||
+        (findDynamicInput === null &&
+          parallelInputCanChangeExecutedSource(tokens, normalizedHead)));
     const result = analyzeChildCommandMatch(
       tokens,
       {
-        ...executionContext,
-        cwd: childCommand.cwd,
-        envAssignments: childCommand.envAssignments,
+        ...childContext,
         worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
       },
       {
         dynamicInput: usesStdin || hasPlaceholder,
-        dynamicRmInput: dynamicInput.rmOptions,
-        dynamicSourceInput:
-          dynamicCustomResult !== null || dynamicInput.executedSource || dynamicInput.rmOptions,
+        dynamicRmInput,
+        dynamicSourceInput: dynamicCustomResult !== null || dynamicSourceInput,
         shellDynamicMatch,
         dynamicSourceMatch: shellDynamicMatch,
         rmDynamicMatch: destructiveCommandMatch(
@@ -544,40 +538,14 @@ function analyzeParallelChildCommand(
     );
     // Prefer the parallel dynamic-source rule when stdin/placeholders can change executable
     // source selection, even if a nested analyzer (e.g. awk.system-dynamic) also matches.
-    if (dynamicInput.executedSource) {
+    if (dynamicSourceInput) {
       const parallelDynamic = filterDestructiveCommandMatch(shellDynamicMatch, context.policy);
       if (parallelDynamic) return parallelDynamic;
     }
-    if (result) {
-      return result;
-    }
-    if (dynamicCustomResult) return dynamicCustomResult;
-    const customResult = checkPolicyRuleMatch(tokens, context.policy?.rules ?? []);
-    if (customResult) return customResult;
-  }
-
-  return null;
-}
-
-function parallelDynamicInputAnalysis(
-  tokens: readonly string[],
-  childHead: string,
-  usesStdin: boolean,
-  findAnalysis: DynamicParallelFindAnalysis | null,
-): { executedSource: boolean; rmOptions: boolean } {
-  if (!usesStdin) return { executedSource: false, rmOptions: false };
-  const normalizedHead = normalizeCommandToken(childHead);
-  const rmOptions =
-    (normalizedHead === 'rm' && parallelInputCanChangeRmOptions(tokens)) ||
-    (normalizedHead === 'xargs' && nestedRmInputCanChangeOptions(tokens)) ||
-    findAnalysis?.rmOptions === true;
-  return {
-    executedSource:
-      rmOptions ||
-      findAnalysis?.executedSource === true ||
-      (findAnalysis === null && parallelInputCanChangeExecutedSource(tokens, normalizedHead)),
-    rmOptions,
-  };
+    return (
+      result ?? dynamicCustomResult ?? checkPolicyRuleMatch(tokens, context.policy?.rules ?? [])
+    );
+  });
 }
 
 function parallelInputCanChangeExecutedSource(
@@ -592,12 +560,14 @@ function parallelInputCanChangeExecutedSource(
     return gitInputCanChangeProtectedOperation(tokens);
   }
   if (childHead === 'find') return true;
-  if (AWK_INTERPRETERS.has(childHead)) {
-    return awkInputCanChangeExecutedSource(tokens);
-  }
-  if (isInterpreterCommand(childHead)) {
-    return interpreterInputCanChangeExecutedSource(tokens);
-  }
+  if (AWK_INTERPRETERS.has(childHead))
+    return executableSourceCanChange(tokens, AWK_SOURCE_OPTION_INPUTS, extractAwkExecutableSources);
+  if (isInterpreterCommand(childHead))
+    return executableSourceCanChange(
+      tokens,
+      INTERPRETER_SOURCE_OPTION_INPUTS,
+      extractInterpreterExecutableSources,
+    );
   return false;
 }
 
@@ -656,46 +626,18 @@ function shellArgvHasParallelSource(tokens: readonly string[]): boolean {
   return !tokens.some(hasParallelPlaceholder);
 }
 
-function awkInputCanChangeExecutedSource(tokens: readonly string[]): boolean {
-  const sources = extractAwkExecutableSources(tokens);
-  if (sources.some((source) => hasParallelPlaceholder(source.value))) return true;
-  if (!tokens.some(hasParallelPlaceholder)) {
-    return extractAwkExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some(
-      (source) => source.value === PARALLEL_APPENDED_SOURCE,
-    );
-  }
-  return inputCanCreateExecutableSource(
-    tokens,
-    sources,
-    AWK_SOURCE_OPTION_INPUTS,
-    extractAwkExecutableSources,
-  );
-}
-
-function interpreterInputCanChangeExecutedSource(tokens: readonly string[]): boolean {
-  const sources = extractInterpreterExecutableSources(tokens);
-  if (sources.some((source) => hasParallelPlaceholder(source.value))) return true;
-  if (!tokens.some(hasParallelPlaceholder)) {
-    return extractInterpreterExecutableSources([...tokens, PARALLEL_APPENDED_SOURCE]).some(
-      (source) => source.value === PARALLEL_APPENDED_SOURCE,
-    );
-  }
-  return inputCanCreateExecutableSource(
-    tokens,
-    sources,
-    INTERPRETER_SOURCE_OPTION_INPUTS,
-    extractInterpreterExecutableSources,
-  );
-}
-
-function inputCanCreateExecutableSource<
-  T extends { kind: string; tokenIndex: number; value: string },
->(
+function executableSourceCanChange<T extends { kind: string; tokenIndex: number; value: string }>(
   tokens: readonly string[],
-  existingSources: readonly T[],
   candidates: readonly string[],
   extractSources: (tokens: readonly string[]) => readonly T[],
 ): boolean {
+  const existingSources = extractSources(tokens);
+  if (existingSources.some((source) => hasParallelPlaceholder(source.value))) return true;
+  if (!tokens.some(hasParallelPlaceholder)) {
+    return extractSources([...tokens, PARALLEL_APPENDED_SOURCE]).some(
+      (source) => source.value === PARALLEL_APPENDED_SOURCE,
+    );
+  }
   const existing = new Set(
     existingSources.map((source) => `${source.tokenIndex}\0${source.kind}\0${source.value}`),
   );
@@ -721,31 +663,27 @@ function matchDynamicParallelPolicyRule(
   reserveParallelAnalysis(budget, dynamicCustomRuleWork(tokens, relevantRules, hasPlaceholder));
 
   if (!hasPlaceholder) {
-    for (const rule of relevantRules) {
-      const result = checkPolicyRuleMatch(
+    return firstMatch(relevantRules, (rule) =>
+      checkPolicyRuleMatch(
         [...tokens, ...(rule.subcommand ? [rule.subcommand] : []), ...rule.block_args],
         [rule],
-      );
-      if (result) return result;
-    }
-    return null;
+      ),
+    );
   }
 
-  for (const rule of relevantRules) {
+  return firstMatch(relevantRules, (rule) => {
     const inputCandidates = new Set(
       [rule.subcommand, ...rule.block_args].flatMap((target) =>
         target ? parallelInputsThatProduce(tokens, target) : [],
       ),
     );
-    for (const input of inputCandidates) {
-      const result = checkPolicyRuleMatch(
+    return firstMatch(inputCandidates, (input) =>
+      checkPolicyRuleMatch(
         tokens.map((token) => replaceParallelJobPlaceholder(token, [input])),
         [rule],
-      );
-      if (result) return result;
-    }
-  }
-  return null;
+      ),
+    );
+  });
 }
 
 function dynamicCustomRuleWork(
@@ -873,41 +811,24 @@ function nestedRmInputCanChangeOptions(tokens: readonly string[]): boolean {
   );
 }
 
-function parallelShellDynamicReason(
-  context: ParallelAnalyzeContext,
-): DestructiveCommandRuleMatch | null {
-  return filterDestructiveCommandMatch(
-    destructiveCommandMatch('parallel.shell-dynamic', REASON_PARALLEL_SHELL),
-    context.policy,
-  );
+function parallelReason(ruleId: DestructiveCommandRuleId, reason: string) {
+  return (context: ParallelAnalyzeContext): DestructiveCommandRuleMatch | null =>
+    filterDestructiveCommandMatch(destructiveCommandMatch(ruleId, reason), context.policy);
 }
 
-function parallelCommandStreamDynamicReason(
-  context: ParallelAnalyzeContext,
-): DestructiveCommandRuleMatch | null {
-  return filterDestructiveCommandMatch(
-    destructiveCommandMatch('parallel.command-stream-dynamic', REASON_PARALLEL_COMMAND_STREAM),
-    context.policy,
-  );
-}
-
-function parallelUnsupportedReason(
-  context: ParallelAnalyzeContext,
-): DestructiveCommandRuleMatch | null {
-  return filterDestructiveCommandMatch(
-    destructiveCommandMatch('parallel.command-stream-dynamic', REASON_PARALLEL_UNSUPPORTED),
-    context.policy,
-  );
-}
-
-function parallelRmDynamicReason(
-  context: ParallelAnalyzeContext,
-): DestructiveCommandRuleMatch | null {
-  return filterDestructiveCommandMatch(
-    destructiveCommandMatch('parallel.rm-recursive-force-dynamic', REASON_PARALLEL_RM),
-    context.policy,
-  );
-}
+const parallelShellDynamicReason = parallelReason('parallel.shell-dynamic', REASON_PARALLEL_SHELL);
+const parallelCommandStreamDynamicReason = parallelReason(
+  'parallel.command-stream-dynamic',
+  REASON_PARALLEL_COMMAND_STREAM,
+);
+const parallelUnsupportedReason = parallelReason(
+  'parallel.command-stream-dynamic',
+  REASON_PARALLEL_UNSUPPORTED,
+);
+const parallelRmDynamicReason = parallelReason(
+  'parallel.rm-recursive-force-dynamic',
+  REASON_PARALLEL_RM,
+);
 
 function analyzeParallelRmExpansion(
   tokens: string[],
@@ -959,11 +880,7 @@ function commandsModeWork(args: readonly string[]): ParallelAnalysisReservation 
 }
 
 function staticStringWork(value: string): ParallelAnalysisReservation {
-  return {
-    childAnalyses: 1,
-    derivedTokens: 1,
-    derivedBytes: limitedValue(utf8ByteLength(value), PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes),
-  };
+  return staticTokenWork([value]);
 }
 
 function staticTokenWork(tokens: readonly string[]): ParallelAnalysisReservation {
@@ -1007,42 +924,8 @@ function appendedTokenJobWork(
 function expandedStringJobWork(
   value: string,
   jobs: readonly ParallelJob[],
-  placeholderKind: PlaceholderKind,
 ): ParallelAnalysisReservation {
-  if (jobs.length > PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses) {
-    return { childAnalyses: jobs.length };
-  }
-  const stats = getReplacementStats(value, placeholderKind);
-  const placeholderReplacements = limitedMultiply(
-    stats.occurrences,
-    jobs.length,
-    PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements,
-  );
-  if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
-    return { childAnalyses: jobs.length, placeholderReplacements };
-  }
-  if (expandedJobBytesExceedLimit(stats, jobs, placeholderReplacements)) {
-    return {
-      childAnalyses: jobs.length,
-      derivedTokens: jobs.length,
-      derivedBytes: PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes + 1,
-      placeholderReplacements,
-    };
-  }
-  let derivedBytes = 0;
-  for (const job of jobs) {
-    derivedBytes = limitedAdd(
-      [derivedBytes, utf8ByteLength(replaceParallelJobPlaceholder(value, job))],
-      PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
-    );
-    if (derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) break;
-  }
-  return {
-    childAnalyses: jobs.length,
-    derivedTokens: jobs.length,
-    derivedBytes,
-    placeholderReplacements,
-  };
+  return expandedTokenJobWork([value], jobs, 'generic');
 }
 
 function expandedTokenJobWork(
@@ -1080,23 +963,12 @@ function expandedTokenJobWork(
       placeholderReplacements,
     };
   }
-  let derivedBytes = 0;
-  outer: for (const job of jobs) {
-    for (const token of tokens) {
-      derivedBytes = limitedAdd(
-        [
-          derivedBytes,
-          utf8ByteLength(
-            placeholderKind === 'generic'
-              ? replaceParallelJobPlaceholder(token, job)
-              : replaceParallelRmJobPlaceholder(token, job),
-          ),
-        ],
-        PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
-      );
-      if (derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) break outer;
-    }
-  }
+  const replace =
+    placeholderKind === 'generic' ? replaceParallelJobPlaceholder : replaceParallelRmJobPlaceholder;
+  const derivedBytes = limitedAdd(
+    jobs.map((job) => sumUtf8Bytes(tokens.map((token) => replace(token, job)))),
+    PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
+  );
   return {
     childAnalyses: jobs.length,
     derivedTokens,
@@ -1136,18 +1008,19 @@ function dynamicEnvJobWork(
   jobs: readonly ParallelJob[],
 ): ParallelAnalysisReservation {
   const dynamicEntries = entries.filter((entry) => entry.hasPlaceholder);
+  const jobCount = Math.max(jobs.length, 1);
   const dynamicValueCount = limitedAdd(
     dynamicEntries.map((entry) => entry.frequency),
     PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses,
   );
   const childAnalyses = limitedMultiply(
     dynamicValueCount,
-    Math.max(jobs.length, 1),
+    jobCount,
     PARALLEL_ANALYSIS_LIMITS.maxChildAnalyses,
   );
   const derivedTokens = limitedMultiply(
     dynamicValueCount,
-    Math.max(jobs.length, 1),
+    jobCount,
     PARALLEL_ANALYSIS_LIMITS.maxDerivedTokens,
   );
   if (
@@ -1179,7 +1052,7 @@ function dynamicEnvJobWork(
   );
   const placeholderReplacements = limitedMultiply(
     stats.occurrences,
-    Math.max(jobs.length, 1),
+    jobCount,
     PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements,
   );
   if (placeholderReplacements > PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
@@ -1193,24 +1066,16 @@ function dynamicEnvJobWork(
       placeholderReplacements,
     };
   }
-  let derivedBytes = 0;
-  outer: for (const entry of dynamicEntries) {
-    for (let index = 0; index < entry.frequency; index++) {
-      const valueJobs: readonly (ParallelJob | undefined)[] = jobs.length > 0 ? jobs : [undefined];
-      for (const job of valueJobs) {
-        derivedBytes = limitedAdd(
-          [
-            derivedBytes,
-            utf8ByteLength(
-              job === undefined ? entry.value : replaceParallelJobPlaceholder(entry.value, job),
-            ),
-          ],
-          PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
-        );
-        if (derivedBytes > PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes) break outer;
-      }
-    }
-  }
+  const derivedBytes = limitedAdd(
+    dynamicEntries.map((entry) =>
+      limitedMultiply(
+        sumUtf8Bytes(jobs.map((job) => replaceParallelJobPlaceholder(entry.value, job))),
+        entry.frequency,
+        PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
+      ),
+    ),
+    PARALLEL_ANALYSIS_LIMITS.maxDerivedBytes,
+  );
   return {
     childAnalyses,
     derivedTokens,
@@ -1248,25 +1113,32 @@ function getReplacementStats(value: string, placeholderKind: PlaceholderKind): R
     placeholderKind === 'generic'
       ? value.matchAll(/\{[^{}\s]*\}/g)
       : value.matchAll(PARALLEL_RM_PLACEHOLDER_RE);
-  const parts: string[] = [];
+  let occurrences = 0;
+  let fixedBytes = 0;
   let lastIndex = 0;
   for (const match of matches) {
-    if (parts.length >= PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
+    if (occurrences >= PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements) {
       return {
         occurrences: PARALLEL_ANALYSIS_LIMITS.maxPlaceholderReplacements + 1,
         fixedBytes: 0,
       };
     }
-    parts.push(value.slice(lastIndex, match.index));
+    fixedBytes = limitedAdd(
+      [fixedBytes, utf8ByteLength(value.slice(lastIndex, match.index))],
+      MAX_EXPANDED_BYTE_OVERCOUNT,
+    );
+    occurrences++;
     lastIndex = match.index + match[0].length;
   }
-  parts.push(value.slice(lastIndex));
   return {
-    occurrences: parts.length - 1,
+    occurrences,
     fixedBytes:
-      parts.length === 1
+      occurrences === 0
         ? utf8ByteLength(value)
-        : limitedAdd(parts.map(utf8ByteLength), MAX_EXPANDED_BYTE_OVERCOUNT),
+        : limitedAdd(
+            [fixedBytes, utf8ByteLength(value.slice(lastIndex))],
+            MAX_EXPANDED_BYTE_OVERCOUNT,
+          ),
   };
 }
 
@@ -1329,10 +1201,6 @@ function limitedMultiply(left: number, right: number, limit: number): number {
   return left * right;
 }
 
-function limitedValue(value: number, limit: number): number {
-  return Number.isSafeInteger(value) && value >= 0 && value <= limit ? value : limit + 1;
-}
-
 function getParallelDynamicEnvValues(
   envNames: readonly string[],
   contextEnvAssignments: ReadonlyMap<string, string> | undefined,
@@ -1370,25 +1238,17 @@ function analyzeParallelDynamicEnvValues(
   context: ParallelAnalyzeContext,
   runsRemotely: boolean,
 ): DestructiveCommandRuleMatch | null {
-  for (const value of values.values) {
-    if (!values.byValue.get(value)?.hasPlaceholder) {
-      continue;
-    }
-
+  return firstMatch(values.values, (value) => {
+    if (!values.byValue.get(value)?.hasPlaceholder) return null;
     const valueJobs: readonly (ParallelJob | undefined)[] = jobs.length > 0 ? jobs : [undefined];
-    for (const job of valueJobs) {
+    return firstMatch(valueJobs, (job) => {
       const command = job === undefined ? value : replaceParallelJobPlaceholder(value, job);
-      const reason = context.analyzeNested(command, {
+      return context.analyzeNested(command, {
         envAssignments: context.envAssignments,
         effectiveCwd: runsRemotely ? null : context.cwd,
       });
-      if (reason) {
-        return reason;
-      }
-    }
-  }
-
-  return null;
+    });
+  });
 }
 
 /** @internal */
@@ -1407,11 +1267,12 @@ export function estimateParallelDynamicEnvWork(
 }
 
 function buildNestedOverrides(
-  envAssignments: ReadonlyMap<string, string>,
+  envAssignments: ReadonlyMap<string, string> | undefined,
   cwd: string | null | undefined,
   runsRemotely: boolean,
-): AnalyzeNestedOverrides {
-  const overrides: AnalyzeNestedOverrides = { envAssignments };
+): AnalyzeNestedOverrides | undefined {
+  const overrides: AnalyzeNestedOverrides = {};
+  if (envAssignments) overrides.envAssignments = envAssignments;
   if (runsRemotely) {
     overrides.effectiveCwd = null;
     overrides.worktreeMode = false;
@@ -1419,24 +1280,6 @@ function buildNestedOverrides(
   }
   if (cwd !== undefined) {
     overrides.effectiveCwd = cwd;
-  }
-  return overrides;
-}
-
-function buildCommandsModeOverrides(
-  context: ParallelAnalyzeContext,
-  runsRemotely: boolean,
-): AnalyzeNestedOverrides | undefined {
-  const overrides: AnalyzeNestedOverrides = {};
-  if (context.envAssignments) {
-    overrides.envAssignments = context.envAssignments;
-  }
-  if (runsRemotely) {
-    overrides.effectiveCwd = null;
-    overrides.worktreeMode = false;
-  }
-  if (!runsRemotely && context.cwd !== undefined) {
-    overrides.effectiveCwd = context.cwd;
   }
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
@@ -1505,27 +1348,7 @@ function isOnlyParallelPlaceholder(token: string): boolean {
   return /^\{[^{}\s]*\}$/.test(token);
 }
 
-function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | null {
-  // Options that take a value as the next token
-  const parallelOptsWithValue = new Set([
-    '-L',
-    '-d',
-    '-n',
-    '--delay',
-    '--delimiter',
-    '--header',
-    '--joblog',
-    '--jl',
-    '--max-args',
-    '--max-lines',
-    '--nice',
-    '--results',
-    '--result',
-    '--res',
-    '--tagstring',
-    '--timeout',
-  ]);
-
+function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
   let i = 1;
   const templateTokens: string[] = [];
   let childCommandTokens: string[] = [];
@@ -1558,169 +1381,90 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
       break;
     }
 
-    if (token.startsWith('-')) {
-      if (token === '--dry-run') {
-        dryRun = true;
-        i++;
-        continue;
-      }
-
-      if (token === '-I') {
-        unsupported ||= tokens[i + 1] !== '{}';
-        i += 2;
-        continue;
-      }
-
-      if (token.startsWith('-I') && token.length > 2) {
-        unsupported ||= token.slice(2) !== '{}';
-        i++;
-        continue;
-      }
-
-      if (token === '--replace' || token === '-i') {
-        unsupported = true;
-        i += 2;
-        continue;
-      }
-
-      if (token.startsWith('--replace=') || (token.startsWith('-i') && token.length > 2)) {
-        const replacement = token.startsWith('--replace=')
-          ? token.slice('--replace='.length)
-          : token.slice(2);
-        unsupported ||= replacement !== '' && replacement !== '{}';
-        i++;
-        continue;
-      }
-
-      if (
-        token === '-a' ||
-        token === '--arg-file' ||
-        token === '--colsep' ||
-        token === '--rpl' ||
-        token === '--arg-sep' ||
-        token === '--arg-file-sep'
-      ) {
-        unsupported = true;
-        i += 2;
-        continue;
-      }
-
-      if (
-        token.startsWith('--arg-file=') ||
-        token.startsWith('--colsep=') ||
-        token.startsWith('--rpl=') ||
-        token.startsWith('--arg-sep=') ||
-        token.startsWith('--arg-file-sep=')
-      ) {
-        unsupported = true;
-        i++;
-        continue;
-      }
-
-      if (token === '--pipe' || token === '--pipepart') {
-        usesPipe = true;
-        i++;
-        continue;
-      }
-
-      if (token === '--env') {
-        envNames.push(...splitParallelEnvNames(tokens[i + 1]));
-        i += 2;
-        continue;
-      }
-
-      if (token.startsWith('--env=')) {
-        envNames.push(...splitParallelEnvNames(token.slice('--env='.length)));
-        i++;
-        continue;
-      }
-
-      if (
-        token === '-S' ||
-        token === '--sshlogin' ||
-        token === '--slf' ||
-        token === '--sshloginfile'
-      ) {
-        runsRemotely = true;
-        i += 2;
-        continue;
-      }
-
-      if (token.startsWith('-S') && token.length > 2) {
-        runsRemotely = true;
-        i++;
-        continue;
-      }
-
-      if (token === '--workdir' || token === '--wd') {
-        const value = tokens[i + 1];
-        if (value === undefined || value === ':::' || value === '--') {
-          unsupported = true;
-          i++;
-          continue;
-        }
-        workdir = value;
-        i += 2;
-        continue;
-      }
-
-      if (token.startsWith('--workdir=') || token.startsWith('--wd=')) {
-        const value = token.slice(token.indexOf('=') + 1);
-        unsupported ||= value === '';
-        workdir = value;
-        i++;
-        continue;
-      }
-
-      if (
-        token.startsWith('--sshlogin=') ||
-        token.startsWith('--slf=') ||
-        token.startsWith('--sshloginfile=')
-      ) {
-        runsRemotely = true;
-        i++;
-        continue;
-      }
-
-      // Handle -jN attached option
-      if (token.startsWith('-j') && token.length > 2 && /^\d+$/.test(token.slice(2))) {
-        i++;
-        continue;
-      }
-
-      // Handle --option=value
-      if (token.startsWith('--') && token.includes('=')) {
-        i++;
-        continue;
-      }
-
-      // Handle options that take a value
-      if (parallelOptsWithValue.has(token)) {
-        if (tokens[i + 1] === undefined || tokens[i + 1] === ':::' || tokens[i + 1] === '--') {
-          unsupported = true;
-          i++;
-          continue;
-        }
-        i += 2;
-        continue;
-      }
-
-      // Handle -j as separate option
-      if (token === '-j' || token === '--jobs') {
-        i += 2;
-        continue;
-      }
-
-      // Unknown option - skip it
-      i++;
-    } else {
-      // Start of template
+    if (!token.startsWith('-')) {
       const template = collectCommandTemplate(tokens, i);
       templateTokens.push(...template.templateTokens);
       childCommandTokens = [...tokens.slice(i)];
       markerIndex = template.markerIndex;
       break;
     }
+
+    const nextToken = tokens[i + 1];
+    const equalsIndex = token.indexOf('=');
+    const optionName = equalsIndex === -1 ? token : token.slice(0, equalsIndex);
+    const attachedValue = equalsIndex === -1 ? undefined : token.slice(equalsIndex + 1);
+
+    if (token === '--dry-run') {
+      dryRun = true;
+      i++;
+      continue;
+    }
+    if (token === '-I' || (token.startsWith('-I') && token.length > 2)) {
+      unsupported ||= (token === '-I' ? nextToken : token.slice(2)) !== '{}';
+      i += token === '-I' ? 2 : 1;
+      continue;
+    }
+    if (token === '--replace' || token === '-i') {
+      unsupported = true;
+      i += 2;
+      continue;
+    }
+    if (optionName === '--replace' || (token.startsWith('-i') && token.length > 2)) {
+      const replacement = optionName === '--replace' ? attachedValue : token.slice(2);
+      unsupported ||= replacement !== '' && replacement !== '{}';
+      i++;
+      continue;
+    }
+    if (token === '-a' || PARALLEL_UNSUPPORTED_INPUT_OPTIONS.has(optionName)) {
+      unsupported = true;
+      i += attachedValue === undefined ? 2 : 1;
+      continue;
+    }
+    if (token === '--pipe' || token === '--pipepart') {
+      usesPipe = true;
+      i++;
+      continue;
+    }
+    if (optionName === '--env') {
+      envNames.push(...splitParallelEnvNames(attachedValue ?? nextToken));
+      i += attachedValue === undefined ? 2 : 1;
+      continue;
+    }
+    if (PARALLEL_REMOTE_OPTIONS.has(optionName) || (token.startsWith('-S') && token.length > 2)) {
+      runsRemotely = true;
+      i += PARALLEL_REMOTE_OPTIONS.has(token) ? 2 : 1;
+      continue;
+    }
+    if (PARALLEL_WORKDIR_OPTIONS.has(optionName)) {
+      const value = attachedValue ?? nextToken;
+      if (value === undefined || value === ':::' || value === '--') {
+        unsupported = true;
+        i++;
+        continue;
+      }
+      workdir = value;
+      unsupported ||= attachedValue !== undefined && value === '';
+      i += attachedValue === undefined ? 2 : 1;
+      continue;
+    }
+    if (token.startsWith('-j') && token.length > 2 && /^\d+$/.test(token.slice(2))) {
+      i++;
+      continue;
+    }
+    if (token.startsWith('--') && attachedValue !== undefined) {
+      i++;
+      continue;
+    }
+    if (PARALLEL_OPTIONS_WITH_VALUE.has(token)) {
+      if (nextToken === undefined || nextToken === ':::' || nextToken === '--') {
+        unsupported = true;
+        i++;
+        continue;
+      }
+      i += 2;
+      continue;
+    }
+    i += token === '-j' || token === '--jobs' ? 2 : 1;
   }
 
   unsupported ||= templateTokens.some(
@@ -1746,25 +1490,8 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
   }
   const jobs = expandParallelJobs(argumentGroups);
 
-  // Determine if template has placeholder
   const templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
-
-  // If no template and no marker, stdin or arg files provide executable commands.
-  if (templateTokens.length === 0 && markerIndex === -1) {
-    return {
-      template: [],
-      jobs: [],
-      childCommandTokens: [],
-      templateHasPlaceholder: false,
-      runsRemotely,
-      usesStdin: true,
-      envNames,
-      readsCommandsFromInput: true,
-      unsupported,
-      workdir,
-      dryRun,
-    };
-  }
+  const readsCommandsFromInput = templateTokens.length === 0 && markerIndex === -1;
 
   return {
     template: templateTokens,
@@ -1774,7 +1501,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult | 
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
     envNames,
-    readsCommandsFromInput: false,
+    readsCommandsFromInput,
     unsupported,
     workdir,
     dryRun,
@@ -1836,5 +1563,5 @@ function splitParallelEnvNames(value: string | undefined): string[] {
 
 /** @internal - exported for test coverage */
 export function extractParallelChildCommand(tokens: readonly string[]): string[] {
-  return parseParallelCommand(tokens)?.childCommandTokens ?? [];
+  return parseParallelCommand(tokens).childCommandTokens;
 }
