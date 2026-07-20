@@ -513,6 +513,18 @@ describe('secret protection command target extraction', () => {
         cwd,
       ),
     ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(
+        `node -e "console.log(require('fs').readFileSync('private.sqlite'))"`,
+        cwd,
+      ),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(`node -e 'require("fs").readFileSync(\`.env\`)'`, cwd),
+    ).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand(`node -e 'require("child_process").execSync("cat .env")'`, cwd),
+    ).not.toBeNull();
     expect(findSensitiveTargetInCommand(`ruby -e 'puts File.read(".env")'`, cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand(`python3.11 -c "open('.env')"`, cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand('bash -c "cat .env"', cwd)).not.toBeNull();
@@ -562,6 +574,18 @@ describe('secret protection command target extraction', () => {
     expect(
       findSensitiveTargetInCommand(
         `python3 -c "import base64; print(base64.b64decode('UkVBRE1FLm1k').decode())"`,
+        cwd,
+      ),
+    ).toBeNull();
+  });
+
+  test('allows runtime metadata probes whose property names resemble sensitive extensions', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(
+      findSensitiveTargetInCommand(
+        `/opt/homebrew/bin/node -e 'const { DatabaseSync } = require("node:sqlite"); const database = new DatabaseSync(":memory:"); database.exec("CREATE VIRTUAL TABLE probe USING fts5(value)"); console.log(JSON.stringify({ node: process.versions.node, sqlite: process.versions.sqlite, limits: typeof database.limits })); database.close()'
+for runtime in /Users/kenryu/.nvm/versions/node/v26.0.0/bin/node /Users/kenryu/.nvm/versions/node/v26.3.0/bin/node; do "$runtime" -e 'console.log(JSON.stringify({ node: process.versions.node, sqlite: process.versions.sqlite }))'; done`,
         cwd,
       ),
     ).toBeNull();

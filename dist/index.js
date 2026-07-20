@@ -15438,7 +15438,7 @@ function extractAwkGetlineRedirectTargets(code) {
   return Array.from(code.matchAll(/\bgetline(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*<\s*"((?:\\.|[^"\\])*)"/g)).map((match) => match[1]).filter((value) => value !== void 0 && value !== "");
 }
 function extractPathLiteralsFromCode(code) {
-  let quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== void 0 && value !== ""), bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
+  let quoted = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g)).map((match) => match[2]).filter((value) => value !== void 0 && value !== ""), bare = (code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? []).filter((candidate) => candidate !== "process.versions.sqlite" || quoted.some((literal) => literal.includes(candidate)));
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 function extractCommandSubstitutionPathTargets(command2, store) {

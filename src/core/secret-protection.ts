@@ -777,16 +777,18 @@ function extractAwkGetlineRedirectTargets(code: string): string[] {
     .filter((value): value is string => value !== undefined && value !== '');
 }
 
-// Pulls candidate paths out of an interpreter code body: every quoted string
-// literal (the file-name argument in the common exploit), strict base64 decodes
-// of those literals, plus any bare path-looking token (to catch unquoted shell
-// code like `bash -c "cat .env"`). Sensitivity is still decided by exact-match
-// rules downstream, so extra non-secret candidates are harmless.
+// Pulls candidate paths out of an interpreter code body: every quoted string or
+// template literal, strict base64 decodes of those literals, plus any bare
+// path-looking token (to catch unquoted shell code like `bash -c "cat .env"`).
 function extractPathLiteralsFromCode(code: string): string[] {
-  const quoted = Array.from(code.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g))
+  const quoted = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g))
     .map((match) => match[2])
     .filter((value): value is string => value !== undefined && value !== '');
-  const bare = code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? [];
+  const bare = (code.match(/[\w./~@+-]*[./~][\w./~@+-]*/g) ?? []).filter(
+    (candidate) =>
+      candidate !== 'process.versions.sqlite' ||
+      quoted.some((literal) => literal.includes(candidate)),
+  );
   return [...quoted, ...quoted.flatMap(decodeBase64PathCandidate), ...bare];
 }
 
