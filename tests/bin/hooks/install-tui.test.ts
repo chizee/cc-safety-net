@@ -258,16 +258,22 @@ describe('install selection prompt', () => {
     expect(canPromptInstallTargets(streams.input, streams.output)).toBe(false);
   });
 
-  test('returns null and prints guidance when no target CLI is installed', async () => {
+  test('waits for cancellation when no integration is selectable', async () => {
     const streams = createPromptStreams();
-    const result = await promptInstallTargets('uninstall', [makeChoice('codex', 'Codex', false)], {
+    const result = promptInstallTargets('uninstall', [makeChoice('codex', 'Codex', false)], {
       input: streams.input,
       output: streams.output,
     });
 
-    expect(result).toBeNull();
+    expect(streams.rawModes).toEqual([true]);
+    streams.input.emit('keypress', 'q', { name: 'q' });
+
+    expect(await result).toBeNull();
+    expect(streams.rawModes).toEqual([true, false]);
     expect(streams.chunks.join('')).toContain('Uninstall CC Safety Net from:');
-    expect(streams.chunks.join('')).toContain('No selectable integrations found for uninstall.');
+    expect(streams.chunks.join('')).toContain(
+      'No selectable integrations found for uninstall. q/Esc: close',
+    );
   });
 
   test('handles keyboard selection, empty confirm, ignored keys, and abort', async () => {
@@ -314,8 +320,16 @@ describe('install selection prompt', () => {
     });
     ctrlStreams.input.emit('keypress', '', { ctrl: true, name: 'c' });
 
+    const escapeStreams = createPromptStreams();
+    const escapeResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
+      input: escapeStreams.input,
+      output: escapeStreams.output,
+    });
+    escapeStreams.input.emit('keypress', '', { name: 'escape' });
+
     expect(await qResult).toBeNull();
     expect(await ctrlResult).toBeNull();
+    expect(await escapeResult).toBeNull();
   });
 });
 
@@ -390,7 +404,7 @@ describe('interactive install dispatch', () => {
     await withTempDir('safety-net-install-select-before-probe-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: null });
 
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(0);
       expect(result.events).toEqual([
         'probe:agy',
         'probe:claude',

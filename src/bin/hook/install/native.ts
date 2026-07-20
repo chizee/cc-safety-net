@@ -15,21 +15,26 @@ function formatCommandFailure(command: NativeCommand, status: number | null, out
     .join('\n');
 }
 
+export function runNativeCommand(command: NativeCommand): string {
+  const result = spawnSync(command[0], command.slice(1), {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+
+  if (result.error) {
+    throw new Error(
+      formatCommandFailure(command, null, `${result.error.message}\n${output}`.trim()),
+    );
+  }
+  if (result.status !== 0) {
+    throw new Error(formatCommandFailure(command, result.status, output));
+  }
+  return output;
+}
+
 export function runNativeCommands(commands: readonly NativeCommand[]): void {
   commands.forEach((command) => {
-    const result = spawnSync(command[0], command.slice(1), {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-    });
-    const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
-
-    if (result.error) {
-      throw new Error(
-        formatCommandFailure(command, null, `${result.error.message}\n${output}`.trim()),
-      );
-    }
-    if (result.status !== 0) {
-      throw new Error(formatCommandFailure(command, result.status, output));
-    }
+    runNativeCommand(command);
   });
 }

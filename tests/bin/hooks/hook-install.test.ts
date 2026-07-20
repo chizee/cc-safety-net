@@ -243,7 +243,7 @@ describe('install command', () => {
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      ['gemini extensions install https://github.com/kenryu42/gemini-safety-net'],
+      ['gemini extensions install https://github.com/kenryu42/gemini-safety-net --consent'],
       'Installed Gemini CLI integration',
     );
   });
@@ -253,10 +253,60 @@ describe('install command', () => {
       '--copilot-cli',
       ['copilot'],
       [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
         'copilot plugin marketplace add kenryu42/cc-marketplace',
         'copilot plugin install safety-net@cc-marketplace',
       ],
       'Installed GitHub Copilot CLI integration',
+    );
+  });
+
+  test('Copilot CLI: skips an already registered marketplace', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin install safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'copilot'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin marketplace list" ]; then
+  printf 'Registered marketplaces:\\n  • cc-marketplace (GitHub: kenryu42/cc-marketplace)\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: install is idempotent when the plugin is already installed', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      ['copilot plugin list'],
+      'GitHub Copilot CLI integration already installed',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'copilot'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n  • safety-net@cc-marketplace (v1.0.6)\\n'
+fi
+`,
+          );
+        },
+      },
     );
   });
 

@@ -5,7 +5,7 @@ import type { PiProbeInfo } from '@/bin/doctor/types';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
-import { type NativeCommand, runNativeCommands } from '@/bin/hook/install/native';
+import { type NativeCommand, runNativeCommand, runNativeCommands } from '@/bin/hook/install/native';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
 import {
   applyInstallTargetState,
@@ -24,6 +24,11 @@ import {
 } from '@/bin/hook/install/targets';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { getIntegrationInstallLabel } from '@/integrations/catalog';
+import {
+  COPILOT_PLUGIN_ID,
+  hasCopilotMarketplace,
+  hasCopilotSafetyNetPlugin,
+} from '@/integrations/copilot-cli';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget>;
@@ -39,7 +44,7 @@ export type RunInstallCommandOptions = {
 };
 
 type NativeInstallDefinition = {
-  installCommands: readonly NativeCommand[];
+  installCommands: readonly NativeCommand[] | (() => readonly NativeCommand[]);
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
@@ -74,10 +79,16 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       'Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it.',
   },
   'copilot-cli': {
-    installCommands: [
-      ['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['copilot', 'plugin', 'install', 'safety-net@cc-marketplace'],
-    ],
+    installCommands: () => {
+      if (hasCopilotSafetyNetPlugin(runNativeCommand(['copilot', 'plugin', 'list']))) return [];
+
+      return [
+        ...(hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
+          ? []
+          : ([['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace']] as const)),
+        ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
+      ];
+    },
     uninstallCommands: [
       ['copilot', 'plugin', 'uninstall', 'safety-net@cc-marketplace'],
       ['copilot', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
@@ -85,7 +96,13 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   },
   'gemini-cli': {
     installCommands: [
-      ['gemini', 'extensions', 'install', 'https://github.com/kenryu42/gemini-safety-net'],
+      [
+        'gemini',
+        'extensions',
+        'install',
+        'https://github.com/kenryu42/gemini-safety-net',
+        '--consent',
+      ],
     ],
     uninstallCommands: [['gemini', 'extensions', 'uninstall', 'gemini-safety-net']],
   },
@@ -170,10 +187,6 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
     .map((hook) => hook.platform as InstallTarget);
 }
 
-function hasCopilotSafetyNetPlugin(output: string | null): boolean {
-  return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? '');
-}
-
 function startResolveInstallTargets(
   action: InstallAction,
   args: readonly string[],
@@ -218,7 +231,15 @@ function startResolveInstallTargets(
 function installNativeTarget(target: NativeInstallTarget, homeDir: string): void {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
-  runNativeCommands(definition.installCommands);
+  const installCommands =
+    typeof definition.installCommands === 'function'
+      ? definition.installCommands()
+      : definition.installCommands;
+  if (installCommands.length === 0) {
+    console.log(`${getIntegrationInstallLabel(target)} integration already installed`);
+    return;
+  }
+  runNativeCommands(installCommands);
   console.log(
     [`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage]
       .filter(Boolean)
@@ -334,7 +355,7 @@ export async function runInstallCommand(
         output: options.output ?? process.stdout,
       },
     );
-    if (!targets) return 1;
+    if (!targets) return 0;
 
     const homeDir = getHomeDir();
     runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));

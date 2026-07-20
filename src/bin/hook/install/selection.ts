@@ -84,7 +84,7 @@ function nextSelectableCursor(
   cursor: number,
   direction: -1 | 1,
 ): number {
-  if (choices.length === 0 || choices.every((choice) => !choice.available)) return 0;
+  if (choices.length === 0 || choices.every((choice) => !choice.available)) return cursor;
 
   return Array.from({ length: choices.length }, (_, index) => index + 1)
     .map((offset) => (cursor + offset * direction + choices.length) % choices.length)
@@ -288,7 +288,9 @@ export function renderInstallSelection(
       return `${cursor} ${formatted}`;
     }),
     '',
-    'Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel',
+    choices.some((choice) => choice.available)
+      ? 'Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel'
+      : `No selectable integrations found for ${action}. q/Esc: close`,
   ].join('\n');
 }
 
@@ -307,12 +309,6 @@ export function promptInstallTargets(
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   let state = createInstallSelectionState(choices);
-
-  if (choices.every((choice) => !choice.available)) {
-    output.write(`${renderInstallSelection(action, choices, state)}\n`);
-    output.write(`No selectable integrations found for ${action}.\n`);
-    return Promise.resolve(null);
-  }
 
   readline.emitKeypressEvents(input);
   const wasRaw = input.isRaw === true;

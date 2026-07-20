@@ -18583,6 +18583,21 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
 import { delimiter, extname, join as join16 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+
+// src/integrations/copilot-cli.ts
+var COPILOT_PLUGIN_ID = "safety-net@cc-marketplace";
+function hasIdentifier(output, identifier) {
+  let escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`, "m").test(output ?? "");
+}
+function hasCopilotSafetyNetPlugin(output) {
+  return hasIdentifier(output, "safety-net@cc-marketplace");
+}
+function hasCopilotMarketplace(output) {
+  return hasIdentifier(output, "cc-marketplace");
+}
+
+// src/bin/doctor/system-info.ts
 var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT_MS = 5000, PI_SENTINEL_COMMAND = "cc-safety-net", PI_PROBE_COMMAND = "__cc_safety_net_probe", TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM", PI_PROBE_UNAVAILABLE = {
   status: "unavailable",
   installedAndEnabled: !1,
@@ -18591,7 +18606,6 @@ var CURRENT_VERSION = "1.0.6", VERSION_FETCH_TIMEOUT_MS = 2000, PI_PROBE_TIMEOUT
 function getPackageVersion() {
   return CURRENT_VERSION;
 }
-var COPILOT_PLUGIN_ID = "copilot-safety-net";
 function getEnvValue(env, name) {
   let direct = env[name];
   if (direct)
@@ -18838,11 +18852,6 @@ function parseVersion(output) {
     return versionMatch[1] ?? null;
   return output.split(`
 `)[0]?.trim() || null;
-}
-function hasCopilotSafetyNetPlugin(output) {
-  if (!output)
-    return !1;
-  return new RegExp(`(^|[^a-z0-9-])${COPILOT_PLUGIN_ID}([^a-z0-9-]|$)`, "m").test(output);
 }
 async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
   let piRawPromise = fetcher(["pi", "--version"]), piProbeRunner = options2.piProbeRunner ?? defaultPiProbeRunner, shouldRunPiProbe = !!options2.piProbeRunner || fetcher === defaultVersionFetcher, piProbePromise = piRawPromise.then((piRaw2) => {
@@ -22763,18 +22772,22 @@ function formatCommandFailure(command2, status, output) {
   ].filter(Boolean).join(`
 `);
 }
+function runNativeCommand(command2) {
+  let result = spawnSync(command2[0], command2.slice(1), {
+    encoding: "utf-8",
+    stdio: "pipe"
+  }), output = [result.stdout, result.stderr].filter(Boolean).join(`
+`);
+  if (result.error)
+    throw Error(formatCommandFailure(command2, null, `${result.error.message}
+${output}`.trim()));
+  if (result.status !== 0)
+    throw Error(formatCommandFailure(command2, result.status, output));
+  return output;
+}
 function runNativeCommands(commands2) {
   commands2.forEach((command2) => {
-    let result = spawnSync(command2[0], command2.slice(1), {
-      encoding: "utf-8",
-      stdio: "pipe"
-    }), output = [result.stdout, result.stderr].filter(Boolean).join(`
-`);
-    if (result.error)
-      throw Error(formatCommandFailure(command2, null, `${result.error.message}
-${output}`.trim()));
-    if (result.status !== 0)
-      throw Error(formatCommandFailure(command2, result.status, output));
+    runNativeCommand(command2);
   });
 }
 
@@ -22979,7 +22992,7 @@ function selectedInChoiceOrder(choices, selected) {
 }
 function nextSelectableCursor(choices, cursor, direction) {
   if (choices.length === 0 || choices.every((choice) => !choice.available))
-    return 0;
+    return cursor;
   return Array.from({ length: choices.length }, (_, index) => index + 1).map((offset) => (cursor + offset * direction + choices.length) % choices.length).find((index) => isAvailable(choices[index]));
 }
 function mapKeyPress(input, key) {
@@ -23087,7 +23100,7 @@ function renderInstallSelection(action, choices, state, options2 = {}) {
       return `${cursor} ${formatted}`;
     }),
     "",
-    "Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel"
+    choices.some((choice) => choice.available) ? "Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel" : `No selectable integrations found for ${action}. q/Esc: close`
   ].join(`
 `);
 }
@@ -23096,10 +23109,6 @@ function canPromptInstallTargets(input = process.stdin, output = process.stdout)
 }
 function promptInstallTargets(action, choices, options2 = {}) {
   let input = options2.input ?? process.stdin, output = options2.output ?? process.stdout, state = createInstallSelectionState(choices);
-  if (choices.every((choice) => !choice.available))
-    return output.write(`${renderInstallSelection(action, choices, state)}
-`), output.write(`No selectable integrations found for ${action}.
-`), Promise.resolve(null);
   readline2.emitKeypressEvents(input);
   let wasRaw = input.isRaw === !0;
   input.setRawMode(!0), input.resume();
@@ -23170,10 +23179,14 @@ var NATIVE_INSTALLS = {
     postInstallMessage: "Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it."
   },
   "copilot-cli": {
-    installCommands: [
-      ["copilot", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
-      ["copilot", "plugin", "install", "safety-net@cc-marketplace"]
-    ],
+    installCommands: () => {
+      if (hasCopilotSafetyNetPlugin(runNativeCommand(["copilot", "plugin", "list"])))
+        return [];
+      return [
+        ...hasCopilotMarketplace(runNativeCommand(["copilot", "plugin", "marketplace", "list"])) ? [] : [["copilot", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"]],
+        ["copilot", "plugin", "install", COPILOT_PLUGIN_ID]
+      ];
+    },
     uninstallCommands: [
       ["copilot", "plugin", "uninstall", "safety-net@cc-marketplace"],
       ["copilot", "plugin", "marketplace", "remove", "cc-marketplace"]
@@ -23181,7 +23194,13 @@ var NATIVE_INSTALLS = {
   },
   "gemini-cli": {
     installCommands: [
-      ["gemini", "extensions", "install", "https://github.com/kenryu42/gemini-safety-net"]
+      [
+        "gemini",
+        "extensions",
+        "install",
+        "https://github.com/kenryu42/gemini-safety-net",
+        "--consent"
+      ]
     ],
     uninstallCommands: [["gemini", "extensions", "uninstall", "gemini-safety-net"]]
   },
@@ -23251,12 +23270,9 @@ async function detectConfiguredInstallTargets() {
     codexPluginListOutput,
     geminiExtensionsListOutput,
     copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
-    copilotPluginInstalled: hasCopilotSafetyNetPlugin2(copilotPluginListOutput),
+    copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
     piSafetyNetProbe
   }).filter((hook) => hook.detected).map((hook) => hook.platform);
-}
-function hasCopilotSafetyNetPlugin2(output) {
-  return /(^|[^a-z0-9-])copilot-safety-net([^a-z0-9-]|$)/m.test(output ?? "");
 }
 function startResolveInstallTargets(action, args, options2) {
   if (args.length > 0)
@@ -23286,7 +23302,13 @@ function startResolveInstallTargets(action, args, options2) {
 }
 function installNativeTarget(target, homeDir) {
   let definition = NATIVE_INSTALLS[target];
-  definition.beforeInstall?.(homeDir), runNativeCommands(definition.installCommands), console.log([`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage].filter(Boolean).join(`
+  definition.beforeInstall?.(homeDir);
+  let installCommands = typeof definition.installCommands === "function" ? definition.installCommands() : definition.installCommands;
+  if (installCommands.length === 0) {
+    console.log(`${getIntegrationInstallLabel(target)} integration already installed`);
+    return;
+  }
+  runNativeCommands(installCommands), console.log([`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage].filter(Boolean).join(`
 `));
 }
 function uninstallNativeTarget(target) {
@@ -23350,7 +23372,7 @@ async function runInstallCommand(action, args, options2 = {}) {
       output: options2.output ?? process.stdout
     });
     if (!targets)
-      return 1;
+      return 0;
     let homeDir = getHomeDir();
     return runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir)), 0;
   } catch (e) {

@@ -10,6 +10,7 @@ import { delimiter, extname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
 import type { PiProbeInfo, PiProbeResource, SystemInfo } from '@/bin/doctor/types';
+import { hasCopilotSafetyNetPlugin } from '@/integrations/copilot-cli';
 
 declare const __PKG_VERSION__: string | undefined;
 
@@ -40,8 +41,6 @@ export function getPackageVersion(): string {
  */
 export type VersionFetcher = (args: string[]) => Promise<string | null>;
 export type PiProbeRunner = (cwd: string) => Promise<PiProbeInfo>;
-
-const COPILOT_PLUGIN_ID = 'copilot-safety-net';
 
 function getEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const direct = env[name];
@@ -403,14 +402,6 @@ function parseVersion(output: string | null): string | null {
   // If no version pattern found, return the output as-is (trimmed first line)
   const firstLine = output.split('\n')[0]?.trim();
   return firstLine || null;
-}
-
-function hasCopilotSafetyNetPlugin(output: string | null): boolean {
-  if (!output) return false;
-
-  const pluginPattern = new RegExp(`(^|[^a-z0-9-])${COPILOT_PLUGIN_ID}([^a-z0-9-]|$)`, 'm');
-
-  return pluginPattern.test(output);
 }
 
 /**

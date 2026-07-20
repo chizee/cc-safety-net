@@ -409,10 +409,10 @@ describe('getSystemInfo', () => {
 });
 
 describe('copilotPluginInstalled', () => {
-  test('returns true when copilot plugin list includes copilot-safety-net', async () => {
+  test('returns true when copilot plugin list includes safety-net@cc-marketplace', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • copilot-safety-net (v1.0.0)';
+        return 'Installed plugins:\n  • safety-net@cc-marketplace (v1.0.6)';
       }
       return null;
     };
@@ -422,7 +422,7 @@ describe('copilotPluginInstalled', () => {
     expect(sysInfo.copilotPluginInstalled).toBe(true);
   });
 
-  test('returns false when plugin list does not include copilot-safety-net', async () => {
+  test('returns false when plugin list does not include safety-net@cc-marketplace', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
         return 'Installed plugins:\n  • other-plugin (v1.0.0)';
@@ -438,7 +438,7 @@ describe('copilotPluginInstalled', () => {
   test('returns false for partial plugin id matches', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • other-copilot-safety-net (v1.0.0)';
+        return 'Installed plugins:\n  • other-safety-net@cc-marketplace (v1.0.0)';
       }
       return null;
     };
