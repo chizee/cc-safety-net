@@ -119,9 +119,7 @@ type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 
 interface CommandAnalysisContext {
   tokens: string[];
-  head: string;
   normalizedHead: string;
-  basename: string;
   cwdForRm: string | undefined;
   originalCwd: string | undefined;
   envAssignments: ReadonlyMap<string, string>;
@@ -164,17 +162,6 @@ const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['parallel', analyzeParallelCommand],
 ]);
 
-function deriveCwdContext(options: Pick<InternalOptions, 'cwd' | 'effectiveCwd'>): {
-  cwdUnknown: boolean;
-  cwdForRm: string | undefined;
-  originalCwd: string | undefined;
-} {
-  const cwdUnknown = options.effectiveCwd === null;
-  const cwdForRm = cwdUnknown ? undefined : (options.effectiveCwd ?? options.cwd);
-  const originalCwd = cwdUnknown ? undefined : options.cwd;
-  return { cwdUnknown, cwdForRm, originalCwd };
-}
-
 export function analyzeSegment(
   tokens: string[],
   depth: number,
@@ -189,7 +176,9 @@ export function analyzeSegment(
     return null;
   }
 
-  const { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options);
+  const cwdUnknown = options.effectiveCwd === null;
+  const baseCwdForRm = cwdUnknown ? undefined : (options.effectiveCwd ?? options.cwd);
+  const originalCwd = cwdUnknown ? undefined : options.cwd;
   const { tokens: strippedEnv, envAssignments: leadingEnvAssignments } =
     stripEnvAssignmentsWithInfo(tokens);
   if (leadingEnvAssignments.size > 0) {
@@ -213,11 +202,9 @@ export function analyzeSegment(
     new Map([...(options.envAssignments ?? []), ...leadingEnvAssignments]),
   );
   if (unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
-  const normalizedCommandView = normalizeWrappedCommandView(
-    options.commandView,
-    tokens.length - strippedEnv.length,
-    strippedEnv.length - stripped.length,
-  );
+  const normalizedCommandView = options.commandView
+    ? sliceCommandView(options.commandView, tokens.length - stripped.length)
+    : undefined;
   const normalizedOptions = {
     ...options,
     commandView: normalizedCommandView,
@@ -225,7 +212,7 @@ export function analyzeSegment(
   };
   if (trace && strippedEnv.length > stripped.length) {
     const removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
-    trace?.recordSegment({
+    trace.recordSegment({
       type: 'leading-tokens-stripped',
       input: strippedEnv,
       removed,
@@ -233,22 +220,13 @@ export function analyzeSegment(
     });
   }
 
-  const envAssignments = new Map(options.envAssignments ?? []);
-  for (const [k, v] of leadingEnvAssignments) {
-    envAssignments.set(k, v);
-  }
-  for (const [k, v] of wrapperEnvAssignments) {
-    envAssignments.set(k, v);
-  }
-
-  if (stripped.length === 0) {
-    return null;
-  }
-
+  const envAssignments = new Map([
+    ...(options.envAssignments ?? []),
+    ...leadingEnvAssignments,
+    ...wrapperEnvAssignments,
+  ]);
   const head = stripped[0];
-  if (!head) {
-    return null;
-  }
+  if (!head) return null;
 
   if (options.invalidReason) {
     return { reason: options.invalidReason, intent: 'stop_and_explain' };
@@ -259,7 +237,6 @@ export function analyzeSegment(
   }
 
   const normalizedHead = normalizeCommandToken(head);
-  const basename = getBasename(head);
   const cwdForRm = wrapperCwd === null ? undefined : (wrapperCwd ?? baseCwdForRm);
   const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options.effectiveCwd : wrapperCwd;
@@ -310,40 +287,25 @@ export function analyzeSegment(
     return null;
   }
 
-  if (normalizedHead === 'eval') {
-    const source = extractEvalSource(stripped, normalizedCommandView);
-    if (source.kind === 'dynamic') return dynamicShellSourceResult(trace);
-    if (source.kind === 'literal') {
-      trace?.recordSegment({
-        type: 'recurse',
-        reason: 'shell-eval',
-        innerCommand: source.source,
-        depth: depth + 1,
-      });
-      const result = options.analyzeNested(source.source, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments,
-      });
-      if (result) return result;
-    }
-  }
-
-  if (normalizedHead === 'trap') {
-    const source = extractTrapSource(stripped, normalizedCommandView);
-    if (source.kind === 'dynamic') return dynamicShellSourceResult(trace);
-    if (source.kind === 'literal') {
-      trace?.recordSegment({
-        type: 'recurse',
-        reason: 'shell-trap',
-        innerCommand: source.source,
-        depth: depth + 1,
-      });
-      const result = options.analyzeNested(source.source, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments,
-      });
-      if (result) return result;
-    }
+  const shellBuiltinSource =
+    normalizedHead === 'eval'
+      ? extractEvalSource(stripped, normalizedCommandView)
+      : normalizedHead === 'trap'
+        ? extractTrapSource(stripped, normalizedCommandView)
+        : undefined;
+  if (shellBuiltinSource?.kind === 'dynamic') return dynamicShellSourceResult(trace);
+  if (shellBuiltinSource?.kind === 'literal') {
+    trace?.recordSegment({
+      type: 'recurse',
+      reason: normalizedHead === 'eval' ? 'shell-eval' : 'shell-trap',
+      innerCommand: shellBuiltinSource.source,
+      depth: depth + 1,
+    });
+    const result = options.analyzeNested(shellBuiltinSource.source, {
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments,
+    });
+    if (result) return result;
   }
 
   if (isShellWrapperCommand(head, normalizedHead)) {
@@ -577,9 +539,7 @@ export function analyzeSegment(
 
   const commandContext: CommandAnalysisContext = {
     tokens: stripped,
-    head,
     normalizedHead,
-    basename,
     cwdForRm,
     originalCwd: originalCwdForRm,
     envAssignments,
@@ -589,7 +549,7 @@ export function analyzeSegment(
     options:
       trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace },
   };
-  const commandAnalyzer = getCommandAnalyzer(commandContext);
+  const commandAnalyzer = COMMAND_ANALYZERS.get(normalizedHead);
   if (normalizedHead === 'rm' || normalizedHead === 'xargs' || normalizedHead === 'parallel') {
     trace?.recordSegment({
       type: 'tmpdir-check',
@@ -600,7 +560,9 @@ export function analyzeSegment(
     });
   }
   const gitDetail =
-    trace && normalizedHead === 'git' ? analyzeGitCommandDetailed(commandContext) : undefined;
+    trace && normalizedHead === 'git'
+      ? analyzeGitDetailed(commandContext.tokens, getGitAnalyzeOptions(commandContext))
+      : undefined;
   const unfilteredCommandResult =
     normalizedHead === 'git'
       ? trace
@@ -654,8 +616,7 @@ export function analyzeSegment(
     trace?.recordSegment({ type: 'fallback-scan', tokensScanned: [] });
   }
 
-  const customRulesTopLevelOnly = matchedKnown;
-  if (depth === 0 || !customRulesTopLevelOnly) {
+  if (depth === 0 || !matchedKnown) {
     const customResult = checkPolicyRuleMatch(stripped, options.policy.rules);
     trace?.recordSegment({
       type: 'custom-rules-check',
@@ -688,13 +649,14 @@ function analyzeShellStartupSources(
   const startup = extractShellStartupLoaderMetadata(tokens);
   if (startup.argvSource?.kind === 'absent') return dynamicShellSourceResult(trace);
   if (startup.argvSourceApplies && startup.argvSource) {
-    const result = analyzeStartupSourcePath(
+    const result = analyzeTrackedHeredocScript(
       startup.argvSource.value,
       effectiveCwd,
       envAssignments,
       options,
       trace,
       depth,
+      true,
     );
     if (result) return result;
   }
@@ -702,30 +664,15 @@ function analyzeShellStartupSources(
   if (!startup.envSourceApplies || !startup.envName) return null;
   const envSource = envAssignments.get(startup.envName);
   if (!envSource) return null;
-  return analyzeStartupSourcePath(envSource, effectiveCwd, envAssignments, options, trace, depth);
-}
-
-function analyzeStartupSourcePath(
-  source: string,
-  effectiveCwd: string | null | undefined,
-  envAssignments: ReadonlyMap<string, string>,
-  options: InternalOptions,
-  trace: CommandTraceContext | undefined,
-  depth: number,
-): AnalyzeBlockResult | null {
-  if (/[$`*?[\]]/.test(source)) return dynamicShellSourceResult(trace);
-  const path = resolveTrackedHeredocPath(source, effectiveCwd);
-  const body = path ? options.literalHeredocFiles?.get(path) : undefined;
-  if (body === undefined) return dynamicShellSourceResult(trace);
-
-  reserveDerivedCommandTokens(options.derivedCommandWorkBudget, 1);
-  trace?.recordSegment({
-    type: 'recurse',
-    reason: 'heredoc-file',
-    innerCommand: body,
-    depth: depth + 1,
-  });
-  return options.analyzeNested(body, { effectiveCwd, envAssignments });
+  return analyzeTrackedHeredocScript(
+    envSource,
+    effectiveCwd,
+    envAssignments,
+    options,
+    trace,
+    depth,
+    true,
+  );
 }
 
 function analyzeTrackedHeredocScript(
@@ -735,10 +682,12 @@ function analyzeTrackedHeredocScript(
   options: InternalOptions,
   trace: CommandTraceContext | undefined,
   depth: number,
+  failClosed = false,
 ): AnalyzeBlockResult | null {
+  if (failClosed && /[$`*?[\]]/.test(source)) return dynamicShellSourceResult(trace);
   const path = resolveTrackedHeredocPath(source, effectiveCwd);
   const body = path ? options.literalHeredocFiles?.get(path) : undefined;
-  if (body === undefined) return null;
+  if (body === undefined) return failClosed ? dynamicShellSourceResult(trace) : null;
 
   reserveDerivedCommandTokens(options.derivedCommandWorkBudget, 1);
   trace?.recordSegment({
@@ -799,15 +748,6 @@ function recordCommandAnalyzerTrace(
   }
 }
 
-function normalizeWrappedCommandView(
-  view: CommandView | undefined,
-  leadingAssignments: number,
-  wrapperPrefix: number,
-): CommandView | undefined {
-  if (!view) return undefined;
-  return sliceCommandView(view, leadingAssignments + wrapperPrefix);
-}
-
 function reserveWrapperNormalization(budget: { iterations: number }): void {
   if (budget.iterations >= MAX_STRIP_ITERATIONS) {
     throw new DerivedCommandWorkLimitError();
@@ -828,27 +768,20 @@ function dynamicShellSourceMatch(): DestructiveCommandRuleMatch {
   return { id: '', reason: REASON_DYNAMIC_SHELL_SOURCE, intent: 'stop_and_explain' };
 }
 
-function analyzeDynamicExecutable(
-  dynamic: boolean,
-  strict: boolean | undefined,
-  policy?: EffectivePolicy,
-): DestructiveCommandRuleMatch | null {
-  return dynamic && destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-executable', !!strict)
-    ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
-    : null;
-}
-
 /** @internal */
 export function analyzeDynamicCommandStructure(
   command: CommandView | undefined,
   strict = false,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
+  const dynamicExecutableMatch =
+    command?.dynamicExecutable &&
+    destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-executable', strict)
+      ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
+      : null;
   return (
-    filterDestructiveCommandMatch(
-      analyzeDynamicExecutable(command?.dynamicExecutable ?? false, strict, policy),
-      policy,
-    ) ?? analyzeDynamicStructure(command, strict, policy)
+    filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ??
+    analyzeDynamicStructure(command, strict, policy)
   );
 }
 
@@ -1062,10 +995,6 @@ function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
   );
 }
 
-function getCommandAnalyzer(context: CommandAnalysisContext): CommandAnalyzer | undefined {
-  return COMMAND_ANALYZERS.get(context.normalizedHead);
-}
-
 function analyzeEmbeddedCommand(
   context: CommandAnalysisContext,
   index: number,
@@ -1135,9 +1064,7 @@ function analyzeNormalizedEmbeddedCommand(
   const embeddedContext: CommandAnalysisContext = {
     ...context,
     tokens: [cmd, ...childCommand.tokens.slice(1)],
-    head: cmd,
     normalizedHead: cmd,
-    basename: cmd,
     cwdForRm: childCommand.cwd,
     originalCwd: childCommand.wrapperCwd === null ? undefined : context.originalCwd,
     envAssignments: childCommand.envAssignments,
@@ -1160,10 +1087,6 @@ function matchEmbeddedCustomRule(
 
 function analyzeGitCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
-}
-
-function analyzeGitCommandDetailed(context: CommandAnalysisContext) {
-  return analyzeGitDetailed(context.tokens, getGitAnalyzeOptions(context));
 }
 
 function getGitAnalyzeOptions(context: CommandAnalysisContext) {
@@ -1409,27 +1332,10 @@ type PowerShellLocationEffect =
 
 function posixSegmentChangesCwd(segment: readonly string[]): boolean {
   const unwrapped = getCwdChangeTokens(segment);
-
-  if (unwrapped.length === 0) {
-    return false;
-  }
-
-  let head = unwrapped[0] ?? '';
-  let headIndex = 0;
-  if (head === 'builtin' && unwrapped.length > 1) {
-    head = unwrapped[1] ?? '';
-    headIndex = 1;
-  }
-  if (head === 'time') {
-    head = getHeadAfterTimePrefix(unwrapped, headIndex + 1);
-  }
-
-  if (head === 'cd' || head === 'pushd' || head === 'popd') {
-    return true;
-  }
-
-  const joined = segment.join(' ');
-  return CWD_CHANGE_REGEX.test(joined);
+  if (unwrapped.length === 0) return false;
+  const head = unwrapped[getCdCommandIndex(unwrapped)];
+  if (head === 'cd' || head === 'pushd' || head === 'popd') return true;
+  return CWD_CHANGE_REGEX.test(segment.join(' '));
 }
 
 export function resolveCwdAfterCommandView(
@@ -1464,15 +1370,10 @@ function resolveKnownCwdTarget(target: string | undefined, cwd: string): string 
   }
 
   try {
-    const resolved = resolveChdirTarget(cwd, target);
-    if (samePath(resolved, cwd)) {
-      return cwd;
-    }
+    return samePath(resolveChdirTarget(cwd, target), cwd) ? cwd : null;
   } catch {
     return null;
   }
-
-  return null;
 }
 
 function getPowerShellLocationEffect(
@@ -1630,14 +1531,6 @@ function normalizePowerShellLocationTarget(target: string): string | undefined {
   const providerPrefix = /^(?:microsoft\.powershell\.core\\)?filesystem::/i.exec(target)?.[0];
   if (!providerPrefix && target.includes('::')) return undefined;
   return target.slice(providerPrefix?.length ?? 0).replaceAll('\\', '/');
-}
-
-function getHeadAfterTimePrefix(tokens: readonly string[], startIndex: number): string {
-  let i = startIndex;
-  while (tokens[i]?.startsWith('-')) {
-    i++;
-  }
-  return tokens[i] ?? '';
 }
 
 function getCdCommandIndex(tokens: readonly string[]): number {

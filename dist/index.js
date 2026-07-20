@@ -12621,17 +12621,13 @@ var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitutio
   ["xargs", analyzeXargsCommand],
   ["parallel", analyzeParallelCommand]
 ]);
-function deriveCwdContext(options2) {
-  let cwdUnknown = options2.effectiveCwd === null, cwdForRm = cwdUnknown ? void 0 : options2.effectiveCwd ?? options2.cwd, originalCwd = cwdUnknown ? void 0 : options2.cwd;
-  return { cwdUnknown, cwdForRm, originalCwd };
-}
 function analyzeSegment(tokens, depth, options2) {
   let trace = options2.trace;
   if (options2.compatibility === "explain-legacy" && depth >= MAX_RECURSION_DEPTH)
     return trace?.recordSegment({ type: "error", message: REASON_RECURSION_LIMIT }), { reason: REASON_RECURSION_LIMIT, intent: "stop_and_explain" };
   if (tokens.length === 0)
     return null;
-  let { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2), { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
+  let cwdUnknown = options2.effectiveCwd === null, baseCwdForRm = cwdUnknown ? void 0 : options2.effectiveCwd ?? options2.cwd, originalCwd = cwdUnknown ? void 0 : options2.cwd, { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
   if (leadingEnvAssignments.size > 0)
     trace?.recordSegment({
       type: "env-strip",
@@ -12647,35 +12643,32 @@ function analyzeSegment(tokens, depth, options2) {
   } = stripWrappersWithInfo(strippedEnv, baseCwdForRm, new Map([...options2.envAssignments ?? [], ...leadingEnvAssignments]));
   if (unverifiableEnvSplit)
     throw new EnvSplitStringExpansionError;
-  let normalizedCommandView = normalizeWrappedCommandView(options2.commandView, tokens.length - strippedEnv.length, strippedEnv.length - stripped.length), normalizedOptions = {
+  let normalizedCommandView = options2.commandView ? sliceCommandView(options2.commandView, tokens.length - stripped.length) : void 0, normalizedOptions = {
     ...options2,
     commandView: normalizedCommandView,
     wrapperNormalizationBudget: options2.wrapperNormalizationBudget ?? { iterations: 0 }
   };
   if (trace && strippedEnv.length > stripped.length) {
     let removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
-    trace?.recordSegment({
+    trace.recordSegment({
       type: "leading-tokens-stripped",
       input: strippedEnv,
       removed,
       output: stripped
     });
   }
-  let envAssignments = new Map(options2.envAssignments ?? []);
-  for (let [k, v] of leadingEnvAssignments)
-    envAssignments.set(k, v);
-  for (let [k, v] of wrapperEnvAssignments)
-    envAssignments.set(k, v);
-  if (stripped.length === 0)
-    return null;
-  let head = stripped[0];
+  let envAssignments = new Map([
+    ...options2.envAssignments ?? [],
+    ...leadingEnvAssignments,
+    ...wrapperEnvAssignments
+  ]), head = stripped[0];
   if (!head)
     return null;
   if (options2.invalidReason)
     return { reason: options2.invalidReason, intent: "stop_and_explain" };
   if (isStandardCommandWrapper(head))
     throw new DerivedCommandWorkLimitError;
-  let normalizedHead = normalizeCommandToken(head), basename2 = getBasename(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = analyzeDynamicCommandStructure(normalizedCommandView, options2.strict, options2.policy);
+  let normalizedHead = normalizeCommandToken(head), cwdForRm = wrapperCwd === null ? void 0 : wrapperCwd ?? baseCwdForRm, originalCwdForRm = wrapperCwd === null ? void 0 : originalCwd, nestedEffectiveCwd = wrapperCwd === void 0 ? options2.effectiveCwd : wrapperCwd, allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments), dynamicCommandMatch = analyzeDynamicCommandStructure(normalizedCommandView, options2.strict, options2.policy);
   if (dynamicCommandMatch)
     return trace?.recordSegment({
       type: "rule-check",
@@ -12708,43 +12701,22 @@ function analyzeSegment(tokens, depth, options2) {
     }
     return null;
   }
-  if (normalizedHead === "eval") {
-    let source = extractEvalSource(stripped, normalizedCommandView);
-    if (source.kind === "dynamic")
-      return dynamicShellSourceResult(trace);
-    if (source.kind === "literal") {
-      trace?.recordSegment({
-        type: "recurse",
-        reason: "shell-eval",
-        innerCommand: source.source,
-        depth: depth + 1
-      });
-      let result = options2.analyzeNested(source.source, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments
-      });
-      if (result)
-        return result;
-    }
-  }
-  if (normalizedHead === "trap") {
-    let source = extractTrapSource(stripped, normalizedCommandView);
-    if (source.kind === "dynamic")
-      return dynamicShellSourceResult(trace);
-    if (source.kind === "literal") {
-      trace?.recordSegment({
-        type: "recurse",
-        reason: "shell-trap",
-        innerCommand: source.source,
-        depth: depth + 1
-      });
-      let result = options2.analyzeNested(source.source, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments
-      });
-      if (result)
-        return result;
-    }
+  let shellBuiltinSource = normalizedHead === "eval" ? extractEvalSource(stripped, normalizedCommandView) : normalizedHead === "trap" ? extractTrapSource(stripped, normalizedCommandView) : void 0;
+  if (shellBuiltinSource?.kind === "dynamic")
+    return dynamicShellSourceResult(trace);
+  if (shellBuiltinSource?.kind === "literal") {
+    trace?.recordSegment({
+      type: "recurse",
+      reason: normalizedHead === "eval" ? "shell-eval" : "shell-trap",
+      innerCommand: shellBuiltinSource.source,
+      depth: depth + 1
+    });
+    let result = options2.analyzeNested(shellBuiltinSource.source, {
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments
+    });
+    if (result)
+      return result;
   }
   if (isShellWrapperCommand(head, normalizedHead)) {
     if (isShellSyntaxCheck(stripped))
@@ -12884,9 +12856,7 @@ function analyzeSegment(tokens, depth, options2) {
     });
   let commandContext = {
     tokens: stripped,
-    head,
     normalizedHead,
-    basename: basename2,
     cwdForRm,
     originalCwd: originalCwdForRm,
     envAssignments,
@@ -12894,7 +12864,7 @@ function analyzeSegment(tokens, depth, options2) {
     depth,
     effectiveCwd: nestedEffectiveCwd,
     options: trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace }
-  }, commandAnalyzer = getCommandAnalyzer(commandContext);
+  }, commandAnalyzer = COMMAND_ANALYZERS.get(normalizedHead);
   if (normalizedHead === "rm" || normalizedHead === "xargs" || normalizedHead === "parallel")
     trace?.recordSegment({
       type: "tmpdir-check",
@@ -12902,7 +12872,7 @@ function analyzeSegment(tokens, depth, options2) {
       isOverriddenToNonTemp: !allowTmpdirVar,
       allowTmpdirVar
     });
-  let gitDetail = trace && normalizedHead === "git" ? analyzeGitCommandDetailed(commandContext) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" && unfilteredCommandResult?.id !== "rm.recursive-force-dynamic-target" ? unfilteredCommandResult : filterBuiltInCommandMatch(unfilteredCommandResult, options2.policy);
+  let gitDetail = trace && normalizedHead === "git" ? analyzeGitDetailed(commandContext.tokens, getGitAnalyzeOptions(commandContext)) : void 0, unfilteredCommandResult = normalizedHead === "git" ? trace ? gitDetail?.match ?? null : analyzeGitCommand(commandContext) : commandAnalyzer?.(commandContext) ?? null, commandResult = options2.compatibility === "explain-legacy" && unfilteredCommandResult?.id !== "rm.recursive-force-dynamic-target" ? unfilteredCommandResult : filterBuiltInCommandMatch(unfilteredCommandResult, options2.policy);
   if (trace)
     recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult)
@@ -12951,7 +12921,7 @@ function analyzeShellStartupSources(tokens, envAssignments, effectiveCwd, option
   if (startup.argvSource?.kind === "absent")
     return dynamicShellSourceResult(trace);
   if (startup.argvSourceApplies && startup.argvSource) {
-    let result = analyzeStartupSourcePath(startup.argvSource.value, effectiveCwd, envAssignments, options2, trace, depth);
+    let result = analyzeTrackedHeredocScript(startup.argvSource.value, effectiveCwd, envAssignments, options2, trace, depth, !0);
     if (result)
       return result;
   }
@@ -12960,25 +12930,14 @@ function analyzeShellStartupSources(tokens, envAssignments, effectiveCwd, option
   let envSource = envAssignments.get(startup.envName);
   if (!envSource)
     return null;
-  return analyzeStartupSourcePath(envSource, effectiveCwd, envAssignments, options2, trace, depth);
+  return analyzeTrackedHeredocScript(envSource, effectiveCwd, envAssignments, options2, trace, depth, !0);
 }
-function analyzeStartupSourcePath(source, effectiveCwd, envAssignments, options2, trace, depth) {
-  if (/[$`*?[\]]/.test(source))
+function analyzeTrackedHeredocScript(source, effectiveCwd, envAssignments, options2, trace, depth, failClosed = !1) {
+  if (failClosed && /[$`*?[\]]/.test(source))
     return dynamicShellSourceResult(trace);
   let path = resolveTrackedHeredocPath(source, effectiveCwd), body = path ? options2.literalHeredocFiles?.get(path) : void 0;
   if (body === void 0)
-    return dynamicShellSourceResult(trace);
-  return reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, 1), trace?.recordSegment({
-    type: "recurse",
-    reason: "heredoc-file",
-    innerCommand: body,
-    depth: depth + 1
-  }), options2.analyzeNested(body, { effectiveCwd, envAssignments });
-}
-function analyzeTrackedHeredocScript(source, effectiveCwd, envAssignments, options2, trace, depth) {
-  let path = resolveTrackedHeredocPath(source, effectiveCwd), body = path ? options2.literalHeredocFiles?.get(path) : void 0;
-  if (body === void 0)
-    return null;
+    return failClosed ? dynamicShellSourceResult(trace) : null;
   return reserveDerivedCommandTokens(options2.derivedCommandWorkBudget, 1), trace?.recordSegment({
     type: "recurse",
     reason: "heredoc-file",
@@ -13021,11 +12980,6 @@ function recordCommandAnalyzerTrace(context, match, relaxation) {
       gitCwd: relaxation.gitCwd
     });
 }
-function normalizeWrappedCommandView(view, leadingAssignments, wrapperPrefix) {
-  if (!view)
-    return;
-  return sliceCommandView(view, leadingAssignments + wrapperPrefix);
-}
 function reserveWrapperNormalization(budget) {
   if (budget.iterations >= MAX_STRIP_ITERATIONS)
     throw new DerivedCommandWorkLimitError;
@@ -13040,11 +12994,9 @@ function dynamicShellSourceResult(trace) {
 function dynamicShellSourceMatch() {
   return { id: "", reason: REASON_DYNAMIC_SHELL_SOURCE, intent: "stop_and_explain" };
 }
-function analyzeDynamicExecutable(dynamic, strict, policy) {
-  return dynamic && destructiveCommandRuleIsEnabled(policy, "shell.dynamic-executable", !!strict) ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
-}
 function analyzeDynamicCommandStructure(command2, strict = !1, policy) {
-  return filterDestructiveCommandMatch(analyzeDynamicExecutable(command2?.dynamicExecutable ?? !1, strict, policy), policy) ?? analyzeDynamicStructure(command2, strict, policy);
+  let dynamicExecutableMatch = command2?.dynamicExecutable && destructiveCommandRuleIsEnabled(policy, "shell.dynamic-executable", strict) ? destructiveCommandMatch("shell.dynamic-executable", REASON_DYNAMIC_EXECUTABLE) : null;
+  return filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ?? analyzeDynamicStructure(command2, strict, policy);
 }
 function analyzeDynamicStructure(command2, strict, policy) {
   if (!command2 || command2.words.length < 2)
@@ -13155,9 +13107,6 @@ function findGitSubcommandIndex(tokens) {
 function isShellWrapperCommand(head, normalizedHead) {
   return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || head === "${SHELL}" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
 }
-function getCommandAnalyzer(context) {
-  return COMMAND_ANALYZERS.get(context.normalizedHead);
-}
 function analyzeEmbeddedCommand(context, index) {
   let childCommands = normalizeChildCommands(context.tokens.slice(index), {
     cwd: context.cwdForRm,
@@ -13203,9 +13152,7 @@ function analyzeNormalizedEmbeddedCommand(context, index, childCommand) {
   let embeddedContext = {
     ...context,
     tokens: [cmd, ...childCommand.tokens.slice(1)],
-    head: cmd,
     normalizedHead: cmd,
-    basename: cmd,
     cwdForRm: childCommand.cwd,
     originalCwd: childCommand.wrapperCwd === null ? void 0 : context.originalCwd,
     envAssignments: childCommand.envAssignments,
@@ -13220,9 +13167,6 @@ function matchEmbeddedCustomRule(context, childCommand) {
 }
 function analyzeGitCommand(context) {
   return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
-}
-function analyzeGitCommandDetailed(context) {
-  return analyzeGitDetailed(context.tokens, getGitAnalyzeOptions(context));
 }
 function getGitAnalyzeOptions(context) {
   return {
@@ -13376,15 +13320,10 @@ function posixSegmentChangesCwd(segment) {
   let unwrapped = getCwdChangeTokens(segment);
   if (unwrapped.length === 0)
     return !1;
-  let head = unwrapped[0] ?? "", headIndex = 0;
-  if (head === "builtin" && unwrapped.length > 1)
-    head = unwrapped[1] ?? "", headIndex = 1;
-  if (head === "time")
-    head = getHeadAfterTimePrefix(unwrapped, headIndex + 1);
+  let head = unwrapped[getCdCommandIndex(unwrapped)];
   if (head === "cd" || head === "pushd" || head === "popd")
     return !0;
-  let joined = segment.join(" ");
-  return CWD_CHANGE_REGEX.test(joined);
+  return CWD_CHANGE_REGEX.test(segment.join(" "));
 }
 function resolveCwdAfterCommandView(commandView, cwd, literalPipelineInput) {
   if (commandView.dialect === "powershell") {
@@ -13411,13 +13350,10 @@ function resolveKnownCwdTarget(target, cwd) {
   if (!target || target === "-" || target.includes("$") || target.includes("`"))
     return null;
   try {
-    let resolved = resolveChdirTarget(cwd, target);
-    if (samePath(resolved, cwd))
-      return cwd;
+    return samePath(resolveChdirTarget(cwd, target), cwd) ? cwd : null;
   } catch {
     return null;
   }
-  return null;
 }
 function getPowerShellLocationEffect(words, literalPipelineInput) {
   let commandIndex = isBarePowerShellCallOperator(words[0]) ? 1 : 0, commandWord = words[commandIndex];
@@ -13515,12 +13451,6 @@ function normalizePowerShellLocationTarget(target) {
   if (!providerPrefix && target.includes("::"))
     return;
   return target.slice(providerPrefix?.length ?? 0).replaceAll("\\", "/");
-}
-function getHeadAfterTimePrefix(tokens, startIndex) {
-  let i = startIndex;
-  while (tokens[i]?.startsWith("-"))
-    i++;
-  return tokens[i] ?? "";
 }
 function getCdCommandIndex(tokens) {
   let headIndex = 0;
