@@ -13,7 +13,6 @@ import {
   SECRET_BASENAME_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
   SECRET_CODING_CLI_RULES,
-  SECRET_DIRECTORY_RULES,
   SECRET_ENV_VARIANT_RULE,
   SECRET_EXTENSION_PATTERN_RULES,
   SECRET_EXTENSION_RULES,
@@ -1301,9 +1300,8 @@ function isSensitivePath(
   // directories, matching the original caller-side exemption.
   if (isAllowedSensitiveTemplate(comparableName)) return null;
 
-  // Sensitive directories (~/.ssh, ~/.aws, secrets/, ...) are deny-by-default
-  // wholesale and take priority over the public-key exemption below: a .pub
-  // inside ~/.ssh or secrets/ stays blocked.
+  // Sensitive home directories (~/.ssh, ~/.aws, ...) are deny-by-default
+  // wholesale and take priority over the public-key exemption below.
   for (const rule of SECRET_HOME_PATH_RULES) {
     if (
       matchesHomePathSuffix(comparablePath, rule.suffixParts.join('/')) &&
@@ -1314,14 +1312,6 @@ function isSensitivePath(
   }
   const codingCliRuleId = matchesCodingCliPath(normalized, cwd, config, budget);
   if (codingCliRuleId) return codingCliRuleId;
-  for (const rule of SECRET_DIRECTORY_RULES) {
-    if (
-      isSensitiveDirSegment(comparablePath, rule.basename) &&
-      isSecretRuleEnabled(rule.id, config)
-    ) {
-      return rule.id;
-    }
-  }
 
   // Public keys are non-secret; exempt them outside sensitive directories.
   if (PUBLIC_KEY_BASENAMES.has(comparableName)) return null;
@@ -1565,15 +1555,6 @@ function appendPath(root: string, ...parts: readonly string[]): string {
   return normalizePathText([root, ...parts].filter(Boolean).join('/'));
 }
 
-function isSensitiveDirSegment(comparablePath: string, dirName: string): boolean {
-  return (
-    comparablePath === dirName ||
-    comparablePath.startsWith(`${dirName}/`) ||
-    comparablePath.endsWith(`/${dirName}`) ||
-    comparablePath.includes(`/${dirName}/`)
-  );
-}
-
 function isAllowedSensitiveTemplate(comparableName: string): boolean {
   return (
     ENV_EXEMPTION_BASENAMES.has(comparableName) ||
@@ -1600,8 +1581,11 @@ function matchesPolicyPath(
 ): boolean {
   if (paths.length === 0) return false;
   const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
-  return paths.some(
-    (path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)) === normalized,
+  return paths.some((path) =>
+    isSameOrChildPath(
+      normalized,
+      comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)),
+    ),
   );
 }
 
@@ -1725,7 +1709,7 @@ function normalizePathText(value: string): string {
 }
 
 function isSameOrChildPath(path: string, parent: string): boolean {
-  return path === parent || path.startsWith(`${parent}/`);
+  return path === parent || path.startsWith(parent.endsWith('/') ? parent : `${parent}/`);
 }
 
 function basename(token: string): string {

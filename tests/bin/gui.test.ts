@@ -209,7 +209,9 @@ describe('policy GUI server', () => {
       expect(html).not.toContain(
         'Block default sensitive path patterns and configured deny paths.',
       );
-      expect(html).toContain('Exact normalized paths are blocked while Secret protection is on.');
+      expect(html).toContain(
+        'Configured paths and everything inside them are blocked while Secret protection is on.',
+      );
       expect(html).not.toContain('Deny paths remain active');
       expect(html).not.toContain('Deny paths are always blocked');
       expect(html).not.toContain('trusted user policy');

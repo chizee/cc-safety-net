@@ -50,7 +50,7 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.basename.env');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.pattern.env-variant');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.ssh');
-    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.dir.secrets');
+    expect(SECRET_PROTECTION_RULE_IDS).not.toContain('secret.dir.secrets');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-rsa.pem');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-dsa.separator');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.variant.id-dsa.bak');
@@ -133,15 +133,41 @@ describe('secret protection path matching', () => {
     expect(findSensitivePathTarget(['.env'], cwd)?.ruleId).toBe('secret.basename.env');
   });
 
-  test('returns synthetic rule id for explicit deny paths', () => {
+  test('blocks configured paths and descendants without matching sibling prefixes', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
+    const config = {
+      disabledRules: new Set<string>(),
+      denyPaths: ['protected'],
+    };
 
-    expect(
-      findSensitivePathTarget(['blocked.txt'], cwd, {
-        disabledRules: new Set(),
-        denyPaths: ['blocked.txt'],
-      })?.ruleId,
-    ).toBe('secret.deny-path');
+    for (const target of ['protected', 'protected/child.txt', 'protected/nested/child.txt']) {
+      expect(findSensitivePathTarget([target], cwd, config)?.ruleId, target).toBe(
+        'secret.deny-path',
+      );
+    }
+    expect(findSensitivePathTarget(['protected-sibling/child.txt'], cwd, config)).toBeNull();
+  });
+
+  test('blocks descendants of configured home and filesystem root paths', () => {
+    const home = mkdtempSync(join(tmpdir(), 'secret-protection-deny-home-'));
+    try {
+      withEnv({ HOME: home }, () => {
+        expect(
+          findSensitivePathTarget(['~/developer/projects/child.txt'], home, {
+            disabledRules: new Set(),
+            denyPaths: ['~/developer/projects'],
+          })?.ruleId,
+        ).toBe('secret.deny-path');
+      });
+      expect(
+        findSensitivePathTarget([join(tmpdir(), 'ordinary.txt')], home, {
+          disabledRules: new Set(),
+          denyPaths: ['/'],
+        })?.ruleId,
+      ).toBe('secret.deny-path');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test('returns rule id for sensitive extensions', () => {
@@ -284,7 +310,22 @@ describe('secret protection path matching', () => {
   test('normalizes Windows-style separators', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
-    expect(findSensitivePathTarget(['secrets\\production.env'], cwd)).not.toBeNull();
+    expect(
+      findSensitivePathTarget(['protected\\child.txt'], cwd, {
+        disabledRules: new Set(),
+        denyPaths: ['protected'],
+      }),
+    ).not.toBeNull();
+  });
+
+  test('allows generic secrets directories while preserving sensitive filename rules', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    expect(findSensitivePathTarget(['src/secrets/index.ts'], cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('rg --files src/secrets', cwd)).toBeNull();
+    expect(findSensitivePathTarget(['src/secrets/id_rsa.pub'], cwd)).toBeNull();
+    expect(findSensitivePathTarget(['src/secrets/.env'], cwd)?.ruleId).toBe('secret.basename.env');
+    expect(findSensitivePathTarget(['src/secrets/id_rsa'], cwd)).not.toBeNull();
   });
 
   test('ignores empty and unrelated path targets', () => {
@@ -421,7 +462,11 @@ describe('secret protection command target extraction', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     expect(findSensitiveTargetInCommand('find ~/.ssh -type f', cwd)).not.toBeNull();
-    expect(findSensitiveTargetInCommand('find secrets/ -type f', cwd)).not.toBeNull();
+    expect(
+      findSensitiveTargetInCommand('find protected/child -type f', cwd, {
+        denyPaths: ['protected'],
+      }),
+    ).not.toBeNull();
     // -name .env is a search pattern, not a read
     expect(findSensitiveTargetInCommand('find . -name .env', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand('find src -type f', cwd)).toBeNull();
@@ -464,9 +509,9 @@ describe('secret protection command target extraction', () => {
 
     expect(
       findSensitiveTargetInCommand(
-        'test -f protected.txt',
+        'test -f protected/child.txt',
         cwd,
-        { denyPaths: ['protected.txt'] },
+        { denyPaths: ['protected'] },
         { strict: false },
       ),
     ).toMatchObject({ ruleId: 'secret.deny-path' });
@@ -478,9 +523,6 @@ describe('secret protection command target extraction', () => {
     expect(findSensitiveTargetInCommand('find . -name .env -exec cat {} \\;', cwd)).not.toBeNull();
     expect(
       findSensitiveTargetInCommand('find . -name id_rsa -exec head -n 1 {} +', cwd),
-    ).not.toBeNull();
-    expect(
-      findSensitiveTargetInCommand('find . -path "*/secrets/*" -exec grep TOKEN {} \\;', cwd),
     ).not.toBeNull();
     expect(
       findSensitiveTargetInCommand('find . -name .env -execdir rg TOKEN {} +', cwd),
@@ -839,11 +881,10 @@ for runtime in /Users/kenryu/.nvm/versions/node/v26.0.0/bin/node /Users/kenryu/.
     expect(findSensitiveTargetInCommand('grep README.md -e foo', cwd)).toBeNull();
   });
 
-  test('blocks rg --files targeting sensitive paths (patternless mode)', () => {
+  test('blocks rg --files targeting built-in sensitive paths (patternless mode)', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     expect(findSensitiveTargetInCommand('rg --files ~/.ssh', cwd)).not.toBeNull();
-    expect(findSensitiveTargetInCommand('rg --files secrets/', cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand('rg --files ~/.aws', cwd)).not.toBeNull();
     expect(findSensitiveTargetInCommand('rg -i --files ~/.ssh', cwd)).not.toBeNull();
     // non-sensitive path enumeration stays allowed
@@ -998,14 +1039,14 @@ describe('secret protection generic tool input extraction', () => {
     const configCwd = mkdtempSync(join(tmpdir(), 'secret-protection-project-'));
     const executionCwd = join(configCwd, 'nested');
     mkdirSync(executionCwd);
-    const blockedPath = join(configCwd, 'blocked.txt');
-    writeFileSync(blockedPath, 'blocked');
+    const blockedPath = join(configCwd, 'blocked');
+    mkdirSync(blockedPath);
     symlinkSync(blockedPath, join(executionCwd, 'blocked-alias'));
     const config = { disabledRules: new Set<string>(), denyPaths: [blockedPath] };
 
     expect(
       findSensitiveTargetWithRoute(
-        { path: 'blocked-alias' },
+        { path: 'blocked-alias/missing/child.txt' },
         { kind: 'path' },
         executionCwd,
         config,
@@ -1013,7 +1054,7 @@ describe('secret protection generic tool input extraction', () => {
     ).toBe('secret.deny-path');
     expect(
       findSensitiveTargetWithRoute(
-        { command: 'cat blocked-alias' },
+        { command: 'cat blocked-alias/missing/child.txt' },
         { kind: 'command', shell: 'posix' },
         executionCwd,
         config,
@@ -1032,7 +1073,7 @@ describe('secret protection generic tool input extraction', () => {
           { path: join(configCwd, 'private/token.txt') },
           { kind: 'path' },
           executionCwd,
-          { disabledRules: new Set(), denyPaths: ['private/token.txt'] },
+          { disabledRules: new Set(), denyPaths: ['private'] },
           configCwd,
         )?.ruleId,
       ).toBe('secret.deny-path');
@@ -1222,10 +1263,15 @@ describe('secret protection case-insensitive matching', () => {
       '/tmp/ID_RSA.BAK',
       '~/.NPMRC',
       '~/.NETRC',
-      'project/Secrets/token.txt',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
+    expect(
+      findSensitivePathTarget(['project/Protected/child.txt'], cwd, {
+        disabledRules: new Set(),
+        denyPaths: ['project/protected'],
+      }),
+    ).not.toBeNull();
   });
 
   test('keeps env exemptions case-insensitive', () => {
@@ -1668,16 +1714,10 @@ describe('secret protection env variant coverage', () => {
 });
 
 describe('secret protection public keys in sensitive directories', () => {
-  test('blocks public keys inside ~/.ssh and secrets/ (wholesale dir deny)', () => {
+  test('blocks public keys inside ~/.ssh', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
-    for (const target of [
-      '~/.ssh/id_rsa.pub',
-      '~/.ssh/id_ed25519.pub',
-      '~/.ssh/id_ecdsa.pub',
-      'secrets/id_rsa.pub',
-      'deploy/secrets/id_ed25519.pub',
-    ]) {
+    for (const target of ['~/.ssh/id_rsa.pub', '~/.ssh/id_ed25519.pub', '~/.ssh/id_ecdsa.pub']) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
   });

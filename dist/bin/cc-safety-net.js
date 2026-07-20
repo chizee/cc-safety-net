@@ -6736,14 +6736,6 @@ var SECRET_BASENAME_RULES = [
     label: "Pi credentials",
     description: "Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations."
   }
-], SECRET_DIRECTORY_RULES = [
-  {
-    id: "secret.dir.secrets",
-    category: "Directory",
-    label: "secrets/",
-    description: "Blocks paths inside directories named secrets.",
-    basename: "secrets"
-  }
 ], SECRET_VARIANT_PREFIXES = [
   { prefix: "id_rsa", slug: "id-rsa", label: "id_rsa" },
   { prefix: "id_dsa", slug: "id-dsa", label: "id_dsa" },
@@ -6843,7 +6835,6 @@ var SECRET_BASENAME_RULES = [
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
   ...SECRET_CODING_CLI_RULES,
-  ...SECRET_DIRECTORY_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
@@ -16114,9 +16105,6 @@ function isSensitivePath(target, cwd, config, budget) {
   let codingCliRuleId = matchesCodingCliPath(normalized, cwd, config, budget);
   if (codingCliRuleId)
     return codingCliRuleId;
-  for (let rule of SECRET_DIRECTORY_RULES)
-    if (isSensitiveDirSegment(comparablePath, rule.basename) && isSecretRuleEnabled(rule.id, config))
-      return rule.id;
   if (PUBLIC_KEY_BASENAMES.has(comparableName))
     return null;
   for (let rule of SECRET_BASENAME_RULES)
@@ -16228,9 +16216,6 @@ function sameComparablePath(a, b) {
 function appendPath(root, ...parts) {
   return normalizePathText([root, ...parts].filter(Boolean).join("/"));
 }
-function isSensitiveDirSegment(comparablePath, dirName) {
-  return comparablePath === dirName || comparablePath.startsWith(`${dirName}/`) || comparablePath.endsWith(`/${dirName}`) || comparablePath.includes(`/${dirName}/`);
-}
 function isAllowedSensitiveTemplate(comparableName) {
   return ENV_EXEMPTION_BASENAMES.has(comparableName) || ENV_EXEMPTION_PREFIXES.some((prefix) => comparableName.startsWith(prefix));
 }
@@ -16241,7 +16226,7 @@ function matchesPolicyPath(target, cwd, paths, configCwd, budget) {
   if (paths.length === 0)
     return !1;
   let normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
-  return paths.some((path) => comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)) === normalized);
+  return paths.some((path) => isSameOrChildPath(normalized, comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget))));
 }
 function isSkippablePathForBroadSignatures(comparablePath) {
   let parts = comparablePath.split("/");
@@ -16321,7 +16306,7 @@ function normalizePathText(value) {
   return normalized.replace(/\/+$/g, "");
 }
 function isSameOrChildPath(path, parent) {
-  return path === parent || path.startsWith(`${parent}/`);
+  return path === parent || path.startsWith(parent.endsWith("/") ? parent : `${parent}/`);
 }
 function basename3(token) {
   return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
@@ -22103,7 +22088,7 @@ var page_default = `<!doctype html>
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
-        '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Exact normalized paths are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
+        '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Configured paths and everything inside them are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
         '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
         '<p class="deny-paths-hint" id="deny-paths-hint" hidden></p>' +
         '<ul class="deny-paths-list" id="deny-paths-list"></ul>';

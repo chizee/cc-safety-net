@@ -227,16 +227,6 @@ export const SECRET_CODING_CLI_RULES = [
   },
 ] as const satisfies readonly SecretProtectionRuleMetadata[];
 
-export const SECRET_DIRECTORY_RULES = [
-  {
-    id: 'secret.dir.secrets',
-    category: 'Directory',
-    label: 'secrets/',
-    description: 'Blocks paths inside directories named secrets.',
-    basename: 'secrets',
-  },
-] as const satisfies readonly SecretProtectionMatcherRule[];
-
 const SECRET_VARIANT_PREFIXES = [
   { prefix: 'id_rsa', slug: 'id-rsa', label: 'id_rsa' },
   { prefix: 'id_dsa', slug: 'id-dsa', label: 'id_dsa' },
@@ -352,7 +342,6 @@ export const SECRET_PROTECTION_RULE_METADATA = [
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
   ...SECRET_CODING_CLI_RULES,
-  ...SECRET_DIRECTORY_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,

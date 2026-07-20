@@ -148,6 +148,12 @@ describe('configuration schemas', () => {
         secret_protection: { overrides: { unknown: 'off' }, deny_paths: [' '] },
       }).success,
     ).toBeFalse();
+    expect(
+      getUserPolicySchema().safeParse({
+        version: 1,
+        secret_protection: { overrides: { 'secret.dir.secrets': 'off' } },
+      }).success,
+    ).toBeFalse();
   });
 
   test('keeps user policy strict with stable diagnostics', () => {
