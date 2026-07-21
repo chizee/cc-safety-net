@@ -190,6 +190,18 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
+  test('analyzes literal commands passed to PowerShell expression evaluation', () => {
+    withTempProject((cwd) => {
+      expect(analyzePowerShell("iex 'Remove-Item . -Recurse -Force'", cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-cwd-self',
+      );
+      expect(analyzePowerShell("Invoke-Expression -Command 'git reset --hard'", cwd)?.ruleId).toBe(
+        'git.reset-hard',
+      );
+      expect(analyzePowerShell("iex 'Write-Output ok'", cwd)).toBeNull();
+    });
+  });
+
   test('analyzes nested PowerShell subexpressions before their containing command', () => {
     withTempProject((cwd) => {
       expect(analyzePowerShell('Write-Output $(git reset --hard)', cwd)?.ruleId).toBe(

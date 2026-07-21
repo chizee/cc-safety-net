@@ -12,10 +12,16 @@ import { toNamespacedPath } from 'node:path';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
-import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
+import {
+  extractDashCArg,
+  extractShellExecutableSourceMetadata,
+  extractShellExecutableSources,
+  extractShellStartupLoaderMetadata,
+  isShellSyntaxCheck,
+} from '@/core/analyze/shell-wrappers';
 import { isTrustedTempPath } from '@/core/analyze/tmpdir';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { extractShortOpts, stripWrappersWithInfo } from '@/core/shell';
+import { extractShortOpts, getShellCommandString, stripWrappersWithInfo } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
 import { projectCommandViews, projectLegacySegments } from '@/parser/projection';
@@ -107,6 +113,51 @@ describe('shell parsing helpers', () => {
     test('does not treat command arguments or disabled no-exec flags as syntax checks', () => {
       expect(isShellSyntaxCheck(['bash', '-c', 'rm -rf /', '-n'])).toBeFalse();
       expect(isShellSyntaxCheck(['bash', '-n', '+n', '-c', 'rm -rf /'])).toBeFalse();
+    });
+  });
+
+  describe('shell executable sources', () => {
+    test('locates inline commands and main scripts after value-taking options', () => {
+      expect(getShellCommandString('bash', ['--rcfile=profile', '-c', 'echo ok'])).toBe('echo ok');
+      expect(getShellCommandString('bash', ['--rcfile', 'profile', '-c', 'echo ok'])).toBe(
+        'echo ok',
+      );
+      expect(getShellCommandString('bash', ['--rcfile'])).toBeNull();
+
+      expect(
+        extractShellExecutableSources(['bash', '--rcfile', 'profile', '-c', 'echo ok']),
+      ).toEqual([{ kind: 'inline-code', tokenIndex: 4, value: 'echo ok' }]);
+      expect(extractShellExecutableSourceMetadata(['sh', 'script.sh'])).toEqual({
+        source: { kind: 'main-script', tokenIndex: 1, value: 'script.sh' },
+        appendedSourceOpen: false,
+      });
+      expect(extractShellExecutableSourceMetadata(['sh', '-s'])).toEqual({
+        source: null,
+        appendedSourceOpen: false,
+      });
+    });
+
+    test('reports startup files and environment loading only when the shell mode applies', () => {
+      expect(extractShellStartupLoaderMetadata(['bash', '--rcfile', 'profile', '-i'])).toEqual({
+        argvSource: {
+          kind: 'literal',
+          option: '--rcfile',
+          optionIndex: 1,
+          tokenIndex: 2,
+          value: 'profile',
+        },
+        argvSourceApplies: true,
+        envName: 'BASH_ENV',
+        envSourceApplies: false,
+      });
+      expect(extractShellStartupLoaderMetadata(['bash', '--rcfile'])).toMatchObject({
+        argvSource: { kind: 'absent', option: '--rcfile' },
+        argvSourceApplies: false,
+      });
+      expect(extractShellStartupLoaderMetadata(['sh', '-i'])).toMatchObject({
+        envName: 'ENV',
+        envSourceApplies: true,
+      });
     });
   });
 
@@ -550,6 +601,32 @@ describe('shell parsing helpers', () => {
   });
 
   describe('stripWrappersWithInfo', () => {
+    test('preserves supported append assignments and env split-string semantics', () => {
+      const appended = stripWrappersWithInfo(
+        ['TMPDIR+=/nested', 'git', 'status'],
+        '/tmp',
+        new Map([['TMPDIR', '/base']]),
+      );
+      expect(appended.tokens).toEqual(['git', 'status']);
+      expect(appended.envAssignments.get('TMPDIR')).toBe('/base/nested');
+
+      const split = stripWrappersWithInfo(
+        ['env', '-S', '--unset=DROP VALUE=${VALUE} printf one\\_two \\t', 'tail'],
+        '/tmp',
+        new Map([
+          ['DROP', 'removed'],
+          ['VALUE', 'kept'],
+        ]),
+      );
+      expect(split.tokens).toEqual(['printf', 'one', 'two', '\t', 'tail']);
+      expect(split.envAssignments).toEqual(
+        new Map([
+          ['DROP', ''],
+          ['VALUE', 'kept'],
+        ]),
+      );
+    });
+
     test('strips sudo options that consume a value', () => {
       const result = stripWrappersWithInfo(['sudo', '-u', 'root', 'rm', '-rf', '/tmp/a']);
       expect(result.tokens).toEqual(['rm', '-rf', '/tmp/a']);

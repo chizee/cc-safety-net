@@ -1,10 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   hasUnresolvedShellQuoteImport,
   requiresRepositoryExecutableMode,
   verifyBuildArtifacts,
 } from '../../scripts/verify-build';
+import { withTempDir } from '../helpers';
+
+function writeBuildFixture(directory: string) {
+  mkdirSync(join(directory, 'dist', 'bin'), { recursive: true });
+  mkdirSync(join(directory, 'dist', 'pi'), { recursive: true });
+  writeFileSync(join(directory, 'dist', 'bin', 'cc-safety-net.js'), '#!/usr/bin/env node\n');
+  chmodSync(join(directory, 'dist', 'bin', 'cc-safety-net.js'), 0o755);
+  writeFileSync(join(directory, 'dist', 'index.d.ts'), 'export {};\n');
+  writeFileSync(join(directory, 'dist', 'index.js'), 'export {};\n');
+  writeFileSync(join(directory, 'dist', 'pi', 'index.js'), 'export {};\n');
+}
 
 describe('generated artifact contract', () => {
   test('tracks only the four owned runtime artifacts', async () => {
@@ -33,5 +45,32 @@ describe('generated artifact contract', () => {
     expect(requiresRepositoryExecutableMode('win32')).toBeFalse();
     expect(requiresRepositoryExecutableMode('linux')).toBeTrue();
     expect(requiresRepositoryExecutableMode('darwin')).toBeTrue();
+  });
+
+  test('rejects unexpected, non-executable, malformed, and unresolved runtime artifacts', async () => {
+    await withTempDir('cc-safety-net-build-contract-', async (directory) => {
+      writeBuildFixture(directory);
+      const originalCwd = process.cwd();
+      process.chdir(directory);
+      try {
+        writeFileSync('dist/unexpected.js', 'export {};\n');
+        await expect(verifyBuildArtifacts()).rejects.toThrow('Unexpected build artifacts');
+
+        unlinkSync('dist/unexpected.js');
+        if (requiresRepositoryExecutableMode(process.platform)) {
+          chmodSync('dist/bin/cc-safety-net.js', 0o644);
+          await expect(verifyBuildArtifacts()).rejects.toThrow('must have mode 0755');
+          chmodSync('dist/bin/cc-safety-net.js', 0o755);
+        }
+
+        writeFileSync('dist/bin/cc-safety-net.js', 'export {};\n');
+        await expect(verifyBuildArtifacts()).rejects.toThrow('wrong shebang');
+
+        writeFileSync('dist/bin/cc-safety-net.js', '#!/usr/bin/env node\nimport "shell-quote";\n');
+        await expect(verifyBuildArtifacts()).rejects.toThrow('unresolved shell-quote imports');
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
   });
 });

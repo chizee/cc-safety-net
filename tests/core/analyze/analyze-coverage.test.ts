@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
-import { analyzeAwkSystemCalls, REASON_AWK_SYSTEM_DYNAMIC } from '@/core/analyze/awk';
+import {
+  analyzeAwkSystemCalls,
+  extractAwkSystemCommands,
+  parseAwkArgv,
+  REASON_AWK_SYSTEM_DYNAMIC,
+} from '@/core/analyze/awk';
 import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
 import { analyzeFind } from '@/core/analyze/find';
 import {
@@ -244,6 +249,34 @@ describe('analyzeCommand (coverage)', () => {
     expect(
       analyzeAwkSystemCalls(['awk', 'BEGIN { subsystem("rm -rf /") }'], () => null),
     ).toBeNull();
+  });
+
+  test('awk argv parsing recognizes attached source and program-file options', () => {
+    expect(
+      parseAwkArgv([
+        'awk',
+        '--source=BEGIN { print 1 }',
+        '-e{ print 2 }',
+        '-fprogram.awk',
+        'input.txt',
+      ]),
+    ).toEqual({
+      sources: [
+        { tokenIndex: 1, kind: 'inline-code', value: 'BEGIN { print 1 }' },
+        { tokenIndex: 2, kind: 'inline-code', value: '{ print 2 }' },
+        { tokenIndex: 3, kind: 'program-file', value: 'program.awk' },
+      ],
+      optionsOpen: false,
+    });
+    for (const option of ['-e', '-f', '-v']) {
+      expect(parseAwkArgv(['awk', option]), option).toEqual({ sources: [], optionsOpen: false });
+    }
+  });
+
+  test('awk source scanning ignores system text in comments and regex literals', () => {
+    expect(
+      extractAwkSystemCommands('# system("rm -rf /")\nBEGIN { /system/; system("echo ok") }'),
+    ).toEqual({ dynamic: false, commands: ['echo ok'] });
   });
 
   test('fallback scan ignores embedded git when safe', () => {

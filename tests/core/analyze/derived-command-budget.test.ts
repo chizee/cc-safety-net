@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { normalizeChildCommand } from '@/core/analyze/child-command';
 import {
+  createDerivedCommandWorkBudget,
   DERIVED_COMMAND_WORK_LIMITS,
+  DerivedCommandWorkLimitError,
+  EnvSplitStringExpansionError,
   REASON_DERIVED_COMMAND_WORK_LIMIT,
+  reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
 import { analyzeTestCommand } from '../../helpers/policy';
 
@@ -50,6 +55,35 @@ const limitedResult = (command: string) => ({
 });
 
 describe('derived command work budget', () => {
+  test('tracks exact direct reservations and rejects invalid or exhausted budgets', () => {
+    const budget = createDerivedCommandWorkBudget();
+    reserveDerivedCommandTokens(budget, DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens);
+    expect(budget.derivedTokens).toBe(DERIVED_COMMAND_WORK_LIMITS.maxDerivedTokens);
+    expect(() => reserveDerivedCommandTokens(budget, 1)).toThrow(DerivedCommandWorkLimitError);
+
+    for (const invalid of [-1, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => reserveDerivedCommandTokens({ derivedTokens: invalid }, 0)).toThrow(
+        DerivedCommandWorkLimitError,
+      );
+      expect(() => reserveDerivedCommandTokens({ derivedTokens: 0 }, invalid)).toThrow(
+        DerivedCommandWorkLimitError,
+      );
+    }
+  });
+
+  test('normalizes direct child commands and rejects unverifiable env split expansion', () => {
+    expect(normalizeChildCommand(['busybox', 'git', 'status'], { cwd: '/tmp' })).toMatchObject({
+      tokens: ['git', 'status'],
+      cwd: '/tmp',
+      head: 'git',
+    });
+    expect(() =>
+      normalizeChildCommand(['env', '-S', Array.from({ length: 16_385 }, () => 'x').join(' ')], {
+        cwd: '/tmp',
+      }),
+    ).toThrow(EnvSplitStringExpansionError);
+  });
+
   test('accepts the exact embedded Git suffix limit and denies the first token over it', () => {
     const accepted = exactRepeatedGit();
     const denied = overLimitRepeatedGit();

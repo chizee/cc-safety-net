@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assertRemoteMain, pushReleaseAtomically } from '../../scripts/release-git';
+import {
+  assertExactReleaseBase,
+  assertRemoteMain,
+  pushReleaseAtomically,
+} from '../../scripts/release-git';
 import { withTempDir } from '../helpers';
 
 function git(cwd: string, ...args: string[]) {
@@ -134,6 +138,23 @@ async function withPreparedRelease(
 }
 
 describe('release git transaction', () => {
+  test('requires an exact local and remote release base plus a semantic release tag', async () => {
+    await withTempDir('cc-safety-net-release-', async (root) => {
+      const { repo } = createRepository(root);
+      const base = git(repo, 'rev-parse', 'HEAD');
+
+      await assertExactReleaseBase(repo, base);
+      await expect(assertExactReleaseBase(repo, 'main')).rejects.toThrow(
+        'Expected base must be a full commit SHA',
+      );
+      await expect(pushReleaseAtomically(repo, 'latest')).rejects.toThrow('Invalid release tag');
+
+      writeFileSync(join(repo, 'file.txt'), 'local advance\n');
+      git(repo, 'commit', '-am', 'local advance');
+      await expect(assertExactReleaseBase(repo, base)).rejects.toThrow('Release base mismatch');
+    });
+  });
+
   test('pushes a new release branch and tag atomically', async () => {
     await withTempDir('cc-safety-net-release-', async (root) => {
       const { remote, repo } = createRepository(root);
