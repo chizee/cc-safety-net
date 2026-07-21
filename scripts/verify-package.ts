@@ -243,11 +243,19 @@ export async function verifyPackage(): Promise<void> {
       }
     }
     const largeSafeCommand = `'git push ${'x '.repeat(45_000)}'`;
-    if (
-      !run(['node', cli, 'explain', '--json', largeSafeCommand], directory).stdout.includes(
-        'allowed',
-      )
-    ) {
+    const largeSafeResult = run(
+      [
+        'node',
+        '--input-type=module',
+        '--eval',
+        "import { pathToFileURL } from 'node:url'; let command = ''; for await (const chunk of process.stdin) command += chunk; const cli = process.argv[1]; process.argv = ['node', cli, 'explain', '--json', command]; await import(pathToFileURL(cli).href)",
+        cli,
+      ],
+      directory,
+      [0],
+      largeSafeCommand,
+    );
+    if (!largeSafeResult.stdout.includes('allowed')) {
       throw new Error('Packed CLI did not allow the large safe explain command');
     }
 
