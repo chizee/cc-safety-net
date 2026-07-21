@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from './integration-host-scripts';
 
 const PACKAGE_FILES = [
@@ -177,7 +178,7 @@ export async function verifyPackage(): Promise<void> {
       `import { writeFileSync } from 'node:fs';\nglobalThis.fetch = () => { writeFileSync(${JSON.stringify(sourceLimitNetworkSentinel)}, 'unexpected'); throw new Error('unexpected package verification network'); };\n`,
     );
     const sourceLimitResult = run(
-      ['node', '--import', sourceLimitNetworkGuard, cli, 'rule', 'sync'],
+      ['node', '--import', pathToFileURL(sourceLimitNetworkGuard).href, cli, 'rule', 'sync'],
       directory,
       [1],
     );
