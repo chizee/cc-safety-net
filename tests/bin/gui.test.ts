@@ -95,6 +95,10 @@ describe('policy GUI server', () => {
       expect(html.indexOf('id="reset"')).toBeLessThan(html.indexOf('id="app-status"'));
       expect(html).toContain('.app-status {\n  flex: 1 0 100%;');
       expect(html).toContain('Unsaved changes. Click Save to apply.');
+      expect(html).toContain('id="discard-changes"');
+      expect(html).toContain('Discard unsaved changes?');
+      expect(html).toContain('Changes discarded.');
+      expect(html).toContain('.app-status .discard-link {');
       expect(html).toContain('No changes to save');
       expect(html).toContain('let dirty = false;');
       expect(html).toContain('const updateDirtyStatus = () => {');
@@ -113,6 +117,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('Strict tier');
       expect(html).toContain('Paranoid tier');
       expect(html).toContain('Use inherited setting');
+      expect(html).toContain(
+        '${override && !effective.changesInherited ? `<button type="button" class="inherit-button"',
+      );
       expect(html).toContain('Reset rule customizations');
       expect(html).toContain('id="rule-example-popover"');
       expect(html).toContain('popover="auto"');
@@ -131,6 +138,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('let previewRequestId = 0;');
       expect(html).toContain('const requestId = ++previewRequestId;');
       expect(html).toContain('if (requestId !== previewRequestId) return false;');
+      expect(html).toContain(
+        'if (input.checked === preview.rules[ruleId].inheritedEnabled) delete draftPolicy.destructive_command_protection.overrides[ruleId];',
+      );
       expect(html).toContain('const tierExpanded = new Map([');
       expect(html).toContain("['strict', false]");
       expect(html).not.toContain("['strict', true]");
@@ -155,24 +165,28 @@ describe('policy GUI server', () => {
       expect(html).not.toContain(
         'label.row:has(input:checked) {\n  border-color: color-mix(in srgb, var(--accent)',
       );
-      expect(html).toContain('class="panel foldable"');
-      expect(html).toContain('aria-controls="destructive-command-panel-content"');
-      expect(html).toContain(
-        'aria-expanded="false" aria-controls="destructive-command-panel-content"',
-      );
+      expect(html).not.toContain('class="panel foldable"');
+      expect(html).not.toContain('destructive-command-panel-content');
+      expect(html).toContain('<h2>Destructive Command Protection</h2>');
+      expect(html).toContain('<h2>Secret Protection</h2>');
       expect(html).toContain('aria-controls="safety-overrides-content"');
       expect(html).toContain('id="safety-overrides-content" hidden');
       expect(html).toContain('<label class="row safety-override-row">');
       expect(html).toContain('label.row.safety-override-row {\n  display: grid;');
       expect(html).toContain('label.row.safety-override-row select {');
       expect(html).toContain('width: 100%;');
-      expect(html).toContain('id="destructive-command-panel-content" hidden');
       expect(html).toContain('.panel-toggle {\n  display: inline-flex;');
       expect(html).toContain('font-size: inherit;\n  font-weight: inherit;');
-      expect(html).toContain('.foldable > .panel-head {\n  position: relative;');
-      expect(html).toContain('min-height: 44px;');
-      expect(html).toContain('.foldable > .panel-head .panel-toggle::before {');
-      expect(html).toContain('content: "";\n  position: absolute;\n  inset: 0;\n  z-index: 1;');
+      expect(html).not.toContain('.foldable > .panel-head {');
+      expect(html).toContain('data-secret-group-toggle=');
+      expect(html).not.toContain('tier-toggle"');
+      expect(html).toContain('class="rule-tier-head" data-tier-toggle=');
+      expect(html).toContain('class="rule-tier-head" data-secret-group-toggle=');
+      expect(html).toContain('.rule-tier-head[aria-expanded="false"] .panel-chevron');
+      expect(html).toContain('.rule-tier-head:hover:not(:disabled)');
+      expect(html).toContain('${onCount} on · ${allGroupRules.length - onCount} off');
+      expect(html).toContain('const secretGroupExpanded = new Map();');
+      expect(html).toContain('const searchCollapsedSecretGroups = new Set();');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).not.toContain('Paused');
@@ -226,7 +240,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('const addDenyPaths = ');
       expect(html).toContain('data-deny-path-remove');
       expect(html).toContain('No deny paths configured.');
-      expect(html).toContain('Deny paths (${');
+      expect(html).toContain('id="deny-paths-count"');
+      expect(html).toContain("`${paths.length} path${paths.length === 1 ? '' : 's'}`");
       expect(html).toContain('Already listed:');
       expect(html).toContain('Remove deny path');
       expect(html).toContain('const denyPathIcons =');
@@ -239,16 +254,15 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('textarea:disabled:hover');
       expect(html).toContain('cursor: not-allowed');
       expect(html).toContain("if (input.id === 'policy-search') {");
-      expect(html).toContain(
-        "const searchPanelIds = ['destructive-command-panel-content', 'secret-panel-content'];",
-      );
+      expect(html).not.toContain('searchPanelIds');
       expect(html).toContain('let searchActive = false;');
-      expect(html).toContain('const searchExpandedPanels = new Set();');
-      expect(html).toContain('const syncSearchPanels = () => {');
+      expect(html).not.toContain('searchExpandedPanels');
+      expect(html).toContain('const syncSearchState = () => {');
       expect(html).toContain('if (active === searchActive) return;');
-      expect(html).toContain('searchExpandedPanels.add(id);');
-      expect(html).toContain('if (!searchExpandedPanels.delete(id)) return;');
-      expect(html).toContain("searchExpandedPanels.delete(button.getAttribute('aria-controls'));");
+      expect(html).toContain('searchCollapsedSecretGroups.clear();');
+      expect(html).toContain(
+        'if (searchActive && expanded) searchCollapsedSecretGroups.add(category);',
+      );
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
       expect(html).toContain(
@@ -264,9 +278,9 @@ describe('policy GUI server', () => {
       );
       expect(html).toContain('word-break: break-all;');
       expect(html).toContain('syncRawFromForm();');
-      expect(html).toContain('aria-controls="secret-panel-content"');
-      expect(html).toContain('aria-expanded="false" aria-controls="secret-panel-content"');
-      expect(html).toContain('id="secret-panel-content" hidden');
+      expect(html).not.toContain('secret-panel-content');
+      expect(html).toContain('aria-expanded="false" aria-controls="deny-paths-content"');
+      expect(html).toContain('id="deny-paths-content" hidden');
       expect(html).not.toContain('Allow paths');
       expect(html).not.toContain('id="allow-paths"');
       expect(html).toContain('Raw JSON');

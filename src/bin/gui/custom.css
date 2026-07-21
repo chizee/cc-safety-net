@@ -147,6 +147,25 @@ h1 {
   background: var(--surface-2);
 }
 
+.app-status .discard-link {
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.app-status .discard-link:hover:not(:disabled) {
+  background: transparent;
+  opacity: 0.75;
+}
+
 .appbar-search {
   display: flex;
   align-items: center;
@@ -431,18 +450,6 @@ main {
   margin-bottom: 16px;
 }
 
-.foldable > .panel-head {
-  position: relative;
-  min-height: 44px;
-}
-
-.foldable > .panel-head .panel-toggle::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
 .panel-title {
   min-width: 0;
 }
@@ -487,7 +494,7 @@ main {
 }
 
 .panel-toggle[aria-expanded="false"] .panel-chevron,
-.tier-toggle[aria-expanded="false"] .panel-chevron {
+.rule-tier-head[aria-expanded="false"] .panel-chevron {
   transform: rotate(-45deg);
 }
 
@@ -656,41 +663,41 @@ label.row.safety-override-row select {
 
 .rule-tier-head {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 12px;
   padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+
+.rule-tier-head:hover:not(:disabled) {
   background: var(--surface-2);
 }
 
-.rule-tier-strict .rule-tier-head {
+.rule-tier-strict .rule-tier-head,
+.rule-tier-strict .rule-tier-head:hover:not(:disabled) {
   background: var(--strict-bg);
   color: var(--strict-fg);
 }
 
-.rule-tier-paranoid .rule-tier-head {
+.rule-tier-paranoid .rule-tier-head,
+.rule-tier-paranoid .rule-tier-head:hover:not(:disabled) {
   background: var(--paranoid-bg);
   color: var(--paranoid-fg);
 }
 
-.tier-toggle {
-  display: flex;
+.tier-label {
+  display: grid;
   min-width: 0;
   flex: 1;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.tier-toggle > span:last-child {
-  display: grid;
   gap: 1px;
 }
 
-.tier-toggle small,
+.tier-label small,
 .tier-counts {
   color: inherit;
   font-size: 11px;
@@ -699,6 +706,7 @@ label.row.safety-override-row select {
 
 .tier-counts {
   flex: none;
+  font-weight: 500;
   text-align: right;
 }
 
@@ -913,6 +921,16 @@ label.row.master:has(input:checked) .master-badge::before {
 }
 
 .foldable-field-content > p {
+  margin: 0;
+  font-size: 12px;
+}
+
+#deny-paths-content:not([hidden]) {
+  display: grid;
+  gap: 10px;
+}
+
+#deny-paths-content > p.muted {
   margin: 0;
   font-size: 12px;
 }
@@ -1222,10 +1240,8 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .rule-tier-head,
   .rule-tier-head {
-    align-items: stretch;
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
   .rule-row {
@@ -1233,7 +1249,8 @@ textarea {
   }
 
   .tier-counts {
-    padding-left: 18px;
+    flex: 1 1 100%;
+    padding-left: 20px;
     text-align: left;
   }
 

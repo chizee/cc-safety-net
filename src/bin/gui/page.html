@@ -69,27 +69,23 @@
       </div>
       <div class="grid" id="workflow"></div>
     </section>
-    <section class="panel foldable">
+    <section class="panel">
       <div class="panel-head">
         <div class="panel-title">
-          <h2><button class="panel-toggle" type="button" aria-expanded="false" aria-controls="destructive-command-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Destructive Command Protection</span></button></h2>
+          <h2>Destructive Command Protection</h2>
           <p class="panel-sub muted" id="destructive-command-summary"></p>
         </div>
       </div>
-      <div id="destructive-command-panel-content" hidden>
-        <div id="destructive-command"></div>
-      </div>
+      <div id="destructive-command"></div>
     </section>
-    <section class="panel foldable">
+    <section class="panel">
       <header class="panel-head">
         <div class="panel-title">
-          <h2><button class="panel-toggle" type="button" aria-expanded="false" aria-controls="secret-panel-content"><span class="panel-chevron" aria-hidden="true"></span><span>Secret Protection</span></button></h2>
+          <h2>Secret Protection</h2>
           <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
         </div>
       </header>
-      <div id="secret-panel-content" hidden>
-        <div id="secret"></div>
-      </div>
+      <div id="secret"></div>
     </section>
     <section class="panel">
       <div class="panel-head raw-json-head">
@@ -147,20 +143,20 @@
       add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
       remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
     };
-    const searchPanelIds = ['destructive-command-panel-content', 'secret-panel-content'];
     let state;
     let draftPolicy;
     let preview;
     let previewRequestId = 0;
     let dirty = false;
     let searchActive = false;
-    const searchExpandedPanels = new Set();
     const tierExpanded = new Map([
       ['normal', false],
       ['strict', false],
       ['paranoid', false]
     ]);
     const searchCollapsedTiers = new Set();
+    const secretGroupExpanded = new Map();
+    const searchCollapsedSecretGroups = new Set();
     let rawCopyResetTimer = null;
     let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
     const api = (path, init = {}) => fetch(`${path}?token=${encodeURIComponent(token)}`, {
@@ -281,30 +277,18 @@
       detail: options.detail,
       confirmLabel: 'Disable protection'
     });
-    const setPanelExpanded = (button, expanded) => {
+    const togglePanel = (button) => {
+      const expanded = button.getAttribute('aria-expanded') !== 'true';
       button.setAttribute('aria-expanded', String(expanded));
       qs(button.getAttribute('aria-controls')).hidden = !expanded;
     };
-    const togglePanel = (button) => {
-      searchExpandedPanels.delete(button.getAttribute('aria-controls'));
-      setPanelExpanded(button, button.getAttribute('aria-expanded') !== 'true');
-    };
-    const syncSearchPanels = () => {
+    const syncSearchState = () => {
       const active = qs('policy-search').value.trim().length > 0;
       if (active === searchActive) return;
       searchActive = active;
-      if (!active) searchCollapsedTiers.clear();
-      searchPanelIds.forEach((id) => {
-        const button = document.querySelector(`[aria-controls="${id}"]`);
-        if (active) {
-          if (button.getAttribute('aria-expanded') === 'true') return;
-          searchExpandedPanels.add(id);
-          setPanelExpanded(button, true);
-          return;
-        }
-        if (!searchExpandedPanels.delete(id)) return;
-        setPanelExpanded(button, false);
-      });
+      if (active) return;
+      searchCollapsedTiers.clear();
+      searchCollapsedSecretGroups.clear();
     };
     const updateRawSource = () => {
       qs('raw-source').textContent = state?.errors.length
@@ -412,6 +396,7 @@
       if (state?.errors.length) return;
       dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
       setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
+      if (dirty) qs('app-status').insertAdjacentHTML('beforeend', ' <button type="button" class="discard-link" id="discard-changes">Discard</button>');
       setDetailStatus('');
       updateActions();
     };
@@ -422,7 +407,7 @@
     const renderDenyPaths = () => {
       const paths = draftPolicy.secret_protection.deny_paths;
       const disabled = !draftPolicy.secret_protection.enabled;
-      qs('deny-paths-label').textContent = `Deny paths (${paths.length})`;
+      qs('deny-paths-count').textContent = `${paths.length} path${paths.length === 1 ? '' : 's'}`;
       qs('deny-paths-input').disabled = disabled;
       qs('deny-paths-add-button').disabled = disabled;
       qs('deny-paths-list').innerHTML = paths.length === 0
@@ -478,9 +463,20 @@
         : `${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`;
       qs('secret-patterns').innerHTML = rules.length === 0
         ? '<p class="empty">No secret protections match the search.</p>'
-        : groupRules(rules).map((group) => `
-          <section class="destructive-command-group">
-            <h3>${escapeHtml(group.category)}</h3>
+        : groupRules(rules).map((group) => {
+          const expanded = secretGroupExpanded.get(group.category)
+            || (searchActive && !searchCollapsedSecretGroups.has(group.category));
+          const contentId = `secret-group-${group.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          const allGroupRules = state.secretPatterns.filter((rule) => rule.category === group.category);
+          const onCount = disabled ? 0 : allGroupRules.filter((rule) => overrides[rule.id] !== 'off').length;
+          return `
+          <section class="rule-tier">
+            <button type="button" class="rule-tier-head" data-secret-group-toggle="${escapeHtml(group.category)}" aria-expanded="${expanded}" aria-controls="${contentId}">
+              <span class="panel-chevron" aria-hidden="true"></span>
+              <span class="tier-label"><strong>${escapeHtml(group.category)}</strong></span>
+              <span class="tier-counts">${onCount} on · ${allGroupRules.length - onCount} off</span>
+            </button>
+            <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
             <div class="grid">${group.rules.map((rule) => {
               const active = overrides[rule.id] !== 'off';
               const ruleState = active && !disabled
@@ -495,8 +491,10 @@
                 </span>
               </label>`;
             }).join('')}</div>
+            </div>
           </section>
-        `).join('');
+        `;
+        }).join('');
     };
     const levelCapabilities = (level) => ({
       fail_closed: level === 'strict' || level === 'paranoid',
@@ -610,13 +608,11 @@
             || (searchActive && !searchCollapsedTiers.has(tier));
           const contentId = `destructive-tier-${tier}`;
           return `<section class="rule-tier rule-tier-${tier}">
-            <div class="rule-tier-head">
-              <button type="button" class="tier-toggle" data-tier-toggle="${tier}" aria-expanded="${expanded}" aria-controls="${contentId}">
-                <span class="panel-chevron" aria-hidden="true"></span>
-                <span><strong>${tierMeta[tier][0]}</strong><small>${tierMeta[tier][1]}</small></span>
-              </button>
+            <button type="button" class="rule-tier-head" data-tier-toggle="${tier}" aria-expanded="${expanded}" aria-controls="${contentId}">
+              <span class="panel-chevron" aria-hidden="true"></span>
+              <span class="tier-label"><strong>${tierMeta[tier][0]}</strong><small>${tierMeta[tier][1]}</small></span>
               <span class="tier-counts">${tierStates.filter((item) => item.enabled).length} on · ${tierStates.filter((item) => !item.enabled).length} off · ${tierStates.filter((item) => item.changesInherited).length} customized</span>
-            </div>
+            </button>
             <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
               ${groupRules(rules).map((group) => `<section class="destructive-command-group">
                 <h3>${escapeHtml(group.category)}</h3>
@@ -635,7 +631,7 @@
                       </span>
                     </label>
                     <button type="button" class="rule-example-button" data-rule-example="${escapeHtml(rule.id)}" aria-label="${escapeHtml(`Show blocked example for ${rule.label}`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
-                    ${override ? `<button type="button" class="inherit-button" data-use-inherited="${escapeHtml(rule.id)}">Use inherited setting</button>` : ''}
+                    ${override && !effective.changesInherited ? `<button type="button" class="inherit-button" data-use-inherited="${escapeHtml(rule.id)}">Use inherited setting</button>` : ''}
                   </div>`;
                 }).join('')}</div>
               </section>`).join('')}
@@ -673,13 +669,17 @@
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
-        '<div class="field"><span id="deny-paths-label">Deny paths</span><small>Configured paths and everything inside them are blocked while Secret protection is on. Paste multiple lines to add several paths at once.</small></div>' +
+        '<section class="rule-tier">' +
+        '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
+        '<div class="tier-content" id="deny-paths-content" hidden>' +
+        '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
         '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
         '<p class="deny-paths-hint" id="deny-paths-hint" hidden></p>' +
-        '<ul class="deny-paths-list" id="deny-paths-list"></ul>';
+        '<ul class="deny-paths-list" id="deny-paths-list"></ul>' +
+        '</div></section>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('policy-search').value = '';
-      syncSearchPanels();
+      syncSearchState();
       renderDestructiveCommands();
       renderSecretPatterns();
       renderDenyPaths();
@@ -708,7 +708,7 @@
     document.addEventListener('input', (event) => {
       const input = event.target;
       if (input.id === 'policy-search') {
-        syncSearchPanels();
+        syncSearchState();
         renderDestructiveCommands();
         renderSecretPatterns();
       }
@@ -769,14 +769,8 @@
       }
       if (input.dataset?.destructiveCommandActive) {
         const ruleId = input.dataset.destructiveCommandActive;
-        const rule = state.destructiveCommandRules.find((item) => item.id === ruleId);
-        if (rule?.activationCapability) {
-          draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
-        } else if (input.checked) {
-          delete draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive];
-        } else {
-          draftPolicy.destructive_command_protection.overrides[input.dataset.destructiveCommandActive] = 'off';
-        }
+        if (input.checked === preview.rules[ruleId].inheritedEnabled) delete draftPolicy.destructive_command_protection.overrides[ruleId];
+        else draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
         syncRawFromForm();
         updateDirtyStatus();
         void refreshPolicyPreview();
@@ -823,7 +817,17 @@
         renderDestructiveCommands();
         return;
       }
-      const button = event.target.closest?.('.panel-toggle');
+      const secretGroupButton = event.target.closest?.('[data-secret-group-toggle]');
+      if (secretGroupButton) {
+        const category = secretGroupButton.dataset.secretGroupToggle;
+        const expanded = secretGroupButton.getAttribute('aria-expanded') === 'true';
+        secretGroupExpanded.set(category, !expanded);
+        if (searchActive && expanded) searchCollapsedSecretGroups.add(category);
+        if (!expanded) searchCollapsedSecretGroups.delete(category);
+        renderSecretPatterns();
+        return;
+      }
+      const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
       if (button) {
         togglePanel(button);
         return;
@@ -851,6 +855,19 @@
           syncRawFromForm();
           updateDirtyStatus();
           void refreshPolicyPreview();
+        })();
+        return;
+      }
+      if (event.target.closest?.('#discard-changes')) {
+        void (async () => {
+          if (!(await confirmDialog({
+            title: 'Discard unsaved changes?',
+            body: 'All changes since your last save will be reverted.',
+            confirmLabel: 'Discard changes'
+          }))) return;
+          void runExclusive('Discarding...', async () => {
+            if (await load()) setAppStatus('Changes discarded.', 'ok');
+          });
         })();
         return;
       }
