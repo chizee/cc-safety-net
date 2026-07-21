@@ -201,24 +201,27 @@ describe('rules policy filesystem confinement', () => {
     },
   );
 
-  test.skipIf(process.platform !== 'win32')('rejects a real Windows junction descendant', () => {
-    withTempDir((dir) => {
-      const root = join(dir, 'project');
-      const outside = join(dir, 'outside');
-      mkdirSync(root);
-      mkdirSync(outside);
-      writeFileSync(join(outside, 'rule.json'), 'TOPSECRET');
-      symlinkSync(outside, join(root, 'rules'), 'junction');
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] rejects a real Windows junction descendant',
+    () => {
+      withTempDir((dir) => {
+        const root = join(dir, 'project');
+        const outside = join(dir, 'outside');
+        mkdirSync(root);
+        mkdirSync(outside);
+        writeFileSync(join(outside, 'rule.json'), 'TOPSECRET');
+        symlinkSync(outside, join(root, 'rules'), 'junction');
 
-      expect(() =>
-        readPolicyFile(
-          getPolicyFilesystemTarget(
-            bindPolicyFilesystemScope(root, 'project policy'),
-            'rules/rule.json',
+        expect(() =>
+          readPolicyFile(
+            getPolicyFilesystemTarget(
+              bindPolicyFilesystemScope(root, 'project policy'),
+              'rules/rule.json',
+            ),
           ),
-        ),
-      ).toThrow('Unable to access project policy filesystem safely.');
-      expect(readFileSync(join(outside, 'rule.json'), 'utf-8')).toBe('TOPSECRET');
-    });
-  });
+        ).toThrow('Unable to access project policy filesystem safely.');
+        expect(readFileSync(join(outside, 'rule.json'), 'utf-8')).toBe('TOPSECRET');
+      });
+    },
+  );
 });

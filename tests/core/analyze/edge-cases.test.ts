@@ -1464,7 +1464,7 @@ describe('edge cases', () => {
     });
 
     test.skipIf(process.platform !== 'win32')(
-      'blocks relative recursive deletion after a Windows namespace cwd operand',
+      '[windows] blocks relative recursive deletion after a Windows namespace cwd operand',
       () => {
         const namespace = toShellPath(toNamespacedPath(tempDir));
         for (const command of [

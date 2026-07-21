@@ -356,7 +356,7 @@ describe('Antigravity CLI hook', () => {
     });
 
     test.skipIf(process.platform !== 'win32')(
-      'denies an untrusted namespaced Cwd while supporting a relative Cwd under a trusted root',
+      '[windows] denies an untrusted namespaced Cwd while supporting a relative Cwd under a trusted root',
       async () => {
         await withHookTestContext(async (context) => {
           const namespacedRoot = toNamespacedPath(context.cwd);

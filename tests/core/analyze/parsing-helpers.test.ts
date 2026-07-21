@@ -670,7 +670,7 @@ describe('shell parsing helpers', () => {
     });
 
     test.skipIf(process.platform !== 'win32')(
-      'keeps wrapper cwd unknown for Windows namespace operands',
+      '[windows] keeps wrapper cwd unknown for Windows namespace operands',
       () => {
         const namespace = toNamespacedPath(process.cwd());
         for (const tokens of [
@@ -687,7 +687,7 @@ describe('shell parsing helpers', () => {
     );
 
     test.skipIf(process.platform !== 'win32')(
-      'resolves wrapper cwd with Windows separators',
+      '[windows] resolves wrapper cwd with Windows separators',
       () => {
         const fixture = createLinkedWorktreeFixture();
         try {
@@ -747,9 +747,12 @@ describe('shell parsing helpers', () => {
       expect(result.envAssignments.get('FOO')).toBe('');
     });
 
-    test.skipIf(process.platform !== 'win32')('trusts the Windows system temp root', () => {
-      expect(isTrustedTempPath(tmpdir())).toBeTrue();
-    });
+    test.skipIf(process.platform !== 'win32')(
+      '[windows] trusts the Windows system temp root',
+      () => {
+        expect(isTrustedTempPath(tmpdir())).toBeTrue();
+      },
+    );
   });
 });
 

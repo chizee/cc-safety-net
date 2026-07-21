@@ -90,7 +90,7 @@ describe('isTmpdirOverriddenToNonTemp', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'trusts the captured native Windows temp root but not a separate hostile TMPDIR assignment',
+    '[windows] trusts the captured native Windows temp root but not a separate hostile TMPDIR assignment',
     () => {
       const nativeTmpdir = tmpdir();
       const environment = { TEMP: nativeTmpdir, TMP: nativeTmpdir };

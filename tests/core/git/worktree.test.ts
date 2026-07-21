@@ -70,7 +70,7 @@ describe('worktree git execution context', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'resolves git -C targets with Windows separators',
+    '[windows] resolves git -C targets with Windows separators',
     () => {
       const fixture = createLinkedWorktreeFixture();
       try {
@@ -90,7 +90,7 @@ describe('worktree git execution context', () => {
   );
 
   test.skipIf(process.platform !== 'win32')(
-    'fails closed for separate and attached Git cwd namespace operands',
+    '[windows] fails closed for separate and attached Git cwd namespace operands',
     () => {
       const fixture = createLinkedWorktreeFixture();
       try {

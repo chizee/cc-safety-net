@@ -880,7 +880,7 @@ describe('analyzeRm (unit)', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'blocks Windows namespace targets before temp, home, cwd, or contained-path eligibility',
+    '[windows] blocks Windows namespace targets before temp, home, cwd, or contained-path eligibility',
     () => {
       const cwd = mkdtempSync(join(tmpdir(), 'safety-net-rm-namespace-'));
       const child = join(cwd, 'dist');

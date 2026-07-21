@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getBundledOutputs } from '../../scripts/build-output';
+import { getBundledOutputs, isRootDeclarationOutput } from '../../scripts/build-output';
 
 describe('getBundledOutputs', () => {
   // Phase 5 artifact evidence compares raw `wc -c` bytes for index/CLI/Pi to
@@ -18,6 +18,11 @@ describe('getBundledOutputs', () => {
     expect(outputs.indexOutput?.size).toBe(1000);
     expect(outputs.binOutput?.size).toBe(2000);
     expect(outputs.piOutput?.size).toBe(3000);
+  });
+
+  test('keeps the root declaration with Windows paths', () => {
+    expect(isRootDeclarationOutput('dist\\index.d.ts')).toBeTrue();
+    expect(isRootDeclarationOutput('dist\\pi\\index.d.ts')).toBeFalse();
   });
 
   test('keeps the runtime Zod dependency external to bundled entrypoints', () => {

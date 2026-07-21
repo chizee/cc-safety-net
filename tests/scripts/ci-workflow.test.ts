@@ -100,6 +100,11 @@ describe('CI and release workflows', () => {
   test('keeps Windows repository-mode checks portable while verifying packed mode', () => {
     const windows = readFileSync('.github/workflows/test-windows.yml', 'utf8');
     const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(windows).not.toContain('bun run check:ci');
+    for (const command of ['lint:ci', 'typecheck', 'knip', 'check-duplicates', 'sg:scan']) {
+      expect(windows).toContain(`bun run ${command}`);
+    }
+    expect(windows).toContain("bun test tests --test-name-pattern '\\[windows\\]'");
     expect(windows).toContain('bun run build');
     expect(ci).toContain('os: windows-latest');
     expect(ci).toContain('bun run verify:package');

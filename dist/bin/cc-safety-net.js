@@ -10263,7 +10263,7 @@ function analyzePowerShellSegment(segment, hasPipelineInput, ctx, policy) {
   if (destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-pipeline-dynamic-target", ctx.strict) && hasPipelineInput && (parsed.targets.length === 0 || parsed.recursive))
     return destructiveCommandMatch("powershell.remove-item-pipeline-dynamic-target", REASON_REMOVE_ITEM_PIPELINE);
   for (let target of parsed.targets)
-    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
+    if (!isUnsupportedWindowsNamespacePath(target.text) && isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
   for (let target of parsed.targets)
     if (ctx.resolvedCwd && isProtectedGitDeleteTarget(powerShellTargetForPolicy(target.text), ctx.resolvedCwd, ctx.protectedGitMetadata, parsed.recursive, ctx.pathCanonicalizationBudget, !0))

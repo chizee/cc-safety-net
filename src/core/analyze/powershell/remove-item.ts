@@ -14,6 +14,7 @@ import {
   isProtectedGitDeleteTarget,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
+import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 import type { CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
@@ -122,7 +123,10 @@ function analyzePowerShellSegment(
   }
 
   for (const target of parsed.targets) {
-    if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))) {
+    if (
+      !isUnsupportedWindowsNamespacePath(target.text) &&
+      isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text))
+    ) {
       return destructiveCommandMatch(
         parsed.recursive && parsed.force
           ? 'powershell.remove-item-recursive-force-root-or-home'

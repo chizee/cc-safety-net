@@ -387,7 +387,7 @@ describe('Pi tool_call event', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'fails closed for an untrusted namespaced working_directory and supports a trusted root',
+    '[windows] fails closed for an untrusted namespaced working_directory and supports a trusted root',
     () => {
       const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-shell-namespace-'));
       try {

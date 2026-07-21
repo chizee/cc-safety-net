@@ -40,7 +40,7 @@ describe('Windows namespace path detection', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'rejects local device and remote namespace operands before resolving a chdir target',
+    '[windows] rejects local device and remote namespace operands before resolving a chdir target',
     () => {
       for (const target of [
         toNamespacedPath(process.cwd()),
@@ -56,7 +56,7 @@ describe('Windows namespace path detection', () => {
   );
 
   test.skipIf(process.platform !== 'win32')(
-    'keeps relative chdir targets beneath a trusted namespaced base supported',
+    '[windows] keeps relative chdir targets beneath a trusted namespaced base supported',
     () => {
       const base = toNamespacedPath(process.cwd());
       expect(resolveChdirTarget(base, '.')).toBe(base);

@@ -22,8 +22,15 @@ jobs:
         run: bun install --frozen-lockfile
         env:
           BUN_INSTALL_ALLOW_SCRIPTS: "@ast-grep/cli"
-      - run: bun run check:ci
+      - run: bun run lint:ci
+      - run: bun run typecheck
+      - run: bun run knip
+      - run: bun run check-duplicates
+      - run: bun run sg:scan
+      - name: Run native Windows tests
+        run: bun test tests --test-name-pattern '\[windows\]'
         env:
+          AGENT: "1"
           CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e
       - run: bun run build
       - run: git diff --exit-code -- dist assets/cc-safety-net.schema.json

@@ -4,7 +4,7 @@
  * to avoid embedding the full package.json in the bundle.
  */
 
-import { getBundledOutputs } from './build-output';
+import { getBundledOutputs, isRootDeclarationOutput } from './build-output';
 import { buildRuntimeBundles } from './build-runtime';
 import { formatSubprocessFailure } from './subprocess-output';
 import { verifyBuildArtifacts } from './verify-build';
@@ -27,7 +27,7 @@ if (typesResult.exitCode !== 0) {
 }
 
 for await (const path of new Bun.Glob('dist/**/*.d.ts').scan('.')) {
-  if (path !== 'dist/index.d.ts') await Bun.file(path).delete();
+  if (!isRootDeclarationOutput(path)) await Bun.file(path).delete();
 }
 
 const schemaResult = Bun.spawnSync(['bun', 'run', 'build:schema']);

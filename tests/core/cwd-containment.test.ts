@@ -5,7 +5,7 @@ import { resolveContainedCwd } from '@/core/cwd-containment';
 
 describe('cwd containment', () => {
   test.skipIf(process.platform !== 'win32')(
-    'rejects an untrusted Windows namespace operand but supports a trusted namespaced root',
+    '[windows] rejects an untrusted Windows namespace operand but supports a trusted namespaced root',
     () => {
       const namespacedRoot = toNamespacedPath(process.cwd());
 

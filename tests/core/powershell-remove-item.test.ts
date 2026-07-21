@@ -297,7 +297,7 @@ describe('PowerShell Remove-Item support', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'blocks Windows namespace targets for Remove-Item, including target lists',
+    '[windows] blocks Windows namespace targets for Remove-Item, including target lists',
     () => {
       withTempProject((cwd) => {
         const namespace = toNamespacedPath(join(cwd, 'dist'));

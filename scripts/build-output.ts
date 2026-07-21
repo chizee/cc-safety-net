@@ -17,6 +17,10 @@ export function getBundledOutputs(outputs: BuildOutput[]) {
   };
 }
 
+export function isRootDeclarationOutput(path: string): boolean {
+  return normalizeBuildPath(path) === 'dist/index.d.ts';
+}
+
 function normalizeBuildPath(path: string): string {
   return path.replaceAll('\\', '/');
 }
