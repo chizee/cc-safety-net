@@ -5,7 +5,7 @@
 .safety-net.json
 .opencode
 .gemini
-docs
+artifacts
 .cc-safetynet-rules
 .cc-safety-net
 coverage
