@@ -37,6 +37,10 @@ interface BuildPackageTarballOptions {
   npmCommand?: string[];
 }
 
+export function requiresPackedModeVerification(platform: NodeJS.Platform): boolean {
+  return platform !== 'win32';
+}
+
 function run(
   command: string[],
   cwd = process.cwd(),
@@ -80,10 +84,12 @@ export async function verifyPackage(): Promise<void> {
     if (result.size > MAX_TARBALL_BYTES) {
       throw new Error(`npm tarball is ${result.size} bytes; maximum is ${MAX_TARBALL_BYTES}`);
     }
-    const bin = result.files.find((file) => file.path === 'dist/bin/cc-safety-net.js');
-    if (!bin || bin.mode !== 0o755) throw new Error('Packed CLI mode is not 0755');
-    if (result.files.some((file) => file !== bin && file.mode !== 0o644)) {
-      throw new Error('Packed non-executable files must have mode 0644');
+    if (requiresPackedModeVerification(process.platform)) {
+      const bin = result.files.find((file) => file.path === 'dist/bin/cc-safety-net.js');
+      if (!bin || bin.mode !== 0o755) throw new Error('Packed CLI mode is not 0755');
+      if (result.files.some((file) => file !== bin && file.mode !== 0o644)) {
+        throw new Error('Packed non-executable files must have mode 0644');
+      }
     }
 
     run(['npm', 'init', '--yes'], directory);

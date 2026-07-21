@@ -1,9 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { getPackageVerificationEnv } from '../../scripts/verify-package';
+import {
+  getPackageVerificationEnv,
+  requiresPackedModeVerification,
+} from '../../scripts/verify-package';
 import { withTempDir } from '../helpers';
 
 describe('package verification environment', () => {
+  test('skips Unix tar mode enforcement only on Windows', () => {
+    expect(requiresPackedModeVerification('win32')).toBeFalse();
+    expect(requiresPackedModeVerification('linux')).toBeTrue();
+    expect(requiresPackedModeVerification('darwin')).toBeTrue();
+  });
+
   test('isolates packaged hook homes and audit logs from the caller', async () => {
     await withTempDir('cc-safety-net-package-env-', (directory) => {
       const env = getPackageVerificationEnv(directory);
