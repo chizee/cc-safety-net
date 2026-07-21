@@ -81,26 +81,6 @@ function foo() {
 }
 ```
 
-### Schema Definitions (Drizzle)
-
-Use snake_case for field names so column names don't need to be redefined as strings.
-
-```ts
-// Good
-const table = sqliteTable("session", {
-  id: text().primaryKey(),
-  project_id: text().notNull(),
-  created_at: integer().notNull(),
-})
-
-// Bad
-const table = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  projectID: text("project_id").notNull(),
-  createdAt: integer("created_at").notNull(),
-})
-```
-
 ## Knip
 
 - NEVER add entries to `ignoreIssues` in `knip.ts`. It suppresses real problems instead of fixing them. The only valid use case is for generated files that aren't under source control.
