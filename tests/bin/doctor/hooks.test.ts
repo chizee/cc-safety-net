@@ -96,7 +96,7 @@ function _claudePluginListOutput(options: { pluginId?: string; status?: string }
     Scope: user
     Status: ✔ enabled
 
-  ❯ ${options.pluginId ?? 'safety-net@cc-marketplace'}
+  ❯ ${options.pluginId ?? 'cc-safety-net@cc-marketplace'}
     Version: 0.8.2
     Scope: user
     ${options.status === undefined ? 'Status: ✔ enabled' : options.status}`;
@@ -463,7 +463,7 @@ describe('detectAllHooks', () => {
     Version: 1.0.0
     Scope: user
     Status: ✘ disabled
-  ❯ safety-net@cc-marketplace
+  ❯ cc-safety-net@cc-marketplace
     Version: 0.8.2
     Scope: user
     Status: ✔ enabled`,
@@ -487,7 +487,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, {
         homeDir,
         claudePluginListOutput: `Installed plugins:
-  ❯ safety-net@cc-marketplace
+  ❯ cc-safety-net@cc-marketplace
     Version: 0.8.2
     Publisher: author@example.com
     Status: ✔ enabled`,
@@ -551,7 +551,7 @@ describe('detectAllHooks', () => {
       const hooks = detectAllHooks(projectDir, {
         homeDir,
         claudePluginListOutput: _claudePluginListOutput({
-          pluginId: 'other-safety-net@cc-marketplace',
+          pluginId: 'other-cc-safety-net@cc-marketplace',
         }),
       });
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
@@ -1811,7 +1811,7 @@ describe('detectAllHooks', () => {
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(
       join(codexHome, 'config.toml'),
-      '[features]\nplugin_hooks = true\n\n[plugins."safety-net@cc-marketplace"]\nenabled = true\n',
+      '[features]\nplugin_hooks = true\n\n[plugins."cc-safety-net@cc-marketplace"]\nenabled = true\n',
     );
 
     try {
@@ -1834,7 +1834,7 @@ describe('detectAllHooks', () => {
     try {
       const hooks = detectAllHooks(projectDir, {
         homeDir,
-        codexPluginListOutput: 'safety-net@cc-marketplace installed, enabled',
+        codexPluginListOutput: 'cc-safety-net@cc-marketplace installed, enabled',
       });
       const codex = hooks.find((hook) => hook.platform === 'codex');
 

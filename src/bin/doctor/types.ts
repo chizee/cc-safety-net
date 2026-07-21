@@ -172,7 +172,7 @@ export interface SystemInfo {
   npmVersion: string | null;
   /** Bun version (from `bun --version`) */
   bunVersion: string | null;
-  /** Whether the copilot-safety-net plugin is installed (from `copilot plugin list`) */
+  /** Whether the cc-safety-net Copilot plugin is installed (from `copilot plugin list`) */
   copilotPluginInstalled: boolean;
   /** Whether the Pi extension sentinel is runtime-visible */
   piSafetyNetProbe: PiProbeInfo;

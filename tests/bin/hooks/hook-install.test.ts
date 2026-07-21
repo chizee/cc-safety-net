@@ -214,7 +214,7 @@ describe('install command', () => {
       ['codex'],
       [
         'codex plugin marketplace add kenryu42/cc-marketplace',
-        'codex plugin add safety-net@cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
       ],
       'Installed Codex integration',
       {
@@ -233,7 +233,7 @@ describe('install command', () => {
       ['claude'],
       [
         'claude plugin marketplace add kenryu42/cc-marketplace',
-        'claude plugin install safety-net@cc-marketplace',
+        'claude plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed Claude Code integration',
     );
@@ -256,7 +256,7 @@ describe('install command', () => {
         'copilot plugin list',
         'copilot plugin marketplace list',
         'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install safety-net@cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed GitHub Copilot CLI integration',
     );
@@ -269,7 +269,7 @@ describe('install command', () => {
       [
         'copilot plugin list',
         'copilot plugin marketplace list',
-        'copilot plugin install safety-net@cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed GitHub Copilot CLI integration',
       {
@@ -301,7 +301,7 @@ fi
             `#!/usr/bin/env sh
 printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
 if [ "$*" = "plugin list" ]; then
-  printf 'Installed plugins:\\n  • safety-net@cc-marketplace (v1.0.6)\\n'
+  printf 'Installed plugins:\\n  • cc-safety-net@cc-marketplace (v1.0.6)\\n'
 fi
 `,
           );
@@ -694,7 +694,7 @@ describe('uninstall command', () => {
       '--claude-code',
       ['claude'],
       [
-        'claude plugin uninstall safety-net@cc-marketplace',
+        'claude plugin uninstall cc-safety-net@cc-marketplace',
         'claude plugin marketplace remove cc-marketplace',
       ],
       'Uninstalled Claude Code integration',
@@ -706,7 +706,7 @@ describe('uninstall command', () => {
       '--codex',
       ['codex'],
       [
-        'codex plugin remove safety-net@cc-marketplace',
+        'codex plugin remove cc-safety-net@cc-marketplace',
         'codex plugin marketplace remove cc-marketplace',
       ],
       'Uninstalled Codex integration',
@@ -727,7 +727,7 @@ describe('uninstall command', () => {
       '--copilot-cli',
       ['copilot'],
       [
-        'copilot plugin uninstall safety-net@cc-marketplace',
+        'copilot plugin uninstall cc-safety-net@cc-marketplace',
         'copilot plugin marketplace remove cc-marketplace',
       ],
       'Uninstalled GitHub Copilot CLI integration',

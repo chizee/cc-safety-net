@@ -18562,7 +18562,7 @@ function getAntigravityHooksPath(homeDir) {
 }
 
 // src/bin/doctor/hooks.ts
-var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
+var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin", CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list", CLAUDE_SAFETY_NET_PLUGIN_ID = "cc-safety-net@cc-marketplace", CODEX_PLUGIN_LIST_CONFIG_PATH = "codex plugin list", CODEX_SAFETY_NET_SOURCE = "https://github.com/kenryu42/cc-safety-net.git", GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list", GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net", ANTIGRAVITY_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/, KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 function detectClaudeCode(pluginListOutput) {
   if (!pluginListOutput)
     return { platform: "claude-code", status: "n/a" };
@@ -19061,13 +19061,13 @@ import { delimiter, extname, join as join17 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 
 // src/integrations/copilot-cli.ts
-var COPILOT_PLUGIN_ID = "safety-net@cc-marketplace";
+var COPILOT_PLUGIN_ID = "cc-safety-net@cc-marketplace";
 function hasIdentifier(output, identifier) {
   let escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`, "m").test(output ?? "");
 }
 function hasCopilotSafetyNetPlugin(output) {
-  return hasIdentifier(output, "safety-net@cc-marketplace");
+  return hasIdentifier(output, "cc-safety-net@cc-marketplace");
 }
 function hasCopilotMarketplace(output) {
   return hasIdentifier(output, "cc-marketplace");
@@ -23758,23 +23758,23 @@ var NATIVE_INSTALLS = {
   "claude-code": {
     installCommands: [
       ["claude", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
-      ["claude", "plugin", "install", "safety-net@cc-marketplace"]
+      ["claude", "plugin", "install", "cc-safety-net@cc-marketplace"]
     ],
     uninstallCommands: [
-      ["claude", "plugin", "uninstall", "safety-net@cc-marketplace"],
+      ["claude", "plugin", "uninstall", "cc-safety-net@cc-marketplace"],
       ["claude", "plugin", "marketplace", "remove", "cc-marketplace"]
     ]
   },
   codex: {
     installCommands: [
       ["codex", "plugin", "marketplace", "add", "kenryu42/cc-marketplace"],
-      ["codex", "plugin", "add", "safety-net@cc-marketplace"]
+      ["codex", "plugin", "add", "cc-safety-net@cc-marketplace"]
     ],
     uninstallCommands: [
-      ["codex", "plugin", "remove", "safety-net@cc-marketplace"],
+      ["codex", "plugin", "remove", "cc-safety-net@cc-marketplace"],
       ["codex", "plugin", "marketplace", "remove", "cc-marketplace"]
     ],
-    postInstallMessage: "Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it."
+    postInstallMessage: "Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it."
   },
   "copilot-cli": {
     installCommands: () => {
@@ -23786,7 +23786,7 @@ var NATIVE_INSTALLS = {
       ];
     },
     uninstallCommands: [
-      ["copilot", "plugin", "uninstall", "safety-net@cc-marketplace"],
+      ["copilot", "plugin", "uninstall", "cc-safety-net@cc-marketplace"],
       ["copilot", "plugin", "marketplace", "remove", "cc-marketplace"]
     ]
   },
@@ -24737,7 +24737,7 @@ function isPluginEnabled() {
     let content = readFileSync11(settingsPath, "utf-8"), settings = JSON.parse(content);
     if (!settings.enabledPlugins)
       return !1;
-    let pluginKey = "safety-net@cc-marketplace";
+    let pluginKey = "cc-safety-net@cc-marketplace";
     if (!(pluginKey in settings.enabledPlugins))
       return !1;
     return settings.enabledPlugins[pluginKey] === !0;

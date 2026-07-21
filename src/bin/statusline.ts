@@ -59,7 +59,7 @@ function isPluginEnabled(): boolean {
       return false;
     }
 
-    const pluginKey = 'safety-net@cc-marketplace';
+    const pluginKey = 'cc-safety-net@cc-marketplace';
     // If not explicitly set, default to disabled
     if (!(pluginKey in settings.enabledPlugins)) {
       return false;

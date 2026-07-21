@@ -59,24 +59,24 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
     installCommands: [
       ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['claude', 'plugin', 'install', 'safety-net@cc-marketplace'],
+      ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
     ],
     uninstallCommands: [
-      ['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace'],
+      ['claude', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
       ['claude', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
   },
   codex: {
     installCommands: [
       ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['codex', 'plugin', 'add', 'safety-net@cc-marketplace'],
+      ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
     ],
     uninstallCommands: [
-      ['codex', 'plugin', 'remove', 'safety-net@cc-marketplace'],
+      ['codex', 'plugin', 'remove', 'cc-safety-net@cc-marketplace'],
       ['codex', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
     postInstallMessage:
-      'Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it.',
+      'Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.',
   },
   'copilot-cli': {
     installCommands: () => {
@@ -90,7 +90,7 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       ];
     },
     uninstallCommands: [
-      ['copilot', 'plugin', 'uninstall', 'safety-net@cc-marketplace'],
+      ['copilot', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
       ['copilot', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
   },

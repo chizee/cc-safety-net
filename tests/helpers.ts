@@ -260,7 +260,7 @@ export const mockVersionFetcher: VersionFetcher = async (args: string[]) => {
   if (args[0] === 'claude' && args[1] === 'plugin') {
     return `Installed plugins:
 
-  ❯ safety-net@cc-marketplace
+  ❯ cc-safety-net@cc-marketplace
     Version: 0.8.2
     Scope: user
     Status: ✔ enabled`;

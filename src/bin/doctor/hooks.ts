@@ -58,7 +58,7 @@ interface CopilotDetectionState {
 
 const COPILOT_PLUGIN_CONFIG_PATH = 'copilot-plugin';
 const CLAUDE_PLUGIN_LIST_CONFIG_PATH = 'claude plugin list';
-const CLAUDE_SAFETY_NET_PLUGIN_ID = 'safety-net@cc-marketplace';
+const CLAUDE_SAFETY_NET_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 const CODEX_PLUGIN_LIST_CONFIG_PATH = 'codex plugin list';
 const CODEX_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/cc-safety-net.git';
 const GEMINI_EXTENSIONS_LIST_CONFIG_PATH = 'gemini extensions list';

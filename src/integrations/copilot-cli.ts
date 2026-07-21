@@ -1,4 +1,4 @@
-export const COPILOT_PLUGIN_ID = 'safety-net@cc-marketplace';
+export const COPILOT_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 const COPILOT_MARKETPLACE_ID = 'cc-marketplace';
 
 function hasIdentifier(output: string | null, identifier: string): boolean {

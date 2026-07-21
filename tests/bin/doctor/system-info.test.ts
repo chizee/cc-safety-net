@@ -331,7 +331,7 @@ describe('getSystemInfo', () => {
 
   test('includes Claude plugin list output with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
-    expect(sysInfo.claudePluginListOutput).toContain('safety-net@cc-marketplace');
+    expect(sysInfo.claudePluginListOutput).toContain('cc-safety-net@cc-marketplace');
   });
 
   test('starts both copilot version probes immediately and prefers --binary-version', async () => {
@@ -409,10 +409,10 @@ describe('getSystemInfo', () => {
 });
 
 describe('copilotPluginInstalled', () => {
-  test('returns true when copilot plugin list includes safety-net@cc-marketplace', async () => {
+  test('returns true when copilot plugin list includes cc-safety-net@cc-marketplace', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • safety-net@cc-marketplace (v1.0.6)';
+        return 'Installed plugins:\n  • cc-safety-net@cc-marketplace (v1.0.6)';
       }
       return null;
     };
@@ -422,7 +422,7 @@ describe('copilotPluginInstalled', () => {
     expect(sysInfo.copilotPluginInstalled).toBe(true);
   });
 
-  test('returns false when plugin list does not include safety-net@cc-marketplace', async () => {
+  test('returns false when plugin list does not include cc-safety-net@cc-marketplace', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
         return 'Installed plugins:\n  • other-plugin (v1.0.0)';
@@ -438,7 +438,7 @@ describe('copilotPluginInstalled', () => {
   test('returns false for partial plugin id matches', async () => {
     const fetcher = async (args: string[]) => {
       if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • other-safety-net@cc-marketplace (v1.0.0)';
+        return 'Installed plugins:\n  • other-cc-safety-net@cc-marketplace (v1.0.0)';
       }
       return null;
     };

@@ -105,7 +105,7 @@ npx -y cc-safety-net uninstall
 npx -y cc-safety-net install --codex
 ```
 
-Start Codex, open `/hooks`, select the safety-net PreToolUse hook, and press `t` to trust it.
+Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
 
 ---
 

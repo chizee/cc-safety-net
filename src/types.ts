@@ -1,5 +1,5 @@
 /**
- * Shared types for the safety-net plugin.
+ * Shared types for the cc-safety-net plugin.
  */
 
 import { NAME_PATTERN } from './core/rules/policy/source-syntax.js';

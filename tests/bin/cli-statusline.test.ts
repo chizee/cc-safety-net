@@ -44,7 +44,7 @@ describe('statusline command', () => {
     await writeFile(
       enabledSettingsPath,
       JSON.stringify({
-        enabledPlugins: { 'safety-net@cc-marketplace': true },
+        enabledPlugins: { 'cc-safety-net@cc-marketplace': true },
       }),
     );
     process.env.CLAUDE_SETTINGS_PATH = enabledSettingsPath;
@@ -282,7 +282,7 @@ async function writePluginSettings(path: string, enabled: boolean) {
     path,
     JSON.stringify({
       enabledPlugins: {
-        'safety-net@cc-marketplace': enabled,
+        'cc-safety-net@cc-marketplace': enabled,
       },
     }),
   );
