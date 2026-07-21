@@ -33,7 +33,9 @@ describe('help output', () => {
     });
 
     test('supports doctor command alias only as the first argument', async () => {
-      const result = await runCCSafetyNetCli(['--doctor', '--json', '--skip-update-check']);
+      const result = await runCCSafetyNetCli(['--doctor', '--json', '--skip-update-check'], {
+        PATH: '',
+      });
       const report = JSON.parse(result.output);
 
       expect(result.exitCode).toBeGreaterThanOrEqual(0);

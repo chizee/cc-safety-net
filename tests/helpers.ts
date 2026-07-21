@@ -207,7 +207,7 @@ export async function runCCSafetyNetCli(
   env?: Record<string, string>,
   cwd?: string,
 ): Promise<{ output: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(['bun', CLI_ENTRYPOINT, ...args], {
+  const proc = Bun.spawn([process.execPath, CLI_ENTRYPOINT, ...args], {
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...(env ?? {}) },
