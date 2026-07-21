@@ -227,6 +227,21 @@ describe('PowerShell Remove-Item support', () => {
     });
   });
 
+  test('allows targets inside configured allow paths', () => {
+    withTempProject((cwd) => {
+      expect(
+        analyzeCommand('Remove-Item /some/allowed/dir -Recurse -Force', {
+          cwd,
+          shell: 'powershell',
+          config: { ...config, destructiveCommandAllowPaths: ['/some/allowed'] },
+        }),
+      ).toBeNull();
+      expect(analyzePowerShell('Remove-Item /some/allowed/dir -Recurse -Force', cwd)?.ruleId).toBe(
+        'powershell.remove-item-recursive-force-outside-cwd',
+      );
+    });
+  });
+
   test('allows temp targets and blocks outside cwd targets', () => {
     withTempProject((cwd) => {
       expect(analyzePowerShell('Remove-Item /tmp/test-dir -Recurse -Force', cwd)).toBeNull();

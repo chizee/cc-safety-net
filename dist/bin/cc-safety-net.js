@@ -703,7 +703,7 @@ var guiCommand = {
 };
 
 // src/bin/hook/antigravity-cli.ts
-import { isAbsolute as isAbsolute15, relative as relative5 } from "node:path";
+import { isAbsolute as isAbsolute17, relative as relative5 } from "node:path";
 
 // src/core/cwd-containment.ts
 import { realpathSync as realpathSync2, statSync } from "node:fs";
@@ -3630,6 +3630,46 @@ import { dirname as dirname6, join as join7 } from "node:path";
 // src/config/schema.ts
 import { createRequire } from "node:module";
 
+// src/core/analyze/allow-paths.ts
+import { homedir as homedir3 } from "node:os";
+import { isAbsolute as isAbsolute4, normalize, sep as sep3 } from "node:path";
+var IS_WINDOWS = process.platform === "win32";
+function getAllowPathHomeDir() {
+  return getOwnEnvValue("HOME") || homedir3();
+}
+function expandAllowPathHome(path, home) {
+  if (path === "~")
+    return home;
+  if (path.startsWith("~/"))
+    return `${home}${path.slice(1)}`;
+  return path;
+}
+function getDestructiveAllowPathError(value) {
+  if (typeof value !== "string" || value.trim() === "")
+    return "must be a non-empty path string";
+  let expanded = expandAllowPathHome(value.trim(), getAllowPathHomeDir());
+  if (!isAbsolute4(expanded))
+    return "must be an absolute path or start with ~/";
+  return getAllowPathHomeConflictError(expanded, getAllowPathHomeDir());
+}
+function getAllowPathHomeConflictError(absolutePath, home) {
+  let normalized = comparableAllowPath(absolutePath), normalizedHome = comparableAllowPath(home);
+  if (normalized === normalizedHome)
+    return "cannot be the home directory";
+  let prefix = normalized.endsWith(sep3) ? normalized : `${normalized}${sep3}`;
+  if (normalizedHome.startsWith(prefix))
+    return "cannot contain the home directory";
+  return null;
+}
+function comparableAllowPath(path) {
+  let normalized = normalize(path);
+  if (IS_WINDOWS)
+    normalized = normalized.replace(/\//g, "\\").toLowerCase();
+  if (normalized.length > (IS_WINDOWS ? 3 : 1) && normalized.endsWith(sep3))
+    normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
 // src/core/analyze/text-scanner.ts
 function scannedText(value, work) {
   return { value, work };
@@ -4690,7 +4730,7 @@ var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
 
 // src/core/git/worktree.ts
 import { existsSync, lstatSync as lstatSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync as statSync2 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute4, join as join4, resolve as resolve3 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute5, join as join4, resolve as resolve3 } from "node:path";
 
 // src/core/git/env.ts
 var GIT_CONTEXT_ENV_OVERRIDES = [
@@ -4842,7 +4882,7 @@ function isLinkedWorktree(cwd) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return !1;
-    let gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve3(dirname4(dotGitPath), rawGitDir);
+    let gitDir = isAbsolute5(rawGitDir) ? rawGitDir : resolve3(dirname4(dotGitPath), rawGitDir);
     if (!existsSync(join4(gitDir, "commondir")))
       return !1;
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
@@ -4875,7 +4915,7 @@ function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute4(target) ? target : resolve3(gitDir, target);
+  return isAbsolute5(target) ? target : resolve3(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -6069,7 +6109,7 @@ function hasAttachedLongValue(token, options) {
 }
 // src/core/shell/wrappers.ts
 import { realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute5, parse as parsePath2 } from "node:path";
+import { isAbsolute as isAbsolute6, parse as parsePath2 } from "node:path";
 var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/, ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/, MAX_ENV_SPLIT_EXPANDED_LENGTH = 131072, MAX_ENV_SPLIT_TOKENS = 16384;
 function parseEnvAssignment(token) {
   if (!ENV_ASSIGNMENT_RE.test(token))
@@ -6420,9 +6460,9 @@ function resolveWrapperCwd(cwd, target) {
   if (target === "")
     return null;
   try {
-    if (!cwd && !isAbsolute5(target))
+    if (!cwd && !isAbsolute6(target))
       return null;
-    let baseCwd = isAbsolute5(target) ? getPathRoot2(target) : realpathSync5(cwd ?? "/");
+    let baseCwd = isAbsolute6(target) ? getPathRoot2(target) : realpathSync5(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -6929,7 +6969,8 @@ function createSchemas() {
     workflow: z.strictObject({ worktree_mode: z.boolean().optional() }).optional(),
     destructive_command_protection: z.strictObject({
       enabled: z.boolean().optional(),
-      overrides: DestructiveCommandOverridesSchema.optional()
+      overrides: DestructiveCommandOverridesSchema.optional(),
+      allow_paths: z.array(z.string()).optional()
     }).optional(),
     secret_protection: z.strictObject({
       enabled: z.boolean().optional(),
@@ -6937,6 +6978,15 @@ function createSchemas() {
       deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional()
     }).optional()
   }).superRefine((policy, context) => {
+    (policy.destructive_command_protection?.allow_paths ?? []).forEach((path, index) => {
+      let error = getDestructiveAllowPathError(path);
+      if (error)
+        context.addIssue({
+          code: "custom",
+          message: error,
+          path: ["destructive_command_protection", "allow_paths", index]
+        });
+    });
     for (let id of Object.keys(policy.destructive_command_protection?.overrides ?? {}))
       if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id))
         context.addIssue({
@@ -7104,9 +7154,19 @@ function validateUserDestructivePolicy(value, errors) {
     errors.push("destructive_command_protection must be an object if provided");
     return;
   }
-  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides", "allow_paths"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
     errors.push("destructive_command_protection.enabled must be a boolean");
-  validateKnownOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors, (override) => override === "on" || override === "off" ? void 0 : 'must be "on" or "off"');
+  if (validateKnownOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors, (override) => override === "on" || override === "off" ? void 0 : 'must be "on" or "off"'), value.allow_paths === void 0)
+    return;
+  if (!Array.isArray(value.allow_paths)) {
+    errors.push("destructive_command_protection.allow_paths must be an array of paths");
+    return;
+  }
+  for (let index = 0;index < value.allow_paths.length; index++) {
+    let error = getDestructiveAllowPathError(value.allow_paths[index]);
+    if (error)
+      errors.push(`destructive_command_protection.allow_paths[${index}] ${error}`);
+  }
 }
 function validateUserSecretPolicy(value, errors) {
   if (value === void 0)
@@ -7174,7 +7234,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join5, normalize, parse, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute7, join as join5, normalize as normalize2, parse, relative as relative2, resolve as resolve4, sep as sep4 } from "node:path";
 var POLICY_FILESYSTEM_SCOPE = Symbol("PolicyFilesystemScope"), POLICY_FILESYSTEM_TARGET = Symbol("PolicyFilesystemTarget"), NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
 class PolicyFilesystemError extends Error {
@@ -7187,8 +7247,8 @@ function bindPolicyFilesystemScope(root, label) {
   return { [POLICY_FILESYSTEM_SCOPE]: !0, root: resolve4(root), label };
 }
 function getPolicyFilesystemTarget(scope, relativePath) {
-  let normalized = normalize(relativePath);
-  if (relativePath === "" || isAbsolute6(relativePath) || normalized === ".." || normalized.startsWith(`..${sep3}`))
+  let normalized = normalize2(relativePath);
+  if (relativePath === "" || isAbsolute7(relativePath) || normalized === ".." || normalized.startsWith(`..${sep4}`))
     throw new PolicyFilesystemError(scope.label);
   return {
     [POLICY_FILESYSTEM_TARGET]: !0,
@@ -7293,7 +7353,7 @@ function removePolicyFile(target) {
 }
 function ensurePolicyDirectory(target) {
   try {
-    ensureDirectoryComponents(target, target.relativePath.split(sep3));
+    ensureDirectoryComponents(target, target.relativePath.split(sep4));
   } catch (error) {
     throwPolicyFilesystemError(target.scope.label, error);
   }
@@ -7320,7 +7380,7 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
   let canonicalRoot = getCanonicalRoot(target.scope);
   if (!canonicalRoot)
     return { exists: !1 };
-  let parts = target.relativePath.split(sep3);
+  let parts = target.relativePath.split(sep4);
   for (let index of parts.keys()) {
     let path = join5(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
     if (!stat) {
@@ -7364,7 +7424,7 @@ function removeValidatedTree(target) {
   rmdirSync(target.path);
 }
 function ensureTargetParents(target) {
-  ensureDirectoryComponents(target, target.relativePath.split(sep3).slice(0, -1));
+  ensureDirectoryComponents(target, target.relativePath.split(sep4).slice(0, -1));
 }
 function ensureDirectoryComponents(target, parts) {
   ensureRoot(target.scope);
@@ -7426,7 +7486,7 @@ function validateAdjacentTemp(target, tempPath, device, inode) {
 }
 function assertCanonicalContainment(canonicalRoot, canonicalPath, label) {
   let remainder = relative2(canonicalRoot, canonicalPath);
-  if (remainder === ".." || remainder.startsWith(`..${sep3}`) || isAbsolute6(remainder))
+  if (remainder === ".." || remainder.startsWith(`..${sep4}`) || isAbsolute7(remainder))
     throw new PolicyFilesystemError(label);
 }
 function lstatOrMissing(path) {
@@ -7548,8 +7608,8 @@ function toTarget(path) {
 }
 
 // src/core/rules/policy/paths.ts
-import { homedir as homedir3 } from "node:os";
-import { dirname as dirname5, isAbsolute as isAbsolute7, join as join6, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname5, isAbsolute as isAbsolute8, join as join6, relative as relative3, resolve as resolve5, sep as sep5 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
   return resolve5(cwd ?? process.cwd(), RULES_DIR);
@@ -7562,7 +7622,7 @@ function getUserRulesDir(options2) {
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve5(home) : join6(homedir3(), SAFETY_NET_DIR);
+  return home ? resolve5(home) : join6(homedir4(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
   return join6(getUserRulesDir(options2), RULES_CONFIG_FILE);
@@ -7614,7 +7674,7 @@ function getUserPolicyFilesystemScope(_configPath, options2) {
 }
 function getProjectPolicyFilesystemScope(configPath, options2) {
   let cwd = resolve5(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve5(configPath), fromCwd = relative3(cwd, absoluteConfigPath);
-  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep4}`) && !isAbsolute7(fromCwd))
+  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep5}`) && !isAbsolute8(fromCwd))
     return bindPolicyFilesystemScope(cwd, "project policy");
   return bindPolicyFilesystemScope(dirname5(dirname5(absoluteConfigPath)), "project policy");
 }
@@ -7660,7 +7720,8 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS2 = /* @__PURE__ */ new Set(["stan
   },
   destructive_command_protection: {
     enabled: !0,
-    overrides: {}
+    overrides: {},
+    allow_paths: []
   },
   secret_protection: {
     enabled: !0,
@@ -7762,6 +7823,7 @@ function loadPolicyConfig(options2 = {}) {
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...user.policy.destructiveCommandAllowPaths],
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
@@ -7785,7 +7847,8 @@ function repairPolicyConfig(value) {
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : !0,
-      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides)
+      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides),
+      allow_paths: repairAllowPaths(destructiveCommand.allow_paths)
     },
     secret_protection: {
       enabled: typeof secret.enabled === "boolean" ? secret.enabled : !0,
@@ -7809,6 +7872,11 @@ function repairDenyPaths(value) {
     return [];
   return value.filter((path) => typeof path === "string" && path.trim() !== "");
 }
+function repairAllowPaths(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter((path) => getDestructiveAllowPathError(path) === null);
+}
 function isRecord2(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -7822,7 +7890,8 @@ function createDefaultGuiPolicy() {
     workflow: { ...DEFAULT_GUI_POLICY.workflow },
     destructive_command_protection: {
       enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
-      overrides: {}
+      overrides: {},
+      allow_paths: []
     },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
@@ -7848,7 +7917,8 @@ function normalizeGuiPolicy(policy) {
     },
     destructive_command_protection: {
       enabled: destructiveCommandPolicy.enabled ?? !0,
-      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : []))
+      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : [])),
+      allow_paths: [...destructiveCommandPolicy.allow_paths ?? []]
     },
     secret_protection: {
       enabled: secret.enabled ?? !0,
@@ -7882,6 +7952,7 @@ function createEmptyPolicy() {
     worktreeMode: !1,
     destructiveCommandProtectionEnabled: !0,
     destructiveCommandRuleOverrides: {},
+    destructiveCommandAllowPaths: [],
     secretProtection: { enabled: !0, disabledRules: /* @__PURE__ */ new Set, denyPaths: [] }
   };
 }
@@ -7892,6 +7963,9 @@ function normalizePolicyConfig(config) {
     worktreeMode: workflow?.worktree_mode ?? !1,
     destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? !0,
     destructiveCommandRuleOverrides: Object.fromEntries(Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : [])),
+    destructiveCommandAllowPaths: [
+      ...destructiveCommand?.allow_paths ?? []
+    ],
     secretProtection: {
       enabled: secret?.enabled ?? !0,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
@@ -7914,7 +7988,7 @@ function normalizeSafety(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { dirname as dirname8, isAbsolute as isAbsolute8, join as join9, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute9, join as join9, relative as relative4, resolve as resolve6, sep as sep6 } from "node:path";
 
 // src/core/rules/custom-rule-validation.ts
 function validateCustomRule(rule, index, ruleNames, options2 = {}) {
@@ -9117,7 +9191,7 @@ function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
   }
   if (entry.kind === "local-directory") {
     let sourcePath = resolve6(configDir, entry.path), sourceRelative = relative4(resolve6(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep5}`) || isAbsolute8(sourceRelative))
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep6}`) || isAbsolute9(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
     let localPath = join9(sourcePath, RULEBOOK_FILE), localContent;
     try {
@@ -9276,6 +9350,7 @@ function loadPolicySnapshot(options2 = {}) {
     worktreeMode: userPolicy.worktreeMode,
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...userPolicy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...userPolicy.destructiveCommandAllowPaths],
     secretProtection: {
       enabled: userPolicy.secretProtection.enabled ?? !0,
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
@@ -9347,6 +9422,7 @@ function freezePolicy(policy) {
     destructiveCommandRuleOverrides: Object.freeze({
       ...policy.destructiveCommandRuleOverrides
     }),
+    destructiveCommandAllowPaths: Object.freeze([...policy.destructiveCommandAllowPaths]),
     secretProtection: Object.freeze({
       ...policy.secretProtection,
       disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),
@@ -9420,10 +9496,10 @@ function reserveDerivedCommandTokens(budget, derivedTokens) {
 }
 
 // src/core/analyze/heredoc-files.ts
-import { isAbsolute as isAbsolute9, resolve as resolve7 } from "node:path";
+import { isAbsolute as isAbsolute10, resolve as resolve7 } from "node:path";
 var MAX_TRACKED_HEREDOC_FILES = 64;
 function resolveTrackedHeredocPath(source, effectiveCwd) {
-  let path = isAbsolute9(source) ? resolve7(source) : effectiveCwd ? resolve7(effectiveCwd, source) : void 0;
+  let path = isAbsolute10(source) ? resolve7(source) : effectiveCwd ? resolve7(effectiveCwd, source) : void 0;
   if (!path)
     return;
   try {
@@ -9469,13 +9545,13 @@ function exceedsLimit(current, amount, limit) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { homedir as homedir4 } from "node:os";
-import { normalize as normalize3, posix, resolve as resolve8, sep as sep7 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute12, normalize as normalize4, posix, resolve as resolve8, sep as sep8 } from "node:path";
 
 // src/core/analyze/tmpdir.ts
 import { lstatSync as lstatSync4, realpathSync as realpathSync7 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute as isAbsolute10, join as join10, normalize as normalize2, parse as parsePath3, sep as sep6 } from "node:path";
+import { isAbsolute as isAbsolute11, join as join10, normalize as normalize3, parse as parsePath3, sep as sep7 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"], TRUSTED_TEMP_ROOTS = buildTrustedTempRoots(), DEFAULT_IFS = ` 	
 `;
 function isTmpdirOverriddenToNonTemp(envAssignments) {
@@ -9521,7 +9597,7 @@ function isTrustedTempRootPath(path) {
   return normalizedPath !== null && TRUSTED_TEMP_ROOTS.includes(normalizedPath);
 }
 function buildTrustedTempRoots() {
-  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize3(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
   if (!initialTmpdir)
     return roots;
   if (process.platform === "win32")
@@ -9547,8 +9623,8 @@ function tryResolveExistingPathComponents(path) {
   }
 }
 function resolveExistingPathComponents(path) {
-  let normalized = normalize2(path);
-  if (!isAbsolute10(normalized))
+  let normalized = normalize3(path);
+  if (!isAbsolute11(normalized))
     return normalized;
   let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
@@ -9562,13 +9638,14 @@ function resolveExistingPathComponents(path) {
 function isPathOrSubpath(path, basePath) {
   if (path === basePath)
     return !0;
-  let baseWithSlash = basePath.endsWith(sep6) ? basePath : `${basePath}${sep6}`;
+  let baseWithSlash = basePath.endsWith(sep7) ? basePath : `${basePath}${sep7}`;
   return path.startsWith(baseWithSlash);
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-var IS_WINDOWS = process.platform === "win32";
+var IS_WINDOWS2 = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
+  let homeDir = getHomeDirForRmPolicy(), budget = createPathCanonicalizationBudget();
   return {
     anchoredCwd: options2.originalCwd ?? options2.cwd ?? null,
     resolvedCwd: options2.cwd ?? null,
@@ -9579,8 +9656,9 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
     tmpdirVarExpandsEmpty: options2.tmpdirVarExpandsEmpty ?? !1,
     tmpdirWordSplittingUnsafe: options2.tmpdirWordSplittingUnsafe ?? !1,
     trustedTmpdirValue: options2.trustedTmpdirValue ?? options2.allowTmpdirVar ?? !0,
-    homeDir: getHomeDirForRmPolicy(),
-    pathCanonicalizationBudget: createPathCanonicalizationBudget()
+    homeDir,
+    allowRoots: resolveAllowRoots(options2.allowPaths, homeDir, budget),
+    pathCanonicalizationBudget: budget
   };
 }
 function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
@@ -9596,6 +9674,8 @@ function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
     return { kind: "temp_target" };
   if (dynamic)
     return { kind: "dynamic_target" };
+  if (isAllowedPathTarget(normalizedTarget, ctx, targetIsLiteral))
+    return { kind: "temp_target" };
   let anchoredCwd = ctx.anchoredCwd;
   if (anchoredCwd) {
     if (!options2.skipHomeCwd && isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir, ctx.pathCanonicalizationBudget))
@@ -9635,8 +9715,8 @@ function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
   return !1;
 }
 function normalizePathForComparison2(p) {
-  let normalized = normalize3(p);
-  if (IS_WINDOWS) {
+  let normalized = normalize4(p);
+  if (IS_WINDOWS2) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
     return normalized;
@@ -9672,7 +9752,40 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return getOwnEnvValue("HOME") || homedir4();
+  return getOwnEnvValue("HOME") || homedir5();
+}
+function resolveAllowRoots(paths, homeDir, budget) {
+  if (!paths?.length)
+    return [];
+  return paths.flatMap((path) => {
+    let expanded = expandAllowPathHome(path.trim(), homeDir);
+    if (!isAbsolute12(expanded))
+      return [];
+    try {
+      let canonical = resolveExistingPath(expanded, budget);
+      if (getAllowPathHomeConflictError(canonical, resolveExistingPath(homeDir, budget)))
+        return [];
+      return [normalizePathForComparison2(canonical)];
+    } catch {
+      return [];
+    }
+  });
+}
+function isAllowedPathTarget(target, ctx, targetIsLiteral) {
+  if (ctx.allowRoots.length === 0)
+    return !1;
+  let trimmed = target.trim();
+  if (hasParentDirectoryComponent(trimmed))
+    return !1;
+  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute12(expanded) ? expanded : base ? resolve8(base, expanded) : null;
+  if (!resolved)
+    return !1;
+  try {
+    let canonical = normalizePathForComparison2(resolveExistingPath(resolved, ctx.pathCanonicalizationBudget));
+    return ctx.allowRoots.some((root) => canonical === root || canonical.startsWith(root.endsWith(sep8) ? root : `${root}${sep8}`));
+  } catch {
+    return !1;
+  }
 }
 function containsTmpdirVariable(target) {
   return /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(target);
@@ -9788,12 +9901,15 @@ function isWorkspaceWithinTarget(target, workspace, budget) {
 }
 function isNormalizedPathWithin(target, cwd) {
   let normalizedTarget = normalizePathForComparison2(target), normalizedCwd = normalizePathForComparison2(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep7}`) || normalizedTarget === normalizedCwd;
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep8}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/powershell/remove-item.ts
 var REMOVE_ITEM_ALIASES = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]), REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_RF_POLICY = "PowerShell Remove-Item -Recurse -Force for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.", REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.", REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.", REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
-function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext(options2)) {
+function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext({
+  ...options2,
+  allowPaths: options2.policy?.destructiveCommandAllowPaths
+})) {
   return analyzePowerShellSegment(command2.words.map((word) => ({
     kind: "word",
     text: word.text,
@@ -9947,7 +10063,7 @@ function matchForClassification(classification, ctx, policy) {
 
 // src/core/analyze/segment.ts
 import { realpathSync as realpathSync8 } from "node:fs";
-import { normalize as normalize4 } from "node:path";
+import { normalize as normalize5 } from "node:path";
 
 // src/core/analyze/child-command.ts
 function normalizeChildCommands(tokens, context) {
@@ -10134,6 +10250,7 @@ function hasOnlyTrustedTempDeleteTargets(tokens, context) {
     originalCwd: context.originalCwd,
     strict: context.strict,
     allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: !0,
     tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
     tmpdirWordSplittingUnsafe: context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
@@ -10221,12 +10338,16 @@ function isFindExecPrimary(token) {
 }
 
 // src/core/analyze/parallel.ts
-import { isAbsolute as isAbsolute12 } from "node:path";
+import { isAbsolute as isAbsolute14 } from "node:path";
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_POLICY = "rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRmMatch(tokens, options2 = {}) {
-  let ctx = createRecursiveDeleteTargetContext({ ...options2, posixShell: !0 });
+  let ctx = createRecursiveDeleteTargetContext({
+    ...options2,
+    allowPaths: options2.policy?.destructiveCommandAllowPaths,
+    posixShell: !0
+  });
   if (!hasRecursiveForceFlags(tokens))
     return null;
   let targets = extractTargets(tokens);
@@ -11348,7 +11469,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute11, join as join11, resolve as resolve9 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute13, join as join11, resolve as resolve9 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -11498,7 +11619,7 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute11(rawGitDir) ? rawGitDir : resolve9(dirname9(dotGitPath), rawGitDir);
+    return isAbsolute13(rawGitDir) ? rawGitDir : resolve9(dirname9(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
@@ -11511,7 +11632,7 @@ function resolveCommonGitDir(gitDir) {
     let rawCommonDir = readFileSync5(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute11(rawCommonDir) ? rawCommonDir : resolve9(gitDir, rawCommonDir);
+    return isAbsolute13(rawCommonDir) ? rawCommonDir : resolve9(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -12888,7 +13009,7 @@ function resolveParallelWorkdir(workdir, cwd) {
     return;
   if (workdir === "..." || /[{}$`*?~[]/.test(workdir))
     return null;
-  if (!cwd && !isAbsolute12(workdir))
+  if (!cwd && !isAbsolute14(workdir))
     return null;
   try {
     return resolveChdirTarget(cwd ?? workdir, workdir);
@@ -13795,9 +13916,9 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize4(realpathSync8(a)) === normalize4(realpathSync8(b));
+    return normalize5(realpathSync8(a)) === normalize5(realpathSync8(b));
   } catch {
-    return normalize4(a) === normalize4(b);
+    return normalize5(a) === normalize5(b);
   }
 }
 function stripLeadingGrouping(tokens) {
@@ -14833,8 +14954,8 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute13, normalize as normalize5, resolve as resolve10 } from "node:path";
+import { homedir as homedir6 } from "node:os";
+import { dirname as dirname10, isAbsolute as isAbsolute15, normalize as normalize6, resolve as resolve10 } from "node:path";
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
@@ -15045,16 +15166,16 @@ function normalizePolicyCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve10(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize5(isAbsolute13(expanded) ? expanded : resolve10(cwd, expanded)), budget).replace(/\\/g, "/");
+  let expanded = unix === "~" ? homedir6() : unix.startsWith("~/") ? resolve10(homedir6(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize6(isAbsolute15(expanded) ? expanded : resolve10(cwd, expanded)), budget).replace(/\\/g, "/");
 }
 function comparePath(path) {
   return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 // src/core/secret-protection.ts
-import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute14, resolve as resolve11 } from "node:path";
+import { homedir as homedir7 } from "node:os";
+import { isAbsolute as isAbsolute16, resolve as resolve11 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
   "-delete",
@@ -15918,14 +16039,14 @@ function isSecretRuleEnabled(id, config) {
   return !config.disabledRules.has(id);
 }
 function normalizeCandidatePath(target, cwd, budget) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir7(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute14(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute16(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute14(expanded))
+    if (isAbsolute16(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -15933,11 +16054,11 @@ function normalizeCandidatePath(target, cwd, budget) {
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
 function normalizeAbsoluteCandidatePath(target, cwd, budget) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir7(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute14(expanded) ? expanded : resolve11(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute16(expanded) ? expanded : resolve11(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -16440,7 +16561,7 @@ function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
   let route = getAntigravityCliToolRoute(toolName), targets = [
     ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
     ...route.kind === "patch" ? extractPatchTargetsFromToolInput(toolInput) : []
-  ].filter(isAbsolute15), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
+  ].filter(isAbsolute17), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
     let root = mostSpecificContainingRoot(resolveExistingPath(target, budget), configRoots);
     return root ? [root] : [];
   }));
@@ -16453,7 +16574,7 @@ function mostSpecificContainingRoot(path, roots) {
 }
 function isSameOrInside(path, root) {
   let rel = relative5(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute15(rel);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute17(rel);
 }
 function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
   let command2 = toolInput && typeof toolInput === "object" ? toolInput.command : void 0;
@@ -16481,18 +16602,18 @@ function normalizeAntigravityToolArgs(args, toolName) {
 }
 
 // src/bin/hook/agent-detection.ts
-import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute16, join as join12 } from "node:path";
+import { homedir as homedir8 } from "node:os";
+import { isAbsolute as isAbsolute18, join as join12 } from "node:path";
 function detectClaudeShapeAgent(transcriptPath) {
-  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute16(transcriptPath))
+  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute18(transcriptPath))
     return "unknown";
   try {
-    let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir7(), roots = [
+    let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir8(), roots = [
       ["codex", process.env.CODEX_HOME || join12(home, ".codex")],
       ["copilot-cli", process.env.COPILOT_HOME || join12(home, ".copilot")],
       ["claude-code", process.env.CLAUDE_CONFIG_DIR || join12(home, ".claude")]
     ], matches = transcript ? roots.flatMap(([agent, root]) => {
-      if (!isAbsolute16(root))
+      if (!isAbsolute18(root))
         return [];
       return isSameOrInsidePath(transcript, resolveExistingPath(root, budget)) ? [agent] : [];
     }) : [];
@@ -17113,7 +17234,7 @@ function validateParsedConfigFile(path, validate) {
   return validate(loaded.parsed);
 }
 // src/core/rules/policy/sync.ts
-import { isAbsolute as isAbsolute17, join as join13, relative as relative6, resolve as resolve13, sep as sep8 } from "node:path";
+import { isAbsolute as isAbsolute19, join as join13, relative as relative6, resolve as resolve13, sep as sep9 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
 }
@@ -17402,7 +17523,7 @@ function getLocalSourceDirsForDelete(configDir, specs, lock, filesystemScope) {
 }
 function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
   let resolvedConfigDir = resolve13(configDir), resolvedDir = resolve13(dir), relativeDir = relative6(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep8}`) || isAbsolute17(relativeDir))
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep9}`) || isAbsolute19(relativeDir))
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   let target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir), entries = readPolicyDirectoryEntries(target);
   if (!entries)
@@ -18014,7 +18135,7 @@ ${report.findings.length} ${label}: ${parts.join(", ")}.`;
 
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync4, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
-import { homedir as homedir8 } from "node:os";
+import { homedir as homedir9 } from "node:os";
 import { join as join15 } from "node:path";
 
 // src/bin/config/jsonc.ts
@@ -18476,7 +18597,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   };
 }
 function detectAllHooks(cwd, options2) {
-  let homeDir = options2?.homeDir ?? homedir8(), detectCopilotCLI = () => {
+  let homeDir = options2?.homeDir ?? homedir9(), detectCopilotCLI = () => {
     let errors = [], hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
     if (hooksCheck.disabledBy)
       return {
@@ -19203,6 +19324,7 @@ var CASES = Object.freeze([
     worktreeMode: !1,
     destructiveCommandProtectionEnabled: !0,
     destructiveCommandRuleOverrides: Object.freeze({}),
+    destructiveCommandAllowPaths: Object.freeze([]),
     secretProtection: Object.freeze({
       enabled: !0,
       disabledRules: Object.freeze([]),
@@ -20636,7 +20758,8 @@ label.row.safety-override-row select {
   border-radius: var(--radius);
 }
 
-.rule-tier + .rule-tier {
+.rule-tier + .rule-tier,
+#destructive-command-rules + .rule-tier {
   margin-top: 10px;
 }
 
@@ -20912,12 +21035,12 @@ label.row.master:has(input:checked) .master-badge::before {
   font-size: 12px;
 }
 
-#deny-paths-content:not([hidden]) {
+.paths-content:not([hidden]) {
   display: grid;
   gap: 10px;
 }
 
-#deny-paths-content > p.muted {
+.paths-content > p.muted {
   margin: 0;
   font-size: 12px;
 }
@@ -20957,31 +21080,31 @@ input[type="text"]:disabled {
   opacity: 0.62;
 }
 
-.deny-paths-add {
+.paths-add {
   display: flex;
   gap: 8px;
 }
 
-.deny-paths-add input[type="text"] {
+.paths-add input[type="text"] {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
 
-.deny-paths-add button {
+.paths-add button {
   flex: none;
   align-self: center;
 }
 
-.deny-paths-hint {
+.paths-hint {
   margin: -6px 0 0;
   color: var(--err-fg);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.deny-paths-list {
+.paths-list {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -20989,13 +21112,13 @@ input[type="text"]:disabled {
   gap: 6px;
 }
 
-.deny-path-item {
+.path-item {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.deny-path-item code {
+.path-item code {
   flex: 1 1 auto;
   min-width: 0;
   padding: 9px 11px;
@@ -21007,21 +21130,21 @@ input[type="text"]:disabled {
   overflow-wrap: anywhere;
 }
 
-.deny-path-item button:hover:not(:disabled) {
+.path-item button:hover:not(:disabled) {
   color: var(--err-fg);
   border-color: var(--err-border);
   background: var(--err-bg);
 }
 
-.deny-path-item.row-disabled {
+.path-item.row-disabled {
   opacity: 0.62;
 }
 
-.deny-path-item.row-disabled button {
+.path-item.row-disabled button {
   cursor: not-allowed;
 }
 
-.deny-path-item button {
+.path-item button {
   flex: none;
 }
 
@@ -21393,7 +21516,7 @@ var page_default = `<!doctype html>
       outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
       filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
     };
-    const denyPathIcons = {
+    const pathListIcons = {
       add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
       remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
     };
@@ -21654,46 +21777,90 @@ var page_default = `<!doctype html>
       setDetailStatus('');
       updateActions();
     };
-    const setDenyPathsHint = (text) => {
-      qs('deny-paths-hint').textContent = text;
-      qs('deny-paths-hint').hidden = !text;
+    const createPathList = (prefix, config) => {
+      const setHint = (text) => {
+        qs(\`\${prefix}-hint\`).textContent = text;
+        qs(\`\${prefix}-hint\`).hidden = !text;
+      };
+      const render = () => {
+        const paths = config.getPaths();
+        const disabled = config.isDisabled();
+        qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? '' : 's'}\`;
+        qs(\`\${prefix}-input\`).disabled = disabled;
+        qs(\`\${prefix}-add-button\`).disabled = disabled;
+        qs(\`\${prefix}-list\`).innerHTML = paths.length === 0
+          ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\`
+          : paths.map((path, index) => \`<li class="path-item \${disabled ? 'row-disabled' : ''}">
+              <code>\${escapeHtml(path)}</code>
+              <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
+            </li>\`).join('');
+      };
+      let adding = false;
+      const add = async (value) => {
+        if (adding) return;
+        const entries = [...new Set(pathLines(value))];
+        if (entries.length === 0) return;
+        const submitted = qs(\`\${prefix}-input\`).value;
+        const additions = entries.filter((entry) => !config.getPaths().includes(entry));
+        if (config.validateAdditions && additions.length) {
+          adding = true;
+          try {
+            const error = await config.validateAdditions([...config.getPaths(), ...additions]);
+            if (error) {
+              setHint(\`Not added: \${additions.join(', ')} — \${error}\`);
+              return;
+            }
+          } finally {
+            adding = false;
+          }
+        }
+        // Recommit only the initially absent additions against current state, so
+        // entries removed during validation stay removed.
+        const current = config.getPaths();
+        const duplicates = entries.filter((entry) => current.includes(entry));
+        config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
+        if (qs(\`\${prefix}-input\`).value === submitted) qs(\`\${prefix}-input\`).value = '';
+        setHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
+        render();
+        syncRawFromForm();
+        updateDirtyStatus();
+        qs(\`\${prefix}-input\`).focus();
+      };
+      const remove = (index) => {
+        config.setPaths(config.getPaths().filter((_, position) => position !== index));
+        setHint('');
+        render();
+        syncRawFromForm();
+        updateDirtyStatus();
+      };
+      return { render, add, remove };
     };
-    const renderDenyPaths = () => {
-      const paths = draftPolicy.secret_protection.deny_paths;
-      const disabled = !draftPolicy.secret_protection.enabled;
-      qs('deny-paths-count').textContent = \`\${paths.length} path\${paths.length === 1 ? '' : 's'}\`;
-      qs('deny-paths-input').disabled = disabled;
-      qs('deny-paths-add-button').disabled = disabled;
-      qs('deny-paths-list').innerHTML = paths.length === 0
-        ? '<li class="empty">No deny paths configured.</li>'
-        : paths.map((path, index) => \`<li class="deny-path-item \${disabled ? 'row-disabled' : ''}">
-            <code>\${escapeHtml(path)}</code>
-            <button type="button" class="icon-button" data-deny-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove deny path \${escapeHtml(path)}">\${denyPathIcons.remove}</button>
-          </li>\`).join('');
-    };
-    const addDenyPaths = (value) => {
-      const entries = [...new Set(pathLines(value))];
-      if (entries.length === 0) return;
-      const existing = draftPolicy.secret_protection.deny_paths;
-      const duplicates = entries.filter((entry) => existing.includes(entry));
-      draftPolicy.secret_protection.deny_paths = [
-        ...existing,
-        ...entries.filter((entry) => !existing.includes(entry))
-      ];
-      qs('deny-paths-input').value = '';
-      setDenyPathsHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
-      renderDenyPaths();
-      syncRawFromForm();
-      updateDirtyStatus();
-      qs('deny-paths-input').focus();
-    };
-    const removeDenyPath = (index) => {
-      draftPolicy.secret_protection.deny_paths = draftPolicy.secret_protection.deny_paths
-        .filter((_, position) => position !== index);
-      setDenyPathsHint('');
-      renderDenyPaths();
-      syncRawFromForm();
-      updateDirtyStatus();
+    const pathLists = {
+      'deny-paths': createPathList('deny-paths', {
+        getPaths: () => draftPolicy.secret_protection.deny_paths,
+        setPaths: (paths) => { draftPolicy.secret_protection.deny_paths = paths; },
+        isDisabled: () => !draftPolicy.secret_protection.enabled,
+        itemLabel: 'deny path'
+      }),
+      'allow-paths': createPathList('allow-paths', {
+        getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
+        setPaths: (paths) => { draftPolicy.destructive_command_protection.allow_paths = paths; },
+        isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
+        itemLabel: 'allow path',
+        validateAdditions: async (paths) => {
+          const candidate = collectFormPolicy();
+          candidate.destructive_command_protection = {
+            ...candidate.destructive_command_protection,
+            allow_paths: paths
+          };
+          const result = await requestJson('/api/policy/preview', {
+            method: 'POST',
+            body: JSON.stringify(candidate)
+          });
+          if (result.ok && result.data?.preview) return null;
+          return errorText(result);
+        }
+      })
     };
     const groupRules = (rules) => rules.reduce((groups, rule) => {
       const group = groups.find((item) => item.category === rule.category);
@@ -21850,7 +22017,7 @@ var page_default = `<!doctype html>
       );
       qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
         ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\`
-        : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
+        : 'Protection disabled. Saved rule settings and allow paths are preserved. Custom rules and secret protection still apply.';
       qs('destructive-command-rules').innerHTML = matchingRules.length === 0
         ? '<p class="empty">No built-in protections match the search.</p>'
         : Object.keys(tierMeta).map((tier) => {
@@ -21919,24 +22086,33 @@ var page_default = `<!doctype html>
       qs('destructive-command').innerHTML =
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div class="rule-customization-actions"><button type="button" id="reset-rule-customizations">Reset rule customizations</button></div>' +
-        '<div id="destructive-command-rules"></div>';
+        '<div id="destructive-command-rules"></div>' +
+        '<section class="rule-tier">' +
+        '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
+        '<div class="tier-content paths-content" id="allow-paths-content" hidden>' +
+        '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' +
+        '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' + pathListIcons.add + '</button></div>' +
+        '<p class="paths-hint" id="allow-paths-hint" hidden></p>' +
+        '<ul class="paths-list" id="allow-paths-list"></ul>' +
+        '</div></section>';
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<section class="rule-tier">' +
         '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
-        '<div class="tier-content" id="deny-paths-content" hidden>' +
+        '<div class="tier-content paths-content" id="deny-paths-content" hidden>' +
         '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
-        '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
-        '<p class="deny-paths-hint" id="deny-paths-hint" hidden></p>' +
-        '<ul class="deny-paths-list" id="deny-paths-list"></ul>' +
+        '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' + pathListIcons.add + '</button></div>' +
+        '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
+        '<ul class="paths-list" id="deny-paths-list"></ul>' +
         '</div></section>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('policy-search').value = '';
       syncSearchState();
       renderDestructiveCommands();
       renderSecretPatterns();
-      renderDenyPaths();
+      pathLists['deny-paths'].render();
+      pathLists['allow-paths'].render();
       updateRawSource();
       qs('recovery').hidden = state.errors.length === 0;
       updateActions();
@@ -21968,16 +22144,18 @@ var page_default = `<!doctype html>
       }
     });
     document.addEventListener('keydown', (event) => {
-      if (event.target?.id !== 'deny-paths-input' || event.key !== 'Enter') return;
+      const list = pathLists[event.target?.dataset?.pathInput];
+      if (!list || event.key !== 'Enter') return;
       event.preventDefault();
-      addDenyPaths(event.target.value);
+      void list.add(event.target.value);
     });
     document.addEventListener('paste', (event) => {
-      if (event.target?.id !== 'deny-paths-input') return;
+      const list = pathLists[event.target?.dataset?.pathInput];
+      if (!list) return;
       const text = event.clipboardData?.getData('text') ?? '';
       if (!text.includes('\\n')) return;
       event.preventDefault();
-      addDenyPaths(\`\${event.target.value}\\n\${text}\`);
+      void list.add(\`\${event.target.value}\\n\${text}\`);
     });
     document.addEventListener('change', (event) => {
       const input = event.target;
@@ -22015,6 +22193,7 @@ var page_default = `<!doctype html>
             return;
           }
           draftPolicy.destructive_command_protection.enabled = input.checked;
+          pathLists['allow-paths'].render();
           syncRawFromForm();
           updateDirtyStatus();
           void refreshPolicyPreview();
@@ -22049,7 +22228,7 @@ var page_default = `<!doctype html>
           }
           draftPolicy.secret_protection.enabled = input.checked;
           renderSecretPatterns();
-          renderDenyPaths();
+          pathLists['deny-paths'].render();
           syncRawFromForm();
           updateDirtyStatus();
         })();
@@ -22125,12 +22304,13 @@ var page_default = `<!doctype html>
         })();
         return;
       }
-      if (event.target.closest?.('#deny-paths-add-button')) {
-        addDenyPaths(qs('deny-paths-input').value);
+      const addButton = event.target.closest?.('[data-path-add]');
+      if (addButton) {
+        void pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
         return;
       }
-      const removeButton = event.target.closest?.('[data-deny-path-remove]');
-      if (removeButton) removeDenyPath(Number(removeButton.dataset.denyPathRemove));
+      const removeButton = event.target.closest?.('[data-path-remove]');
+      if (removeButton) pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
       const starButton = event.target.closest?.('.star-cta');
       if (starButton?.tagName === 'BUTTON') {
         void starRepo(starButton);
@@ -22510,7 +22690,7 @@ function showCommandHelp(commandName) {
 }
 
 // src/bin/hook/install.ts
-import { homedir as homedir9 } from "node:os";
+import { homedir as homedir10 } from "node:os";
 
 // src/bin/hook/install/antigravity-cli.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
@@ -23248,7 +23428,7 @@ var NATIVE_INSTALLS = {
   }
 };
 function getHomeDir() {
-  return process.env.HOME ?? homedir9();
+  return process.env.HOME ?? homedir10();
 }
 function parseInstallTarget(args, action) {
   let unknownOption = args.find((arg) => arg.startsWith("-") && !TARGET_FLAGS.has(arg));
@@ -24143,7 +24323,7 @@ function printTransparentWrappers(wrappers2) {
 
 // src/bin/statusline.ts
 import { existsSync as existsSync9, readFileSync as readFileSync11 } from "node:fs";
-import { homedir as homedir10 } from "node:os";
+import { homedir as homedir11 } from "node:os";
 import { join as join23 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
@@ -24163,7 +24343,7 @@ async function readStdinAsync() {
 function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  return join23(homedir10(), ".claude", "settings.json");
+  return join23(homedir11(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();

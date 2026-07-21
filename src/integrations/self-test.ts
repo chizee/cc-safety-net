@@ -42,6 +42,7 @@ const SNAPSHOT: PolicySnapshot = Object.freeze({
     worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
     destructiveCommandRuleOverrides: Object.freeze({}),
+    destructiveCommandAllowPaths: Object.freeze([]),
     secretProtection: Object.freeze({
       enabled: true,
       disabledRules: Object.freeze([]),

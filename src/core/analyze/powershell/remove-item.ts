@@ -43,7 +43,8 @@ interface AnalyzePowerShellRemoveItemOptions {
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  >;
+  > &
+    Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
 }
 
 interface RemoveItemTarget {
@@ -64,7 +65,10 @@ export function analyzePowerShellCommandViewMatch(
   command: CommandView,
   hasPipelineInput: boolean,
   options: AnalyzePowerShellRemoveItemOptions = {},
-  ctx: RecursiveDeleteTargetContext = createRecursiveDeleteTargetContext(options),
+  ctx: RecursiveDeleteTargetContext = createRecursiveDeleteTargetContext({
+    ...options,
+    allowPaths: options.policy?.destructiveCommandAllowPaths,
+  }),
 ): DestructiveCommandRuleMatch | null {
   return analyzePowerShellSegment(
     command.words.map((word) => ({

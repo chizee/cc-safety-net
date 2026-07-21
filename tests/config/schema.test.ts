@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as z from 'zod';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
@@ -170,6 +171,36 @@ describe('configuration schemas', () => {
       'safety.unknown field "extra"',
       'workflow.worktree_mode must be a boolean',
     ]);
+  });
+
+  test('validates destructive command allow paths', () => {
+    const allowPolicy = (allow_paths: unknown) => ({
+      version: 1,
+      destructive_command_protection: { allow_paths },
+    });
+
+    expect(getUserPolicyDiagnostics(allowPolicy(['~/sandbox', '/opt/scratch']))).toEqual([]);
+    expect(getUserPolicyDiagnostics(allowPolicy('~/sandbox'))).toEqual([
+      'destructive_command_protection.allow_paths must be an array of paths',
+    ]);
+    expect(getUserPolicyDiagnostics(allowPolicy([' ', 42]))).toEqual([
+      'destructive_command_protection.allow_paths[0] must be a non-empty path string',
+      'destructive_command_protection.allow_paths[1] must be a non-empty path string',
+    ]);
+    expect(getUserPolicyDiagnostics(allowPolicy(['relative/path', '$HOME/sandbox']))).toEqual([
+      'destructive_command_protection.allow_paths[0] must be an absolute path or start with ~/',
+      'destructive_command_protection.allow_paths[1] must be an absolute path or start with ~/',
+    ]);
+    expect(getUserPolicyDiagnostics(allowPolicy(['~', homedir()]))).toEqual([
+      'destructive_command_protection.allow_paths[0] cannot be the home directory',
+      'destructive_command_protection.allow_paths[1] cannot be the home directory',
+    ]);
+    expect(getUserPolicyDiagnostics(allowPolicy(['/', dirname(homedir())]))).toEqual([
+      'destructive_command_protection.allow_paths[0] cannot contain the home directory',
+      'destructive_command_protection.allow_paths[1] cannot contain the home directory',
+    ]);
+    expect(getUserPolicySchema().safeParse(allowPolicy(['~'])).success).toBeFalse();
+    expect(getUserPolicySchema().safeParse(allowPolicy(['~/sandbox'])).success).toBeTrue();
   });
 
   test('preserves accepted deny path whitespace through schema and snapshot loading', async () => {

@@ -649,7 +649,8 @@ label.row.safety-override-row select {
   border-radius: var(--radius);
 }
 
-.rule-tier + .rule-tier {
+.rule-tier + .rule-tier,
+#destructive-command-rules + .rule-tier {
   margin-top: 10px;
 }
 
@@ -925,12 +926,12 @@ label.row.master:has(input:checked) .master-badge::before {
   font-size: 12px;
 }
 
-#deny-paths-content:not([hidden]) {
+.paths-content:not([hidden]) {
   display: grid;
   gap: 10px;
 }
 
-#deny-paths-content > p.muted {
+.paths-content > p.muted {
   margin: 0;
   font-size: 12px;
 }
@@ -970,31 +971,31 @@ input[type="text"]:disabled {
   opacity: 0.62;
 }
 
-.deny-paths-add {
+.paths-add {
   display: flex;
   gap: 8px;
 }
 
-.deny-paths-add input[type="text"] {
+.paths-add input[type="text"] {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
 
-.deny-paths-add button {
+.paths-add button {
   flex: none;
   align-self: center;
 }
 
-.deny-paths-hint {
+.paths-hint {
   margin: -6px 0 0;
   color: var(--err-fg);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.deny-paths-list {
+.paths-list {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1002,13 +1003,13 @@ input[type="text"]:disabled {
   gap: 6px;
 }
 
-.deny-path-item {
+.path-item {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.deny-path-item code {
+.path-item code {
   flex: 1 1 auto;
   min-width: 0;
   padding: 9px 11px;
@@ -1020,21 +1021,21 @@ input[type="text"]:disabled {
   overflow-wrap: anywhere;
 }
 
-.deny-path-item button:hover:not(:disabled) {
+.path-item button:hover:not(:disabled) {
   color: var(--err-fg);
   border-color: var(--err-border);
   background: var(--err-bg);
 }
 
-.deny-path-item.row-disabled {
+.path-item.row-disabled {
   opacity: 0.62;
 }
 
-.deny-path-item.row-disabled button {
+.path-item.row-disabled button {
   cursor: not-allowed;
 }
 
-.deny-path-item button {
+.path-item button {
   flex: none;
 }
 

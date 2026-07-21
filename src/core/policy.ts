@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getUserPolicyDiagnostics, getUserPolicySchema, type UserPolicy } from '@/config/schema';
+import { getDestructiveAllowPathError } from '@/core/analyze/allow-paths';
 import {
   DESTRUCTIVE_COMMAND_RULE_ID_SET,
   resolveEffectiveDestructiveCommandRules,
@@ -29,6 +30,7 @@ type PolicyConfig = {
   worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
   destructiveCommandRuleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
+  destructiveCommandAllowPaths: string[];
   secretProtection: SecretProtectionConfig;
   errors: string[];
 };
@@ -38,6 +40,7 @@ type PartialPolicy = {
   worktreeMode: boolean;
   destructiveCommandProtectionEnabled: boolean;
   destructiveCommandRuleOverrides: Record<string, DestructiveCommandRuleOverride>;
+  destructiveCommandAllowPaths: string[];
   secretProtection: SecretProtectionConfig;
 };
 
@@ -58,6 +61,7 @@ export type GuiPolicy = {
   destructive_command_protection: {
     enabled: boolean;
     overrides: Record<string, DestructiveCommandRuleOverride>;
+    allow_paths: string[];
   };
   secret_protection: {
     enabled: boolean;
@@ -78,6 +82,7 @@ export const DEFAULT_GUI_POLICY: GuiPolicy = {
   destructive_command_protection: {
     enabled: true,
     overrides: {},
+    allow_paths: [],
   },
   secret_protection: {
     enabled: true,
@@ -252,6 +257,7 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...user.policy.destructiveCommandAllowPaths],
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
   };
@@ -291,6 +297,7 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === 'boolean' ? destructiveCommand.enabled : true,
       overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides),
+      allow_paths: repairAllowPaths(destructiveCommand.allow_paths),
     },
     secret_protection: {
       enabled: typeof secret.enabled === 'boolean' ? secret.enabled : true,
@@ -330,6 +337,11 @@ function repairDenyPaths(value: unknown): string[] {
   return value.filter((path): path is string => typeof path === 'string' && path.trim() !== '');
 }
 
+function repairAllowPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((path): path is string => getDestructiveAllowPathError(path) === null);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -345,6 +357,7 @@ function createDefaultGuiPolicy(): GuiPolicy {
     destructive_command_protection: {
       enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
       overrides: {},
+      allow_paths: [],
     },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
@@ -392,6 +405,7 @@ function normalizeGuiPolicy(policy: unknown): GuiPolicy {
           value === 'on' || value === 'off' ? [[id, value]] : [],
         ),
       ) as Record<string, DestructiveCommandRuleOverride>,
+      allow_paths: [...((destructiveCommandPolicy.allow_paths as string[] | undefined) ?? [])],
     },
     secret_protection: {
       enabled: (secret.enabled as boolean | undefined) ?? true,
@@ -433,6 +447,7 @@ function createEmptyPolicy(): PartialPolicy {
     worktreeMode: false,
     destructiveCommandProtectionEnabled: true,
     destructiveCommandRuleOverrides: {},
+    destructiveCommandAllowPaths: [],
     secretProtection: { enabled: true, disabledRules: new Set(), denyPaths: [] },
   };
 }
@@ -454,6 +469,9 @@ function normalizePolicyConfig(config: UserPolicy): PartialPolicy {
         (destructiveCommand?.overrides as Record<string, unknown> | undefined) ?? {},
       ).flatMap(([id, value]) => (value === 'on' || value === 'off' ? [[id, value]] : [])),
     ) as Record<string, DestructiveCommandRuleOverride>,
+    destructiveCommandAllowPaths: [
+      ...((destructiveCommand?.allow_paths as string[] | undefined) ?? []),
+    ],
     secretProtection: {
       enabled: (secret?.enabled as boolean | undefined) ?? true,
       disabledRules: new Set(

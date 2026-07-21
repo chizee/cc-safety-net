@@ -25,6 +25,7 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
     worktreeMode: userPolicy.worktreeMode,
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...userPolicy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...userPolicy.destructiveCommandAllowPaths],
     secretProtection: {
       enabled: userPolicy.secretProtection.enabled ?? true,
       disabledRules: [...(userPolicy.secretProtection.disabledRules ?? [])],
@@ -137,6 +138,7 @@ function freezePolicy(policy: EffectivePolicy): EffectivePolicy {
     destructiveCommandRuleOverrides: Object.freeze({
       ...policy.destructiveCommandRuleOverrides,
     }),
+    destructiveCommandAllowPaths: Object.freeze([...policy.destructiveCommandAllowPaths]),
     secretProtection: Object.freeze({
       ...policy.secretProtection,
       disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),

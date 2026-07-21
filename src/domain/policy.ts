@@ -67,6 +67,7 @@ export type EffectivePolicy = {
   readonly destructiveCommandRuleOverrides: Readonly<
     Record<string, DestructiveCommandRuleOverride>
   >;
+  readonly destructiveCommandAllowPaths: readonly string[];
   readonly secretProtection: {
     readonly enabled: boolean;
     readonly disabledRules: readonly string[];

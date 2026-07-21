@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
+import { getDestructiveAllowPathError } from '@/core/analyze/allow-paths';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
 import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/core/rules/policy/resource-limits';
@@ -131,6 +132,7 @@ function createSchemas() {
         .strictObject({
           enabled: z.boolean().optional(),
           overrides: DestructiveCommandOverridesSchema.optional(),
+          allow_paths: z.array(z.string()).optional(),
         })
         .optional(),
       secret_protection: z
@@ -142,6 +144,16 @@ function createSchemas() {
         .optional(),
     })
     .superRefine((policy, context) => {
+      (policy.destructive_command_protection?.allow_paths ?? []).forEach((path, index) => {
+        const error = getDestructiveAllowPathError(path);
+        if (error) {
+          context.addIssue({
+            code: 'custom',
+            message: error,
+            path: ['destructive_command_protection', 'allow_paths', index],
+          });
+        }
+      });
       for (const id of Object.keys(policy.destructive_command_protection?.overrides ?? {})) {
         if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id)) {
           context.addIssue({
@@ -364,7 +376,7 @@ function validateUserDestructivePolicy(value: unknown, errors: string[]): void {
   }
   addUnknownFieldErrors(
     value,
-    new Set(['enabled', 'overrides']),
+    new Set(['enabled', 'overrides', 'allow_paths']),
     errors,
     'destructive_command_protection',
   );
@@ -379,6 +391,15 @@ function validateUserDestructivePolicy(value: unknown, errors: string[]): void {
     errors,
     (override) => (override === 'on' || override === 'off' ? undefined : 'must be "on" or "off"'),
   );
+  if (value.allow_paths === undefined) return;
+  if (!Array.isArray(value.allow_paths)) {
+    errors.push('destructive_command_protection.allow_paths must be an array of paths');
+    return;
+  }
+  for (let index = 0; index < value.allow_paths.length; index++) {
+    const error = getDestructiveAllowPathError(value.allow_paths[index]);
+    if (error) errors.push(`destructive_command_protection.allow_paths[${index}] ${error}`);
+  }
 }
 
 function validateUserSecretPolicy(value: unknown, errors: string[]): void {

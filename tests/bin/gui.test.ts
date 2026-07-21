@@ -200,7 +200,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('const confirmProtectionDisable =');
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
-      expect(html).toContain('Protection disabled. Saved rule settings are preserved.');
+      expect(html).toContain(
+        'Protection disabled. Saved rule settings and allow paths are preserved.',
+      );
+      expect(html).toContain('id="allow-paths-input"');
+      expect(html).toContain('id="allow-paths-list"');
+      expect(html).toContain('data-path-add="allow-paths"');
       expect(html).toContain(
         '`${preview.counts.enabled} active, ${preview.counts.disabled} disabled`',
       );
@@ -236,16 +241,19 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="deny-paths-add-button"');
       expect(html).toContain('id="deny-paths-list"');
       expect(html).toContain('id="deny-paths-hint"');
-      expect(html).toContain('const renderDenyPaths = ');
-      expect(html).toContain('const addDenyPaths = ');
-      expect(html).toContain('data-deny-path-remove');
-      expect(html).toContain('No deny paths configured.');
+      expect(html).toContain('const createPathList = ');
+      expect(html).toContain('const pathLists = {');
+      expect(html).toContain('data-path-remove');
+      expect(html).toContain('No ${config.itemLabel}s configured.');
       expect(html).toContain('id="deny-paths-count"');
       expect(html).toContain("`${paths.length} path${paths.length === 1 ? '' : 's'}`");
       expect(html).toContain('Already listed:');
-      expect(html).toContain('Remove deny path');
-      expect(html).toContain('const denyPathIcons =');
+      expect(html).toContain('Remove ${config.itemLabel} ${escapeHtml(path)}');
+      expect(html).toContain('const pathListIcons =');
       expect(html).toContain('aria-label="Add deny path"');
+      expect(html).toContain('aria-label="Add allow path"');
+      expect(html).toContain('Recursive deletes targeting these paths are not blocked, like /tmp.');
+      expect(html).toContain('validateAdditions: async (paths) => {');
       expect(html).not.toContain('>Add</button>');
       expect(html).not.toContain('>Remove</button>');
       expect(html).toContain('event.clipboardData');
@@ -281,8 +289,8 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('secret-panel-content');
       expect(html).toContain('aria-expanded="false" aria-controls="deny-paths-content"');
       expect(html).toContain('id="deny-paths-content" hidden');
-      expect(html).not.toContain('Allow paths');
-      expect(html).not.toContain('id="allow-paths"');
+      expect(html).toContain('aria-expanded="false" aria-controls="allow-paths-content"');
+      expect(html).toContain('id="allow-paths-content" hidden');
       expect(html).toContain('Raw JSON');
       expect(html).toContain(
         '<div class="panel-head raw-json-head">\n        <div class="panel-title">\n          <h2>Raw JSON</h2>',

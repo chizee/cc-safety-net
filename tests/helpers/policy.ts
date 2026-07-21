@@ -29,6 +29,7 @@ export interface TestPolicyInput {
   worktreeMode?: boolean;
   destructiveCommandProtectionEnabled?: boolean;
   destructiveCommandRuleOverrides?: Readonly<Record<string, DestructiveCommandRuleOverride>>;
+  destructiveCommandAllowPaths?: readonly string[];
   secretProtection?: SecretProtectionConfig;
   failClosedReason?: string;
 }
@@ -64,6 +65,7 @@ export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
     worktreeMode: input.worktreeMode ?? false,
     destructiveCommandProtectionEnabled: input.destructiveCommandProtectionEnabled ?? true,
     destructiveCommandRuleOverrides: { ...input.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...(input.destructiveCommandAllowPaths ?? [])],
     secretProtection: {
       enabled: input.secretProtection?.enabled ?? true,
       disabledRules: Array.from(input.secretProtection?.disabledRules ?? []),
@@ -111,6 +113,7 @@ export function loadTestPolicy(
     worktreeMode: snapshot.policy.worktreeMode,
     destructiveCommandProtectionEnabled: snapshot.policy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: snapshot.policy.destructiveCommandRuleOverrides,
+    destructiveCommandAllowPaths: snapshot.policy.destructiveCommandAllowPaths,
     secretProtection: {
       ...snapshot.policy.secretProtection,
       disabledRules: new Set(snapshot.policy.secretProtection.disabledRules),

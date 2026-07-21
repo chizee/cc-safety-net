@@ -91,7 +91,8 @@ export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  >;
+  > &
+    Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
   analyzeTokens?: (
     tokens: readonly string[],
     cwd: string | null | undefined,
@@ -182,6 +183,7 @@ function hasOnlyTrustedTempDeleteTargets(
     originalCwd: context.originalCwd,
     strict: context.strict,
     allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: true,
     tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
     tmpdirWordSplittingUnsafe:

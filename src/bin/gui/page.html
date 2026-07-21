@@ -139,7 +139,7 @@
       outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
       filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
     };
-    const denyPathIcons = {
+    const pathListIcons = {
       add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
       remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
     };
@@ -400,46 +400,90 @@
       setDetailStatus('');
       updateActions();
     };
-    const setDenyPathsHint = (text) => {
-      qs('deny-paths-hint').textContent = text;
-      qs('deny-paths-hint').hidden = !text;
+    const createPathList = (prefix, config) => {
+      const setHint = (text) => {
+        qs(`${prefix}-hint`).textContent = text;
+        qs(`${prefix}-hint`).hidden = !text;
+      };
+      const render = () => {
+        const paths = config.getPaths();
+        const disabled = config.isDisabled();
+        qs(`${prefix}-count`).textContent = `${paths.length} path${paths.length === 1 ? '' : 's'}`;
+        qs(`${prefix}-input`).disabled = disabled;
+        qs(`${prefix}-add-button`).disabled = disabled;
+        qs(`${prefix}-list`).innerHTML = paths.length === 0
+          ? `<li class="empty">No ${config.itemLabel}s configured.</li>`
+          : paths.map((path, index) => `<li class="path-item ${disabled ? 'row-disabled' : ''}">
+              <code>${escapeHtml(path)}</code>
+              <button type="button" class="icon-button" data-path-list="${prefix}" data-path-remove="${index}" ${disabled ? 'disabled' : ''} aria-label="Remove ${config.itemLabel} ${escapeHtml(path)}">${pathListIcons.remove}</button>
+            </li>`).join('');
+      };
+      let adding = false;
+      const add = async (value) => {
+        if (adding) return;
+        const entries = [...new Set(pathLines(value))];
+        if (entries.length === 0) return;
+        const submitted = qs(`${prefix}-input`).value;
+        const additions = entries.filter((entry) => !config.getPaths().includes(entry));
+        if (config.validateAdditions && additions.length) {
+          adding = true;
+          try {
+            const error = await config.validateAdditions([...config.getPaths(), ...additions]);
+            if (error) {
+              setHint(`Not added: ${additions.join(', ')} — ${error}`);
+              return;
+            }
+          } finally {
+            adding = false;
+          }
+        }
+        // Recommit only the initially absent additions against current state, so
+        // entries removed during validation stay removed.
+        const current = config.getPaths();
+        const duplicates = entries.filter((entry) => current.includes(entry));
+        config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
+        if (qs(`${prefix}-input`).value === submitted) qs(`${prefix}-input`).value = '';
+        setHint(duplicates.length ? `Already listed: ${duplicates.join(', ')}` : '');
+        render();
+        syncRawFromForm();
+        updateDirtyStatus();
+        qs(`${prefix}-input`).focus();
+      };
+      const remove = (index) => {
+        config.setPaths(config.getPaths().filter((_, position) => position !== index));
+        setHint('');
+        render();
+        syncRawFromForm();
+        updateDirtyStatus();
+      };
+      return { render, add, remove };
     };
-    const renderDenyPaths = () => {
-      const paths = draftPolicy.secret_protection.deny_paths;
-      const disabled = !draftPolicy.secret_protection.enabled;
-      qs('deny-paths-count').textContent = `${paths.length} path${paths.length === 1 ? '' : 's'}`;
-      qs('deny-paths-input').disabled = disabled;
-      qs('deny-paths-add-button').disabled = disabled;
-      qs('deny-paths-list').innerHTML = paths.length === 0
-        ? '<li class="empty">No deny paths configured.</li>'
-        : paths.map((path, index) => `<li class="deny-path-item ${disabled ? 'row-disabled' : ''}">
-            <code>${escapeHtml(path)}</code>
-            <button type="button" class="icon-button" data-deny-path-remove="${index}" ${disabled ? 'disabled' : ''} aria-label="Remove deny path ${escapeHtml(path)}">${denyPathIcons.remove}</button>
-          </li>`).join('');
-    };
-    const addDenyPaths = (value) => {
-      const entries = [...new Set(pathLines(value))];
-      if (entries.length === 0) return;
-      const existing = draftPolicy.secret_protection.deny_paths;
-      const duplicates = entries.filter((entry) => existing.includes(entry));
-      draftPolicy.secret_protection.deny_paths = [
-        ...existing,
-        ...entries.filter((entry) => !existing.includes(entry))
-      ];
-      qs('deny-paths-input').value = '';
-      setDenyPathsHint(duplicates.length ? `Already listed: ${duplicates.join(', ')}` : '');
-      renderDenyPaths();
-      syncRawFromForm();
-      updateDirtyStatus();
-      qs('deny-paths-input').focus();
-    };
-    const removeDenyPath = (index) => {
-      draftPolicy.secret_protection.deny_paths = draftPolicy.secret_protection.deny_paths
-        .filter((_, position) => position !== index);
-      setDenyPathsHint('');
-      renderDenyPaths();
-      syncRawFromForm();
-      updateDirtyStatus();
+    const pathLists = {
+      'deny-paths': createPathList('deny-paths', {
+        getPaths: () => draftPolicy.secret_protection.deny_paths,
+        setPaths: (paths) => { draftPolicy.secret_protection.deny_paths = paths; },
+        isDisabled: () => !draftPolicy.secret_protection.enabled,
+        itemLabel: 'deny path'
+      }),
+      'allow-paths': createPathList('allow-paths', {
+        getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
+        setPaths: (paths) => { draftPolicy.destructive_command_protection.allow_paths = paths; },
+        isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
+        itemLabel: 'allow path',
+        validateAdditions: async (paths) => {
+          const candidate = collectFormPolicy();
+          candidate.destructive_command_protection = {
+            ...candidate.destructive_command_protection,
+            allow_paths: paths
+          };
+          const result = await requestJson('/api/policy/preview', {
+            method: 'POST',
+            body: JSON.stringify(candidate)
+          });
+          if (result.ok && result.data?.preview) return null;
+          return errorText(result);
+        }
+      })
     };
     const groupRules = (rules) => rules.reduce((groups, rule) => {
       const group = groups.find((item) => item.category === rule.category);
@@ -596,7 +640,7 @@
       );
       qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
         ? `${preview.counts.enabled} active, ${preview.counts.disabled} disabled`
-        : 'Protection disabled. Saved rule settings are preserved. Custom rules and secret protection still apply.';
+        : 'Protection disabled. Saved rule settings and allow paths are preserved. Custom rules and secret protection still apply.';
       qs('destructive-command-rules').innerHTML = matchingRules.length === 0
         ? '<p class="empty">No built-in protections match the search.</p>'
         : Object.keys(tierMeta).map((tier) => {
@@ -665,24 +709,33 @@
       qs('destructive-command').innerHTML =
         '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div class="rule-customization-actions"><button type="button" id="reset-rule-customizations">Reset rule customizations</button></div>' +
-        '<div id="destructive-command-rules"></div>';
+        '<div id="destructive-command-rules"></div>' +
+        '<section class="rule-tier">' +
+        '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
+        '<div class="tier-content paths-content" id="allow-paths-content" hidden>' +
+        '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' +
+        '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' + pathListIcons.add + '</button></div>' +
+        '<p class="paths-hint" id="allow-paths-hint" hidden></p>' +
+        '<ul class="paths-list" id="allow-paths-list"></ul>' +
+        '</div></section>';
       qs('secret').innerHTML =
         '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="secret-patterns"></div>' +
         '<section class="rule-tier">' +
         '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
-        '<div class="tier-content" id="deny-paths-content" hidden>' +
+        '<div class="tier-content paths-content" id="deny-paths-content" hidden>' +
         '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
-        '<div class="deny-paths-add"><input type="text" id="deny-paths-input" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" aria-label="Add deny path">' + denyPathIcons.add + '</button></div>' +
-        '<p class="deny-paths-hint" id="deny-paths-hint" hidden></p>' +
-        '<ul class="deny-paths-list" id="deny-paths-list"></ul>' +
+        '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' + pathListIcons.add + '</button></div>' +
+        '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
+        '<ul class="paths-list" id="deny-paths-list"></ul>' +
         '</div></section>';
       qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
       qs('policy-search').value = '';
       syncSearchState();
       renderDestructiveCommands();
       renderSecretPatterns();
-      renderDenyPaths();
+      pathLists['deny-paths'].render();
+      pathLists['allow-paths'].render();
       updateRawSource();
       qs('recovery').hidden = state.errors.length === 0;
       updateActions();
@@ -714,16 +767,18 @@
       }
     });
     document.addEventListener('keydown', (event) => {
-      if (event.target?.id !== 'deny-paths-input' || event.key !== 'Enter') return;
+      const list = pathLists[event.target?.dataset?.pathInput];
+      if (!list || event.key !== 'Enter') return;
       event.preventDefault();
-      addDenyPaths(event.target.value);
+      void list.add(event.target.value);
     });
     document.addEventListener('paste', (event) => {
-      if (event.target?.id !== 'deny-paths-input') return;
+      const list = pathLists[event.target?.dataset?.pathInput];
+      if (!list) return;
       const text = event.clipboardData?.getData('text') ?? '';
       if (!text.includes('\n')) return;
       event.preventDefault();
-      addDenyPaths(`${event.target.value}\n${text}`);
+      void list.add(`${event.target.value}\n${text}`);
     });
     document.addEventListener('change', (event) => {
       const input = event.target;
@@ -761,6 +816,7 @@
             return;
           }
           draftPolicy.destructive_command_protection.enabled = input.checked;
+          pathLists['allow-paths'].render();
           syncRawFromForm();
           updateDirtyStatus();
           void refreshPolicyPreview();
@@ -795,7 +851,7 @@
           }
           draftPolicy.secret_protection.enabled = input.checked;
           renderSecretPatterns();
-          renderDenyPaths();
+          pathLists['deny-paths'].render();
           syncRawFromForm();
           updateDirtyStatus();
         })();
@@ -871,12 +927,13 @@
         })();
         return;
       }
-      if (event.target.closest?.('#deny-paths-add-button')) {
-        addDenyPaths(qs('deny-paths-input').value);
+      const addButton = event.target.closest?.('[data-path-add]');
+      if (addButton) {
+        void pathLists[addButton.dataset.pathAdd].add(qs(`${addButton.dataset.pathAdd}-input`).value);
         return;
       }
-      const removeButton = event.target.closest?.('[data-deny-path-remove]');
-      if (removeButton) removeDenyPath(Number(removeButton.dataset.denyPathRemove));
+      const removeButton = event.target.closest?.('[data-path-remove]');
+      if (removeButton) pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
       const starButton = event.target.closest?.('.star-cta');
       if (starButton?.tagName === 'BUTTON') {
         void starRepo(starButton);

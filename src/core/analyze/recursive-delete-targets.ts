@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
-import { normalize, posix, resolve, sep } from 'node:path';
+import { isAbsolute, normalize, posix, resolve, sep } from 'node:path';
+import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/core/analyze/allow-paths';
 import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
 import { getOwnEnvValue } from '@/core/env';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
@@ -16,6 +17,7 @@ export interface RecursiveDeleteTargetTrustOptions {
   originalCwd?: string;
   strict?: boolean;
   allowTmpdirVar?: boolean;
+  allowPaths?: readonly string[];
   tmpdirVarExpandsEmpty?: boolean;
   tmpdirWordSplittingUnsafe?: boolean;
   trustedTmpdirValue?: boolean;
@@ -37,6 +39,7 @@ export interface RecursiveDeleteTargetContext {
   readonly tmpdirWordSplittingUnsafe: boolean;
   readonly trustedTmpdirValue: boolean;
   readonly homeDir: string;
+  readonly allowRoots: readonly string[];
   readonly pathCanonicalizationBudget: PathCanonicalizationBudget;
 }
 
@@ -64,6 +67,8 @@ export type RecursiveDeleteTargetClassification =
 export function createRecursiveDeleteTargetContext(
   options: RecursiveDeleteTargetOptions = {},
 ): RecursiveDeleteTargetContext {
+  const homeDir = getHomeDirForRmPolicy();
+  const budget = createPathCanonicalizationBudget();
   return {
     anchoredCwd: options.originalCwd ?? options.cwd ?? null,
     resolvedCwd: options.cwd ?? null,
@@ -74,8 +79,9 @@ export function createRecursiveDeleteTargetContext(
     tmpdirVarExpandsEmpty: options.tmpdirVarExpandsEmpty ?? false,
     tmpdirWordSplittingUnsafe: options.tmpdirWordSplittingUnsafe ?? false,
     trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
-    homeDir: getHomeDirForRmPolicy(),
-    pathCanonicalizationBudget: createPathCanonicalizationBudget(),
+    homeDir,
+    allowRoots: resolveAllowRoots(options.allowPaths, homeDir, budget),
+    pathCanonicalizationBudget: budget,
   };
 }
 
@@ -122,6 +128,11 @@ export function classifyRecursiveDeleteTarget(
 
   if (dynamic) {
     return { kind: 'dynamic_target' };
+  }
+
+  // User-configured allow paths behave like trusted temp roots for verified literal targets.
+  if (isAllowedPathTarget(normalizedTarget, ctx, targetIsLiteral)) {
+    return { kind: 'temp_target' };
   }
 
   const anchoredCwd = ctx.anchoredCwd;
@@ -287,6 +298,54 @@ function hasParentDirectoryComponent(path: string): boolean {
 
 function getHomeDirForRmPolicy(): string {
   return getOwnEnvValue('HOME') || homedir();
+}
+
+function resolveAllowRoots(
+  paths: readonly string[] | undefined,
+  homeDir: string,
+  budget: PathCanonicalizationBudget,
+): readonly string[] {
+  if (!paths?.length) return [];
+  return paths.flatMap((path) => {
+    const expanded = expandAllowPathHome(path.trim(), homeDir);
+    if (!isAbsolute(expanded)) return [];
+    try {
+      const canonical = resolveExistingPath(expanded, budget);
+      // Re-check against home after symlink resolution so a link into or above
+      // home cannot widen the allowed root.
+      if (getAllowPathHomeConflictError(canonical, resolveExistingPath(homeDir, budget))) {
+        return [];
+      }
+      return [normalizePathForComparison(canonical)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function isAllowedPathTarget(
+  target: string,
+  ctx: RecursiveDeleteTargetContext,
+  targetIsLiteral: boolean,
+): boolean {
+  if (ctx.allowRoots.length === 0) return false;
+  const trimmed = target.trim();
+  if (hasParentDirectoryComponent(trimmed)) return false;
+  const expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir);
+  const base = ctx.resolvedCwd ?? ctx.anchoredCwd;
+  const resolved = isAbsolute(expanded) ? expanded : base ? resolve(base, expanded) : null;
+  if (!resolved) return false;
+  try {
+    const canonical = normalizePathForComparison(
+      resolveExistingPath(resolved, ctx.pathCanonicalizationBudget),
+    );
+    return ctx.allowRoots.some(
+      (root) =>
+        canonical === root || canonical.startsWith(root.endsWith(sep) ? root : `${root}${sep}`),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function containsTmpdirVariable(target: string): boolean {

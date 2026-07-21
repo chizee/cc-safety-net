@@ -3269,6 +3269,46 @@ import { dirname as dirname5, join as join6 } from "node:path";
 // src/config/schema.ts
 import { createRequire } from "node:module";
 
+// src/core/analyze/allow-paths.ts
+import { homedir as homedir3 } from "node:os";
+import { isAbsolute as isAbsolute2, normalize, sep } from "node:path";
+var IS_WINDOWS = process.platform === "win32";
+function getAllowPathHomeDir() {
+  return getOwnEnvValue("HOME") || homedir3();
+}
+function expandAllowPathHome(path, home) {
+  if (path === "~")
+    return home;
+  if (path.startsWith("~/"))
+    return `${home}${path.slice(1)}`;
+  return path;
+}
+function getDestructiveAllowPathError(value) {
+  if (typeof value !== "string" || value.trim() === "")
+    return "must be a non-empty path string";
+  let expanded = expandAllowPathHome(value.trim(), getAllowPathHomeDir());
+  if (!isAbsolute2(expanded))
+    return "must be an absolute path or start with ~/";
+  return getAllowPathHomeConflictError(expanded, getAllowPathHomeDir());
+}
+function getAllowPathHomeConflictError(absolutePath, home) {
+  let normalized = comparableAllowPath(absolutePath), normalizedHome = comparableAllowPath(home);
+  if (normalized === normalizedHome)
+    return "cannot be the home directory";
+  let prefix = normalized.endsWith(sep) ? normalized : `${normalized}${sep}`;
+  if (normalizedHome.startsWith(prefix))
+    return "cannot contain the home directory";
+  return null;
+}
+function comparableAllowPath(path) {
+  let normalized = normalize(path);
+  if (IS_WINDOWS)
+    normalized = normalized.replace(/\//g, "\\").toLowerCase();
+  if (normalized.length > (IS_WINDOWS ? 3 : 1) && normalized.endsWith(sep))
+    normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
 // src/core/analyze/text-scanner.ts
 function scannedText(value, work) {
   return { value, work };
@@ -4329,11 +4369,11 @@ var DISPLAY_COMMANDS = /* @__PURE__ */ new Set([
 
 // src/core/git/worktree.ts
 import { existsSync, lstatSync as lstatSync2, readFileSync, realpathSync as realpathSync3, statSync } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join3, resolve } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute4, join as join3, resolve } from "node:path";
 
 // src/core/path.ts
 import { lstatSync, realpathSync as realpathSync2 } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute2, parse as parsePath, sep } from "node:path";
+import { dirname as dirname2, isAbsolute as isAbsolute3, parse as parsePath, sep as sep2 } from "node:path";
 function isUnsupportedWindowsNamespacePath(target, platform = process.platform) {
   if (platform !== "win32")
     return !1;
@@ -4342,7 +4382,7 @@ function isUnsupportedWindowsNamespacePath(target, platform = process.platform) 
 function resolveChdirTarget(baseCwd, target) {
   if (isUnsupportedWindowsNamespacePath(target))
     throw Error("Unsupported Windows namespace path");
-  let root = isAbsolute2(target) ? getPathRoot(target) : "", current = root || baseCwd;
+  let root = isAbsolute3(target) ? getPathRoot(target) : "", current = root || baseCwd;
   for (let component of getPathComponents(root ? target.slice(root.length) : target)) {
     if (component === "" || component === ".")
       continue;
@@ -4356,7 +4396,7 @@ function resolveChdirTarget(baseCwd, target) {
   return current;
 }
 function appendPathWithoutNormalizing(base, target) {
-  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
+  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep2}${target}`;
 }
 function getPathRoot(target) {
   return parsePath(target).root;
@@ -4516,7 +4556,7 @@ function isLinkedWorktree(cwd) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return !1;
-    let gitDir = isAbsolute3(rawGitDir) ? rawGitDir : resolve(dirname3(dotGitPath), rawGitDir);
+    let gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve(dirname3(dotGitPath), rawGitDir);
     if (!existsSync(join3(gitDir, "commondir")))
       return !1;
     if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
@@ -4549,7 +4589,7 @@ function gitDirPathReferenceMatches(gitDir, target, expectedPath) {
   return sameFilesystemPathOrFalse(resolveGitDirPath(gitDir, target), expectedPath);
 }
 function resolveGitDirPath(gitDir, target) {
-  return isAbsolute3(target) ? target : resolve(gitDir, target);
+  return isAbsolute4(target) ? target : resolve(gitDir, target);
 }
 function sameFilesystemPathOrFalse(left, right) {
   try {
@@ -5743,7 +5783,7 @@ function hasAttachedLongValue(token, options) {
 }
 // src/core/shell/wrappers.ts
 import { realpathSync as realpathSync4 } from "node:fs";
-import { isAbsolute as isAbsolute4, parse as parsePath2 } from "node:path";
+import { isAbsolute as isAbsolute5, parse as parsePath2 } from "node:path";
 var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/, ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/, MAX_ENV_SPLIT_EXPANDED_LENGTH = 131072, MAX_ENV_SPLIT_TOKENS = 16384;
 function parseEnvAssignment(token) {
   if (!ENV_ASSIGNMENT_RE.test(token))
@@ -6094,9 +6134,9 @@ function resolveWrapperCwd(cwd, target) {
   if (target === "")
     return null;
   try {
-    if (!cwd && !isAbsolute4(target))
+    if (!cwd && !isAbsolute5(target))
       return null;
-    let baseCwd = isAbsolute4(target) ? getPathRoot2(target) : realpathSync4(cwd ?? "/");
+    let baseCwd = isAbsolute5(target) ? getPathRoot2(target) : realpathSync4(cwd ?? "/");
     return resolveChdirTarget(baseCwd, target);
   } catch {
     return null;
@@ -6603,7 +6643,8 @@ function createSchemas() {
     workflow: z.strictObject({ worktree_mode: z.boolean().optional() }).optional(),
     destructive_command_protection: z.strictObject({
       enabled: z.boolean().optional(),
-      overrides: DestructiveCommandOverridesSchema.optional()
+      overrides: DestructiveCommandOverridesSchema.optional(),
+      allow_paths: z.array(z.string()).optional()
     }).optional(),
     secret_protection: z.strictObject({
       enabled: z.boolean().optional(),
@@ -6611,6 +6652,15 @@ function createSchemas() {
       deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional()
     }).optional()
   }).superRefine((policy, context) => {
+    (policy.destructive_command_protection?.allow_paths ?? []).forEach((path, index) => {
+      let error = getDestructiveAllowPathError(path);
+      if (error)
+        context.addIssue({
+          code: "custom",
+          message: error,
+          path: ["destructive_command_protection", "allow_paths", index]
+        });
+    });
     for (let id of Object.keys(policy.destructive_command_protection?.overrides ?? {}))
       if (!DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id))
         context.addIssue({
@@ -6778,9 +6828,19 @@ function validateUserDestructivePolicy(value, errors) {
     errors.push("destructive_command_protection must be an object if provided");
     return;
   }
-  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
+  if (addUnknownFieldErrors(value, /* @__PURE__ */ new Set(["enabled", "overrides", "allow_paths"]), errors, "destructive_command_protection"), value.enabled !== void 0 && typeof value.enabled !== "boolean")
     errors.push("destructive_command_protection.enabled must be a boolean");
-  validateKnownOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors, (override) => override === "on" || override === "off" ? void 0 : 'must be "on" or "off"');
+  if (validateKnownOverrides(value.overrides, "destructive_command_protection", DESTRUCTIVE_COMMAND_RULE_ID_SET, "destructive command", errors, (override) => override === "on" || override === "off" ? void 0 : 'must be "on" or "off"'), value.allow_paths === void 0)
+    return;
+  if (!Array.isArray(value.allow_paths)) {
+    errors.push("destructive_command_protection.allow_paths must be an array of paths");
+    return;
+  }
+  for (let index = 0;index < value.allow_paths.length; index++) {
+    let error = getDestructiveAllowPathError(value.allow_paths[index]);
+    if (error)
+      errors.push(`destructive_command_protection.allow_paths[${index}] ${error}`);
+  }
 }
 function validateUserSecretPolicy(value, errors) {
   if (value === void 0)
@@ -6848,7 +6908,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { isAbsolute as isAbsolute5, join as join4, normalize, parse, relative, resolve as resolve2, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join4, normalize as normalize2, parse, relative, resolve as resolve2, sep as sep3 } from "node:path";
 var POLICY_FILESYSTEM_SCOPE = Symbol("PolicyFilesystemScope"), POLICY_FILESYSTEM_TARGET = Symbol("PolicyFilesystemTarget"), NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
 class PolicyFilesystemError extends Error {
@@ -6861,8 +6921,8 @@ function bindPolicyFilesystemScope(root, label) {
   return { [POLICY_FILESYSTEM_SCOPE]: !0, root: resolve2(root), label };
 }
 function getPolicyFilesystemTarget(scope, relativePath) {
-  let normalized = normalize(relativePath);
-  if (relativePath === "" || isAbsolute5(relativePath) || normalized === ".." || normalized.startsWith(`..${sep2}`))
+  let normalized = normalize2(relativePath);
+  if (relativePath === "" || isAbsolute6(relativePath) || normalized === ".." || normalized.startsWith(`..${sep3}`))
     throw new PolicyFilesystemError(scope.label);
   return {
     [POLICY_FILESYSTEM_TARGET]: !0,
@@ -6967,7 +7027,7 @@ function removePolicyFile(target) {
 }
 function ensurePolicyDirectory(target) {
   try {
-    ensureDirectoryComponents(target, target.relativePath.split(sep2));
+    ensureDirectoryComponents(target, target.relativePath.split(sep3));
   } catch (error) {
     throwPolicyFilesystemError(target.scope.label, error);
   }
@@ -6994,7 +7054,7 @@ function validateTarget(target, allowMissingLeaf, leafType = "file") {
   let canonicalRoot = getCanonicalRoot(target.scope);
   if (!canonicalRoot)
     return { exists: !1 };
-  let parts = target.relativePath.split(sep2);
+  let parts = target.relativePath.split(sep3);
   for (let index of parts.keys()) {
     let path = join4(target.scope.root, ...parts.slice(0, index + 1)), stat = lstatOrMissing(path);
     if (!stat) {
@@ -7038,7 +7098,7 @@ function removeValidatedTree(target) {
   rmdirSync(target.path);
 }
 function ensureTargetParents(target) {
-  ensureDirectoryComponents(target, target.relativePath.split(sep2).slice(0, -1));
+  ensureDirectoryComponents(target, target.relativePath.split(sep3).slice(0, -1));
 }
 function ensureDirectoryComponents(target, parts) {
   ensureRoot(target.scope);
@@ -7100,7 +7160,7 @@ function validateAdjacentTemp(target, tempPath, device, inode) {
 }
 function assertCanonicalContainment(canonicalRoot, canonicalPath, label) {
   let remainder = relative(canonicalRoot, canonicalPath);
-  if (remainder === ".." || remainder.startsWith(`..${sep2}`) || isAbsolute5(remainder))
+  if (remainder === ".." || remainder.startsWith(`..${sep3}`) || isAbsolute6(remainder))
     throw new PolicyFilesystemError(label);
 }
 function lstatOrMissing(path) {
@@ -7222,8 +7282,8 @@ function toTarget(path) {
 }
 
 // src/core/rules/policy/paths.ts
-import { homedir as homedir3 } from "node:os";
-import { dirname as dirname4, isAbsolute as isAbsolute6, join as join5, relative as relative2, resolve as resolve3, sep as sep3 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname4, isAbsolute as isAbsolute7, join as join5, relative as relative2, resolve as resolve3, sep as sep4 } from "node:path";
 var RULES_CONFIG_FILE = "rule.json", RULES_LOCK_FILE = "rule.lock", LEGACY_RULES_CONFIG_FILE = "config.json", SAFETY_NET_DIR = ".cc-safety-net", RULES_SUBDIR = "rules", CACHE_SUBDIR = "cache", CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME", RULE_SYNC_COMMAND = "`cc-safety-net rule sync`", RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
 function getProjectRulesDir(cwd) {
   return resolve3(cwd ?? process.cwd(), RULES_DIR);
@@ -7236,7 +7296,7 @@ function getUserRulesDir(options2) {
 }
 function getUserSafetyNetHome() {
   let home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve3(home) : join5(homedir3(), SAFETY_NET_DIR);
+  return home ? resolve3(home) : join5(homedir4(), SAFETY_NET_DIR);
 }
 function getUserRulesConfigPath(options2) {
   return join5(getUserRulesDir(options2), RULES_CONFIG_FILE);
@@ -7288,7 +7348,7 @@ function getUserPolicyFilesystemScope(_configPath, options2) {
 }
 function getProjectPolicyFilesystemScope(configPath, options2) {
   let cwd = resolve3(options2.cwd ?? process.cwd()), absoluteConfigPath = resolve3(configPath), fromCwd = relative2(cwd, absoluteConfigPath);
-  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep3}`) && !isAbsolute6(fromCwd))
+  if (fromCwd !== ".." && !fromCwd.startsWith(`..${sep4}`) && !isAbsolute7(fromCwd))
     return bindPolicyFilesystemScope(cwd, "project policy");
   return bindPolicyFilesystemScope(dirname4(dirname4(absoluteConfigPath)), "project policy");
 }
@@ -7334,7 +7394,8 @@ var POLICY_FILE = "policy.json", SAFETY_LEVELS2 = /* @__PURE__ */ new Set(["stan
   },
   destructive_command_protection: {
     enabled: !0,
-    overrides: {}
+    overrides: {},
+    allow_paths: []
   },
   secret_protection: {
     enabled: !0,
@@ -7436,6 +7497,7 @@ function loadPolicyConfig(options2 = {}) {
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...user.policy.destructiveCommandAllowPaths],
     secretProtection: user.policy.secretProtection,
     errors: user.errors
   };
@@ -7459,7 +7521,8 @@ function repairPolicyConfig(value) {
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === "boolean" ? destructiveCommand.enabled : !0,
-      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides)
+      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides),
+      allow_paths: repairAllowPaths(destructiveCommand.allow_paths)
     },
     secret_protection: {
       enabled: typeof secret.enabled === "boolean" ? secret.enabled : !0,
@@ -7483,6 +7546,11 @@ function repairDenyPaths(value) {
     return [];
   return value.filter((path) => typeof path === "string" && path.trim() !== "");
 }
+function repairAllowPaths(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter((path) => getDestructiveAllowPathError(path) === null);
+}
 function isRecord2(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -7496,7 +7564,8 @@ function createDefaultGuiPolicy() {
     workflow: { ...DEFAULT_GUI_POLICY.workflow },
     destructive_command_protection: {
       enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
-      overrides: {}
+      overrides: {},
+      allow_paths: []
     },
     secret_protection: {
       enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
@@ -7522,7 +7591,8 @@ function normalizeGuiPolicy(policy) {
     },
     destructive_command_protection: {
       enabled: destructiveCommandPolicy.enabled ?? !0,
-      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : []))
+      overrides: Object.fromEntries(Object.entries(destructiveCommandOverrides).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : [])),
+      allow_paths: [...destructiveCommandPolicy.allow_paths ?? []]
     },
     secret_protection: {
       enabled: secret.enabled ?? !0,
@@ -7556,6 +7626,7 @@ function createEmptyPolicy() {
     worktreeMode: !1,
     destructiveCommandProtectionEnabled: !0,
     destructiveCommandRuleOverrides: {},
+    destructiveCommandAllowPaths: [],
     secretProtection: { enabled: !0, disabledRules: /* @__PURE__ */ new Set, denyPaths: [] }
   };
 }
@@ -7566,6 +7637,9 @@ function normalizePolicyConfig(config) {
     worktreeMode: workflow?.worktree_mode ?? !1,
     destructiveCommandProtectionEnabled: destructiveCommand?.enabled ?? !0,
     destructiveCommandRuleOverrides: Object.fromEntries(Object.entries(destructiveCommand?.overrides ?? {}).flatMap(([id, value]) => value === "on" || value === "off" ? [[id, value]] : [])),
+    destructiveCommandAllowPaths: [
+      ...destructiveCommand?.allow_paths ?? []
+    ],
     secretProtection: {
       enabled: secret?.enabled ?? !0,
       disabledRules: new Set(Object.entries(secret?.overrides ?? {}).flatMap(([id, value]) => value === "off" ? [id] : [])),
@@ -7588,7 +7662,7 @@ function normalizeSafety(value) {
 }
 
 // src/core/rules/policy/scope-policy.ts
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join8, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute8, join as join8, relative as relative3, resolve as resolve4, sep as sep5 } from "node:path";
 
 // src/core/rules/custom-rule-validation.ts
 function validateCustomRule(rule, index, ruleNames, options2 = {}) {
@@ -8791,7 +8865,7 @@ function loadLockedRulebook(entry, configDir, options2, filesystemScope) {
   }
   if (entry.kind === "local-directory") {
     let sourcePath = resolve4(configDir, entry.path), sourceRelative = relative3(resolve4(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute7(sourceRelative))
+    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep5}`) || isAbsolute8(sourceRelative))
       return errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`), { rulebook: null, errors };
     let localPath = join8(sourcePath, RULEBOOK_FILE), localContent;
     try {
@@ -8950,6 +9024,7 @@ function loadPolicySnapshot(options2 = {}) {
     worktreeMode: userPolicy.worktreeMode,
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
     destructiveCommandRuleOverrides: { ...userPolicy.destructiveCommandRuleOverrides },
+    destructiveCommandAllowPaths: [...userPolicy.destructiveCommandAllowPaths],
     secretProtection: {
       enabled: userPolicy.secretProtection.enabled ?? !0,
       disabledRules: [...userPolicy.secretProtection.disabledRules ?? []],
@@ -9021,6 +9096,7 @@ function freezePolicy(policy) {
     destructiveCommandRuleOverrides: Object.freeze({
       ...policy.destructiveCommandRuleOverrides
     }),
+    destructiveCommandAllowPaths: Object.freeze([...policy.destructiveCommandAllowPaths]),
     secretProtection: Object.freeze({
       ...policy.secretProtection,
       disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),
@@ -9094,10 +9170,10 @@ function reserveDerivedCommandTokens(budget, derivedTokens) {
 }
 
 // src/core/analyze/heredoc-files.ts
-import { isAbsolute as isAbsolute8, resolve as resolve5 } from "node:path";
+import { isAbsolute as isAbsolute9, resolve as resolve5 } from "node:path";
 var MAX_TRACKED_HEREDOC_FILES = 64;
 function resolveTrackedHeredocPath(source, effectiveCwd) {
-  let path = isAbsolute8(source) ? resolve5(source) : effectiveCwd ? resolve5(effectiveCwd, source) : void 0;
+  let path = isAbsolute9(source) ? resolve5(source) : effectiveCwd ? resolve5(effectiveCwd, source) : void 0;
   if (!path)
     return;
   try {
@@ -9143,13 +9219,13 @@ function exceedsLimit(current, amount, limit) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { homedir as homedir4 } from "node:os";
-import { normalize as normalize3, posix, resolve as resolve6, sep as sep6 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute11, normalize as normalize4, posix, resolve as resolve6, sep as sep7 } from "node:path";
 
 // src/core/analyze/tmpdir.ts
 import { lstatSync as lstatSync4, realpathSync as realpathSync6 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute as isAbsolute9, join as join9, normalize as normalize2, parse as parsePath3, sep as sep5 } from "node:path";
+import { isAbsolute as isAbsolute10, join as join9, normalize as normalize3, parse as parsePath3, sep as sep6 } from "node:path";
 var INITIAL_SYSTEM_TMPDIR = tmpdir(), TEMP_ROOTS = ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"], TRUSTED_TEMP_ROOTS = buildTrustedTempRoots(), DEFAULT_IFS = ` 	
 `;
 function isTmpdirOverriddenToNonTemp(envAssignments) {
@@ -9195,7 +9271,7 @@ function isTrustedTempRootPath(path) {
   return normalizedPath !== null && TRUSTED_TEMP_ROOTS.includes(normalizedPath);
 }
 function buildTrustedTempRoots() {
-  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize2(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
+  let roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize3(root)), initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
   if (!initialTmpdir)
     return roots;
   if (process.platform === "win32")
@@ -9221,8 +9297,8 @@ function tryResolveExistingPathComponents(path) {
   }
 }
 function resolveExistingPathComponents(path) {
-  let normalized = normalize2(path);
-  if (!isAbsolute9(normalized))
+  let normalized = normalize3(path);
+  if (!isAbsolute10(normalized))
     return normalized;
   let root = parsePath3(normalized).root, components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean), current = root;
   for (let i = 0;i < components.length; i++) {
@@ -9236,13 +9312,14 @@ function resolveExistingPathComponents(path) {
 function isPathOrSubpath(path, basePath) {
   if (path === basePath)
     return !0;
-  let baseWithSlash = basePath.endsWith(sep5) ? basePath : `${basePath}${sep5}`;
+  let baseWithSlash = basePath.endsWith(sep6) ? basePath : `${basePath}${sep6}`;
   return path.startsWith(baseWithSlash);
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-var IS_WINDOWS = process.platform === "win32";
+var IS_WINDOWS2 = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
+  let homeDir = getHomeDirForRmPolicy(), budget = createPathCanonicalizationBudget();
   return {
     anchoredCwd: options2.originalCwd ?? options2.cwd ?? null,
     resolvedCwd: options2.cwd ?? null,
@@ -9253,8 +9330,9 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
     tmpdirVarExpandsEmpty: options2.tmpdirVarExpandsEmpty ?? !1,
     tmpdirWordSplittingUnsafe: options2.tmpdirWordSplittingUnsafe ?? !1,
     trustedTmpdirValue: options2.trustedTmpdirValue ?? options2.allowTmpdirVar ?? !0,
-    homeDir: getHomeDirForRmPolicy(),
-    pathCanonicalizationBudget: createPathCanonicalizationBudget()
+    homeDir,
+    allowRoots: resolveAllowRoots(options2.allowPaths, homeDir, budget),
+    pathCanonicalizationBudget: budget
   };
 }
 function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
@@ -9270,6 +9348,8 @@ function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
     return { kind: "temp_target" };
   if (dynamic)
     return { kind: "dynamic_target" };
+  if (isAllowedPathTarget(normalizedTarget, ctx, targetIsLiteral))
+    return { kind: "temp_target" };
   let anchoredCwd = ctx.anchoredCwd;
   if (anchoredCwd) {
     if (!options2.skipHomeCwd && isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir, ctx.pathCanonicalizationBudget))
@@ -9309,8 +9389,8 @@ function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
   return !1;
 }
 function normalizePathForComparison2(p) {
-  let normalized = normalize3(p);
-  if (IS_WINDOWS) {
+  let normalized = normalize4(p);
+  if (IS_WINDOWS2) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
     return normalized;
@@ -9346,7 +9426,40 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return getOwnEnvValue("HOME") || homedir4();
+  return getOwnEnvValue("HOME") || homedir5();
+}
+function resolveAllowRoots(paths, homeDir, budget) {
+  if (!paths?.length)
+    return [];
+  return paths.flatMap((path) => {
+    let expanded = expandAllowPathHome(path.trim(), homeDir);
+    if (!isAbsolute11(expanded))
+      return [];
+    try {
+      let canonical = resolveExistingPath(expanded, budget);
+      if (getAllowPathHomeConflictError(canonical, resolveExistingPath(homeDir, budget)))
+        return [];
+      return [normalizePathForComparison2(canonical)];
+    } catch {
+      return [];
+    }
+  });
+}
+function isAllowedPathTarget(target, ctx, targetIsLiteral) {
+  if (ctx.allowRoots.length === 0)
+    return !1;
+  let trimmed = target.trim();
+  if (hasParentDirectoryComponent(trimmed))
+    return !1;
+  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute11(expanded) ? expanded : base ? resolve6(base, expanded) : null;
+  if (!resolved)
+    return !1;
+  try {
+    let canonical = normalizePathForComparison2(resolveExistingPath(resolved, ctx.pathCanonicalizationBudget));
+    return ctx.allowRoots.some((root) => canonical === root || canonical.startsWith(root.endsWith(sep7) ? root : `${root}${sep7}`));
+  } catch {
+    return !1;
+  }
 }
 function containsTmpdirVariable(target) {
   return /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(target);
@@ -9462,12 +9575,15 @@ function isWorkspaceWithinTarget(target, workspace, budget) {
 }
 function isNormalizedPathWithin(target, cwd) {
   let normalizedTarget = normalizePathForComparison2(target), normalizedCwd = normalizePathForComparison2(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep6}`) || normalizedTarget === normalizedCwd;
+  return normalizedTarget.startsWith(`${normalizedCwd}${sep7}`) || normalizedTarget === normalizedCwd;
 }
 
 // src/core/analyze/powershell/remove-item.ts
 var REMOVE_ITEM_ALIASES = /* @__PURE__ */ new Set(["remove-item", "ri", "del", "erase", "rd", "rm", "rmdir"]), REASON_REMOVE_ITEM_RF = "PowerShell Remove-Item -Recurse -Force outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_RF_POLICY = "PowerShell Remove-Item -Recurse -Force for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_REMOVE_ITEM_DYNAMIC_TARGET = "PowerShell Remove-Item target contains variables or pipeline input that cannot be verified safely. Use literal paths within cwd.", REASON_REMOVE_ITEM_ROOT_HOME = "PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.", REASON_REMOVE_ITEM_HOME_CWD = "PowerShell Remove-Item -Recurse -Force in home directory is dangerous. Change to a project directory first.", REASON_REMOVE_ITEM_PIPELINE = "PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.";
-function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext(options2)) {
+function analyzePowerShellCommandViewMatch(command2, hasPipelineInput, options2 = {}, ctx = createRecursiveDeleteTargetContext({
+  ...options2,
+  allowPaths: options2.policy?.destructiveCommandAllowPaths
+})) {
   return analyzePowerShellSegment(command2.words.map((word) => ({
     kind: "word",
     text: word.text,
@@ -9621,7 +9737,7 @@ function matchForClassification(classification, ctx, policy) {
 
 // src/core/analyze/segment.ts
 import { realpathSync as realpathSync7 } from "node:fs";
-import { normalize as normalize4 } from "node:path";
+import { normalize as normalize5 } from "node:path";
 
 // src/core/analyze/child-command.ts
 function normalizeChildCommands(tokens, context) {
@@ -9808,6 +9924,7 @@ function hasOnlyTrustedTempDeleteTargets(tokens, context) {
     originalCwd: context.originalCwd,
     strict: context.strict,
     allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: !0,
     tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
     tmpdirWordSplittingUnsafe: context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
@@ -9895,12 +10012,16 @@ function isFindExecPrimary(token) {
 }
 
 // src/core/analyze/parallel.ts
-import { isAbsolute as isAbsolute11 } from "node:path";
+import { isAbsolute as isAbsolute13 } from "node:path";
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_POLICY = "rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
 function analyzeRmMatch(tokens, options2 = {}) {
-  let ctx = createRecursiveDeleteTargetContext({ ...options2, posixShell: !0 });
+  let ctx = createRecursiveDeleteTargetContext({
+    ...options2,
+    allowPaths: options2.policy?.destructiveCommandAllowPaths,
+    posixShell: !0
+  });
   if (!hasRecursiveForceFlags(tokens))
     return null;
   let targets = extractTargets(tokens);
@@ -11022,7 +11143,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute10, join as join10, resolve as resolve7 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute12, join as join10, resolve as resolve7 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -11172,7 +11293,7 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute10(rawGitDir) ? rawGitDir : resolve7(dirname8(dotGitPath), rawGitDir);
+    return isAbsolute12(rawGitDir) ? rawGitDir : resolve7(dirname8(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
@@ -11185,7 +11306,7 @@ function resolveCommonGitDir(gitDir) {
     let rawCommonDir = readFileSync4(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute10(rawCommonDir) ? rawCommonDir : resolve7(gitDir, rawCommonDir);
+    return isAbsolute12(rawCommonDir) ? rawCommonDir : resolve7(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -12562,7 +12683,7 @@ function resolveParallelWorkdir(workdir, cwd) {
     return;
   if (workdir === "..." || /[{}$`*?~[]/.test(workdir))
     return null;
-  if (!cwd && !isAbsolute11(workdir))
+  if (!cwd && !isAbsolute13(workdir))
     return null;
   try {
     return resolveChdirTarget(cwd ?? workdir, workdir);
@@ -13469,9 +13590,9 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize4(realpathSync7(a)) === normalize4(realpathSync7(b));
+    return normalize5(realpathSync7(a)) === normalize5(realpathSync7(b));
   } catch {
-    return normalize4(a) === normalize4(b);
+    return normalize5(a) === normalize5(b);
   }
 }
 function stripLeadingGrouping(tokens) {
@@ -14507,8 +14628,8 @@ function analyzeCommandWithProgram(command2, options2, program, factStore) {
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname9, isAbsolute as isAbsolute12, normalize as normalize5, resolve as resolve8 } from "node:path";
+import { homedir as homedir6 } from "node:os";
+import { dirname as dirname9, isAbsolute as isAbsolute14, normalize as normalize6, resolve as resolve8 } from "node:path";
 var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
   "findbyname",
   "glob",
@@ -14719,16 +14840,16 @@ function normalizePolicyCandidatePath(target, cwd, budget) {
   let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
   if (!unix)
     return "";
-  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve8(homedir5(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize5(isAbsolute12(expanded) ? expanded : resolve8(cwd, expanded)), budget).replace(/\\/g, "/");
+  let expanded = unix === "~" ? homedir6() : unix.startsWith("~/") ? resolve8(homedir6(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize6(isAbsolute14(expanded) ? expanded : resolve8(cwd, expanded)), budget).replace(/\\/g, "/");
 }
 function comparePath(path) {
   return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 // src/core/secret-protection.ts
-import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute13, resolve as resolve9 } from "node:path";
+import { homedir as homedir7 } from "node:os";
+import { isAbsolute as isAbsolute15, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
   "-delete",
@@ -15592,14 +15713,14 @@ function isSecretRuleEnabled(id, config) {
   return !config.disabledRules.has(id);
 }
 function normalizeCandidatePath(target, cwd, budget) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir7(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute13(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute15(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute13(expanded))
+    if (isAbsolute15(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -15607,11 +15728,11 @@ function normalizeCandidatePath(target, cwd, budget) {
   return relativeHomePath ? `~${relativeHomePath}` : "~";
 }
 function normalizeAbsoluteCandidatePath(target, cwd, budget) {
-  let homeValue = process.env.HOME ?? homedir6(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
+  let homeValue = process.env.HOME ?? homedir7(), home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : "", normalized = normalizePathText(normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)));
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute13(expanded) ? expanded : resolve9(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute15(expanded) ? expanded : resolve9(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))

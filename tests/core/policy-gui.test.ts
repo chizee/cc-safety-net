@@ -170,6 +170,7 @@ describe('policy GUI helpers', () => {
             'git.unknown': 'off',
             'git.clean-force': 'allow',
           },
+          allow_paths: ['~', 'relative/path', '/opt/scratch', 42],
         },
         secret_protection: {
           enabled: false,
@@ -202,6 +203,7 @@ describe('policy GUI helpers', () => {
       destructive_command_protection: {
         enabled: true,
         overrides: { 'git.reset-hard': 'off', 'shell.dynamic-executable': 'on' },
+        allow_paths: ['/opt/scratch'],
       },
       secret_protection: {
         enabled: false,

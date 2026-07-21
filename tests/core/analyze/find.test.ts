@@ -32,6 +32,29 @@ describe('find -delete tests', () => {
     expect(analyzeTestCommand('find /tmp/ccsn-strict -depth -delete', { strict: true })).toBeNull();
   });
 
+  test('find delete allows targets inside configured allow paths', () => {
+    const config = { destructiveCommandAllowPaths: ['/some/allowed'] };
+    expect(analyzeTestCommand('find /some/allowed -depth -delete', { config })).toBeNull();
+    expect(analyzeTestCommand('find /some/allowed/sub -delete', { config })).toBeNull();
+    expect(analyzeTestCommand('find /some/allowed-evil -delete', { config })?.reason).toContain(
+      'find -delete',
+    );
+    assertBlocked('find /some/allowed -depth -delete', 'find -delete');
+  });
+
+  test('find delete blocks symlink-following modes even under allow paths', () => {
+    const config = { destructiveCommandAllowPaths: ['/some/allowed'] };
+    expect(analyzeTestCommand('find -L /some/allowed -delete', { config })?.reason).toContain(
+      'find -delete',
+    );
+    expect(analyzeTestCommand('find /some/allowed -follow -delete', { config })?.reason).toContain(
+      'find -delete',
+    );
+    expect(analyzeTestCommand('find -f /some/allowed -delete', { config })?.reason).toContain(
+      'find -delete',
+    );
+  });
+
   test('find delete protects trusted temporary roots', () => {
     assertBlocked('find /tmp -depth -delete', 'find -delete');
     assertBlocked('find /var/tmp/ -depth -delete', 'find -delete');

@@ -34,7 +34,8 @@ export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  >;
+  > &
+    Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
 }
 
 /** @internal */
@@ -46,7 +47,11 @@ export function analyzeRmMatch(
   tokens: string[],
   options: AnalyzeRmOptions = {},
 ): DestructiveCommandRuleMatch | null {
-  const ctx = createRecursiveDeleteTargetContext({ ...options, posixShell: true });
+  const ctx = createRecursiveDeleteTargetContext({
+    ...options,
+    allowPaths: options.policy?.destructiveCommandAllowPaths,
+    posixShell: true,
+  });
 
   if (!hasRecursiveForceFlags(tokens)) {
     return null;

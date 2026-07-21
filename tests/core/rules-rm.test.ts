@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
 import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
+import { analyzeTestCommand } from '../helpers/policy.ts';
 import {
   assertAllowed,
   assertBlocked,
   assertStrictBlocked,
+  runGuard,
   toShellPath,
   withEnv,
   withSymlinkedHomeCwd,
@@ -173,6 +175,96 @@ describe('rm -rf allowed', () => {
 
   test('echo $(rm -rf /tmp/foo 2>/dev/null) allowed', () => {
     assertAllowed('echo $(rm -rf /tmp/foo 2>/dev/null)', '/tmp');
+  });
+});
+
+describe('rm -rf allow paths', () => {
+  const policy = { destructiveCommandAllowPaths: ['/some/allowed'] };
+
+  test('target inside an allow path is allowed', () => {
+    expect(runGuard('rm -rf /some/allowed/dir', undefined, policy)).toBeNull();
+  });
+
+  test('the allow path root itself is allowed', () => {
+    expect(runGuard('rm -rf /some/allowed', undefined, policy)).toBeNull();
+  });
+
+  test('sibling paths sharing the allow path prefix stay blocked', () => {
+    expect(runGuard('rm -rf /some/allowed-evil', undefined, policy)).toContain('rm -rf');
+  });
+
+  test('~ allow paths expand to home-relative targets', () => {
+    expect(
+      runGuard('rm -rf ~/cc-safety-net-sandbox/dist', undefined, {
+        destructiveCommandAllowPaths: ['~/cc-safety-net-sandbox'],
+      }),
+    ).toBeNull();
+  });
+
+  test('home and home-containing allow entries are ignored at runtime', () => {
+    expect(
+      runGuard('rm -rf ~/projects', undefined, { destructiveCommandAllowPaths: ['~'] }),
+    ).toContain('rm -rf');
+    expect(
+      runGuard('rm -rf /some/path', undefined, { destructiveCommandAllowPaths: ['/'] }),
+    ).toContain('rm -rf');
+  });
+
+  test('root and home targets stay blocked regardless of allow paths', () => {
+    expect(
+      runGuard('rm -rf ~', undefined, { destructiveCommandAllowPaths: ['~/sandbox'] }),
+    ).toContain('extremely dangerous');
+  });
+
+  test('dynamic targets inside an allow path stay blocked in strict mode', () => {
+    expect(
+      analyzeTestCommand('rm -rf /some/allowed/$DIR', { strict: true, config: policy })?.reason,
+    ).toContain('shell variables');
+  });
+
+  test('allow paths bypass paranoid rm checks like trusted temp roots', () => {
+    expect(
+      analyzeTestCommand('rm -rf /some/allowed/dir', { paranoidRm: true, config: policy }),
+    ).toBeNull();
+    expect(
+      analyzeTestCommand('rm -rf dist', {
+        cwd: '/some/allowed',
+        paranoidRm: true,
+        config: policy,
+      }),
+    ).toBeNull();
+    expect(
+      analyzeTestCommand('rm -rf dist', { cwd: '/some/allowed', paranoidRm: true })?.reason,
+    ).toContain('safety policy');
+  });
+
+  test('symlinked targets escaping the allow path stay blocked', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-allow-'));
+    try {
+      // Symlink to the repo checkout: a real directory that is never a trusted temp path.
+      symlinkSync(process.cwd(), join(root, 'escape'));
+      expect(
+        runGuard(`rm -rf ${toShellPath(join(root, 'escape', 'projects'))}`, undefined, {
+          destructiveCommandAllowPaths: [root],
+        }),
+      ).toContain('rm -rf');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('allow entries that are symlinks into home are ignored', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-allow-'));
+    try {
+      symlinkSync(homedir(), join(root, 'escape'));
+      expect(
+        runGuard('rm -rf ~/projects', undefined, {
+          destructiveCommandAllowPaths: [join(root, 'escape')],
+        }),
+      ).toContain('rm -rf');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
