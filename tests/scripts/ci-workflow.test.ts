@@ -105,6 +105,7 @@ describe('CI and release workflows', () => {
       expect(windows).toContain(`bun run ${command}`);
     }
     expect(windows).toContain("bun test tests --test-name-pattern '\\[windows\\]'");
+    expect(windows).toContain('if (-not ($result -match "ALLOWED")) { exit 1 }');
     expect(windows).toContain('bun run build');
     expect(ci).toContain('os: windows-latest');
     expect(ci).toContain('bun run verify:package');

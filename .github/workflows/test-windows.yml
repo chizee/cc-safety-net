@@ -39,7 +39,7 @@ jobs:
         run: |
           New-Item -ItemType Directory test-dir
           $result = bun run cc-safety-net explain --cwd test-dir "rm -rf dist" 2>&1
-          if ($result -notmatch "ALLOWED") { exit 1 }
+          if (-not ($result -match "ALLOWED")) { exit 1 }
       - name: Upload E2E failure evidence
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
