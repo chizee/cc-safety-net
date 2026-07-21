@@ -637,10 +637,8 @@ label.row.safety-override-row select {
   color: var(--master-fg);
 }
 
-.rule-customization-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: -8px 0 12px;
+.panel-head-action {
+  flex: none;
 }
 
 .rule-tier {
@@ -751,6 +749,10 @@ label.row.safety-override-row select {
 .rule-row.row-disabled .rule-control {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.rule-row-enforced .rule-control {
+  cursor: default;
 }
 
 .rule-example-button {

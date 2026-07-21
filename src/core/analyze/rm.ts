@@ -6,12 +6,16 @@ import {
   type RecursiveDeleteTargetContext,
   type RecursiveDeleteTargetOptions,
 } from '@/core/analyze/recursive-delete-targets';
-import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
+import { hasRecursiveForceFlags, hasRecursiveOption } from '@/core/analyze/rm-flags';
 import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
+import {
+  isProtectedGitDeleteTarget,
+  REASON_GIT_METADATA_PROTECTION,
+} from '@/core/git-metadata-protection';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
 
@@ -52,15 +56,12 @@ export function analyzeRmMatch(
     allowPaths: options.policy?.destructiveCommandAllowPaths,
     posixShell: true,
   });
-
-  if (!hasRecursiveForceFlags(tokens)) {
-    return null;
-  }
-
+  const recursiveForce = hasRecursiveForceFlags(tokens);
+  const recursive = hasRecursiveOption(tokens);
   const targets = extractTargets(tokens);
 
   for (const target of targets) {
-    if (options.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+    if (recursiveForce && options.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
       const match = filterDestructiveCommandMatch(
         reasonForClassification({ kind: 'outside_anchored_cwd' }, ctx, options.policy),
         options.policy,
@@ -78,6 +79,34 @@ export function analyzeRmMatch(
           target.index,
         ),
       };
+      if (
+        !recursive &&
+        ctx.resolvedCwd &&
+        isProtectedGitDeleteTarget(
+          expandedTarget,
+          ctx.resolvedCwd,
+          ctx.protectedGitMetadata,
+          recursive,
+          ctx.pathCanonicalizationBudget,
+        )
+      ) {
+        return destructiveCommandMatch('rm.git-metadata', REASON_GIT_METADATA_PROTECTION);
+      }
+      if (recursive && !recursiveForce) {
+        const classification = classifyRecursiveDeleteTarget(
+          expandedTarget,
+          ctx,
+          classificationOptions,
+        );
+        if (classification.kind === 'root_or_home_target') {
+          return destructiveCommandMatch('rm.recursive-force-root-or-home', REASON_RM_RF_ROOT_HOME);
+        }
+        if (classification.kind === 'git_metadata_target') {
+          return destructiveCommandMatch('rm.git-metadata', REASON_GIT_METADATA_PROTECTION);
+        }
+        continue;
+      }
+      if (!recursiveForce) continue;
       for (const classification of orderedTargetClassifications(
         expandedTarget,
         ctx,
@@ -154,6 +183,8 @@ function reasonForClassification(
   switch (classification.kind) {
     case 'root_or_home_target':
       return destructiveCommandMatch('rm.recursive-force-root-or-home', REASON_RM_RF_ROOT_HOME);
+    case 'git_metadata_target':
+      return destructiveCommandMatch('rm.git-metadata', REASON_GIT_METADATA_PROTECTION);
     case 'temp_target':
       return null;
     case 'dynamic_target':

@@ -22,7 +22,7 @@ function withTempProject(fn: (cwd: string) => void): void {
 function analyzePowerShell(
   command: string,
   cwd: string,
-  options: { paranoidRm?: boolean; strict?: boolean } = {},
+  options: { config?: Config; paranoidRm?: boolean; strict?: boolean } = {},
 ) {
   return analyzeCommand(command, { cwd, config, shell: 'powershell', ...options });
 }
@@ -77,6 +77,36 @@ describe('PowerShell Remove-Item support', () => {
       const result = analyzePowerShell('Remove-Item $HOME -Recurse -Force', cwd);
 
       expect(result?.ruleId).toBe('powershell.remove-item-recursive-force-root-or-home');
+    });
+  });
+
+  test('blocks PowerShell environment home tokens through override channels', () => {
+    withTempProject((cwd) => {
+      const configs: Config[] = [
+        config,
+        { destructiveCommandProtectionEnabled: false },
+        {
+          destructiveCommandRuleOverrides: {
+            'powershell.remove-item-recursive-force-root-or-home': 'off',
+          },
+        },
+      ];
+      for (const target of [
+        '$env:USERPROFILE',
+        '$env:HOME',
+        '$env:USERPROFILE\\',
+        '$env:USERPROFILE\\*',
+        '$env:HOME/',
+      ]) {
+        for (const overrideConfig of configs) {
+          expect(
+            analyzePowerShell(`Remove-Item ${target} -Recurse -Force`, cwd, {
+              config: overrideConfig,
+            })?.ruleId,
+            `${target} ${JSON.stringify(overrideConfig)}`,
+          ).toBe('powershell.remove-item-recursive-force-root-or-home');
+        }
+      }
     });
   });
 
@@ -386,7 +416,9 @@ describe('PowerShell Remove-Item support', () => {
       expect(analyzeCommand('Remove-Item . -Recurse -Force', { cwd, config })?.ruleId).toBe(
         'powershell.remove-item-recursive-force-cwd-self',
       );
-      expect(analyzeCommand('rm -r /', { cwd, config })).toBeNull();
+      expect(analyzeCommand('rm -r /', { cwd, config })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
     });
   });
 

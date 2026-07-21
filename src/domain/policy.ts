@@ -23,6 +23,7 @@ export type EffectiveSafetyCapabilities = Readonly<
 
 /** @internal */
 export type EffectiveRuleSource =
+  | 'catastrophic'
   | 'master_disabled'
   | 'rule_override'
   | 'preset'

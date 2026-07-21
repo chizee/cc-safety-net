@@ -18,6 +18,17 @@ export function hasRecursiveForceFlags(tokens: readonly string[]): boolean {
   return hasRecursive && hasForce;
 }
 
+export function hasRecursiveOption(tokens: readonly string[]): boolean {
+  const separator = tokens.indexOf('--');
+  return tokens
+    .slice(1, separator === -1 ? undefined : separator)
+    .some(
+      (token) =>
+        isLongOptionAbbreviation(token, 'recursive') ||
+        (/^-[A-Za-z]+$/.test(token) && /[rR]/.test(token.slice(1))),
+    );
+}
+
 function isLongOptionAbbreviation(token: string, option: string): boolean {
   return token.length > 2 && token.startsWith('--') && option.startsWith(token.slice(2));
 }

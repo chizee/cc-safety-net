@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
 import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
-import { analyzeTestCommand } from '../helpers/policy.ts';
+import { analyzeTestCommand, type TestPolicyInput } from '../helpers/policy.ts';
 import {
   assertAllowed,
   assertBlocked,
@@ -83,6 +83,17 @@ describe('rm -rf blocked', () => {
 
   test('rm -rf / blocked (root)', () => {
     assertBlocked('rm -rf /', 'extremely dangerous');
+  });
+
+  test('classifies root-anchored wildcard-only paths as catastrophic', () => {
+    for (const command of ['rm -rf /*/', 'rm -rf /*/*', 'rm -rf /*/*/', 'rm -rf /**']) {
+      expect(analyzeTestCommand(command)?.ruleId, command).toBe('rm.recursive-force-root-or-home');
+    }
+    for (const command of ['rm -rf /etc/*', 'rm -rf /home/*', 'rm -rf /*.']) {
+      expect(analyzeTestCommand(command)?.ruleId, command).not.toBe(
+        'rm.recursive-force-root-or-home',
+      );
+    }
   });
 
   test('rm -rf ~ blocked (home)', () => {
@@ -354,6 +365,78 @@ describe('rm -rf cwd-aware', () => {
       });
     } finally {
       cleanup();
+    }
+  });
+
+  test('classifies only the canonical literal home target as catastrophic', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-rm-literal-home-'));
+    try {
+      const home = join(root, 'home');
+      const cwd = join(root, 'workspace');
+      mkdirSync(join(home, 'project'), { recursive: true });
+      mkdirSync(cwd);
+      const configs: TestPolicyInput[] = [
+        {},
+        { destructiveCommandProtectionEnabled: false },
+        {
+          destructiveCommandRuleOverrides: { 'rm.recursive-force-root-or-home': 'off' },
+        },
+      ];
+
+      withEnv({ HOME: home }, () => {
+        for (const config of configs) {
+          expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}`, { cwd, config })?.ruleId).toBe(
+            'rm.recursive-force-root-or-home',
+          );
+          expect(
+            analyzeTestCommand(`find ${toShellPath(home)} -delete`, { cwd, config })?.ruleId,
+          ).toBe('rm.recursive-force-root-or-home');
+          expect(
+            analyzeTestCommand(
+              `find ${toShellPath(home)} -exec rm -f /tmp/cache \\; -exec rm -rf {} +`,
+              { cwd, config },
+            )?.ruleId,
+          ).toBe('rm.recursive-force-root-or-home');
+          expect(
+            analyzeTestCommand(`find ${toShellPath(home)} -exec rm -r {} +`, { cwd, config })
+              ?.ruleId,
+          ).toBe('rm.recursive-force-root-or-home');
+          expect(
+            analyzeTestCommand(`find ${toShellPath(home)} -type f -exec rm -f {} +`, {
+              cwd,
+              config,
+            })?.ruleId,
+          ).toBe('rm.recursive-force-root-or-home');
+        }
+        expect(
+          analyzeTestCommand(`find ${toShellPath(home)} -maxdepth 0 -exec rm -f /tmp/cache \\;`, {
+            cwd,
+          })?.ruleId,
+        ).not.toBe('rm.recursive-force-root-or-home');
+        expect(analyzeTestCommand('rm -rf ../home', { cwd })?.ruleId).toBe(
+          'rm.recursive-force-root-or-home',
+        );
+        expect(analyzeTestCommand('rm -r ../home', { cwd })?.ruleId).toBe(
+          'rm.recursive-force-root-or-home',
+        );
+        expect(analyzeTestCommand('rm --recursiv ../home', { cwd })?.ruleId).toBe(
+          'rm.recursive-force-root-or-home',
+        );
+        expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}/*`, { cwd })?.ruleId).toBe(
+          'rm.recursive-force-root-or-home',
+        );
+        expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}/`, { cwd })?.ruleId).toBe(
+          'rm.recursive-force-root-or-home',
+        );
+        expect(
+          analyzeTestCommand(`rm -rf ${toShellPath(join(home, 'project'))}`, { cwd })?.ruleId,
+        ).not.toBe('rm.recursive-force-root-or-home');
+        expect(
+          analyzeTestCommand(`find ${toShellPath(join(home, 'project'))} -delete`, { cwd })?.ruleId,
+        ).not.toBe('rm.recursive-force-root-or-home');
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

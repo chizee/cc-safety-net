@@ -4,6 +4,7 @@ import {
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
 import {
+  classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
   isTrustedTempDescendantTarget,
   type RecursiveDeleteTargetTrustOptions,
@@ -20,6 +21,10 @@ import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
+import {
+  isProtectedGitHookNameSelection,
+  REASON_GIT_METADATA_PROTECTION,
+} from '@/core/git-metadata-protection';
 import { getBasename, stripWrappers } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
@@ -115,6 +120,8 @@ export function analyzeFindMatch(
   tokens: readonly string[],
   context: AnalyzeFindContext = {},
 ): DestructiveCommandRuleMatch | null {
+  const catastrophicMatch = findCatastrophicDeleteMatch(tokens, context);
+  if (catastrophicMatch) return catastrophicMatch;
   // Check for -delete outside of -exec/-execdir blocks
   if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
     const match = filterDestructiveCommandMatch(
@@ -167,6 +174,87 @@ export function analyzeFindMatch(
   return null;
 }
 
+function findCatastrophicDeleteMatch(
+  tokens: readonly string[],
+  context: AnalyzeFindContext,
+): DestructiveCommandRuleMatch | null {
+  const deletesDirectly = findHasDelete(tokens, 1);
+  const executesRm = findExecutesRm(tokens);
+  if (!deletesDirectly && !executesRm?.deletesFoundPaths) return null;
+  // An omitted starting point means find searches `.` implicitly.
+  const targets = getFindStartingPoints(tokens) ?? [{ text: '.', index: -1 }];
+  const targetContext = createRecursiveDeleteTargetContext({
+    ...context,
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
+    posixShell: true,
+  });
+  for (const target of targets) {
+    const expandedTargets = context.expandedTargetTokens?.get(target.index);
+    for (const expandedTarget of expandedTargets ?? [target.text]) {
+      const classification = classifyRecursiveDeleteTarget(expandedTarget, targetContext, {
+        targetIsLiteral:
+          expandedTargets !== undefined || context.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
+          target.index,
+        ),
+      });
+      // A find traversal that deletes found paths erases the starting tree's
+      // contents even when each individual removal is non-recursive.
+      if (classification.kind === 'root_or_home_target') {
+        return destructiveCommandMatch(
+          'rm.recursive-force-root-or-home',
+          'rm -rf targeting root or home directory is extremely dangerous and always blocked.',
+        );
+      }
+      if (classification.kind === 'git_metadata_target') {
+        return destructiveCommandMatch('find.delete-git-metadata', REASON_GIT_METADATA_PROTECTION);
+      }
+    }
+  }
+  if (
+    findSelectsHooksByName(tokens) &&
+    targetContext.resolvedCwd &&
+    isProtectedGitHookNameSelection(
+      targets.map((target) => target.text),
+      targetContext.resolvedCwd,
+      targetContext.protectedGitMetadata,
+      targetContext.pathCanonicalizationBudget,
+    )
+  ) {
+    return destructiveCommandMatch('find.delete-git-metadata', REASON_GIT_METADATA_PROTECTION);
+  }
+  return null;
+}
+
+/** @internal */
+export function findExecutesRm(tokens: readonly string[]): { deletesFoundPaths: boolean } | null {
+  let found = false;
+  let deletesFoundPaths = false;
+  let index = 0;
+  while (index < tokens.length) {
+    if (!isFindExecPrimary(tokens[index])) {
+      index++;
+      continue;
+    }
+    const command = getFindExecCommand(tokens, index);
+    const stripped = stripWrappers([...command.tokens]);
+    const head = getBasename(stripped[0] ?? '').toLowerCase();
+    if (head === 'rm' || head === 'rmdir') {
+      found = true;
+      deletesFoundPaths ||= stripped.some((token) => token.includes('{}'));
+    }
+    index = command.nextIndex;
+  }
+  return found ? { deletesFoundPaths } : null;
+}
+
+function findSelectsHooksByName(tokens: readonly string[]): boolean {
+  return tokens.some((token, index) => {
+    if (!['-name', '-iname'].includes(token)) return false;
+    return tokens[index + 1]?.toLowerCase() === 'hooks';
+  });
+}
+
 function hasOnlyTrustedTempDeleteTargets(
   tokens: readonly string[],
   context: AnalyzeFindContext,
@@ -212,7 +300,8 @@ function expandTmpdirTarget(target: string, tmpdirValue: string | undefined): st
   return target.replace(/^(?:\$TMPDIR|\$\{TMPDIR\})/, () => tmpdirValue);
 }
 
-function getFindStartingPoints(
+/** @internal */
+export function getFindStartingPoints(
   tokens: readonly string[],
 ): { text: string; index: number }[] | null {
   let index = 1;
@@ -274,7 +363,8 @@ export function getFindExecCommand(
  * Check if find command has -delete action (not as argument to another option).
  * Handles cases like "find -name -delete" where -delete is a filename pattern.
  */
-function findHasDelete(tokens: readonly string[], start: number): boolean {
+/** @internal */
+export function findHasDelete(tokens: readonly string[], start: number): boolean {
   let i = start;
 
   while (i < tokens.length) {

@@ -9,6 +9,11 @@ import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
 } from '@/core/destructive-command-rules';
+import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
+import {
+  isProtectedGitDeleteTarget,
+  REASON_GIT_METADATA_PROTECTION,
+} from '@/core/git-metadata-protection';
 import type { CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 import type { DestructiveCommandRuleMatch } from '@/types';
@@ -40,6 +45,7 @@ interface AnalyzePowerShellRemoveItemOptions {
   strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
+  protectedGitMetadata?: ProtectedGitMetadata | null;
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
@@ -122,6 +128,25 @@ function analyzePowerShellSegment(
           ? 'powershell.remove-item-recursive-force-root-or-home'
           : 'powershell.remove-item-root-or-home',
         REASON_REMOVE_ITEM_ROOT_HOME,
+      );
+    }
+  }
+
+  for (const target of parsed.targets) {
+    if (
+      ctx.resolvedCwd &&
+      isProtectedGitDeleteTarget(
+        powerShellTargetForPolicy(target.text),
+        ctx.resolvedCwd,
+        ctx.protectedGitMetadata,
+        parsed.recursive,
+        ctx.pathCanonicalizationBudget,
+        true,
+      )
+    ) {
+      return destructiveCommandMatch(
+        'powershell.remove-item-git-metadata',
+        REASON_GIT_METADATA_PROTECTION,
       );
     }
   }
@@ -236,7 +261,9 @@ function isArraySeparator(token: PowerShellToken): boolean {
 }
 
 function powerShellTargetForPolicy(target: string): string {
-  return target.replace(/\\/g, '/');
+  const normalized = target.replace(/\\/g, '/');
+  const home = /^\$env:(?:userprofile|home)(?=$|\/)/i.exec(normalized);
+  return home ? `$HOME${normalized.slice(home[0].length)}` : normalized;
 }
 
 function parameterValueToken(value: string, source: PowerShellToken): PowerShellToken {
@@ -302,6 +329,11 @@ function matchForClassification(
       return destructiveCommandMatch(
         'powershell.remove-item-recursive-force-root-or-home',
         REASON_REMOVE_ITEM_ROOT_HOME,
+      );
+    case 'git_metadata_target':
+      return destructiveCommandMatch(
+        'powershell.remove-item-git-metadata',
+        REASON_GIT_METADATA_PROTECTION,
       );
     case 'temp_target':
       return null;

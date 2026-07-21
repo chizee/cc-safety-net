@@ -121,6 +121,14 @@ describe('policy GUI server', () => {
         '${override && !effective.changesInherited ? `<button type="button" class="inherit-button"',
       );
       expect(html).toContain('Reset rule customizations');
+      // Reset button lives at the far right of the panel head, not inside the rules body.
+      expect(html).toContain(
+        '<button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>',
+      );
+      expect(html).not.toContain('rule-customization-actions');
+      expect(html.indexOf('id="reset-rule-customizations"')).toBeLessThan(
+        html.indexOf('<div id="destructive-command">'),
+      );
       expect(html).toContain('id="rule-example-popover"');
       expect(html).toContain('popover="auto"');
       expect(html).toContain('role="dialog"');
@@ -147,7 +155,20 @@ describe('policy GUI server', () => {
       expect(html).toContain('const searchCollapsedTiers = new Set();');
       expect(html).toContain('if (searchActive && expanded) searchCollapsedTiers.add(tier);');
       expect(html).toContain('Destructive command protection');
-      expect(html).toContain('Custom rules remain active when disabled.');
+      expect(html).toContain('Catastrophic and custom rules remain active when disabled.');
+      // Catastrophic rules render in a read-only, collapsible "Always enforced" group, not as (locked) toggles.
+      expect(html).toContain('rule-tier-enforced');
+      expect(html).toContain('>Always enforced<');
+      expect(html).toContain('data-tier-toggle="enforced"');
+      expect(html).toContain("['enforced', false]");
+      expect(html).toContain(
+        'const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);',
+      );
+      expect(html).toContain(
+        'const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);',
+      );
+      expect(html).not.toContain("effective.source === 'catastrophic' ||");
+      expect(html).not.toContain('catastrophic protection cannot be disabled');
       expect(html).not.toContain('secret protection unchanged');
       expect(html).toContain('data-destructive-command-enabled');
       expect(html).toContain('id="policy-search"');
@@ -201,7 +222,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
       expect(html).toContain(
-        'Protection disabled. Saved rule settings and allow paths are preserved.',
+        'Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.',
       );
       expect(html).toContain('id="allow-paths-input"');
       expect(html).toContain('id="allow-paths-list"');
@@ -413,7 +434,7 @@ describe('policy GUI server', () => {
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
       expect(missing.preview).toMatchObject({
         selectedPreset: 'standard',
-        counts: { enabled: 45, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },
+        counts: { enabled: 42, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },
       });
 
       mkdirSync(safetyNetHome, { recursive: true });
@@ -480,7 +501,7 @@ describe('policy GUI server', () => {
       expect(result.errors).toEqual([]);
       expect(result.preview.selectedPreset).toBe('standard');
       expect(result.preview.counts).toMatchObject({
-        enabled: 46,
+        enabled: 43,
         explicitOn: 1,
         effectiveCustomizations: 1,
       });

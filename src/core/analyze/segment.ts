@@ -72,6 +72,7 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitDetailed, analyzeGitMatch } from '@/core/git';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
+import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
@@ -113,6 +114,7 @@ export type InternalOptions = AnalyzeOptions & {
   literalShellInput?: string;
   literalHeredocFiles?: ReadonlyMap<string, string>;
   wrapperNormalizationBudget?: { iterations: number };
+  protectedGitMetadata?: ProtectedGitMetadata | null;
 };
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
@@ -157,6 +159,7 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['git', analyzeGitCommand],
   ['rm', analyzeRmCommand],
+  ['rmdir', analyzeRmCommand],
   ['find', analyzeFindCommand],
   ['xargs', analyzeXargsCommand],
   ['parallel', analyzeParallelCommand],
@@ -1112,6 +1115,7 @@ function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRu
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -1223,6 +1227,7 @@ function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommand
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -1295,6 +1300,7 @@ function getNestedCommandAnalyzeContext(
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
+    protectedGitMetadata: context.options.protectedGitMetadata,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,

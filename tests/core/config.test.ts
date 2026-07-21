@@ -306,10 +306,47 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(analyzeCommand('git reset --hard', { cwd: tempDir, config })).toBeNull();
-    expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })).toBeNull();
+    expect(analyzeCommand('rm -rf /', { cwd: tempDir, config })?.ruleId).toBe(
+      'rm.recursive-force-root-or-home',
+    );
     expect(analyzeCommand('git add -A', { cwd: tempDir, config })?.reason).toContain(
       'Use specific files.',
     );
+  });
+
+  test('catastrophic root and home deletion ignores master and exact-rule overrides', () => {
+    expect(
+      analyzeCommand('find / -delete', {
+        cwd: tempDir,
+        config: { destructiveCommandProtectionEnabled: false },
+      })?.ruleId,
+    ).toBe('rm.recursive-force-root-or-home');
+    expect(
+      analyzeCommand('rm -r /', {
+        cwd: tempDir,
+        config: {
+          destructiveCommandRuleOverrides: { 'rm.recursive-force-root-or-home': 'off' },
+        },
+      })?.ruleId,
+    ).toBe('rm.recursive-force-root-or-home');
+    expect(
+      analyzeCommand('Remove-Item ~ -Recurse -Force', {
+        cwd: tempDir,
+        shell: 'powershell',
+        config: { destructiveCommandProtectionEnabled: false },
+      })?.ruleId,
+    ).toBe('powershell.remove-item-recursive-force-root-or-home');
+    expect(
+      analyzeCommand('Remove-Item ~ -Recurse -Force', {
+        cwd: tempDir,
+        shell: 'powershell',
+        config: {
+          destructiveCommandRuleOverrides: {
+            'powershell.remove-item-recursive-force-root-or-home': 'off',
+          },
+        },
+      })?.ruleId,
+    ).toBe('powershell.remove-item-recursive-force-root-or-home');
   });
 
   test('project policy is ignored', () => {

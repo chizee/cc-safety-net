@@ -56,6 +56,8 @@ function dependencies(
       calls.push('policy');
       return null;
     },
+    findGitMetadataMutation: () => null,
+    resolveGitMetadata: () => null,
     loadPolicySnapshot: () => {
       calls.push('config');
       return SNAPSHOT;
@@ -320,6 +322,38 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('resolves Git metadata once and shares it with both protection paths', async () => {
+    await withTempDir('cc-safety-net-guard-git-metadata-', (cwd) => {
+      const metadata = Object.freeze({
+        entry: join(cwd, '.git'),
+        markerFile: null,
+        directories: Object.freeze([join(cwd, '.git')]),
+        hooksDirectories: Object.freeze([join(cwd, '.git', 'hooks')]),
+      });
+      let resolutions = 0;
+
+      expect(
+        evaluateGuard(commandInvocation(cwd), {
+          dependencies: dependencies({
+            resolveGitMetadata: () => {
+              resolutions++;
+              return metadata;
+            },
+            findGitMetadataMutation: (_facts, resolved) => {
+              expect(resolved).toBe(metadata);
+              return null;
+            },
+            analyzeCommand: (_command, _options, _program, _facts, resolved) => {
+              expect(resolved).toBe(metadata);
+              return null;
+            },
+          }),
+        }),
+      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+      expect(resolutions).toBe(1);
+    });
+  });
+
   test('policy protection short-circuits before broken config loading', async () => {
     await withTempDir('cc-safety-net-guard-policy-', (cwd) => {
       const result = evaluateGuard(commandInvocation(cwd, 'rm policy.json'), {
@@ -546,6 +580,8 @@ describe('guard evaluation', () => {
 
   test.each([
     ['policy-protection', 'findPolicyMutation'],
+    ['policy-protection', 'resolveGitMetadata'],
+    ['policy-protection', 'findGitMetadataMutation'],
     ['config-load', 'loadPolicySnapshot'],
     ['secret-protection', 'findSensitiveTarget'],
     ['command-analysis', 'analyzeCommand'],

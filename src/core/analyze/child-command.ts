@@ -7,6 +7,7 @@ import {
   isStandardCommandWrapper,
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
+import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
 import { MAX_STRIP_ITERATIONS } from '@/types';
@@ -32,6 +33,7 @@ export interface NestedCommandAnalyzeContext extends ChildCommandContext {
   allowTmpdirVar: boolean;
   worktreeMode?: boolean;
   scanWork?: { units: number };
+  protectedGitMetadata?: ProtectedGitMetadata | null;
 }
 
 export interface NormalizedChildCommand {

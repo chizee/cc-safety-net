@@ -845,6 +845,7 @@ function analyzeParallelRmExpansion(
       tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments ?? new Map()),
       tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? new Map()),
       trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? new Map()),
+      protectedGitMetadata: context.protectedGitMetadata,
       policy: context.policy,
     }),
     context.policy,

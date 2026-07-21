@@ -2,6 +2,11 @@ import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
+  findGitMetadataMutationTargetInSemanticFacts,
+  REASON_GIT_METADATA_PROTECTION,
+  resolveProtectedGitMetadata,
+} from '@/core/git-metadata-protection';
+import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
@@ -41,6 +46,7 @@ export type GuardEvaluation = {
 /** @internal */
 export type GuardDependencies = {
   findPolicyMutation: typeof findPolicyConfigMutationTargetInSemanticFacts;
+  findGitMetadataMutation: typeof findGitMetadataMutationTargetInSemanticFacts;
   loadPolicySnapshot: typeof loadPolicySnapshot;
   findSensitiveTarget: typeof findSensitiveTargetInSemanticFacts;
   analyzeCommand: (
@@ -48,7 +54,9 @@ export type GuardDependencies = {
     options: AnalyzeOptions,
     program?: ReturnType<typeof getDeclaredCommandProgram>,
     factStore?: SemanticFacts['store'],
+    protectedGitMetadata?: ReturnType<typeof resolveProtectedGitMetadata>,
   ) => AnalyzeResult | null;
+  resolveGitMetadata: typeof resolveProtectedGitMetadata;
   getModes: typeof getCCSafetyNetEnvModes;
 };
 
@@ -75,6 +83,8 @@ export class GuardEvaluationError extends Error {
 
 const DEFAULT_DEPENDENCIES: GuardDependencies = {
   findPolicyMutation: findPolicyConfigMutationTargetInSemanticFacts,
+  findGitMetadataMutation: findGitMetadataMutationTargetInSemanticFacts,
+  resolveGitMetadata: resolveProtectedGitMetadata,
   loadPolicySnapshot,
   findSensitiveTarget: findSensitiveTargetInSemanticFacts,
   analyzeCommand: analyzeCommandWithProgram,
@@ -120,6 +130,9 @@ export function evaluateGuard(
       },
     };
   }
+  const protectedGitMetadata = callDependency('policy-protection', command, () =>
+    dependencies.resolveGitMetadata(invocation.context.executionCwd),
+  );
   const policyTarget = callDependency('policy-protection', command, () =>
     dependencies.findPolicyMutation(facts),
   );
@@ -134,6 +147,25 @@ export function evaluateGuard(
         evidence: [
           { kind: 'command', command: displayCommand, segment: policyTarget.target },
           { kind: 'path', target: policyTarget.target },
+        ],
+      },
+    };
+  }
+
+  const gitMetadataTarget = callDependency('policy-protection', command, () =>
+    dependencies.findGitMetadataMutation(facts, protectedGitMetadata),
+  );
+  if (gitMetadataTarget) {
+    const displayCommand = command ?? gitMetadataTarget.target;
+    return {
+      stage: 'policy-protection',
+      decision: {
+        kind: 'deny',
+        reason: REASON_GIT_METADATA_PROTECTION,
+        intent: 'hard_stop',
+        evidence: [
+          { kind: 'command', command: displayCommand, segment: gitMetadataTarget.target },
+          { kind: 'path', target: gitMetadataTarget.target },
         ],
       },
     };
@@ -210,6 +242,7 @@ export function evaluateGuard(
       },
       getDeclaredCommandProgram(facts),
       facts.store,
+      protectedGitMetadata,
     );
   });
   if (result) return blockedCommandEvaluation(invocation, result);

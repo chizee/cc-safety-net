@@ -239,7 +239,7 @@ var require_parse = __commonJS((exports, module) => {
 });
 
 // src/opencode/plugin.ts
-import { accessSync, constants as constants2, statSync as statSync3 } from "node:fs";
+import { accessSync, constants as constants2, statSync as statSync4 } from "node:fs";
 import { resolve as resolve10 } from "node:path";
 
 // src/core/tool-input.ts
@@ -264,7 +264,21 @@ var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TO
   "write",
   "writefile",
   "writetofile"
-]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, JS_WHITESPACE = /\s/, MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
+]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), READ_ONLY_TOOL_NAMES = /* @__PURE__ */ new Set([
+  "findbyname",
+  "glob",
+  "grep",
+  "grepsearch",
+  "listdir",
+  "listpermissions",
+  "ls",
+  "read",
+  "readfile",
+  "readurlcontent",
+  "searchweb",
+  "view",
+  "viewfile"
+]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, JS_WHITESPACE = /\s/, MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
 
 class ToolInputLimitError extends Error {
   name = "ToolInputLimitError";
@@ -281,6 +295,9 @@ var TOOL_INPUT_LIMITS = Object.freeze({
 });
 function normalizeToolName(toolName) {
   return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function isReadOnlyTool(toolName) {
+  return READ_ONLY_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 function getNonCommandToolInputKind(toolName) {
   let normalized = normalizeToolName(toolName);
@@ -3395,6 +3412,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.stash-clear",
   "git.worktree-remove-force",
   "rm.recursive-force-root-or-home",
+  "rm.git-metadata",
   "rm.recursive-force-dynamic-target",
   "rm.recursive-force-home-cwd",
   "rm.recursive-force-cwd-self",
@@ -3402,6 +3420,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "rm.recursive-force-paranoid",
   "powershell.remove-item-root-or-home",
   "powershell.remove-item-recursive-force-root-or-home",
+  "powershell.remove-item-git-metadata",
   "powershell.remove-item-recursive-force-dynamic-target",
   "powershell.remove-item-recursive-force-home-cwd",
   "powershell.remove-item-recursive-force-cwd-self",
@@ -3409,6 +3428,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "powershell.remove-item-recursive-force-paranoid",
   "powershell.remove-item-pipeline-dynamic-target",
   "find.delete",
+  "find.delete-git-metadata",
   "find.exec-rm-recursive-force",
   "interpreter.dangerous-command",
   "interpreter.one-liner-paranoid",
@@ -3636,7 +3656,17 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "rm -rf root or home",
     description: "Blocks recursive forced removal of root or home paths.",
     example: "rm -rf /",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
+  },
+  {
+    id: "rm.git-metadata",
+    category: "Filesystem",
+    label: "rm Git metadata",
+    description: "Blocks removal of protected Git metadata and hooks.",
+    example: "rm -rf .git",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "rm.recursive-force-dynamic-target",
@@ -3686,7 +3716,8 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "Remove-Item root or home",
     description: "Blocks PowerShell Remove-Item targeting root or home paths.",
     example: "Remove-Item C:\\",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "powershell.remove-item-recursive-force-root-or-home",
@@ -3694,7 +3725,17 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "Remove-Item recursive force root or home",
     description: "Blocks recursive forced PowerShell removal of root or home paths.",
     example: "Remove-Item C:\\ -Recurse -Force",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
+  },
+  {
+    id: "powershell.remove-item-git-metadata",
+    category: "PowerShell",
+    label: "Remove-Item Git metadata",
+    description: "Blocks PowerShell removal of protected Git metadata and hooks.",
+    example: "Remove-Item .git -Recurse -Force",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "powershell.remove-item-recursive-force-dynamic-target",
@@ -3754,6 +3795,15 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     description: "Blocks unsafe find -delete operations.",
     example: "find . -delete",
     intent: "scope_down"
+  },
+  {
+    id: "find.delete-git-metadata",
+    category: "Filesystem",
+    label: "find delete Git metadata",
+    description: "Blocks find -delete operations selecting protected Git metadata and hooks.",
+    example: "find .git -delete",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "find.exec-rm-recursive-force",
@@ -3854,7 +3904,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     example: "git reset --hard 'unterminated",
     intent: "stop_and_explain"
   }
-], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
+], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent])), CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS = new Set(DESTRUCTIVE_COMMAND_RULE_METADATA.filter((rule) => rule.catastrophic).map((rule) => rule.id));
 function destructiveCommandMatch(id, reason, intent) {
   return {
     id,
@@ -3865,6 +3915,8 @@ function destructiveCommandMatch(id, reason, intent) {
 function filterDestructiveCommandMatch(match, policy) {
   if (!match)
     return null;
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(match.id))
+    return match;
   if (policy?.destructiveCommandProtectionEnabled === !1)
     return null;
   let effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
@@ -3873,6 +3925,8 @@ function filterDestructiveCommandMatch(match, policy) {
   return policy?.destructiveCommandRuleOverrides[match.id] === "off" ? null : match;
 }
 function destructiveCommandRuleIsEnabled(policy, id, inheritedEnabled) {
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(id))
+    return !0;
   if (policy?.destructiveCommandProtectionEnabled === !1)
     return !1;
   let resolved = policy?.effectiveDestructiveCommandRules?.[id];
@@ -3883,7 +3937,13 @@ function destructiveCommandRuleIsEnabled(policy, id, inheritedEnabled) {
 }
 function resolveEffectiveDestructiveCommandRules(policy, capabilities) {
   return Object.freeze(Object.fromEntries(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => {
-    let capability = rule.activationCapability ? capabilities[rule.activationCapability] : void 0, inheritedEnabled = capability?.enabled ?? !0, override = policy.destructiveCommandRuleOverrides[rule.id], state = policy.destructiveCommandProtectionEnabled ? override ? {
+    let capability = rule.activationCapability ? capabilities[rule.activationCapability] : void 0, inheritedEnabled = capability?.enabled ?? !0, override = policy.destructiveCommandRuleOverrides[rule.id], state = rule.catastrophic ? {
+      enabled: !0,
+      inheritedEnabled: !0,
+      changesInherited: !1,
+      source: "catastrophic",
+      ...override ? { override } : {}
+    } : policy.destructiveCommandProtectionEnabled ? override ? {
       enabled: override === "on",
       inheritedEnabled,
       changesInherited: override === "on" !== inheritedEnabled,
@@ -4550,20 +4610,47 @@ function isLinkedWorktree(cwd) {
     let stat = lstatSync2(dotGitPath);
     if (stat.isSymbolicLink() || !stat.isFile())
       return !1;
-    let firstLine = readFileSync(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:"))
+    let targets = resolveDotGitFileTargets(dotGitPath);
+    if (!targets?.commonDir)
       return !1;
-    let rawGitDir = firstLine.slice(7).trim();
-    if (rawGitDir === "")
+    if (!worktreeGitdirBacklinkMatches(targets.gitDir, dotGitPath))
       return !1;
-    let gitDir = isAbsolute4(rawGitDir) ? rawGitDir : resolve(dirname3(dotGitPath), rawGitDir);
-    if (!existsSync(join3(gitDir, "commondir")))
-      return !1;
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
-      return !1;
-    return worktreeConfigMatchesRoot(gitDir, dirname3(dotGitPath));
+    return worktreeConfigMatchesRoot(targets.gitDir, dirname3(dotGitPath));
   } catch {
     return !1;
+  }
+}
+function resolveDotGitFileTargets(dotGitPath) {
+  try {
+    let rawGitDir = readDotGitTarget(dotGitPath);
+    if (!rawGitDir)
+      return null;
+    let gitDir = realpathSync3(isAbsolute4(rawGitDir) ? rawGitDir : resolve(dirname3(dotGitPath), rawGitDir));
+    if (!statSync(gitDir).isDirectory())
+      return null;
+    return {
+      gitDir,
+      commonDir: resolveCommonGitDir(gitDir)
+    };
+  } catch {
+    return null;
+  }
+}
+function readDotGitTarget(dotGitPath) {
+  let firstLine = readFileSync(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine.startsWith("gitdir:"))
+    return null;
+  return firstLine.slice(7).trim() || null;
+}
+function resolveCommonGitDir(gitDir) {
+  try {
+    let rawCommonDir = readFileSync(join3(gitDir, "commondir"), "utf-8").split(/\r?\n/, 1)[0]?.trim();
+    if (!rawCommonDir)
+      return null;
+    let commonDir = realpathSync3(isAbsolute4(rawCommonDir) ? rawCommonDir : resolve(gitDir, rawCommonDir));
+    return statSync(commonDir).isDirectory() ? commonDir : null;
+  } catch {
+    return null;
   }
 }
 function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
@@ -7460,15 +7547,15 @@ function createPolicyPreview(policy) {
   let modes = getCCSafetyNetEnvModes({ safety: normalizeSafety(policy.safety) }), rules = resolveEffectiveDestructiveCommandRules({
     destructiveCommandProtectionEnabled: policy.destructive_command_protection.enabled,
     destructiveCommandRuleOverrides: policy.destructive_command_protection.overrides
-  }, modes.capabilities), values = Object.values(rules), overrides = Object.values(policy.destructive_command_protection.overrides);
+  }, modes.capabilities), values = Object.values(rules), configurableValues = values.filter((state) => state.source !== "catastrophic"), overrides = Object.values(policy.destructive_command_protection.overrides);
   return {
     selectedPreset: policy.safety.level,
     effectiveLevel: modes.effectiveLevel,
     capabilities: modes.capabilities,
     rules,
     counts: {
-      enabled: values.filter((state) => state.enabled).length,
-      disabled: values.filter((state) => !state.enabled).length,
+      enabled: configurableValues.filter((state) => state.enabled).length,
+      disabled: configurableValues.filter((state) => !state.enabled).length,
       explicitOn: overrides.filter((value) => value === "on").length,
       explicitOff: overrides.filter((value) => value === "off").length,
       effectiveCustomizations: values.filter((state) => state.changesInherited).length,
@@ -9219,8 +9306,8 @@ function exceedsLimit(current, amount, limit) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute11, normalize as normalize4, posix, resolve as resolve6, sep as sep7 } from "node:path";
+import { homedir as homedir6 } from "node:os";
+import { isAbsolute as isAbsolute13, normalize as normalize5, parse as parse2, posix, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/core/analyze/tmpdir.ts
 import { lstatSync as lstatSync4, realpathSync as realpathSync6 } from "node:fs";
@@ -9316,6 +9403,235 @@ function isPathOrSubpath(path, basePath) {
   return path.startsWith(baseWithSlash);
 }
 
+// src/core/git-metadata-protection.ts
+import { statSync as statSync3 } from "node:fs";
+import { isAbsolute as isAbsolute12, join as join10, relative as relative4 } from "node:path";
+
+// src/core/protected-path-scanner.ts
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute11, normalize as normalize4, resolve as resolve6 } from "node:path";
+var MV_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set(["-S", "--suffix"]);
+function findProtectedPathMutationInCommand(syntax, cwd, budget, scanner) {
+  if (syntax.status === "structural-limit")
+    throw new StructuralShellSyntaxLimitError;
+  if (syntax.status !== "complete")
+    return scanner.findMalformedTarget(syntax.source);
+  let state = { cwd, variables: /* @__PURE__ */ new Map }, segment = [];
+  for (let entry of syntax.entries) {
+    if (entry.kind === "operator") {
+      if (!entry.boundary)
+        continue;
+      let target = scanner.findSegmentTarget(segment, state);
+      if (target)
+        return target;
+      state = applyShellState(segment, state, budget, scanner.normalizeCwd), segment = [];
+      continue;
+    }
+    if (entry.kind === "redirection") {
+      if (entry.role === "file-write" && entry.target && scanner.isRedirectionTarget(expandTrackedShellVariables(entry.target, state.variables), state))
+        return entry.target;
+      continue;
+    }
+    segment.push(entry.text);
+  }
+  return scanner.findSegmentTarget(segment, state);
+}
+function expandTrackedShellVariables(text, variables) {
+  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
+    let value = variables.get(name);
+    if (value === void 0)
+      return match;
+    let usable = operator.startsWith(":") ? value !== "" : !0;
+    if (operator.endsWith("-"))
+      return usable ? value : expandTrackedShellVariables(word, variables);
+    return usable ? expandTrackedShellVariables(word, variables) : "";
+  }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
+}
+function isAssignmentOnlySegment(tokens) {
+  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+}
+function normalizeProtectedPathCandidate(target, cwd, budget) {
+  let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
+  if (!unix)
+    return "";
+  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve6(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute11(expanded) ? expanded : resolve6(cwd, expanded)), budget).replace(/\\/g, "/");
+}
+function extractMvOperandPaths(args) {
+  let operands = [], targetDirectory = null, optionsEnded = !1;
+  for (let index = 0;index < args.length; index++) {
+    let arg = args[index];
+    if (arg === void 0)
+      break;
+    if (!optionsEnded && arg === "--") {
+      optionsEnded = !0;
+      continue;
+    }
+    if (!optionsEnded && (arg === "-t" || arg === "--target-directory")) {
+      targetDirectory = args[++index] ?? null;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("--target-directory=")) {
+      targetDirectory = arg.slice(19);
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("-t") && arg.length > 2) {
+      targetDirectory = arg.slice(2);
+      continue;
+    }
+    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
+      index++;
+      continue;
+    }
+    if (!optionsEnded && (arg.startsWith("--suffix=") || arg.startsWith("--backup=")))
+      continue;
+    if (!optionsEnded && arg.startsWith("-"))
+      continue;
+    operands.push(arg);
+  }
+  return targetDirectory ? { sources: operands, destination: targetDirectory } : { sources: operands.slice(0, -1), destination: operands.at(-1) ?? null };
+}
+function applyShellState(segment, state, budget, normalizeCwd) {
+  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables, stripped = stripWrappers([...segment]), target = getBasename(stripped[0] ?? "").toLowerCase() === "cd" ? stripped[1] : void 0;
+  return {
+    cwd: !target || target === "-" ? state.cwd : normalizeCwd(expandTrackedShellVariables(target, variables), state.cwd, budget),
+    variables
+  };
+}
+function extractShellAssignments(segment, variables) {
+  return segment.flatMap((token) => {
+    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)(.*)$/.exec(token), value = assignment?.[2]?.startsWith("=") ? assignment[2].slice(1) : void 0;
+    return assignment?.[1] !== void 0 && value !== void 0 ? [[assignment[1], expandTrackedShellVariables(value, variables)]] : [];
+  });
+}
+
+// src/core/git-metadata-protection.ts
+var REASON_GIT_METADATA_PROTECTION = "Git metadata and hooks are protected. Ask the user before modifying them.";
+function findGitMetadataMutationTargetInSemanticFacts(facts, metadata2 = resolveProtectedGitMetadata(facts.invocation.context.executionCwd)) {
+  let budget = createPathCanonicalizationBudget(), cwd = facts.invocation.context.executionCwd;
+  if (!metadata2)
+    return null;
+  if (facts.invocation.route.kind === "patch" || facts.invocation.route.kind === "path") {
+    if (isReadOnlyTool(facts.invocation.toolName))
+      return null;
+    let target2 = facts.paths.find((path) => isProtectedGitWriteTarget(path.raw, cwd, metadata2, budget))?.raw;
+    return target2 ? { target: target2 } : null;
+  }
+  if (facts.invocation.route.kind !== "command")
+    return null;
+  let command2 = getCommandSyntaxFact(facts, "input-candidate");
+  if (!command2)
+    return null;
+  let target = findProtectedPathMutationInCommand(command2.shell, cwd, budget, {
+    findSegmentTarget: (segment, state) => findGitMetadataMoveTarget(segment, state, metadata2, budget),
+    isRedirectionTarget: (target2, state) => isProtectedGitRedirectionTarget(target2, state.cwd, metadata2, budget),
+    findMalformedTarget: () => null,
+    normalizeCwd: normalizeProtectedPathCandidate
+  });
+  return target ? { target } : null;
+}
+function resolveProtectedGitMetadata(cwd, budget = createPathCanonicalizationBudget()) {
+  if (typeof cwd !== "string" || !cwd)
+    return null;
+  let dotGitPath = findDotGitInAncestors(normalizeProtectedPathCandidate(cwd, cwd, budget));
+  if (!dotGitPath)
+    return null;
+  try {
+    let entry = normalizeProtectedPathCandidate(dotGitPath, cwd, budget), stat = statSync3(dotGitPath), markerFile = stat.isFile() ? entry : null, fileTargets = stat.isFile() ? resolveDotGitFileTargets(dotGitPath) : null, canonicalDirectories = (stat.isDirectory() ? [entry] : [fileTargets?.gitDir, fileTargets?.commonDir]).flatMap((path) => path ? [comparePath(normalizeProtectedPathCandidate(path, cwd, budget))] : []), directories = [
+      ...new Set(stat.isDirectory() ? [comparePath(dotGitPath.replace(/\\/g, "/")), ...canonicalDirectories] : canonicalDirectories)
+    ];
+    return Object.freeze({
+      entry: comparePath(entry),
+      markerFile: markerFile ? comparePath(markerFile) : null,
+      directories: Object.freeze(directories),
+      hooksDirectories: Object.freeze([
+        ...new Set(directories.flatMap((directory) => {
+          let lexical = comparePath(join10(directory, "hooks"));
+          return [lexical, comparePath(normalizeProtectedPathCandidate(lexical, cwd, budget))];
+        }))
+      ])
+    });
+  } catch {
+    return null;
+  }
+}
+function isProtectedGitDeleteTarget(target, cwd, metadata2, recursive, budget, dotEntryGlobs = !1) {
+  if (!metadata2)
+    return !1;
+  let candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget)), globBase = candidate.replace(/(\/\.?\*+)+$/, "");
+  if (globBase !== candidate && globBase !== "") {
+    if (isProtectedExactOrHookTarget(globBase, metadata2))
+      return !0;
+    let matchesHidden = dotEntryGlobs || candidate.slice(globBase.length).includes("/."), covers = (path) => matchesHidden ? isEqualOrWithin(path, globBase) : isGlobVisibleDescendant(path, globBase);
+    if (metadata2.markerFile && covers(metadata2.markerFile))
+      return !0;
+    return recursive && protectedRoots(metadata2).some(covers);
+  }
+  if (isProtectedExactOrHookTarget(candidate, metadata2))
+    return !0;
+  return recursive && protectedRoots(metadata2).some((path) => isEqualOrWithin(path, candidate));
+}
+function isGlobVisibleDescendant(target, base) {
+  let path = relative4(base, target);
+  if (path === "" || path.startsWith("..") || isAbsolute12(path))
+    return !1;
+  return !path.split(/[\\/]/)[0]?.startsWith(".");
+}
+function isProtectedGitMoveSource(target, cwd, metadata2, budget) {
+  return isProtectedGitDeleteTarget(target, cwd, metadata2, !0, budget);
+}
+function isProtectedGitMoveDestination(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedExactOrHookTarget(comparePath(normalizeProtectedPathCandidate(target, cwd, budget)), metadata2);
+}
+function isProtectedGitWriteTarget(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, metadata2.entry);
+}
+function isProtectedGitRedirectionTarget(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, metadata2.markerFile);
+}
+function isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, exactTarget) {
+  let candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
+  return candidate === exactTarget || isProtectedHookTarget(candidate, metadata2);
+}
+function isProtectedGitHookNameSelection(startingPoints, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return metadata2.hooksDirectories.some((hooks) => startingPoints.some((target) => isEqualOrWithin(hooks, comparePath(normalizeProtectedPathCandidate(target, cwd, budget)))));
+}
+function isProtectedExactOrHookTarget(candidate, metadata2) {
+  return candidate === metadata2.entry || metadata2.directories.includes(candidate) || isProtectedHookTarget(candidate, metadata2);
+}
+function isProtectedHookTarget(candidate, metadata2) {
+  return metadata2.hooksDirectories.some((hooks) => isEqualOrWithin(candidate, hooks));
+}
+function protectedRoots(metadata2) {
+  return [metadata2.entry, ...metadata2.directories, ...metadata2.hooksDirectories];
+}
+function isEqualOrWithin(target, root) {
+  let path = relative4(root, target);
+  return path === "" || !/^\.\.(?:[\\/]|$)/.test(path) && !isAbsolute12(path);
+}
+function comparePath(path) {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+function findGitMetadataMoveTarget(segment, state, metadata2, budget) {
+  if (isAssignmentOnlySegment(segment))
+    return null;
+  let stripped = stripWrappers([...segment]);
+  if (getBasename(stripped[0] ?? "").toLowerCase() !== "mv")
+    return null;
+  let operands = extractMvOperandPaths(stripped.slice(1)), source = operands.sources.find((target) => isProtectedGitMoveSource(expandTrackedShellVariables(target, state.variables), state.cwd, metadata2, budget));
+  if (source)
+    return source;
+  return operands.destination && isProtectedGitMoveDestination(expandTrackedShellVariables(operands.destination, state.variables), state.cwd, metadata2, budget) ? operands.destination : null;
+}
+
 // src/core/analyze/recursive-delete-targets.ts
 var IS_WINDOWS2 = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
@@ -9332,6 +9648,7 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
     trustedTmpdirValue: options2.trustedTmpdirValue ?? options2.allowTmpdirVar ?? !0,
     homeDir,
     allowRoots: resolveAllowRoots(options2.allowPaths, homeDir, budget),
+    protectedGitMetadata: options2.protectedGitMetadata !== void 0 ? options2.protectedGitMetadata : resolveProtectedGitMetadata(options2.originalCwd ?? options2.cwd, budget),
     pathCanonicalizationBudget: budget
   };
 }
@@ -9344,6 +9661,10 @@ function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
     return { kind: "outside_anchored_cwd" };
   if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral))
     return { kind: "root_or_home_target" };
+  if (isCanonicalHomeTarget(normalizedTarget, ctx))
+    return { kind: "root_or_home_target" };
+  if (ctx.resolvedCwd && isProtectedGitDeleteTarget(normalizedTarget, ctx.resolvedCwd, ctx.protectedGitMetadata, !0, ctx.pathCanonicalizationBudget, !ctx.posixShell))
+    return { kind: "git_metadata_target" };
   if (isTempTarget(normalizedTarget, ctx.trustTmpdirVar, ctx.posixShell, dynamic, targetIsLiteral, options2.tmpdirWordSplittingProtected ?? !1, ctx.trustedTmpdirValue))
     return { kind: "temp_target" };
   if (dynamic)
@@ -9373,8 +9694,8 @@ function isTrustedTempDescendantTarget(target, ctx, options2 = {}) {
   return ![ctx.anchoredCwd, ctx.resolvedCwd].some((workspace) => isWorkspaceWithinTarget(containmentTarget ?? normalized, workspace, ctx.pathCanonicalizationBudget));
 }
 function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
-  let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/");
-  if (normalized === "/" || normalized === "/*")
+  let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/"), rootGlobTarget = normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
+  if (rootGlobTarget === "/" || rootGlobTarget.startsWith("/") && rootGlobTarget.slice(1).split("/").every((segment) => /^\*+$/.test(segment)))
     return !0;
   if (/^[A-Za-z]:\/+\*?$/.test(windowsNormalized) || /^\/\/[^/]+\/+[^/]+(?:\/+\*?)?$/.test(windowsNormalized))
     return !0;
@@ -9388,8 +9709,24 @@ function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
     return !0;
   return !1;
 }
+function isCanonicalHomeTarget(target, ctx) {
+  let trimmed = target.trim(), candidate = trimmed.endsWith("/*") ? trimmed.slice(0, -2) : trimmed;
+  if (!candidate)
+    return !1;
+  try {
+    let base = isAbsolute13(candidate) ? candidate : ctx.resolvedCwd ? resolve7(ctx.resolvedCwd, candidate) : null;
+    if (!base)
+      return !1;
+    let resolved = normalizePathForComparison2(resolveExistingPath(base, ctx.pathCanonicalizationBudget));
+    if (resolved === parse2(resolved).root)
+      return !0;
+    return resolved === normalizePathForComparison2(resolveExistingPath(ctx.homeDir, ctx.pathCanonicalizationBudget));
+  } catch {
+    return !1;
+  }
+}
 function normalizePathForComparison2(p) {
-  let normalized = normalize4(p);
+  let normalized = normalize5(p);
   if (IS_WINDOWS2) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
@@ -9426,14 +9763,14 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return getOwnEnvValue("HOME") || homedir5();
+  return getOwnEnvValue("HOME") || homedir6();
 }
 function resolveAllowRoots(paths, homeDir, budget) {
   if (!paths?.length)
     return [];
   return paths.flatMap((path) => {
     let expanded = expandAllowPathHome(path.trim(), homeDir);
-    if (!isAbsolute11(expanded))
+    if (!isAbsolute13(expanded))
       return [];
     try {
       let canonical = resolveExistingPath(expanded, budget);
@@ -9451,7 +9788,7 @@ function isAllowedPathTarget(target, ctx, targetIsLiteral) {
   let trimmed = target.trim();
   if (hasParentDirectoryComponent(trimmed))
     return !1;
-  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute11(expanded) ? expanded : base ? resolve6(base, expanded) : null;
+  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute13(expanded) ? expanded : base ? resolve7(base, expanded) : null;
   if (!resolved)
     return !1;
   try {
@@ -9522,10 +9859,10 @@ function isCwdSelfTarget(target, cwd, budget) {
   if (target === "." || target === "./" || target === ".\\")
     return !0;
   try {
-    return normalizePathForComparison2(resolveExistingPath(resolve6(cwd, target), budget)) === normalizePathForComparison2(resolveExistingPath(cwd, budget));
+    return normalizePathForComparison2(resolveExistingPath(resolve7(cwd, target), budget)) === normalizePathForComparison2(resolveExistingPath(cwd, budget));
   } catch {
     try {
-      return normalizePathForComparison2(resolve6(cwd, target)) === normalizePathForComparison2(cwd);
+      return normalizePathForComparison2(resolve7(cwd, target)) === normalizePathForComparison2(cwd);
     } catch {
       return !1;
     }
@@ -9545,14 +9882,14 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd, dynamic, targetIsL
     }
   if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\"))
     try {
-      return isResolvedPathWithinCwd(resolve6(resolveCwd, target), originalCwd, budget);
+      return isResolvedPathWithinCwd(resolve7(resolveCwd, target), originalCwd, budget);
     } catch {
       return !1;
     }
   if (target.startsWith("../"))
     return !1;
   try {
-    return isResolvedPathWithinCwd(resolve6(resolveCwd, target), originalCwd, budget);
+    return isResolvedPathWithinCwd(resolve7(resolveCwd, target), originalCwd, budget);
   } catch {
     return !1;
   }
@@ -9602,6 +9939,9 @@ function analyzePowerShellSegment(segment, hasPipelineInput, ctx, policy) {
   for (let target of parsed.targets)
     if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+  for (let target of parsed.targets)
+    if (ctx.resolvedCwd && isProtectedGitDeleteTarget(powerShellTargetForPolicy(target.text), ctx.resolvedCwd, ctx.protectedGitMetadata, parsed.recursive, ctx.pathCanonicalizationBudget, !0))
+      return destructiveCommandMatch("powershell.remove-item-git-metadata", REASON_GIT_METADATA_PROTECTION);
   if (!parsed.recursive || !parsed.force)
     return null;
   if (destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-recursive-force-dynamic-target", ctx.strict) && (parsed.hasDynamicTarget || parsed.targets.length === 0))
@@ -9671,7 +10011,8 @@ function isArraySeparator(token) {
   return token.kind === "word" && token.text === ",";
 }
 function powerShellTargetForPolicy(target) {
-  return target.replace(/\\/g, "/");
+  let normalized = target.replace(/\\/g, "/"), home = /^\$env:(?:userprofile|home)(?=$|\/)/i.exec(normalized);
+  return home ? `$HOME${normalized.slice(home[0].length)}` : normalized;
 }
 function parameterValueToken(value, source) {
   return {
@@ -9716,6 +10057,8 @@ function matchForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    case "git_metadata_target":
+      return destructiveCommandMatch("powershell.remove-item-git-metadata", REASON_GIT_METADATA_PROTECTION);
     case "temp_target":
       return null;
     case "dynamic_target":
@@ -9737,7 +10080,7 @@ function matchForClassification(classification, ctx, policy) {
 
 // src/core/analyze/segment.ts
 import { realpathSync as realpathSync7 } from "node:fs";
-import { normalize as normalize5 } from "node:path";
+import { normalize as normalize6 } from "node:path";
 
 // src/core/analyze/child-command.ts
 function normalizeChildCommands(tokens, context) {
@@ -9820,6 +10163,10 @@ function hasRecursiveForceFlags(tokens) {
   }
   return hasRecursive && hasForce;
 }
+function hasRecursiveOption(tokens) {
+  let separator = tokens.indexOf("--");
+  return tokens.slice(1, separator === -1 ? void 0 : separator).some((token) => isLongOptionAbbreviation(token, "recursive") || /^-[A-Za-z]+$/.test(token) && /[rR]/.test(token.slice(1)));
+}
 function isLongOptionAbbreviation(token, option) {
   return token.length > 2 && token.startsWith("--") && option.startsWith(token.slice(2));
 }
@@ -9879,6 +10226,9 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ["-fprintf", 2]
 ]);
 function analyzeFindMatch(tokens, context = {}) {
+  let catastrophicMatch = findCatastrophicDeleteMatch(tokens, context);
+  if (catastrophicMatch)
+    return catastrophicMatch;
   if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
     let match = filterDestructiveCommandMatch(destructiveCommandMatch("find.delete", REASON_FIND_DELETE), context.policy);
     if (match)
@@ -9912,6 +10262,53 @@ function analyzeFindMatch(tokens, context = {}) {
       return match;
   }
   return null;
+}
+function findCatastrophicDeleteMatch(tokens, context) {
+  let deletesDirectly = findHasDelete(tokens, 1), executesRm = findExecutesRm(tokens);
+  if (!deletesDirectly && !executesRm?.deletesFoundPaths)
+    return null;
+  let targets = getFindStartingPoints(tokens) ?? [{ text: ".", index: -1 }], targetContext = createRecursiveDeleteTargetContext({
+    ...context,
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
+    posixShell: !0
+  });
+  for (let target of targets) {
+    let expandedTargets = context.expandedTargetTokens?.get(target.index);
+    for (let expandedTarget of expandedTargets ?? [target.text]) {
+      let classification = classifyRecursiveDeleteTarget(expandedTarget, targetContext, {
+        targetIsLiteral: expandedTargets !== void 0 || context.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
+      });
+      if (classification.kind === "root_or_home_target")
+        return destructiveCommandMatch("rm.recursive-force-root-or-home", "rm -rf targeting root or home directory is extremely dangerous and always blocked.");
+      if (classification.kind === "git_metadata_target")
+        return destructiveCommandMatch("find.delete-git-metadata", REASON_GIT_METADATA_PROTECTION);
+    }
+  }
+  if (findSelectsHooksByName(tokens) && targetContext.resolvedCwd && isProtectedGitHookNameSelection(targets.map((target) => target.text), targetContext.resolvedCwd, targetContext.protectedGitMetadata, targetContext.pathCanonicalizationBudget))
+    return destructiveCommandMatch("find.delete-git-metadata", REASON_GIT_METADATA_PROTECTION);
+  return null;
+}
+function findExecutesRm(tokens) {
+  let found = !1, deletesFoundPaths = !1, index = 0;
+  while (index < tokens.length) {
+    if (!isFindExecPrimary(tokens[index])) {
+      index++;
+      continue;
+    }
+    let command2 = getFindExecCommand(tokens, index), stripped = stripWrappers([...command2.tokens]), head = getBasename(stripped[0] ?? "").toLowerCase();
+    if (head === "rm" || head === "rmdir")
+      found = !0, deletesFoundPaths ||= stripped.some((token) => token.includes("{}"));
+    index = command2.nextIndex;
+  }
+  return found ? { deletesFoundPaths } : null;
+}
+function findSelectsHooksByName(tokens) {
+  return tokens.some((token, index) => {
+    if (!["-name", "-iname"].includes(token))
+      return !1;
+    return tokens[index + 1]?.toLowerCase() === "hooks";
+  });
 }
 function hasOnlyTrustedTempDeleteTargets(tokens, context) {
   if (tokens.includes("-L") || tokens.includes("-f") || tokens.includes("-follow"))
@@ -10012,7 +10409,7 @@ function isFindExecPrimary(token) {
 }
 
 // src/core/analyze/parallel.ts
-import { isAbsolute as isAbsolute13 } from "node:path";
+import { isAbsolute as isAbsolute15 } from "node:path";
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_POLICY = "rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
@@ -10021,12 +10418,9 @@ function analyzeRmMatch(tokens, options2 = {}) {
     ...options2,
     allowPaths: options2.policy?.destructiveCommandAllowPaths,
     posixShell: !0
-  });
-  if (!hasRecursiveForceFlags(tokens))
-    return null;
-  let targets = extractTargets(tokens);
+  }), recursiveForce = hasRecursiveForceFlags(tokens), recursive = hasRecursiveOption(tokens), targets = extractTargets(tokens);
   for (let target of targets) {
-    if (options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+    if (recursiveForce && options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
       let match = filterDestructiveCommandMatch(reasonForClassification({ kind: "outside_anchored_cwd" }, ctx, options2.policy), options2.policy);
       if (match)
         return match;
@@ -10038,6 +10432,18 @@ function analyzeRmMatch(tokens, options2 = {}) {
         targetIsLiteral: expandedTargets !== void 0 || options2.literalTargetTokenIndexes?.has(target.index),
         tmpdirWordSplittingProtected: options2.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
       };
+      if (!recursive && ctx.resolvedCwd && isProtectedGitDeleteTarget(expandedTarget, ctx.resolvedCwd, ctx.protectedGitMetadata, recursive, ctx.pathCanonicalizationBudget))
+        return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
+      if (recursive && !recursiveForce) {
+        let classification = classifyRecursiveDeleteTarget(expandedTarget, ctx, classificationOptions);
+        if (classification.kind === "root_or_home_target")
+          return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
+        if (classification.kind === "git_metadata_target")
+          return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
+        continue;
+      }
+      if (!recursiveForce)
+        continue;
       for (let classification of orderedTargetClassifications(expandedTarget, ctx, classificationOptions)) {
         let candidate = reasonForClassification(classification, ctx, options2.policy), match = filterDestructiveCommandMatch(candidate, options2.policy);
         if (match)
@@ -10092,6 +10498,8 @@ function reasonForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
+    case "git_metadata_target":
+      return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
     case "temp_target":
       return null;
     case "dynamic_target":
@@ -11143,7 +11551,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute12, join as join10, resolve as resolve7 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute14, join as join11, resolve as resolve8 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -11280,10 +11688,10 @@ function getLocalGitConfigPaths(cwd) {
   let gitDir = resolveGitDirFromDotGit(dotGitPath);
   if (gitDir === null)
     return null;
-  let commonDir = resolveCommonGitDir(gitDir);
+  let commonDir = resolveCommonGitDir2(gitDir);
   if (commonDir === null)
     return null;
-  return [join10(commonDir, "config"), join10(gitDir, "config.worktree")];
+  return [join11(commonDir, "config"), join11(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
@@ -11293,20 +11701,20 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute12(rawGitDir) ? rawGitDir : resolve7(dirname8(dotGitPath), rawGitDir);
+    return isAbsolute14(rawGitDir) ? rawGitDir : resolve8(dirname8(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
-function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join10(gitDir, "commondir");
+function resolveCommonGitDir2(gitDir) {
+  let commonDirPath = join11(gitDir, "commondir");
   if (!existsSync3(commonDirPath))
     return gitDir;
   try {
     let rawCommonDir = readFileSync4(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute12(rawCommonDir) ? rawCommonDir : resolve7(gitDir, rawCommonDir);
+    return isAbsolute14(rawCommonDir) ? rawCommonDir : resolve8(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -11570,8 +11978,9 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) ?? getDynamicSourceReason(options2, context);
     return getDynamicSourceReason(options2, context);
   }
-  if (normalizedHead === "rm" && (hasRecursiveForceFlags(tokens) || options2.dynamicRmInput))
-    return (hasRecursiveForceFlags(tokens) ? filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
+  if (normalizedHead === "rm" || normalizedHead === "rmdir") {
+    let dynamicRmPolicyApplies = normalizedHead === "rm" && (hasRecursiveForceFlags(tokens) || options2.dynamicRmInput);
+    return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       strict: context.strict,
@@ -11580,8 +11989,10 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
       tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
       trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+      protectedGitMetadata: context.protectedGitMetadata,
       policy: context.policy
-    }), context.policy) : null) ?? (options2.dynamicRmInput ? getDynamicSourceReason(options2, context) : null) ?? getDynamicRmReason(options2, context);
+    }), context.policy) ?? (dynamicRmPolicyApplies && options2.dynamicRmInput ? getDynamicSourceReason(options2, context) : null) ?? (dynamicRmPolicyApplies ? getDynamicRmReason(options2, context) : null);
+  }
   if (normalizedHead === "find")
     return analyzeFindMatch(tokens, {
       ...context,
@@ -11730,10 +12141,10 @@ function xargsInputCanChangeExecutedSource(childTokens, childHead, replacementTo
   }
   return !1;
 }
-function executableSourceInputCanChange(tokens, replacementToken, parse2, selectors) {
-  let parsed = parse2(tokens);
+function executableSourceInputCanChange(tokens, replacementToken, parse3, selectors) {
+  let parsed = parse3(tokens);
   if (replacementToken === null)
-    return parsed.optionsOpen || parse2([...tokens, XARGS_INTERPRETER_INPUT]).sources.some((source) => source.value === XARGS_INTERPRETER_INPUT);
+    return parsed.optionsOpen || parse3([...tokens, XARGS_INTERPRETER_INPUT]).sources.some((source) => source.value === XARGS_INTERPRETER_INPUT);
   if (parsed.sources.some((source) => source.value.includes(replacementToken)))
     return !0;
   let existingSources = new Set(parsed.sources.map((source) => `${source.tokenIndex}\x00${source.kind}\x00${source.value}`)), targets = selectors.flatMap((source) => [
@@ -11741,7 +12152,7 @@ function executableSourceInputCanChange(tokens, replacementToken, parse2, select
     ...source.valueForm === "attached-only" || source.valueForm === "attached-or-separate" ? [`${source.selector}${XARGS_INTERPRETER_INPUT}`] : [],
     ...source.valueForm === "equals-or-separate" ? [`${source.selector}=${XARGS_INTERPRETER_INPUT}`] : []
   ]), candidates = new Set(targets.flatMap((target) => tokens.flatMap((token) => replacementValuesThatProduce(token, replacementToken, target))));
-  return Array.from(candidates).some((candidate) => parse2(tokens.map((token) => token.replaceAll(replacementToken, candidate))).sources.some((source) => !existingSources.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
+  return Array.from(candidates).some((candidate) => parse3(tokens.map((token) => token.replaceAll(replacementToken, candidate))).sources.some((source) => !existingSources.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
 }
 function xargsInputCanSupplyWrapperChild(tokens, replacementToken, context) {
   if (tokens.length === 0 || (tokens[0] ?? "").toLowerCase() === "command")
@@ -12339,6 +12750,7 @@ function analyzeParallelRmExpansion(tokens, cwd, context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments ?? /* @__PURE__ */ new Map),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? /* @__PURE__ */ new Map),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? /* @__PURE__ */ new Map),
+    protectedGitMetadata: context.protectedGitMetadata,
     policy: context.policy
   }), context.policy);
 }
@@ -12683,7 +13095,7 @@ function resolveParallelWorkdir(workdir, cwd) {
     return;
   if (workdir === "..." || /[{}$`*?~[]/.test(workdir))
     return null;
-  if (!cwd && !isAbsolute13(workdir))
+  if (!cwd && !isAbsolute15(workdir))
     return null;
   try {
     return resolveChdirTarget(cwd ?? workdir, workdir);
@@ -12738,6 +13150,7 @@ var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitutio
 ]), COMMAND_ANALYZERS = /* @__PURE__ */ new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
+  ["rmdir", analyzeRmCommand],
   ["find", analyzeFindCommand],
   ["xargs", analyzeXargsCommand],
   ["parallel", analyzeParallelCommand]
@@ -13309,6 +13722,7 @@ function analyzeRmCommand(context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -13366,6 +13780,7 @@ function analyzeFindCommand(context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -13416,6 +13831,7 @@ function getNestedCommandAnalyzeContext(context) {
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
+    protectedGitMetadata: context.options.protectedGitMetadata,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
@@ -13590,9 +14006,9 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize5(realpathSync7(a)) === normalize5(realpathSync7(b));
+    return normalize6(realpathSync7(a)) === normalize6(realpathSync7(b));
   } catch {
-    return normalize5(a) === normalize5(b);
+    return normalize6(a) === normalize6(b);
   }
 }
 function stripLeadingGrouping(tokens) {
@@ -14517,6 +14933,7 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
     strict: options2.strict,
     paranoid: options2.paranoidRm,
     allowTmpdirVar: options2.allowTmpdirVar,
+    protectedGitMetadata: options2.protectedGitMetadata,
     policy: options2.policy
   };
 }
@@ -14618,33 +15035,19 @@ function applyAnalysisOverride(capability, override, option) {
 function analyzeCommand(command2, options2) {
   return analyzeCommandWithProgram(command2, options2);
 }
-function analyzeCommandWithProgram(command2, options2, program, factStore) {
+function analyzeCommandWithProgram(command2, options2, program, factStore, protectedGitMetadata = resolveProtectedGitMetadata(options2.cwd)) {
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     ...resolveCommandAnalysisContext(options2),
     invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : void 0,
+    protectedGitMetadata,
     factStore
   }, program);
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir6 } from "node:os";
-import { dirname as dirname9, isAbsolute as isAbsolute14, normalize as normalize6, resolve as resolve8 } from "node:path";
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
-  "findbyname",
-  "glob",
-  "grep",
-  "grepsearch",
-  "listdir",
-  "listpermissions",
-  "ls",
-  "read",
-  "readfile",
-  "readurlcontent",
-  "searchweb",
-  "view",
-  "viewfile"
-]), READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
+import { dirname as dirname9 } from "node:path";
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
   "[",
   "cat",
   "file",
@@ -14660,7 +15063,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "tail",
   "test",
   "wc"
-]), MV_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set(["-S", "-t", "--suffix", "--target-directory"]);
+]);
 function findPolicyConfigMutationTargetInSemanticFacts(facts) {
   let budget = createPathCanonicalizationBudget(), identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, budget);
   if (facts.invocation.route.kind === "patch")
@@ -14673,7 +15076,7 @@ function findPolicyConfigMutationTargetInSemanticFacts(facts) {
     if (target)
       return target;
   }
-  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || READ_ONLY_TOOLS.has(normalizeToolName(facts.invocation.toolName)), facts.invocation.context.executionCwd, identity, budget);
+  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), facts.invocation.context.executionCwd, identity, budget);
 }
 function findPolicyConfigMutationTargetInPaths(paths, readOnly, cwd, identity, budget) {
   if (readOnly)
@@ -14682,41 +15085,36 @@ function findPolicyConfigMutationTargetInPaths(paths, readOnly, cwd, identity, b
   return target ? { target } : null;
 }
 function findPolicyConfigMutationTargetInCommand(syntax, cwd, identity, budget) {
-  if (syntax.status === "structural-limit")
-    throw new StructuralShellSyntaxLimitError;
-  if (syntax.status !== "complete")
-    return findPolicyConfigTargetInMalformedText(syntax.source, cwd, identity, budget);
-  let state = { cwd, variables: /* @__PURE__ */ new Map }, segment = [];
-  for (let entry of syntax.entries) {
-    if (entry.kind === "operator") {
-      if (!entry.boundary)
-        continue;
-      let target = findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
-      if (target)
-        return target;
-      state = applyShellState(segment, state, budget), segment = [];
-      continue;
-    }
-    if (entry.kind === "redirection") {
-      if (entry.role === "file-write" && entry.target && isPolicyFile(expandShellVariables(entry.target, state.variables), state.cwd, identity, budget))
-        return { target: entry.target };
-      continue;
-    }
-    segment.push(entry.text);
-  }
-  return findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
+  let target = findProtectedPathMutationInCommand(syntax, cwd, budget, {
+    findSegmentTarget: (segment, state) => findPolicyConfigMutationTargetInSegment(segment, state, identity, budget)?.target ?? null,
+    isRedirectionTarget: (target2, state) => isPolicyFile(target2, state.cwd, identity, budget),
+    findMalformedTarget: (source) => findPolicyConfigTargetInMalformedText(source, cwd, identity, budget)?.target ?? null,
+    normalizeCwd: normalizePolicyCandidatePath
+  });
+  return target ? { target } : null;
 }
 function findPolicyConfigMutationTargetInSegment(segment, state, identity, budget) {
   if (isAssignmentOnlySegment(segment))
     return null;
   let stripped = stripWrappers([...segment]), command2 = getBasename(stripped[0] ?? "").toLowerCase(), args = stripped.slice(1);
   if (command2 === "rm" && hasRecursiveRmOption(args)) {
-    let target = extractRmOperands(args).find((operand) => isPolicyDirectoryOrAncestor(expandShellVariables(operand, state.variables), state.cwd, identity, budget));
+    let target = extractRmOperands(args).find((operand) => isPolicyDirectoryOrAncestor(expandTrackedShellVariables(operand, state.variables), state.cwd, identity, budget));
     if (target)
       return { target };
   }
+  if (command2 === "find") {
+    let deletesDirectly = findHasDelete(stripped, 1), executesRm = findExecutesRm(stripped);
+    if (deletesDirectly || executesRm?.deletesFoundPaths) {
+      let target = (getFindStartingPoints(stripped) ?? [{ text: ".", index: -1 }]).find((startingPoint) => {
+        let expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
+        return isPolicyFile(expanded, state.cwd, identity, budget) || isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget);
+      })?.text;
+      if (target)
+        return { target };
+    }
+  }
   if (command2 === "mv") {
-    let target = extractMvSources(args).find((source) => isPolicyFileOrDirectorySource(expandShellVariables(source, state.variables), state.cwd, identity, budget));
+    let target = extractMvOperandPaths(args).sources.find((source) => isPolicyFileOrDirectorySource(expandTrackedShellVariables(source, state.variables), state.cwd, identity, budget));
     if (target)
       return { target };
   }
@@ -14724,7 +15122,7 @@ function findPolicyConfigMutationTargetInSegment(segment, state, identity, budge
     return null;
   for (let token of segment)
     for (let candidate of extractDirectPathCandidates(token))
-      if (isPolicyFile(expandShellVariables(candidate, state.variables), state.cwd, identity, budget))
+      if (isPolicyFile(expandTrackedShellVariables(candidate, state.variables), state.cwd, identity, budget))
         return { target: candidate };
   return null;
 }
@@ -14740,36 +15138,6 @@ function extractRmOperands(args) {
     ];
   return args.filter((arg) => !arg.startsWith("-"));
 }
-function extractMvSources(args) {
-  let operands = [], targetDirectory = !1, optionsEnded = !1;
-  for (let index = 0;index < args.length; index++) {
-    let arg = args[index];
-    if (arg === void 0)
-      break;
-    if (!optionsEnded && arg === "--") {
-      optionsEnded = !0;
-      continue;
-    }
-    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
-      targetDirectory ||= arg === "-t" || arg === "--target-directory", index++;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith("--target-directory=")) {
-      targetDirectory = !0;
-      continue;
-    }
-    if (!optionsEnded && (arg.startsWith("--suffix=") || arg.startsWith("--backup=")))
-      continue;
-    if (!optionsEnded && arg.startsWith("-t") && arg.length > 2) {
-      targetDirectory = !0;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith("-"))
-      continue;
-    operands.push(arg);
-  }
-  return targetDirectory ? operands : operands.slice(0, -1);
-}
 function isReadOnlySegment(tokens) {
   let stripped = stripWrappers([...tokens]);
   if (stripped.length === 0)
@@ -14780,33 +15148,6 @@ function isReadOnlySegment(tokens) {
   if (command2 !== "sed")
     return !0;
   return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
-}
-function applyShellState(segment, state, budget) {
-  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables, stripped = stripWrappers([...segment]), target = getBasename(stripped[0] ?? "").toLowerCase() === "cd" ? stripped[1] : void 0;
-  return {
-    cwd: !target || target === "-" ? state.cwd : normalizePolicyCandidatePath(expandShellVariables(target, variables), state.cwd, budget),
-    variables
-  };
-}
-function extractShellAssignments(segment, variables) {
-  return segment.flatMap((token) => {
-    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
-    return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
-  });
-}
-function expandShellVariables(text, variables) {
-  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
-    let value = variables.get(name);
-    if (value === void 0)
-      return match;
-    let usable = operator.startsWith(":") ? value !== "" : !0;
-    if (operator.endsWith("-"))
-      return usable ? value : expandShellVariables(word, variables);
-    return usable ? expandShellVariables(word, variables) : "";
-  }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
-}
-function isAssignmentOnlySegment(tokens) {
-  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
 }
 function findPolicyConfigTargetInMalformedText(text, cwd, identity, budget) {
   for (let token of text.split(/\s+/))
@@ -14822,34 +15163,30 @@ function extractDirectPathCandidates(value) {
 function createPolicyPathIdentity(cwd, budget) {
   let file = normalizePolicyCandidatePath(getUserPolicyPath(), cwd, budget), directory = dirname9(file), directoryAndAncestors = /* @__PURE__ */ new Set;
   for (let current = directory;; current = dirname9(current))
-    if (directoryAndAncestors.add(comparePath(current)), dirname9(current) === current)
+    if (directoryAndAncestors.add(comparePath2(current)), dirname9(current) === current)
       break;
-  return { file: comparePath(file), directory: comparePath(directory), directoryAndAncestors };
+  return { file: comparePath2(file), directory: comparePath2(directory), directoryAndAncestors };
 }
 function isPolicyFile(target, cwd, identity, budget) {
-  return comparePath(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
+  return comparePath2(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
 }
 function isPolicyDirectoryOrAncestor(target, cwd, identity, budget) {
-  return identity.directoryAndAncestors.has(comparePath(normalizePolicyCandidatePath(target, cwd, budget)));
+  return identity.directoryAndAncestors.has(comparePath2(normalizePolicyCandidatePath(target, cwd, budget)));
 }
 function isPolicyFileOrDirectorySource(target, cwd, identity, budget) {
-  let normalized = comparePath(normalizePolicyCandidatePath(target, cwd, budget));
+  let normalized = comparePath2(normalizePolicyCandidatePath(target, cwd, budget));
   return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
 }
 function normalizePolicyCandidatePath(target, cwd, budget) {
-  let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
-  if (!unix)
-    return "";
-  let expanded = unix === "~" ? homedir6() : unix.startsWith("~/") ? resolve8(homedir6(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize6(isAbsolute14(expanded) ? expanded : resolve8(cwd, expanded)), budget).replace(/\\/g, "/");
+  return normalizeProtectedPathCandidate(target, cwd, budget);
 }
-function comparePath(path) {
+function comparePath2(path) {
   return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 // src/core/secret-protection.ts
 import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute15, resolve as resolve9 } from "node:path";
+import { isAbsolute as isAbsolute16, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
   "-delete",
@@ -15718,9 +16055,9 @@ function normalizeCandidatePath(target, cwd, budget) {
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute15(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute16(expanded) ? expanded : normalizePathText(resolve9(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute15(expanded))
+    if (isAbsolute16(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -15732,7 +16069,7 @@ function normalizeAbsoluteCandidatePath(target, cwd, budget) {
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute15(expanded) ? expanded : resolve9(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute16(expanded) ? expanded : resolve9(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -15789,6 +16126,8 @@ class GuardEvaluationError extends Error {
 }
 var DEFAULT_DEPENDENCIES = {
   findPolicyMutation: findPolicyConfigMutationTargetInSemanticFacts,
+  findGitMetadataMutation: findGitMetadataMutationTargetInSemanticFacts,
+  resolveGitMetadata: resolveProtectedGitMetadata,
   loadPolicySnapshot,
   findSensitiveTarget: findSensitiveTargetInSemanticFacts,
   analyzeCommand: analyzeCommandWithProgram,
@@ -15816,7 +16155,7 @@ function evaluateGuard(invocation, options2 = {}) {
         evidence: []
       }
     };
-  let policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
+  let protectedGitMetadata = callDependency("policy-protection", command2, () => dependencies.resolveGitMetadata(invocation.context.executionCwd)), policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
   if (policyTarget) {
     let displayCommand = command2 ?? policyTarget.target;
     return {
@@ -15828,6 +16167,22 @@ function evaluateGuard(invocation, options2 = {}) {
         evidence: [
           { kind: "command", command: displayCommand, segment: policyTarget.target },
           { kind: "path", target: policyTarget.target }
+        ]
+      }
+    };
+  }
+  let gitMetadataTarget = callDependency("policy-protection", command2, () => dependencies.findGitMetadataMutation(facts, protectedGitMetadata));
+  if (gitMetadataTarget) {
+    let displayCommand = command2 ?? gitMetadataTarget.target;
+    return {
+      stage: "policy-protection",
+      decision: {
+        kind: "deny",
+        reason: REASON_GIT_METADATA_PROTECTION,
+        intent: "hard_stop",
+        evidence: [
+          { kind: "command", command: displayCommand, segment: gitMetadataTarget.target },
+          { kind: "path", target: gitMetadataTarget.target }
         ]
       }
     };
@@ -15880,7 +16235,7 @@ function evaluateGuard(invocation, options2 = {}) {
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
       worktreeMode: modes.worktreeMode
-    }, getDeclaredCommandProgram(facts), facts.store);
+    }, getDeclaredCommandProgram(facts), facts.store, protectedGitMetadata);
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
@@ -16103,7 +16458,7 @@ function normalizeOpenCodeWindowsWorkdir(workdir) {
 }
 function isUsableDirectory(path) {
   try {
-    if (!statSync3(path).isDirectory())
+    if (!statSync4(path).isDirectory())
       return !1;
     return accessSync(path, constants2.R_OK | constants2.X_OK), !0;
   } catch {

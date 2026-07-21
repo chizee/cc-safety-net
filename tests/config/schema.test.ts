@@ -203,6 +203,16 @@ describe('configuration schemas', () => {
     expect(getUserPolicySchema().safeParse(allowPolicy(['~/sandbox'])).success).toBeTrue();
   });
 
+  test('rejects allow paths that would cover catastrophic root or home targets', () => {
+    const allowPolicy = (allow_paths: string[]) => ({
+      version: 1,
+      destructive_command_protection: { allow_paths },
+    });
+
+    expect(getUserPolicySchema().safeParse(allowPolicy(['/'])).success).toBeFalse();
+    expect(getUserPolicySchema().safeParse(allowPolicy([homedir()])).success).toBeFalse();
+  });
+
   test('preserves accepted deny path whitespace through schema and snapshot loading', async () => {
     const input = {
       version: 1 as const,

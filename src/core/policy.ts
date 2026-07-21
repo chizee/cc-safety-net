@@ -209,6 +209,9 @@ export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
     modes.capabilities,
   );
   const values = Object.values(rules);
+  // Catastrophic rules are always enforced and not user-configurable, so they are surfaced
+  // separately in the GUI and excluded from the configurable active/disabled tallies.
+  const configurableValues = values.filter((state) => state.source !== 'catastrophic');
   const overrides = Object.values(policy.destructive_command_protection.overrides);
   return {
     selectedPreset: policy.safety.level,
@@ -216,8 +219,8 @@ export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
     capabilities: modes.capabilities,
     rules,
     counts: {
-      enabled: values.filter((state) => state.enabled).length,
-      disabled: values.filter((state) => !state.enabled).length,
+      enabled: configurableValues.filter((state) => state.enabled).length,
+      disabled: configurableValues.filter((state) => !state.enabled).length,
       explicitOn: overrides.filter((value) => value === 'on').length,
       explicitOff: overrides.filter((value) => value === 'off').length,
       effectiveCustomizations: values.filter((state) => state.changesInherited).length,

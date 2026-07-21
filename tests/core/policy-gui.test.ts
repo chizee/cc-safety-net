@@ -262,7 +262,7 @@ describe('policy GUI helpers', () => {
     }
     expect(
       DESTRUCTIVE_COMMAND_RULE_METADATA.filter((entry) => !entry.activationCapability),
-    ).toHaveLength(45);
+    ).toHaveLength(48);
     expect(
       DESTRUCTIVE_COMMAND_RULE_METADATA.filter(
         (entry) => entry.activationCapability === 'fail_closed',
@@ -314,6 +314,11 @@ describe('policy GUI helpers', () => {
     });
     expect(Object.isFrozen(states)).toBe(true);
     expect(Object.isFrozen(states['shell.dynamic-executable'])).toBe(true);
+    expect(states['rm.recursive-force-root-or-home']).toMatchObject({
+      enabled: true,
+      source: 'catastrophic',
+      changesInherited: false,
+    });
 
     expect(
       resolveEffectiveDestructiveCommandRules(
@@ -324,6 +329,20 @@ describe('policy GUI helpers', () => {
         capabilities,
       )['shell.dynamic-executable'],
     ).toMatchObject({ enabled: false, source: 'master_disabled', changesInherited: false });
+    expect(
+      resolveEffectiveDestructiveCommandRules(
+        {
+          destructiveCommandProtectionEnabled: false,
+          destructiveCommandRuleOverrides: { 'rm.git-metadata': 'off' },
+        },
+        capabilities,
+      )['rm.git-metadata'],
+    ).toMatchObject({
+      enabled: true,
+      source: 'catastrophic',
+      changesInherited: false,
+      override: 'off',
+    });
   });
 
   test('reports environment-raised capability provenance separately from the preset', () => {

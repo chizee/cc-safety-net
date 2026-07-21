@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { isTrustedTempRootPath } from '@/core/analyze/tmpdir';
 import { analyzeTestCommand } from '../../helpers/policy.ts';
 import { assertAllowed, assertBlocked, withEnv } from '../../helpers.ts';
 
@@ -58,7 +59,12 @@ describe('find -delete tests', () => {
   test('find delete protects trusted temporary roots', () => {
     assertBlocked('find /tmp -depth -delete', 'find -delete');
     assertBlocked('find /var/tmp/ -depth -delete', 'find -delete');
-    assertBlocked(`find ${tmpdir()} -depth -delete`, 'find -delete');
+    // A nested TMPDIR (e.g. an isolated test home under /tmp) is a trusted temp
+    // descendant, not a root, so the system-tmpdir assertion only holds when the
+    // real tmpdir is itself a recognized root.
+    if (isTrustedTempRootPath(tmpdir())) {
+      assertBlocked(`find ${tmpdir()} -depth -delete`, 'find -delete');
+    }
     withEnv({ TMPDIR: '/tmp/ccsn-find-root' }, () => {
       assertBlocked('find $TMPDIR -depth -delete', 'find -delete');
       assertBlocked('find "$TMPDIR/." -depth -delete', 'find -delete');
@@ -95,7 +101,7 @@ describe('find -delete tests', () => {
     const external = join(root, 'external');
     symlinkSync(homedir(), external, 'dir');
     try {
-      assertBlocked(`find ${external} -delete`, 'find -delete');
+      assertBlocked(`find ${external} -delete`, 'extremely dangerous');
       assertBlocked(`find -L ${root} -delete`, 'find -delete');
       assertBlocked(`find ${root} -follow -delete`, 'find -delete');
     } finally {

@@ -703,7 +703,7 @@ var guiCommand = {
 };
 
 // src/bin/hook/antigravity-cli.ts
-import { isAbsolute as isAbsolute17, relative as relative5 } from "node:path";
+import { isAbsolute as isAbsolute18, relative as relative6 } from "node:path";
 
 // src/core/cwd-containment.ts
 import { realpathSync as realpathSync2, statSync } from "node:fs";
@@ -915,7 +915,21 @@ var PATCH_TOOL_NAMES = /* @__PURE__ */ new Set(["applypatch", "patch"]), PATH_TO
   "write",
   "writefile",
   "writetofile"
-]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, JS_WHITESPACE = /\s/, MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
+]), GREP_TOOL_NAMES = /* @__PURE__ */ new Set(["grep", "grepsearch", "rg"]), GLOB_TOOL_NAMES = /* @__PURE__ */ new Set(["findbyname", "glob"]), READ_ONLY_TOOL_NAMES = /* @__PURE__ */ new Set([
+  "findbyname",
+  "glob",
+  "grep",
+  "grepsearch",
+  "listdir",
+  "listpermissions",
+  "ls",
+  "read",
+  "readfile",
+  "readurlcontent",
+  "searchweb",
+  "view",
+  "viewfile"
+]), PATCH_TEXT_KEYS = /* @__PURE__ */ new Set(["command", "diff", "input", "patch", "patchtext"]), UTF8_ENCODER = /* @__PURE__ */ new TextEncoder, UTF8_DECODER = /* @__PURE__ */ new TextDecoder, JS_WHITESPACE = /\s/, MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
 
 class ToolInputLimitError extends Error {
   name = "ToolInputLimitError";
@@ -932,6 +946,9 @@ var TOOL_INPUT_LIMITS = Object.freeze({
 });
 function normalizeToolName(toolName) {
   return toolName.replace(/[-_\s]/g, "").toLowerCase();
+}
+function isReadOnlyTool(toolName) {
+  return READ_ONLY_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 function getNonCommandToolInputKind(toolName) {
   let normalized = normalizeToolName(toolName);
@@ -3756,6 +3773,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "git.stash-clear",
   "git.worktree-remove-force",
   "rm.recursive-force-root-or-home",
+  "rm.git-metadata",
   "rm.recursive-force-dynamic-target",
   "rm.recursive-force-home-cwd",
   "rm.recursive-force-cwd-self",
@@ -3763,6 +3781,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "rm.recursive-force-paranoid",
   "powershell.remove-item-root-or-home",
   "powershell.remove-item-recursive-force-root-or-home",
+  "powershell.remove-item-git-metadata",
   "powershell.remove-item-recursive-force-dynamic-target",
   "powershell.remove-item-recursive-force-home-cwd",
   "powershell.remove-item-recursive-force-cwd-self",
@@ -3770,6 +3789,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
   "powershell.remove-item-recursive-force-paranoid",
   "powershell.remove-item-pipeline-dynamic-target",
   "find.delete",
+  "find.delete-git-metadata",
   "find.exec-rm-recursive-force",
   "interpreter.dangerous-command",
   "interpreter.one-liner-paranoid",
@@ -3997,7 +4017,17 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "rm -rf root or home",
     description: "Blocks recursive forced removal of root or home paths.",
     example: "rm -rf /",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
+  },
+  {
+    id: "rm.git-metadata",
+    category: "Filesystem",
+    label: "rm Git metadata",
+    description: "Blocks removal of protected Git metadata and hooks.",
+    example: "rm -rf .git",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "rm.recursive-force-dynamic-target",
@@ -4047,7 +4077,8 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "Remove-Item root or home",
     description: "Blocks PowerShell Remove-Item targeting root or home paths.",
     example: "Remove-Item C:\\",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "powershell.remove-item-recursive-force-root-or-home",
@@ -4055,7 +4086,17 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     label: "Remove-Item recursive force root or home",
     description: "Blocks recursive forced PowerShell removal of root or home paths.",
     example: "Remove-Item C:\\ -Recurse -Force",
-    intent: "hard_stop"
+    intent: "hard_stop",
+    catastrophic: !0
+  },
+  {
+    id: "powershell.remove-item-git-metadata",
+    category: "PowerShell",
+    label: "Remove-Item Git metadata",
+    description: "Blocks PowerShell removal of protected Git metadata and hooks.",
+    example: "Remove-Item .git -Recurse -Force",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "powershell.remove-item-recursive-force-dynamic-target",
@@ -4115,6 +4156,15 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     description: "Blocks unsafe find -delete operations.",
     example: "find . -delete",
     intent: "scope_down"
+  },
+  {
+    id: "find.delete-git-metadata",
+    category: "Filesystem",
+    label: "find delete Git metadata",
+    description: "Blocks find -delete operations selecting protected Git metadata and hooks.",
+    example: "find .git -delete",
+    intent: "hard_stop",
+    catastrophic: !0
   },
   {
     id: "find.exec-rm-recursive-force",
@@ -4215,7 +4265,7 @@ var DESTRUCTIVE_COMMAND_RULE_IDS = [
     example: "git reset --hard 'unterminated",
     intent: "stop_and_explain"
   }
-], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]));
+], DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent])), CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS = new Set(DESTRUCTIVE_COMMAND_RULE_METADATA.filter((rule) => rule.catastrophic).map((rule) => rule.id));
 function destructiveCommandMatch(id, reason, intent) {
   return {
     id,
@@ -4226,6 +4276,8 @@ function destructiveCommandMatch(id, reason, intent) {
 function filterDestructiveCommandMatch(match, policy) {
   if (!match)
     return null;
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(match.id))
+    return match;
   if (policy?.destructiveCommandProtectionEnabled === !1)
     return null;
   let effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
@@ -4234,6 +4286,8 @@ function filterDestructiveCommandMatch(match, policy) {
   return policy?.destructiveCommandRuleOverrides[match.id] === "off" ? null : match;
 }
 function destructiveCommandRuleIsEnabled(policy, id, inheritedEnabled) {
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(id))
+    return !0;
   if (policy?.destructiveCommandProtectionEnabled === !1)
     return !1;
   let resolved = policy?.effectiveDestructiveCommandRules?.[id];
@@ -4244,7 +4298,13 @@ function destructiveCommandRuleIsEnabled(policy, id, inheritedEnabled) {
 }
 function resolveEffectiveDestructiveCommandRules(policy, capabilities) {
   return Object.freeze(Object.fromEntries(DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => {
-    let capability = rule.activationCapability ? capabilities[rule.activationCapability] : void 0, inheritedEnabled = capability?.enabled ?? !0, override = policy.destructiveCommandRuleOverrides[rule.id], state = policy.destructiveCommandProtectionEnabled ? override ? {
+    let capability = rule.activationCapability ? capabilities[rule.activationCapability] : void 0, inheritedEnabled = capability?.enabled ?? !0, override = policy.destructiveCommandRuleOverrides[rule.id], state = rule.catastrophic ? {
+      enabled: !0,
+      inheritedEnabled: !0,
+      changesInherited: !1,
+      source: "catastrophic",
+      ...override ? { override } : {}
+    } : policy.destructiveCommandProtectionEnabled ? override ? {
       enabled: override === "on",
       inheritedEnabled,
       changesInherited: override === "on" !== inheritedEnabled,
@@ -4876,20 +4936,47 @@ function isLinkedWorktree(cwd) {
     let stat = lstatSync2(dotGitPath);
     if (stat.isSymbolicLink() || !stat.isFile())
       return !1;
-    let firstLine = readFileSync2(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:"))
+    let targets = resolveDotGitFileTargets(dotGitPath);
+    if (!targets?.commonDir)
       return !1;
-    let rawGitDir = firstLine.slice(7).trim();
-    if (rawGitDir === "")
+    if (!worktreeGitdirBacklinkMatches(targets.gitDir, dotGitPath))
       return !1;
-    let gitDir = isAbsolute5(rawGitDir) ? rawGitDir : resolve3(dirname4(dotGitPath), rawGitDir);
-    if (!existsSync(join4(gitDir, "commondir")))
-      return !1;
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath))
-      return !1;
-    return worktreeConfigMatchesRoot(gitDir, dirname4(dotGitPath));
+    return worktreeConfigMatchesRoot(targets.gitDir, dirname4(dotGitPath));
   } catch {
     return !1;
+  }
+}
+function resolveDotGitFileTargets(dotGitPath) {
+  try {
+    let rawGitDir = readDotGitTarget(dotGitPath);
+    if (!rawGitDir)
+      return null;
+    let gitDir = realpathSync4(isAbsolute5(rawGitDir) ? rawGitDir : resolve3(dirname4(dotGitPath), rawGitDir));
+    if (!statSync2(gitDir).isDirectory())
+      return null;
+    return {
+      gitDir,
+      commonDir: resolveCommonGitDir(gitDir)
+    };
+  } catch {
+    return null;
+  }
+}
+function readDotGitTarget(dotGitPath) {
+  let firstLine = readFileSync2(dotGitPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine.startsWith("gitdir:"))
+    return null;
+  return firstLine.slice(7).trim() || null;
+}
+function resolveCommonGitDir(gitDir) {
+  try {
+    let rawCommonDir = readFileSync2(join4(gitDir, "commondir"), "utf-8").split(/\r?\n/, 1)[0]?.trim();
+    if (!rawCommonDir)
+      return null;
+    let commonDir = realpathSync4(isAbsolute5(rawCommonDir) ? rawCommonDir : resolve3(gitDir, rawCommonDir));
+    return statSync2(commonDir).isDirectory() ? commonDir : null;
+  } catch {
+    return null;
   }
 }
 function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
@@ -7786,15 +7873,15 @@ function createPolicyPreview(policy) {
   let modes = getCCSafetyNetEnvModes({ safety: normalizeSafety(policy.safety) }), rules = resolveEffectiveDestructiveCommandRules({
     destructiveCommandProtectionEnabled: policy.destructive_command_protection.enabled,
     destructiveCommandRuleOverrides: policy.destructive_command_protection.overrides
-  }, modes.capabilities), values = Object.values(rules), overrides = Object.values(policy.destructive_command_protection.overrides);
+  }, modes.capabilities), values = Object.values(rules), configurableValues = values.filter((state) => state.source !== "catastrophic"), overrides = Object.values(policy.destructive_command_protection.overrides);
   return {
     selectedPreset: policy.safety.level,
     effectiveLevel: modes.effectiveLevel,
     capabilities: modes.capabilities,
     rules,
     counts: {
-      enabled: values.filter((state) => state.enabled).length,
-      disabled: values.filter((state) => !state.enabled).length,
+      enabled: configurableValues.filter((state) => state.enabled).length,
+      disabled: configurableValues.filter((state) => !state.enabled).length,
       explicitOn: overrides.filter((value) => value === "on").length,
       explicitOff: overrides.filter((value) => value === "off").length,
       effectiveCustomizations: values.filter((state) => state.changesInherited).length,
@@ -9545,8 +9632,8 @@ function exceedsLimit(current, amount, limit) {
 }
 
 // src/core/analyze/recursive-delete-targets.ts
-import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute12, normalize as normalize4, posix, resolve as resolve8, sep as sep8 } from "node:path";
+import { homedir as homedir6 } from "node:os";
+import { isAbsolute as isAbsolute14, normalize as normalize5, parse as parse2, posix, resolve as resolve9, sep as sep8 } from "node:path";
 
 // src/core/analyze/tmpdir.ts
 import { lstatSync as lstatSync4, realpathSync as realpathSync7 } from "node:fs";
@@ -9642,6 +9729,235 @@ function isPathOrSubpath(path, basePath) {
   return path.startsWith(baseWithSlash);
 }
 
+// src/core/git-metadata-protection.ts
+import { statSync as statSync4 } from "node:fs";
+import { isAbsolute as isAbsolute13, join as join11, relative as relative5 } from "node:path";
+
+// src/core/protected-path-scanner.ts
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute12, normalize as normalize4, resolve as resolve8 } from "node:path";
+var MV_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set(["-S", "--suffix"]);
+function findProtectedPathMutationInCommand(syntax, cwd, budget, scanner) {
+  if (syntax.status === "structural-limit")
+    throw new StructuralShellSyntaxLimitError;
+  if (syntax.status !== "complete")
+    return scanner.findMalformedTarget(syntax.source);
+  let state = { cwd, variables: /* @__PURE__ */ new Map }, segment = [];
+  for (let entry of syntax.entries) {
+    if (entry.kind === "operator") {
+      if (!entry.boundary)
+        continue;
+      let target = scanner.findSegmentTarget(segment, state);
+      if (target)
+        return target;
+      state = applyShellState(segment, state, budget, scanner.normalizeCwd), segment = [];
+      continue;
+    }
+    if (entry.kind === "redirection") {
+      if (entry.role === "file-write" && entry.target && scanner.isRedirectionTarget(expandTrackedShellVariables(entry.target, state.variables), state))
+        return entry.target;
+      continue;
+    }
+    segment.push(entry.text);
+  }
+  return scanner.findSegmentTarget(segment, state);
+}
+function expandTrackedShellVariables(text, variables) {
+  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
+    let value = variables.get(name);
+    if (value === void 0)
+      return match;
+    let usable = operator.startsWith(":") ? value !== "" : !0;
+    if (operator.endsWith("-"))
+      return usable ? value : expandTrackedShellVariables(word, variables);
+    return usable ? expandTrackedShellVariables(word, variables) : "";
+  }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
+}
+function isAssignmentOnlySegment(tokens) {
+  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
+}
+function normalizeProtectedPathCandidate(target, cwd, budget) {
+  let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
+  if (!unix)
+    return "";
+  let expanded = unix === "~" ? homedir5() : unix.startsWith("~/") ? resolve8(homedir5(), unix.slice(2)) : unix;
+  return resolveExistingPath(normalize4(isAbsolute12(expanded) ? expanded : resolve8(cwd, expanded)), budget).replace(/\\/g, "/");
+}
+function extractMvOperandPaths(args) {
+  let operands = [], targetDirectory = null, optionsEnded = !1;
+  for (let index = 0;index < args.length; index++) {
+    let arg = args[index];
+    if (arg === void 0)
+      break;
+    if (!optionsEnded && arg === "--") {
+      optionsEnded = !0;
+      continue;
+    }
+    if (!optionsEnded && (arg === "-t" || arg === "--target-directory")) {
+      targetDirectory = args[++index] ?? null;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("--target-directory=")) {
+      targetDirectory = arg.slice(19);
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("-t") && arg.length > 2) {
+      targetDirectory = arg.slice(2);
+      continue;
+    }
+    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
+      index++;
+      continue;
+    }
+    if (!optionsEnded && (arg.startsWith("--suffix=") || arg.startsWith("--backup=")))
+      continue;
+    if (!optionsEnded && arg.startsWith("-"))
+      continue;
+    operands.push(arg);
+  }
+  return targetDirectory ? { sources: operands, destination: targetDirectory } : { sources: operands.slice(0, -1), destination: operands.at(-1) ?? null };
+}
+function applyShellState(segment, state, budget, normalizeCwd) {
+  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables, stripped = stripWrappers([...segment]), target = getBasename(stripped[0] ?? "").toLowerCase() === "cd" ? stripped[1] : void 0;
+  return {
+    cwd: !target || target === "-" ? state.cwd : normalizeCwd(expandTrackedShellVariables(target, variables), state.cwd, budget),
+    variables
+  };
+}
+function extractShellAssignments(segment, variables) {
+  return segment.flatMap((token) => {
+    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)(.*)$/.exec(token), value = assignment?.[2]?.startsWith("=") ? assignment[2].slice(1) : void 0;
+    return assignment?.[1] !== void 0 && value !== void 0 ? [[assignment[1], expandTrackedShellVariables(value, variables)]] : [];
+  });
+}
+
+// src/core/git-metadata-protection.ts
+var REASON_GIT_METADATA_PROTECTION = "Git metadata and hooks are protected. Ask the user before modifying them.";
+function findGitMetadataMutationTargetInSemanticFacts(facts, metadata2 = resolveProtectedGitMetadata(facts.invocation.context.executionCwd)) {
+  let budget = createPathCanonicalizationBudget(), cwd = facts.invocation.context.executionCwd;
+  if (!metadata2)
+    return null;
+  if (facts.invocation.route.kind === "patch" || facts.invocation.route.kind === "path") {
+    if (isReadOnlyTool(facts.invocation.toolName))
+      return null;
+    let target2 = facts.paths.find((path) => isProtectedGitWriteTarget(path.raw, cwd, metadata2, budget))?.raw;
+    return target2 ? { target: target2 } : null;
+  }
+  if (facts.invocation.route.kind !== "command")
+    return null;
+  let command2 = getCommandSyntaxFact(facts, "input-candidate");
+  if (!command2)
+    return null;
+  let target = findProtectedPathMutationInCommand(command2.shell, cwd, budget, {
+    findSegmentTarget: (segment, state) => findGitMetadataMoveTarget(segment, state, metadata2, budget),
+    isRedirectionTarget: (target2, state) => isProtectedGitRedirectionTarget(target2, state.cwd, metadata2, budget),
+    findMalformedTarget: () => null,
+    normalizeCwd: normalizeProtectedPathCandidate
+  });
+  return target ? { target } : null;
+}
+function resolveProtectedGitMetadata(cwd, budget = createPathCanonicalizationBudget()) {
+  if (typeof cwd !== "string" || !cwd)
+    return null;
+  let dotGitPath = findDotGitInAncestors(normalizeProtectedPathCandidate(cwd, cwd, budget));
+  if (!dotGitPath)
+    return null;
+  try {
+    let entry = normalizeProtectedPathCandidate(dotGitPath, cwd, budget), stat = statSync4(dotGitPath), markerFile = stat.isFile() ? entry : null, fileTargets = stat.isFile() ? resolveDotGitFileTargets(dotGitPath) : null, canonicalDirectories = (stat.isDirectory() ? [entry] : [fileTargets?.gitDir, fileTargets?.commonDir]).flatMap((path) => path ? [comparePath(normalizeProtectedPathCandidate(path, cwd, budget))] : []), directories = [
+      ...new Set(stat.isDirectory() ? [comparePath(dotGitPath.replace(/\\/g, "/")), ...canonicalDirectories] : canonicalDirectories)
+    ];
+    return Object.freeze({
+      entry: comparePath(entry),
+      markerFile: markerFile ? comparePath(markerFile) : null,
+      directories: Object.freeze(directories),
+      hooksDirectories: Object.freeze([
+        ...new Set(directories.flatMap((directory) => {
+          let lexical = comparePath(join11(directory, "hooks"));
+          return [lexical, comparePath(normalizeProtectedPathCandidate(lexical, cwd, budget))];
+        }))
+      ])
+    });
+  } catch {
+    return null;
+  }
+}
+function isProtectedGitDeleteTarget(target, cwd, metadata2, recursive, budget, dotEntryGlobs = !1) {
+  if (!metadata2)
+    return !1;
+  let candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget)), globBase = candidate.replace(/(\/\.?\*+)+$/, "");
+  if (globBase !== candidate && globBase !== "") {
+    if (isProtectedExactOrHookTarget(globBase, metadata2))
+      return !0;
+    let matchesHidden = dotEntryGlobs || candidate.slice(globBase.length).includes("/."), covers = (path) => matchesHidden ? isEqualOrWithin(path, globBase) : isGlobVisibleDescendant(path, globBase);
+    if (metadata2.markerFile && covers(metadata2.markerFile))
+      return !0;
+    return recursive && protectedRoots(metadata2).some(covers);
+  }
+  if (isProtectedExactOrHookTarget(candidate, metadata2))
+    return !0;
+  return recursive && protectedRoots(metadata2).some((path) => isEqualOrWithin(path, candidate));
+}
+function isGlobVisibleDescendant(target, base) {
+  let path = relative5(base, target);
+  if (path === "" || path.startsWith("..") || isAbsolute13(path))
+    return !1;
+  return !path.split(/[\\/]/)[0]?.startsWith(".");
+}
+function isProtectedGitMoveSource(target, cwd, metadata2, budget) {
+  return isProtectedGitDeleteTarget(target, cwd, metadata2, !0, budget);
+}
+function isProtectedGitMoveDestination(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedExactOrHookTarget(comparePath(normalizeProtectedPathCandidate(target, cwd, budget)), metadata2);
+}
+function isProtectedGitWriteTarget(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, metadata2.entry);
+}
+function isProtectedGitRedirectionTarget(target, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, metadata2.markerFile);
+}
+function isProtectedGitWriteLikeTarget(target, cwd, metadata2, budget, exactTarget) {
+  let candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
+  return candidate === exactTarget || isProtectedHookTarget(candidate, metadata2);
+}
+function isProtectedGitHookNameSelection(startingPoints, cwd, metadata2, budget) {
+  if (!metadata2)
+    return !1;
+  return metadata2.hooksDirectories.some((hooks) => startingPoints.some((target) => isEqualOrWithin(hooks, comparePath(normalizeProtectedPathCandidate(target, cwd, budget)))));
+}
+function isProtectedExactOrHookTarget(candidate, metadata2) {
+  return candidate === metadata2.entry || metadata2.directories.includes(candidate) || isProtectedHookTarget(candidate, metadata2);
+}
+function isProtectedHookTarget(candidate, metadata2) {
+  return metadata2.hooksDirectories.some((hooks) => isEqualOrWithin(candidate, hooks));
+}
+function protectedRoots(metadata2) {
+  return [metadata2.entry, ...metadata2.directories, ...metadata2.hooksDirectories];
+}
+function isEqualOrWithin(target, root) {
+  let path = relative5(root, target);
+  return path === "" || !/^\.\.(?:[\\/]|$)/.test(path) && !isAbsolute13(path);
+}
+function comparePath(path) {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+function findGitMetadataMoveTarget(segment, state, metadata2, budget) {
+  if (isAssignmentOnlySegment(segment))
+    return null;
+  let stripped = stripWrappers([...segment]);
+  if (getBasename(stripped[0] ?? "").toLowerCase() !== "mv")
+    return null;
+  let operands = extractMvOperandPaths(stripped.slice(1)), source = operands.sources.find((target) => isProtectedGitMoveSource(expandTrackedShellVariables(target, state.variables), state.cwd, metadata2, budget));
+  if (source)
+    return source;
+  return operands.destination && isProtectedGitMoveDestination(expandTrackedShellVariables(operands.destination, state.variables), state.cwd, metadata2, budget) ? operands.destination : null;
+}
+
 // src/core/analyze/recursive-delete-targets.ts
 var IS_WINDOWS2 = process.platform === "win32";
 function createRecursiveDeleteTargetContext(options2 = {}) {
@@ -9658,6 +9974,7 @@ function createRecursiveDeleteTargetContext(options2 = {}) {
     trustedTmpdirValue: options2.trustedTmpdirValue ?? options2.allowTmpdirVar ?? !0,
     homeDir,
     allowRoots: resolveAllowRoots(options2.allowPaths, homeDir, budget),
+    protectedGitMetadata: options2.protectedGitMetadata !== void 0 ? options2.protectedGitMetadata : resolveProtectedGitMetadata(options2.originalCwd ?? options2.cwd, budget),
     pathCanonicalizationBudget: budget
   };
 }
@@ -9670,6 +9987,10 @@ function classifyRecursiveDeleteTarget(target, ctx, options2 = {}) {
     return { kind: "outside_anchored_cwd" };
   if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral))
     return { kind: "root_or_home_target" };
+  if (isCanonicalHomeTarget(normalizedTarget, ctx))
+    return { kind: "root_or_home_target" };
+  if (ctx.resolvedCwd && isProtectedGitDeleteTarget(normalizedTarget, ctx.resolvedCwd, ctx.protectedGitMetadata, !0, ctx.pathCanonicalizationBudget, !ctx.posixShell))
+    return { kind: "git_metadata_target" };
   if (isTempTarget(normalizedTarget, ctx.trustTmpdirVar, ctx.posixShell, dynamic, targetIsLiteral, options2.tmpdirWordSplittingProtected ?? !1, ctx.trustedTmpdirValue))
     return { kind: "temp_target" };
   if (dynamic)
@@ -9699,8 +10020,8 @@ function isTrustedTempDescendantTarget(target, ctx, options2 = {}) {
   return ![ctx.anchoredCwd, ctx.resolvedCwd].some((workspace) => isWorkspaceWithinTarget(containmentTarget ?? normalized, workspace, ctx.pathCanonicalizationBudget));
 }
 function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
-  let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/");
-  if (normalized === "/" || normalized === "/*")
+  let trimmed = path.trim(), normalized = posix.normalize(trimmed), windowsNormalized = trimmed.replace(/\\/g, "/"), rootGlobTarget = normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
+  if (rootGlobTarget === "/" || rootGlobTarget.startsWith("/") && rootGlobTarget.slice(1).split("/").every((segment) => /^\*+$/.test(segment)))
     return !0;
   if (/^[A-Za-z]:\/+\*?$/.test(windowsNormalized) || /^\/\/[^/]+\/+[^/]+(?:\/+\*?)?$/.test(windowsNormalized))
     return !0;
@@ -9714,8 +10035,24 @@ function isDangerousRootOrHomeTarget(path, targetIsLiteral = !1) {
     return !0;
   return !1;
 }
+function isCanonicalHomeTarget(target, ctx) {
+  let trimmed = target.trim(), candidate = trimmed.endsWith("/*") ? trimmed.slice(0, -2) : trimmed;
+  if (!candidate)
+    return !1;
+  try {
+    let base = isAbsolute14(candidate) ? candidate : ctx.resolvedCwd ? resolve9(ctx.resolvedCwd, candidate) : null;
+    if (!base)
+      return !1;
+    let resolved = normalizePathForComparison2(resolveExistingPath(base, ctx.pathCanonicalizationBudget));
+    if (resolved === parse2(resolved).root)
+      return !0;
+    return resolved === normalizePathForComparison2(resolveExistingPath(ctx.homeDir, ctx.pathCanonicalizationBudget));
+  } catch {
+    return !1;
+  }
+}
 function normalizePathForComparison2(p) {
-  let normalized = normalize4(p);
+  let normalized = normalize5(p);
   if (IS_WINDOWS2) {
     if (normalized = normalized.replace(/\//g, "\\").toLowerCase(), normalized.length > 3 && normalized.endsWith("\\"))
       normalized = normalized.slice(0, -1);
@@ -9752,14 +10089,14 @@ function hasParentDirectoryComponent(path) {
   return path.split(/[\\/]+/).includes("..");
 }
 function getHomeDirForRmPolicy() {
-  return getOwnEnvValue("HOME") || homedir5();
+  return getOwnEnvValue("HOME") || homedir6();
 }
 function resolveAllowRoots(paths, homeDir, budget) {
   if (!paths?.length)
     return [];
   return paths.flatMap((path) => {
     let expanded = expandAllowPathHome(path.trim(), homeDir);
-    if (!isAbsolute12(expanded))
+    if (!isAbsolute14(expanded))
       return [];
     try {
       let canonical = resolveExistingPath(expanded, budget);
@@ -9777,7 +10114,7 @@ function isAllowedPathTarget(target, ctx, targetIsLiteral) {
   let trimmed = target.trim();
   if (hasParentDirectoryComponent(trimmed))
     return !1;
-  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute12(expanded) ? expanded : base ? resolve8(base, expanded) : null;
+  let expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir), base = ctx.resolvedCwd ?? ctx.anchoredCwd, resolved = isAbsolute14(expanded) ? expanded : base ? resolve9(base, expanded) : null;
   if (!resolved)
     return !1;
   try {
@@ -9848,10 +10185,10 @@ function isCwdSelfTarget(target, cwd, budget) {
   if (target === "." || target === "./" || target === ".\\")
     return !0;
   try {
-    return normalizePathForComparison2(resolveExistingPath(resolve8(cwd, target), budget)) === normalizePathForComparison2(resolveExistingPath(cwd, budget));
+    return normalizePathForComparison2(resolveExistingPath(resolve9(cwd, target), budget)) === normalizePathForComparison2(resolveExistingPath(cwd, budget));
   } catch {
     try {
-      return normalizePathForComparison2(resolve8(cwd, target)) === normalizePathForComparison2(cwd);
+      return normalizePathForComparison2(resolve9(cwd, target)) === normalizePathForComparison2(cwd);
     } catch {
       return !1;
     }
@@ -9871,14 +10208,14 @@ function isTargetWithinCwd(target, originalCwd, effectiveCwd, dynamic, targetIsL
     }
   if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\"))
     try {
-      return isResolvedPathWithinCwd(resolve8(resolveCwd, target), originalCwd, budget);
+      return isResolvedPathWithinCwd(resolve9(resolveCwd, target), originalCwd, budget);
     } catch {
       return !1;
     }
   if (target.startsWith("../"))
     return !1;
   try {
-    return isResolvedPathWithinCwd(resolve8(resolveCwd, target), originalCwd, budget);
+    return isResolvedPathWithinCwd(resolve9(resolveCwd, target), originalCwd, budget);
   } catch {
     return !1;
   }
@@ -9928,6 +10265,9 @@ function analyzePowerShellSegment(segment, hasPipelineInput, ctx, policy) {
   for (let target of parsed.targets)
     if (isDangerousRootOrHomeTarget(powerShellTargetForPolicy(target.text)))
       return destructiveCommandMatch(parsed.recursive && parsed.force ? "powershell.remove-item-recursive-force-root-or-home" : "powershell.remove-item-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+  for (let target of parsed.targets)
+    if (ctx.resolvedCwd && isProtectedGitDeleteTarget(powerShellTargetForPolicy(target.text), ctx.resolvedCwd, ctx.protectedGitMetadata, parsed.recursive, ctx.pathCanonicalizationBudget, !0))
+      return destructiveCommandMatch("powershell.remove-item-git-metadata", REASON_GIT_METADATA_PROTECTION);
   if (!parsed.recursive || !parsed.force)
     return null;
   if (destructiveCommandRuleIsEnabled(policy, "powershell.remove-item-recursive-force-dynamic-target", ctx.strict) && (parsed.hasDynamicTarget || parsed.targets.length === 0))
@@ -9997,7 +10337,8 @@ function isArraySeparator(token) {
   return token.kind === "word" && token.text === ",";
 }
 function powerShellTargetForPolicy(target) {
-  return target.replace(/\\/g, "/");
+  let normalized = target.replace(/\\/g, "/"), home = /^\$env:(?:userprofile|home)(?=$|\/)/i.exec(normalized);
+  return home ? `$HOME${normalized.slice(home[0].length)}` : normalized;
 }
 function parameterValueToken(value, source) {
   return {
@@ -10042,6 +10383,8 @@ function matchForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("powershell.remove-item-recursive-force-root-or-home", REASON_REMOVE_ITEM_ROOT_HOME);
+    case "git_metadata_target":
+      return destructiveCommandMatch("powershell.remove-item-git-metadata", REASON_GIT_METADATA_PROTECTION);
     case "temp_target":
       return null;
     case "dynamic_target":
@@ -10063,7 +10406,7 @@ function matchForClassification(classification, ctx, policy) {
 
 // src/core/analyze/segment.ts
 import { realpathSync as realpathSync8 } from "node:fs";
-import { normalize as normalize5 } from "node:path";
+import { normalize as normalize6 } from "node:path";
 
 // src/core/analyze/child-command.ts
 function normalizeChildCommands(tokens, context) {
@@ -10146,6 +10489,10 @@ function hasRecursiveForceFlags(tokens) {
   }
   return hasRecursive && hasForce;
 }
+function hasRecursiveOption(tokens) {
+  let separator = tokens.indexOf("--");
+  return tokens.slice(1, separator === -1 ? void 0 : separator).some((token) => isLongOptionAbbreviation(token, "recursive") || /^-[A-Za-z]+$/.test(token) && /[rR]/.test(token.slice(1)));
+}
 function isLongOptionAbbreviation(token, option) {
   return token.length > 2 && token.startsWith("--") && option.startsWith(token.slice(2));
 }
@@ -10205,6 +10552,9 @@ var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print fir
   ["-fprintf", 2]
 ]);
 function analyzeFindMatch(tokens, context = {}) {
+  let catastrophicMatch = findCatastrophicDeleteMatch(tokens, context);
+  if (catastrophicMatch)
+    return catastrophicMatch;
   if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
     let match = filterDestructiveCommandMatch(destructiveCommandMatch("find.delete", REASON_FIND_DELETE), context.policy);
     if (match)
@@ -10238,6 +10588,53 @@ function analyzeFindMatch(tokens, context = {}) {
       return match;
   }
   return null;
+}
+function findCatastrophicDeleteMatch(tokens, context) {
+  let deletesDirectly = findHasDelete(tokens, 1), executesRm = findExecutesRm(tokens);
+  if (!deletesDirectly && !executesRm?.deletesFoundPaths)
+    return null;
+  let targets = getFindStartingPoints(tokens) ?? [{ text: ".", index: -1 }], targetContext = createRecursiveDeleteTargetContext({
+    ...context,
+    allowPaths: context.policy?.destructiveCommandAllowPaths,
+    posixShell: !0
+  });
+  for (let target of targets) {
+    let expandedTargets = context.expandedTargetTokens?.get(target.index);
+    for (let expandedTarget of expandedTargets ?? [target.text]) {
+      let classification = classifyRecursiveDeleteTarget(expandedTarget, targetContext, {
+        targetIsLiteral: expandedTargets !== void 0 || context.literalTargetTokenIndexes?.has(target.index),
+        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
+      });
+      if (classification.kind === "root_or_home_target")
+        return destructiveCommandMatch("rm.recursive-force-root-or-home", "rm -rf targeting root or home directory is extremely dangerous and always blocked.");
+      if (classification.kind === "git_metadata_target")
+        return destructiveCommandMatch("find.delete-git-metadata", REASON_GIT_METADATA_PROTECTION);
+    }
+  }
+  if (findSelectsHooksByName(tokens) && targetContext.resolvedCwd && isProtectedGitHookNameSelection(targets.map((target) => target.text), targetContext.resolvedCwd, targetContext.protectedGitMetadata, targetContext.pathCanonicalizationBudget))
+    return destructiveCommandMatch("find.delete-git-metadata", REASON_GIT_METADATA_PROTECTION);
+  return null;
+}
+function findExecutesRm(tokens) {
+  let found = !1, deletesFoundPaths = !1, index = 0;
+  while (index < tokens.length) {
+    if (!isFindExecPrimary(tokens[index])) {
+      index++;
+      continue;
+    }
+    let command2 = getFindExecCommand(tokens, index), stripped = stripWrappers([...command2.tokens]), head = getBasename(stripped[0] ?? "").toLowerCase();
+    if (head === "rm" || head === "rmdir")
+      found = !0, deletesFoundPaths ||= stripped.some((token) => token.includes("{}"));
+    index = command2.nextIndex;
+  }
+  return found ? { deletesFoundPaths } : null;
+}
+function findSelectsHooksByName(tokens) {
+  return tokens.some((token, index) => {
+    if (!["-name", "-iname"].includes(token))
+      return !1;
+    return tokens[index + 1]?.toLowerCase() === "hooks";
+  });
 }
 function hasOnlyTrustedTempDeleteTargets(tokens, context) {
   if (tokens.includes("-L") || tokens.includes("-f") || tokens.includes("-follow"))
@@ -10338,7 +10735,7 @@ function isFindExecPrimary(token) {
 }
 
 // src/core/analyze/parallel.ts
-import { isAbsolute as isAbsolute14 } from "node:path";
+import { isAbsolute as isAbsolute16 } from "node:path";
 
 // src/core/analyze/rm.ts
 var REASON_RM_RF = "rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_POLICY = "rm -rf for non-temporary paths is blocked by the active safety policy. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.", REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.", REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.", REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
@@ -10347,12 +10744,9 @@ function analyzeRmMatch(tokens, options2 = {}) {
     ...options2,
     allowPaths: options2.policy?.destructiveCommandAllowPaths,
     posixShell: !0
-  });
-  if (!hasRecursiveForceFlags(tokens))
-    return null;
-  let targets = extractTargets(tokens);
+  }), recursiveForce = hasRecursiveForceFlags(tokens), recursive = hasRecursiveOption(tokens), targets = extractTargets(tokens);
   for (let target of targets) {
-    if (options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+    if (recursiveForce && options2.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
       let match = filterDestructiveCommandMatch(reasonForClassification({ kind: "outside_anchored_cwd" }, ctx, options2.policy), options2.policy);
       if (match)
         return match;
@@ -10364,6 +10758,18 @@ function analyzeRmMatch(tokens, options2 = {}) {
         targetIsLiteral: expandedTargets !== void 0 || options2.literalTargetTokenIndexes?.has(target.index),
         tmpdirWordSplittingProtected: options2.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(target.index)
       };
+      if (!recursive && ctx.resolvedCwd && isProtectedGitDeleteTarget(expandedTarget, ctx.resolvedCwd, ctx.protectedGitMetadata, recursive, ctx.pathCanonicalizationBudget))
+        return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
+      if (recursive && !recursiveForce) {
+        let classification = classifyRecursiveDeleteTarget(expandedTarget, ctx, classificationOptions);
+        if (classification.kind === "root_or_home_target")
+          return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
+        if (classification.kind === "git_metadata_target")
+          return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
+        continue;
+      }
+      if (!recursiveForce)
+        continue;
       for (let classification of orderedTargetClassifications(expandedTarget, ctx, classificationOptions)) {
         let candidate = reasonForClassification(classification, ctx, options2.policy), match = filterDestructiveCommandMatch(candidate, options2.policy);
         if (match)
@@ -10418,6 +10824,8 @@ function reasonForClassification(classification, ctx, policy) {
   switch (classification.kind) {
     case "root_or_home_target":
       return destructiveCommandMatch("rm.recursive-force-root-or-home", REASON_RM_RF_ROOT_HOME);
+    case "git_metadata_target":
+      return destructiveCommandMatch("rm.git-metadata", REASON_GIT_METADATA_PROTECTION);
     case "temp_target":
       return null;
     case "dynamic_target":
@@ -11469,7 +11877,7 @@ function analyzeGitWorktree(tokens) {
 // src/core/git/config.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute13, join as join11, resolve as resolve9 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute15, join as join12, resolve as resolve10 } from "node:path";
 var TRUSTED_GIT_BINARIES = [
   "/usr/bin/git",
   "/usr/local/bin/git",
@@ -11606,10 +12014,10 @@ function getLocalGitConfigPaths(cwd) {
   let gitDir = resolveGitDirFromDotGit(dotGitPath);
   if (gitDir === null)
     return null;
-  let commonDir = resolveCommonGitDir(gitDir);
+  let commonDir = resolveCommonGitDir2(gitDir);
   if (commonDir === null)
     return null;
-  return [join11(commonDir, "config"), join11(gitDir, "config.worktree")];
+  return [join12(commonDir, "config"), join12(gitDir, "config.worktree")];
 }
 function resolveGitDirFromDotGit(dotGitPath) {
   try {
@@ -11619,20 +12027,20 @@ function resolveGitDirFromDotGit(dotGitPath) {
     let rawGitDir = firstLine.slice(7).trim();
     if (rawGitDir === "")
       return null;
-    return isAbsolute13(rawGitDir) ? rawGitDir : resolve9(dirname9(dotGitPath), rawGitDir);
+    return isAbsolute15(rawGitDir) ? rawGitDir : resolve10(dirname9(dotGitPath), rawGitDir);
   } catch {
     return null;
   }
 }
-function resolveCommonGitDir(gitDir) {
-  let commonDirPath = join11(gitDir, "commondir");
+function resolveCommonGitDir2(gitDir) {
+  let commonDirPath = join12(gitDir, "commondir");
   if (!existsSync3(commonDirPath))
     return gitDir;
   try {
     let rawCommonDir = readFileSync5(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
     if (rawCommonDir === "")
       return null;
-    return isAbsolute13(rawCommonDir) ? rawCommonDir : resolve9(gitDir, rawCommonDir);
+    return isAbsolute15(rawCommonDir) ? rawCommonDir : resolve10(gitDir, rawCommonDir);
   } catch {
     return null;
   }
@@ -11896,8 +12304,9 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       return filterDestructiveCommandMatch(destructiveCommandMatch("interpreter.dangerous-command", REASON_INTERPRETER_DANGEROUS), context.policy) ?? getDynamicSourceReason(options2, context);
     return getDynamicSourceReason(options2, context);
   }
-  if (normalizedHead === "rm" && (hasRecursiveForceFlags(tokens) || options2.dynamicRmInput))
-    return (hasRecursiveForceFlags(tokens) ? filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
+  if (normalizedHead === "rm" || normalizedHead === "rmdir") {
+    let dynamicRmPolicyApplies = normalizedHead === "rm" && (hasRecursiveForceFlags(tokens) || options2.dynamicRmInput);
+    return filterDestructiveCommandMatch(analyzeRmMatch([...tokens], {
       cwd: context.cwd,
       originalCwd: context.originalCwd,
       strict: context.strict,
@@ -11906,8 +12315,10 @@ function analyzeChildCommandMatch(tokens, context, options2 = {}) {
       tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
       tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
       trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+      protectedGitMetadata: context.protectedGitMetadata,
       policy: context.policy
-    }), context.policy) : null) ?? (options2.dynamicRmInput ? getDynamicSourceReason(options2, context) : null) ?? getDynamicRmReason(options2, context);
+    }), context.policy) ?? (dynamicRmPolicyApplies && options2.dynamicRmInput ? getDynamicSourceReason(options2, context) : null) ?? (dynamicRmPolicyApplies ? getDynamicRmReason(options2, context) : null);
+  }
   if (normalizedHead === "find")
     return analyzeFindMatch(tokens, {
       ...context,
@@ -12056,10 +12467,10 @@ function xargsInputCanChangeExecutedSource(childTokens, childHead, replacementTo
   }
   return !1;
 }
-function executableSourceInputCanChange(tokens, replacementToken, parse2, selectors) {
-  let parsed = parse2(tokens);
+function executableSourceInputCanChange(tokens, replacementToken, parse3, selectors) {
+  let parsed = parse3(tokens);
   if (replacementToken === null)
-    return parsed.optionsOpen || parse2([...tokens, XARGS_INTERPRETER_INPUT]).sources.some((source) => source.value === XARGS_INTERPRETER_INPUT);
+    return parsed.optionsOpen || parse3([...tokens, XARGS_INTERPRETER_INPUT]).sources.some((source) => source.value === XARGS_INTERPRETER_INPUT);
   if (parsed.sources.some((source) => source.value.includes(replacementToken)))
     return !0;
   let existingSources = new Set(parsed.sources.map((source) => `${source.tokenIndex}\x00${source.kind}\x00${source.value}`)), targets = selectors.flatMap((source) => [
@@ -12067,7 +12478,7 @@ function executableSourceInputCanChange(tokens, replacementToken, parse2, select
     ...source.valueForm === "attached-only" || source.valueForm === "attached-or-separate" ? [`${source.selector}${XARGS_INTERPRETER_INPUT}`] : [],
     ...source.valueForm === "equals-or-separate" ? [`${source.selector}=${XARGS_INTERPRETER_INPUT}`] : []
   ]), candidates = new Set(targets.flatMap((target) => tokens.flatMap((token) => replacementValuesThatProduce(token, replacementToken, target))));
-  return Array.from(candidates).some((candidate) => parse2(tokens.map((token) => token.replaceAll(replacementToken, candidate))).sources.some((source) => !existingSources.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
+  return Array.from(candidates).some((candidate) => parse3(tokens.map((token) => token.replaceAll(replacementToken, candidate))).sources.some((source) => !existingSources.has(`${source.tokenIndex}\x00${source.kind}\x00${source.value}`)));
 }
 function xargsInputCanSupplyWrapperChild(tokens, replacementToken, context) {
   if (tokens.length === 0 || (tokens[0] ?? "").toLowerCase() === "command")
@@ -12665,6 +13076,7 @@ function analyzeParallelRmExpansion(tokens, cwd, context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments ?? /* @__PURE__ */ new Map),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? /* @__PURE__ */ new Map),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? /* @__PURE__ */ new Map),
+    protectedGitMetadata: context.protectedGitMetadata,
     policy: context.policy
   }), context.policy);
 }
@@ -13009,7 +13421,7 @@ function resolveParallelWorkdir(workdir, cwd) {
     return;
   if (workdir === "..." || /[{}$`*?~[]/.test(workdir))
     return null;
-  if (!cwd && !isAbsolute14(workdir))
+  if (!cwd && !isAbsolute16(workdir))
     return null;
   try {
     return resolveChdirTarget(cwd ?? workdir, workdir);
@@ -13064,6 +13476,7 @@ var REASON_DYNAMIC_EXECUTABLE = "dynamic command name contains shell substitutio
 ]), COMMAND_ANALYZERS = /* @__PURE__ */ new Map([
   ["git", analyzeGitCommand],
   ["rm", analyzeRmCommand],
+  ["rmdir", analyzeRmCommand],
   ["find", analyzeFindCommand],
   ["xargs", analyzeXargsCommand],
   ["parallel", analyzeParallelCommand]
@@ -13635,6 +14048,7 @@ function analyzeRmCommand(context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -13692,6 +14106,7 @@ function analyzeFindCommand(context) {
     tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+    protectedGitMetadata: context.options.protectedGitMetadata,
     literalTargetTokenIndexes: targetMetadata?.literal,
     tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
     expandedTargetTokens: targetMetadata?.expanded,
@@ -13742,6 +14157,7 @@ function getNestedCommandAnalyzeContext(context) {
     paranoidRm: context.options.paranoidRm,
     paranoidInterpreters: context.options.paranoidInterpreters,
     allowTmpdirVar: context.allowTmpdirVar,
+    protectedGitMetadata: context.options.protectedGitMetadata,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     worktreeMode: context.options.worktreeMode,
@@ -13916,9 +14332,9 @@ function getCwdChangeTokens(segment, cwd) {
 }
 function samePath(a, b) {
   try {
-    return normalize5(realpathSync8(a)) === normalize5(realpathSync8(b));
+    return normalize6(realpathSync8(a)) === normalize6(realpathSync8(b));
   } catch {
-    return normalize5(a) === normalize5(b);
+    return normalize6(a) === normalize6(b);
   }
 }
 function stripLeadingGrouping(tokens) {
@@ -14843,6 +15259,7 @@ function getPowerShellRemoveItemOptions(options2, effectiveCwd = options2.effect
     strict: options2.strict,
     paranoid: options2.paranoidRm,
     allowTmpdirVar: options2.allowTmpdirVar,
+    protectedGitMetadata: options2.protectedGitMetadata,
     policy: options2.policy
   };
 }
@@ -14944,33 +15361,19 @@ function applyAnalysisOverride(capability, override, option) {
 function analyzeCommand(command2, options2) {
   return analyzeCommandWithProgram(command2, options2);
 }
-function analyzeCommandWithProgram(command2, options2, program, factStore) {
+function analyzeCommandWithProgram(command2, options2, program, factStore, protectedGitMetadata = resolveProtectedGitMetadata(options2.cwd)) {
   return analyzeCommandInternal(command2, 0, {
     ...options2,
     ...resolveCommandAnalysisContext(options2),
     invalidReason: options2.policySnapshot.state === "invalid" ? options2.policySnapshot.reason : void 0,
+    protectedGitMetadata,
     factStore
   }, program);
 }
 
 // src/core/policy-protection.ts
-import { homedir as homedir6 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute15, normalize as normalize6, resolve as resolve10 } from "node:path";
-var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_TOOLS = /* @__PURE__ */ new Set([
-  "findbyname",
-  "glob",
-  "grep",
-  "grepsearch",
-  "listdir",
-  "listpermissions",
-  "ls",
-  "read",
-  "readfile",
-  "readurlcontent",
-  "searchweb",
-  "view",
-  "viewfile"
-]), READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
+import { dirname as dirname10 } from "node:path";
+var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must not modify it.", READ_ONLY_COMMANDS = /* @__PURE__ */ new Set([
   "[",
   "cat",
   "file",
@@ -14986,7 +15389,7 @@ var REASON_POLICY_CONFIG_PROTECTION = "Policy config is protected and you must n
   "tail",
   "test",
   "wc"
-]), MV_OPTIONS_WITH_VALUES = /* @__PURE__ */ new Set(["-S", "-t", "--suffix", "--target-directory"]);
+]);
 function findPolicyConfigMutationTargetInSemanticFacts(facts) {
   let budget = createPathCanonicalizationBudget(), identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, budget);
   if (facts.invocation.route.kind === "patch")
@@ -14999,7 +15402,7 @@ function findPolicyConfigMutationTargetInSemanticFacts(facts) {
     if (target)
       return target;
   }
-  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || READ_ONLY_TOOLS.has(normalizeToolName(facts.invocation.toolName)), facts.invocation.context.executionCwd, identity, budget);
+  return findPolicyConfigMutationTargetInPaths(facts.paths.map((path) => path.raw), facts.invocation.route.kind === "grep" || facts.invocation.route.kind === "glob" || isReadOnlyTool(facts.invocation.toolName), facts.invocation.context.executionCwd, identity, budget);
 }
 function findPolicyConfigMutationTargetInPaths(paths, readOnly, cwd, identity, budget) {
   if (readOnly)
@@ -15008,41 +15411,36 @@ function findPolicyConfigMutationTargetInPaths(paths, readOnly, cwd, identity, b
   return target ? { target } : null;
 }
 function findPolicyConfigMutationTargetInCommand(syntax, cwd, identity, budget) {
-  if (syntax.status === "structural-limit")
-    throw new StructuralShellSyntaxLimitError;
-  if (syntax.status !== "complete")
-    return findPolicyConfigTargetInMalformedText(syntax.source, cwd, identity, budget);
-  let state = { cwd, variables: /* @__PURE__ */ new Map }, segment = [];
-  for (let entry of syntax.entries) {
-    if (entry.kind === "operator") {
-      if (!entry.boundary)
-        continue;
-      let target = findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
-      if (target)
-        return target;
-      state = applyShellState(segment, state, budget), segment = [];
-      continue;
-    }
-    if (entry.kind === "redirection") {
-      if (entry.role === "file-write" && entry.target && isPolicyFile(expandShellVariables(entry.target, state.variables), state.cwd, identity, budget))
-        return { target: entry.target };
-      continue;
-    }
-    segment.push(entry.text);
-  }
-  return findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
+  let target = findProtectedPathMutationInCommand(syntax, cwd, budget, {
+    findSegmentTarget: (segment, state) => findPolicyConfigMutationTargetInSegment(segment, state, identity, budget)?.target ?? null,
+    isRedirectionTarget: (target2, state) => isPolicyFile(target2, state.cwd, identity, budget),
+    findMalformedTarget: (source) => findPolicyConfigTargetInMalformedText(source, cwd, identity, budget)?.target ?? null,
+    normalizeCwd: normalizePolicyCandidatePath
+  });
+  return target ? { target } : null;
 }
 function findPolicyConfigMutationTargetInSegment(segment, state, identity, budget) {
   if (isAssignmentOnlySegment(segment))
     return null;
   let stripped = stripWrappers([...segment]), command2 = getBasename(stripped[0] ?? "").toLowerCase(), args = stripped.slice(1);
   if (command2 === "rm" && hasRecursiveRmOption(args)) {
-    let target = extractRmOperands(args).find((operand) => isPolicyDirectoryOrAncestor(expandShellVariables(operand, state.variables), state.cwd, identity, budget));
+    let target = extractRmOperands(args).find((operand) => isPolicyDirectoryOrAncestor(expandTrackedShellVariables(operand, state.variables), state.cwd, identity, budget));
     if (target)
       return { target };
   }
+  if (command2 === "find") {
+    let deletesDirectly = findHasDelete(stripped, 1), executesRm = findExecutesRm(stripped);
+    if (deletesDirectly || executesRm?.deletesFoundPaths) {
+      let target = (getFindStartingPoints(stripped) ?? [{ text: ".", index: -1 }]).find((startingPoint) => {
+        let expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
+        return isPolicyFile(expanded, state.cwd, identity, budget) || isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget);
+      })?.text;
+      if (target)
+        return { target };
+    }
+  }
   if (command2 === "mv") {
-    let target = extractMvSources(args).find((source) => isPolicyFileOrDirectorySource(expandShellVariables(source, state.variables), state.cwd, identity, budget));
+    let target = extractMvOperandPaths(args).sources.find((source) => isPolicyFileOrDirectorySource(expandTrackedShellVariables(source, state.variables), state.cwd, identity, budget));
     if (target)
       return { target };
   }
@@ -15050,7 +15448,7 @@ function findPolicyConfigMutationTargetInSegment(segment, state, identity, budge
     return null;
   for (let token of segment)
     for (let candidate of extractDirectPathCandidates(token))
-      if (isPolicyFile(expandShellVariables(candidate, state.variables), state.cwd, identity, budget))
+      if (isPolicyFile(expandTrackedShellVariables(candidate, state.variables), state.cwd, identity, budget))
         return { target: candidate };
   return null;
 }
@@ -15066,36 +15464,6 @@ function extractRmOperands(args) {
     ];
   return args.filter((arg) => !arg.startsWith("-"));
 }
-function extractMvSources(args) {
-  let operands = [], targetDirectory = !1, optionsEnded = !1;
-  for (let index = 0;index < args.length; index++) {
-    let arg = args[index];
-    if (arg === void 0)
-      break;
-    if (!optionsEnded && arg === "--") {
-      optionsEnded = !0;
-      continue;
-    }
-    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
-      targetDirectory ||= arg === "-t" || arg === "--target-directory", index++;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith("--target-directory=")) {
-      targetDirectory = !0;
-      continue;
-    }
-    if (!optionsEnded && (arg.startsWith("--suffix=") || arg.startsWith("--backup=")))
-      continue;
-    if (!optionsEnded && arg.startsWith("-t") && arg.length > 2) {
-      targetDirectory = !0;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith("-"))
-      continue;
-    operands.push(arg);
-  }
-  return targetDirectory ? operands : operands.slice(0, -1);
-}
 function isReadOnlySegment(tokens) {
   let stripped = stripWrappers([...tokens]);
   if (stripped.length === 0)
@@ -15106,33 +15474,6 @@ function isReadOnlySegment(tokens) {
   if (command2 !== "sed")
     return !0;
   return !stripped.slice(1).some((token) => token.startsWith("-i") || token === "--in-place" || token.startsWith("--in-place="));
-}
-function applyShellState(segment, state, budget) {
-  let variables = isAssignmentOnlySegment(segment) ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)]) : state.variables, stripped = stripWrappers([...segment]), target = getBasename(stripped[0] ?? "").toLowerCase() === "cd" ? stripped[1] : void 0;
-  return {
-    cwd: !target || target === "-" ? state.cwd : normalizePolicyCandidatePath(expandShellVariables(target, variables), state.cwd, budget),
-    variables
-  };
-}
-function extractShellAssignments(segment, variables) {
-  return segment.flatMap((token) => {
-    let assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
-    return assignment?.[1] !== void 0 && assignment[2] !== void 0 ? [[assignment[1], expandShellVariables(assignment[2], variables)]] : [];
-  });
-}
-function expandShellVariables(text, variables) {
-  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g, (match, name, operator, word) => {
-    let value = variables.get(name);
-    if (value === void 0)
-      return match;
-    let usable = operator.startsWith(":") ? value !== "" : !0;
-    if (operator.endsWith("-"))
-      return usable ? value : expandShellVariables(word, variables);
-    return usable ? expandShellVariables(word, variables) : "";
-  }).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name) => variables.get(name) ?? match).replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name) => variables.get(name) ?? match);
-}
-function isAssignmentOnlySegment(tokens) {
-  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
 }
 function findPolicyConfigTargetInMalformedText(text, cwd, identity, budget) {
   for (let token of text.split(/\s+/))
@@ -15148,34 +15489,30 @@ function extractDirectPathCandidates(value) {
 function createPolicyPathIdentity(cwd, budget) {
   let file = normalizePolicyCandidatePath(getUserPolicyPath(), cwd, budget), directory = dirname10(file), directoryAndAncestors = /* @__PURE__ */ new Set;
   for (let current = directory;; current = dirname10(current))
-    if (directoryAndAncestors.add(comparePath(current)), dirname10(current) === current)
+    if (directoryAndAncestors.add(comparePath2(current)), dirname10(current) === current)
       break;
-  return { file: comparePath(file), directory: comparePath(directory), directoryAndAncestors };
+  return { file: comparePath2(file), directory: comparePath2(directory), directoryAndAncestors };
 }
 function isPolicyFile(target, cwd, identity, budget) {
-  return comparePath(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
+  return comparePath2(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
 }
 function isPolicyDirectoryOrAncestor(target, cwd, identity, budget) {
-  return identity.directoryAndAncestors.has(comparePath(normalizePolicyCandidatePath(target, cwd, budget)));
+  return identity.directoryAndAncestors.has(comparePath2(normalizePolicyCandidatePath(target, cwd, budget)));
 }
 function isPolicyFileOrDirectorySource(target, cwd, identity, budget) {
-  let normalized = comparePath(normalizePolicyCandidatePath(target, cwd, budget));
+  let normalized = comparePath2(normalizePolicyCandidatePath(target, cwd, budget));
   return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
 }
 function normalizePolicyCandidatePath(target, cwd, budget) {
-  let unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, "/");
-  if (!unix)
-    return "";
-  let expanded = unix === "~" ? homedir6() : unix.startsWith("~/") ? resolve10(homedir6(), unix.slice(2)) : unix;
-  return resolveExistingPath(normalize6(isAbsolute15(expanded) ? expanded : resolve10(cwd, expanded)), budget).replace(/\\/g, "/");
+  return normalizeProtectedPathCandidate(target, cwd, budget);
 }
-function comparePath(path) {
+function comparePath2(path) {
   return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 // src/core/secret-protection.ts
 import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute16, resolve as resolve11 } from "node:path";
+import { isAbsolute as isAbsolute17, resolve as resolve11 } from "node:path";
 import { fileURLToPath } from "node:url";
 var REASON_SECRET_PROTECTION = "Access to a sensitive path is not allowed.", NON_PATH_OPERAND_COMMANDS = /* @__PURE__ */ new Set(["echo", "printf"]), PATH_ROOT_COMMANDS = /* @__PURE__ */ new Set(["find"]), FIND_EXEC_PRIMARIES2 = /* @__PURE__ */ new Set(["-exec", "-execdir"]), FIND_EXEC_TERMINATORS = /* @__PURE__ */ new Set([";", "+"]), FIND_NON_METADATA_ACTIONS = /* @__PURE__ */ new Set([
   "-delete",
@@ -16044,9 +16381,9 @@ function normalizeCandidatePath(target, cwd, budget) {
     return "";
   if (!home)
     return normalized;
-  let expanded = expandHomePath(normalized, home), absolute = isAbsolute16(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  let expanded = expandHomePath(normalized, home), absolute = isAbsolute17(expanded) ? expanded : normalizePathText(resolve11(cwd, expanded)), canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
-    if (isAbsolute16(expanded))
+    if (isAbsolute17(expanded))
       return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
   }
@@ -16058,7 +16395,7 @@ function normalizeAbsoluteCandidatePath(target, cwd, budget) {
   if (!normalized)
     return "";
   let expanded = home ? expandHomePath(normalized, home) : normalized;
-  return normalizePathText(resolveExistingPath(isAbsolute16(expanded) ? expanded : resolve11(cwd, expanded), budget));
+  return normalizePathText(resolveExistingPath(isAbsolute17(expanded) ? expanded : resolve11(cwd, expanded), budget));
 }
 function normalizeFileUriPath(value) {
   if (!value.trim().toLowerCase().startsWith("file:"))
@@ -16115,6 +16452,8 @@ class GuardEvaluationError extends Error {
 }
 var DEFAULT_DEPENDENCIES = {
   findPolicyMutation: findPolicyConfigMutationTargetInSemanticFacts,
+  findGitMetadataMutation: findGitMetadataMutationTargetInSemanticFacts,
+  resolveGitMetadata: resolveProtectedGitMetadata,
   loadPolicySnapshot,
   findSensitiveTarget: findSensitiveTargetInSemanticFacts,
   analyzeCommand: analyzeCommandWithProgram,
@@ -16142,7 +16481,7 @@ function evaluateGuard(invocation, options2 = {}) {
         evidence: []
       }
     };
-  let policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
+  let protectedGitMetadata = callDependency("policy-protection", command2, () => dependencies.resolveGitMetadata(invocation.context.executionCwd)), policyTarget = callDependency("policy-protection", command2, () => dependencies.findPolicyMutation(facts));
   if (policyTarget) {
     let displayCommand = command2 ?? policyTarget.target;
     return {
@@ -16154,6 +16493,22 @@ function evaluateGuard(invocation, options2 = {}) {
         evidence: [
           { kind: "command", command: displayCommand, segment: policyTarget.target },
           { kind: "path", target: policyTarget.target }
+        ]
+      }
+    };
+  }
+  let gitMetadataTarget = callDependency("policy-protection", command2, () => dependencies.findGitMetadataMutation(facts, protectedGitMetadata));
+  if (gitMetadataTarget) {
+    let displayCommand = command2 ?? gitMetadataTarget.target;
+    return {
+      stage: "policy-protection",
+      decision: {
+        kind: "deny",
+        reason: REASON_GIT_METADATA_PROTECTION,
+        intent: "hard_stop",
+        evidence: [
+          { kind: "command", command: displayCommand, segment: gitMetadataTarget.target },
+          { kind: "path", target: gitMetadataTarget.target }
         ]
       }
     };
@@ -16206,7 +16561,7 @@ function evaluateGuard(invocation, options2 = {}) {
       paranoidRm: modes.paranoidRm,
       paranoidInterpreters: modes.paranoidInterpreters,
       worktreeMode: modes.worktreeMode
-    }, getDeclaredCommandProgram(facts), facts.store);
+    }, getDeclaredCommandProgram(facts), facts.store, protectedGitMetadata);
   });
   if (result)
     return blockedCommandEvaluation(invocation, result);
@@ -16561,7 +16916,7 @@ function resolveAntigravityTargetRoot(toolInput, toolName, configRoots) {
   let route = getAntigravityCliToolRoute(toolName), targets = [
     ...extractPathLikeToolValues(toolInput, ANTIGRAVITY_PATH_KEYS),
     ...route.kind === "patch" ? extractPatchTargetsFromToolInput(toolInput) : []
-  ].filter(isAbsolute17), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
+  ].filter(isAbsolute18), budget = createPathCanonicalizationBudget(), targetRoots = new Set(targets.flatMap((target) => {
     let root = mostSpecificContainingRoot(resolveExistingPath(target, budget), configRoots);
     return root ? [root] : [];
   }));
@@ -16573,8 +16928,8 @@ function mostSpecificContainingRoot(path, roots) {
   return roots.filter((root) => isSameOrInside(path, root)).reduce((best, root) => root.length > best.length ? root : best, "") || null;
 }
 function isSameOrInside(path, root) {
-  let rel = relative5(root, path);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute17(rel);
+  let rel = relative6(root, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute18(rel);
 }
 function outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd) {
   let command2 = toolInput && typeof toolInput === "object" ? toolInput.command : void 0;
@@ -16603,17 +16958,17 @@ function normalizeAntigravityToolArgs(args, toolName) {
 
 // src/bin/hook/agent-detection.ts
 import { homedir as homedir8 } from "node:os";
-import { isAbsolute as isAbsolute18, join as join12 } from "node:path";
+import { isAbsolute as isAbsolute19, join as join13 } from "node:path";
 function detectClaudeShapeAgent(transcriptPath) {
-  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute18(transcriptPath))
+  if (transcriptPath !== void 0 && transcriptPath !== null && !isAbsolute19(transcriptPath))
     return "unknown";
   try {
     let budget = createPathCanonicalizationBudget(), transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : void 0, home = process.env.HOME || homedir8(), roots = [
-      ["codex", process.env.CODEX_HOME || join12(home, ".codex")],
-      ["copilot-cli", process.env.COPILOT_HOME || join12(home, ".copilot")],
-      ["claude-code", process.env.CLAUDE_CONFIG_DIR || join12(home, ".claude")]
+      ["codex", process.env.CODEX_HOME || join13(home, ".codex")],
+      ["copilot-cli", process.env.COPILOT_HOME || join13(home, ".copilot")],
+      ["claude-code", process.env.CLAUDE_CONFIG_DIR || join13(home, ".claude")]
     ], matches = transcript ? roots.flatMap(([agent, root]) => {
-      if (!isAbsolute18(root))
+      if (!isAbsolute19(root))
         return [];
       return isSameOrInsidePath(transcript, resolveExistingPath(root, budget)) ? [agent] : [];
     }) : [];
@@ -17234,7 +17589,7 @@ function validateParsedConfigFile(path, validate) {
   return validate(loaded.parsed);
 }
 // src/core/rules/policy/sync.ts
-import { isAbsolute as isAbsolute19, join as join13, relative as relative6, resolve as resolve13, sep as sep9 } from "node:path";
+import { isAbsolute as isAbsolute20, join as join14, relative as relative7, resolve as resolve13, sep as sep9 } from "node:path";
 async function syncRulesConfig(options2 = {}) {
   return syncRulesConfigInternal(projectSyncOptions(options2), createRuleSyncOperation());
 }
@@ -17496,8 +17851,8 @@ function pruneUnreferencedRulebookCaches(entries, configDir, options2, filesyste
   if (!cacheEntries)
     return [];
   let keepTargets = entries.map((entry) => getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions))), pruneTargets = cacheEntries.filter((entry) => entry.kind === "directory").map((entry) => ({
-    directory: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name)),
-    identity: getPolicyFilesystemTargetForPath(filesystemScope, join13(cacheRoot, entry.name, RULEBOOK_FILE))
+    directory: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name)),
+    identity: getPolicyFilesystemTargetForPath(filesystemScope, join14(cacheRoot, entry.name, RULEBOOK_FILE))
   })).filter((candidate) => !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target))).map((candidate) => candidate.directory);
   for (let target of pruneTargets)
     validatePolicyDirectoryRemoval(target);
@@ -17517,13 +17872,13 @@ function getLocalSourceDirsForDelete(configDir, specs, lock, filesystemScope) {
     return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
   }), dirs = specs.map((spec) => {
     let entry = entriesBySpec.get(spec);
-    return join13(configDir, entry?.kind === "local-directory" ? entry.path : spec);
+    return join14(configDir, entry?.kind === "local-directory" ? entry.path : spec);
   }), dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir, filesystemScope)), allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0 ? { ok: !1, result: { ok: !1, errors: allErrors, warnings: [], entries: [] } } : { ok: !0, dirs };
 }
 function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
-  let resolvedConfigDir = resolve13(configDir), resolvedDir = resolve13(dir), relativeDir = relative6(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep9}`) || isAbsolute19(relativeDir))
+  let resolvedConfigDir = resolve13(configDir), resolvedDir = resolve13(dir), relativeDir = relative7(resolvedConfigDir, resolvedDir);
+  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep9}`) || isAbsolute20(relativeDir))
     return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
   let target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir), entries = readPolicyDirectoryEntries(target);
   if (!entries)
@@ -17533,7 +17888,7 @@ function getLocalSourceDirDeleteError(configDir, dir, filesystemScope) {
     return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
   if (rulebookEntry.kind !== "file")
     throw new PolicyFilesystemError(filesystemScope.label);
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join13(resolvedDir, "rulebook.json"))), entries.length > 1)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join14(resolvedDir, "rulebook.json"))), entries.length > 1)
     return [
       `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
     ];
@@ -18136,7 +18491,7 @@ ${report.findings.length} ${label}: ${parts.join(", ")}.`;
 // src/bin/doctor/hooks.ts
 import { existsSync as existsSync4, readdirSync as readdirSync3, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 
 // src/bin/config/jsonc.ts
 function stripJsonComments(content) {
@@ -18201,9 +18556,9 @@ function stripJsonComments(content) {
 }
 
 // src/bin/hook/antigravity.ts
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function getAntigravityHooksPath(homeDir) {
-  return join14(homeDir, ".gemini", "config", "hooks.json");
+  return join15(homeDir, ".gemini", "config", "hooks.json");
 }
 
 // src/bin/doctor/hooks.ts
@@ -18249,9 +18604,9 @@ function _escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function detectOpenCode(homeDir) {
-  let errors = [], configDir = join15(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
+  let errors = [], configDir = join16(homeDir, ".config", "opencode"), candidates = ["opencode.json", "opencode.jsonc"];
   for (let filename of candidates) {
-    let configPath = join15(configDir, filename);
+    let configPath = join16(configDir, filename);
     if (existsSync4(configPath))
       try {
         let content = readFileSync7(configPath, "utf-8"), json = stripJsonComments(content);
@@ -18298,7 +18653,7 @@ function detectGeminiCLI(extensionsListOutput) {
   };
 }
 function _getKimiConfigPath(homeDir) {
-  return join15(process.env.KIMI_CODE_HOME || join15(homeDir, ".kimi-code"), "config.toml");
+  return join16(process.env.KIMI_CODE_HOME || join16(homeDir, ".kimi-code"), "config.toml");
 }
 function _findAntigravitySafetyNetHooks(config) {
   if (!config || typeof config !== "object" || Array.isArray(config))
@@ -18483,7 +18838,7 @@ function _supportsCopilotInlineHooks(version) {
   return comparison >= 0;
 }
 function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join15(homeDir, ".copilot");
+  return process.env.COPILOT_HOME || join16(homeDir, ".copilot");
 }
 function _hasSafetyNetCopilotHook(config) {
   return (config.hooks?.preToolUse ?? []).some((hook) => {
@@ -18512,7 +18867,7 @@ function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
     return [];
   let matches = [];
   for (let filename of _listJsonFiles(dirPath, errors)) {
-    let configPath = join15(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
+    let configPath = join16(dirPath, filename), config = _readCopilotConfigFile(configPath, errors);
     if (config && _hasSafetyNetCopilotHook(config))
       matches.push(configPath);
   }
@@ -18548,10 +18903,10 @@ function _resolveCopilotInlineDisableSource(inlineSources) {
   return;
 }
 function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join15(cwd, ".github", "hooks"), userHookDir = join15(configHome, "hooks"), repoConfigDir = join15(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join15(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join15(repoConfigDir, "settings.local.json"), inlineErrors)
+  let configHome = _getCopilotConfigHome(homeDir), repoHookDir = join16(cwd, ".github", "hooks"), userHookDir = join16(configHome, "hooks"), repoConfigDir = join16(cwd, ".github", "copilot"), inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion), inlineErrors = inlineSupport === !0 ? errors : void 0, inlineSources = {
+    userConfig: _collectCopilotInlineConfig(join16(configHome, "config.json"), inlineErrors),
+    repoSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.json"), inlineErrors),
+    localSettings: _collectCopilotInlineConfig(join16(repoConfigDir, "settings.local.json"), inlineErrors)
   };
   if (inlineSupport !== !1) {
     let disableSource = _resolveCopilotInlineDisableSource(inlineSources);
@@ -18563,7 +18918,7 @@ function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
   }
   let repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors), userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion), userHookErrors = userHookSupport === !0 ? errors : void 0, userHookFiles = existsSync4(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [], userHookPaths = [];
   for (let filename of userHookFiles) {
-    let configPath = join15(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
+    let configPath = join16(userHookDir, filename), config = _readCopilotConfigFile(configPath, userHookErrors);
     if (config && _hasSafetyNetCopilotHook(config))
       userHookPaths.push(configPath);
   }
@@ -18702,7 +19057,7 @@ import { spawn } from "node:child_process";
 import { existsSync as existsSync5 } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { delimiter, extname, join as join16 } from "node:path";
+import { delimiter, extname, join as join17 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 
 // src/integrations/copilot-cli.ts
@@ -18744,7 +19099,7 @@ function resolveWindowsCommand(command2, env) {
   ];
   if (command2.includes("/") || command2.includes("\\"))
     return candidates.find((candidate) => existsSync5(candidate)) ?? command2;
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join16(dir, candidate))).find((candidate) => existsSync5(candidate)) ?? command2;
+  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join17(dir, candidate))).find((candidate) => existsSync5(candidate)) ?? command2;
 }
 function quoteWindowsCommandArg(value) {
   if (!/[\s"&|<>^]/.test(value))
@@ -18879,7 +19234,7 @@ function runCommand(args, options2) {
   });
 }
 var defaultPiProbeRunner = async (cwd) => {
-  let tempDir = await mkdtemp(join16(tmpdir2(), "cc-safety-net-pi-probe-")), probePath = join16(tempDir, "pi-extension-probe.ts"), resultPath = join16(tempDir, "result.json"), stdoutPath = join16(tempDir, "stdout.jsonl");
+  let tempDir = await mkdtemp(join17(tmpdir2(), "cc-safety-net-pi-probe-")), probePath = join17(tempDir, "pi-extension-probe.ts"), resultPath = join17(tempDir, "result.json"), stdoutPath = join17(tempDir, "stdout.jsonl");
   try {
     await writeFile(probePath, PI_PROBE_EXTENSION);
     let result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
@@ -19309,7 +19664,7 @@ async function resolveAfterOptionalBanner(showBanner, startWork, printBanner, op
 
 // src/integrations/self-test.ts
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 var CASES = Object.freeze([
   { command: "git reset --hard", description: "git reset --hard", expectBlocked: !0 },
   { command: "rm -rf /", description: "rm -rf /", expectBlocked: !0 },
@@ -19354,7 +19709,7 @@ var CASES = Object.freeze([
   }
 };
 function runIntegrationSelfTest() {
-  let cwd = join17(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
+  let cwd = join18(tmpdir3(), "cc-safety-net-self-test"), results = CASES.map((testCase) => {
     let evaluation = evaluateRuntimeGuard(createToolInvocation("self-test", { command: testCase.command }, { kind: "command", shell: "auto" }, { configCwd: cwd, executionCwd: cwd }, testCase.command), {
       guard: {
         dependencies: {
@@ -20746,10 +21101,8 @@ label.row.safety-override-row select {
   color: var(--master-fg);
 }
 
-.rule-customization-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: -8px 0 12px;
+.panel-head-action {
+  flex: none;
 }
 
 .rule-tier {
@@ -20860,6 +21213,10 @@ label.row.safety-override-row select {
 .rule-row.row-disabled .rule-control {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.rule-row-enforced .rule-control {
+  cursor: default;
 }
 
 .rule-example-button {
@@ -21452,6 +21809,7 @@ var page_default = `<!doctype html>
           <h2>Destructive Command Protection</h2>
           <p class="panel-sub muted" id="destructive-command-summary"></p>
         </div>
+        <button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>
       </div>
       <div id="destructive-command"></div>
     </section>
@@ -21527,6 +21885,7 @@ var page_default = `<!doctype html>
     let dirty = false;
     let searchActive = false;
     const tierExpanded = new Map([
+      ['enforced', false],
       ['normal', false],
       ['strict', false],
       ['paranoid', false]
@@ -22017,13 +22376,39 @@ var page_default = `<!doctype html>
       );
       qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
         ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\`
-        : 'Protection disabled. Saved rule settings and allow paths are preserved. Custom rules and secret protection still apply.';
+        : 'Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.';
+      const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);
+      const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);
+      const enforcedExpanded = tierExpanded.get('enforced')
+        || (searchActive && !searchCollapsedTiers.has('enforced'));
+      const enforcedSection = enforcedRules.length === 0 ? '' : \`<section class="rule-tier rule-tier-enforced">
+            <button type="button" class="rule-tier-head" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
+              <span class="panel-chevron" aria-hidden="true"></span>
+              <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
+              <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
+            </button>
+            <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? '' : 'hidden'}>
+              \${groupRules(enforcedRules).map((group) => \`<section class="destructive-command-group">
+                <h3>\${escapeHtml(group.category)}</h3>
+                <div class="grid">\${group.rules.map((rule) => \`<div class="row rule-row rule-row-enforced">
+                    <span class="rule-control">
+                      <span>
+                        <strong>\${escapeHtml(rule.label)}</strong>
+                        <code class="rule-id">\${escapeHtml(rule.id)}</code>
+                        <small><span class="state-active">Always enforced</span> \${escapeHtml(rule.description)}</small>
+                      </span>
+                    </span>
+                    <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+                  </div>\`).join('')}</div>
+              </section>\`).join('')}
+            </div>
+          </section>\`;
       qs('destructive-command-rules').innerHTML = matchingRules.length === 0
         ? '<p class="empty">No built-in protections match the search.</p>'
-        : Object.keys(tierMeta).map((tier) => {
-          const rules = matchingRules.filter((rule) => tierForRule(rule) === tier);
+        : enforcedSection + Object.keys(tierMeta).map((tier) => {
+          const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
           if (rules.length === 0) return '';
-          const allTierRules = state.destructiveCommandRules.filter((rule) => tierForRule(rule) === tier);
+          const allTierRules = state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
           const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
           const expanded = tierExpanded.get(tier)
             || (searchActive && !searchCollapsedTiers.has(tier));
@@ -22084,8 +22469,7 @@ var page_default = `<!doctype html>
       qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
       renderSafety();
       qs('destructive-command').innerHTML =
-        '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block built-in destructive git, filesystem, and execution patterns. Custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
-        '<div class="rule-customization-actions"><button type="button" id="reset-rule-customizations">Reset rule customizations</button></div>' +
+        '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
         '<div id="destructive-command-rules"></div>' +
         '<section class="rule-tier">' +
         '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
@@ -22798,7 +23182,7 @@ function uninstallAntigravityCli(homeDir) {
 
 // src/bin/hook/install/kimi-code.ts
 import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname14, join as join18 } from "node:path";
+import { dirname as dirname14, join as join19 } from "node:path";
 
 // src/bin/hook/config-edit.ts
 function isWhitespace(char) {
@@ -22877,7 +23261,7 @@ var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code", KIMI_HOOK_BLOCK
 event = "PreToolUse"
 command = "${KIMI_HOOK_COMMAND}"`, KIMI_INLINE_HOOK = `{ event = "PreToolUse", command = "${KIMI_HOOK_COMMAND}" }`;
 function getKimiConfigPath(homeDir) {
-  return join18(process.env.KIMI_CODE_HOME ?? join18(homeDir, ".kimi-code"), "config.toml");
+  return join19(process.env.KIMI_CODE_HOME ?? join19(homeDir, ".kimi-code"), "config.toml");
 }
 function removeTopLevelEmptyHooksArray(content) {
   return content.split(`
@@ -23007,16 +23391,16 @@ function runNativeCommands(commands2) {
 
 // src/bin/hook/install/opencode.ts
 import { existsSync as existsSync8, readFileSync as readFileSync10, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 var OPENCODE_PACKAGE = "cc-safety-net", OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`, OPENCODE_CONFIG_FILES = ["opencode.json", "opencode.jsonc"];
 function getDefaultOpenCodeConfigPath(homeDir) {
-  return join19(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
+  return join20(homeDir, ".config", "opencode", OPENCODE_CONFIG_FILES[0]);
 }
 function getOpenCodeConfigPaths(homeDir) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join19(homeDir, ".config", "opencode", filename));
+  return OPENCODE_CONFIG_FILES.map((filename) => join20(homeDir, ".config", "opencode", filename));
 }
 function getOpenCodeCachePath(homeDir) {
-  return join19(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
+  return join20(homeDir, ".cache", "opencode", "packages", OPENCODE_CACHE_PACKAGE);
 }
 function clearOpenCodeCache(homeDir) {
   rmSync(getOpenCodeCachePath(homeDir), { recursive: !0, force: !0 });
@@ -23608,7 +23992,7 @@ Check that every parent path component is a directory.`;
 }
 
 // src/bin/rule/index.ts
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 
 // src/bin/rule/doc.ts
 var RULE_DOC = "# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | Lower |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Higher |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- Override values are either `\"off\"` to disable a rule or `{ \"reason\": \"...\" }` to replace the rule reason.\n- Project overrides cannot disable or rewrite user-scoped rules; such configs fail closed.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- Rulebook source names must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | String |\n| `author` | No | String |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | Yes | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook; same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nEvery rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.\n\n## Matching Behavior\n\n- **Command**: Normalized to basename (`/usr/bin/git` → `git`).\n- **Subcommand**: First non-option argument after command.\n- **Arguments**: Matched literally. Command blocked if **any** `block_args` item is present.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source.\n5. Run `cc-safety-net rule sync` after adding or changing rulebook sources.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.\n7. Run `cc-safety-net rule test` to execute rulebook fixtures.\n8. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nInvalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `cc-safety-net rule sync`.\n";
@@ -23705,7 +24089,7 @@ function printResultWarnings(result) {
 }
 
 // src/bin/rule/migrate.ts
-import { dirname as dirname15, join as join20 } from "node:path";
+import { dirname as dirname15, join as join21 } from "node:path";
 var PROJECT_MIGRATED_FROM = ".safety-net.json", USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
 async function runRulesMigrate(options2) {
   return [
@@ -23748,7 +24132,7 @@ async function migrateRulesScope(options2) {
     rules: [],
     overrides: {},
     transparent_wrappers: []
-  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join20(dirname15(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
+  }, rulebookName = getMigratedRulebookName(dirname15(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom, scope.filesystemScope), rulebookPath = join21(dirname15(options2.configPath), rulebookName, "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath), snapshots = [
     snapshotFile(scope.configTarget),
     snapshotFile(rulebookTarget),
     snapshotFile(scope.lockTarget)
@@ -23797,14 +24181,14 @@ function readLegacyRulesConfig(content) {
   }
 }
 function getMigratedRulebookName(configDir, sources, defaultRulebookName, migratedFrom, filesystemScope) {
-  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, source, "rulebook.json"))) === migratedFrom);
+  let existing = sources.find((source) => getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, source, "rulebook.json"))) === migratedFrom);
   if (existing)
     return existing;
-  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, defaultRulebookName, "rulebook.json"))) === null)
+  if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, defaultRulebookName, "rulebook.json"))) === null)
     return defaultRulebookName;
   for (let i = 2;; i++) {
     let name = `${defaultRulebookName}-${i}`;
-    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join20(configDir, name, "rulebook.json"))) === null)
+    if (readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join21(configDir, name, "rulebook.json"))) === null)
       return name;
   }
 }
@@ -23863,7 +24247,7 @@ function getMigratedFrom(target) {
 }
 
 // src/bin/rule/verify.ts
-import { dirname as dirname16, join as join21, resolve as resolve15 } from "node:path";
+import { dirname as dirname16, join as join22, resolve as resolve15 } from "node:path";
 var VERIFY_HEADER = "CC Safety Net Config", VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length), RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json", RULES_DIR_RESERVED_ENTRIES = /* @__PURE__ */ new Set(["rule.json", "rule.lock", "cache"]);
 function runRulesVerify(options2 = {}) {
   try {
@@ -23996,7 +24380,7 @@ function validateGitHubSourceRules(target) {
       errors.push(`${entry.name} must be a rulebook directory`);
       continue;
     }
-    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join21(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
+    let rulebookTarget = getPolicyFilesystemTargetForPath(target.scope, join22(target.path, entry.name, "rulebook.json")), content = readPolicyFile(rulebookTarget);
     if (content === null) {
       errors.push(`${entry.name}/rulebook.json is required`);
       continue;
@@ -24129,7 +24513,7 @@ async function runRuleCommandInternal(args) {
   if (subcommand === "init") {
     let scope = getScopePaths(options2), dir = scope.configDir;
     ensureRulesConfig(scope.configTarget), ensurePolicyDirectory(getPolicyFilesystemTargetForPath(scope.filesystemScope, getRulebookCacheRoot({ ...options2, cacheConfigDir: dir })));
-    let rulebookPath = join22(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
+    let rulebookPath = join23(dir, "example-rules", "rulebook.json"), rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
     if (flags.example && readPolicyFile(rulebookTarget) === null)
       writeStarterRulebook(rulebookTarget, "example-rules");
     let result = await syncRulesConfig(options2);
@@ -24324,7 +24708,7 @@ function printTransparentWrappers(wrappers2) {
 // src/bin/statusline.ts
 import { existsSync as existsSync9, readFileSync as readFileSync11 } from "node:fs";
 import { homedir as homedir11 } from "node:os";
-import { join as join23 } from "node:path";
+import { join as join24 } from "node:path";
 async function readStdinAsync() {
   if (process.stdin.isTTY)
     return null;
@@ -24343,7 +24727,7 @@ async function readStdinAsync() {
 function getSettingsPath() {
   if (process.env.CLAUDE_SETTINGS_PATH)
     return process.env.CLAUDE_SETTINGS_PATH;
-  return join23(homedir11(), ".claude", "settings.json");
+  return join24(homedir11(), ".claude", "settings.json");
 }
 function isPluginEnabled() {
   let settingsPath = getSettingsPath();

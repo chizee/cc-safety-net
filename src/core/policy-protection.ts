@@ -1,40 +1,27 @@
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, normalize, resolve } from 'node:path';
+import { dirname } from 'node:path';
+import { findExecutesRm, findHasDelete, getFindStartingPoints } from '@/core/analyze/find';
 import {
   createPathCanonicalizationBudget,
-  expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationBudget,
-  resolveExistingPath,
 } from '@/core/path-canonicalization';
 import { getUserPolicyPath } from '@/core/policy';
 import {
-  createSemanticFacts,
-  getCommandSyntaxFact,
-  StructuralShellSyntaxLimitError,
-} from '@/core/semantic-facts';
+  expandTrackedShellVariables,
+  extractMvOperandPaths,
+  findProtectedPathMutationInCommand,
+  isAssignmentOnlySegment,
+  normalizeProtectedPathCandidate,
+  type ProtectedPathShellState,
+} from '@/core/protected-path-scanner';
+import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
 import { getBasename, stripWrappers } from '@/core/shell';
-import { normalizeToolName } from '@/core/tool-input';
+import { isReadOnlyTool } from '@/core/tool-input';
 import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'Policy config is protected and you must not modify it.';
 
-const READ_ONLY_TOOLS = new Set([
-  'findbyname',
-  'glob',
-  'grep',
-  'grepsearch',
-  'listdir',
-  'listpermissions',
-  'ls',
-  'read',
-  'readfile',
-  'readurlcontent',
-  'searchweb',
-  'view',
-  'viewfile',
-]);
 const READ_ONLY_COMMANDS = new Set([
   '[',
   'cat',
@@ -52,8 +39,6 @@ const READ_ONLY_COMMANDS = new Set([
   'test',
   'wc',
 ]);
-const MV_OPTIONS_WITH_VALUES = new Set(['-S', '-t', '--suffix', '--target-directory']);
-
 type PolicyConfigTarget = {
   readonly target: string;
 };
@@ -62,11 +47,6 @@ type PolicyPathIdentity = {
   readonly file: string;
   readonly directory: string;
   readonly directoryAndAncestors: ReadonlySet<string>;
-};
-
-type ShellState = {
-  readonly cwd: string;
-  readonly variables: ReadonlyMap<string, string>;
 };
 
 /** @internal */
@@ -122,7 +102,7 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
     facts.paths.map((path) => path.raw),
     facts.invocation.route.kind === 'grep' ||
       facts.invocation.route.kind === 'glob' ||
-      READ_ONLY_TOOLS.has(normalizeToolName(facts.invocation.toolName)),
+      isReadOnlyTool(facts.invocation.toolName),
     facts.invocation.context.executionCwd,
     identity,
     budget,
@@ -147,45 +127,20 @@ function findPolicyConfigMutationTargetInCommand(
   identity: PolicyPathIdentity,
   budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
-  if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
-  if (syntax.status !== 'complete') {
-    return findPolicyConfigTargetInMalformedText(syntax.source, cwd, identity, budget);
-  }
-
-  let state: ShellState = { cwd, variables: new Map() };
-  let segment: string[] = [];
-  for (const entry of syntax.entries) {
-    if (entry.kind === 'operator') {
-      if (!entry.boundary) continue;
-      const target = findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
-      if (target) return target;
-      state = applyShellState(segment, state, budget);
-      segment = [];
-      continue;
-    }
-    if (entry.kind === 'redirection') {
-      if (
-        entry.role === 'file-write' &&
-        entry.target &&
-        isPolicyFile(
-          expandShellVariables(entry.target, state.variables),
-          state.cwd,
-          identity,
-          budget,
-        )
-      ) {
-        return { target: entry.target };
-      }
-      continue;
-    }
-    segment.push(entry.text);
-  }
-  return findPolicyConfigMutationTargetInSegment(segment, state, identity, budget);
+  const target = findProtectedPathMutationInCommand(syntax, cwd, budget, {
+    findSegmentTarget: (segment, state) =>
+      findPolicyConfigMutationTargetInSegment(segment, state, identity, budget)?.target ?? null,
+    isRedirectionTarget: (target, state) => isPolicyFile(target, state.cwd, identity, budget),
+    findMalformedTarget: (source) =>
+      findPolicyConfigTargetInMalformedText(source, cwd, identity, budget)?.target ?? null,
+    normalizeCwd: normalizePolicyCandidatePath,
+  });
+  return target ? { target } : null;
 }
 
 function findPolicyConfigMutationTargetInSegment(
   segment: readonly string[],
-  state: ShellState,
+  state: ProtectedPathShellState,
   identity: PolicyPathIdentity,
   budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
@@ -197,7 +152,7 @@ function findPolicyConfigMutationTargetInSegment(
   if (command === 'rm' && hasRecursiveRmOption(args)) {
     const target = extractRmOperands(args).find((operand) =>
       isPolicyDirectoryOrAncestor(
-        expandShellVariables(operand, state.variables),
+        expandTrackedShellVariables(operand, state.variables),
         state.cwd,
         identity,
         budget,
@@ -206,10 +161,27 @@ function findPolicyConfigMutationTargetInSegment(
     if (target) return { target };
   }
 
+  if (command === 'find') {
+    const deletesDirectly = findHasDelete(stripped, 1);
+    const executesRm = findExecutesRm(stripped);
+    if (deletesDirectly || executesRm?.deletesFoundPaths) {
+      const target = (getFindStartingPoints(stripped) ?? [{ text: '.', index: -1 }]).find(
+        (startingPoint) => {
+          const expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
+          return (
+            isPolicyFile(expanded, state.cwd, identity, budget) ||
+            isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget)
+          );
+        },
+      )?.text;
+      if (target) return { target };
+    }
+  }
+
   if (command === 'mv') {
-    const target = extractMvSources(args).find((source) =>
+    const target = extractMvOperandPaths(args).sources.find((source) =>
       isPolicyFileOrDirectorySource(
-        expandShellVariables(source, state.variables),
+        expandTrackedShellVariables(source, state.variables),
         state.cwd,
         identity,
         budget,
@@ -222,7 +194,12 @@ function findPolicyConfigMutationTargetInSegment(
   for (const token of segment) {
     for (const candidate of extractDirectPathCandidates(token)) {
       if (
-        isPolicyFile(expandShellVariables(candidate, state.variables), state.cwd, identity, budget)
+        isPolicyFile(
+          expandTrackedShellVariables(candidate, state.variables),
+          state.cwd,
+          identity,
+          budget,
+        )
       ) {
         return { target: candidate };
       }
@@ -250,37 +227,6 @@ function extractRmOperands(args: readonly string[]): readonly string[] {
   return args.filter((arg) => !arg.startsWith('-'));
 }
 
-function extractMvSources(args: readonly string[]): readonly string[] {
-  const operands: string[] = [];
-  let targetDirectory = false;
-  let optionsEnded = false;
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === undefined) break;
-    if (!optionsEnded && arg === '--') {
-      optionsEnded = true;
-      continue;
-    }
-    if (!optionsEnded && MV_OPTIONS_WITH_VALUES.has(arg)) {
-      targetDirectory ||= arg === '-t' || arg === '--target-directory';
-      index++;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith('--target-directory=')) {
-      targetDirectory = true;
-      continue;
-    }
-    if (!optionsEnded && (arg.startsWith('--suffix=') || arg.startsWith('--backup='))) continue;
-    if (!optionsEnded && arg.startsWith('-t') && arg.length > 2) {
-      targetDirectory = true;
-      continue;
-    }
-    if (!optionsEnded && arg.startsWith('-')) continue;
-    operands.push(arg);
-  }
-  return targetDirectory ? operands : operands.slice(0, -1);
-}
-
 function isReadOnlySegment(tokens: readonly string[]): boolean {
   const stripped = stripWrappers([...tokens]);
   if (stripped.length === 0) return false;
@@ -293,60 +239,6 @@ function isReadOnlySegment(tokens: readonly string[]): boolean {
       (token) =>
         token.startsWith('-i') || token === '--in-place' || token.startsWith('--in-place='),
     );
-}
-
-function applyShellState(
-  segment: readonly string[],
-  state: ShellState,
-  budget: PathCanonicalizationBudget,
-): ShellState {
-  const variables = isAssignmentOnlySegment(segment)
-    ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)])
-    : state.variables;
-  const stripped = stripWrappers([...segment]);
-  const target = getBasename(stripped[0] ?? '').toLowerCase() === 'cd' ? stripped[1] : undefined;
-  return {
-    cwd:
-      !target || target === '-'
-        ? state.cwd
-        : normalizePolicyCandidatePath(expandShellVariables(target, variables), state.cwd, budget),
-    variables,
-  };
-}
-
-function extractShellAssignments(
-  segment: readonly string[],
-  variables: ReadonlyMap<string, string>,
-): readonly [string, string][] {
-  return segment.flatMap((token): [string, string][] => {
-    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
-    return assignment?.[1] !== undefined && assignment[2] !== undefined
-      ? [[assignment[1], expandShellVariables(assignment[2], variables)]]
-      : [];
-  });
-}
-
-function expandShellVariables(text: string, variables: ReadonlyMap<string, string>): string {
-  return text
-    .replace(
-      /\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+])([^}]*)\}/g,
-      (match, name: string, operator: string, word: string) => {
-        const value = variables.get(name);
-        if (value === undefined) return match;
-        const usable = operator.startsWith(':') ? value !== '' : true;
-        if (operator.endsWith('-')) return usable ? value : expandShellVariables(word, variables);
-        return usable ? expandShellVariables(word, variables) : '';
-      },
-    )
-    .replace(
-      /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
-      (match, name: string) => variables.get(name) ?? match,
-    )
-    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, name: string) => variables.get(name) ?? match);
-}
-
-function isAssignmentOnlySegment(tokens: readonly string[]): boolean {
-  return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
 }
 
 function findPolicyConfigTargetInMalformedText(
@@ -420,14 +312,7 @@ function normalizePolicyCandidatePath(
   cwd: string,
   budget: PathCanonicalizationBudget,
 ): string {
-  const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, '/');
-  if (!unix) return '';
-  const expanded =
-    unix === '~' ? homedir() : unix.startsWith('~/') ? resolve(homedir(), unix.slice(2)) : unix;
-  return resolveExistingPath(
-    normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
-    budget,
-  ).replace(/\\/g, '/');
+  return normalizeProtectedPathCandidate(target, cwd, budget);
 }
 
 function comparePath(path: string): string {

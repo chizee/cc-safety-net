@@ -28,6 +28,7 @@ import {
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
+import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
@@ -50,6 +51,7 @@ export interface ChildCommandAnalysisContext {
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
   scanWork?: { units: number };
+  protectedGitMetadata?: ProtectedGitMetadata | null;
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
@@ -208,27 +210,30 @@ export function analyzeChildCommandMatch(
     return getDynamicSourceReason(options, context);
   }
 
-  if (normalizedHead === 'rm' && (hasRecursiveForceFlags(tokens) || options.dynamicRmInput)) {
-    const rmMatch = hasRecursiveForceFlags(tokens)
-      ? filterDestructiveCommandMatch(
-          analyzeRmMatch([...tokens], {
-            cwd: context.cwd,
-            originalCwd: context.originalCwd,
-            strict: context.strict,
-            paranoid: context.paranoidRm,
-            allowTmpdirVar: context.allowTmpdirVar,
-            tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
-            tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-            trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
-            policy: context.policy,
-          }),
-          context.policy,
-        )
-      : null;
+  if (normalizedHead === 'rm' || normalizedHead === 'rmdir') {
+    const dynamicRmPolicyApplies =
+      normalizedHead === 'rm' && (hasRecursiveForceFlags(tokens) || options.dynamicRmInput);
+    const rmMatch = filterDestructiveCommandMatch(
+      analyzeRmMatch([...tokens], {
+        cwd: context.cwd,
+        originalCwd: context.originalCwd,
+        strict: context.strict,
+        paranoid: context.paranoidRm,
+        allowTmpdirVar: context.allowTmpdirVar,
+        tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
+        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+        protectedGitMetadata: context.protectedGitMetadata,
+        policy: context.policy,
+      }),
+      context.policy,
+    );
     return (
       rmMatch ??
-      (options.dynamicRmInput ? getDynamicSourceReason(options, context) : null) ??
-      getDynamicRmReason(options, context)
+      (dynamicRmPolicyApplies && options.dynamicRmInput
+        ? getDynamicSourceReason(options, context)
+        : null) ??
+      (dynamicRmPolicyApplies ? getDynamicRmReason(options, context) : null)
     );
   }
 

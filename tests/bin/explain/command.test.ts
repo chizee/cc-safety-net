@@ -300,7 +300,7 @@ describe('explainCommand edge cases', () => {
   });
 
   test('PowerShell Remove-Item traces rule check', () => {
-    const result = explainCommand('Remove-Item . -Recurse -Force');
+    const result = explainCommand('Remove-Item ../outside -Recurse -Force');
     expect(result.result).toBe('blocked');
     expect(result.reason).toContain('Remove-Item -Recurse -Force');
     const allSteps = getTraceSteps(result);

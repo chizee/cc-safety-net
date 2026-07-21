@@ -35,6 +35,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.stash-clear',
   'git.worktree-remove-force',
   'rm.recursive-force-root-or-home',
+  'rm.git-metadata',
   'rm.recursive-force-dynamic-target',
   'rm.recursive-force-home-cwd',
   'rm.recursive-force-cwd-self',
@@ -42,6 +43,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'rm.recursive-force-paranoid',
   'powershell.remove-item-root-or-home',
   'powershell.remove-item-recursive-force-root-or-home',
+  'powershell.remove-item-git-metadata',
   'powershell.remove-item-recursive-force-dynamic-target',
   'powershell.remove-item-recursive-force-home-cwd',
   'powershell.remove-item-recursive-force-cwd-self',
@@ -49,6 +51,7 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'powershell.remove-item-recursive-force-paranoid',
   'powershell.remove-item-pipeline-dynamic-target',
   'find.delete',
+  'find.delete-git-metadata',
   'find.exec-rm-recursive-force',
   'interpreter.dangerous-command',
   'interpreter.one-liner-paranoid',
@@ -76,6 +79,7 @@ export interface DestructiveCommandRuleMetadata {
   description: string;
   example: string;
   intent: BlockIntent;
+  catastrophic?: true;
   activationCapability?: RuleActivationCapability;
 }
 
@@ -295,6 +299,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     description: 'Blocks recursive forced removal of root or home paths.',
     example: 'rm -rf /',
     intent: 'hard_stop',
+    catastrophic: true,
+  },
+  {
+    id: 'rm.git-metadata',
+    category: 'Filesystem',
+    label: 'rm Git metadata',
+    description: 'Blocks removal of protected Git metadata and hooks.',
+    example: 'rm -rf .git',
+    intent: 'hard_stop',
+    catastrophic: true,
   },
   {
     id: 'rm.recursive-force-dynamic-target',
@@ -345,6 +359,7 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     description: 'Blocks PowerShell Remove-Item targeting root or home paths.',
     example: 'Remove-Item C:\\',
     intent: 'hard_stop',
+    catastrophic: true,
   },
   {
     id: 'powershell.remove-item-recursive-force-root-or-home',
@@ -353,6 +368,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     description: 'Blocks recursive forced PowerShell removal of root or home paths.',
     example: 'Remove-Item C:\\ -Recurse -Force',
     intent: 'hard_stop',
+    catastrophic: true,
+  },
+  {
+    id: 'powershell.remove-item-git-metadata',
+    category: 'PowerShell',
+    label: 'Remove-Item Git metadata',
+    description: 'Blocks PowerShell removal of protected Git metadata and hooks.',
+    example: 'Remove-Item .git -Recurse -Force',
+    intent: 'hard_stop',
+    catastrophic: true,
   },
   {
     id: 'powershell.remove-item-recursive-force-dynamic-target',
@@ -412,6 +437,15 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     description: 'Blocks unsafe find -delete operations.',
     example: 'find . -delete',
     intent: 'scope_down',
+  },
+  {
+    id: 'find.delete-git-metadata',
+    category: 'Filesystem',
+    label: 'find delete Git metadata',
+    description: 'Blocks find -delete operations selecting protected Git metadata and hooks.',
+    example: 'find .git -delete',
+    intent: 'hard_stop',
+    catastrophic: true,
   },
   {
     id: 'find.exec-rm-recursive-force',
@@ -520,6 +554,10 @@ const DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(
   DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]),
 );
 
+const CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS = new Set(
+  DESTRUCTIVE_COMMAND_RULE_METADATA.filter((rule) => rule.catastrophic).map((rule) => rule.id),
+);
+
 export function destructiveCommandMatch(
   id: (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number],
   reason: string,
@@ -543,6 +581,9 @@ export function filterDestructiveCommandMatch(
     | undefined,
 ): DestructiveCommandRuleMatch | null {
   if (!match) return null;
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(match.id as DestructiveCommandRuleId)) {
+    return match;
+  }
   if (policy?.destructiveCommandProtectionEnabled === false) return null;
   const effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
   if (effectiveRule) return effectiveRule.enabled ? match : null;
@@ -561,6 +602,7 @@ export function destructiveCommandRuleIsEnabled(
   id: DestructiveCommandRuleId,
   inheritedEnabled: boolean,
 ): boolean {
+  if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(id)) return true;
   if (policy?.destructiveCommandProtectionEnabled === false) return false;
   const resolved = policy?.effectiveDestructiveCommandRules?.[id];
   if (resolved) return resolved.enabled;
@@ -584,37 +626,45 @@ export function resolveEffectiveDestructiveCommandRules(
           : undefined;
         const inheritedEnabled = capability?.enabled ?? true;
         const override = policy.destructiveCommandRuleOverrides[rule.id];
-        const state = policy.destructiveCommandProtectionEnabled
-          ? override
-            ? {
-                enabled: override === 'on',
-                inheritedEnabled,
-                changesInherited: (override === 'on') !== inheritedEnabled,
-                source: 'rule_override' as const,
-                ...(rule.activationCapability
-                  ? { activationCapability: rule.activationCapability }
-                  : {}),
-                override,
-              }
+        const state = rule.catastrophic
+          ? {
+              enabled: true,
+              inheritedEnabled: true,
+              changesInherited: false,
+              source: 'catastrophic' as const,
+              ...(override ? { override } : {}),
+            }
+          : policy.destructiveCommandProtectionEnabled
+            ? override
+              ? {
+                  enabled: override === 'on',
+                  inheritedEnabled,
+                  changesInherited: (override === 'on') !== inheritedEnabled,
+                  source: 'rule_override' as const,
+                  ...(rule.activationCapability
+                    ? { activationCapability: rule.activationCapability }
+                    : {}),
+                  override,
+                }
+              : {
+                  enabled: inheritedEnabled,
+                  inheritedEnabled,
+                  changesInherited: false,
+                  source: capability?.source ?? ('built_in_default' as const),
+                  ...(rule.activationCapability
+                    ? { activationCapability: rule.activationCapability }
+                    : {}),
+                }
             : {
-                enabled: inheritedEnabled,
+                enabled: false,
                 inheritedEnabled,
                 changesInherited: false,
-                source: capability?.source ?? ('built_in_default' as const),
+                source: 'master_disabled' as const,
                 ...(rule.activationCapability
                   ? { activationCapability: rule.activationCapability }
                   : {}),
-              }
-          : {
-              enabled: false,
-              inheritedEnabled,
-              changesInherited: false,
-              source: 'master_disabled' as const,
-              ...(rule.activationCapability
-                ? { activationCapability: rule.activationCapability }
-                : {}),
-              ...(override ? { override } : {}),
-            };
+                ...(override ? { override } : {}),
+              };
         return [rule.id, Object.freeze(state)];
       }),
     ),

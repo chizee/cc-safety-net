@@ -1,8 +1,13 @@
 import { homedir } from 'node:os';
-import { isAbsolute, normalize, posix, resolve, sep } from 'node:path';
+import { isAbsolute, normalize, parse, posix, resolve, sep } from 'node:path';
 import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/core/analyze/allow-paths';
 import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
 import { getOwnEnvValue } from '@/core/env';
+import {
+  isProtectedGitDeleteTarget,
+  type ProtectedGitMetadata,
+  resolveProtectedGitMetadata,
+} from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 import {
   createPathCanonicalizationBudget,
@@ -21,6 +26,7 @@ export interface RecursiveDeleteTargetTrustOptions {
   tmpdirVarExpandsEmpty?: boolean;
   tmpdirWordSplittingUnsafe?: boolean;
   trustedTmpdirValue?: boolean;
+  protectedGitMetadata?: ProtectedGitMetadata | null;
 }
 
 export interface RecursiveDeleteTargetOptions extends RecursiveDeleteTargetTrustOptions {
@@ -40,6 +46,7 @@ export interface RecursiveDeleteTargetContext {
   readonly trustedTmpdirValue: boolean;
   readonly homeDir: string;
   readonly allowRoots: readonly string[];
+  readonly protectedGitMetadata: ProtectedGitMetadata | null;
   readonly pathCanonicalizationBudget: PathCanonicalizationBudget;
 }
 
@@ -57,6 +64,7 @@ export interface TrustedTempDescendantTargetOptions
 
 export type RecursiveDeleteTargetClassification =
   | { kind: 'root_or_home_target' }
+  | { kind: 'git_metadata_target' }
   | { kind: 'temp_target' }
   | { kind: 'dynamic_target' }
   | { kind: 'home_cwd_target' }
@@ -81,6 +89,10 @@ export function createRecursiveDeleteTargetContext(
     trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
     homeDir,
     allowRoots: resolveAllowRoots(options.allowPaths, homeDir, budget),
+    protectedGitMetadata:
+      options.protectedGitMetadata !== undefined
+        ? options.protectedGitMetadata
+        : resolveProtectedGitMetadata(options.originalCwd ?? options.cwd, budget),
     pathCanonicalizationBudget: budget,
   };
 }
@@ -110,6 +122,24 @@ export function classifyRecursiveDeleteTarget(
 
   if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral)) {
     return { kind: 'root_or_home_target' };
+  }
+
+  if (isCanonicalHomeTarget(normalizedTarget, ctx)) {
+    return { kind: 'root_or_home_target' };
+  }
+
+  if (
+    ctx.resolvedCwd &&
+    isProtectedGitDeleteTarget(
+      normalizedTarget,
+      ctx.resolvedCwd,
+      ctx.protectedGitMetadata,
+      true,
+      ctx.pathCanonicalizationBudget,
+      !ctx.posixShell,
+    )
+  ) {
+    return { kind: 'git_metadata_target' };
   }
 
   if (
@@ -198,7 +228,15 @@ export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = fals
   const normalized = posix.normalize(trimmed);
   const windowsNormalized = trimmed.replace(/\\/g, '/');
 
-  if (normalized === '/' || normalized === '/*') {
+  const rootGlobTarget = normalized === '/' ? normalized : normalized.replace(/\/+$/, '');
+  if (
+    rootGlobTarget === '/' ||
+    (rootGlobTarget.startsWith('/') &&
+      rootGlobTarget
+        .slice(1)
+        .split('/')
+        .every((segment) => /^\*+$/.test(segment)))
+  ) {
     return true;
   }
 
@@ -233,6 +271,30 @@ export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = fals
   }
 
   return false;
+}
+
+function isCanonicalHomeTarget(target: string, ctx: RecursiveDeleteTargetContext): boolean {
+  const trimmed = target.trim();
+  const candidate = trimmed.endsWith('/*') ? trimmed.slice(0, -2) : trimmed;
+  if (!candidate) return false;
+  try {
+    const base = isAbsolute(candidate)
+      ? candidate
+      : ctx.resolvedCwd
+        ? resolve(ctx.resolvedCwd, candidate)
+        : null;
+    if (!base) return false;
+    const resolved = normalizePathForComparison(
+      resolveExistingPath(base, ctx.pathCanonicalizationBudget),
+    );
+    if (resolved === parse(resolved).root) return true;
+    return (
+      resolved ===
+      normalizePathForComparison(resolveExistingPath(ctx.homeDir, ctx.pathCanonicalizationBudget))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function normalizePathForComparison(p: string): string {

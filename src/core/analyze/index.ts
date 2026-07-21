@@ -1,5 +1,9 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
+import {
+  type ProtectedGitMetadata,
+  resolveProtectedGitMetadata,
+} from '@/core/git-metadata-protection';
 import type { CommandProgram } from '@/domain/command';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import type { AnalyzeOptions, AnalyzeResult } from '@/types';
@@ -15,6 +19,7 @@ export function analyzeCommandWithProgram(
   options: AnalyzeOptions,
   program?: CommandProgram,
   factStore?: SemanticFactStore,
+  protectedGitMetadata: ProtectedGitMetadata | null = resolveProtectedGitMetadata(options.cwd),
 ): AnalyzeResult | null {
   return analyzeCommandInternal(
     command,
@@ -24,6 +29,7 @@ export function analyzeCommandWithProgram(
       ...resolveCommandAnalysisContext(options),
       invalidReason:
         options.policySnapshot.state === 'invalid' ? options.policySnapshot.reason : undefined,
+      protectedGitMetadata,
       factStore,
     },
     program,

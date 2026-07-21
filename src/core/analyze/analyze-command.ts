@@ -34,6 +34,7 @@ import {
 } from '@/core/analyze/shell-git-env';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
+import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, normalizeCommandToken, stripWrappersWithInfo } from '@/core/shell';
 import type {
@@ -66,6 +67,7 @@ export type InternalOptions = AnalyzeOptions & {
   parallelBudget?: ParallelAnalysisBudget;
   scanWork?: { units: number };
   literalHeredocFiles?: ReadonlyMap<string, string>;
+  protectedGitMetadata?: ProtectedGitMetadata | null;
 };
 
 type ActiveInternalOptions = InternalOptions & {
@@ -1215,6 +1217,7 @@ function getPowerShellRemoveItemOptions(
     strict: options.strict,
     paranoid: options.paranoidRm,
     allowTmpdirVar: options.allowTmpdirVar,
+    protectedGitMetadata: options.protectedGitMetadata,
     policy: options.policy,
   };
 }

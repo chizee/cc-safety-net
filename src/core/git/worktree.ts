@@ -18,6 +18,11 @@ export interface GitExecutionContext {
   hasExplicitGitContext: boolean;
 }
 
+export interface DotGitFileTargets {
+  gitDir: string;
+  commonDir: string | null;
+}
+
 export function hasGitContextEnvOverride(envAssignments?: ReadonlyMap<string, string>): boolean {
   for (const name of GIT_CONTEXT_ENV_OVERRIDES) {
     if (envAssignments?.has(name) || Object.hasOwn(process.env, name)) {
@@ -120,29 +125,55 @@ export function isLinkedWorktree(cwd: string): boolean {
       return false;
     }
 
-    const content = readFileSync(dotGitPath, 'utf-8');
-    const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? '';
-    if (!firstLine.startsWith('gitdir:')) {
+    const targets = resolveDotGitFileTargets(dotGitPath);
+    if (!targets?.commonDir) return false;
+
+    if (!worktreeGitdirBacklinkMatches(targets.gitDir, dotGitPath)) {
       return false;
     }
 
-    const rawGitDir = firstLine.slice('gitdir:'.length).trim();
-    if (rawGitDir === '') {
-      return false;
-    }
-
-    const gitDir = isAbsolute(rawGitDir) ? rawGitDir : resolve(dirname(dotGitPath), rawGitDir);
-    if (!existsSync(join(gitDir, 'commondir'))) {
-      return false;
-    }
-
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath)) {
-      return false;
-    }
-
-    return worktreeConfigMatchesRoot(gitDir, dirname(dotGitPath));
+    return worktreeConfigMatchesRoot(targets.gitDir, dirname(dotGitPath));
   } catch {
     return false;
+  }
+}
+
+/** @internal */
+export function resolveDotGitFileTargets(dotGitPath: string): DotGitFileTargets | null {
+  try {
+    const rawGitDir = readDotGitTarget(dotGitPath);
+    if (!rawGitDir) return null;
+    const gitDir = realpathSync(
+      isAbsolute(rawGitDir) ? rawGitDir : resolve(dirname(dotGitPath), rawGitDir),
+    );
+    if (!statSync(gitDir).isDirectory()) return null;
+    return {
+      gitDir,
+      commonDir: resolveCommonGitDir(gitDir),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readDotGitTarget(dotGitPath: string): string | null {
+  const firstLine = readFileSync(dotGitPath, 'utf-8').split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (!firstLine.startsWith('gitdir:')) return null;
+  return firstLine.slice('gitdir:'.length).trim() || null;
+}
+
+function resolveCommonGitDir(gitDir: string): string | null {
+  try {
+    const rawCommonDir = readFileSync(join(gitDir, 'commondir'), 'utf-8')
+      .split(/\r?\n/, 1)[0]
+      ?.trim();
+    if (!rawCommonDir) return null;
+    const commonDir = realpathSync(
+      isAbsolute(rawCommonDir) ? rawCommonDir : resolve(gitDir, rawCommonDir),
+    );
+    return statSync(commonDir).isDirectory() ? commonDir : null;
+  } catch {
+    return null;
   }
 }
 

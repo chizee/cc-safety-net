@@ -25,6 +25,21 @@ const PATH_TOOL_NAMES = new Set([
 ]);
 const GREP_TOOL_NAMES = new Set(['grep', 'grepsearch', 'rg']);
 const GLOB_TOOL_NAMES = new Set(['findbyname', 'glob']);
+const READ_ONLY_TOOL_NAMES = new Set([
+  'findbyname',
+  'glob',
+  'grep',
+  'grepsearch',
+  'listdir',
+  'listpermissions',
+  'ls',
+  'read',
+  'readfile',
+  'readurlcontent',
+  'searchweb',
+  'view',
+  'viewfile',
+]);
 const PATCH_TEXT_KEYS = new Set(['command', 'diff', 'input', 'patch', 'patchtext']);
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
@@ -62,8 +77,13 @@ type ToolInputObjectSnapshot = {
   entries: readonly (readonly [string, unknown])[];
 };
 
+/** @internal */
 export function normalizeToolName(toolName: string): string {
   return toolName.replace(/[-_\s]/g, '').toLowerCase();
+}
+
+export function isReadOnlyTool(toolName: string): boolean {
+  return READ_ONLY_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 
 export function getNonCommandToolInputKind(toolName: string): NonCommandToolInputKind {

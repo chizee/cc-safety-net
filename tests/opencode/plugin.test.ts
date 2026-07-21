@@ -194,7 +194,7 @@ describe('OpenCode plugin', () => {
     await expectBashBlock(
       plugin,
       'Remove-Item . -Recurse -Force',
-      'powershell.remove-item-recursive-force-cwd-self',
+      'powershell.remove-item-git-metadata',
     );
   });
 
@@ -205,7 +205,7 @@ describe('OpenCode plugin', () => {
       await expectBashBlock(
         plugin,
         'Remove-Item . -Recurse -Force',
-        'powershell.remove-item-recursive-force-cwd-self',
+        'powershell.remove-item-git-metadata',
       );
       await expectBashBlock(
         plugin,
@@ -233,9 +233,9 @@ describe('OpenCode plugin', () => {
       await expectBashBlock(
         plugin,
         'Remove-Item . -Recurse -Force',
-        'powershell.remove-item-recursive-force-cwd-self',
+        'powershell.remove-item-git-metadata',
       );
-      await expectBashBlock(plugin, 'rm -rf .', 'rm.recursive-force-cwd-self');
+      await expectBashBlock(plugin, 'rm -rf .', 'rm.git-metadata');
     }
   });
 

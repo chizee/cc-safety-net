@@ -203,6 +203,33 @@ describe('policy config protection', () => {
     });
   });
 
+  test('blocks destructive find roots that contain the policy file', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const home = dirname(safetyNetHome);
+      const policyPath = getUserPolicyPath();
+      for (const command of [
+        `find ${policyPath} -delete`,
+        `find ${safetyNetHome} -delete`,
+        `find ${home} -type f -delete`,
+        `find ${safetyNetHome} -exec rm -f {} +`,
+        `find ${home} -execdir rm -f {} +`,
+        `find . -maxdepth 0 -exec rm -f ${policyPath} \\;`,
+        `find ${policyPath} -exec mv {} /tmp \\;`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBeTruthy();
+      }
+      for (const command of [
+        `cat ${policyPath}`,
+        `find ${safetyNetHome} -type f -print`,
+        `find ${join(safetyNetHome, 'sibling.json')} -delete`,
+        `find ${safetyNetHome} -maxdepth 0 -exec rm -f /tmp/unrelated-cache \\;`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
+      }
+    });
+  });
+
   test('blocks moving the policy file, directory, or an ancestor as a source', () => {
     const home = join(cwd, 'home');
     const safetyNetHome = join(home, '.cc-safety-net');
@@ -232,7 +259,6 @@ describe('policy config protection', () => {
       for (const command of [
         `cp /tmp/policy.json ${safetyNetHome}`,
         `cd ${safetyNetHome} && curl -O https://example.com/policy.json`,
-        `find ${safetyNetHome} -name policy.json -delete`,
         `python -c 'import os; open(os.environ["CC_SAFETY_NET_HOME"] + "/policy.json", "w")'`,
         `awk 'BEGIN { print "{}" > ENVIRON["CC_SAFETY_NET_HOME"] "/policy.json" }'`,
       ]) {
