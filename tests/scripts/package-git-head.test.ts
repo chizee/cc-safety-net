@@ -5,7 +5,7 @@ import { buildPackageTarball } from '../../scripts/verify-package';
 import { withTempDir } from '../helpers';
 
 describe('release package identity', () => {
-  test('npm 11.5.1 preserves the explicit tag commit in the staged manifest', async () => {
+  test('npm 11.5.1 preserves the tag commit without repository lifecycle hooks', async () => {
     await withTempDir('cc-safety-net-release-pack-', async (directory) => {
       const outputDirectory = join(directory, 'output');
       mkdirSync(outputDirectory);
@@ -21,7 +21,9 @@ describe('release package identity', () => {
       );
 
       expect(packedManifest.exitCode).toBe(0);
-      expect(JSON.parse(packedManifest.stdout.toString()).gitHead).toBe(gitHead);
+      const manifest = JSON.parse(packedManifest.stdout.toString());
+      expect(manifest.gitHead).toBe(gitHead);
+      expect(manifest.scripts.prepare).toBeUndefined();
     });
   }, 20_000);
 });
