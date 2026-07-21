@@ -34,6 +34,49 @@ A PreToolUse hook that intercepts and blocks destructive git and filesystem comm
 
 We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it observes relevant tool calls and blocks destructive commands before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
+## How v2 was built: Codex & GPT-5.6
+
+v2.0.0 is a near-total rewrite — 180 commits, 448 files, +116k/−29k lines — and most of it was written, reviewed, and triaged by [Codex](https://openai.com/codex/) running GPT-5.6, with a human setting direction and approving merges. Two workflows did the heavy lifting.
+
+### The ten-phase rewrite session
+
+The core rewrite happened in a single ~23-hour Codex session (GPT-5.6-Sol, reasoning effort `xhigh`). It opened with one prompt: *review this repository as if you were going to rebuild it from scratch — be opinionated, but ground every recommendation in evidence.* Codex argued against a greenfield rewrite:
+
+> I would not replace this repository with a greenfield rewrite. The behavioral core is mature, security-conscious, and unusually well tested: I verified 2,205 passing tests, 3 skipped, and 0 failures across 73 files.
+
+It was then handed an orchestration spec that made it a durable orchestrator over a ten-phase incremental reimplementation, each phase running a bounded state machine — `PLAN → CHALLENGE → TDD_RED → IMPLEMENT_GREEN → REVIEW → VERIFY → COMMIT` — with four sub-agent roles: a read-only planner, a read-only plan challenger, a single writing implementer under strict TDD, and fresh read-only reviewers for every phase.
+
+| Session stats | |
+|---|---|
+| Wall clock | ~23 hours |
+| User messages | 16, driving 26 autonomous turns |
+| Sub-agents spawned | 39 (planners, challengers, implementers, reviewers) |
+| Orchestrator shell commands | 349 |
+| Input tokens | 287M, 98.7% served from cache |
+| Output | 10 reviewed atomic commits — 320 files, +42,132/−38,888 lines |
+| End state | 2,233 tests passing at ~98% line coverage |
+
+The first phase froze the existing security behavior as a test contract; the last completed the architecture cutover to the v2 pipeline (canonical command IR → immutable policy snapshot → ordered guards → decision/audit/trace). Human input was three pre-configured decision gates (break the API, schema strictness, Zod adoption) and one course correction — until it became *"Do not ever ask for approval again. Always proceed with your recommendation from now."*
+
+### Heartbeat-driven false-positive triage
+
+The Codex app's **heartbeat** automations — scheduled wake-ups attached to a thread — ran the quality loop for the final week before release. A read-only watchdog (`monitor-cc-safety-net-false-positives`) fired every 30 minutes: read newly appended denials from the `~/.cc-safety-net` audit logs, deduplicate against persisted state, conservatively classify each one, and notify only on likely false positives — rendering the complete denial event in the report so triage never required opening a log file.
+
+Across ~271 firings it stayed silent 149 times and raised 57 triage reports. Real catches include a fail-closed analyzer crash on `pwd && ls -la`, `find -- -delete` misread as a delete (after `--`, `-delete` is a literal pathname), test fixtures containing literal `.env` strings flagged as secret access, and read-only listings denied because a directory was named `src/secrets`. Daily notifications fell from 13 on the first day to 1 on the last as fixes landed.
+
+Detection was deliberately separated from remediation. Fixes ran through sibling automations: a triage-fix orchestrator resumed by over a thousand heartbeat ticks (one state transition, one bounded task per wake), a sequential fix planner that kept its ledger by rewriting its own instruction text, worktree monitors that contamination-checked the main checkout and gated merges on review plus `bun run check`, and a launch tracker that held the v2 release gate at zero unresolved P1/P2 findings. Along the way, the fix agents were themselves blocked by the safety net when their patches contained literal destructive command strings — the safety net policing the agents fixing the safety net.
+
+## What's new in v2.0.0
+
+- **Rebuilt evaluation engine** — canonical command IR, deeply immutable policy snapshots, and an ordered guard pipeline with intrinsic decision tracing behind `explain`.
+- **Sensitive-path protection** — built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores, across shell commands and file tools alike.
+- **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
+- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
+- **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
+- **Universal installer** — interactive `install`/`uninstall` across all eight supported agent CLIs.
+- **Structured audit logs** — per-project JSONL with secret redaction, browsable via `cc-safety-net logs`.
+- **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
+
 ## Supported agents
 
 CC Safety Net works across eight coding agent CLIs: **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
@@ -196,8 +239,9 @@ npx -y cc-safety-net install --pi
 | **Shell wrapper detection** | Destructive commands hidden in `bash -c`, `sh -c`, and similar wrappers, recursively analyzed up to 10 levels deep. |
 | **Interpreter one-liners** | Destructive code in `python -c`, `node -e`, `ruby -e`, `perl -e` one-liners (e.g. `os.system("rm -rf /")`). |
 | **Fail-closed by default** | Malformed hook input, unparseable commands (in strict mode), invalid config, and broken rulebooks block rather than allow. |
+| **Sensitive-path protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
-| **Audit logging** | Every blocked command logged to `~/.cc-safety-net/logs/<session_id>.jsonl` with secrets auto-redacted. |
+| **Audit logging** | Every blocked command logged to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted. Browse them with `npx cc-safety-net logs`. |
 
 Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands).
 
@@ -223,8 +267,10 @@ Presets supply inherited defaults. Advanced policy users can set `safety.overrid
   "safety": { "level": "standard", "overrides": {} },
   "destructive_command_protection": {
     "enabled": true,
-    "overrides": { "shell.dynamic-executable": "on" }
-  }
+    "overrides": { "shell.dynamic-executable": "on" },
+    "allow_paths": []
+  },
+  "secret_protection": { "enabled": true, "overrides": {}, "deny_paths": [] }
 }
 ```
 
@@ -248,9 +294,13 @@ Legacy `SAFETY_NET_*` names are accepted as fallbacks. See [Modes](https://ccsaf
 npx cc-safety-net doctor
 # Trace how a command is analyzed step-by-step
 npx cc-safety-net explain "git reset --hard"
+# Browse recorded denials from the audit logs
+npx cc-safety-net logs
+# Edit your policy in a local web GUI
+npx cc-safety-net gui
 ```
 
-Both support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
+`doctor`, `explain`, and `logs` support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
 
 Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches or lockfiles while evaluating a tool call. If local rulebook source content changes, or a required lock/cache entry is missing or invalid, commands fail closed until you explicitly run `npx -y cc-safety-net rule sync`. The next tool call reloads and verifies the synchronized snapshot from disk.
 
