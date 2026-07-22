@@ -5,6 +5,27 @@
 - Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 - Files in `docs/` use lowercase kebab-case names.
 
+## Scope Discipline
+
+Over-engineering is this project's dominant failure mode; treat it as seriously as a correctness
+bug. The evidence rule that governs analyzer rules governs all code: machinery exists to stop a
+demonstrated failure, not an imagined one.
+
+- Before implementing, state the minimal shape: the smallest change that satisfies the request.
+  Implement that. Each addition beyond it needs the concrete failure it prevents named; if you
+  cannot name one, do not write it.
+- Every check must be falsifiable in practice: name the realistic mistake that makes it fail. A
+  check the same author can trivially satisfy while still making the mistake (self-reported
+  attestations, digests over co-located data, matching UUIDs) is ceremony — do not add it.
+- Do not build schemas, validators, registries, or harnesses ahead of their first real entry. Add
+  the machinery together with the data that needs it.
+- Do not store fields whose values are forced constants or derivable from other fields — a field
+  the validator requires to equal a constant carries no information.
+- Prefer a documented process over code that enforces the process. Enforcement code is justified
+  only after the documented process has demonstrably failed at least once.
+- When remediating review findings, implement the smallest fix per finding. A finding is never a
+  mandate to build a framework; if the fix seems to require one, stop and ask.
+
 ## Code Review Rules
 
 - Before reviewing, read `REVIEW.md` and apply its review criteria.

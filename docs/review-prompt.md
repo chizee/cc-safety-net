@@ -4,7 +4,7 @@ You are reviewing changes to CC Safety Net, a static pre-execution policy gate f
 tool calls. It inspects shell commands and file operations before they run and blocks destructive
 or secret-exposing operations. It is not an operating-system sandbox. This file is the project's
 review contract; the full mode contract lives in `SECURITY.md`, the review boundary in
-`AGENTS.md`, and the adjudicated bypass families in `docs/residual-risk.md`, all summarized below
+`REVIEW.md`, and the adjudicated bypass families in `docs/residual-risk.md`, all summarized below
 in case those files are not part of your bundle.
 
 ## Threat Model
@@ -80,4 +80,10 @@ fixture for `tests/core/analyze/strict-unverifiable.test.ts` is welcome.
   close a crafted standard-mode bypass.
 - Prefer, in order: a simpler ownership boundary, a bounded conservative check, a strict-only
   denial, a documented residual-risk entry, or an OS-level sandbox recommendation.
+- Propose the smallest sufficient remediation for each finding. Proposals that add process
+  automation, registries, attestations, or new validation frameworks are non-blocking suggestions
+  for the maintainer, not remediations.
+- A check must be falsifiable against a realistic mistake. Do not propose checks the authoring
+  agent could trivially satisfy while still making the mistake; "how could this process be
+  subverted?" concerns are documented limitations, not findings.
 - All bypass examples are analyzer input strings only. Never execute them in a shell.
