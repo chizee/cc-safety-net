@@ -10,22 +10,27 @@ import { withTempDir } from '../helpers';
 
 function writeBuildFixture(directory: string) {
   mkdirSync(join(directory, 'dist', 'bin'), { recursive: true });
+  mkdirSync(join(directory, 'dist', 'chunks'), { recursive: true });
   mkdirSync(join(directory, 'dist', 'pi'), { recursive: true });
-  writeFileSync(join(directory, 'dist', 'bin', 'cc-safety-net.js'), '#!/usr/bin/env node\n');
+  writeFileSync(
+    join(directory, 'dist', 'bin', 'cc-safety-net.js'),
+    '#!/usr/bin/env node\nimport "../chunks/index-fixture.js";\n',
+  );
   chmodSync(join(directory, 'dist', 'bin', 'cc-safety-net.js'), 0o755);
+  writeFileSync(join(directory, 'dist', 'chunks', 'index-fixture.js'), 'export {};\n');
   writeFileSync(join(directory, 'dist', 'index.d.ts'), 'export {};\n');
-  writeFileSync(join(directory, 'dist', 'index.js'), 'export {};\n');
+  writeFileSync(join(directory, 'dist', 'index.js'), 'import "./chunks/index-fixture.js";\n');
   writeFileSync(join(directory, 'dist', 'pi', 'index.js'), 'export {};\n');
 }
 
 describe('generated artifact contract', () => {
-  test('tracks only the four owned runtime artifacts', async () => {
-    expect(await verifyBuildArtifacts()).toEqual([
-      'dist/bin/cc-safety-net.js',
-      'dist/index.d.ts',
-      'dist/index.js',
-      'dist/pi/index.js',
-    ]);
+  test('tracks required entry artifacts and their shared chunks', async () => {
+    const files = await verifyBuildArtifacts();
+    expect(files).toContain('dist/bin/cc-safety-net.js');
+    expect(files).toContain('dist/index.d.ts');
+    expect(files).toContain('dist/index.js');
+    expect(files).toContain('dist/pi/index.js');
+    expect(files.some((path) => path.startsWith('dist/chunks/'))).toBeTrue();
   });
 
   test('root declaration exposes only the plugin', () => {
@@ -47,7 +52,7 @@ describe('generated artifact contract', () => {
     expect(requiresRepositoryExecutableMode('darwin')).toBeTrue();
   });
 
-  test('rejects unexpected, non-executable, malformed, and unresolved runtime artifacts', async () => {
+  test('rejects unexpected, orphaned, missing, non-executable, malformed, and unresolved artifacts', async () => {
     await withTempDir('cc-safety-net-build-contract-', async (directory) => {
       writeBuildFixture(directory);
       const originalCwd = process.cwd();
@@ -57,6 +62,14 @@ describe('generated artifact contract', () => {
         await expect(verifyBuildArtifacts()).rejects.toThrow('Unexpected build artifacts');
 
         unlinkSync('dist/unexpected.js');
+        writeFileSync('dist/chunks/index-orphan.js', 'export {};\n');
+        await expect(verifyBuildArtifacts()).rejects.toThrow('orphaned shared chunks');
+
+        unlinkSync('dist/chunks/index-orphan.js');
+        unlinkSync('dist/chunks/index-fixture.js');
+        await expect(verifyBuildArtifacts()).rejects.toThrow('missing shared chunks');
+
+        writeFileSync('dist/chunks/index-fixture.js', 'export {};\n');
         if (requiresRepositoryExecutableMode(process.platform)) {
           chmodSync('dist/bin/cc-safety-net.js', 0o644);
           await expect(verifyBuildArtifacts()).rejects.toThrow('must have mode 0755');

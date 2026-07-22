@@ -2,16 +2,16 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { BUILD_ARTIFACTS, verifyBuildArtifacts } from './verify-build';
+import { verifyBuildArtifacts } from './verify-build';
 
 function build(): void {
   const result = Bun.spawnSync(['bun', 'run', 'build'], { stdout: 'inherit', stderr: 'inherit' });
   if (result.exitCode !== 0) process.exit(result.exitCode);
 }
 
-function hashes() {
+function hashes(artifacts: string[]) {
   return Object.fromEntries(
-    [...BUILD_ARTIFACTS, 'assets/cc-safety-net.schema.json'].map((path) => [
+    [...artifacts, 'assets/cc-safety-net.schema.json'].map((path) => [
       path,
       createHash('sha256').update(readFileSync(path)).digest('hex'),
     ]),
@@ -19,11 +19,9 @@ function hashes() {
 }
 
 build();
-await verifyBuildArtifacts();
-const first = hashes();
+const first = hashes(await verifyBuildArtifacts());
 build();
-await verifyBuildArtifacts();
-const second = hashes();
+const second = hashes(await verifyBuildArtifacts());
 if (JSON.stringify(first) !== JSON.stringify(second)) {
   throw new Error(`Build is not deterministic:\n${JSON.stringify({ first, second }, null, 2)}`);
 }

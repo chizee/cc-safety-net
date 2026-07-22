@@ -6,7 +6,12 @@ export function buildRuntimeBundles(outdir: string) {
     outdir,
     target: 'node',
     external: ['zod'],
-    minify: { syntax: true },
+    splitting: true,
+    naming: {
+      entry: '[dir]/[name].[ext]',
+      chunk: 'chunks/[name]-[hash].[ext]',
+    },
+    minify: { syntax: true, whitespace: true },
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },

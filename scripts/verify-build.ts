@@ -1,12 +1,16 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { posix, relative, resolve } from 'node:path';
 
-export const BUILD_ARTIFACTS = [
+export const BUILD_ENTRY_ARTIFACTS = [
   'dist/bin/cc-safety-net.js',
   'dist/index.d.ts',
   'dist/index.js',
   'dist/pi/index.js',
 ] as const;
+
+export function isBuildChunkArtifact(path: string): boolean {
+  return /^dist\/chunks\/[A-Za-z0-9_-]+\.js$/.test(path);
+}
 
 export function requiresRepositoryExecutableMode(platform: NodeJS.Platform): boolean {
   return platform !== 'win32';
@@ -34,10 +38,55 @@ async function listFiles(directory: string): Promise<string[]> {
     .sort();
 }
 
+function getSharedChunkImports(path: string, source: string): string[] {
+  return [...source.matchAll(/(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["']([^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((specifier): specifier is string => specifier !== undefined)
+    .map((specifier) => posix.normalize(posix.join(posix.dirname(path), specifier)))
+    .filter(isBuildChunkArtifact);
+}
+
 export async function verifyBuildArtifacts(): Promise<string[]> {
   const files = await listFiles(resolve('dist'));
-  if (JSON.stringify(files) !== JSON.stringify(BUILD_ARTIFACTS)) {
+  const unexpected = files.filter(
+    (path) =>
+      !(BUILD_ENTRY_ARTIFACTS as readonly string[]).includes(path) && !isBuildChunkArtifact(path),
+  );
+  const missingEntries = BUILD_ENTRY_ARTIFACTS.filter((path) => !files.includes(path));
+  const chunks = files.filter(isBuildChunkArtifact);
+  if (unexpected.length > 0 || missingEntries.length > 0) {
     throw new Error(`Unexpected build artifacts:\n${files.join('\n')}`);
+  }
+
+  const reachableChunks = new Set<string>();
+  const pending = BUILD_ENTRY_ARTIFACTS.filter((path) => path.endsWith('.js')) as string[];
+  const missingChunks = new Set<string>();
+  while (pending.length > 0) {
+    const path = pending.shift();
+    if (!path) break;
+    for (const chunk of getSharedChunkImports(path, await readFile(path, 'utf8'))) {
+      if (!files.includes(chunk)) {
+        missingChunks.add(chunk);
+        continue;
+      }
+      if (reachableChunks.has(chunk)) continue;
+      reachableChunks.add(chunk);
+      pending.push(chunk);
+    }
+  }
+  if (missingChunks.size > 0) {
+    throw new Error(
+      `Build artifacts reference missing shared chunks:\n${[...missingChunks].join('\n')}`,
+    );
+  }
+  if (chunks.length === 0) {
+    throw new Error('Build artifacts contain no shared chunks');
+  }
+  const orphanedChunks = chunks.filter((path) => !reachableChunks.has(path));
+  if (orphanedChunks.length > 0) {
+    throw new Error(
+      `Build artifacts contain orphaned shared chunks:\n${orphanedChunks.join('\n')}`,
+    );
   }
   if (
     requiresRepositoryExecutableMode(process.platform) &&

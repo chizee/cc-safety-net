@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { getBundledOutputs, isRootDeclarationOutput } from '../../scripts/build-output';
+import { verifyBuildArtifacts } from '../../scripts/verify-build';
 
 describe('getBundledOutputs', () => {
   // Phase 5 artifact evidence compares raw `wc -c` bytes for index/CLI/Pi to
@@ -25,11 +25,11 @@ describe('getBundledOutputs', () => {
     expect(isRootDeclarationOutput('dist\\pi\\index.d.ts')).toBeFalse();
   });
 
-  test('keeps the runtime Zod dependency external to bundled entrypoints', () => {
-    for (const file of ['index.js', 'bin/cc-safety-net.js', 'pi/index.js']) {
-      expect(readFileSync(join(process.cwd(), 'dist', file), 'utf-8')).toMatch(
-        /(?:from|require\w*\()"zod"/,
-      );
-    }
+  test('keeps the runtime Zod dependency external to the built artifacts', async () => {
+    const sources = (await verifyBuildArtifacts())
+      .filter((path) => path.endsWith('.js'))
+      .map((path) => readFileSync(path, 'utf-8'));
+
+    expect(sources.some((source) => /(?:from|require\w*\()"zod"/.test(source))).toBeTrue();
   });
 });

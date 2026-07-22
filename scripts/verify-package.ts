@@ -14,17 +14,14 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from './integration-host-scripts';
+import { verifyBuildArtifacts } from './verify-build';
 
-const PACKAGE_FILES = [
+const PACKAGE_ROOT_FILES = [
   'package/LICENSE',
   'package/README.md',
-  'package/dist/bin/cc-safety-net.js',
-  'package/dist/index.d.ts',
-  'package/dist/index.js',
-  'package/dist/pi/index.js',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 525_000;
+const MAX_TARBALL_BYTES = 240_000;
 
 interface PackResult {
   filename: string;
@@ -71,6 +68,7 @@ export async function verifyPackage(): Promise<void> {
       : resolve(process.argv[outputArgument + 1] ?? throwMissingOutputDirectory());
   mkdirSync(outputDirectory, { recursive: true });
   try {
+    const buildArtifacts = await verifyBuildArtifacts();
     const gitHeadArgument = process.argv.indexOf('--git-head');
     const { result, tarball } = await buildPackageTarball({
       outputDirectory,
@@ -79,7 +77,11 @@ export async function verifyPackage(): Promise<void> {
         : { gitHead: process.argv[gitHeadArgument + 1] ?? throwMissingGitHead() }),
     });
     const files = result.files.map((file) => `package/${file.path}`).sort();
-    if (JSON.stringify(files) !== JSON.stringify(PACKAGE_FILES)) {
+    const expectedFiles = [
+      ...PACKAGE_ROOT_FILES,
+      ...buildArtifacts.map((path) => `package/${path}`),
+    ].sort();
+    if (JSON.stringify(files) !== JSON.stringify(expectedFiles)) {
       throw new Error(`Unexpected npm package files:\n${files.join('\n')}`);
     }
     if (result.size > MAX_TARBALL_BYTES) {
