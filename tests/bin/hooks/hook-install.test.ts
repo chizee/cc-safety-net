@@ -213,6 +213,7 @@ describe('install command', () => {
       '--codex',
       ['codex'],
       [
+        'codex plugin list',
         'codex plugin marketplace add kenryu42/cc-marketplace',
         'codex plugin add cc-safety-net@cc-marketplace',
       ],
@@ -232,11 +233,259 @@ describe('install command', () => {
       '--claude-code',
       ['claude'],
       [
+        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed Claude Code integration',
     );
+  });
+
+  test('Claude Code: uninstalls the legacy plugin after installing the replacement', async () => {
+    await expectNativeInstall(
+      '--claude-code',
+      ['claude'],
+      [
+        'claude plugin list',
+        'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin install cc-safety-net@cc-marketplace',
+        'claude plugin uninstall safety-net@cc-marketplace',
+      ],
+      'Installed Claude Code integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'claude'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n\\n  safety-net@cc-marketplace\\n    Version: 1.0.0\\n    Status: enabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Claude Code: does not treat the new plugin id as legacy', async () => {
+    await expectNativeInstall(
+      '--claude-code',
+      ['claude'],
+      [
+        'claude plugin list',
+        'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed Claude Code integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'claude'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n\\n  cc-safety-net@cc-marketplace\\n    Version: 1.0.0\\n    Status: enabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Codex: removes the legacy plugin after installing the replacement', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+        'codex plugin remove safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'safety-net@cc-marketplace https://github.com/kenryu42/cc-safety-net.git installed, enabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Codex: does not treat the new plugin id as legacy', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'cc-safety-net@cc-marketplace installed, enabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Codex: removes an installed-but-disabled legacy plugin', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+        'codex plugin remove safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'safety-net@cc-marketplace https://github.com/kenryu42/cc-safety-net.git installed, disabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Codex: ignores a not-installed legacy marketplace row', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'safety-net@cc-marketplace not installed /codex/plugins/safety-net\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: uninstalls the legacy plugin after installing the replacement', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+        'copilot plugin uninstall copilot-safety-net',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'copilot'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n  copilot-safety-net (v1.0.0)\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: removes the legacy plugin when the new plugin is already installed', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      ['copilot plugin list', 'copilot plugin uninstall copilot-safety-net'],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'copilot'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n  cc-safety-net@cc-marketplace (v1.0.0)\\n  copilot-safety-net (v1.0.0)\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('legacy uninstall failure fails the install', async () => {
+    const fake = makeFakeBinHome('safety-net-legacy-uninstall-fail', ['claude']);
+    writeFileSync(
+      join(fake.homeDir, 'bin', 'claude'),
+      `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n\\n  safety-net@cc-marketplace\\n'
+  exit 0
+fi
+if [ "$*" = "plugin uninstall safety-net@cc-marketplace" ]; then
+  echo "uninstall failed" >&2
+  exit 42
+fi
+`,
+    );
+    chmodSync(join(fake.homeDir, 'bin', 'claude'), 0o755);
+
+    try {
+      const result = await runCli(['install', '--claude-code'], '', {
+        HOME: fake.homeDir,
+        PATH: fake.path,
+        CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(normalizedCommandLog(fake.logPath)).toEqual([
+        'claude plugin list',
+        'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin install cc-safety-net@cc-marketplace',
+        'claude plugin uninstall safety-net@cc-marketplace',
+      ]);
+      expect(result.stderr).toContain('claude plugin uninstall safety-net@cc-marketplace');
+    } finally {
+      rmSync(fake.homeDir, { recursive: true, force: true });
+    }
   });
 
   test('Gemini CLI: installs extension through native CLI', async () => {
@@ -354,6 +603,9 @@ fi
       join(fake.homeDir, 'bin', 'codex'),
       `#!/usr/bin/env sh
 printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  exit 0
+fi
 echo "native stdout"
 echo "native stderr" >&2
 exit 42
@@ -370,6 +622,7 @@ exit 42
 
       expect(result.exitCode).toBe(1);
       expect(normalizedCommandLog(fake.logPath)).toEqual([
+        'codex plugin list',
         'codex plugin marketplace add kenryu42/cc-marketplace',
       ]);
       expect(result.stderr).toContain('codex plugin marketplace add kenryu42/cc-marketplace');

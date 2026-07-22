@@ -26,6 +26,7 @@ import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { getIntegrationInstallLabel } from '@/integrations/catalog';
 import {
   COPILOT_PLUGIN_ID,
+  hasCopilotLegacyPlugin,
   hasCopilotMarketplace,
   hasCopilotSafetyNetPlugin,
 } from '@/integrations/copilot-cli';
@@ -53,11 +54,31 @@ type InstallTargetResolution = {
   ready?: Promise<unknown>;
   finish: () => Promise<readonly InstallTarget[] | null>;
 };
+// `claude plugin list` shows installed plugins only, so matching the identifier suffices.
+function hasClaudeLegacyPlugin(output: string | null): boolean {
+  return /(^|[^a-z0-9-])safety-net@cc-marketplace([^a-z0-9-]|$)/m.test(output ?? '');
+}
+
+// Codex matchers are line-anchored because the legacy row's source URL also contains
+// "cc-safety-net", and status-checked because `codex plugin list` includes marketplace rows
+// marked "not installed". "installed," matches any installed row (enabled or not) and can
+// never match a "not installed" status.
+function hasCodexLegacyPlugin(output: string | null): boolean {
+  return /^\s*safety-net@cc-marketplace[^a-z0-9-][^\n]*installed,/m.test(output ?? '');
+}
+
+function hasCodexReplacementPlugin(output: string | null): boolean {
+  return /^\s*cc-safety-net[^a-z0-9-][^\n]*installed,/m.test(output ?? '');
+}
+
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
-    installCommands: [
+    installCommands: () => [
       ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
       ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
+      ...(hasClaudeLegacyPlugin(runNativeCommand(['claude', 'plugin', 'list']))
+        ? ([['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace']] as const)
+        : []),
     ],
     uninstallCommands: [
       ['claude', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
@@ -65,9 +86,12 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   codex: {
-    installCommands: [
+    installCommands: () => [
       ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
       ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
+      ...(hasCodexLegacyPlugin(runNativeCommand(['codex', 'plugin', 'list']))
+        ? ([['codex', 'plugin', 'remove', 'safety-net@cc-marketplace']] as const)
+        : []),
     ],
     uninstallCommands: [
       ['codex', 'plugin', 'remove', 'cc-safety-net@cc-marketplace'],
@@ -78,13 +102,18 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   },
   'copilot-cli': {
     installCommands: () => {
-      if (hasCopilotSafetyNetPlugin(runNativeCommand(['copilot', 'plugin', 'list']))) return [];
+      const pluginList = runNativeCommand(['copilot', 'plugin', 'list']);
+      const legacyUninstall = hasCopilotLegacyPlugin(pluginList)
+        ? ([['copilot', 'plugin', 'uninstall', 'copilot-safety-net']] as const)
+        : [];
+      if (hasCopilotSafetyNetPlugin(pluginList)) return legacyUninstall;
 
       return [
         ...(hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
           ? []
           : ([['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace']] as const)),
         ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
+        ...legacyUninstall,
       ];
     },
     uninstallCommands: [
@@ -169,6 +198,12 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
     piSafetyNetProbe,
   })
     .filter((hook) => hook.detected)
+    .filter(
+      (hook) =>
+        hook.platform !== 'codex' ||
+        !hasCodexLegacyPlugin(codexPluginListOutput) ||
+        hasCodexReplacementPlugin(codexPluginListOutput),
+    )
     .map((hook) => hook.platform as InstallTarget);
 }
 

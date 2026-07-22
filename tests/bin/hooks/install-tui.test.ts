@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, symlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import {
@@ -80,6 +80,25 @@ async function withFakeInstallProbePath<T>(prefix: string, fn: () => T | Promise
   });
 }
 
+type CapturedChoice = { target: InstallTarget; available: boolean; unavailableReason?: string };
+
+async function spawnInstallEval<T>(script: string, env: Record<string, string | undefined>) {
+  const proc = Bun.spawn(['bun', '--eval', script], {
+    cwd: process.cwd(),
+    env: { ...process.env, ...env },
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  expect(await proc.exited).toBe(0);
+  expect(stderr).toBe('');
+  return JSON.parse(stdout) as T;
+}
+
 async function runInstallDispatchProbe(
   homeDir: string,
   options: {
@@ -101,11 +120,8 @@ async function runInstallDispatchProbe(
     events.push("select:" + choices.length);
     return ${JSON.stringify(options.selectedTargets)};
   }`;
-  const proc = Bun.spawn(
-    [
-      'bun',
-      '--eval',
-      `
+  return spawnInstallEval<{ choices: CapturedChoice[]; exitCode: number; events: string[] }>(
+    `
 import { Writable } from "node:stream";
 import { runInstallCommand } from "./src/bin/hook/install.ts";
 
@@ -127,30 +143,55 @@ const exitCode = await runInstallCommand("install", ${JSON.stringify(options.arg
 
 process.stdout.write(JSON.stringify({ choices: capturedChoices, exitCode, events }));
 `,
-    ],
-    {
-      cwd: process.cwd(),
-      env: { ...process.env, HOME: homeDir },
-      stderr: 'pipe',
-      stdout: 'pipe',
-    },
+    { HOME: homeDir },
   );
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
+}
 
-  expect(await proc.exited).toBe(0);
-  expect(stderr).toBe('');
-  return JSON.parse(stdout) as {
-    choices: Array<{
-      target: InstallTarget;
-      available: boolean;
-      unavailableReason?: string;
-    }>;
-    exitCode: number;
-    events: string[];
-  };
+async function runInstallGateProbe(homeDir: string, codexPluginListFixture: string) {
+  const binDir = join(homeDir, 'bin');
+  mkdirSync(binDir);
+  ['claude', 'gemini', 'copilot', 'pi', 'kimi', 'agy', 'opencode'].forEach((command) => {
+    symlinkSync('/usr/bin/true', join(binDir, command));
+  });
+  const codexPath = join(binDir, 'codex');
+  writeFileSync(
+    codexPath,
+    `#!/usr/bin/env sh
+if [ "$*" = "plugin list" ]; then
+  printf '%s\\n' '${codexPluginListFixture}'
+fi
+`,
+  );
+  chmodSync(codexPath, 0o755);
+
+  return spawnInstallEval<{ choices: CapturedChoice[]; exitCode: number }>(
+    `
+import { Writable } from "node:stream";
+import { runInstallCommand } from "./src/bin/hook/install.ts";
+
+let capturedChoices = [];
+console.log = () => {};
+const exitCode = await runInstallCommand("install", [], {
+  output: new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  }),
+  probeTargets: (command) => command[0] === "codex",
+  selectTargets: async (_action, choices) => {
+    capturedChoices = choices.map((choice) => ({
+      target: choice.target,
+      available: choice.available,
+      unavailableReason: choice.unavailableReason,
+    }));
+    return null;
+  },
+});
+
+process.stdout.write(JSON.stringify({ choices: capturedChoices, exitCode }));
+`,
+    { HOME: homeDir, PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}` },
+  );
 }
 
 describe('install target availability', () => {
@@ -435,6 +476,50 @@ describe('interactive install dispatch', () => {
       expect(result.exitCode).toBe(0);
       expect(result.events.filter((event) => event !== 'probe:kimi')).toEqual([]);
     });
+  });
+
+  const LEGACY_CODEX_ROW =
+    'safety-net@cc-marketplace https://github.com/kenryu42/cc-safety-net.git installed, enabled';
+  const NEW_CODEX_ROW =
+    'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed, enabled';
+
+  async function probeCodexGateChoice(prefix: string, codexPluginListFixture: string) {
+    return withTempDir(prefix, async (homeDir) => {
+      const result = await runInstallGateProbe(homeDir, codexPluginListFixture);
+      return result.choices.find((choice) => choice.target === 'codex');
+    });
+  }
+
+  test('Codex: interactive install offers codex when only the legacy plugin is installed', async () => {
+    const codex = await probeCodexGateChoice('safety-net-install-codex-legacy-', LEGACY_CODEX_ROW);
+
+    expect(codex?.available).toBe(true);
+    expect(codex?.unavailableReason).toBeUndefined();
+  });
+
+  test('Codex: interactive install offers codex when the replacement is only a not-installed marketplace row', async () => {
+    const codex = await probeCodexGateChoice(
+      'safety-net-install-codex-avail-',
+      `${LEGACY_CODEX_ROW}\ncc-safety-net@cc-marketplace not installed /codex/plugins/cc-safety-net`,
+    );
+
+    expect(codex?.available).toBe(true);
+    expect(codex?.unavailableReason).toBeUndefined();
+  });
+
+  test('Codex: interactive install still gates when both plugin generations are installed', async () => {
+    const codex = await probeCodexGateChoice(
+      'safety-net-install-codex-both-',
+      `${LEGACY_CODEX_ROW}\n${NEW_CODEX_ROW}`,
+    );
+
+    expect(codex?.unavailableReason).toBe('already installed');
+  });
+
+  test('Codex: interactive install still gates when the new plugin is installed', async () => {
+    const codex = await probeCodexGateChoice('safety-net-install-codex-new-', NEW_CODEX_ROW);
+
+    expect(codex?.unavailableReason).toBe('already installed');
   });
 
   test('runs selected targets in order and stops on the first failure', async () => {

@@ -1,5 +1,6 @@
 export const COPILOT_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 const COPILOT_MARKETPLACE_ID = 'cc-marketplace';
+const COPILOT_LEGACY_PLUGIN_ID = 'copilot-safety-net';
 
 function hasIdentifier(output: string | null, identifier: string): boolean {
   const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -12,4 +13,8 @@ export function hasCopilotSafetyNetPlugin(output: string | null): boolean {
 
 export function hasCopilotMarketplace(output: string | null): boolean {
   return hasIdentifier(output, COPILOT_MARKETPLACE_ID);
+}
+
+export function hasCopilotLegacyPlugin(output: string | null): boolean {
+  return hasIdentifier(output, COPILOT_LEGACY_PLUGIN_ID);
 }
