@@ -406,6 +406,58 @@ describe('built CLI protection contract', () => {
       expect(readAuditLogEntriesForSession(home, inspectSession)).toEqual([]);
     });
   });
+
+  test('Coding CLI blocks rm -rf .git and preserves Git metadata', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      mkdirSync(join(cwd, '.git', 'hooks'), { recursive: true });
+      writeFileSync(join(cwd, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n');
+      const command = 'rm -rf .git';
+      const sessionId = 'claude-git-metadata-guard';
+      const result = await runCodingCliTool('Bash', { command }, cwd, home, sessionId, () =>
+        rmSync(join(cwd, '.git'), { recursive: true, force: true }),
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('rm.git-metadata');
+      expect(readFileSync(join(cwd, '.git', 'hooks', 'pre-commit'), 'utf8')).toBe('#!/bin/sh\n');
+      expectSingleAudit(home, sessionId, {
+        agent: 'claude-code',
+        command,
+        ruleId: 'rm.git-metadata',
+      });
+    });
+  });
+
+  test('Coding CLI allows project-local rm -rf at standard but blocks it at paranoid', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      const command = 'rm -rf ./cache';
+
+      const standardSession = 'claude-paranoid-delta-standard';
+      await expectAllowedAction(cwd, home, standardSession, (action) =>
+        runCodingCliTool('Bash', { command }, cwd, home, standardSession, action, 'standard'),
+      );
+
+      mkdirSync(join(cwd, 'cache'));
+      writeFileSync(join(cwd, 'cache', 'sentinel'), 'preserve');
+      const paranoidSession = 'claude-paranoid-delta-paranoid';
+      const paranoidResult = await runCodingCliTool(
+        'Bash',
+        { command },
+        cwd,
+        home,
+        paranoidSession,
+        () => rmSync(join(cwd, 'cache'), { recursive: true, force: true }),
+        'paranoid',
+      );
+      expect(paranoidResult.allowed).toBe(false);
+      expect(paranoidResult.reason).toContain('rm.recursive-force-paranoid');
+      expect(readFileSync(join(cwd, 'cache', 'sentinel'), 'utf8')).toBe('preserve');
+      expectSingleAudit(home, paranoidSession, {
+        agent: 'claude-code',
+        command,
+        ruleId: 'rm.recursive-force-paranoid',
+      });
+    });
+  });
 });
 
 describe('built Pi extension protection contract', () => {
@@ -729,7 +781,7 @@ async function runGated(
   cwd: string,
   home: string,
   action: () => void,
-  level?: 'standard' | 'strict',
+  level?: 'standard' | 'strict' | 'paranoid',
 ) {
   const stdout = await runBuiltHook(adapter.flag, input, cwd, home, level);
   if (!stdout) {
@@ -749,7 +801,7 @@ function runCodingCliTool(
   home: string,
   sessionId: string,
   action: () => void,
-  level?: 'standard' | 'strict',
+  level?: 'standard' | 'strict' | 'paranoid',
 ) {
   return runGated(
     adapters[0],
@@ -773,7 +825,7 @@ async function runBuiltHook(
   input: unknown,
   cwd: string,
   home: string,
-  level?: 'standard' | 'strict',
+  level?: 'standard' | 'strict' | 'paranoid',
 ) {
   return (await runNode([cliPath, 'hook', flag], input, cwd, home, level)).stdout.trim();
 }
@@ -859,7 +911,7 @@ async function runNode(
   input: unknown,
   cwd: string,
   home: string,
-  level?: 'standard' | 'strict',
+  level?: 'standard' | 'strict' | 'paranoid',
 ) {
   const proc = Bun.spawn(['node', ...args], {
     stdin: 'pipe',
@@ -890,7 +942,7 @@ function parseJsonOutput(label: string, output: string) {
   }
 }
 
-function isolatedEnv(home: string, level?: 'standard' | 'strict') {
+function isolatedEnv(home: string, level?: 'standard' | 'strict' | 'paranoid') {
   return {
     ...Object.fromEntries(
       Object.entries(process.env).filter(

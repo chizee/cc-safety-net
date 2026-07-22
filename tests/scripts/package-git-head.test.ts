@@ -5,7 +5,7 @@ import { buildPackageTarball } from '../../scripts/verify-package';
 import { withTempDir } from '../helpers';
 
 describe('release package identity', () => {
-  test('npm 11.5.1 preserves the tag commit without repository lifecycle hooks', async () => {
+  test('npm preserves the tag commit without repository lifecycle hooks', async () => {
     await withTempDir('cc-safety-net-release-pack-', async (directory) => {
       const outputDirectory = join(directory, 'output');
       mkdirSync(outputDirectory);
@@ -13,7 +13,6 @@ describe('release package identity', () => {
       const result = await buildPackageTarball({
         outputDirectory,
         gitHead,
-        npmCommand: ['npx', '--yes', 'npm@11.5.1'],
       });
       const packedManifest = Bun.spawnSync(
         ['tar', '-xOf', result.tarball, 'package/package.json'],

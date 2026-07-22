@@ -483,6 +483,20 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
+  test('rm -rf brace expansion beyond the expansion limit fails closed as outside cwd', () => {
+    setup();
+    try {
+      const alternatives = [...Array.from({ length: 64 }, (_, i) => `pad${i}`), '../escape'].join(
+        ',',
+      );
+      expect(analyzeTestCommand(`rm -rf {${alternatives}}`, { cwd: tmpDir })?.ruleId).toBe(
+        'rm.recursive-force-outside-cwd',
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test('rm -rf /other/path blocked', () => {
     setup();
     try {
@@ -871,6 +885,18 @@ describe('analyzeRm (unit)', () => {
   test('blocks rm -rf in home cwd via direct analyzeRm call', () => {
     const home = homedir();
     expect(analyzeRm(['rm', '-rf', 'somefile'], { cwd: home })).toContain('home directory');
+  });
+
+  test('rm -rf . falls back from home-cwd to cwd-self when the home-cwd rule is off', () => {
+    const home = homedir();
+    const match = analyzeRmMatch(['rm', '-rf', '.'], {
+      originalCwd: home,
+      policy: {
+        destructiveCommandProtectionEnabled: true,
+        destructiveCommandRuleOverrides: { 'rm.recursive-force-home-cwd': 'off' },
+      },
+    });
+    expect(match?.id).toBe('rm.recursive-force-cwd-self');
   });
 
   test('handles paths with separators and bad cwd defensively', () => {

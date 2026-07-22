@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
@@ -447,6 +448,42 @@ describe('guard evaluation', () => {
           { kind: 'path', target: '.env' },
         ],
       });
+    });
+  });
+
+  test('honors secretProtection.enabled=false and skips secret discovery', async () => {
+    await withTempDir('cc-safety-net-guard-secret-disabled-', (cwd) => {
+      const calls: string[] = [];
+
+      expect(
+        evaluateGuard(nonCommandInvocation(cwd, { path: '.env' }), {
+          dependencies: dependencies(
+            {
+              loadPolicySnapshot: () => {
+                calls.push('config');
+                return policySnapshot({ secretProtection: { enabled: false, denyPaths: [] } });
+              },
+            },
+            calls,
+          ),
+        }),
+      ).toEqual({ stage: 'non-command', decision: { kind: 'allow' } });
+      expect(calls).toEqual(['policy', 'config']);
+    });
+  });
+
+  test('never disables secret protection because of a malformed user policy.json', async () => {
+    await withTempDir('cc-safety-net-guard-secret-malformed-policy-', (cwd) => {
+      const userConfigDir = join(cwd, 'user', 'rules');
+      mkdirSync(dirname(userConfigDir), { recursive: true });
+      writeFileSync(join(dirname(userConfigDir), 'policy.json'), '{ not valid json');
+
+      const result = evaluateGuard(nonCommandInvocation(cwd, { path: '.env' }), {
+        policyOptions: { userConfigDir },
+      });
+
+      expect(result.stage).toBe('secret-protection');
+      expect(result.decision.kind).toBe('deny');
     });
   });
 

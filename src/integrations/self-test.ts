@@ -17,6 +17,7 @@ interface SelfTestResult {
   actual: 'blocked' | 'allowed';
   passed: boolean;
   reason?: string;
+  ruleId?: string;
 }
 
 export interface SelfTestSummary {
@@ -91,6 +92,10 @@ export function runIntegrationSelfTest(): SelfTestSummary {
           dependencies: {
             loadPolicySnapshot: () => SNAPSHOT,
             getModes: () => STANDARD_MODES,
+            // Policy config lives under the real home directory, so its ancestor chain always
+            // includes "/". Left enabled, it would intercept the rm root/home case before the
+            // destructive-command guard this suite exists to exercise ever runs.
+            findPolicyMutation: () => null,
           },
         },
         audit: { agent: 'self-test', getSessionId: () => undefined },
@@ -105,6 +110,7 @@ export function runIntegrationSelfTest(): SelfTestSummary {
       actual,
       passed: expected === actual,
       reason: evaluation.decision.kind === 'deny' ? evaluation.decision.reason : undefined,
+      ruleId: evaluation.decision.kind === 'deny' ? evaluation.decision.ruleId : undefined,
     };
   });
   return {

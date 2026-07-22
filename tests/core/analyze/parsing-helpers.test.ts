@@ -24,7 +24,7 @@ import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
 import { projectCommandViews, projectLegacySegments } from '@/parser/projection';
 import { MAX_STRIP_ITERATIONS } from '@/types';
-import { createLinkedWorktreeFixture } from '../../helpers.ts';
+import { assertBlocked, createLinkedWorktreeFixture } from '../../helpers.ts';
 
 const RM_COMMAND = ['r', 'm'].join('');
 const RM_RECURSIVE_FORCE = ['-', 'r', 'f'].join('');
@@ -37,6 +37,14 @@ describe('shell parsing helpers', () => {
     test('ignores quotes in comments while preserving following physical lines', () => {
       expect(hasUnclosedQuotes("echo ok # 'ignored\necho done")).toBeFalse();
       expect(hasUnclosedQuotes("echo '# literal' \"unterminated")).toBeTrue();
+    });
+
+    test('does not treat an apostrophe inside double quotes as an open single quote', () => {
+      expect(hasUnclosedQuotes('echo "it\'s fine"')).toBeFalse();
+    });
+
+    test('dangerous command wrapped in an interpreter -c string with an apostrophe inside a double-quoted argument is still blocked', () => {
+      assertBlocked(`bash -c 'echo "it'"'"'s fine" && rm -rf /'`, 'rm -rf');
     });
 
     test('projects string and glob entries without inventing unknown token text', () => {

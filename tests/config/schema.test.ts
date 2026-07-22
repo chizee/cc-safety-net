@@ -338,14 +338,33 @@ describe('configuration schemas', () => {
       { overrides: { unknown: 'off' } },
       { deny_paths: [' '] },
     ];
+    const destructiveFields = [
+      undefined,
+      {},
+      { enabled: 'yes' },
+      { overrides: { unknown: 'off' } },
+      { overrides: { 'git.ssh-env': 'maybe' } },
+      { allow_paths: '~/sandbox' },
+      { allow_paths: [42] },
+      { allow_paths: ['/'] },
+      { allow_paths: [homedir()] },
+    ];
     for (const version of [1, 2, undefined]) {
       for (const safety of safetyFields) {
         for (const workflow of workflowFields) {
           for (const secret_protection of secretFields) {
-            const input = { version, safety, workflow, secret_protection };
-            expect(getUserPolicySchema().safeParse(input).success).toBe(
-              getUserPolicyDiagnostics(input).length === 0,
-            );
+            for (const destructive_command_protection of destructiveFields) {
+              const input = {
+                version,
+                safety,
+                workflow,
+                secret_protection,
+                destructive_command_protection,
+              };
+              expect(getUserPolicySchema().safeParse(input).success).toBe(
+                getUserPolicyDiagnostics(input).length === 0,
+              );
+            }
           }
         }
       }

@@ -26,6 +26,7 @@ describe('integration self-test', () => {
             passed: true,
             reason:
               "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.",
+            ruleId: 'git.reset-hard',
           },
           {
             command: 'rm -rf /',
@@ -33,7 +34,9 @@ describe('integration self-test', () => {
             expected: 'blocked',
             actual: 'blocked',
             passed: true,
-            reason: 'Policy config is protected and you must not modify it.',
+            reason:
+              'rm -rf targeting root or home directory is extremely dangerous and always blocked.',
+            ruleId: 'rm.recursive-force-root-or-home',
           },
           {
             command: 'rm -rf ./node_modules',
@@ -42,6 +45,7 @@ describe('integration self-test', () => {
             actual: 'allowed',
             passed: true,
             reason: undefined,
+            ruleId: undefined,
           },
         ],
       });
