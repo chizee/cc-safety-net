@@ -182,7 +182,7 @@ function getShellCommandInfo(
     if (!token) {
       return null;
     }
-    const assignment = parseShellAssignment(
+    const assignment = parseShellContextEnvAssignment(
       token,
       getCurrentShellAssignmentValues(state, leadingAssignments),
     );
@@ -296,13 +296,6 @@ function getPrefixedCommandTarget(
 
   const command = tokens[i];
   return command ? { command, commandIndex: i } : null;
-}
-
-function parseShellAssignment(
-  token: string,
-  currentValues: ReadonlyMap<string, string>,
-): GitContextAssignment | null {
-  return parseEnvAssignment(token) ?? parseAppendEnvAssignment(token, currentValues);
 }
 
 function parseShellContextEnvAssignment(

@@ -30,12 +30,6 @@ export function getEffectiveTmpdirValue(
   return getEffectiveShellEnvValue(envAssignments, 'TMPDIR');
 }
 
-export function isTmpdirKnownEmpty(envAssignments: ReadonlyMap<string, string>): boolean {
-  if (envAssignments.has('TMPDIR')) return (envAssignments.get('TMPDIR') ?? '') === '';
-  // Unset/empty assignments are tracked in envAssignments. Inherited process env emptiness is not.
-  return false;
-}
-
 function isAssignedTmpdirValueTrusted(tmpdirValue: string): boolean {
   // Empty TMPDIR is dangerous: $TMPDIR/foo expands to /foo
   if (!tmpdirValue) return false;

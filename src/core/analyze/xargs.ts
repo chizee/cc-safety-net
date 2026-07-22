@@ -618,18 +618,8 @@ export function extractXargsChildCommandWithInfo(tokens: readonly string[]): Xar
 
       if (xargsOptsWithValue.has(token)) {
         i += 2;
-      } else if (token.startsWith('--') && token.includes('=')) {
-        i++;
-      } else if (
-        token.startsWith('-L') ||
-        token.startsWith('-n') ||
-        token.startsWith('-P') ||
-        token.startsWith('-s')
-      ) {
-        // These can have attached values like -n5
-        i++;
       } else {
-        // Unknown option, skip it
+        // Attached-value options like -n5 or --opt=v and unknown options occupy one token.
         i++;
       }
     } else {

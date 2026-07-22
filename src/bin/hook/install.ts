@@ -53,8 +53,6 @@ type InstallTargetResolution = {
   ready?: Promise<unknown>;
   finish: () => Promise<readonly InstallTarget[] | null>;
 };
-type SettledResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
-
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
     installCommands: [
@@ -135,19 +133,6 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
   return targets[0] as InstallTarget;
 }
 
-async function settle<T>(promise: Promise<T>): Promise<SettledResult<T>> {
-  try {
-    return { ok: true, value: await promise };
-  } catch (error) {
-    return { ok: false, error };
-  }
-}
-
-function unwrapSettled<T>(result: SettledResult<T>): T {
-  if (result.ok) return result.value;
-  throw result.error;
-}
-
 async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
   const piRawPromise = defaultVersionFetcher(['pi', '--version']);
   const copilotBinaryVersionPromise = defaultVersionFetcher(['copilot', '--binary-version']);
@@ -203,17 +188,18 @@ function startResolveInstallTargets(
   }
 
   const detectConfiguredTargets = options.detectConfiguredTargets ?? detectConfiguredInstallTargets;
-  const configuredTargetsPromise = settle(detectConfiguredTargets());
-  const choicesPromise = settle(buildInstallTargetChoicesAsync(options.probeTargets));
-  const ready = Promise.all([choicesPromise, configuredTargetsPromise]);
+  const ready = Promise.all([
+    buildInstallTargetChoicesAsync(options.probeTargets),
+    detectConfiguredTargets(),
+  ]);
 
   return {
     ready,
     finish: async () => {
       const [choices, configuredTargets] = await ready;
-      const targetChoices = applyInstallTargetState(unwrapSettled(choices), {
+      const targetChoices = applyInstallTargetState(choices, {
         action,
-        configuredTargets: unwrapSettled(configuredTargets),
+        configuredTargets,
       });
       const selected = options.selectTargets
         ? await options.selectTargets(action, targetChoices)

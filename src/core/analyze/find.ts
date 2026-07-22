@@ -13,7 +13,6 @@ import { hasRecursiveForceFlags } from '@/core/analyze/rm-flags';
 import {
   getEffectiveTmpdirValue,
   hasUnsafeTmpdirWordSplitting,
-  isTmpdirKnownEmpty,
   isTmpdirOverriddenToNonTemp,
   isTmpdirValueTrusted,
 } from '@/core/analyze/tmpdir';
@@ -179,8 +178,7 @@ function findCatastrophicDeleteMatch(
   context: AnalyzeFindContext,
 ): DestructiveCommandRuleMatch | null {
   const deletesDirectly = findHasDelete(tokens, 1);
-  const executesRm = findExecutesRm(tokens);
-  if (!deletesDirectly && !executesRm?.deletesFoundPaths) return null;
+  if (!deletesDirectly && !findExecRmDeletesFoundPaths(tokens)) return null;
   // An omitted starting point means find searches `.` implicitly.
   const targets = getFindStartingPoints(tokens) ?? [{ text: '.', index: -1 }];
   const targetContext = createRecursiveDeleteTargetContext({
@@ -226,10 +224,7 @@ function findCatastrophicDeleteMatch(
   return null;
 }
 
-/** @internal */
-export function findExecutesRm(tokens: readonly string[]): { deletesFoundPaths: boolean } | null {
-  let found = false;
-  let deletesFoundPaths = false;
+export function findExecRmDeletesFoundPaths(tokens: readonly string[]): boolean {
   let index = 0;
   while (index < tokens.length) {
     if (!isFindExecPrimary(tokens[index])) {
@@ -239,13 +234,12 @@ export function findExecutesRm(tokens: readonly string[]): { deletesFoundPaths: 
     const command = getFindExecCommand(tokens, index);
     const stripped = stripWrappers([...command.tokens]);
     const head = getBasename(stripped[0] ?? '').toLowerCase();
-    if (head === 'rm' || head === 'rmdir') {
-      found = true;
-      deletesFoundPaths ||= stripped.some((token) => token.includes('{}'));
+    if ((head === 'rm' || head === 'rmdir') && stripped.some((token) => token.includes('{}'))) {
+      return true;
     }
     index = command.nextIndex;
   }
-  return found ? { deletesFoundPaths } : null;
+  return false;
 }
 
 function findSelectsHooksByName(tokens: readonly string[]): boolean {
@@ -273,7 +267,6 @@ function hasOnlyTrustedTempDeleteTargets(
     allowTmpdirVar: allowTmpdirVar && trustedTmpdirValue && Boolean(effectiveTmpdirValue),
     allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: true,
-    tmpdirVarExpandsEmpty: context.tmpdirVarExpandsEmpty ?? isTmpdirKnownEmpty(envAssignments),
     tmpdirWordSplittingUnsafe:
       context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
     trustedTmpdirValue,

@@ -51,7 +51,6 @@ import {
 } from '@/core/analyze/shell-wrappers';
 import {
   hasUnsafeTmpdirWordSplitting,
-  isTmpdirKnownEmpty,
   isTmpdirOverriddenToNonTemp,
   isTmpdirValueTrusted,
 } from '@/core/analyze/tmpdir';
@@ -1112,7 +1111,6 @@ function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRu
     strict: context.options.strict,
     paranoid: context.options.paranoidRm,
     allowTmpdirVar: context.allowTmpdirVar,
-    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
     protectedGitMetadata: context.options.protectedGitMetadata,
@@ -1224,7 +1222,6 @@ function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommand
     originalCwd: context.originalCwd,
     strict: context.options.strict,
     allowTmpdirVar: context.allowTmpdirVar,
-    tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
     protectedGitMetadata: context.options.protectedGitMetadata,
@@ -1321,18 +1318,8 @@ const POWERSHELL_LOCATION_COMMANDS = new Set([
   'set-location',
   'sl',
 ]);
-const POWERSHELL_SET_LOCATION_COMMANDS = new Set(['cd', 'chdir', 'set-location', 'sl']);
-const POWERSHELL_MODULE_LOCATION_COMMANDS = new Set([
-  'pop-location',
-  'push-location',
-  'set-location',
-]);
-const POWERSHELL_MANAGEMENT_COMMAND_REGEX =
-  /(?:^|[\\/])microsoft\.powershell\.management\\([^\\/]+)$/;
-
 type PowerShellLocationEffect =
   | { kind: 'none' }
-  | { kind: 'unchanged' }
   | { kind: 'unknown' }
   | { kind: 'target'; target: string };
 
@@ -1353,7 +1340,6 @@ export function resolveCwdAfterCommandView(
     const effect = getPowerShellLocationEffect(commandView.words, literalPipelineInput);
     if (effect.kind === 'none') return undefined;
     if (!cwd || effect.kind === 'unknown') return null;
-    if (effect.kind === 'unchanged') return cwd;
     return resolveKnownCwdTarget(normalizePowerShellLocationTarget(effect.target), cwd);
   }
 
@@ -1390,22 +1376,13 @@ function getPowerShellLocationEffect(
   const commandWord = words[commandIndex];
   if (!isStaticPowerShellCommandWord(commandWord, commandIndex === 1)) return { kind: 'none' };
 
-  const command = normalizePowerShellManagementCommand(commandWord.text);
-  if (!POWERSHELL_LOCATION_COMMANDS.has(command)) return { kind: 'none' };
-  if (command === 'pop-location' || command === 'popd') return { kind: 'unknown' };
-  return getPowerShellLocationArgumentEffect(
-    words.slice(commandIndex + 1),
-    literalPipelineInput,
-    POWERSHELL_SET_LOCATION_COMMANDS.has(command),
-  );
-}
-
-function normalizePowerShellManagementCommand(command: string): string {
-  const normalized = command.toLowerCase();
-  const moduleCommand = normalized.match(POWERSHELL_MANAGEMENT_COMMAND_REGEX)?.[1];
-  return moduleCommand && POWERSHELL_MODULE_LOCATION_COMMANDS.has(moduleCommand)
-    ? moduleCommand
-    : normalized;
+  const command = commandWord.text.toLowerCase();
+  const bareCommand = command.split(/[\\/]/).pop() ?? command;
+  if (!POWERSHELL_LOCATION_COMMANDS.has(bareCommand)) return { kind: 'none' };
+  if (command !== bareCommand || bareCommand === 'pop-location' || bareCommand === 'popd') {
+    return { kind: 'unknown' };
+  }
+  return getPowerShellLocationArgumentEffect(words.slice(commandIndex + 1), literalPipelineInput);
 }
 
 function isBarePowerShellCallOperator(word: CommandWord | undefined): boolean {
@@ -1427,116 +1404,20 @@ function isStaticPowerShellCommandWord(
 function getPowerShellLocationArgumentEffect(
   args: readonly CommandWord[],
   literalPipelineInput: string | undefined,
-  supportsStackName: boolean,
 ): PowerShellLocationEffect {
   let target: string | undefined;
-  let stackOnly = false;
-
-  for (let index = 0; index < args.length; index++) {
-    const word = args[index];
-    if (!word) continue;
-    if (!isBarePowerShellParameter(word) || word.text === '-') {
-      if (word.provenance !== 'literal' || target !== undefined || stackOnly) {
-        return { kind: 'unknown' };
-      }
-      target = word.text;
-      continue;
-    }
-
-    if (word.text === '--') {
-      const positional = args[index + 1];
-      if (
-        !positional ||
-        positional.provenance !== 'literal' ||
-        target !== undefined ||
-        stackOnly ||
-        index + 2 !== args.length
-      ) {
-        return { kind: 'unknown' };
-      }
-      return { kind: 'target', target: positional.text };
-    }
-
-    const parameter = parsePowerShellParameter(word.text);
-    if (isPowerShellPathParameter(parameter.name)) {
-      const value = parameter.value === undefined ? args[++index] : undefined;
-      const path = parameter.value ?? value?.text;
-      if (
-        path === undefined ||
-        (value && value.provenance !== 'literal') ||
-        target !== undefined ||
-        stackOnly
-      ) {
-        return { kind: 'unknown' };
-      }
-      target = path;
-      continue;
-    }
-    if (supportsStackName && isPowerShellStackName(parameter.name)) {
-      const value = parameter.value === undefined ? args[++index] : undefined;
-      if ((parameter.value === undefined && !value) || target !== undefined || stackOnly) {
-        return { kind: 'unknown' };
-      }
-      stackOnly = true;
-      continue;
-    }
-    if (isPowerShellSafeSwitch(parameter.name)) continue;
-    if (isPowerShellCommonValueParameter(parameter.name)) {
-      if (parameter.value === undefined && !args[++index]) return { kind: 'unknown' };
-      continue;
-    }
-    return { kind: 'unknown' };
+  for (const word of args) {
+    if (word.provenance !== 'literal' || target !== undefined) return { kind: 'unknown' };
+    target = word.text;
   }
-
   if (target !== undefined) return { kind: 'target', target };
-  if (stackOnly) return { kind: 'unchanged' };
   return literalPipelineInput === undefined
     ? { kind: 'unknown' }
     : { kind: 'target', target: literalPipelineInput };
 }
 
-function isBarePowerShellParameter(word: CommandWord): boolean {
-  return (
-    word.provenance === 'literal' &&
-    !word.quoted &&
-    word.raw === word.text &&
-    ['-', '\u2013', '\u2014', '\u2015'].includes(word.text[0] ?? '')
-  );
-}
-
-function parsePowerShellParameter(parameter: string) {
-  const colonIndex = parameter.indexOf(':');
-  return {
-    name: parameter.slice(1, colonIndex === -1 ? undefined : colonIndex).toLowerCase(),
-    value: colonIndex === -1 ? undefined : parameter.slice(colonIndex + 1),
-  };
-}
-
-function isPowerShellPathParameter(name: string): boolean {
-  return (
-    name === 'lp' ||
-    name === 'pspath' ||
-    (name.length >= 1 && 'literalpath'.startsWith(name)) ||
-    (name.length >= 3 && 'path'.startsWith(name))
-  );
-}
-
-function isPowerShellStackName(name: string): boolean {
-  return name.length >= 1 && 'stackname'.startsWith(name);
-}
-
-function isPowerShellSafeSwitch(name: string): boolean {
-  return name === 'passthru' || name === 'verbose';
-}
-
-function isPowerShellCommonValueParameter(name: string): boolean {
-  return name === 'erroraction' || name === 'ea';
-}
-
 function normalizePowerShellLocationTarget(target: string): string | undefined {
-  const providerPrefix = /^(?:microsoft\.powershell\.core\\)?filesystem::/i.exec(target)?.[0];
-  if (!providerPrefix && target.includes('::')) return undefined;
-  return target.slice(providerPrefix?.length ?? 0).replaceAll('\\', '/');
+  return target.includes('::') ? undefined : target.replaceAll('\\', '/');
 }
 
 function getCdCommandIndex(tokens: readonly string[]): number {

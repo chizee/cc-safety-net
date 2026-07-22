@@ -11,15 +11,7 @@ function powerShellCommand(source: string) {
 
 describe('command working-directory tracking', () => {
   test('tracks PowerShell location commands only while the resulting directory stays known', () => {
-    for (const command of [
-      'Set-Location /tmp',
-      'Set-Location -- /tmp',
-      '& Set-Location /tmp',
-      'Microsoft.PowerShell.Management\\Set-Location /tmp',
-      'Set-Location FileSystem::/tmp',
-      'Set-Location -LiteralPath:/tmp -Verbose -ErrorAction Stop',
-      'Set-Location -StackName work',
-    ]) {
+    for (const command of ['Set-Location /tmp', '& Set-Location /tmp']) {
       expect(resolveCwdAfterCommandView(powerShellCommand(command), '/tmp'), command).toBe('/tmp');
     }
 
@@ -28,6 +20,11 @@ describe('command working-directory tracking', () => {
       'Set-Location Registry::HKLM',
       'Pop-Location',
       'Set-Location -Unknown value',
+      'Set-Location -- /tmp',
+      'Microsoft.PowerShell.Management\\Set-Location /tmp',
+      'Set-Location FileSystem::/tmp',
+      'Set-Location -LiteralPath:/tmp -Verbose -ErrorAction Stop',
+      'Set-Location -StackName work',
     ]) {
       expect(resolveCwdAfterCommandView(powerShellCommand(command), '/tmp'), command).toBeNull();
     }

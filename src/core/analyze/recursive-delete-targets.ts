@@ -23,7 +23,6 @@ export interface RecursiveDeleteTargetTrustOptions {
   strict?: boolean;
   allowTmpdirVar?: boolean;
   allowPaths?: readonly string[];
-  tmpdirVarExpandsEmpty?: boolean;
   tmpdirWordSplittingUnsafe?: boolean;
   trustedTmpdirValue?: boolean;
   protectedGitMetadata?: ProtectedGitMetadata | null;
@@ -41,7 +40,6 @@ export interface RecursiveDeleteTargetContext {
   readonly paranoid: boolean;
   readonly trustTmpdirVar: boolean;
   readonly posixShell: boolean;
-  readonly tmpdirVarExpandsEmpty: boolean;
   readonly tmpdirWordSplittingUnsafe: boolean;
   readonly trustedTmpdirValue: boolean;
   readonly homeDir: string;
@@ -84,7 +82,6 @@ export function createRecursiveDeleteTargetContext(
     paranoid: options.paranoid ?? false,
     trustTmpdirVar: options.allowTmpdirVar ?? true,
     posixShell: options.posixShell ?? false,
-    tmpdirVarExpandsEmpty: options.tmpdirVarExpandsEmpty ?? false,
     tmpdirWordSplittingUnsafe: options.tmpdirWordSplittingUnsafe ?? false,
     trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
     homeDir,
@@ -111,27 +108,24 @@ export function classifyRecursiveDeleteTarget(
   ) {
     return { kind: 'outside_anchored_cwd' };
   }
-  // Empty TMPDIR makes $TMPDIR/foo expand to /foo at runtime, but policy treats it as an
-  // unverifiable dynamic target (strict-only) rather than rewriting to an absolute path here.
-  const normalizedTarget = target;
-  const dynamic = !targetIsLiteral && isDynamicTarget(normalizedTarget, ctx.posixShell);
+  const dynamic = !targetIsLiteral && isDynamicTarget(target, ctx.posixShell);
 
-  if (isUnsupportedWindowsNamespacePath(normalizedTarget)) {
+  if (isUnsupportedWindowsNamespacePath(target)) {
     return { kind: 'outside_anchored_cwd' };
   }
 
-  if (isDangerousRootOrHomeTarget(normalizedTarget, targetIsLiteral)) {
+  if (isDangerousRootOrHomeTarget(target, targetIsLiteral)) {
     return { kind: 'root_or_home_target' };
   }
 
-  if (isCanonicalHomeTarget(normalizedTarget, ctx)) {
+  if (isCanonicalHomeTarget(target, ctx)) {
     return { kind: 'root_or_home_target' };
   }
 
   if (
     ctx.resolvedCwd &&
     isProtectedGitDeleteTarget(
-      normalizedTarget,
+      target,
       ctx.resolvedCwd,
       ctx.protectedGitMetadata,
       true,
@@ -144,7 +138,7 @@ export function classifyRecursiveDeleteTarget(
 
   if (
     isTempTarget(
-      normalizedTarget,
+      target,
       ctx.trustTmpdirVar,
       ctx.posixShell,
       dynamic,
@@ -161,7 +155,7 @@ export function classifyRecursiveDeleteTarget(
   }
 
   // User-configured allow paths behave like trusted temp roots for verified literal targets.
-  if (isAllowedPathTarget(normalizedTarget, ctx, targetIsLiteral)) {
+  if (isAllowedPathTarget(target, ctx, targetIsLiteral)) {
     return { kind: 'temp_target' };
   }
 
@@ -176,18 +170,14 @@ export function classifyRecursiveDeleteTarget(
 
     if (
       !options.skipCwdSelf &&
-      isCwdSelfTarget(
-        normalizedTarget,
-        ctx.resolvedCwd ?? anchoredCwd,
-        ctx.pathCanonicalizationBudget,
-      )
+      isCwdSelfTarget(target, ctx.resolvedCwd ?? anchoredCwd, ctx.pathCanonicalizationBudget)
     ) {
       return { kind: 'cwd_self_target' };
     }
 
     if (
       isTargetWithinCwd(
-        normalizedTarget,
+        target,
         anchoredCwd,
         ctx.resolvedCwd ?? anchoredCwd,
         dynamic,
@@ -247,13 +237,8 @@ export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = fals
     return true;
   }
 
-  if (
-    !targetIsLiteral &&
-    (normalized === '~' || normalized === '~/' || normalized.startsWith('~/'))
-  ) {
-    if (normalized === '~' || normalized === '~/' || normalized === '~/*') {
-      return true;
-    }
+  if (!targetIsLiteral && (normalized === '~' || normalized === '~/' || normalized === '~/*')) {
+    return true;
   }
 
   if (

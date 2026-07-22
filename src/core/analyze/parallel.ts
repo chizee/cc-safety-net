@@ -26,11 +26,7 @@ import {
   shellSourceHasUnresolvedDynamicExecutionCarrier,
 } from '@/core/analyze/shell-execution';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
-import {
-  hasUnsafeTmpdirWordSplitting,
-  isTmpdirKnownEmpty,
-  isTmpdirValueTrusted,
-} from '@/core/analyze/tmpdir';
+import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import {
   type DestructiveCommandRuleId,
@@ -842,7 +838,6 @@ function analyzeParallelRmExpansion(
       strict: context.strict,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar,
-      tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments ?? new Map()),
       tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? new Map()),
       trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? new Map()),
       protectedGitMetadata: context.protectedGitMetadata,

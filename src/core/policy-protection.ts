@@ -1,5 +1,9 @@
 import { dirname } from 'node:path';
-import { findExecutesRm, findHasDelete, getFindStartingPoints } from '@/core/analyze/find';
+import {
+  findExecRmDeletesFoundPaths,
+  findHasDelete,
+  getFindStartingPoints,
+} from '@/core/analyze/find';
 import {
   createPathCanonicalizationBudget,
   type PathCanonicalizationBudget,
@@ -163,8 +167,7 @@ function findPolicyConfigMutationTargetInSegment(
 
   if (command === 'find') {
     const deletesDirectly = findHasDelete(stripped, 1);
-    const executesRm = findExecutesRm(stripped);
-    if (deletesDirectly || executesRm?.deletesFoundPaths) {
+    if (deletesDirectly || findExecRmDeletesFoundPaths(stripped)) {
       const target = (getFindStartingPoints(stripped) ?? [{ text: '.', index: -1 }]).find(
         (startingPoint) => {
           const expanded = expandTrackedShellVariables(startingPoint.text, state.variables);

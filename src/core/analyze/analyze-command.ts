@@ -21,10 +21,7 @@ import {
 } from '@/core/analyze/parallel-budget';
 import { analyzePowerShellCommandViewMatch } from '@/core/analyze/powershell/remove-item';
 import { analyzeSegment, resolveCwdAfterCommandView } from '@/core/analyze/segment';
-import {
-  extractLiteralPrintfOutput,
-  extractShellScriptOperandSource,
-} from '@/core/analyze/shell-execution';
+import { extractLiteralPrintfOutput } from '@/core/analyze/shell-execution';
 import {
   applyShellGitContextEnvSegment,
   cloneShellGitContextEnvState,
@@ -32,7 +29,7 @@ import {
   getSegmentGitContextEnvAssignments,
   type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
-import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
+import { isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
@@ -293,15 +290,9 @@ function analyzeProgram(
     const successStates: AnalysisState[] = [];
     const failureStates: AnalysisState[] = [];
     for (const state of executionStates) {
-      const nestedAnalysis = analyzeCommandNestedPrograms(
-        program,
-        nodeIndex,
-        node,
-        depth,
-        options,
-        originalCwd,
-        [cloneAnalysisState(state)],
-      );
+      const nestedAnalysis = analyzeCommandNestedPrograms(node, depth, options, originalCwd, [
+        cloneAnalysisState(state),
+      ]);
       if (nestedAnalysis.result) return { result: nestedAnalysis.result, states };
 
       const commandStates =
@@ -499,8 +490,6 @@ type NestedProgramAnalysisTarget = {
 };
 
 function analyzeCommandNestedPrograms(
-  containingProgram: CommandProgram,
-  nodeIndex: number,
   commandView: CommandView,
   depth: number,
   options: ActiveInternalOptions,
@@ -512,22 +501,6 @@ function analyzeCommandNestedPrograms(
     depth,
   }));
   if (commandView.dialect === 'powershell') {
-    const invokedScriptBlock = getInvokedPowerShellScriptBlock(
-      containingProgram,
-      nodeIndex,
-      commandView,
-    );
-    if (invokedScriptBlock) programs.push({ program: invokedScriptBlock, depth });
-
-    const recoveredSource = getRecoveredPowerShellExpressionSource(
-      containingProgram,
-      nodeIndex,
-      commandView,
-    );
-    if (recoveredSource) {
-      programs.push({ program: parseCommand(recoveredSource, 'powershell'), depth });
-    }
-
     const evaluatedSource = getLiteralPowerShellEvaluationSource(commandView);
     if (evaluatedSource) {
       if (depth + 1 >= MAX_RECURSION_DEPTH) {
@@ -549,38 +522,6 @@ function analyzeCommandNestedPrograms(
   }
 
   return analyzeNestedPrograms(programs, options, originalCwd, initialStates);
-}
-
-function getInvokedPowerShellScriptBlock(
-  containingProgram: CommandProgram,
-  nodeIndex: number,
-  commandView: CommandView,
-): CommandProgram | undefined {
-  const operator = commandView.words[0];
-  const variable = commandView.words[1];
-  if (
-    commandView.words.length !== 2 ||
-    operator?.provenance !== 'literal' ||
-    operator.quoted ||
-    operator.raw !== operator.text ||
-    (operator.text !== '&' && operator.text !== '.') ||
-    variable?.provenance !== 'variable'
-  ) {
-    return undefined;
-  }
-
-  const variableName = variable.text.toLowerCase();
-  for (let index = nodeIndex - 1; index >= 0; index--) {
-    const candidate = containingProgram.nodes[index];
-    if (candidate?.kind !== 'command') continue;
-    if (candidate.words[0]?.text.toLowerCase() !== variableName) continue;
-    if (getPowerShellScriptBlockAssignmentName(candidate) !== variableName) return undefined;
-    const scriptBlock = containingProgram.nodes[index + 1];
-    return scriptBlock?.kind === 'group' && scriptBlock.style === 'brace'
-      ? scriptBlock.body
-      : undefined;
-  }
-  return undefined;
 }
 
 function getPowerShellScriptBlockAssignmentName(commandView: CommandView): string | undefined {
@@ -609,26 +550,6 @@ function analyzeNestedPrograms(
     states = deduplicateAnalysisStates(nextStates);
   }
   return { result: null, states };
-}
-
-function getRecoveredPowerShellExpressionSource(
-  containingProgram: CommandProgram,
-  nodeIndex: number,
-  commandView: CommandView,
-): string | undefined {
-  const nextNode = containingProgram.nodes[nodeIndex + 1];
-  if (
-    containingProgram.status !== 'partial' ||
-    commandView.nested.length > 0 ||
-    nextNode?.kind !== 'unknown' ||
-    nextNode.source !== ')'
-  ) {
-    return undefined;
-  }
-  return (
-    /^\s*\[void\]\(\s*(.+)$/i.exec(commandView.source)?.[1] ??
-    /^\s*@\{[^{}=]+\s*=\s*\(\s*(.+)$/i.exec(commandView.source)?.[1]
-  )?.trim();
 }
 
 function getLiteralPowerShellEvaluationSource(commandView: CommandView): string | undefined {
@@ -764,7 +685,6 @@ function analyzeCommandView(
     const heredocResult = analyzeUnsupportedHeredoc(
       commandView,
       heredocReason,
-      depth,
       state,
       segmentEnvAssignments ?? new Map(),
       options,
@@ -820,7 +740,6 @@ function analyzeCommandView(
   const heredocResult = analyzeUnsupportedHeredoc(
     commandView,
     heredocReason,
-    depth,
     state,
     segmentEnvAssignments ?? new Map(),
     options,
@@ -1042,7 +961,6 @@ function hasOutputProcessSubstitution(word: CommandWord | undefined): boolean {
 function analyzeUnsupportedHeredoc(
   commandView: CommandView,
   reason: string | undefined,
-  depth: number,
   state: AnalysisState,
   envAssignments: ReadonlyMap<string, string>,
   options: ActiveInternalOptions,
@@ -1054,27 +972,7 @@ function analyzeUnsupportedHeredoc(
   const bodies = heredocs.flatMap((redirection) =>
     redirection.heredoc ? [redirection.heredoc.body] : [],
   );
-  const shellHeredoc = getQuotedShellHeredoc(commandView, heredocs, state, envAssignments);
-  if (shellHeredoc?.kind === 'inert') return null;
-  if (shellHeredoc?.kind === 'source') {
-    reserveDerivedCommandTokens(options.derivedCommandWorkBudget, 1);
-    options.trace?.recordSegment({
-      type: 'recurse',
-      reason: 'shell-heredoc',
-      innerCommand: shellHeredoc.body,
-      depth: depth + 1,
-    });
-    const result = analyzeCommandInternal(shellHeredoc.body, depth + 1, {
-      ...options,
-      effectiveCwd: shellHeredoc.effectiveCwd,
-      envAssignments: shellHeredoc.envAssignments,
-      literalHeredocFiles: state.literalHeredocFiles,
-      trace: options.trace
-        ? withTraceSegment(options.trace, options.trace.currentSegmentIndex, true)
-        : undefined,
-    });
-    return result ? { ...result, segment: commandView.legacyNormalized } : null;
-  }
+  if (isInertShellHeredoc(commandView, heredocs, state, envAssignments)) return null;
   const result = analyzeUnparseableCommand(
     bodies.length === heredocs.length ? bodies.join('\n') : commandView.source,
     options,
@@ -1082,23 +980,15 @@ function analyzeUnsupportedHeredoc(
   return result ? { ...result, segment: commandView.legacyNormalized } : null;
 }
 
-function getQuotedShellHeredoc(
+function isInertShellHeredoc(
   commandView: CommandView,
   heredocs: readonly CommandRedirection[],
   state: AnalysisState,
   envAssignments: ReadonlyMap<string, string>,
-):
-  | { kind: 'inert' }
-  | {
-      kind: 'source';
-      body: string;
-      effectiveCwd: string | null | undefined;
-      envAssignments: ReadonlyMap<string, string>;
-    }
-  | undefined {
+): boolean {
   const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
   if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
-    return undefined;
+    return false;
   }
 
   const stripped = stripWrappersWithInfo(
@@ -1111,17 +1001,9 @@ function getQuotedShellHeredoc(
     stripped.unverifiableEnvSplit ||
     (!SHELL_WRAPPERS.has(head) && !SHELL_WRAPPERS.has(getBasename(head)))
   ) {
-    return undefined;
+    return false;
   }
-  if (isShellSyntaxCheck(stripped.tokens)) return { kind: 'inert' };
-  if (
-    extractDashCArg(stripped.tokens) !== null ||
-    extractShellScriptOperandSource(stripped.tokens, undefined).kind !== 'none'
-  ) {
-    return undefined;
-  }
-  // Unsupported shell-heredoc form in standard mode: keep raw-text fallback semantics.
-  return undefined;
+  return isShellSyntaxCheck(stripped.tokens);
 }
 
 function updateCwdAfterCommandView(

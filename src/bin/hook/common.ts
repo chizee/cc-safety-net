@@ -27,7 +27,6 @@ type HookDenyOutput = (denial: IntegrationDenial) => void;
 type HookAdapter<T> = {
   agent: string;
   getAgent?: (input: T) => string;
-  getAuditCwd?: (input: T) => string | null | undefined;
   outputDeny: HookDenyOutput;
   guardDependencies?: Partial<GuardDependencies>;
   isSupported: (input: T) => boolean;
@@ -182,7 +181,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
 
   const agent = adapter.getAgent?.(input) ?? adapter.agent;
   const shape = adapter.agent === agent ? undefined : adapter.agent;
-  const auditCwd = adapter.getAuditCwd?.(input) ?? getHookAuditCwd(input);
+  const auditCwd = getHookAuditCwd(input);
 
   const outputPreflightDeny = (denial: IntegrationDenial, toolName?: string): void => {
     writeIntegrationDenialAudit(denial, () => adapter.getSessionId(input), {
@@ -311,7 +310,6 @@ export async function runConfiguredHookAdapter<T>(
   await runHookAdapter<T>({
     agent: adapter.agent,
     getAgent: adapter.getAgent,
-    getAuditCwd: adapter.getAuditCwd,
     outputDeny,
     guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,

@@ -9,48 +9,19 @@ const SHELL_SHORT_VALUE_OPTIONS: Readonly<Record<string, readonly string[]>> = {
 };
 const BASH_LONG_VALUE_OPTIONS = new Set(['--init-file', '--rcfile']);
 const BASH_STARTUP_OPTIONS = ['--init-file', '--rcfile'] as const;
-const SHELL_APPENDED_SOURCE = '__CC_SAFETY_NET_SHELL_APPENDED_SOURCE__';
 
-/** @internal */
-export type ShellStartupOption = (typeof BASH_STARTUP_OPTIONS)[number];
 /** @internal */
 export type ShellStartupEnvironmentName = 'BASH_ENV' | 'ENV';
 /** @internal */
 export type ShellStartupArgvSource =
-  | {
-      readonly kind: 'literal';
-      readonly option: ShellStartupOption;
-      readonly optionIndex: number;
-      readonly tokenIndex: number;
-      readonly value: string;
-    }
-  | {
-      readonly kind: 'absent';
-      readonly option: ShellStartupOption;
-      readonly optionIndex: number;
-      readonly tokenIndex: null;
-      readonly value: null;
-    };
+  | { readonly kind: 'literal'; readonly value: string }
+  | { readonly kind: 'absent' };
 /** @internal */
 export type ShellStartupLoaderMetadata = {
   readonly argvSource: ShellStartupArgvSource | null;
   readonly argvSourceApplies: boolean;
   readonly envName: ShellStartupEnvironmentName | null;
   readonly envSourceApplies: boolean;
-};
-
-/** @internal */
-export type ShellExecutableSourceKind = 'inline-code' | 'main-script';
-/** @internal */
-export type ShellExecutableSource = {
-  readonly kind: ShellExecutableSourceKind;
-  readonly tokenIndex: number;
-  readonly value: string;
-};
-/** @internal */
-export type ShellExecutableSourceMetadata = {
-  readonly source: ShellExecutableSource | null;
-  readonly appendedSourceOpen: boolean;
 };
 
 const SHELL_STARTUP_ENV_NAMES = new Map<string, ShellStartupEnvironmentName>([
@@ -108,44 +79,6 @@ function getCommandStringAfterDashC(
 }
 
 /** @internal */
-export function extractShellExecutableSources(
-  tokens: readonly string[],
-): readonly ShellExecutableSource[] {
-  const source = extractShellExecutableSourceMetadata(tokens).source;
-  return source ? [source] : [];
-}
-
-/** @internal */
-export function extractShellExecutableSourceMetadata(
-  tokens: readonly string[],
-): ShellExecutableSourceMetadata {
-  const parsed = parseShellArgv(tokens);
-  const source =
-    parsed.commandIndex !== null
-      ? {
-          kind: 'inline-code' as const,
-          tokenIndex: parsed.commandIndex,
-          value: tokens[parsed.commandIndex] ?? '',
-        }
-      : parsed.scriptIndex !== null
-        ? {
-            kind: 'main-script' as const,
-            tokenIndex: parsed.scriptIndex,
-            value: tokens[parsed.scriptIndex] ?? '',
-          }
-        : null;
-  if (source) return { source, appendedSourceOpen: false };
-
-  const appendedIndex = tokens.length;
-  const appended = parseShellArgv([...tokens, SHELL_APPENDED_SOURCE]);
-  return {
-    source: null,
-    appendedSourceOpen:
-      appended.commandIndex === appendedIndex || appended.scriptIndex === appendedIndex,
-  };
-}
-
-/** @internal */
 export function extractShellStartupLoaderMetadata(
   tokens: readonly string[],
 ): ShellStartupLoaderMetadata {
@@ -192,11 +125,7 @@ function parseShellStartupArgv(
           : undefined;
       if (option) {
         const value = tokens[index + 1];
-        sources.push(
-          value === undefined
-            ? { kind: 'absent', option, optionIndex: index, tokenIndex: null, value: null }
-            : { kind: 'literal', option, optionIndex: index, tokenIndex: index + 1, value },
-        );
+        sources.push(value === undefined ? { kind: 'absent' } : { kind: 'literal', value });
         index++;
         continue;
       }

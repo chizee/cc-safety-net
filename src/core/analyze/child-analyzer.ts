@@ -17,11 +17,7 @@ import {
   shellSourceHasUnresolvedDynamicExecutionCarrier,
 } from '@/core/analyze/shell-execution';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
-import {
-  hasUnsafeTmpdirWordSplitting,
-  isTmpdirKnownEmpty,
-  isTmpdirValueTrusted,
-} from '@/core/analyze/tmpdir';
+import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
 import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
@@ -67,8 +63,6 @@ export interface ChildCommandAnalysisOptions {
   dynamicInput?: boolean;
   dynamicRmInput?: boolean;
   dynamicSourceInput?: boolean;
-  shellDynamicReason?: string;
-  rmDynamicReason?: string;
   shellDynamicMatch?: DestructiveCommandRuleMatch;
   dynamicSourceMatch?: DestructiveCommandRuleMatch;
   rmDynamicMatch?: DestructiveCommandRuleMatch;
@@ -220,7 +214,6 @@ export function analyzeChildCommandMatch(
         strict: context.strict,
         paranoid: context.paranoidRm,
         allowTmpdirVar: context.allowTmpdirVar,
-        tmpdirVarExpandsEmpty: isTmpdirKnownEmpty(context.envAssignments),
         tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
         trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
         protectedGitMetadata: context.protectedGitMetadata,
@@ -284,12 +277,9 @@ function getShellDynamicReason(
   options: ChildCommandAnalysisOptions,
   context: ChildCommandAnalysisContext,
 ): DestructiveCommandRuleMatch | null {
-  const match =
-    options.shellDynamicMatch ??
-    (options.shellDynamicReason
-      ? { id: '', reason: options.shellDynamicReason, intent: 'manual_only' as const }
-      : undefined);
-  return match ? filterDestructiveCommandMatch(match, context.policy) : null;
+  return options.shellDynamicMatch
+    ? filterDestructiveCommandMatch(options.shellDynamicMatch, context.policy)
+    : null;
 }
 
 function getDynamicSourceReason(
@@ -305,12 +295,7 @@ function getDynamicRmReason(
   options: ChildCommandAnalysisOptions,
   context: ChildCommandAnalysisContext,
 ): DestructiveCommandRuleMatch | null {
-  const rmDynamicMatch =
-    options.rmDynamicMatch ??
-    (options.rmDynamicReason
-      ? { id: '', reason: options.rmDynamicReason, intent: 'manual_only' as const }
-      : undefined);
-  return options.dynamicInput && rmDynamicMatch
-    ? filterDestructiveCommandMatch(rmDynamicMatch, context.policy)
+  return options.dynamicInput && options.rmDynamicMatch
+    ? filterDestructiveCommandMatch(options.rmDynamicMatch, context.policy)
     : null;
 }

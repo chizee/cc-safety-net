@@ -561,12 +561,11 @@ const CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS = new Set(
 export function destructiveCommandMatch(
   id: (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number],
   reason: string,
-  intent?: BlockIntent,
 ) {
   return {
     id,
     reason,
-    intent: intent ?? DESTRUCTIVE_COMMAND_RULE_INTENTS.get(id) ?? 'manual_only',
+    intent: DESTRUCTIVE_COMMAND_RULE_INTENTS.get(id) ?? 'manual_only',
   };
 }
 

@@ -673,7 +673,7 @@ describe('analyzeCommand (coverage)', () => {
       expect(
         analyzeChildCommand(['rm', '-rf', '/tmp/a'], childContext, {
           dynamicInput: true,
-          rmDynamicReason: 'dynamic rm denied',
+          rmDynamicMatch: { id: '', reason: 'dynamic rm denied', intent: 'manual_only' },
         }),
       ).toBe('dynamic rm denied');
     });

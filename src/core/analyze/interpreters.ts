@@ -58,7 +58,6 @@ const LONG_VALUE_FLAGS = new Map([
       '--dns-result-order',
       '--env-file',
       '--env-file-if-exists',
-      '--experimental-loader',
       '--experimental-package-map',
       '--experimental-test-isolation',
       '--experimental-test-tag-filter',
@@ -68,11 +67,9 @@ const LONG_VALUE_FLAGS = new Map([
       '--heapsnapshot-near-heap-limit',
       '--heapsnapshot-signal',
       '--icu-data-dir',
-      '--import',
       '--input-type',
       '--inspect-port',
       '--inspect-publish-uid',
-      '--loader',
       '--localstorage-file',
       '--max-http-header-size',
       '--max-old-space-size-percentage',
@@ -83,7 +80,6 @@ const LONG_VALUE_FLAGS = new Map([
       '--report-directory',
       '--report-filename',
       '--report-signal',
-      '--require',
       '--secure-heap',
       '--secure-heap-min',
       '--test-concurrency',
@@ -137,19 +133,10 @@ const RUBY_DASH_VALUE_FLAGS = new Set([
   '--disable',
   '--enable',
 ]);
-const INTERPRETER_SHELL_CONTINUATION =
-  /\\\r?\n|(?:\\\\|\\x5[cC]|\\u005[cC]|\\134)(?:\\n|\\x0[aA]|\\u000[aA]|\\012|\r?\n)/g;
+const INTERPRETER_SHELL_CONTINUATION = /\\\r?\n/g;
 
 /** @internal */
-export type InterpreterExecutableSourceKind =
-  | 'inline-code'
-  | 'main-script'
-  | 'node-import'
-  | 'node-loader'
-  | 'node-require'
-  | 'perl-module'
-  | 'python-module'
-  | 'ruby-require';
+export type InterpreterExecutableSourceKind = 'inline-code' | 'main-script' | 'module-file';
 
 /** @internal */
 export interface InterpreterExecutableSource {
@@ -187,7 +174,7 @@ const INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = new Map<
     'python',
     [
       { selector: '-c', kind: 'inline-code', valueForm: 'attached-or-separate' },
-      { selector: '-m', kind: 'python-module', valueForm: 'attached-or-separate' },
+      { selector: '-m', kind: 'module-file', valueForm: 'attached-or-separate' },
     ],
   ],
   [
@@ -197,13 +184,13 @@ const INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = new Map<
       { selector: '--eval', kind: 'inline-code', valueForm: 'equals-or-separate' },
       { selector: '-p', kind: 'inline-code', valueForm: 'separate-only' },
       { selector: '--print', kind: 'inline-code', valueForm: 'separate-only' },
-      { selector: '-r', kind: 'node-require', valueForm: 'separate-only' },
-      { selector: '--require', kind: 'node-require', valueForm: 'equals-or-separate' },
-      { selector: '--import', kind: 'node-import', valueForm: 'equals-or-separate' },
-      { selector: '--loader', kind: 'node-loader', valueForm: 'equals-or-separate' },
+      { selector: '-r', kind: 'module-file', valueForm: 'separate-only' },
+      { selector: '--require', kind: 'module-file', valueForm: 'equals-or-separate' },
+      { selector: '--import', kind: 'module-file', valueForm: 'equals-or-separate' },
+      { selector: '--loader', kind: 'module-file', valueForm: 'equals-or-separate' },
       {
         selector: '--experimental-loader',
-        kind: 'node-loader',
+        kind: 'module-file',
         valueForm: 'equals-or-separate',
       },
     ],
@@ -212,7 +199,7 @@ const INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = new Map<
     'ruby',
     [
       { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
-      { selector: '-r', kind: 'ruby-require', valueForm: 'attached-or-separate' },
+      { selector: '-r', kind: 'module-file', valueForm: 'attached-or-separate' },
     ],
   ],
   [
@@ -220,8 +207,8 @@ const INTERPRETER_EXECUTABLE_SOURCE_SELECTORS = new Map<
     [
       { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
       { selector: '-E', kind: 'inline-code', valueForm: 'attached-or-separate' },
-      { selector: '-M', kind: 'perl-module', valueForm: 'attached-only' },
-      { selector: '-m', kind: 'perl-module', valueForm: 'attached-only' },
+      { selector: '-M', kind: 'module-file', valueForm: 'attached-only' },
+      { selector: '-m', kind: 'module-file', valueForm: 'attached-only' },
     ],
   ],
 ]);
@@ -318,7 +305,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
         if (loader.attached) {
           executableSourcesValid &&= loader.value !== '';
           if (loader.value !== '') {
-            sources.push({ tokenIndex: i, kind: loader.kind, value: loader.value });
+            sources.push({ tokenIndex: i, kind: 'module-file', value: loader.value });
           }
           continue;
         }
@@ -327,7 +314,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
           executableSourcesValid = false;
           return finishInterpreterArgv(interpreter, codeArgs, sources, executableSourcesValid);
         }
-        sources.push({ tokenIndex: i + 1, kind: loader.kind, value });
+        sources.push({ tokenIndex: i + 1, kind: 'module-file', value });
         i++;
         continue;
       }
@@ -367,7 +354,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
         if (value !== undefined) {
           sources.push({
             tokenIndex: attached ? i : i + 1,
-            kind: 'python-module',
+            kind: 'module-file',
             value,
           });
         }
@@ -384,7 +371,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
           const value = tokens[i + 1];
           executableSourcesValid &&= value !== undefined && !value.startsWith('-');
           if (executableSourcesValid && value !== undefined) {
-            sources.push({ tokenIndex: i + 1, kind: 'node-require', value });
+            sources.push({ tokenIndex: i + 1, kind: 'module-file', value });
           }
           i++;
         } else {
@@ -399,7 +386,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
         if (value !== undefined) {
           sources.push({
             tokenIndex: attached ? i : i + 1,
-            kind: 'ruby-require',
+            kind: 'module-file',
             value,
           });
         }
@@ -409,7 +396,7 @@ export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgv
       if (interpreter === 'perl' && (option === 'M' || option === 'm')) {
         const value = token.slice(optionIndex + 1);
         if (value) {
-          sources.push({ tokenIndex: i, kind: 'perl-module', value });
+          sources.push({ tokenIndex: i, kind: 'module-file', value });
         } else {
           executableSourcesValid = false;
           if (optionIndex + 1 === token.length) i++;
@@ -480,22 +467,11 @@ function finishInterpreterArgv(
   };
 }
 
-function extractNodeLongLoader(token: string):
-  | {
-      attached: boolean;
-      kind: 'node-import' | 'node-loader' | 'node-require';
-      value: string;
-    }
-  | undefined {
-  for (const [option, kind] of [
-    ['--import', 'node-import'],
-    ['--loader', 'node-loader'],
-    ['--experimental-loader', 'node-loader'],
-    ['--require', 'node-require'],
-  ] as const) {
-    if (token === option) return { attached: false, kind, value: '' };
+function extractNodeLongLoader(token: string): { attached: boolean; value: string } | undefined {
+  for (const option of ['--import', '--loader', '--experimental-loader', '--require'] as const) {
+    if (token === option) return { attached: false, value: '' };
     if (token.startsWith(`${option}=`)) {
-      return { attached: true, kind, value: token.slice(option.length + 1) };
+      return { attached: true, value: token.slice(option.length + 1) };
     }
   }
   return undefined;
