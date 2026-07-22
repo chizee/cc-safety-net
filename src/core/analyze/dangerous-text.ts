@@ -37,6 +37,9 @@ export function dangerousInTextMatch(
     { regex: /\bgit\s+checkout\s+--\s/, label: 'git checkout --' },
     { scan: 'restore', label: 'git restore without --staged' },
     { scan: 'find', label: 'find -delete', skipForEchoRg: true },
+    { regex: /\bdd\b[^\n|;&]*\bof=\/dev\/\S/, label: 'dd of=/dev/', skipForEchoRg: true },
+    { regex: /\bmkfs(?:\.[a-z0-9_-]+)?\s+\/dev\/\S/, label: 'mkfs /dev/', skipForEchoRg: true },
+    { regex: /\bshred\b\s+\S/, label: 'shred', skipForEchoRg: true },
   ];
 
   for (const pattern of patterns) {

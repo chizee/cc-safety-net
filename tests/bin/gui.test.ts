@@ -434,7 +434,7 @@ describe('policy GUI server', () => {
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
       expect(missing.preview).toMatchObject({
         selectedPreset: 'standard',
-        counts: { enabled: 42, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },
+        counts: { enabled: 45, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },
       });
 
       mkdirSync(safetyNetHome, { recursive: true });
@@ -501,7 +501,7 @@ describe('policy GUI server', () => {
       expect(result.errors).toEqual([]);
       expect(result.preview.selectedPreset).toBe('standard');
       expect(result.preview.counts).toMatchObject({
-        enabled: 43,
+        enabled: 46,
         explicitOn: 1,
         effectiveCustomizations: 1,
       });

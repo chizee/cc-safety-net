@@ -267,6 +267,7 @@ describe('runtime config loading', () => {
       destructive_command_protection: {
         overrides: {
           'interpreter.dangerous-command': 'off',
+          'shred.target': 'off',
           'xargs.shell-dynamic': 'off',
           'parallel.shell-dynamic': 'off',
         },

@@ -17,6 +17,7 @@ import {
   EnvSplitStringExpansionError,
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
+import { analyzeDeviceCommandMatch } from '@/core/analyze/device';
 import { analyzeFindMatch, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import { resolveTrackedHeredocPath } from '@/core/analyze/heredoc-files';
 import {
@@ -537,6 +538,22 @@ export function analyzeSegment(
         envAssignments,
       },
     );
+  }
+
+  const deviceMatch = analyzeDeviceCommandMatch(normalizedHead, stripped);
+  const filteredDeviceMatch =
+    options.compatibility === 'explain-legacy'
+      ? deviceMatch
+      : filterDestructiveCommandMatch(deviceMatch, options.policy);
+  if (filteredDeviceMatch) {
+    trace?.recordSegment({
+      type: 'rule-check',
+      ruleModule: 'analyze/device.ts',
+      ruleFunction: 'analyzeDeviceCommand',
+      matched: true,
+      reason: filteredDeviceMatch.reason,
+    });
+    return blockResultFromMatch(filteredDeviceMatch);
   }
 
   const commandContext: CommandAnalysisContext = {
