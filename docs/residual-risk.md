@@ -1,9 +1,10 @@
 # Residual Risk Registry
 
 This registry records bypass families adjudicated as **accepted residual risk** for standard mode
-under the review boundary in `AGENTS.md` and the mode contract in `SECURITY.md`. Its job is to make
+under the review boundary in `REVIEW.md` and the mode contract in `SECURITY.md`. Its job is to make
 review converge: each family is adjudicated once, here, instead of re-litigated in every review
-cycle.
+cycle. `docs/residual-risk-registry.json` is the canonical structured index for identifiers,
+boundaries, affected modes, and adjudication metadata; this file is the human-readable rationale.
 
 All command examples are analyzer input strings only. Do not execute them in a shell.
 
@@ -15,10 +16,10 @@ All command examples are analyzer input strings only. Do not execute them in a s
   fail-closed fixture (see `tests/core/analyze/strict-unverifiable.test.ts`), not more standard-mode
   parser logic. Strict mode's fail-closed promise is finite and checkable; standard's blocklist is
   not.
-- A finding claiming a new family must carry provenance: a realistic, non-adversarial task in which
-  a helpful agent emits the command in that shape, or a real-world sighting such as a transcript,
-  user issue, or documentation. A string the reviewer had to construct is adversarial by
-  construction and belongs here, not in the remediation queue.
+- Realistic non-adversarial provenance or field evidence makes a standard-mode false negative
+  must-fix. A reviewer-constructed shape may become a new residual family only when the automated
+  gates in `REVIEW.md` pass and an independent classifier confirms it. Otherwise it is
+  evidence-invalid.
 - Corpus growth follows evidence, not imagination. New must-block entries in
   `tests/core/analyze/behavioral-contract-cases.ts` come from field evidence; the fix is then the
   smallest change that makes the corpus pass, preferring an ownership boundary, a bounded
@@ -26,12 +27,53 @@ All command examples are analyzer input strings only. Do not execute them in a s
 
 ## How a Family Gets Adjudicated
 
-1. The maintainer classifies the finding per `AGENTS.md`: must-fix, accepted residual risk, or
-   evidence-invalid.
-2. Accepted residual risk becomes an entry below, plus a strict or paranoid fail-closed fixture
-   where the family has one.
-3. Must-fix becomes a behavioral-contract corpus entry first, then the smallest change that makes
-   it pass.
+1. The primary agent verifies and classifies the finding using the deterministic decision order in
+   `REVIEW.md`.
+2. Existing-family matches reuse that family. Must-fix findings become behavioral-contract corpus
+   entries before the smallest corrective change. Evidence-invalid findings create no registry
+   entry.
+3. A candidate new family requires an independent, context-isolated classifier. Both agents must
+   agree on every gate; disagreement cannot accept risk.
+4. Accepted new families get a strict or paranoid fail-closed fixture, a structured entry in
+   `docs/residual-risk-registry.json`, and the rationale below.
+5. `bun run verify:residual-risk` must pass before the classification is complete.
+
+RR-1 through RR-10 are immutable legacy records. Automated adjudication starts at RR-11; the
+validator hard-codes that cutover so editing registry metadata cannot exempt a new family from the
+automated requirements.
+
+Automated entries use this shape; the candidate identifies the adjudicated finding and the
+evidence must cite existing repository files:
+
+```json
+{
+  "id": "RR-11",
+  "title": "Family Title",
+  "boundary": "distinct-ownership-boundary",
+  "affected_modes": ["standard"],
+  "strict_fixture": {
+    "path": "tests/core/analyze/residual-risk-fixtures.test.ts",
+    "case_id": "rr-11-case-id",
+    "mode": "strict",
+    "command": "analyzer input that must fail closed",
+    "expected_rule_id": "expected.rule-id"
+  },
+  "adjudication": {
+    "kind": "automated",
+    "date": "YYYY-MM-DD",
+    "candidate": {
+      "summary": "Canonical description of the exact finding being classified.",
+      "path": "src/relevant-source.ts",
+      "line": 123
+    },
+    "documented_boundary": "SECURITY.md boundary",
+    "evidence": [{ "path": "SECURITY.md", "note": "Relevant contract evidence." }]
+  }
+}
+```
+
+The central `tests/core/analyze/residual-risk-fixtures.test.ts` harness executes every automated
+fixture under its declared mode and asserts the expected blocking rule.
 
 ## What Is Never Residual Risk
 
@@ -122,7 +164,7 @@ to change what command text means at execution time. Tracking is limited to simp
 variables, explicit `cd`, and the documented shell-state factors; the linear dangerous-text scans
 still catch recognizable destructive text regardless of surrounding structure.
 
-Adjudicated 2026-07-22. Sources: `AGENTS.md` threat model (runtime mutation); `SECURITY.md`
+Adjudicated 2026-07-22. Sources: `REVIEW.md` threat model (runtime mutation); `SECURITY.md`
 policy-file protection scope.
 
 ### RR-8: Quoting-Concatenation and Analyzer-Marker Attacks
@@ -142,7 +184,7 @@ simulation, remote filenames, or a transfer's final filename. Bounded conservati
 active in standard, including `find.delete` and the xargs and parallel dynamic-input rules; exact
 argument-language emulation is refused in every mode.
 
-Adjudicated 2026-07-22. Sources: `AGENTS.md` threat model; `SECURITY.md` policy-file protection
+Adjudicated 2026-07-22. Sources: `REVIEW.md` threat model; `SECURITY.md` policy-file protection
 non-goals.
 
 ### RR-10: Standalone Metadata-Only Sensitive-Path Checks

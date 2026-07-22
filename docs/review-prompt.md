@@ -44,6 +44,13 @@ itself proves the finding is adversarial-tier: report it as a non-blocking resid
 instead. "Can this be bypassed?" is always true for a static gate and carries no information by
 itself.
 
+For every reported standard-mode false negative, include two labeled statements in the finding
+body:
+
+- `Provenance:` the realistic task or field evidence, or `reviewer-constructed`.
+- `Residual-risk mapping:` the matching RR identifier, or `none` plus the distinct analysis or
+  ownership boundary that makes it a candidate new family.
+
 ## Pre-Adjudicated Residual-Risk Families
 
 These families from `docs/residual-risk.md` are already adjudicated as accepted residual risk for
