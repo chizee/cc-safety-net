@@ -316,7 +316,7 @@ const renderGuardErrors = () => {
   qs('guard-errors').hidden = activity.counts.errors === 0;
   if (activity.counts.errors === 0) return;
   qs('guard-errors').textContent =
-    `${activity.counts.errors.toLocaleString('en-US')} guard error${activity.counts.errors === 1 ? '' : 's'} in the last ${activity.days} days — commands blocked because evaluation failed, not by policy. View`;
+    `${activity.counts.errors.toLocaleString('en-US')} guard error${activity.counts.errors === 1 ? '' : 's'} in the last ${activity.days} days — commands blocked because evaluation failed, not by policy. Click to view.`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>

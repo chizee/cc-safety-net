@@ -83,6 +83,7 @@ export default function (pi) {
   --bg: light-dark(#f3f4f6, #0c0e11);
   --surface: light-dark(#ffffff, #16191d);
   --surface-2: light-dark(#f6f7f9, #1c2025);
+  --btn-hover-fill: light-dark(#e9ebef, #282c33);
   --field-bg: light-dark(#ffffff, #101317);
 
   --ink: light-dark(#171a1f, #e7eaed);
@@ -387,6 +388,22 @@ button:hover:not(:disabled) {
   border-color: var(--muted);
 }
 
+/* Borderless ghost buttons with a soft filled-square hover. */
+#theme-toggle,
+#raw-copy,
+#activity-refresh,
+#reset-rule-customizations {
+  border-color: transparent;
+}
+
+#theme-toggle:hover:not(:disabled),
+#raw-copy:hover:not(:disabled),
+#activity-refresh:hover:not(:disabled),
+#reset-rule-customizations:hover:not(:disabled) {
+  background: var(--btn-hover-fill);
+  border-color: transparent;
+}
+
 button:disabled {
   opacity: 0.6;
   cursor: progress;
@@ -417,6 +434,7 @@ button.danger:hover:not(:disabled) {
 #theme-toggle {
   display: inline-flex;
   align-items: center;
+  align-self: flex-end;
   gap: 7px;
   color: var(--muted);
 }
@@ -538,16 +556,20 @@ main {
 
 .view-all-link {
   align-self: center;
+  padding: 8px 14px;
+  border-radius: var(--radius);
   color: var(--muted);
   font-size: 12.5px;
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .view-all-link:hover {
+  background: var(--btn-hover-fill);
   color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .protection-warning {
@@ -2097,8 +2119,8 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
                 <h2>Appearance</h2>
                 <p class="panel-sub muted">Theme preference is stored in this browser.</p>
               </div>
+              <button type="button" id="theme-toggle"></button>
             </div>
-            <button type="button" id="theme-toggle"></button>
           </section>
           <section class="panel">
             <div class="panel-head">
@@ -2484,7 +2506,7 @@ const renderGuardErrors = () => {
   qs('guard-errors').hidden = activity.counts.errors === 0;
   if (activity.counts.errors === 0) return;
   qs('guard-errors').textContent =
-    \`\${activity.counts.errors.toLocaleString('en-US')} guard error\${activity.counts.errors === 1 ? '' : 's'} in the last \${activity.days} days — commands blocked because evaluation failed, not by policy. View\`;
+    \`\${activity.counts.errors.toLocaleString('en-US')} guard error\${activity.counts.errors === 1 ? '' : 's'} in the last \${activity.days} days — commands blocked because evaluation failed, not by policy. Click to view.\`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>
