@@ -56,6 +56,9 @@ let rawCopyResetTimer = null;
 let feedCopyResetTimer = null;
 let renderedFeedEntries = [];
 let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
+let integrations = null;
+let integrationsRequested = false;
+const integrationBusy = new Set();
 const api = (path, init = {}) =>
   fetch(`${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`, {
     ...init,
@@ -165,11 +168,12 @@ const collectFormPolicy = () => ({
     deny_paths: draftPolicy.secret_protection.deny_paths,
   },
 });
-const viewNames = ['overview', 'activity', 'policy', 'settings'];
+const viewNames = ['overview', 'activity', 'policy', 'integrations', 'settings'];
 const viewTitles = {
   overview: 'Overview',
   activity: 'Activity',
   policy: 'Policy',
+  integrations: 'Integrations',
   settings: 'Settings',
 };
 const currentView = () => {
@@ -195,6 +199,10 @@ const applyView = () => {
   });
   qs('dirty-chip').hidden = !dirty || view === 'policy';
   if (view === 'activity') applyFeedClamps(qs('activity-feed'));
+  if (view === 'integrations' && !integrationsRequested) {
+    integrationsRequested = true;
+    void loadIntegrations();
+  }
 };
 const relativeTime = (ts) => {
   const diff = Date.now() - new Date(ts).getTime();
@@ -451,6 +459,80 @@ const refreshActivity = async () => {
   await Promise.all([loadActivity(), new Promise((resolve) => setTimeout(resolve, 600))]);
   button.classList.remove('spinning');
   button.disabled = false;
+};
+const renderIntegrations = () => {
+  qs('integrations-list').innerHTML = integrations.targets
+    .map((row) => {
+      const busy = integrationBusy.has(row.target);
+      const version =
+        row.version === null
+          ? '<span class="muted">not detected</span>'
+          : `<span class="agent-badge">v${escapeHtml(row.version)}</span>`;
+      const status = row.configured
+        ? '<span class="state-active">Installed</span>'
+        : '<span class="muted">Not installed</span>';
+      const uninstall = row.configured;
+      const busyLabel = uninstall ? 'Uninstalling…' : 'Installing…';
+      const action =
+        row.version === null
+          ? ''
+          : `<button type="button" class="${uninstall ? 'danger' : 'primary'}" data-integration-action="${uninstall ? 'uninstall' : 'install'}" data-integration-target="${escapeHtml(row.target)}"${busy ? ' disabled' : ''}>${busy ? busyLabel : uninstall ? 'Uninstall' : 'Install'}</button>`;
+      const note = row.note
+        ? `<div class="status ${row.note.kind}">${escapeHtml(row.note.text)}</div>`
+        : '';
+      return `<div class="integration-row">
+        <span class="integration-info"><strong>${escapeHtml(row.label)}</strong> ${version} ${status}</span>
+        ${action}
+        ${note}
+      </div>`;
+    })
+    .join('');
+};
+const loadIntegrations = async () => {
+  const result = await requestJson('/api/integrations');
+  if (!result.ok || !Array.isArray(result.data?.targets)) {
+    qs('integrations-list').innerHTML =
+      `<p class="empty">Could not load integrations: ${escapeHtml(errorText(result))}</p>`;
+    integrationsRequested = false;
+    return;
+  }
+  integrations = result.data;
+  renderIntegrations();
+  qs('integrations-pkg-version').textContent = integrations.system.version;
+  qs('integrations-node-version').textContent = integrations.system.nodeVersion ?? 'unknown';
+  qs('integrations-platform').textContent = integrations.system.platform;
+  qs('integrations-system').hidden = false;
+};
+const refreshIntegrations = async () => {
+  const button = qs('integrations-refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add('spinning');
+  integrationsRequested = true;
+  await Promise.all([loadIntegrations(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove('spinning');
+  button.disabled = false;
+};
+const runIntegrationAction = async (button) => {
+  const target = button.dataset.integrationTarget;
+  if (integrationBusy.has(target)) return;
+  integrationBusy.add(target);
+  const action = button.dataset.integrationAction;
+  renderIntegrations();
+  const result = await requestJson(`/api/${action}`, {
+    method: 'POST',
+    body: JSON.stringify({ target }),
+  });
+  integrationBusy.delete(target);
+  const row = integrations.targets.find((entry) => entry.target === target);
+  const ok = result.ok && result.data.ok === true;
+  if (ok) row.configured = action === 'install';
+  row.note = {
+    kind: ok ? 'ok' : 'error',
+    text: ok ? result.data.output : result.data?.output || errorText(result),
+  };
+  if (!ok) setAppStatus(action === 'install' ? 'Install failed' : 'Uninstall failed', 'error');
+  renderIntegrations();
 };
 const confirmDialog = (() => {
   const dialog = qs('confirm-dialog');
@@ -1334,6 +1416,15 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest?.('#activity-refresh')) {
     void refreshActivity();
+    return;
+  }
+  if (event.target.closest?.('#integrations-refresh')) {
+    void refreshIntegrations();
+    return;
+  }
+  const integrationButton = event.target.closest?.('[data-integration-action]');
+  if (integrationButton) {
+    void runIntegrationAction(integrationButton);
     return;
   }
   const ruleExampleButton = event.target.closest?.('[data-rule-example]');

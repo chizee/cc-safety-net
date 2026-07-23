@@ -13,12 +13,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createPolicyGuiServer,
+  fetchIntegrations,
   fetchStarContext,
   runGuiCommand,
+  runIntegration,
   starRepo,
   userHasStarredRepo,
 } from '@/bin/gui';
-import { writeJsonlFixture } from '../helpers';
+import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
+import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
 
 interface PolicyApiResponse {
   exists: boolean;
@@ -62,6 +65,16 @@ interface ActivityApiResponse {
     errors: number;
   };
   entries: { ts: string; command: string }[];
+}
+
+interface IntegrationsApiResponse {
+  targets: { target: string; label: string; version: string | null; configured: boolean }[];
+  system: { version: string; nodeVersion: string | null; platform: string };
+}
+
+interface IntegrationActionApiResponse {
+  ok: boolean;
+  output: string;
 }
 
 const DEFAULT_POLICY_BODY = {
@@ -119,6 +132,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('data-nav="overview"');
       expect(html).toContain('data-nav="activity"');
       expect(html).toContain('data-nav="policy"');
+      expect(html).toContain('data-nav="integrations"');
       expect(html).toContain('data-nav="settings"');
       expect(html).toContain('<link rel="icon" href="data:image/svg+xml,');
       expect(html).toContain('title="Overview"');
@@ -131,8 +145,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('<section class="view" data-view="overview">');
       expect(html).toContain('<section class="view" data-view="activity" hidden>');
       expect(html).toContain('<section class="view" data-view="policy" hidden>');
+      expect(html).toContain('<section class="view" data-view="integrations" hidden>');
       expect(html).toContain('<section class="view" data-view="settings" hidden>');
-      expect(html).toContain("const viewNames = ['overview', 'activity', 'policy', 'settings'];");
+      expect(html).toContain(
+        "const viewNames = ['overview', 'activity', 'policy', 'integrations', 'settings'];",
+      );
+      expect(html).toContain("requestJson('/api/integrations')");
       expect(html).toContain("window.addEventListener('hashchange', applyView);");
       expect(html).toContain('<header class="topbar" id="topbar">');
       expect(html.indexOf('id="policy-savebar"')).toBeLessThan(html.indexOf('id="save"'));
@@ -1195,6 +1213,248 @@ describe('policy GUI server', () => {
     } finally {
       await server.close();
     }
+  });
+
+  test('GET /api/integrations rejects missing and wrong tokens', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect((await fetch(`${server.origin}/api/integrations`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/api/integrations?token=wrong`)).status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/integrations returns the injected status verbatim', async () => {
+    const status = {
+      targets: [
+        { target: 'codex' as InstallTarget, label: 'Codex', version: '1.2.0', configured: true },
+        { target: 'pi' as InstallTarget, label: 'Pi', version: null, configured: false },
+      ],
+      system: { version: '1.0.0', nodeVersion: 'v22.0.0', platform: 'darwin arm64' },
+    };
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      fetchIntegrations: async () => status,
+    });
+    try {
+      expect(
+        await getJson<IntegrationsApiResponse>(
+          `${server.origin}/api/integrations?token=${server.token}`,
+        ),
+      ).toEqual(status);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST /api/install requires the header token as well as the URL token', async () => {
+    let ran = false;
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      runIntegration: async () => {
+        ran = true;
+        return { ok: true, output: '' };
+      },
+    });
+    try {
+      const response = await fetch(`${server.origin}/api/install?token=${server.token}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ target: 'codex' }),
+      });
+      expect(response.status).toBe(403);
+      expect(ran).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST /api/install rejects unknown targets and malformed JSON', async () => {
+    let ran = false;
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      runIntegration: async () => {
+        ran = true;
+        return { ok: true, output: '' };
+      },
+    });
+    try {
+      const unknown = await fetch(`${server.origin}/api/install?token=${server.token}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
+        body: JSON.stringify({ target: 'not-a-real-agent' }),
+      });
+      expect(unknown.status).toBe(400);
+      expect(await unknown.json()).toEqual({ error: 'unknown target' });
+
+      const malformed = await fetch(`${server.origin}/api/install?token=${server.token}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
+        body: '{bad json',
+      });
+      expect(malformed.status).toBe(400);
+      expect(((await malformed.json()) as { errors: string[] }).errors[0]).toContain(
+        'Invalid JSON',
+      );
+      expect(ran).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST /api/install runs the codex target and returns its post-install message', async () => {
+    const calls: [InstallAction, InstallTarget][] = [];
+    const output =
+      'Installed Codex integration\nStart Codex, open /hooks, select the cc-safety-net PreToolUse hook, and press t to trust it.';
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      runIntegration: async (action, target) => {
+        calls.push([action, target]);
+        return { ok: true, output };
+      },
+    });
+    try {
+      const result = await postJson<IntegrationActionApiResponse>(
+        `${server.origin}/api/install?token=${server.token}`,
+        server.token,
+        { target: 'codex' },
+      );
+      expect(calls).toEqual([['install', 'codex']]);
+      expect(result).toEqual({ ok: true, output });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST /api/uninstall maps to the uninstall action and returns the failure output', async () => {
+    const calls: [InstallAction, InstallTarget][] = [];
+    const output =
+      'Failed to run claude plugin uninstall cc-safety-net (exit 1).\ndistinctive-stderr-text';
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      runIntegration: async (action, target) => {
+        calls.push([action, target]);
+        return { ok: false, output };
+      },
+    });
+    try {
+      const result = await postJson<IntegrationActionApiResponse>(
+        `${server.origin}/api/uninstall?token=${server.token}`,
+        server.token,
+        { target: 'claude-code' },
+      );
+      expect(calls).toEqual([['uninstall', 'claude-code']]);
+      expect(result).toEqual({ ok: false, output });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('fetchIntegrations maps CLI versions and hook status without spawning', async () => {
+    const homeDir = join(tempDir, 'home');
+    mkdirSync(join(homeDir, '.kimi-code'), { recursive: true });
+    writeFileSync(
+      join(homeDir, '.kimi-code', 'config.toml'),
+      'command = "cc-safety-net hook --kimi-code"\n',
+      'utf-8',
+    );
+
+    const originalKimiHome = process.env.KIMI_CODE_HOME;
+    delete process.env.KIMI_CODE_HOME;
+    try {
+      const status = await fetchIntegrations({ fetcher: mockVersionFetcher, homeDir });
+
+      expect(status.targets.map((target) => target.target)).toEqual([
+        'antigravity-cli',
+        'claude-code',
+        'codex',
+        'gemini-cli',
+        'copilot-cli',
+        'kimi-code',
+        'opencode',
+        'pi',
+      ]);
+      const versions = Object.fromEntries(
+        status.targets.map((target) => [target.target, target.version]),
+      );
+      expect(versions).toEqual({
+        'antigravity-cli': '2.0.0',
+        'claude-code': '1.0.0',
+        codex: '1.2.0',
+        'gemini-cli': '0.20.0',
+        'copilot-cli': '1.0.9',
+        'kimi-code': '0.3.0',
+        opencode: '0.1.0',
+        pi: '0.4.0',
+      });
+      const configured = Object.fromEntries(
+        status.targets.map((target) => [target.target, target.configured]),
+      );
+      expect(configured['kimi-code']).toBe(true);
+      expect(configured.opencode).toBe(false);
+      expect(configured.pi).toBe(false);
+      // The system block carries only version/node/platform — npm and bun are excluded.
+      expect(Object.keys(status.system).sort()).toEqual(['nodeVersion', 'platform', 'version']);
+    } finally {
+      if (originalKimiHome === undefined) delete process.env.KIMI_CODE_HOME;
+      else process.env.KIMI_CODE_HOME = originalKimiHome;
+    }
+  });
+
+  test('runIntegration captures console output and restores the console afterward', async () => {
+    const originalLog = console.log;
+    const result = await runIntegration('install', 'codex', {
+      probeTargets: () => false,
+      detectConfiguredTargets: async () => [],
+      selectTargets: async () => {
+        console.log('marker-line');
+        return [];
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('marker-line');
+    expect(console.log).toBe(originalLog);
+  });
+
+  test('runIntegration reports failures with the captured error output', async () => {
+    const result = await runIntegration('install', 'codex', {
+      probeTargets: () => false,
+      detectConfiguredTargets: async () => [],
+      selectTargets: async () => {
+        throw new Error('distinct-failure-text');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain('distinct-failure-text');
+  });
+
+  test('runIntegration serializes concurrent runs so captured output never mixes', async () => {
+    const first = runIntegration('install', 'codex', {
+      probeTargets: () => false,
+      detectConfiguredTargets: async () => [],
+      selectTargets: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        console.log('first-marker');
+        return [];
+      },
+    });
+    const second = runIntegration('install', 'codex', {
+      probeTargets: () => false,
+      detectConfiguredTargets: async () => [],
+      selectTargets: async () => {
+        console.log('second-marker');
+        return [];
+      },
+    });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.output).toContain('first-marker');
+    expect(firstResult.output).not.toContain('second-marker');
+    expect(secondResult.output).toContain('second-marker');
+    expect(secondResult.output).not.toContain('first-marker');
   });
 
   test('userHasStarredRepo checks gh auth before starred state and maps exits', async () => {

@@ -2,7 +2,17 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { Writable } from 'node:stream';
 import { getActivitySummary } from '@/bin/doctor/activity';
+import { detectAllHooks } from '@/bin/doctor/hooks';
+import { getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
+import type { SystemInfo } from '@/bin/doctor/types';
+import { type RunInstallCommandOptions, runInstallCommand } from '@/bin/hook/install';
+import {
+  INSTALL_TARGETS,
+  type InstallAction,
+  type InstallTarget,
+} from '@/bin/hook/install/targets';
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
@@ -14,6 +24,7 @@ import {
   writeUserPolicyFromGui,
 } from '@/core/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
+import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
 import { getActivityFeed } from './activity';
 import { renderPolicyGuiHtml } from './page';
 
@@ -29,6 +40,16 @@ export interface StarContext {
   blockedTotal: number;
 }
 
+interface IntegrationsStatus {
+  targets: {
+    target: InstallTarget;
+    label: string;
+    version: string | null;
+    configured: boolean;
+  }[];
+  system: { version: string; nodeVersion: string | null; platform: string };
+}
+
 /** @internal */
 export interface PolicyGuiServer {
   origin: string;
@@ -40,6 +61,11 @@ export interface PolicyGuiServer {
 interface PolicyGuiServerOptions extends RulesPolicyOptions {
   starRepo?: () => Promise<{ ok: boolean }>;
   fetchStarContext?: () => Promise<StarContext>;
+  fetchIntegrations?: () => Promise<IntegrationsStatus>;
+  runIntegration?: (
+    action: InstallAction,
+    target: InstallTarget,
+  ) => Promise<{ ok: boolean; output: string }>;
   activityLogsDir?: string;
   token?: string;
 }
@@ -211,6 +237,34 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/integrations') {
+    sendJson(response, 200, await (options.fetchIntegrations ?? fetchIntegrations)());
+    return;
+  }
+
+  if (
+    request.method === 'POST' &&
+    (url.pathname === '/api/install' || url.pathname === '/api/uninstall')
+  ) {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, 400, { errors: [body.error] });
+      return;
+    }
+    const target = (body.value as { target?: unknown } | null)?.target;
+    if (typeof target !== 'string' || !INSTALL_TARGETS.some((entry) => entry.target === target)) {
+      sendJson(response, 400, { error: 'unknown target' });
+      return;
+    }
+    const action = url.pathname === '/api/install' ? 'install' : 'uninstall';
+    sendJson(
+      response,
+      200,
+      await (options.runIntegration ?? runIntegration)(action, target as InstallTarget),
+    );
+    return;
+  }
+
   sendJson(response, 404, { error: 'Not found' });
 }
 
@@ -310,6 +364,84 @@ export async function starRepo(
     ok:
       (await runGhCommand(command, ['api', '-X', 'PUT', `/user/starred/${REPO}`], timeoutMs)) === 0,
   };
+}
+
+const VERSION_FIELDS = {
+  'antigravity-cli': 'antigravityCliVersion',
+  'claude-code': 'claudeCodeVersion',
+  codex: 'codexCliVersion',
+  'copilot-cli': 'copilotCliVersion',
+  'gemini-cli': 'geminiCliVersion',
+  'kimi-code': 'kimiCodeVersion',
+  opencode: 'openCodeVersion',
+  pi: 'piCliVersion',
+} as const satisfies Record<InstallTarget, keyof SystemInfo>;
+
+/** @internal */
+export async function fetchIntegrations(
+  probe: { fetcher?: VersionFetcher; homeDir?: string } = {},
+): Promise<IntegrationsStatus> {
+  const systemInfo = await getSystemInfo(probe.fetcher);
+  const hookStatuses = detectAllHooks(process.cwd(), {
+    homeDir: probe.homeDir,
+    claudePluginListOutput: systemInfo.claudePluginListOutput,
+    codexPluginListOutput: systemInfo.codexPluginListOutput,
+    geminiExtensionsListOutput: systemInfo.geminiExtensionsListOutput,
+    copilotCliVersion: systemInfo.copilotCliVersion,
+    copilotPluginInstalled: systemInfo.copilotPluginInstalled,
+    piSafetyNetProbe: systemInfo.piSafetyNetProbe,
+  });
+  return {
+    targets: installIntegrationMetadata.map((meta) => ({
+      target: meta.id,
+      label: getIntegrationDisplayName(meta.id),
+      version: systemInfo[VERSION_FIELDS[meta.id]],
+      configured: hookStatuses.find((status) => status.platform === meta.id)?.configured ?? false,
+    })),
+    system: {
+      version: systemInfo.version,
+      nodeVersion: systemInfo.nodeVersion,
+      platform: systemInfo.platform,
+    },
+  };
+}
+
+let integrationActionQueue: Promise<unknown> = Promise.resolve();
+
+/** @internal */
+export function runIntegration(
+  action: InstallAction,
+  target: InstallTarget,
+  overrides: RunInstallCommandOptions = {},
+): Promise<{ ok: boolean; output: string }> {
+  const run = async () => {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+    console.error = console.log;
+    try {
+      const exitCode = await runInstallCommand(action, [], {
+        selectTargets: async () => [target],
+        output: new Writable({
+          write(_chunk, _encoding, callback) {
+            callback();
+          },
+        }) as unknown as NodeJS.WriteStream,
+        ...overrides,
+      });
+      return { ok: exitCode === 0, output: lines.join('\n') };
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+  };
+  const result = integrationActionQueue.then(run);
+  integrationActionQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 /** @internal */
