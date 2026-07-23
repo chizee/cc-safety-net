@@ -35,9 +35,17 @@
       </div>
     </aside>
     <div class="content">
-      <header class="topbar">
+      <header class="topbar" id="topbar">
         <div class="topbar-row">
           <div class="topbar-title" id="topbar-title">Overview</div>
+          <label class="view-search topbar-search" data-search-view="activity" hidden>
+            <span class="sr-only">Filter activity</span>
+            <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
+          </label>
+          <label class="view-search topbar-search" data-search-view="policy" hidden>
+            <span class="sr-only">Search all protections</span>
+            <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+          </label>
           <div class="topbar-actions">
             <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
             <button type="button" class="dirty-chip" id="dirty-chip" hidden>Unsaved policy changes · Review</button>
@@ -83,11 +91,7 @@
                     <option value="365">Last year</option>
                   </select>
                 </label>
-                <button type="button" id="activity-refresh">Refresh</button>
-                <label class="view-search activity-search-field">
-                  <span class="sr-only">Filter activity</span>
-                  <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
-                </label>
+                <button type="button" class="icon-button activity-refresh" id="activity-refresh" aria-label="Refresh activity" title="Refresh activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
               </div>
               <div class="chip-row" id="activity-decision" role="group" aria-label="Filter by decision"></div>
               <div class="chip-row" id="activity-agents" role="group" aria-label="Filter by agent"></div>
@@ -98,16 +102,8 @@
         </section>
 
         <section class="view" data-view="policy" hidden>
-          <div class="view-head policy-head">
-            <div class="view-head-text">
-              <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
-            </div>
-            <div class="policy-toolbar">
-              <label class="view-search">
-                <span class="sr-only">Search all protections</span>
-                <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-              </label>
-            </div>
+          <div class="view-head">
+            <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
           </div>
           <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
           <div class="recovery" id="recovery" hidden>

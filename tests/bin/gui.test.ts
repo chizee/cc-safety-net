@@ -133,7 +133,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('<section class="view" data-view="settings" hidden>');
       expect(html).toContain("const viewNames = ['overview', 'activity', 'policy', 'settings'];");
       expect(html).toContain("window.addEventListener('hashchange', applyView);");
-      expect(html).toContain('<header class="topbar">');
+      expect(html).toContain('<header class="topbar" id="topbar">');
       expect(html.indexOf('id="policy-savebar"')).toBeLessThan(html.indexOf('id="save"'));
       expect(html.indexOf('id="save"')).toBeLessThan(html.indexOf('id="reset"'));
       expect(html).toContain('.topbar {\n  position: sticky;');
@@ -306,7 +306,11 @@ describe('policy GUI server', () => {
       expect(html.indexOf('id="policy-search"')).toBeLessThan(html.indexOf('id="reset"'));
       expect(html).toContain('flex: 1 1 240px;');
       expect(html).toContain('max-width: none;');
-      expect(html).toContain('.view-search {\n    flex: none;');
+      // Search lives in the top bar, contextual per view, sticky on mobile.
+      expect(html).toContain('class="view-search topbar-search" data-search-view="activity"');
+      expect(html).toContain('class="view-search topbar-search" data-search-view="policy"');
+      expect(html).toContain('.topbar.has-search {');
+      expect(html).toContain("qs('topbar').classList.toggle('has-search', hasSearch)");
       expect(html).not.toContain('appbar');
       expect(html).not.toContain('id="destructive-command-search"');
       expect(html).not.toContain('id="secret-search"');
@@ -453,7 +457,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('.raw-json-head {\n  flex-wrap: nowrap;');
       expect(html).toContain('.raw-json-head .panel-title {');
       expect(html).toContain('.raw-json-head #raw-copy {');
-      expect(html).toContain('.raw-json-head {\n    flex-direction: row;');
+      // raw-json-head and the Configure link's head stay row on mobile.
+      expect(html).toContain('.panel-head:has(.view-all-link) {');
+      expect(html).toContain('flex-direction: row;');
       expect(html).toContain('id="raw-copy"');
       expect(html).toContain('aria-label="Copy raw JSON to clipboard"');
       expect(html).toContain('id="repair"');

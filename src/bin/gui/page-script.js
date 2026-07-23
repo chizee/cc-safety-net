@@ -178,7 +178,13 @@ const currentView = () => {
 };
 const applyView = () => {
   const view = currentView();
+  const hasSearch = view === 'activity' || view === 'policy';
   qs('topbar-title').textContent = viewTitles[view];
+  qs('topbar-title').hidden = hasSearch;
+  document.querySelectorAll('.topbar-search').forEach((el) => {
+    el.hidden = el.dataset.searchView !== view;
+  });
+  qs('topbar').classList.toggle('has-search', hasSearch);
   document.title = `${viewTitles[view]} · CC Safety Net`;
   document.querySelectorAll('[data-view]').forEach((section) => {
     section.hidden = section.dataset.view !== view;
@@ -402,6 +408,16 @@ const loadActivity = async () => {
   renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();
+};
+const refreshActivity = async () => {
+  const button = qs('activity-refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add('spinning');
+  // Spin for a minimum duration so a fast local refresh still reads as an action.
+  await Promise.all([loadActivity(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove('spinning');
+  button.disabled = false;
 };
 const confirmDialog = (() => {
   const dialog = qs('confirm-dialog');
@@ -1255,7 +1271,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (event.target.closest?.('#activity-refresh')) {
-    void loadActivity();
+    void refreshActivity();
     return;
   }
   const ruleExampleButton = event.target.closest?.('[data-rule-example]');

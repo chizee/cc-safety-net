@@ -275,6 +275,12 @@ h1 {
   max-width: 380px;
 }
 
+.topbar-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 440px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -404,25 +410,6 @@ main {
   margin-top: 0;
 }
 
-.view-head.policy-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.view-head-text {
-  min-width: 0;
-}
-
-.policy-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .policy-savebar {
   position: sticky;
   top: var(--topbar-h);
@@ -542,8 +529,18 @@ main {
   color: var(--muted);
 }
 
-.activity-search-field {
-  flex: 1 1 220px;
+.activity-refresh {
+  margin-left: auto;
+}
+
+@keyframes activity-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.activity-refresh.spinning svg {
+  animation: activity-refresh-spin 0.6s linear infinite;
 }
 
 select {
@@ -1475,6 +1472,13 @@ textarea:hover {
   border-color: var(--muted);
 }
 
+input[type="search"]:focus,
+input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--muted);
+}
+
 input[type="text"]:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -1662,6 +1666,10 @@ textarea {
   * {
     transition: none;
   }
+
+  .activity-refresh.spinning svg {
+    animation: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1678,7 +1686,7 @@ textarea {
 
   .sidebar {
     z-index: 100;
-    height: auto;
+    height: var(--topbar-h);
     flex-direction: row;
     align-items: center;
     gap: 14px;
@@ -1690,6 +1698,18 @@ textarea {
   .topbar {
     position: static;
     z-index: auto;
+  }
+
+  /* On views with a search, the top bar becomes a slim sticky search row
+     pinned directly below the nav bar. */
+  .topbar.has-search {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 95;
+  }
+
+  .policy-savebar {
+    top: calc(var(--topbar-h) * 2);
   }
 
   .brand {
@@ -1757,23 +1777,16 @@ textarea {
     flex-wrap: wrap;
   }
 
+  .topbar.has-search .topbar-row {
+    flex-wrap: nowrap;
+  }
+
   main {
     padding: 18px 16px 40px;
   }
 
-  .view-search {
-    flex: none;
+  .topbar-search {
     max-width: none;
-    width: 100%;
-  }
-
-  .view-head.policy-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .policy-toolbar {
-    width: 100%;
   }
 
   .panel {
@@ -1794,8 +1807,10 @@ textarea {
     flex-direction: column;
   }
 
-  .raw-json-head {
+  .raw-json-head,
+  .panel-head:has(.view-all-link) {
     flex-direction: row;
+    align-items: center;
   }
 
   .grid {

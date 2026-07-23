@@ -350,6 +350,12 @@ h1 {
   max-width: 380px;
 }
 
+.topbar-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 440px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -479,25 +485,6 @@ main {
   margin-top: 0;
 }
 
-.view-head.policy-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.view-head-text {
-  min-width: 0;
-}
-
-.policy-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .policy-savebar {
   position: sticky;
   top: var(--topbar-h);
@@ -617,8 +604,18 @@ main {
   color: var(--muted);
 }
 
-.activity-search-field {
-  flex: 1 1 220px;
+.activity-refresh {
+  margin-left: auto;
+}
+
+@keyframes activity-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.activity-refresh.spinning svg {
+  animation: activity-refresh-spin 0.6s linear infinite;
 }
 
 select {
@@ -1550,6 +1547,13 @@ textarea:hover {
   border-color: var(--muted);
 }
 
+input[type="search"]:focus,
+input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--muted);
+}
+
 input[type="text"]:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -1737,6 +1741,10 @@ textarea {
   * {
     transition: none;
   }
+
+  .activity-refresh.spinning svg {
+    animation: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1753,7 +1761,7 @@ textarea {
 
   .sidebar {
     z-index: 100;
-    height: auto;
+    height: var(--topbar-h);
     flex-direction: row;
     align-items: center;
     gap: 14px;
@@ -1765,6 +1773,18 @@ textarea {
   .topbar {
     position: static;
     z-index: auto;
+  }
+
+  /* On views with a search, the top bar becomes a slim sticky search row
+     pinned directly below the nav bar. */
+  .topbar.has-search {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 95;
+  }
+
+  .policy-savebar {
+    top: calc(var(--topbar-h) * 2);
   }
 
   .brand {
@@ -1832,23 +1852,16 @@ textarea {
     flex-wrap: wrap;
   }
 
+  .topbar.has-search .topbar-row {
+    flex-wrap: nowrap;
+  }
+
   main {
     padding: 18px 16px 40px;
   }
 
-  .view-search {
-    flex: none;
+  .topbar-search {
     max-width: none;
-    width: 100%;
-  }
-
-  .view-head.policy-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .policy-toolbar {
-    width: 100%;
   }
 
   .panel {
@@ -1869,8 +1882,10 @@ textarea {
     flex-direction: column;
   }
 
-  .raw-json-head {
+  .raw-json-head,
+  .panel-head:has(.view-all-link) {
     flex-direction: row;
+    align-items: center;
   }
 
   .grid {
@@ -1950,9 +1965,17 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
       </div>
     </aside>
     <div class="content">
-      <header class="topbar">
+      <header class="topbar" id="topbar">
         <div class="topbar-row">
           <div class="topbar-title" id="topbar-title">Overview</div>
+          <label class="view-search topbar-search" data-search-view="activity" hidden>
+            <span class="sr-only">Filter activity</span>
+            <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
+          </label>
+          <label class="view-search topbar-search" data-search-view="policy" hidden>
+            <span class="sr-only">Search all protections</span>
+            <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+          </label>
           <div class="topbar-actions">
             <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
             <button type="button" class="dirty-chip" id="dirty-chip" hidden>Unsaved policy changes · Review</button>
@@ -1998,11 +2021,7 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
                     <option value="365">Last year</option>
                   </select>
                 </label>
-                <button type="button" id="activity-refresh">Refresh</button>
-                <label class="view-search activity-search-field">
-                  <span class="sr-only">Filter activity</span>
-                  <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
-                </label>
+                <button type="button" class="icon-button activity-refresh" id="activity-refresh" aria-label="Refresh activity" title="Refresh activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
               </div>
               <div class="chip-row" id="activity-decision" role="group" aria-label="Filter by decision"></div>
               <div class="chip-row" id="activity-agents" role="group" aria-label="Filter by agent"></div>
@@ -2013,16 +2032,8 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
         </section>
 
         <section class="view" data-view="policy" hidden>
-          <div class="view-head policy-head">
-            <div class="view-head-text">
-              <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
-            </div>
-            <div class="policy-toolbar">
-              <label class="view-search">
-                <span class="sr-only">Search all protections</span>
-                <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-              </label>
-            </div>
+          <div class="view-head">
+            <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
           </div>
           <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
           <div class="recovery" id="recovery" hidden>
@@ -2335,7 +2346,13 @@ const currentView = () => {
 };
 const applyView = () => {
   const view = currentView();
+  const hasSearch = view === 'activity' || view === 'policy';
   qs('topbar-title').textContent = viewTitles[view];
+  qs('topbar-title').hidden = hasSearch;
+  document.querySelectorAll('.topbar-search').forEach((el) => {
+    el.hidden = el.dataset.searchView !== view;
+  });
+  qs('topbar').classList.toggle('has-search', hasSearch);
   document.title = \`\${viewTitles[view]} · CC Safety Net\`;
   document.querySelectorAll('[data-view]').forEach((section) => {
     section.hidden = section.dataset.view !== view;
@@ -2559,6 +2576,16 @@ const loadActivity = async () => {
   renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();
+};
+const refreshActivity = async () => {
+  const button = qs('activity-refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add('spinning');
+  // Spin for a minimum duration so a fast local refresh still reads as an action.
+  await Promise.all([loadActivity(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove('spinning');
+  button.disabled = false;
 };
 const confirmDialog = (() => {
   const dialog = qs('confirm-dialog');
@@ -3412,7 +3439,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (event.target.closest?.('#activity-refresh')) {
-    void loadActivity();
+    void refreshActivity();
     return;
   }
   const ruleExampleButton = event.target.closest?.('[data-rule-example]');
