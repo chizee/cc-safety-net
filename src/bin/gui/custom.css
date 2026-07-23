@@ -613,6 +613,28 @@ button.chip[aria-pressed="true"] {
   white-space: nowrap;
 }
 
+.feed-copy {
+  width: 26px;
+  height: 26px;
+  margin: -4px 0;
+  border: 0;
+  background: transparent;
+}
+
+.feed-copy:hover:not(:disabled) {
+  background: transparent;
+}
+
+.feed-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feed-copy.copied svg {
+  width: 12px;
+  height: 12px;
+}
+
 .feed-meta .rule-id {
   font-family: var(--font-mono);
   color: var(--muted);

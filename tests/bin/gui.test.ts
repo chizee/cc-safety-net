@@ -171,7 +171,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="activity-feed"');
       expect(html).toContain('id="activity-count"');
       expect(html).toContain('requestJson(`/api/activity?days=${activityFilters.days}`)');
-      expect(html).toContain('const feedItemHtml = (entry) => {');
+      expect(html).toContain('const feedItemHtml = (entry, index) => {');
+      // Per-entry copy-as-JSON button, matching the raw JSON copy control.
+      expect(html).toContain('class="icon-button feed-copy" data-log-copy=');
+      expect(html).toContain('JSON.stringify(entry, null, 2)');
       expect(html).toContain(
         "const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '' };",
       );

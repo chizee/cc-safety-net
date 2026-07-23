@@ -53,6 +53,8 @@ const searchCollapsedTiers = new Set();
 const secretGroupExpanded = new Map();
 const searchCollapsedSecretGroups = new Set();
 let rawCopyResetTimer = null;
+let feedCopyResetTimer = null;
+let renderedFeedEntries = [];
 let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
 const api = (path, init = {}) =>
   fetch(`${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`, {
@@ -213,7 +215,7 @@ const agentLabels = {
   antigravity: 'Antigravity',
   pi: 'Pi',
 };
-const feedItemHtml = (entry) => {
+const feedItemHtml = (entry, index) => {
   const deny = entry.decision !== 'allow';
   const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';
   const badgeLabel = entry.failureStage ? 'Error' : deny ? 'Blocked' : 'Allowed';
@@ -223,6 +225,7 @@ const feedItemHtml = (entry) => {
       ${entry.agent && entry.agent !== 'unknown' ? `<span class="agent-badge">${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>` : ''}
       ${entry.ruleId ? `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>` : ''}
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
+      <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
     </div>
     <code class="feed-command">${escapeHtml(entry.command || entry.segment || '(no command recorded)')}</code>
     ${entry.reason && entry.reason !== 'allowed' ? `<p class="feed-reason muted">${escapeHtml(entry.reason)}</p>` : ''}
@@ -349,6 +352,7 @@ const renderActivityFeed = () => {
       .includes(activityFilters.query);
   };
   const entries = activity.entries.filter(matchesFilters);
+  renderedFeedEntries = entries;
   qs('activity-feed').innerHTML =
     entries.length === 0
       ? '<p class="empty">No audit log entries match.</p>'
@@ -359,7 +363,7 @@ const renderActivityFeed = () => {
               index > 0 && label === dayLabel(entries[index - 1].ts)
                 ? ''
                 : `<div class="feed-day-sep">${escapeHtml(label)}</div>`;
-            return separator + feedItemHtml(entry);
+            return separator + feedItemHtml(entry, index);
           })
           .join('')}</div>`;
   applyFeedClamps(qs('activity-feed'));
@@ -454,6 +458,28 @@ const setRawCopyCopied = (copied) => {
     'aria-label',
     copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard',
   );
+};
+const resetFeedCopy = () => {
+  document.querySelectorAll('.feed-copy.copied').forEach((button) => {
+    button.classList.remove('copied');
+    button.innerHTML = rawCopyIcons.copy;
+    button.setAttribute('aria-label', 'Copy log entry as JSON');
+  });
+};
+const copyFeedEntry = async (button) => {
+  const entry = renderedFeedEntries[Number(button.dataset.logCopy)];
+  if (!entry) return;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
+    if (feedCopyResetTimer) clearTimeout(feedCopyResetTimer);
+    resetFeedCopy();
+    button.classList.add('copied');
+    button.innerHTML = rawCopyIcons.check;
+    button.setAttribute('aria-label', 'Copied log entry');
+    feedCopyResetTimer = setTimeout(resetFeedCopy, 2000);
+  } catch {
+    setAppStatus('Copy failed', 'error');
+  }
 };
 const copyRawToClipboard = async () => {
   qs('raw-copy').disabled = true;
@@ -1182,6 +1208,11 @@ document.addEventListener('click', (event) => {
     const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
     feedToggle.setAttribute('aria-expanded', String(expanded));
     feedToggle.textContent = expanded ? 'Show less' : 'Show more';
+    return;
+  }
+  const feedCopy = event.target.closest?.('[data-log-copy]');
+  if (feedCopy) {
+    copyFeedEntry(feedCopy);
     return;
   }
   const topRule = event.target.closest?.('.top-rule');
