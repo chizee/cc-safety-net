@@ -180,7 +180,7 @@ export const SECRET_CODING_CLI_RULES = [
     category: 'Coding CLI',
     label: 'Claude Code credentials',
     description:
-      'Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations.',
+      'Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations, project-level settings.local.json, and .mcp.json MCP configs.',
   },
   {
     id: 'secret.cli.antigravity',

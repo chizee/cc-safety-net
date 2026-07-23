@@ -1265,14 +1265,22 @@ function matchesCodingCliPath(
     SECRET_CODING_CLI_RULES.find((rule) => {
       if (!isSecretRuleEnabled(rule.id, config)) return false;
       switch (rule.id) {
-        case 'secret.cli.claude-code':
+        case 'secret.cli.claude-code': {
+          // Project-level configs live at unbounded repo roots, so match by name: a
+          // settings.local.json inside a .claude dir (the gitignored personal override;
+          // team-shared settings.json is deliberately excluded), or any .mcp.json.
+          const segments = comparable(normalized).split('/');
           return (
             matchesFileInRoot(
               normalized,
               codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
               ['settings.json', 'settings.local.json', '.credentials.json'],
-            ) || matchesExactPath(normalized, '~/.claude.json', cwd, budget)
+            ) ||
+            matchesExactPath(normalized, '~/.claude.json', cwd, budget) ||
+            (segments.at(-1) === 'settings.local.json' && segments.at(-2) === '.claude') ||
+            segments.at(-1) === '.mcp.json'
           );
+        }
         case 'secret.cli.antigravity':
           return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
         case 'secret.cli.codex':

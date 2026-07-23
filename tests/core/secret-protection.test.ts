@@ -1465,6 +1465,23 @@ describe('secret protection coding CLI credential locations', () => {
     });
   });
 
+  test('blocks project-level Claude Code local settings and MCP configs anywhere on disk', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        '.claude/settings.local.json',
+        '.mcp.json',
+        'nested/repo/.claude/settings.local.json',
+        '/opt/work/repo/.mcp.json',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
+          'secret.cli.claude-code',
+        );
+      }
+    });
+  });
+
   test('blocks absolute current-home coding CLI credential paths', () => {
     const home = join(tmpdir(), 'secret-protection-cli-home');
     const cwd = join(home, 'project');
@@ -1505,6 +1522,7 @@ describe('secret protection coding CLI credential locations', () => {
     withEnv(env, () => {
       for (const target of [
         join(env.CLAUDE_CONFIG_DIR, 'settings.json'),
+        join(env.CLAUDE_CONFIG_DIR, 'settings.local.json'),
         join(home, '.claude.json'),
         join(env.CODEX_HOME, 'auth.json'),
         join(env.GEMINI_CLI_HOME, '.gemini', 'oauth_creds.json'),
@@ -1562,6 +1580,11 @@ describe('secret protection coding CLI credential locations', () => {
       '/tmp/auth.json',
       '/tmp/config.toml',
       '/tmp/settings.json',
+      'settings.local.json',
+      '.claude/settings.json',
+      'not.claude/settings.local.json',
+      'my.mcp.json',
+      '.mcp.json.bak',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).toBeNull();
     }
