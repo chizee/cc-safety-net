@@ -2074,8 +2074,8 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
           <section class="panel">
             <div class="panel-head raw-json-head">
               <div class="panel-title">
-                <h2>Raw JSON</h2>
-                <p class="panel-sub muted" id="raw-source">Read-only mirror of the controls.</p>
+                <h2>Policy JSON</h2>
+                <p class="panel-sub muted" id="raw-source">Read-only mirror of the policy controls.</p>
               </div>
               <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
             </div>

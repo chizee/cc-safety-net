@@ -436,9 +436,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="deny-paths-content" hidden');
       expect(html).toContain('aria-expanded="false" aria-controls="allow-paths-content"');
       expect(html).toContain('id="allow-paths-content" hidden');
-      expect(html).toContain('Raw JSON');
+      expect(html).toContain('Policy JSON');
       expect(html).toContain(
-        '<div class="panel-head raw-json-head">\n              <div class="panel-title">\n                <h2>Raw JSON</h2>',
+        '<div class="panel-head raw-json-head">\n              <div class="panel-title">\n                <h2>Policy JSON</h2>',
       );
       expect(html).toContain('.raw-json-head {\n  flex-wrap: nowrap;');
       expect(html).toContain('.raw-json-head .panel-title {');
@@ -449,7 +449,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="repair"');
       expect(html).toContain('>Repair</button>');
       expect(html).toContain('readonly></textarea>');
-      expect(html).toContain('Read-only mirror of the controls.');
+      expect(html).toContain('Read-only mirror of the policy controls.');
       expect(html).toContain('<div class="star-row" id="star-row" hidden>');
       expect(html).toContain('<span id="star-pitch-text"></span>');
       expect(html).toContain('<span class="star-mechanism" id="star-mechanism" hidden>');
