@@ -335,7 +335,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('class="rule-tier-head" data-secret-group-toggle=');
       expect(html).toContain('.rule-tier-head[aria-expanded="false"] .panel-chevron');
       expect(html).toContain('.rule-tier-head:hover:not(:disabled)');
-      expect(html).toContain('${onCount} on · ${allGroupRules.length - onCount} off');
+      // Tier counts trim zero segments and color off/customized.
+      expect(html).toContain('const tierCountHtml = (segments) => {');
+      expect(html).toContain('[allGroupRules.length - onCount, ');
+      expect(html).toContain('.tier-counts .count-off {');
+      expect(html).toContain('.tier-counts .count-customized {');
       expect(html).toContain('const secretGroupExpanded = new Map();');
       expect(html).toContain('const searchCollapsedSecretGroups = new Set();');
       expect(html).toContain('Active');

@@ -1208,6 +1208,14 @@ label.row.safety-override-row select {
   text-align: right;
 }
 
+.tier-counts .count-off {
+  color: var(--warn-fg);
+}
+
+.tier-counts .count-customized {
+  color: var(--master-fg);
+}
+
 .tier-content {
   padding: 12px;
   border-top: 1px solid var(--border);

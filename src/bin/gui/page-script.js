@@ -215,6 +215,14 @@ const agentLabels = {
   antigravity: 'Antigravity',
   pi: 'Pi',
 };
+const tierCountHtml = (segments) => {
+  const parts = segments
+    .filter(([count]) => count > 0)
+    .map(([count, label, tone]) =>
+      tone ? `<span class="count-${tone}">${count} ${label}</span>` : `${count} ${label}`,
+    );
+  return parts.length > 0 ? parts.join(' · ') : '0 on';
+};
 const feedItemHtml = (entry, index) => {
   const deny = entry.decision !== 'allow';
   const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';
@@ -727,7 +735,10 @@ const renderSecretPatterns = () => {
         <button type="button" class="rule-tier-head" data-secret-group-toggle="${escapeHtml(group.category)}" aria-expanded="${expanded}" aria-controls="${contentId}">
           <span class="panel-chevron" aria-hidden="true"></span>
           <span class="tier-label"><strong>${escapeHtml(group.category)}</strong></span>
-          <span class="tier-counts">${onCount} on · ${allGroupRules.length - onCount} off</span>
+          <span class="tier-counts">${tierCountHtml([
+            [onCount, 'on'],
+            [allGroupRules.length - onCount, 'off', 'off'],
+          ])}</span>
         </button>
         <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
         <div class="grid">${group.rules
@@ -924,7 +935,11 @@ const renderDestructiveCommands = () => {
         <button type="button" class="rule-tier-head" data-tier-toggle="${tier}" aria-expanded="${expanded}" aria-controls="${contentId}">
           <span class="panel-chevron" aria-hidden="true"></span>
           <span class="tier-label"><strong>${tierMeta[tier][0]}</strong><small>${tierMeta[tier][1]}</small></span>
-          <span class="tier-counts">${tierStates.filter((item) => item.enabled).length} on · ${tierStates.filter((item) => !item.enabled).length} off · ${tierStates.filter((item) => item.changesInherited).length} customized</span>
+          <span class="tier-counts">${tierCountHtml([
+            [tierStates.filter((item) => item.enabled).length, 'on'],
+            [tierStates.filter((item) => !item.enabled).length, 'off', 'off'],
+            [tierStates.filter((item) => item.changesInherited).length, 'customized', 'customized'],
+          ])}</span>
         </button>
         <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
           ${groupRules(rules)
