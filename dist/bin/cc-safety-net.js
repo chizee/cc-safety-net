@@ -73,7 +73,7 @@ export default function (pi) {
 \x1B[0m\x1B[?25h`)}}var INSTALL_ASCII_ART=["┏━┛┏━┛  ┏━┛┏━┃┏━┛┏━┛━┏┛┃ ┃  ┏━ ┏━┛━┏┛","┃  ┃    ━━┃┏━┃┏━┛┏━┛ ┃ ━┏┛  ┃ ┃┏━┛ ┃ ","━━┛━━┛  ━━┛┛ ┛┛  ━━┛ ┛  ┛   ┛ ┛━━┛ ┛ "].join(`
 `);function shouldPrintInstallBanner(output){return Boolean(output.isTTY)}async function printInstallBanner(options={}){let output=options.output??process.stdout;if(!shouldPrintInstallBanner(output))return;let input=options.input??process.stdin,animationOptions={duration:options.duration,frequency:options.frequency,output,seed:options.seed??Math.random()*8192,sleep:options.sleep,speed:options.speed,spread:options.spread};if(!input.isTTY||typeof input.setRawMode!=="function"){await writeAnimatedLolcat(INSTALL_ASCII_ART,animationOptions);return}let controller=new AbortController,wasFlowing=input.readableFlowing===!0,wasRaw=input.isRaw===!0,interrupted=!1,onKeyPress=(_inputValue,key)=>{if(key.ctrl&&key.name==="c")interrupted=!0;if(interrupted||key.name==="return"||key.name==="enter")controller.abort()};readline.emitKeypressEvents(input),input.on("keypress",onKeyPress),input.setRawMode(!0),input.resume();try{await writeAnimatedLolcat(INSTALL_ASCII_ART,{...animationOptions,signal:controller.signal})}finally{if(input.off("keypress",onKeyPress),input.setRawMode(wasRaw),!wasFlowing)input.pause()}if(!interrupted)return;if(options.onInterrupt){options.onInterrupt();return}process.kill(process.pid,"SIGINT")}var CLEAR_LINE="\r\x1B[2K",HIDE_CURSOR="\x1B[?25l",RESET_FOREGROUND="\x1B[39m",SHOW_CURSOR="\x1B[?25h",SPINNER_DELAY=100,SPINNER_HUE_STEP=0.55,SPINNER_INTERVAL=80,SPINNER_FRAMES=["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];function wait2(milliseconds){return new Promise((resolve4)=>setTimeout(resolve4,milliseconds))}async function waitForReady(ready,options){let output=options.output??process.stdout;if(!output.isTTY){await ready;return}let sleep=options.sleep??wait2,settled=!1,trackedReady=ready.then((value)=>{return settled=!0,value},(error)=>{throw settled=!0,error});if(await Promise.race([trackedReady.then(()=>!0),sleep(SPINNER_DELAY).then(()=>!1)]))return;output.write(HIDE_CURSOR);try{for(let frameIndex=0;!settled;frameIndex+=1)output.write(`${CLEAR_LINE}${rainbowColorEscape(frameIndex*SPINNER_HUE_STEP)}${SPINNER_FRAMES[frameIndex%SPINNER_FRAMES.length]}${RESET_FOREGROUND} ${options.loadingMessage??"Loading…"}`),await Promise.race([trackedReady,sleep(SPINNER_INTERVAL)]);await trackedReady}finally{output.write(`${CLEAR_LINE}${SHOW_CURSOR}`)}}async function resolveAfterOptionalBanner(showBanner,startWork,printBanner,options={}){let work=startWork();if(showBanner)await printBanner();if(showBanner&&work.ready)await waitForReady(work.ready,options);return work.finish()}import{tmpdir as tmpdir2}from"node:os";import{join as join7}from"node:path";var CASES=Object.freeze([{command:"git reset --hard",description:"git reset --hard",expectBlocked:!0},{command:"rm -rf /",description:"rm -rf /",expectBlocked:!0},{command:"rm -rf ./node_modules",description:"rm in cwd (safe)",expectBlocked:!1}]),SNAPSHOT=Object.freeze({state:"ready",diagnostics:Object.freeze([]),policy:Object.freeze({rules:Object.freeze([]),transparentWrappers:Object.freeze([]),safety:Object.freeze({}),worktreeMode:!1,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:Object.freeze({}),destructiveCommandAllowPaths:Object.freeze([]),secretProtection:Object.freeze({enabled:!0,disabledRules:Object.freeze([]),denyPaths:Object.freeze([])})})}),STANDARD_MODES={strict:!1,paranoidRm:!1,paranoidInterpreters:!1,worktreeMode:!1,effectiveLevel:"standard",capabilities:{fail_closed:{enabled:!1,source:"preset",sources:[]},paranoid_rm:{enabled:!1,source:"preset",sources:[]},paranoid_interpreters:{enabled:!1,source:"preset",sources:[]}},sources:{failClosed:[],paranoidRm:[],paranoidInterpreters:[],worktreeMode:[]}};function runIntegrationSelfTest(){let cwd=join7(tmpdir2(),"cc-safety-net-self-test"),results=CASES.map((testCase)=>{let evaluation=evaluateRuntimeGuard(createToolInvocation("self-test",{command:testCase.command},{kind:"command",shell:"auto"},{configCwd:cwd,executionCwd:cwd},testCase.command),{guard:{dependencies:{loadPolicySnapshot:()=>SNAPSHOT,getModes:()=>STANDARD_MODES,findPolicyMutation:()=>null}},audit:{agent:"self-test",getSessionId:()=>{return}}}),expected=testCase.expectBlocked?"blocked":"allowed",actual=evaluation.decision.kind==="deny"?"blocked":"allowed";return{command:testCase.command,description:testCase.description,expected,actual,passed:expected===actual,reason:evaluation.decision.kind==="deny"?evaluation.decision.reason:void 0,ruleId:evaluation.decision.kind==="deny"?evaluation.decision.ruleId:void 0}});return{passed:results.filter((result)=>result.passed).length,failed:results.filter((result)=>!result.passed).length,total:results.length,results}}function parseDoctorFlags(args){return{json:args.includes("--json"),skipUpdateCheck:args.includes("--skip-update-check")}}async function runDoctor(options={}){let report=await resolveAfterOptionalBanner(!options.json,()=>{let reportPromise=collectDoctorReport(options);return{ready:reportPromise,finish:()=>reportPromise}},()=>printInstallBanner(),{loadingMessage:"Checking system status…"});if(options.json)console.log(JSON.stringify(report,null,2));else printReport(report);return doctorHasFailure(report.hooks,report.engineSelfTest,{userConfig:report.userConfig,projectConfig:report.projectConfig})?1:0}async function collectDoctorReport(options){let cwd=options.cwd??process.cwd(),system=await getSystemInfo(void 0,{cwd}),hooks=detectAllHooks(cwd,{claudePluginListOutput:system.claudePluginListOutput,codexPluginListOutput:system.codexPluginListOutput,geminiExtensionsListOutput:system.geminiExtensionsListOutput,copilotCliVersion:system.copilotCliVersion,copilotPluginInstalled:system.copilotPluginInstalled,piSafetyNetProbe:system.piSafetyNetProbe}),configInfo=getConfigInfo(cwd),environment=getEnvironmentInfo(),policy=loadPolicySnapshot({cwd}).policy,modes=getCCSafetyNetEnvModes(policy),ruleStates=resolveEffectiveDestructiveCommandRules(policy,modes.capabilities),activity=getActivitySummary(7),update=options.skipUpdateCheck?{currentVersion:getPackageVersion(),latestVersion:null,updateAvailable:!1}:await checkForUpdates(),report={hooks,engineSelfTest:runIntegrationSelfTest(),userConfig:configInfo.userConfig,projectConfig:configInfo.projectConfig,effectiveRules:configInfo.effectiveRules,shadowedRules:configInfo.shadowedRules,environment,effectiveSafety:{selectedPreset:policy.safety.level??"standard",level:modes.effectiveLevel,capabilities:modes.capabilities,ruleOverrides:policy.destructiveCommandRuleOverrides,weakenedRuleOverrides:Object.entries(ruleStates).filter(([,state])=>state.source==="rule_override"&&state.override==="off"&&state.inheritedEnabled&&state.changesInherited).map(([id])=>id),ruleCounts:{stored:Object.keys(policy.destructiveCommandRuleOverrides).length,effective:Object.values(ruleStates).filter((state)=>state.changesInherited).length}},posture:getDoctorPosture(configInfo.userConfig.path),activity,update,system};return{...report,findings:deriveDoctorFindings(report)}}function doctorHasFailure(hooks,engineSelfTest,configInfo){return hooks.length>0&&hooks.every((hook)=>!hook.configured)||hooks.some((hook)=>hook.inspectionStatus==="failed")||engineSelfTest.failed>0||configInfo.userConfig.exists&&!configInfo.userConfig.valid||configInfo.projectConfig.exists&&!configInfo.projectConfig.valid}function printReport(report){console.log(),console.log(formatHooksSection(report.hooks)),console.log(),console.log(formatEngineSelfTestSection(report.engineSelfTest)),console.log(),console.log(formatConfigSection(report)),console.log(),console.log(formatEnvironmentSection(report.environment)),console.log(),console.log(formatEffectiveSafetySection(report)),console.log(),console.log(formatFindingsSection(report.findings)),console.log(),console.log(formatActivitySection(report.activity)),console.log(),console.log(formatSystemInfoSection(report.system)),console.log(),console.log(formatUpdateSection(report.update)),console.log(formatSummary(report))}import{resolve as resolve4}from"node:path";function getConfigSource(options){let projectPath=getProjectRulesConfigPath(options?.cwd),userPath=options?.userConfigPath??getUserRulesConfigPath(options),paths=getPolicyPaths({cwd:options?.cwd,userConfigDir:options?.userConfigDir,userConfigPath:options?.userConfigPath});try{if(readPolicyFile(paths.projectConfigTarget)!==null){if(validateRulesConfigFile(paths.projectConfigTarget).errors.length===0)return{configSource:projectPath,configValid:!0};return{configSource:projectPath,configValid:!1}}}catch(error){if(error instanceof PolicyFilesystemError)return{configSource:projectPath,configValid:!1};throw error}try{if(readPolicyFile(paths.userConfigTarget)!==null){let validation=validateRulesConfigFile(paths.userConfigTarget);return{configSource:userPath,configValid:validation.errors.length===0}}return{configSource:null,configValid:!0}}catch(error){if(error instanceof PolicyFilesystemError)return{configSource:userPath,configValid:!1};throw error}}function buildAnalyzeOptions(explainOptions){let cwd=resolve4(explainOptions?.cwd??process.cwd()),policySnapshot=explainOptions?.policySnapshot??loadPolicySnapshot({cwd,userConfigDir:explainOptions?.userConfigDir}),modes=getCCSafetyNetEnvModes(policySnapshot.policy);return{cwd,effectiveCwd:cwd,policySnapshot,strict:explainOptions?.strict??modes.strict,paranoidRm:modes.paranoidRm,paranoidInterpreters:modes.paranoidInterpreters,worktreeMode:modes.worktreeMode}}var PROVIDER_HINTS=["AKIA","ASIA","ghp_","gho_","ghu_","ghs_","ghr_","github_pat_","glpat-","xox","npm_","pypi-","rk_","sk-","sk_","gsk_","xai-","pplx-","bastn_","tgp_v1_","flp_","wfr_","fw_","fwp_","tp-","psk-"];function createCommandTraceContext(recorder){let nextSegmentIndex=0,context={allocateSegment(){return nextSegmentIndex++},getNextSegmentIndex(){return nextSegmentIndex},recordGlobal(step){recorder.record({kind:"step",scope:"global",step})},recordSegment(step,segmentIndex=context.currentSegmentIndex){if(segmentIndex===void 0)return;recorder.record({kind:"step",scope:"segment",segmentIndex,step})}};return context}function createCommandTraceRecorder(options={}){let events=[],maxEvents=options.maxEvents??512,limits={maxTextLength:options.maxTextLength??2048,maxListLength:options.maxListLength??128,maxObjectProperties:options.maxObjectProperties??options.maxListLength??128,maxDepth:options.maxDepth??16},droppedEvents=0,result,sensitiveHashes=new Set;return{record(event){if(result)return;try{if(!event||events.length>=maxEvents){droppedEvents++;return}events.push(deepFreeze(sanitizeEvent(event,limits,sensitiveHashes)))}catch{droppedEvents++}},finish(terminal){if(result)return result;try{result=deepFreeze({events:Object.freeze(events),droppedEvents,terminal:sanitizeTerminal(terminal,limits,sensitiveHashes)})}catch{droppedEvents++,result=Object.freeze({events:Object.freeze(events),droppedEvents,terminal:Object.freeze({result:"blocked",reason:"trace unavailable".slice(0,limits.maxTextLength),segment:"trace unavailable".slice(0,limits.maxTextLength)})})}return result}}}function sanitizeEvent(event,limits,sensitiveHashes){if(event.kind!=="step")throw TypeError("invalid trace event");let{scope,step}=event;collectSensitiveHashes(step,sensitiveHashes,limits);let sanitizedStep=sanitizeValue(step,limits,sensitiveHashes);if(scope==="global")return{kind:"step",scope:"global",step:sanitizedStep};if(scope!=="segment")throw TypeError("invalid trace event scope");return{kind:"step",scope:"segment",segmentIndex:event.segmentIndex,step:sanitizedStep}}function sanitizeTerminal(terminal,limits,sensitiveHashes){let result=terminal.result;if(result==="allowed")return Object.freeze({result:"allowed"});if(result!=="blocked")throw TypeError("invalid trace terminal");let ruleId=terminal.ruleId;return Object.freeze({result:"blocked",reason:sanitizeValue(terminal.reason,limits,sensitiveHashes),segment:sanitizeValue(terminal.segment,limits,sensitiveHashes),...ruleId?{ruleId:sanitizeValue(ruleId,limits,sensitiveHashes)}:{}})}function collectSensitiveHashes(value,hashes,limits,depth=0,seen=new WeakSet){if(typeof value==="string"){let bounded=value.slice(0,limits.maxTextLength);if(!mightContainEnvAssignment(bounded))return;for(let assignment of getEnvAssignmentValues(bounded))for(let token of assignment.match(/[^\s"'()$]+/g)??[])hashes.add(hashText(token));return}if(!value||typeof value!=="object"||depth>=limits.maxDepth||seen.has(value))return;if(seen.add(value),Array.isArray(value)){let length=Math.min(value.length,limits.maxListLength);for(let index=0;index<length;index++)collectSensitiveHashes(value[index],hashes,limits,depth+1,seen);return}let retained=0,sanitizedKeys=new Set;for(let key in value){if(!Object.hasOwn(value,key))continue;if(retained>=limits.maxObjectProperties)break;retained++,collectSensitiveHashes(key,hashes,limits);let sanitizedKey=sanitizeText(key,limits,hashes);if(sanitizedKeys.has(sanitizedKey))continue;sanitizedKeys.add(sanitizedKey),collectSensitiveHashes(value[key],hashes,limits,depth+1,seen)}}function sanitizeValue(value,limits,sensitiveHashes,depth=0,seen=new WeakSet){if(typeof value==="string")return sanitizeText(value,limits,sensitiveHashes);if(!value||typeof value!=="object")return value;if(depth>=limits.maxDepth)return;if(seen.has(value))return;if(seen.add(value),Array.isArray(value)){let sanitized2=[],length=Math.min(value.length,limits.maxListLength);for(let index=0;index<length;index++)sanitized2.push(sanitizeValue(value[index],limits,sensitiveHashes,depth+1,seen));return sanitized2}let sanitized={},retained=0;for(let key in value){if(!Object.hasOwn(value,key))continue;if(retained>=limits.maxObjectProperties)break;retained++;let sanitizedKey=sanitizeText(key,limits,sensitiveHashes);if(Object.hasOwn(sanitized,sanitizedKey))continue;Object.defineProperty(sanitized,sanitizedKey,{value:sanitizeValue(value[key],limits,sensitiveHashes,depth+1,seen),enumerable:!0,configurable:!0,writable:!0})}return sanitized}function sanitizeText(value,limits,sensitiveHashes){let bounded=value.slice(0,limits.maxTextLength),assignmentsRedacted=mightContainEnvAssignment(bounded)?redactEnvAssignmentValues(bounded):bounded,derivedRedacted=sensitiveHashes.size>0?redactDerivedSecrets(assignmentsRedacted,sensitiveHashes):assignmentsRedacted;return(mightContainNonAssignmentSecret(derivedRedacted)?redactNonAssignmentSecrets(derivedRedacted):derivedRedacted).slice(0,limits.maxTextLength)}function mightContainNonAssignmentSecret(text){return text.includes("PRIVATE KEY")||text.includes("://")||text.includes("eyJ")||text.includes(":")&&/(?:authorization|cookie|x-api-key|api-key|(?:^|\s)(?:-u|--user)(?:\s|=))/i.test(text)||text.length>=14&&PROVIDER_HINTS.some((hint)=>text.includes(hint))||text.length>=49&&/\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/.test(text)}function redactDerivedSecrets(text,hashes){return text.replace(/[^\s"'()$]+/g,(token)=>hashes.has(hashText(token))?"<redacted>":token)}function hashText(text){let first=2166136261,second=2166136261;for(let index=0;index<text.length;index++)first=Math.imul(first^text.charCodeAt(index),16777619),second=Math.imul(second^text.charCodeAt(text.length-index-1),16777619);return`${first>>>0}:${second>>>0}:${text.length}`}function deepFreeze(value){if(value&&typeof value==="object"&&!Object.isFrozen(value)){for(let child of Object.values(value))deepFreeze(child);Object.freeze(value)}return value}function evaluateCommandWithTrace(command,options,suppliedProgram,suppliedFactStore){let factStore=suppliedFactStore??createSemanticFactStore(),program=suppliedProgram??factStore.getCommandProgram(command,options.shell??"auto"),recorder=createCommandTraceRecorder(),trace=createCommandTraceContext(recorder),displayProgram=program.dialect==="powershell"?factStore.getCommandProgram(command,"posix"):program,entries=projectLegacyCommandEntriesFromProgram(command,displayProgram);trace.recordGlobal({type:"parse",input:command,segments:entries.map((entry)=>[...entry.tokens])});let analysis=analyzeCommandInternal(command,0,{...options,...resolveCommandAnalysisContext(options),invalidReason:void 0,analyzePartialProgram:!0,compatibility:"explain-legacy",factStore,trace},program),index=trace.getNextSegmentIndex();if(analysis&&index>0&&index<entries.length)trace.recordSegment({type:"segment-skipped",index,reason:"prior-segment-blocked"},index);return Object.freeze({analysis,trace:recorder.finish(analysis?{result:"blocked",reason:analysis.reason,segment:analysis.segment,...analysis.ruleId?{ruleId:analysis.ruleId}:{}}:{result:"allowed"}),program})}function explainCommand2(command,options){let analyzeOptions=buildAnalyzeOptions(options),context=resolveCommandAnalysisContext(analyzeOptions),configuration={effectiveLevel:context.effectiveLevel,selectedPreset:analyzeOptions.policySnapshot.policy.safety.level??"standard",effectiveCapabilities:context.effectiveCapabilities,destructiveCommandRuleOverrides:analyzeOptions.policySnapshot.policy.destructiveCommandRuleOverrides},{configSource,configValid}=getConfigSource({cwd:options?.cwd,userConfigDir:options?.userConfigDir});if(!command||!command.trim())return{trace:{steps:[{type:"error",message:"No command provided"}],segments:[]},result:"allowed",configSource,configValid,...configuration};let evaluation=evaluateCommandWithTrace(command,analyzeOptions),activationRuleId=evaluation.analysis?.ruleId??identifyModeGatedCandidate(command,analyzeOptions),activationMetadata=DESTRUCTIVE_COMMAND_RULE_METADATA.find((rule)=>rule.id===activationRuleId&&rule.activationCapability),activationState=activationMetadata?context.policy.effectiveDestructiveCommandRules[activationMetadata.id]:void 0;return{trace:projectExplainTrace(evaluation.trace),result:evaluation.analysis?"blocked":"allowed",reason:evaluation.analysis?sanitizeDiagnosticText(evaluation.analysis.reason):void 0,segment:evaluation.analysis?sanitizeDiagnosticText(evaluation.analysis.segment):void 0,customRule:sanitizeCustomRule(getCustomRule(evaluation.analysis?.ruleId,analyzeOptions.policySnapshot)),configSource,configValid,...configuration,...activationMetadata&&activationState?{ruleActivation:{id:activationMetadata.id,...activationState}}:{}}}function identifyModeGatedCandidate(command,options){let policy=options.policySnapshot.policy,candidateSnapshot=createPolicySnapshot({...policy,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:{...policy.destructiveCommandRuleOverrides,...Object.fromEntries(DESTRUCTIVE_COMMAND_RULE_METADATA.flatMap((rule)=>rule.activationCapability?[[rule.id,"on"]]:[]))}},options.policySnapshot.state==="invalid"?{diagnostics:options.policySnapshot.diagnostics,reason:options.policySnapshot.reason}:void 0);return analyzeCommand(command,{...options,policySnapshot:candidateSnapshot,effectiveCapabilities:void 0,strict:!0,paranoidRm:!0,paranoidInterpreters:!0})?.ruleId}function sanitizeCustomRule(rule){if(!rule)return;return{id:sanitizeDiagnosticText(rule.id),...rule.rulebook?{rulebook:{name:sanitizeDiagnosticText(rule.rulebook.name),version:sanitizeDiagnosticText(rule.rulebook.version)}}:{},...rule.source?{source:sanitizeDiagnosticText(rule.source)}:{},...rule.override?{override:{type:"reason",reason:sanitizeDiagnosticText(rule.override.reason)}}:{}}}function projectExplainTrace(trace){let steps=trace.events.flatMap((event)=>event.kind==="step"&&event.scope==="global"?[event.step]:[]),segments=new Map;for(let event of trace.events){if(event.kind!=="step"||event.scope!=="segment")continue;let segment=segments.get(event.segmentIndex)??{index:event.segmentIndex,steps:[]};segment.steps.push(event.step),segments.set(event.segmentIndex,segment)}return{steps,segments:[...segments.values()]}}function getCustomRule(ruleId,snapshot){let id=ruleId?.replace(/^custom\./,"");if(!id||!snapshot.policy.rules.some((rule)=>rule.name===id))return;return getPolicyRuleMetadata(snapshot,id)??Object.freeze({id})}function parseExplainFlags(args){let json=!1,cwd,remaining=[],i=0;while(i<args.length){let arg=args[i];if(arg==="--help"||arg==="-h"){i++;continue}if(arg==="--"){remaining.push(...args.slice(i+1));break}if(!arg?.startsWith("--")){remaining.push(...args.slice(i));break}if(arg==="--json")json=!0,i++;else if(arg==="--cwd"){if(i++,i>=args.length||args[i]?.startsWith("--"))return console.error("Error: --cwd requires a path"),null;cwd=args[i],i++}else{remaining.push(...args.slice(i));break}}let command=remaining.length===1?remaining[0]:$quote(remaining);if(!command)return console.error("Error: No command provided"),console.error("Usage: cc-safety-net explain [--json] [--cwd <path>] <command>"),null;return{json,cwd,command}}function getBoxChars(asciiOnly){if(asciiOnly)return{dh:"=",dv:"|",dtl:"+",dtr:"+",dbl:"+",dbr:"+",h:"-",v:"|",tl:"+",tr:"+",bl:"+",br:"+",sh:"="};return{dh:"═",dv:"║",dtl:"╔",dtr:"╗",dbl:"╚",dbr:"╝",h:"─",v:"│",tl:"┌",tr:"┐",bl:"└",br:"┘",sh:"━"}}function formatHeader(box,width){let padding=width-18;return[`${box.dtl}${box.dh.repeat(width)}${box.dtr}`,`${box.dv}  Command Analysis${" ".repeat(padding)}${box.dv}`,`${box.dbl}${box.dh.repeat(width)}${box.dbr}`]}function formatTokenArray(tokens){return JSON.stringify(tokens)}function formatColoredTokenArray(tokens,seed=0){return`[${tokens.map((token,index)=>colorizeToken(token,index,seed)).join(",")}]`}function wrapReason(reason,indent,maxWidth=70){let words=reason.split(" "),lines=[],current="";for(let word of words)if(current.length+word.length+1>maxWidth)lines.push(current),current=word;else current=current?`${current} ${word}`:word;if(current)lines.push(current);return lines.map((line,i)=>i===0?line:`${indent}${line}`)}function formatStepStyleD(step,stepNum,box){let lines=[];switch(step.type){case"parse":return null;case"env-strip":{lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strip environment variables`);let envKeys=Object.keys(step.envVars);return lines.push(`  Removed: ${envKeys.map((k)=>`${k}=<redacted>`).join(", ")}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0}}case"leading-tokens-stripped":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strip wrappers`),lines.push(`  Removed: ${step.removed.join(", ")}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0};case"shell-wrapper":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Detect shell wrapper`),lines.push(`  Wrapper: ${step.wrapper} -c`),lines.push(`  Inner:   ${step.innerCommand}`),{lines,incrementStep:!0};case"interpreter":{if(lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Detect interpreter`),lines.push(`  Interpreter: ${step.interpreter}`),lines.push(`  Code:        ${step.codeArg}`),step.paranoidBlocked)lines.push("  Result:      ✗ BLOCKED (paranoid mode)");return{lines,incrementStep:!0}}case"busybox":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`),lines.push(`  Subcommand: ${step.subcommand}`),{lines,incrementStep:!0};case"transparent-wrapper":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`),lines.push(`  Wrapper: ${step.wrapper}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0};case"recurse":return{lines:[],incrementStep:!1};case"rule-check":{lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Match rules`);let ruleRef=`${step.ruleModule}:${step.ruleFunction}()`;if(lines.push(`  Rule:   ${ruleRef}`),step.matched)lines.push("  Result: MATCHED");else lines.push("  Result: No match");return{lines,incrementStep:!0}}case"worktree-relaxation":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Worktree relaxation`),lines.push(`  Mode:   ${ENV_FLAGS.worktree.name}`),lines.push(`  Git cwd: ${step.gitCwd}`),lines.push("  Result: Allowed local discard in linked worktree"),{lines,incrementStep:!0};case"tmpdir-check":return null;case"fallback-scan":{if(step.embeddedCommandFound)return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Fallback scan`),lines.push(`  Found: ${step.embeddedCommandFound}`),{lines,incrementStep:!0};return null}case"custom-rules-check":{if(step.rulesChecked){if(lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Custom rules`),step.matched)lines.push("  Result: MATCHED");else lines.push("  Result: No match");return{lines,incrementStep:!0}}return null}case"cwd-change":return null;case"dangerous-text":{if(step.matched)return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Dangerous text check`),lines.push(`  Token:  ${step.token}`),lines.push("  Result: MATCHED"),{lines,incrementStep:!0};return null}case"strict-unparseable":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strict mode check`),lines.push(`  Command: ${step.rawCommand}`),lines.push("  Result:  ✗ UNPARSEABLE"),{lines,incrementStep:!0};case"segment-skipped":return null;case"error":return lines.push(""),lines.push(`ERROR: ${step.message}`),{lines,incrementStep:!1};default:return null}}function formatTraceHuman(result,options){let box=getBoxChars(options?.asciiOnly??!1),width=58,lines=[],stepNum=1;lines.push(...formatHeader(box,58)),lines.push("");let errorStep=result.trace.steps.find((s)=>s.type==="error");if(errorStep&&errorStep.type==="error"){lines.push("ERROR"),lines.push(`  ${errorStep.message}`),lines.push(""),lines.push("RESULT"),lines.push(`  Status: ${result.result==="blocked"?colors.red("BLOCKED"):colors.green("ALLOWED")}`),lines.push(""),lines.push("CONFIG");let configPath2=result.configSource??"none";return lines.push(`  Path: ${configPath2}`),lines.join(`
 `)}let parseStep=result.trace.steps.find((s)=>s.type==="parse");if(parseStep&&parseStep.type==="parse"){lines.push("INPUT"),lines.push(`  ${parseStep.input}`),lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Split shell commands`),stepNum++;for(let i=0;i<parseStep.segments.length;i++){let seg=parseStep.segments[i];if(seg){let seed=Math.random();lines.push(`  Segment ${i+1}: ${formatColoredTokenArray(seg,seed)}`)}}}let segments=result.trace.segments,hasMultipleSegments=segments.length>1;for(let seg of segments){if(hasMultipleSegments){lines.push("");let segCommand="";if(parseStep&&parseStep.type==="parse"){let tokens=parseStep.segments[seg.index];if(tokens)segCommand=tokens.join(" ")}let maxLabelLen=54,displayCommand=segCommand,baseLabel=` Segment ${seg.index+1}: `,suffix=" ";if(segCommand){if(baseLabel.length+segCommand.length+suffix.length>maxLabelLen){let availableForCmd=maxLabelLen-baseLabel.length-suffix.length;displayCommand=`${segCommand.substring(0,availableForCmd-1)}…`}}let labelContent=segCommand?`${baseLabel}${displayCommand}${suffix}`:` Segment ${seg.index+1} `,coloredContent=segCommand?`${baseLabel}${colors.cyan(displayCommand)}${suffix}`:labelContent,segLineLen=58-labelContent.length,leftLen=Math.floor(segLineLen/2),rightLen=segLineLen-leftLen;lines.push(`${box.sh.repeat(leftLen)}${coloredContent}${box.sh.repeat(rightLen)}`)}if(seg.steps.find((s)=>s.type==="segment-skipped")){lines.push(""),lines.push("  (skipped — prior segment blocked)");continue}let inRecursion=!1,hasVisibleSteps=!1;for(let step of seg.steps){let formattedStep=formatStepStyleD(step,stepNum,box);if(formattedStep){if(hasVisibleSteps=!0,step.type==="recurse"){lines.push("");let recurseLabel=" RECURSING ",recurseLineLen=58-recurseLabel.length-4;lines.push(`  ${box.tl}${box.h}${recurseLabel}${box.h.repeat(recurseLineLen)}`),lines.push(`  ${box.v}`),inRecursion=!0;continue}for(let line of formattedStep.lines)if(inRecursion)lines.push(`  ${box.v} ${line}`);else lines.push(line);if(formattedStep.incrementStep)stepNum++}}if(inRecursion)lines.push(`  ${box.v}`),lines.push(`  ${box.bl}${box.h.repeat(56)}`),inRecursion=!1;if(!hasVisibleSteps)lines.push(""),lines.push(`  ${colors.green("✓")} Allowed (no matching rules)`)}if(lines.push(""),lines.push("RESULT"),result.result==="blocked"){if(lines.push(`  Status: ${colors.red("BLOCKED")}`),result.customRule){if(lines.push(`  Rule: ${result.customRule.id}`),result.customRule.rulebook)lines.push(`  Rulebook: ${result.customRule.rulebook.name} ${result.customRule.rulebook.version}`);if(result.customRule.source)lines.push(`  Source: ${result.customRule.source}`);if(result.customRule.override)lines.push(`  Override: reason ${result.customRule.override.reason}`)}if(result.reason){let reasonLines=wrapReason(result.reason,"          ");lines.push(`  Reason: ${reasonLines[0]}`);for(let i=1;i<reasonLines.length;i++)lines.push(reasonLines[i]??"")}}else lines.push(`  Status: ${colors.green("ALLOWED")}`);lines.push(""),lines.push("CONFIG");let configPath=result.configSource??"none",configStatus=result.configValid?"":" (invalid)";lines.push(`  Path: ${configPath}${configStatus}`),lines.push(`  Safety preset: ${result.selectedPreset??"standard"}`),lines.push(`  Effective capabilities: ${result.effectiveLevel}`);let overrides=Object.entries(result.destructiveCommandRuleOverrides??{});if(lines.push(`  Rule customizations: ${overrides.length}`),result.ruleActivation)lines.push(`  Rule activation: ${result.ruleActivation.id} — ${result.ruleActivation.enabled?"on":"off"} via ${result.ruleActivation.source}`);return lines.join(`
-`)}function formatTraceJson(result){return JSON.stringify(result,null,2)}import{spawn as spawn2}from"node:child_process";import{randomBytes}from"node:crypto";import{createServer}from"node:http";var custom_default=`/* cc-safety-net-gui-custom-css */
+`)}function formatTraceJson(result){return JSON.stringify(result,null,2)}import{spawn as spawn2}from"node:child_process";import{randomBytes}from"node:crypto";import{createServer}from"node:http";var ENTRY_CAP=500;function getActivityFeed(days,logsDir=getAuditLogsDir()){let cutoff=Date.now()-days*24*60*60*1000,windowEntries=[],totalBlockedAllTime=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;if(entry.decision!=="allow")totalBlockedAllTime++;let ts=new Date(entry.ts).getTime();if(Number.isFinite(ts)&&ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,blocked=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){blocked++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,totalBlockedAllTime,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay},entries:windowEntries.slice(0,ENTRY_CAP)}}var custom_default=`/* cc-safety-net-gui-custom-css */
 :root {
   color-scheme: light dark;
 
@@ -112,6 +112,10 @@ export default function (pi) {
   --err-bg: light-dark(#fef2f1, #2b1512);
   --err-border: light-dark(#f2c9c4, #5c2620);
 
+  --warn-fg: light-dark(#b45309, #fbbf24);
+  --warn-bg: light-dark(#fefaf0, #2a2008);
+  --warn-border: light-dark(#f2ddb0, #5c4a1d);
+
   --master: light-dark(#1d4ed8, #4c8dff);
   --master-fg: light-dark(#1e40af, #9ec3ff);
   --master-bg: light-dark(#eef4fe, #101a2b);
@@ -144,55 +148,146 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.appbar {
+.app-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
   position: sticky;
   top: 0;
-  z-index: 100;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.appbar-inner {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 12px 28px;
+  height: 100vh;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 14px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 
-.titlewrap {
-  flex: 1 1 300px;
-  min-width: 0;
+.brand {
+  padding: 0 10px;
 }
 
 h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
-#policy-path {
-  margin-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 12px;
+.brand-sub {
+  margin: 3px 0 0;
+  font-size: 11.5px;
   color: var(--meta);
-  word-break: break-all;
 }
 
-.actions {
+.sidenav {
+  display: grid;
+  gap: 2px;
+}
+
+.sidenav a {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidenav a:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.sidenav a[aria-current="page"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.sidenav svg {
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 
+.sidebar-foot {
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+  padding: 0 10px;
+}
+
+.sidebar-links {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.sidebar-links a {
+  color: var(--meta);
+  text-decoration: none;
+}
+
+.sidebar-links a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sidebar-links a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 12px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.topbar-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .app-status {
-  flex: 1 0 100%;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -202,6 +297,7 @@ h1 {
   line-height: 1.25;
   text-align: left;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .app-status.ok {
@@ -241,7 +337,7 @@ h1 {
   opacity: 0.75;
 }
 
-.appbar-search {
+.view-search {
   display: flex;
   align-items: center;
   flex: 1 1 240px;
@@ -356,12 +452,333 @@ button.icon-button svg {
 }
 
 main {
+  width: 100%;
   max-width: 1040px;
   margin: 0 auto;
   padding: 24px 28px 48px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.view {
+  display: grid;
+  gap: 18px;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+.view-head .panel-sub {
+  margin-top: 0;
+}
+
+.view-head.policy-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.view-head-text {
+  min-width: 0;
+}
+
+.policy-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.tiles:empty {
+  display: none;
+}
+
+.tile {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.tile strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile span {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.view-all-link {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.view-all-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.activity-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.activity-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-days {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.activity-search-field {
+  flex: 1 1 220px;
+}
+
+select {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip-row:empty {
+  display: none;
+}
+
+button.chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+button.chip[aria-pressed="true"] {
+  background: var(--master-bg);
+  border-color: var(--master-border);
+  color: var(--master-fg);
+}
+
+.chip-count {
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-list {
+  display: grid;
+  gap: 8px;
+}
+
+.feed-item {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.feed-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--meta);
+}
+
+.feed-meta time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.feed-meta .rule-id {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.decision-badge {
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.decision-badge.deny {
+  color: var(--err-fg);
+  background: var(--err-bg);
+  border-color: var(--err-border);
+}
+
+.decision-badge.allow {
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.decision-badge.error {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.agent-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.feed-command {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 7.2em;
+  overflow: hidden;
+}
+
+.feed-command.clamped {
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
+}
+
+.feed-command.expanded {
+  max-height: none;
+  mask-image: none;
+}
+
+.feed-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.feed-day-sep {
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.tile-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  margin-top: 8px;
+}
+
+.spark-bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.feed-reason {
+  margin: 0;
+  font-size: 12px;
+}
+
+.activity-count {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.activity-count:empty {
+  display: none;
+}
+
+.info-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.info-row {
+  display: grid;
+  gap: 3px;
+}
+
+.info-row > span {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.info-row code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.danger-row strong {
+  font-size: 13px;
+}
+
+.danger-row p {
+  margin: 4px 0 0;
+  font-size: 12px;
 }
 
 .status {
@@ -706,6 +1123,10 @@ label.row.safety-override-row select {
 .preset-status {
   margin-bottom: 10px;
   font-weight: 700;
+}
+
+#safety-preset-status:empty {
+  display: none;
 }
 
 .preset-status.customized {
@@ -1226,70 +1647,95 @@ textarea {
   cursor: default;
 }
 
-.page-footer {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 0 28px 28px;
-  display: flex;
-  justify-content: center;
-  gap: 18px;
-  color: var(--meta);
-  font-size: 12px;
-}
-
-.page-footer a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.page-footer a:hover {
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.page-footer a:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 3px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none;
   }
 }
 
-@media (max-width: 640px) {
-  .appbar-inner {
-    padding: 14px 16px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
+@media (max-width: 900px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .titlewrap {
-    flex: none;
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    padding: 0;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  .sidenav {
+    display: flex;
+    flex: 1;
+    justify-content: flex-end;
+    gap: 2px;
+  }
+
+  .sidenav a {
+    padding: 7px 9px;
+  }
+
+  .sr-only-collapse {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sidebar-foot {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 10px 16px;
+  }
+
+  .topbar-row {
+    flex-wrap: wrap;
   }
 
   main {
     padding: 18px 16px 40px;
   }
 
-  .page-footer {
-    padding: 0 16px 24px;
-  }
-
-  .actions {
+  .view-search {
+    flex: none;
+    max-width: none;
     width: 100%;
   }
 
-  .actions button {
-    flex: 1 1 0;
+  .view-head.policy-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .appbar-search {
-    flex: none;
-    max-width: none;
+  .policy-toolbar {
+    width: 100%;
   }
 
   .panel {
@@ -1345,7 +1791,8 @@ textarea {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CC Safety Net Policy</title>
+  <title>CC Safety Net</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233fb950' d='M12 2 20 5v6c0 5.25-3.4 9.74-8 11-4.6-1.26-8-5.75-8-11V5Z'/%3E%3C/svg%3E">
   <script>
     (() => {
       const stored = localStorage.getItem('cc-safety-net-theme');
@@ -1357,94 +1804,205 @@ textarea {
   </style>
 </head>
 <body>
-  <header class="appbar">
-    <div class="appbar-inner">
-      <div class="titlewrap">
-        <h1>CC Safety Net Policy</h1>
-        <div id="policy-path"></div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>CC Safety Net</h1>
+        <p class="brand-sub">Local policy &amp; activity</p>
       </div>
-      <label class="appbar-search">
-        <span class="sr-only">Search all protections</span>
-        <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
-      </label>
-      <div class="actions">
-        <button type="button" id="theme-toggle"></button>
-        <button class="primary" id="save">Save</button>
-        <button class="danger" id="reset">Reset</button>
-      </div>
-      <div class="star-row" id="star-row" hidden>
-        <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
-        <span id="star-slot"></span>
-      </div>
-      <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
-    </div>
-  </header>
-  <main>
-    <div class="status" id="status" role="status" aria-live="polite"></div>
-    <div class="recovery" id="recovery" hidden>
-      <div>
-        <strong>Policy repair available</strong>
-        <p class="muted">Repair writes canonical JSON by preserving valid settings. If the JSON cannot be parsed, defaults are restored.</p>
-      </div>
-      <button class="primary" id="repair" type="button">Repair</button>
-    </div>
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-title">
-          <h2>Safety preset</h2>
-          <p class="panel-sub muted">Choose inherited protection defaults, then customize only what this workspace needs.</p>
+      <nav class="sidenav" aria-label="Sections">
+        <a href="#overview" data-nav="overview" title="Overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="sr-only-collapse">Overview</span></a>
+        <a href="#activity" data-nav="activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg><span class="sr-only-collapse">Activity</span></a>
+        <a href="#policy" data-nav="policy" title="Policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 10 4-1.6 7-5.6 7-10V6l-7-3Z"></path></svg><span class="sr-only-collapse">Policy</span></a>
+        <a href="#settings" data-nav="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"></path><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle></svg><span class="sr-only-collapse">Settings</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-links">
+          <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
         </div>
       </div>
-      <div id="safety-preset-status" class="preset-status"></div>
-      <div id="environment-overrides" class="status" hidden></div>
-      <div class="grid" id="safety-level"></div>
-      <div class="field field-toggle">
-        <button class="panel-toggle" type="button" aria-expanded="false" aria-controls="safety-overrides-content"><span class="panel-chevron" aria-hidden="true"></span><span>Advanced overrides</span></button>
-      </div>
-      <div class="foldable-field-content" id="safety-overrides-content" hidden>
-        <p class="muted">Inherit from the selected level unless a capability needs an explicit exception.</p>
-        <div class="grid" id="safety-overrides"></div>
-      </div>
-      <div class="field">
-        <span>Workflow</span>
-        <small>Workflow exceptions are separate from safety level.</small>
-      </div>
-      <div class="grid" id="workflow"></div>
-    </section>
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-title">
-          <h2>Destructive Command Protection</h2>
-          <p class="panel-sub muted" id="destructive-command-summary"></p>
-        </div>
-        <button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>
-      </div>
-      <div id="destructive-command"></div>
-    </section>
-    <section class="panel">
-      <header class="panel-head">
-        <div class="panel-title">
-          <h2>Secret Protection</h2>
-          <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
+    </aside>
+    <div class="content">
+      <header class="topbar">
+        <div class="topbar-row">
+          <div class="topbar-title" id="topbar-title">Overview</div>
+          <div class="topbar-actions">
+            <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
+            <button class="primary" id="save">Save</button>
+          </div>
         </div>
       </header>
-      <div id="secret"></div>
-    </section>
-    <section class="panel">
-      <div class="panel-head raw-json-head">
-        <div class="panel-title">
-          <h2>Raw JSON</h2>
-          <p class="panel-sub muted" id="raw-source">Read-only mirror of the controls.</p>
-        </div>
-        <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
-      </div>
-      <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
-    </section>
-  </main>
-  <footer class="page-footer">
-    <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
-  </footer>
+      <main>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+
+        <section class="view" data-view="overview">
+          <div class="view-head">
+            <p class="panel-sub muted">What CC Safety Net has been doing on this machine.</p>
+          </div>
+          <div class="tiles" id="overview-tiles"></div>
+          <div class="star-row" id="star-row" hidden>
+            <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
+            <span id="star-slot"></span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Recent blocks</h2>
+                <p class="panel-sub muted" id="recent-blocks-sub"></p>
+              </div>
+              <a id="view-all-blocks" class="panel-head-action view-all-link" href="#activity">View all</a>
+            </div>
+            <div id="recent-blocks"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view="activity" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Audited commands from the local log, newest first. Commands are secret-redacted at write time.</p>
+          </div>
+          <section class="panel">
+            <div class="activity-controls">
+              <div class="activity-controls-row">
+                <label class="activity-days"><span>Window</span>
+                  <select id="activity-days">
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                    <option value="365">Last year</option>
+                  </select>
+                </label>
+                <button type="button" id="activity-refresh">Refresh</button>
+                <label class="view-search activity-search-field">
+                  <span class="sr-only">Filter activity</span>
+                  <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
+                </label>
+              </div>
+              <div class="chip-row" id="activity-decision" role="group" aria-label="Filter by decision"></div>
+              <div class="chip-row" id="activity-agents" role="group" aria-label="Filter by agent"></div>
+            </div>
+            <div id="activity-feed"></div>
+            <p class="muted activity-count" id="activity-count"></p>
+          </section>
+        </section>
+
+        <section class="view" data-view="policy" hidden>
+          <div class="view-head policy-head">
+            <div class="view-head-text">
+              <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
+            </div>
+            <div class="policy-toolbar">
+              <label class="view-search">
+                <span class="sr-only">Search all protections</span>
+                <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+              </label>
+            </div>
+          </div>
+          <div class="recovery" id="recovery" hidden>
+            <div>
+              <strong>Policy repair available</strong>
+              <p class="muted">Repair writes canonical JSON by preserving valid settings. If the JSON cannot be parsed, defaults are restored.</p>
+            </div>
+            <button class="primary" id="repair" type="button">Repair</button>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Safety preset</h2>
+                <p class="panel-sub muted">Choose inherited protection defaults, then customize only what this workspace needs.</p>
+              </div>
+            </div>
+            <div id="safety-preset-status" class="preset-status"></div>
+            <div id="environment-overrides" class="status" hidden></div>
+            <div class="grid" id="safety-level"></div>
+            <div class="field field-toggle">
+              <button class="panel-toggle" type="button" aria-expanded="false" aria-controls="safety-overrides-content"><span class="panel-chevron" aria-hidden="true"></span><span>Advanced overrides</span></button>
+            </div>
+            <div class="foldable-field-content" id="safety-overrides-content" hidden>
+              <p class="muted">Inherit from the selected level unless a capability needs an explicit exception.</p>
+              <div class="grid" id="safety-overrides"></div>
+            </div>
+            <div class="field">
+              <span>Workflow</span>
+              <small>Workflow exceptions are separate from safety level.</small>
+            </div>
+            <div class="grid" id="workflow"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Destructive Command Protection</h2>
+                <p class="panel-sub muted" id="destructive-command-summary"></p>
+              </div>
+              <button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>
+            </div>
+            <div id="destructive-command"></div>
+          </section>
+          <section class="panel">
+            <header class="panel-head">
+              <div class="panel-title">
+                <h2>Secret Protection</h2>
+                <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
+              </div>
+            </header>
+            <div id="secret"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view="settings" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Appearance, file locations, and maintenance.</p>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Appearance</h2>
+                <p class="panel-sub muted">Theme preference is stored in this browser.</p>
+              </div>
+            </div>
+            <button type="button" id="theme-toggle"></button>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Files</h2>
+                <p class="panel-sub muted">Where CC Safety Net reads and writes on this machine.</p>
+              </div>
+            </div>
+            <div class="info-rows">
+              <div class="info-row"><span>Policy file</span><code id="policy-path"></code></div>
+              <div class="info-row"><span>Audit logs</span><code id="logs-path"></code></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head raw-json-head">
+              <div class="panel-title">
+                <h2>Raw JSON</h2>
+                <p class="panel-sub muted" id="raw-source">Read-only mirror of the controls.</p>
+              </div>
+              <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
+            </div>
+            <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Danger zone</h2>
+                <p class="panel-sub muted">Actions that discard saved configuration.</p>
+              </div>
+            </div>
+            <div class="danger-row">
+              <div>
+                <strong>Reset policy</strong>
+                <p class="muted">Restore the default policy JSON at the configured path.</p>
+              </div>
+              <button class="danger" id="reset">Reset</button>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
   <div class="rule-example-popover" id="rule-example-popover" popover="auto" role="dialog" aria-labelledby="rule-example-title" aria-describedby="rule-example-command">
     <span class="rule-example-label">Blocked command example</span>
     <strong id="rule-example-title"></strong>
@@ -1462,937 +2020,1361 @@ textarea {
     </form>
   </dialog>
   <script>
-    const token = __CC_SAFETY_NET_TOKEN__;
-    const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
-    const safetyLevels = {
-      standard: ['Standard', 'Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding.'],
-      strict: ['Strict', 'Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell.'],
-      paranoid: ['Paranoid', 'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.']
-    };
-    const safetyOverrides = {
-      fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
-      paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
-      paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.']
-    };
-    const rawCopyIcons = {
-      copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
-      check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
-    };
-    const starIcons = {
-      outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
-      filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
-    };
-    const pathListIcons = {
-      add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
-      remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
-    };
-    let state;
-    let draftPolicy;
-    let preview;
-    let previewRequestId = 0;
-    let dirty = false;
-    let searchActive = false;
-    const tierExpanded = new Map([
-      ['enforced', false],
-      ['normal', false],
-      ['strict', false],
-      ['paranoid', false]
-    ]);
-    const searchCollapsedTiers = new Set();
-    const secretGroupExpanded = new Map();
-    const searchCollapsedSecretGroups = new Set();
-    let rawCopyResetTimer = null;
-    let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
-    const api = (path, init = {}) => fetch(\`\${path}?token=\${encodeURIComponent(token)}\`, {
-      ...init,
-      headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token, ...(init.headers || {}) }
-    });
-    const requestJson = async (path, init) => {
-      try {
-        const response = await api(path, init);
-        const text = await response.text();
-        return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
-      } catch (error) {
-        return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
-      }
-    };
-    const errorText = (result) =>
-      result.error
-      ?? (Array.isArray(result.data?.errors) && result.data.errors.length ? result.data.errors.join('\\n') : null)
-      ?? result.data?.error
-      ?? \`Request failed (status \${result.status}).\`;
-    const isWriteSuccess = (result) =>
-      result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
-    const isPolicyState = (value) =>
-      !!value && typeof value === 'object'
-      && !!value.policy && typeof value.policy === 'object'
-      && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection
-      && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns)
-      && (value.preview === null || (value.preview && typeof value.preview === 'object'))
-      && Array.isArray(value.errors);
-    const qs = (id) => document.getElementById(id);
-    const setDetailStatus = (text, kind = '') => {
-      qs('status').textContent = text;
-      qs('status').className = \`status \${kind}\`;
-    };
-    const setAppStatus = (text, kind = '') => {
-      qs('app-status').textContent = text;
-      qs('app-status').className = \`app-status \${kind}\`;
-    };
-    let busy = false;
-    const updateActions = () => {
-      const hasErrors = (state?.errors.length ?? 0) > 0;
-      qs('save').disabled = busy || !state || hasErrors;
-      qs('reset').disabled = busy || !state;
-      qs('repair').disabled = busy || !hasErrors;
-    };
-    const runExclusive = async (pendingText, fn) => {
-      if (busy) return;
-      busy = true;
-      updateActions();
-      setAppStatus(pendingText);
-      setDetailStatus('');
-      try {
-        await fn();
-      } finally {
-        busy = false;
-        updateActions();
-      }
-    };
-    const checkbox = (checked) => checked ? 'checked' : '';
-    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    })[char]);
-    const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
-    const pathLines = (value) => value.split('\\n').map((line) => line.trim()).filter(Boolean);
-    const formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}\\n\`;
-    const collectFormPolicy = () => ({
-      version: 1,
-      safety: {
-        level: draftPolicy.safety.level,
-        overrides: Object.fromEntries(Object.entries(draftPolicy.safety.overrides)
-          .filter(([, value]) => typeof value === 'boolean'))
-      },
-      workflow: draftPolicy.workflow,
-      destructive_command_protection: draftPolicy.destructive_command_protection,
-      secret_protection: {
-        enabled: draftPolicy.secret_protection.enabled,
-        overrides: draftPolicy.secret_protection.overrides,
-        deny_paths: draftPolicy.secret_protection.deny_paths
-      }
-    });
-    const confirmDialog = (() => {
-      const dialog = qs('confirm-dialog');
-      const confirm = qs('confirm-dialog-confirm');
-      const cancel = qs('confirm-dialog-cancel');
-      let resolvePending = null;
-      dialog.addEventListener('close', () => {
-        if (!resolvePending) return;
-        resolvePending(dialog.returnValue === 'confirm');
-        resolvePending = null;
-      });
-      dialog.addEventListener('cancel', () => {
-        dialog.returnValue = 'cancel';
-      });
-      return (options) => new Promise((resolve) => {
-        if (resolvePending) {
-          resolve(false);
-          return;
-        }
-        qs('confirm-dialog-title').textContent = options.title;
-        qs('confirm-dialog-body').textContent = options.body;
-        qs('confirm-dialog-detail').textContent = options.detail ?? '';
-        qs('confirm-dialog-detail').parentElement.hidden = !options.detail;
-        confirm.textContent = options.confirmLabel;
-        confirm.className = options.confirmClass ?? 'danger';
-        dialog.returnValue = 'cancel';
-        resolvePending = resolve;
-        dialog.showModal();
-        cancel.focus();
-      });
-    })();
-    const confirmProtectionDisable = (options) => confirmDialog({
-      title: options.title,
-      body: options.body,
-      detail: options.detail,
-      confirmLabel: 'Disable protection'
-    });
-    const togglePanel = (button) => {
-      const expanded = button.getAttribute('aria-expanded') !== 'true';
-      button.setAttribute('aria-expanded', String(expanded));
-      qs(button.getAttribute('aria-controls')).hidden = !expanded;
-    };
-    const syncSearchState = () => {
-      const active = qs('policy-search').value.trim().length > 0;
-      if (active === searchActive) return;
-      searchActive = active;
-      if (active) return;
-      searchCollapsedTiers.clear();
-      searchCollapsedSecretGroups.clear();
-    };
-    const updateRawSource = () => {
-      qs('raw-source').textContent = state?.errors.length
-        ? 'Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.'
-        : 'Read-only mirror of the controls.';
-    };
-    const setRawCopyCopied = (copied) => {
-      qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
-      qs('raw-copy').classList.toggle('copied', copied);
-      qs('raw-copy').setAttribute('aria-label', copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard');
-    };
-    const copyRawToClipboard = async () => {
-      qs('raw-copy').disabled = true;
-      try {
-        await navigator.clipboard.writeText(qs('raw').value);
-        setRawCopyCopied(true);
-        if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
-        rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
-      } catch (error) {
-        setAppStatus('Copy failed', 'error');
-        setDetailStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, 'error');
-      } finally {
-        qs('raw-copy').disabled = false;
-      }
-    };
-    const formatStarCount = (count) => {
-      if (typeof count !== 'number') return '';
-      if (count >= 1000) return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k\`;
-      return String(count);
-    };
-    const starCountHtml = (count) => {
-      const formatted = formatStarCount(count);
-      return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : '';
-    };
-    const hideStarCta = () => {
-      qs('star-row').hidden = true;
-      qs('star-slot').innerHTML = '';
-    };
-    const renderStarPitch = (context, starred = false) => {
-      const evidence = context.blockedTotal > 0
-        ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command\${context.blockedTotal === 1 ? '' : 's'} on this machine.\`
-        : '';
-      if (starred) {
-        qs('star-pitch-text').innerHTML = evidence;
-        return;
-      }
-      qs('star-pitch-text').innerHTML = evidence
-        ? \`\${evidence} If it saved your work, star it on GitHub.\`
-        : 'If CC Safety Net is useful to you, star it on GitHub.';
-    };
-    const renderStarLink = (context, href = fallbackRepoUrl) => {
-      qs('star-slot').innerHTML = \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
-          <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
-          <span class="star-label">Star on GitHub</span>
-          \${starCountHtml(context.starCount)}
-        </a>\`;
-      qs('star-row').hidden = false;
-    };
-    const renderStarCta = (context) => {
-      activeStarContext = context;
-      if (context.starred === true) {
-        hideStarCta();
-        return;
-      }
-      renderStarPitch(context);
-      qs('star-mechanism').hidden = context.starred !== false;
-      if (context.starred === null) {
-        renderStarLink(context);
-        return;
-      }
-      qs('star-slot').innerHTML = \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
-          <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
-          <span class="star-label">Star on GitHub</span>
-          \${starCountHtml(context.starCount)}
-        </button>\`;
-      qs('star-row').hidden = false;
-    };
-    const starRepo = async (button) => {
-      button.disabled = true;
-      const result = await requestJson('/api/star', { method: 'POST' });
-      if (result.ok && result.data?.ok === true) {
-        button.querySelector('.star-icon').innerHTML = starIcons.filled;
-        button.querySelector('.star-label').textContent = 'Starred. Thank you.';
-        button.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
-        button.classList.add('starred');
-        qs('star-mechanism').hidden = true;
-        renderStarPitch(activeStarContext, true);
-        setAppStatus('Starred on GitHub', 'ok');
-        setDetailStatus('');
-        return;
-      }
-      qs('star-mechanism').hidden = true;
-      renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);
-    };
-    const loadStarContext = async () => {
-      const result = await requestJson('/api/star/context');
-      renderStarCta(result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 });
-    };
-    const syncRawFromForm = () => {
-      if (state?.errors.length) return;
-      qs('raw').value = formatPolicy(collectFormPolicy());
-      updateRawSource();
-    };
-    const updateDirtyStatus = () => {
-      if (state?.errors.length) return;
-      dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
-      setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
-      if (dirty) qs('app-status').insertAdjacentHTML('beforeend', ' <button type="button" class="discard-link" id="discard-changes">Discard</button>');
-      setDetailStatus('');
-      updateActions();
-    };
-    const createPathList = (prefix, config) => {
-      const setHint = (text) => {
-        qs(\`\${prefix}-hint\`).textContent = text;
-        qs(\`\${prefix}-hint\`).hidden = !text;
-      };
-      const render = () => {
-        const paths = config.getPaths();
-        const disabled = config.isDisabled();
-        qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? '' : 's'}\`;
-        qs(\`\${prefix}-input\`).disabled = disabled;
-        qs(\`\${prefix}-add-button\`).disabled = disabled;
-        qs(\`\${prefix}-list\`).innerHTML = paths.length === 0
-          ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\`
-          : paths.map((path, index) => \`<li class="path-item \${disabled ? 'row-disabled' : ''}">
-              <code>\${escapeHtml(path)}</code>
-              <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
-            </li>\`).join('');
-      };
-      let adding = false;
-      const add = async (value) => {
-        if (adding) return;
-        const entries = [...new Set(pathLines(value))];
-        if (entries.length === 0) return;
-        const submitted = qs(\`\${prefix}-input\`).value;
-        const additions = entries.filter((entry) => !config.getPaths().includes(entry));
-        if (config.validateAdditions && additions.length) {
-          adding = true;
-          try {
-            const error = await config.validateAdditions([...config.getPaths(), ...additions]);
-            if (error) {
-              setHint(\`Not added: \${additions.join(', ')} — \${error}\`);
-              return;
-            }
-          } finally {
-            adding = false;
-          }
-        }
-        // Recommit only the initially absent additions against current state, so
-        // entries removed during validation stay removed.
-        const current = config.getPaths();
-        const duplicates = entries.filter((entry) => current.includes(entry));
-        config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
-        if (qs(\`\${prefix}-input\`).value === submitted) qs(\`\${prefix}-input\`).value = '';
-        setHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
-        render();
-        syncRawFromForm();
-        updateDirtyStatus();
-        qs(\`\${prefix}-input\`).focus();
-      };
-      const remove = (index) => {
-        config.setPaths(config.getPaths().filter((_, position) => position !== index));
-        setHint('');
-        render();
-        syncRawFromForm();
-        updateDirtyStatus();
-      };
-      return { render, add, remove };
-    };
-    const pathLists = {
-      'deny-paths': createPathList('deny-paths', {
-        getPaths: () => draftPolicy.secret_protection.deny_paths,
-        setPaths: (paths) => { draftPolicy.secret_protection.deny_paths = paths; },
-        isDisabled: () => !draftPolicy.secret_protection.enabled,
-        itemLabel: 'deny path'
-      }),
-      'allow-paths': createPathList('allow-paths', {
-        getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
-        setPaths: (paths) => { draftPolicy.destructive_command_protection.allow_paths = paths; },
-        isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
-        itemLabel: 'allow path',
-        validateAdditions: async (paths) => {
-          const candidate = collectFormPolicy();
-          candidate.destructive_command_protection = {
-            ...candidate.destructive_command_protection,
-            allow_paths: paths
-          };
-          const result = await requestJson('/api/policy/preview', {
-            method: 'POST',
-            body: JSON.stringify(candidate)
-          });
-          if (result.ok && result.data?.preview) return null;
-          return errorText(result);
-        }
-      })
-    };
-    const groupRules = (rules) => rules.reduce((groups, rule) => {
-      const group = groups.find((item) => item.category === rule.category);
-      if (group) {
-        group.rules.push(rule);
-        return groups;
-      }
-      groups.push({ category: rule.category, rules: [rule] });
-      return groups;
-    }, []);
-    const renderSecretPatterns = () => {
-      const query = qs('policy-search').value.trim().toLowerCase();
-      const rules = state.secretPatterns.filter((rule) =>
-        [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query)
-      );
-      const overrides = draftPolicy.secret_protection.overrides;
-      const disabled = !draftPolicy.secret_protection.enabled;
-      const disabledCount = Object.keys(overrides).length;
-      qs('secret-summary').textContent = disabled
-        ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
-        : \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`;
-      qs('secret-patterns').innerHTML = rules.length === 0
-        ? '<p class="empty">No secret protections match the search.</p>'
-        : groupRules(rules).map((group) => {
-          const expanded = secretGroupExpanded.get(group.category)
-            || (searchActive && !searchCollapsedSecretGroups.has(group.category));
-          const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}\`;
-          const allGroupRules = state.secretPatterns.filter((rule) => rule.category === group.category);
-          const onCount = disabled ? 0 : allGroupRules.filter((rule) => overrides[rule.id] !== 'off').length;
-          return \`
-          <section class="rule-tier">
-            <button type="button" class="rule-tier-head" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
-              <span class="panel-chevron" aria-hidden="true"></span>
-              <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
-              <span class="tier-counts">\${onCount} on · \${allGroupRules.length - onCount} off</span>
-            </button>
-            <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
-            <div class="grid">\${group.rules.map((rule) => {
-              const active = overrides[rule.id] !== 'off';
-              const ruleState = active && !disabled
-                ? { label: 'Active', className: 'state-active' }
-                : { label: 'Disabled', className: 'state-disabled' };
-              return \`<label class="row \${disabled ? 'row-disabled' : ''}">
-                <input type="checkbox" data-secret-active="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled ? 'disabled' : ''}>
-                <span>
-                  <strong>\${escapeHtml(rule.label)}</strong>
-                  <code class="rule-id">\${escapeHtml(rule.id)}</code>
-                  <small><span class="\${ruleState.className}">\${ruleState.label}</span> \${escapeHtml(rule.description)}</small>
-                </span>
-              </label>\`;
-            }).join('')}</div>
-            </div>
-          </section>
-        \`;
-        }).join('');
-    };
-    const levelCapabilities = (level) => ({
-      fail_closed: level === 'strict' || level === 'paranoid',
-      paranoid_rm: level === 'paranoid',
-      paranoid_interpreters: level === 'paranoid'
-    });
-    const presetName = () => safetyLevels[draftPolicy.safety.level][0];
-    const renderPresetStatus = () => {
-      if (!preview) return;
-      const customized = preview.counts.effectiveCustomizations > 0
-        || Object.entries(draftPolicy.safety.overrides).some(([key, value]) =>
-          value !== levelCapabilities(draftPolicy.safety.level)[key]
-        );
-      qs('safety-preset-status').textContent = [
-        presetName(),
-        ...(customized ? ['Customized'] : [])
-      ].join(' · ');
-      qs('safety-preset-status').classList.toggle('customized', customized);
-    };
-    const renderSafety = () => {
-      const environmentSources = preview
-        ? [...new Set(Object.values(preview.capabilities)
-          .filter((capability) => capability.source === 'environment')
-          .flatMap((capability) => capability.sources.filter((source) => source.startsWith('env '))))]
-        : [];
-      qs('environment-overrides').hidden = environmentSources.length === 0;
-      qs('environment-overrides').textContent = environmentSources.length
-        ? \`Environment-raised protection: \${environmentSources.join(', ')}\`
-        : '';
-      qs('safety-level').innerHTML = Object.entries(safetyLevels).map(([level, meta]) =>
-        \`<label class="row"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`
-      ).join('');
-      const inherited = levelCapabilities(draftPolicy.safety.level);
-      qs('safety-overrides').innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
-        const value = draftPolicy.safety.overrides[key];
-        const inheritedText = inherited[key] ? 'on' : 'off';
-        return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
-          <option value="inherit" \${value === undefined ? 'selected' : ''}>Inherit from preset (\${inheritedText})</option>
-          <option value="true" \${value === true ? 'selected' : ''}>Force on</option>
-          <option value="false" \${value === false ? 'selected' : ''}>Force off</option>
-        </select></label>\`;
-      }).join('');
-      qs('workflow').innerHTML =
-        \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
-      renderPresetStatus();
-    };
-    const tierForRule = (rule) => {
-      if (!rule.activationCapability) return 'normal';
-      return rule.activationCapability === 'fail_closed' ? 'strict' : 'paranoid';
-    };
-    const tierMeta = {
-      normal: ['Available in every preset', 'No additional capability required'],
-      strict: ['Strict tier', 'Inherits from Fail closed'],
-      paranoid: ['Paranoid tier', 'Inherits from Paranoid rm or Paranoid interpreters']
-    };
-    const ruleStateText = (rule, effective) => {
-      if (effective.source === 'master_disabled') return 'Off — destructive-command protection disabled';
-      if (effective.source === 'rule_override') return \`\${effective.enabled ? 'On' : 'Off'} — user rule override\`;
-      if (effective.source === 'built_in_default') return 'On — available in every preset';
-      if (effective.source === 'environment') {
-        const capability = preview.capabilities[rule.activationCapability];
-        const source = [...capability.sources].reverse().find((item) => item.startsWith('env '));
-        return \`\${effective.enabled ? 'On' : 'Off'} — environment\${source ? \`; \${source.slice(4)}\` : ''}\`;
-      }
-      if (effective.source === 'capability_override') {
-        return \`\${effective.enabled ? 'On' : 'Off'} — capability override; \${safetyOverrides[rule.activationCapability][0]} forced \${effective.enabled ? 'on' : 'off'}\`;
-      }
-      if (effective.enabled) return \`On — \${presetName()} preset\`;
-      return \`Off — \${presetName()} preset; requires \${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}\`;
-    };
-    const openRuleExample = (button) => {
-      const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
-      if (!rule) return;
-      const popover = qs('rule-example-popover');
-      qs('rule-example-title').textContent = rule.label;
-      qs('rule-example-command').textContent = rule.example;
-      if (!popover.matches(':popover-open')) popover.showPopover();
-      const buttonRect = button.getBoundingClientRect();
-      const popoverRect = popover.getBoundingClientRect();
-      const gap = 8;
-      const edge = 12;
-      const below = buttonRect.bottom + gap;
-      const top = below + popoverRect.height <= window.innerHeight - edge
-        ? below
-        : Math.max(edge, buttonRect.top - gap - popoverRect.height);
-      const left = Math.min(
-        window.innerWidth - popoverRect.width - edge,
-        Math.max(edge, buttonRect.right - popoverRect.width)
-      );
-      popover.style.top = \`\${top}px\`;
-      popover.style.left = \`\${left}px\`;
-    };
-    const renderDestructiveCommands = () => {
-      if (!preview) return;
-      const query = qs('policy-search').value.trim().toLowerCase();
-      const matchingRules = state.destructiveCommandRules.filter((rule) =>
-        [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]]
-          .join(' ').toLowerCase().includes(query)
-      );
-      qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
-        ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\`
-        : 'Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.';
-      const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);
-      const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);
-      const enforcedExpanded = tierExpanded.get('enforced')
-        || (searchActive && !searchCollapsedTiers.has('enforced'));
-      const enforcedSection = enforcedRules.length === 0 ? '' : \`<section class="rule-tier rule-tier-enforced">
-            <button type="button" class="rule-tier-head" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
-              <span class="panel-chevron" aria-hidden="true"></span>
-              <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
-              <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
-            </button>
-            <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? '' : 'hidden'}>
-              \${groupRules(enforcedRules).map((group) => \`<section class="destructive-command-group">
-                <h3>\${escapeHtml(group.category)}</h3>
-                <div class="grid">\${group.rules.map((rule) => \`<div class="row rule-row rule-row-enforced">
-                    <span class="rule-control">
-                      <span>
-                        <strong>\${escapeHtml(rule.label)}</strong>
-                        <code class="rule-id">\${escapeHtml(rule.id)}</code>
-                        <small><span class="state-active">Always enforced</span> \${escapeHtml(rule.description)}</small>
-                      </span>
-                    </span>
-                    <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
-                  </div>\`).join('')}</div>
-              </section>\`).join('')}
-            </div>
-          </section>\`;
-      qs('destructive-command-rules').innerHTML = matchingRules.length === 0
-        ? '<p class="empty">No built-in protections match the search.</p>'
-        : enforcedSection + Object.keys(tierMeta).map((tier) => {
-          const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
-          if (rules.length === 0) return '';
-          const allTierRules = state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
-          const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
-          const expanded = tierExpanded.get(tier)
-            || (searchActive && !searchCollapsedTiers.has(tier));
-          const contentId = \`destructive-tier-\${tier}\`;
-          return \`<section class="rule-tier rule-tier-\${tier}">
-            <button type="button" class="rule-tier-head" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
-              <span class="panel-chevron" aria-hidden="true"></span>
-              <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
-              <span class="tier-counts">\${tierStates.filter((item) => item.enabled).length} on · \${tierStates.filter((item) => !item.enabled).length} off · \${tierStates.filter((item) => item.changesInherited).length} customized</span>
-            </button>
-            <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
-              \${groupRules(rules).map((group) => \`<section class="destructive-command-group">
-                <h3>\${escapeHtml(group.category)}</h3>
-                <div class="grid">\${group.rules.map((rule) => {
-                  const effective = preview.rules[rule.id];
-                  const override = draftPolicy.destructive_command_protection.overrides[rule.id];
-                  const status = ruleStateText(rule, effective);
-                  const disabled = !draftPolicy.destructive_command_protection.enabled;
-                  return \`<div class="row rule-row \${disabled ? 'row-disabled' : ''}">
-                    <label class="rule-control">
-                      <input type="checkbox" data-destructive-command-active="\${escapeHtml(rule.id)}" \${checkbox(effective.enabled)} \${disabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`\${rule.label}: \${status}\`)}">
-                      <span>
-                        <strong>\${escapeHtml(rule.label)}</strong>
-                        <code class="rule-id">\${escapeHtml(rule.id)}</code>
-                        <small><span class="\${effective.enabled ? 'state-active' : 'state-disabled'}">\${escapeHtml(status)}</span> \${escapeHtml(rule.description)}</small>
-                      </span>
-                    </label>
-                    <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
-                    \${override && !effective.changesInherited ? \`<button type="button" class="inherit-button" data-use-inherited="\${escapeHtml(rule.id)}">Use inherited setting</button>\` : ''}
-                  </div>\`;
-                }).join('')}</div>
-              </section>\`).join('')}
-            </div>
-          </section>\`;
-        }).join('');
-    };
-    const refreshPolicyPreview = async () => {
-      const requestId = ++previewRequestId;
-      const result = await requestJson('/api/policy/preview', {
-        method: 'POST',
-        body: JSON.stringify(collectFormPolicy())
-      });
-      if (requestId !== previewRequestId) return false;
-      if (!result.ok || !result.data?.preview) {
-        setAppStatus('Preview failed', 'error');
-        setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
-        return false;
-      }
-      preview = result.data.preview;
-      renderSafety();
-      renderDestructiveCommands();
-      return true;
-    };
-    function render() {
-      draftPolicy = clonePolicy(state.policy);
-      preview = state.preview;
-      dirty = false;
-      qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-      renderSafety();
-      qs('destructive-command').innerHTML =
-        '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
-        '<div id="destructive-command-rules"></div>' +
-        '<section class="rule-tier">' +
-        '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
-        '<div class="tier-content paths-content" id="allow-paths-content" hidden>' +
-        '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' +
-        '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' + pathListIcons.add + '</button></div>' +
-        '<p class="paths-hint" id="allow-paths-hint" hidden></p>' +
-        '<ul class="paths-list" id="allow-paths-list"></ul>' +
-        '</div></section>';
-      qs('secret').innerHTML =
-        '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
-        '<div id="secret-patterns"></div>' +
-        '<section class="rule-tier">' +
-        '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
-        '<div class="tier-content paths-content" id="deny-paths-content" hidden>' +
-        '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
-        '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' + pathListIcons.add + '</button></div>' +
-        '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
-        '<ul class="paths-list" id="deny-paths-list"></ul>' +
-        '</div></section>';
-      qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
-      qs('policy-search').value = '';
-      syncSearchState();
-      renderDestructiveCommands();
-      renderSecretPatterns();
-      pathLists['deny-paths'].render();
-      pathLists['allow-paths'].render();
-      updateRawSource();
-      qs('recovery').hidden = state.errors.length === 0;
-      updateActions();
-      if (state.errors.length) {
-        setAppStatus('Repair required', 'error');
-        setDetailStatus(\`Error: \${state.errors.join('\\n')}\`, 'error');
-        return;
-      }
-      setAppStatus('Loaded', 'ok');
-      setDetailStatus('');
-    }
-    async function load() {
-      const result = await requestJson('/api/policy');
-      if (!isPolicyState(result.data)) {
-        setAppStatus('Load failed', 'error');
-        setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
-        return false;
-      }
-      state = result.data;
-      render();
-      return true;
-    }
-    document.addEventListener('input', (event) => {
-      const input = event.target;
-      if (input.id === 'policy-search') {
-        syncSearchState();
-        renderDestructiveCommands();
-        renderSecretPatterns();
-      }
-    });
-    document.addEventListener('keydown', (event) => {
-      const list = pathLists[event.target?.dataset?.pathInput];
-      if (!list || event.key !== 'Enter') return;
-      event.preventDefault();
-      void list.add(event.target.value);
-    });
-    document.addEventListener('paste', (event) => {
-      const list = pathLists[event.target?.dataset?.pathInput];
-      if (!list) return;
-      const text = event.clipboardData?.getData('text') ?? '';
-      if (!text.includes('\\n')) return;
-      event.preventDefault();
-      void list.add(\`\${event.target.value}\\n\${text}\`);
-    });
-    document.addEventListener('change', (event) => {
-      const input = event.target;
-      if (input.name === 'safety-level') {
-        draftPolicy.safety.level = input.value;
-        renderSafety();
-        syncRawFromForm();
-        updateDirtyStatus();
-        void refreshPolicyPreview();
-        return;
-      }
-      if (input.dataset?.safetyOverride) {
-        if (input.value === 'inherit') delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
-        if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
-        if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
-        syncRawFromForm();
-        updateDirtyStatus();
-        void refreshPolicyPreview();
-        return;
-      }
-      if ('workflowWorktree' in input.dataset) {
-        draftPolicy.workflow.worktree_mode = input.checked;
-        syncRawFromForm();
-        updateDirtyStatus();
-        return;
-      }
-      if ('destructiveCommandEnabled' in input.dataset) {
-        void (async () => {
-          if (!input.checked && !(await confirmProtectionDisable({
-            title: 'Disable destructive command protection?',
-            body: 'Built-in destructive git, filesystem, and execution protections will stop blocking commands until you turn this back on.',
-            detail: 'Custom rules remain active.'
-          }))) {
-            input.checked = true;
-            return;
-          }
-          draftPolicy.destructive_command_protection.enabled = input.checked;
-          pathLists['allow-paths'].render();
-          syncRawFromForm();
-          updateDirtyStatus();
-          void refreshPolicyPreview();
-        })();
-        return;
-      }
-      if (input.dataset?.destructiveCommandActive) {
-        const ruleId = input.dataset.destructiveCommandActive;
-        if (input.checked === preview.rules[ruleId].inheritedEnabled) delete draftPolicy.destructive_command_protection.overrides[ruleId];
-        else draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
-        syncRawFromForm();
-        updateDirtyStatus();
-        void refreshPolicyPreview();
-        return;
-      }
-      if (input.dataset?.secretActive) {
-        if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
-        else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
-        renderSecretPatterns();
-        syncRawFromForm();
-        updateDirtyStatus();
-        return;
-      }
-      if (input.id === 'secret-enabled') {
-        void (async () => {
-          if (!input.checked && !(await confirmProtectionDisable({
-            title: 'Disable secret protection?',
-            body: 'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.'
-          }))) {
-            input.checked = true;
-            return;
-          }
-          draftPolicy.secret_protection.enabled = input.checked;
-          renderSecretPatterns();
-          pathLists['deny-paths'].render();
-          syncRawFromForm();
-          updateDirtyStatus();
-        })();
-      }
-    });
-    document.addEventListener('click', (event) => {
-      const ruleExampleButton = event.target.closest?.('[data-rule-example]');
-      if (ruleExampleButton) {
-        openRuleExample(ruleExampleButton);
-        return;
-      }
-      const tierButton = event.target.closest?.('[data-tier-toggle]');
-      if (tierButton) {
-        const tier = tierButton.dataset.tierToggle;
-        const expanded = tierButton.getAttribute('aria-expanded') === 'true';
-        tierExpanded.set(tier, !expanded);
-        if (searchActive && expanded) searchCollapsedTiers.add(tier);
-        if (!expanded) searchCollapsedTiers.delete(tier);
-        renderDestructiveCommands();
-        return;
-      }
-      const secretGroupButton = event.target.closest?.('[data-secret-group-toggle]');
-      if (secretGroupButton) {
-        const category = secretGroupButton.dataset.secretGroupToggle;
-        const expanded = secretGroupButton.getAttribute('aria-expanded') === 'true';
-        secretGroupExpanded.set(category, !expanded);
-        if (searchActive && expanded) searchCollapsedSecretGroups.add(category);
-        if (!expanded) searchCollapsedSecretGroups.delete(category);
-        renderSecretPatterns();
-        return;
-      }
-      const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
-      if (button) {
-        togglePanel(button);
-        return;
-      }
-      const inheritedButton = event.target.closest?.('[data-use-inherited]');
-      if (inheritedButton) {
-        delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited];
-        syncRawFromForm();
-        updateDirtyStatus();
-        void refreshPolicyPreview();
-        return;
-      }
-      if (event.target.closest?.('#reset-rule-customizations')) {
-        if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
-          setAppStatus('No rule customizations to reset', 'ok');
-          return;
-        }
-        void (async () => {
-          if (!(await confirmDialog({
-            title: 'Reset rule customizations?',
-            body: 'All built-in destructive-command rules will return to their inherited preset settings.',
-            confirmLabel: 'Reset customizations'
-          }))) return;
-          draftPolicy.destructive_command_protection.overrides = {};
-          syncRawFromForm();
-          updateDirtyStatus();
-          void refreshPolicyPreview();
-        })();
-        return;
-      }
-      if (event.target.closest?.('#discard-changes')) {
-        void (async () => {
-          if (!(await confirmDialog({
-            title: 'Discard unsaved changes?',
-            body: 'All changes since your last save will be reverted.',
-            confirmLabel: 'Discard changes'
-          }))) return;
-          void runExclusive('Discarding...', async () => {
-            if (await load()) setAppStatus('Changes discarded.', 'ok');
-          });
-        })();
-        return;
-      }
-      const addButton = event.target.closest?.('[data-path-add]');
-      if (addButton) {
-        void pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
-        return;
-      }
-      const removeButton = event.target.closest?.('[data-path-remove]');
-      if (removeButton) pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
-      const starButton = event.target.closest?.('.star-cta');
-      if (starButton?.tagName === 'BUTTON') {
-        void starRepo(starButton);
-        return;
-      }
-    });
-    qs('save').onclick = () => {
-      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
-      if (state.errors.length) { setAppStatus('Repair required', 'error'); setDetailStatus('Error: Repair policy before saving changes.', 'error'); return; }
-      if (!dirty) { setAppStatus('No changes to save', 'ok'); setDetailStatus(''); return; }
-      const policy = collectFormPolicy();
-      void runExclusive('Saving...', async () => {
-        const result = await requestJson('/api/policy', { method: 'POST', body: JSON.stringify(policy) });
-        if (!isWriteSuccess(result)) { setAppStatus('Save failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
-        const savedPath = result.data.path;
-        if (await load()) { dirty = false; setAppStatus(\`Saved \${savedPath}.\`, 'ok'); setDetailStatus(''); }
-      });
-    };
-    qs('repair').onclick = async () => {
-      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
-      if (state.errors.length === 0) { setAppStatus('Loaded', 'ok'); setDetailStatus(''); return; }
-      if (!(await confirmDialog({
-        title: 'Repair policy?',
-        body: 'This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.',
-        detail: state.path,
-        confirmLabel: 'Repair',
-        confirmClass: 'primary'
-      }))) {
-        return;
-      }
-      void runExclusive('Repairing...', async () => {
-        const result = await requestJson('/api/repair', { method: 'POST', body: '{}' });
-        if (!isWriteSuccess(result)) { setAppStatus('Repair failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
-        const repairedPath = result.data.path;
-        if (await load()) { dirty = false; setAppStatus(\`Repaired \${repairedPath}.\`, 'ok'); setDetailStatus(''); }
-      });
-    };
-    qs('reset').onclick = async () => {
-      if (!state) { setAppStatus('Load failed', 'error'); setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error'); return; }
-      if (!(await confirmDialog({
-        title: 'Reset policy?',
-        body: 'This will restore the default policy JSON at this path.',
-        detail: state.path,
-        confirmLabel: 'Reset policy'
-      }))) {
-        return;
-      }
-      void runExclusive('Resetting...', async () => {
-        const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
-        if (!isWriteSuccess(result)) { setAppStatus('Reset failed', 'error'); setDetailStatus(\`Error: \${errorText(result)}\`, 'error'); return; }
-        const resetPath = result.data.path;
-        if (await load()) { dirty = false; setAppStatus(\`Reset \${resetPath} to defaults.\`, 'ok'); setDetailStatus(''); }
-      });
-    };
-    setRawCopyCopied(false);
-    qs('raw-copy').onclick = () => {
-      void copyRawToClipboard();
-    };
-    const themeOrder = ['auto', 'light', 'dark'];
-    const themeIcons = {
-      auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
-      light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
-      dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>'
-    };
-    const themeLabels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
-    const applyTheme = (pref) => {
-      document.documentElement.style.colorScheme = pref === 'auto' ? 'light dark' : pref;
-      qs('theme-toggle').innerHTML = \`\${themeIcons[pref]}<span>\${themeLabels[pref]}</span>\`;
-      qs('theme-toggle').setAttribute('aria-label', \`Color theme: \${themeLabels[pref]}. Click to change.\`);
-    };
-    let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme'))
-      ? localStorage.getItem('cc-safety-net-theme')
-      : 'auto';
-    applyTheme(themePref);
-    qs('theme-toggle').onclick = () => {
-      themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
-      if (themePref === 'auto') localStorage.removeItem('cc-safety-net-theme');
-      else localStorage.setItem('cc-safety-net-theme', themePref);
-      applyTheme(themePref);
-    };
-    load().then((loaded) => {
-      if (loaded) void loadStarContext();
-    }).catch((error) => {
-      setAppStatus('Load failed', 'error');
-      setDetailStatus(String(error), 'error');
-    });
+/* __CC_SAFETY_NET_SCRIPT__ */
   </script>
 </body>
 </html>
-`;function renderPolicyGuiHtml(token){return page_default.replace("/* __CC_SAFETY_NET_CUSTOM_CSS__ */",custom_default).replace("__CC_SAFETY_NET_TOKEN__",JSON.stringify(token))}var REPO="kenryu42/cc-safety-net",REPO_URL=`https://github.com/${REPO}`,STAR_TIMEOUT_MS=1e4;async function runGuiCommand(args,options={}){let flags=parseGuiArgs(args),log=options.log??console.log,error=options.error??console.error;if(!flags)return error("Usage: cc-safety-net gui [--no-open]"),1;let server=await createPolicyGuiServer(options);if(log(`CC Safety Net policy GUI: ${server.url}`),!flags.noOpen)try{await(options.openBrowser??openBrowser)(server.url)}catch(openError){error(`Failed to open browser: ${openError instanceof Error?openError.message:String(openError)}`),error(`Open this URL manually: ${server.url}`)}if(options.keepAlive===!1)return await server.close(),0;return await waitForShutdown(server),0}async function createPolicyGuiServer(options={}){let token=options.token??randomBytes(24).toString("base64url"),server=createServer((request,response)=>{handleRequest(request,response,token,options)});await new Promise((resolve5,reject)=>{server.once("error",reject),server.listen(0,"127.0.0.1",()=>{server.off("error",reject),resolve5()})});let origin=`http://127.0.0.1:${server.address().port}`;return{origin,token,url:`${origin}/?token=${encodeURIComponent(token)}`,close:()=>closeServer(server)}}function parseGuiArgs(args){if(args.some((arg)=>arg!=="--no-open"))return null;return{noOpen:args.includes("--no-open")}}async function handleRequest(request,response,token,options){let url=new URL(request.url??"/","http://127.0.0.1");if(request.method==="GET"&&url.pathname==="/favicon.ico"){response.writeHead(204,{"cache-control":"no-store"}),response.end();return}if(!requestHasValidToken(request,url,token)){sendJson(response,403,{error:"Forbidden"});return}if(request.method==="GET"&&url.pathname==="/"){sendHtml(response,renderPolicyGuiHtml(token));return}if(request.method==="GET"&&url.pathname==="/api/policy"){let result=readUserPolicyForGui(options);sendJson(response,200,{...result,destructiveCommandRules:DESTRUCTIVE_COMMAND_RULE_METADATA,secretPatterns:SECRET_PROTECTION_RULE_METADATA,preview:result.errors.length>0?null:createPolicyPreview(result.policy)});return}if(request.method==="POST"&&url.pathname==="/api/policy/preview"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=previewUserPolicyForGui(body.value);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/policy"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=writeUserPolicyFromGui(body.value,options);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/reset"){sendJson(response,200,writeUserPolicyFromGui(DEFAULT_GUI_POLICY,options));return}if(request.method==="POST"&&url.pathname==="/api/repair"){sendJson(response,200,repairUserPolicyForGui(options));return}if(request.method==="GET"&&url.pathname==="/api/star/context"){sendJson(response,200,await(options.fetchStarContext??(()=>fetchStarContext({logsDir:options.activityLogsDir})))());return}if(request.method==="POST"&&url.pathname==="/api/star"){let result=await(options.starRepo??starRepo)();sendJson(response,200,result.ok?{ok:!0}:{ok:!1,fallbackUrl:REPO_URL});return}sendJson(response,404,{error:"Not found"})}function requestHasValidToken(request,url,token){if(url.searchParams.get("token")!==token)return!1;if(request.method!=="POST")return!0;return request.headers["x-cc-safety-net-token"]===token}async function readJsonBody(request){let chunks=[];for await(let chunk of request)chunks.push(chunk);try{return{ok:!0,value:JSON.parse(Buffer.concat(chunks).toString("utf-8")||"{}")}}catch(error){return{ok:!1,error:`Invalid JSON: ${error instanceof Error?error.message:String(error)}`}}}function sendHtml(response,html){response.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}),response.end(html)}function sendJson(response,status,body){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}),response.end(JSON.stringify(body))}function closeServer(server){return new Promise((resolve5,reject)=>{server.close((error)=>error?reject(error):resolve5())})}function waitForShutdown(server){return new Promise((resolve5)=>{let cleanup=()=>{process.off("SIGINT",shutdown),process.off("SIGTERM",shutdown)},shutdown=()=>{cleanup(),server.close().then(resolve5)};process.once("SIGINT",shutdown),process.once("SIGTERM",shutdown)})}function openBrowser(url){let command=process.platform==="darwin"?"open":process.platform==="win32"?"cmd":"xdg-open",args=process.platform==="win32"?["/c","start","",url]:[url];return new Promise((resolve5,reject)=>{let child=spawn2(command,args,{detached:!0,stdio:"ignore"}),handleError=(error)=>{child.off("spawn",handleSpawn),reject(error)},handleSpawn=()=>{child.off("error",handleError),child.unref(),resolve5()};child.once("error",handleError),child.once("spawn",handleSpawn)})}async function starRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){return{ok:await runGhCommand(command,["api","-X","PUT",`/user/starred/${REPO}`],timeoutMs)===0}}async function fetchStarContext(options={}){let[starred,starCount,blockedTotal]=await Promise.all([userHasStarredRepo(options.command),fetchStarCount(options.fetchRepo),Promise.resolve(getActivitySummary(36500,options.logsDir).totalBlocked)]);return{starred,starCount,blockedTotal}}async function userHasStarredRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){if(await runGhCommand(command,["auth","status"],timeoutMs)!==0)return null;let starredExitCode=await runGhCommand(command,["api",`/user/starred/${REPO}`],timeoutMs);if(starredExitCode===0)return!0;if(starredExitCode===null)return null;return!1}function runGhCommand(command,args,timeoutMs){return new Promise((resolve5)=>{let child=spawn2(command,args,{stdio:"ignore",windowsHide:!0}),settled=!1,timeout,finish=(code)=>{if(settled)return;if(settled=!0,timeout)clearTimeout(timeout);resolve5(code)};child.once("error",()=>finish(null)),child.once("close",finish),timeout=setTimeout(()=>{child.kill(),finish(null)},timeoutMs)})}async function fetchStarCount(fetchRepo=fetch){try{let response=await fetchRepo(`https://api.github.com/repos/${REPO}`,{headers:{accept:"application/vnd.github+json"},signal:AbortSignal.timeout(STAR_TIMEOUT_MS)});if(!response.ok)return null;let body=await response.json();return typeof body.stargazers_count==="number"?body.stargazers_count:null}catch{return null}}var version="1.0.6",INDENT="  ",PROGRAM_NAME="cc-safety-net";function formatOptionFlags(option){return option.argument?`${option.flags} ${option.argument}`:option.flags}function getOptionsColumnWidth(options){return Math.max(...options.map((opt)=>formatOptionFlags(opt).length))}function getSubcommandsColumnWidth(subcommands){return Math.max(...subcommands.map((subcommand)=>subcommand.usage.length))}function getCommandSummaryWidth(commands2){return Math.max(...commands2.map((cmd)=>`${PROGRAM_NAME} ${cmd.usage}`.length))}function formatCommandSummary(cmd,maxUsageWidth){let usage=`${PROGRAM_NAME} ${cmd.usage}`;return`${INDENT}${usage.padEnd(maxUsageWidth+2)}${cmd.description}`}function formatEnvironmentVariable(name,description){return`${INDENT}${name.padEnd(Math.max(40,name.length+2))}${description}`}function printCommandHelp(command){let lines=[];if(lines.push(`${PROGRAM_NAME} ${command.name}`),lines.push(""),lines.push(`${INDENT}${command.description}`),lines.push(""),lines.push("USAGE:"),lines.push(`${INDENT}${PROGRAM_NAME} ${command.usage}`),lines.push(""),command.subcommands&&command.subcommands.length>0){lines.push("SUBCOMMANDS:");let subcommandWidth=getSubcommandsColumnWidth(command.subcommands);for(let subcommand of command.subcommands)lines.push(`${INDENT}${subcommand.usage.padEnd(subcommandWidth+2)}${subcommand.description}`);lines.push("")}if(command.options.length>0){lines.push("OPTIONS:");let optWidth=getOptionsColumnWidth(command.options);for(let opt of command.options){let flags=formatOptionFlags(opt);lines.push(`${INDENT}${flags.padEnd(optWidth+2)}${opt.description}`)}lines.push("")}if(command.examples&&command.examples.length>0){lines.push("EXAMPLES:");for(let example of command.examples)lines.push(`${INDENT}${example}`)}console.log(lines.join(`
+`;var page_script_default=`const token = __CC_SAFETY_NET_TOKEN__;
+const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
+const safetyLevels = {
+  standard: [
+    'Standard',
+    'Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding.',
+  ],
+  strict: [
+    'Strict',
+    'Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell.',
+  ],
+  paranoid: [
+    'Paranoid',
+    'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.',
+  ],
+};
+const safetyOverrides = {
+  fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
+  paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
+  paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
+};
+const rawCopyIcons = {
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
+  check:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
+};
+const starIcons = {
+  outline:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+  filled:
+    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+};
+const pathListIcons = {
+  add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+  remove:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>',
+};
+let state;
+let draftPolicy;
+let preview;
+let previewRequestId = 0;
+let dirty = false;
+let searchActive = false;
+let activity = null;
+const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '' };
+const tierExpanded = new Map([
+  ['enforced', false],
+  ['normal', false],
+  ['strict', false],
+  ['paranoid', false],
+]);
+const searchCollapsedTiers = new Set();
+const secretGroupExpanded = new Map();
+const searchCollapsedSecretGroups = new Set();
+let rawCopyResetTimer = null;
+let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
+const api = (path, init = {}) =>
+  fetch(\`\${path}\${path.includes('?') ? '&' : '?'}token=\${encodeURIComponent(token)}\`, {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      'x-cc-safety-net-token': token,
+      ...(init.headers || {}),
+    },
+  });
+const requestJson = async (path, init) => {
+  try {
+    const response = await api(path, init);
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
+  } catch (error) {
+    return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+const errorText = (result) =>
+  result.error ??
+  (Array.isArray(result.data?.errors) && result.data.errors.length
+    ? result.data.errors.join('\\n')
+    : null) ??
+  result.data?.error ??
+  \`Request failed (status \${result.status}).\`;
+const isWriteSuccess = (result) =>
+  result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
+const isPolicyState = (value) =>
+  !!value &&
+  typeof value === 'object' &&
+  !!value.policy &&
+  typeof value.policy === 'object' &&
+  !!value.policy.safety &&
+  !!value.policy.workflow &&
+  !!value.policy.secret_protection &&
+  Array.isArray(value.destructiveCommandRules) &&
+  Array.isArray(value.secretPatterns) &&
+  (value.preview === null || (value.preview && typeof value.preview === 'object')) &&
+  Array.isArray(value.errors);
+const qs = (id) => document.getElementById(id);
+const setDetailStatus = (text, kind = '') => {
+  qs('status').textContent = text;
+  qs('status').className = \`status \${kind}\`;
+};
+const setAppStatus = (text, kind = '') => {
+  qs('app-status').textContent = text;
+  qs('app-status').className = \`app-status \${kind}\`;
+};
+let busy = false;
+const updateActions = () => {
+  const hasErrors = (state?.errors.length ?? 0) > 0;
+  qs('save').disabled = busy || !state || hasErrors;
+  qs('reset').disabled = busy || !state;
+  qs('repair').disabled = busy || !hasErrors;
+};
+const runExclusive = async (pendingText, fn) => {
+  if (busy) return;
+  busy = true;
+  updateActions();
+  setAppStatus(pendingText);
+  setDetailStatus('');
+  try {
+    await fn();
+  } finally {
+    busy = false;
+    updateActions();
+  }
+};
+const checkbox = (checked) => (checked ? 'checked' : '');
+const escapeHtml = (value) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char],
+  );
+const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
+const pathLines = (value) =>
+  value
+    .split('\\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+const formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}\\n\`;
+const collectFormPolicy = () => ({
+  version: 1,
+  safety: {
+    level: draftPolicy.safety.level,
+    overrides: Object.fromEntries(
+      Object.entries(draftPolicy.safety.overrides).filter(
+        ([, value]) => typeof value === 'boolean',
+      ),
+    ),
+  },
+  workflow: draftPolicy.workflow,
+  destructive_command_protection: draftPolicy.destructive_command_protection,
+  secret_protection: {
+    enabled: draftPolicy.secret_protection.enabled,
+    overrides: draftPolicy.secret_protection.overrides,
+    deny_paths: draftPolicy.secret_protection.deny_paths,
+  },
+});
+const viewNames = ['overview', 'activity', 'policy', 'settings'];
+const viewTitles = {
+  overview: 'Overview',
+  activity: 'Activity',
+  policy: 'Policy',
+  settings: 'Settings',
+};
+const currentView = () => {
+  const hash = location.hash.replace('#', '');
+  return viewNames.includes(hash) ? hash : 'overview';
+};
+const applyView = () => {
+  const view = currentView();
+  qs('topbar-title').textContent = viewTitles[view];
+  document.title = \`\${viewTitles[view]} · CC Safety Net\`;
+  document.querySelectorAll('[data-view]').forEach((section) => {
+    section.hidden = section.dataset.view !== view;
+  });
+  document.querySelectorAll('[data-nav]').forEach((link) => {
+    if (link.dataset.nav === view) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+  if (view === 'overview') applyFeedClamps(qs('recent-blocks'));
+  if (view === 'activity') applyFeedClamps(qs('activity-feed'));
+};
+const relativeTime = (ts) => {
+  const diff = Date.now() - new Date(ts).getTime();
+  if (!Number.isFinite(diff)) return '';
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return \`\${days}d ago\`;
+  if (hours > 0) return \`\${hours}h ago\`;
+  if (minutes > 0) return \`\${minutes}m ago\`;
+  return 'just now';
+};
+const isActivityFeed = (value) =>
+  !!value &&
+  typeof value === 'object' &&
+  Array.isArray(value.entries) &&
+  !!value.counts &&
+  typeof value.counts === 'object';
+const agentLabels = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  copilot: 'Copilot',
+  gemini: 'Gemini',
+  antigravity: 'Antigravity',
+  pi: 'Pi',
+  unknown: 'unrecorded',
+};
+const feedItemHtml = (entry) => {
+  const deny = entry.decision !== 'allow';
+  const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';
+  const badgeLabel = entry.failureStage ? 'Error' : deny ? 'Blocked' : 'Allowed';
+  return \`<article class="feed-item">
+    <div class="feed-meta">
+      <span class="decision-badge \${badgeClass}">\${badgeLabel}</span>
+      <span class="agent-badge">\${escapeHtml(agentLabels[entry.agent || 'unknown'] ?? entry.agent)}</span>
+      \${entry.ruleId ? \`<code class="rule-id">\${escapeHtml(entry.ruleId)}</code>\` : ''}
+      <time datetime="\${escapeHtml(entry.ts)}" title="\${escapeHtml(entry.ts)}">\${relativeTime(entry.ts)}</time>
+    </div>
+    <code class="feed-command">\${escapeHtml(entry.command || entry.segment || '(no command recorded)')}</code>
+    \${entry.reason && entry.reason !== 'allowed' ? \`<p class="feed-reason muted">\${escapeHtml(entry.reason)}</p>\` : ''}
+  </article>\`;
+};
+const applyFeedClamps = (root) => {
+  root.querySelectorAll('.feed-command').forEach((command) => {
+    if (command.classList.contains('clamped') || command.scrollHeight <= command.clientHeight + 1)
+      return;
+    command.classList.add('clamped');
+    command.insertAdjacentHTML(
+      'afterend',
+      '<button type="button" class="feed-toggle" data-feed-toggle aria-expanded="false">Show more</button>',
+    );
+  });
+};
+const dayLabel = (ts) => {
+  const date = new Date(ts);
+  if (date.toDateString() === new Date().toDateString()) return 'Today';
+  if (date.toDateString() === new Date(Date.now() - 86400000).toDateString()) return 'Yesterday';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+const renderOverviewActivity = () => {
+  const tile = (value, label, extra = '') =>
+    \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
+  const byDay = activity.counts.blockedByDay;
+  const max = Math.max(...byDay, 1);
+  const sparkline = \`<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay.map((count) => \`<div class="spark-bar" aria-hidden="true" style="height:\${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div>\`).join('')}</div>\`;
+  qs('overview-tiles').innerHTML = [
+    tile(activity.counts.blocked, \`Blocked · last \${activity.days} days\`, sparkline),
+    tile(activity.counts.sessions, \`Sessions · last \${activity.days} days\`),
+    tile(Object.keys(activity.counts.agents).length, \`Agents · last \${activity.days} days\`),
+    tile(activity.totalBlockedAllTime, 'Blocked · all time'),
+  ].join('');
+  const blocks = activity.entries.filter((entry) => entry.decision !== 'allow').slice(0, 8);
+  const blockedLabel = \`\${activity.counts.blocked.toLocaleString('en-US')} blocked command\${activity.counts.blocked === 1 ? '' : 's'} in the last \${activity.days} days\`;
+  qs('recent-blocks-sub').textContent =
+    activity.counts.blocked === 0
+      ? \`No blocked commands in the last \${activity.days} days.\`
+      : blocks.length === 0
+        ? \`\${blockedLabel}, all older than the newest \${activity.entries.length.toLocaleString('en-US')} log entries.\`
+        : \`The newest of \${blockedLabel}.\`;
+  qs('recent-blocks').innerHTML =
+    activity.counts.blocked === 0
+      ? '<p class="empty">Nothing blocked recently. That is a good sign.</p>'
+      : blocks.length === 0
+        ? '<p class="empty">They are older than the newest entries the Activity tab can show; see the audit log files for the rest.</p>'
+        : \`<div class="feed-list">\${blocks.map(feedItemHtml).join('')}</div>\`;
+  applyFeedClamps(qs('recent-blocks'));
+};
+const renderActivityControls = () => {
+  const chipHtml = (kind, value, label, count) =>
+    \`<button type="button" class="chip" data-activity-chip="\${kind}" data-chip-value="\${escapeHtml(value)}" aria-pressed="\${activityFilters[kind] === value}">\${escapeHtml(label)}\${count === undefined ? '' : \` <span class="chip-count">\${count.toLocaleString('en-US')}</span>\`}</button>\`;
+  qs('activity-decision').innerHTML = [
+    chipHtml('decision', 'all', 'All', activity.totalInWindow),
+    chipHtml('decision', 'deny', 'Blocked', activity.counts.blocked),
+    chipHtml('decision', 'allow', 'Allowed', activity.counts.allowed),
+  ].join('');
+  const agentNames = Object.keys(activity.counts.agents).sort();
+  qs('activity-agents').innerHTML =
+    agentNames.length < 2
+      ? ''
+      : [
+          chipHtml('agent', 'all', 'All agents'),
+          ...agentNames.map((name) =>
+            chipHtml('agent', name, agentLabels[name] ?? name, activity.counts.agents[name]),
+          ),
+        ].join('');
+  qs('activity-days').value = String(activity.days);
+};
+const renderActivityFeed = () => {
+  const matchesFilters = (entry) => {
+    if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
+    if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
+    if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
+      return false;
+    if (!activityFilters.query) return true;
+    return [entry.ruleId, entry.command, entry.segment, entry.reason, entry.toolName, entry.cwd]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(activityFilters.query);
+  };
+  const entries = activity.entries.filter(matchesFilters);
+  qs('activity-feed').innerHTML =
+    entries.length === 0
+      ? '<p class="empty">No audit log entries match.</p>'
+      : \`<div class="feed-list">\${entries
+          .map((entry, index) => {
+            const label = dayLabel(entry.ts);
+            const separator =
+              index > 0 && label === dayLabel(entries[index - 1].ts)
+                ? ''
+                : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
+            return separator + feedItemHtml(entry);
+          })
+          .join('')}</div>\`;
+  applyFeedClamps(qs('activity-feed'));
+  qs('activity-count').textContent =
+    \`Showing \${entries.length.toLocaleString('en-US')} of \${activity.totalInWindow.toLocaleString('en-US')} entries from the last \${activity.days} days\${activity.truncated ? ' (showing the newest 500)' : ''}.\`;
+};
+const loadActivity = async () => {
+  const result = await requestJson(\`/api/activity?days=\${activityFilters.days}\`);
+  if (!result.ok || !isActivityFeed(result.data)) {
+    const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
+    qs('overview-tiles').innerHTML = '';
+    qs('recent-blocks-sub').textContent = '';
+    qs('recent-blocks').innerHTML = message;
+    qs('activity-feed').innerHTML = message;
+    qs('activity-count').textContent = '';
+    return;
+  }
+  activity = result.data;
+  if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
+    activityFilters.agent = 'all';
+  }
+  qs('logs-path').textContent = activity.logsDir ?? 'Not available';
+  renderOverviewActivity();
+  renderActivityControls();
+  renderActivityFeed();
+};
+const confirmDialog = (() => {
+  const dialog = qs('confirm-dialog');
+  const confirm = qs('confirm-dialog-confirm');
+  const cancel = qs('confirm-dialog-cancel');
+  let resolvePending = null;
+  dialog.addEventListener('close', () => {
+    if (!resolvePending) return;
+    resolvePending(dialog.returnValue === 'confirm');
+    resolvePending = null;
+  });
+  dialog.addEventListener('cancel', () => {
+    dialog.returnValue = 'cancel';
+  });
+  return (options) =>
+    new Promise((resolve) => {
+      if (resolvePending) {
+        resolve(false);
+        return;
+      }
+      qs('confirm-dialog-title').textContent = options.title;
+      qs('confirm-dialog-body').textContent = options.body;
+      qs('confirm-dialog-detail').textContent = options.detail ?? '';
+      qs('confirm-dialog-detail').parentElement.hidden = !options.detail;
+      confirm.textContent = options.confirmLabel;
+      confirm.className = options.confirmClass ?? 'danger';
+      dialog.returnValue = 'cancel';
+      resolvePending = resolve;
+      dialog.showModal();
+      cancel.focus();
+    });
+})();
+const confirmProtectionDisable = (options) =>
+  confirmDialog({
+    title: options.title,
+    body: options.body,
+    detail: options.detail,
+    confirmLabel: 'Disable protection',
+  });
+const togglePanel = (button) => {
+  const expanded = button.getAttribute('aria-expanded') !== 'true';
+  button.setAttribute('aria-expanded', String(expanded));
+  qs(button.getAttribute('aria-controls')).hidden = !expanded;
+};
+const syncSearchState = () => {
+  const active = qs('policy-search').value.trim().length > 0;
+  if (active === searchActive) return;
+  searchActive = active;
+  if (active) return;
+  searchCollapsedTiers.clear();
+  searchCollapsedSecretGroups.clear();
+};
+const updateRawSource = () => {
+  qs('raw-source').textContent = state?.errors.length
+    ? 'Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.'
+    : 'Read-only mirror of the controls.';
+};
+const setRawCopyCopied = (copied) => {
+  qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
+  qs('raw-copy').classList.toggle('copied', copied);
+  qs('raw-copy').setAttribute(
+    'aria-label',
+    copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard',
+  );
+};
+const copyRawToClipboard = async () => {
+  qs('raw-copy').disabled = true;
+  try {
+    await navigator.clipboard.writeText(qs('raw').value);
+    setRawCopyCopied(true);
+    if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
+    rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
+  } catch (error) {
+    setAppStatus('Copy failed', 'error');
+    setDetailStatus(
+      \`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`,
+      'error',
+    );
+  } finally {
+    qs('raw-copy').disabled = false;
+  }
+};
+const formatStarCount = (count) => {
+  if (typeof count !== 'number') return '';
+  if (count >= 1000) return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k\`;
+  return String(count);
+};
+const starCountHtml = (count) => {
+  const formatted = formatStarCount(count);
+  return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : '';
+};
+const hideStarCta = () => {
+  qs('star-row').hidden = true;
+  qs('star-slot').innerHTML = '';
+};
+const renderStarPitch = (context, starred = false) => {
+  const evidence =
+    context.blockedTotal > 0
+      ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command\${context.blockedTotal === 1 ? '' : 's'} on this machine.\`
+      : '';
+  if (starred) {
+    qs('star-pitch-text').innerHTML = evidence;
+    return;
+  }
+  qs('star-pitch-text').innerHTML = evidence
+    ? \`\${evidence} If it saved your work, star it on GitHub.\`
+    : 'If CC Safety Net is useful to you, star it on GitHub.';
+};
+const renderStarLink = (context, href = fallbackRepoUrl) => {
+  qs('star-slot').innerHTML =
+    \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
+      <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+      <span class="star-label">Star on GitHub</span>
+      \${starCountHtml(context.starCount)}
+    </a>\`;
+  qs('star-row').hidden = false;
+};
+const renderStarCta = (context) => {
+  activeStarContext = context;
+  if (context.starred === true) {
+    hideStarCta();
+    return;
+  }
+  renderStarPitch(context);
+  qs('star-mechanism').hidden = context.starred !== false;
+  if (context.starred === null) {
+    renderStarLink(context);
+    return;
+  }
+  qs('star-slot').innerHTML =
+    \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
+      <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+      <span class="star-label">Star on GitHub</span>
+      \${starCountHtml(context.starCount)}
+    </button>\`;
+  qs('star-row').hidden = false;
+};
+const starRepo = async (button) => {
+  button.disabled = true;
+  const result = await requestJson('/api/star', { method: 'POST' });
+  if (result.ok && result.data?.ok === true) {
+    button.querySelector('.star-icon').innerHTML = starIcons.filled;
+    button.querySelector('.star-label').textContent = 'Starred. Thank you.';
+    button.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
+    button.classList.add('starred');
+    qs('star-mechanism').hidden = true;
+    renderStarPitch(activeStarContext, true);
+    setAppStatus('Starred on GitHub', 'ok');
+    setDetailStatus('');
+    return;
+  }
+  qs('star-mechanism').hidden = true;
+  renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);
+};
+const loadStarContext = async () => {
+  const result = await requestJson('/api/star/context');
+  renderStarCta(
+    result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 },
+  );
+};
+const syncRawFromForm = () => {
+  if (state?.errors.length) return;
+  qs('raw').value = formatPolicy(collectFormPolicy());
+  updateRawSource();
+};
+const updateDirtyStatus = () => {
+  if (state?.errors.length) return;
+  dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
+  setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
+  if (dirty)
+    qs('app-status').insertAdjacentHTML(
+      'beforeend',
+      ' <button type="button" class="discard-link" id="discard-changes">Discard</button>',
+    );
+  setDetailStatus('');
+  updateActions();
+};
+const createPathList = (prefix, config) => {
+  const setHint = (text) => {
+    qs(\`\${prefix}-hint\`).textContent = text;
+    qs(\`\${prefix}-hint\`).hidden = !text;
+  };
+  const render = () => {
+    const paths = config.getPaths();
+    const disabled = config.isDisabled();
+    qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? '' : 's'}\`;
+    qs(\`\${prefix}-input\`).disabled = disabled;
+    qs(\`\${prefix}-add-button\`).disabled = disabled;
+    qs(\`\${prefix}-list\`).innerHTML =
+      paths.length === 0
+        ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\`
+        : paths
+            .map(
+              (path, index) => \`<li class="path-item \${disabled ? 'row-disabled' : ''}">
+          <code>\${escapeHtml(path)}</code>
+          <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
+        </li>\`,
+            )
+            .join('');
+  };
+  let adding = false;
+  const add = async (value) => {
+    if (adding) return;
+    const entries = [...new Set(pathLines(value))];
+    if (entries.length === 0) return;
+    const submitted = qs(\`\${prefix}-input\`).value;
+    const additions = entries.filter((entry) => !config.getPaths().includes(entry));
+    if (config.validateAdditions && additions.length) {
+      adding = true;
+      try {
+        const error = await config.validateAdditions([...config.getPaths(), ...additions]);
+        if (error) {
+          setHint(\`Not added: \${additions.join(', ')} — \${error}\`);
+          return;
+        }
+      } finally {
+        adding = false;
+      }
+    }
+    // Recommit only the initially absent additions against current state, so
+    // entries removed during validation stay removed.
+    const current = config.getPaths();
+    const duplicates = entries.filter((entry) => current.includes(entry));
+    config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
+    if (qs(\`\${prefix}-input\`).value === submitted) qs(\`\${prefix}-input\`).value = '';
+    setHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
+    render();
+    syncRawFromForm();
+    updateDirtyStatus();
+    qs(\`\${prefix}-input\`).focus();
+  };
+  const remove = (index) => {
+    config.setPaths(config.getPaths().filter((_, position) => position !== index));
+    setHint('');
+    render();
+    syncRawFromForm();
+    updateDirtyStatus();
+  };
+  return { render, add, remove };
+};
+const pathLists = {
+  'deny-paths': createPathList('deny-paths', {
+    getPaths: () => draftPolicy.secret_protection.deny_paths,
+    setPaths: (paths) => {
+      draftPolicy.secret_protection.deny_paths = paths;
+    },
+    isDisabled: () => !draftPolicy.secret_protection.enabled,
+    itemLabel: 'deny path',
+  }),
+  'allow-paths': createPathList('allow-paths', {
+    getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
+    setPaths: (paths) => {
+      draftPolicy.destructive_command_protection.allow_paths = paths;
+    },
+    isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
+    itemLabel: 'allow path',
+    validateAdditions: async (paths) => {
+      const candidate = collectFormPolicy();
+      candidate.destructive_command_protection = {
+        ...candidate.destructive_command_protection,
+        allow_paths: paths,
+      };
+      const result = await requestJson('/api/policy/preview', {
+        method: 'POST',
+        body: JSON.stringify(candidate),
+      });
+      if (result.ok && result.data?.preview) return null;
+      return errorText(result);
+    },
+  }),
+};
+const groupRules = (rules) =>
+  rules.reduce((groups, rule) => {
+    const group = groups.find((item) => item.category === rule.category);
+    if (group) {
+      group.rules.push(rule);
+      return groups;
+    }
+    groups.push({ category: rule.category, rules: [rule] });
+    return groups;
+  }, []);
+const renderSecretPatterns = () => {
+  const query = qs('policy-search').value.trim().toLowerCase();
+  const rules = state.secretPatterns.filter((rule) =>
+    [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query),
+  );
+  const overrides = draftPolicy.secret_protection.overrides;
+  const disabled = !draftPolicy.secret_protection.enabled;
+  const disabledCount = Object.keys(overrides).length;
+  qs('secret-summary').textContent = disabled
+    ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
+    : \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`;
+  qs('secret-patterns').innerHTML =
+    rules.length === 0
+      ? '<p class="empty">No secret protections match the search.</p>'
+      : groupRules(rules)
+          .map((group) => {
+            const expanded =
+              secretGroupExpanded.get(group.category) ||
+              (searchActive && !searchCollapsedSecretGroups.has(group.category));
+            const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}\`;
+            const allGroupRules = state.secretPatterns.filter(
+              (rule) => rule.category === group.category,
+            );
+            const onCount = disabled
+              ? 0
+              : allGroupRules.filter((rule) => overrides[rule.id] !== 'off').length;
+            return \`
+      <section class="rule-tier">
+        <button type="button" class="rule-tier-head" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
+          <span class="tier-counts">\${onCount} on · \${allGroupRules.length - onCount} off</span>
+        </button>
+        <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
+        <div class="grid">\${group.rules
+          .map((rule) => {
+            const active = overrides[rule.id] !== 'off';
+            const ruleState =
+              active && !disabled
+                ? { label: 'Active', className: 'state-active' }
+                : { label: 'Disabled', className: 'state-disabled' };
+            return \`<label class="row \${disabled ? 'row-disabled' : ''}">
+            <input type="checkbox" data-secret-active="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled ? 'disabled' : ''}>
+            <span>
+              <strong>\${escapeHtml(rule.label)}</strong>
+              <code class="rule-id">\${escapeHtml(rule.id)}</code>
+              <small><span class="\${ruleState.className}">\${ruleState.label}</span> \${escapeHtml(rule.description)}</small>
+            </span>
+          </label>\`;
+          })
+          .join('')}</div>
+        </div>
+      </section>
+    \`;
+          })
+          .join('');
+};
+const levelCapabilities = (level) => ({
+  fail_closed: level === 'strict' || level === 'paranoid',
+  paranoid_rm: level === 'paranoid',
+  paranoid_interpreters: level === 'paranoid',
+});
+const presetName = () => safetyLevels[draftPolicy.safety.level][0];
+const renderPresetStatus = () => {
+  if (!preview) return;
+  const customized =
+    preview.counts.effectiveCustomizations > 0 ||
+    Object.entries(draftPolicy.safety.overrides).some(
+      ([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key],
+    );
+  qs('safety-preset-status').textContent = customized ? \`\${presetName()} · Customized\` : '';
+  qs('safety-preset-status').classList.toggle('customized', customized);
+};
+const renderSafety = () => {
+  const environmentSources = preview
+    ? [
+        ...new Set(
+          Object.values(preview.capabilities)
+            .filter((capability) => capability.source === 'environment')
+            .flatMap((capability) =>
+              capability.sources.filter((source) => source.startsWith('env ')),
+            ),
+        ),
+      ]
+    : [];
+  qs('environment-overrides').hidden = environmentSources.length === 0;
+  qs('environment-overrides').textContent = environmentSources.length
+    ? \`Environment-raised protection: \${environmentSources.join(', ')}\`
+    : '';
+  qs('safety-level').innerHTML = Object.entries(safetyLevels)
+    .map(
+      ([level, meta]) =>
+        \`<label class="row"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`,
+    )
+    .join('');
+  const inherited = levelCapabilities(draftPolicy.safety.level);
+  qs('safety-overrides').innerHTML = Object.entries(safetyOverrides)
+    .map(([key, meta]) => {
+      const value = draftPolicy.safety.overrides[key];
+      const inheritedText = inherited[key] ? 'on' : 'off';
+      return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
+      <option value="inherit" \${value === undefined ? 'selected' : ''}>Inherit from preset (\${inheritedText})</option>
+      <option value="true" \${value === true ? 'selected' : ''}>Force on</option>
+      <option value="false" \${value === false ? 'selected' : ''}>Force off</option>
+    </select></label>\`;
+    })
+    .join('');
+  qs('workflow').innerHTML =
+    \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
+  renderPresetStatus();
+};
+const tierForRule = (rule) => {
+  if (!rule.activationCapability) return 'normal';
+  return rule.activationCapability === 'fail_closed' ? 'strict' : 'paranoid';
+};
+const tierMeta = {
+  normal: ['Available in every preset', 'No additional capability required'],
+  strict: ['Strict tier', 'Inherits from Fail closed'],
+  paranoid: ['Paranoid tier', 'Inherits from Paranoid rm or Paranoid interpreters'],
+};
+const ruleStateText = (rule, effective) => {
+  if (effective.source === 'master_disabled')
+    return 'Off — destructive-command protection disabled';
+  if (effective.source === 'rule_override')
+    return \`\${effective.enabled ? 'On' : 'Off'} — user rule override\`;
+  if (effective.source === 'built_in_default') return 'On — available in every preset';
+  if (effective.source === 'environment') {
+    const capability = preview.capabilities[rule.activationCapability];
+    const source = [...capability.sources].reverse().find((item) => item.startsWith('env '));
+    return \`\${effective.enabled ? 'On' : 'Off'} — environment\${source ? \`; \${source.slice(4)}\` : ''}\`;
+  }
+  if (effective.source === 'capability_override') {
+    return \`\${effective.enabled ? 'On' : 'Off'} — capability override; \${safetyOverrides[rule.activationCapability][0]} forced \${effective.enabled ? 'on' : 'off'}\`;
+  }
+  if (effective.enabled) return \`On — \${presetName()} preset\`;
+  return \`Off — \${presetName()} preset; requires \${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}\`;
+};
+const openRuleExample = (button) => {
+  const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+  if (!rule) return;
+  const popover = qs('rule-example-popover');
+  qs('rule-example-title').textContent = rule.label;
+  qs('rule-example-command').textContent = rule.example;
+  if (!popover.matches(':popover-open')) popover.showPopover();
+  const buttonRect = button.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const gap = 8;
+  const edge = 12;
+  const below = buttonRect.bottom + gap;
+  const top =
+    below + popoverRect.height <= window.innerHeight - edge
+      ? below
+      : Math.max(edge, buttonRect.top - gap - popoverRect.height);
+  const left = Math.min(
+    window.innerWidth - popoverRect.width - edge,
+    Math.max(edge, buttonRect.right - popoverRect.width),
+  );
+  popover.style.top = \`\${top}px\`;
+  popover.style.left = \`\${left}px\`;
+};
+const renderDestructiveCommands = () => {
+  if (!preview) return;
+  const query = qs('policy-search').value.trim().toLowerCase();
+  const matchingRules = state.destructiveCommandRules.filter((rule) =>
+    [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]]
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
+  );
+  qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
+    ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\`
+    : 'Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.';
+  const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);
+  const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);
+  const enforcedExpanded =
+    tierExpanded.get('enforced') || (searchActive && !searchCollapsedTiers.has('enforced'));
+  const enforcedSection =
+    enforcedRules.length === 0
+      ? ''
+      : \`<section class="rule-tier rule-tier-enforced">
+        <button type="button" class="rule-tier-head" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
+          <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
+        </button>
+        <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? '' : 'hidden'}>
+          \${groupRules(enforcedRules)
+            .map(
+              (group) => \`<section class="destructive-command-group">
+            <h3>\${escapeHtml(group.category)}</h3>
+            <div class="grid">\${group.rules
+              .map(
+                (rule) => \`<div class="row rule-row rule-row-enforced">
+                <span class="rule-control">
+                  <span>
+                    <strong>\${escapeHtml(rule.label)}</strong>
+                    <code class="rule-id">\${escapeHtml(rule.id)}</code>
+                    <small><span class="state-active">Always enforced</span> \${escapeHtml(rule.description)}</small>
+                  </span>
+                </span>
+                <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+              </div>\`,
+              )
+              .join('')}</div>
+          </section>\`,
+            )
+            .join('')}
+        </div>
+      </section>\`;
+  qs('destructive-command-rules').innerHTML =
+    matchingRules.length === 0
+      ? '<p class="empty">No built-in protections match the search.</p>'
+      : enforcedSection +
+        Object.keys(tierMeta)
+          .map((tier) => {
+            const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
+            if (rules.length === 0) return '';
+            const allTierRules = state.destructiveCommandRules.filter(
+              (rule) => !rule.catastrophic && tierForRule(rule) === tier,
+            );
+            const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
+            const expanded =
+              tierExpanded.get(tier) || (searchActive && !searchCollapsedTiers.has(tier));
+            const contentId = \`destructive-tier-\${tier}\`;
+            return \`<section class="rule-tier rule-tier-\${tier}">
+        <button type="button" class="rule-tier-head" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
+          <span class="tier-counts">\${tierStates.filter((item) => item.enabled).length} on · \${tierStates.filter((item) => !item.enabled).length} off · \${tierStates.filter((item) => item.changesInherited).length} customized</span>
+        </button>
+        <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
+          \${groupRules(rules)
+            .map(
+              (group) => \`<section class="destructive-command-group">
+            <h3>\${escapeHtml(group.category)}</h3>
+            <div class="grid">\${group.rules
+              .map((rule) => {
+                const effective = preview.rules[rule.id];
+                const override = draftPolicy.destructive_command_protection.overrides[rule.id];
+                const status = ruleStateText(rule, effective);
+                const disabled = !draftPolicy.destructive_command_protection.enabled;
+                return \`<div class="row rule-row \${disabled ? 'row-disabled' : ''}">
+                <label class="rule-control">
+                  <input type="checkbox" data-destructive-command-active="\${escapeHtml(rule.id)}" \${checkbox(effective.enabled)} \${disabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`\${rule.label}: \${status}\`)}">
+                  <span>
+                    <strong>\${escapeHtml(rule.label)}</strong>
+                    <code class="rule-id">\${escapeHtml(rule.id)}</code>
+                    <small><span class="\${effective.enabled ? 'state-active' : 'state-disabled'}">\${escapeHtml(status)}</span> \${escapeHtml(rule.description)}</small>
+                  </span>
+                </label>
+                <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+                \${override && !effective.changesInherited ? \`<button type="button" class="inherit-button" data-use-inherited="\${escapeHtml(rule.id)}">Use inherited setting</button>\` : ''}
+              </div>\`;
+              })
+              .join('')}</div>
+          </section>\`,
+            )
+            .join('')}
+        </div>
+      </section>\`;
+          })
+          .join('');
+};
+const refreshPolicyPreview = async () => {
+  const requestId = ++previewRequestId;
+  const result = await requestJson('/api/policy/preview', {
+    method: 'POST',
+    body: JSON.stringify(collectFormPolicy()),
+  });
+  if (requestId !== previewRequestId) return false;
+  if (!result.ok || !result.data?.preview) {
+    setAppStatus('Preview failed', 'error');
+    setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+    return false;
+  }
+  preview = result.data.preview;
+  renderSafety();
+  renderDestructiveCommands();
+  return true;
+};
+function render() {
+  draftPolicy = clonePolicy(state.policy);
+  preview = state.preview;
+  dirty = false;
+  qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
+  renderSafety();
+  qs('destructive-command').innerHTML =
+    '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' +
+    checkbox(state.policy.destructive_command_protection.enabled) +
+    '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+    '<div id="destructive-command-rules"></div>' +
+    '<section class="rule-tier">' +
+    '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
+    '<div class="tier-content paths-content" id="allow-paths-content" hidden>' +
+    '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' +
+    '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' +
+    pathListIcons.add +
+    '</button></div>' +
+    '<p class="paths-hint" id="allow-paths-hint" hidden></p>' +
+    '<ul class="paths-list" id="allow-paths-list"></ul>' +
+    '</div></section>';
+  qs('secret').innerHTML =
+    '<label class="row master"><input type="checkbox" id="secret-enabled" ' +
+    checkbox(state.policy.secret_protection.enabled) +
+    '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+    '<div id="secret-patterns"></div>' +
+    '<section class="rule-tier">' +
+    '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
+    '<div class="tier-content paths-content" id="deny-paths-content" hidden>' +
+    '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
+    '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' +
+    pathListIcons.add +
+    '</button></div>' +
+    '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
+    '<ul class="paths-list" id="deny-paths-list"></ul>' +
+    '</div></section>';
+  qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
+  qs('policy-search').value = '';
+  syncSearchState();
+  renderDestructiveCommands();
+  renderSecretPatterns();
+  pathLists['deny-paths'].render();
+  pathLists['allow-paths'].render();
+  updateRawSource();
+  qs('recovery').hidden = state.errors.length === 0;
+  updateActions();
+  if (state.errors.length) {
+    if (currentView() !== 'policy') location.hash = 'policy';
+    setAppStatus('Repair required', 'error');
+    setDetailStatus(\`Error: \${state.errors.join('\\n')}\`, 'error');
+    return;
+  }
+  setAppStatus('Loaded', 'ok');
+  setDetailStatus('');
+}
+async function load() {
+  const result = await requestJson('/api/policy');
+  if (!isPolicyState(result.data)) {
+    setAppStatus('Load failed', 'error');
+    setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
+    return false;
+  }
+  state = result.data;
+  render();
+  return true;
+}
+document.addEventListener('input', (event) => {
+  const input = event.target;
+  if (input.id === 'policy-search') {
+    syncSearchState();
+    renderDestructiveCommands();
+    renderSecretPatterns();
+    return;
+  }
+  if (input.id === 'activity-search' && activity) {
+    activityFilters.query = input.value.trim().toLowerCase();
+    renderActivityFeed();
+  }
+});
+document.addEventListener('keydown', (event) => {
+  const list = pathLists[event.target?.dataset?.pathInput];
+  if (!list || event.key !== 'Enter') return;
+  event.preventDefault();
+  void list.add(event.target.value);
+});
+document.addEventListener('paste', (event) => {
+  const list = pathLists[event.target?.dataset?.pathInput];
+  if (!list) return;
+  const text = event.clipboardData?.getData('text') ?? '';
+  if (!text.includes('\\n')) return;
+  event.preventDefault();
+  void list.add(\`\${event.target.value}\\n\${text}\`);
+});
+document.addEventListener('change', (event) => {
+  const input = event.target;
+  if (input.id === 'activity-days') {
+    activityFilters.days = Number(input.value);
+    void loadActivity();
+    return;
+  }
+  if (input.name === 'safety-level') {
+    draftPolicy.safety.level = input.value;
+    renderSafety();
+    syncRawFromForm();
+    updateDirtyStatus();
+    void refreshPolicyPreview();
+    return;
+  }
+  if (input.dataset?.safetyOverride) {
+    if (input.value === 'inherit')
+      delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
+    if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
+    if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+    syncRawFromForm();
+    updateDirtyStatus();
+    void refreshPolicyPreview();
+    return;
+  }
+  if ('workflowWorktree' in input.dataset) {
+    draftPolicy.workflow.worktree_mode = input.checked;
+    syncRawFromForm();
+    updateDirtyStatus();
+    return;
+  }
+  if ('destructiveCommandEnabled' in input.dataset) {
+    void (async () => {
+      if (
+        !input.checked &&
+        !(await confirmProtectionDisable({
+          title: 'Disable destructive command protection?',
+          body: 'Built-in destructive git, filesystem, and execution protections will stop blocking commands until you turn this back on.',
+          detail: 'Custom rules remain active.',
+        }))
+      ) {
+        input.checked = true;
+        return;
+      }
+      draftPolicy.destructive_command_protection.enabled = input.checked;
+      pathLists['allow-paths'].render();
+      syncRawFromForm();
+      updateDirtyStatus();
+      void refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (input.dataset?.destructiveCommandActive) {
+    const ruleId = input.dataset.destructiveCommandActive;
+    if (input.checked === preview.rules[ruleId].inheritedEnabled)
+      delete draftPolicy.destructive_command_protection.overrides[ruleId];
+    else
+      draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
+    syncRawFromForm();
+    updateDirtyStatus();
+    void refreshPolicyPreview();
+    return;
+  }
+  if (input.dataset?.secretActive) {
+    if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
+    else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
+    renderSecretPatterns();
+    syncRawFromForm();
+    updateDirtyStatus();
+    return;
+  }
+  if (input.id === 'secret-enabled') {
+    void (async () => {
+      if (
+        !input.checked &&
+        !(await confirmProtectionDisable({
+          title: 'Disable secret protection?',
+          body: 'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.',
+        }))
+      ) {
+        input.checked = true;
+        return;
+      }
+      draftPolicy.secret_protection.enabled = input.checked;
+      renderSecretPatterns();
+      pathLists['deny-paths'].render();
+      syncRawFromForm();
+      updateDirtyStatus();
+    })();
+  }
+});
+document.addEventListener('click', (event) => {
+  const feedToggle = event.target.closest?.('[data-feed-toggle]');
+  if (feedToggle) {
+    const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
+    feedToggle.setAttribute('aria-expanded', String(expanded));
+    feedToggle.textContent = expanded ? 'Show less' : 'Show more';
+    return;
+  }
+  if (event.target.closest?.('#view-all-blocks')) {
+    activityFilters.decision = 'deny';
+    if (activity) {
+      renderActivityControls();
+      renderActivityFeed();
+    }
+    return;
+  }
+  const chip = event.target.closest?.('[data-activity-chip]');
+  if (chip && activity) {
+    activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue;
+    renderActivityControls();
+    renderActivityFeed();
+    return;
+  }
+  if (event.target.closest?.('#activity-refresh')) {
+    void loadActivity();
+    return;
+  }
+  const ruleExampleButton = event.target.closest?.('[data-rule-example]');
+  if (ruleExampleButton) {
+    openRuleExample(ruleExampleButton);
+    return;
+  }
+  const tierButton = event.target.closest?.('[data-tier-toggle]');
+  if (tierButton) {
+    const tier = tierButton.dataset.tierToggle;
+    const expanded = tierButton.getAttribute('aria-expanded') === 'true';
+    tierExpanded.set(tier, !expanded);
+    if (searchActive && expanded) searchCollapsedTiers.add(tier);
+    if (!expanded) searchCollapsedTiers.delete(tier);
+    renderDestructiveCommands();
+    return;
+  }
+  const secretGroupButton = event.target.closest?.('[data-secret-group-toggle]');
+  if (secretGroupButton) {
+    const category = secretGroupButton.dataset.secretGroupToggle;
+    const expanded = secretGroupButton.getAttribute('aria-expanded') === 'true';
+    secretGroupExpanded.set(category, !expanded);
+    if (searchActive && expanded) searchCollapsedSecretGroups.add(category);
+    if (!expanded) searchCollapsedSecretGroups.delete(category);
+    renderSecretPatterns();
+    return;
+  }
+  const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
+  if (button) {
+    togglePanel(button);
+    return;
+  }
+  const inheritedButton = event.target.closest?.('[data-use-inherited]');
+  if (inheritedButton) {
+    delete draftPolicy.destructive_command_protection.overrides[
+      inheritedButton.dataset.useInherited
+    ];
+    syncRawFromForm();
+    updateDirtyStatus();
+    void refreshPolicyPreview();
+    return;
+  }
+  if (event.target.closest?.('#reset-rule-customizations')) {
+    if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
+      setAppStatus('No rule customizations to reset', 'ok');
+      return;
+    }
+    void (async () => {
+      if (
+        !(await confirmDialog({
+          title: 'Reset rule customizations?',
+          body: 'All built-in destructive-command rules will return to their inherited preset settings.',
+          confirmLabel: 'Reset customizations',
+        }))
+      )
+        return;
+      draftPolicy.destructive_command_protection.overrides = {};
+      syncRawFromForm();
+      updateDirtyStatus();
+      void refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (event.target.closest?.('#discard-changes')) {
+    void (async () => {
+      if (
+        !(await confirmDialog({
+          title: 'Discard unsaved changes?',
+          body: 'All changes since your last save will be reverted.',
+          confirmLabel: 'Discard changes',
+        }))
+      )
+        return;
+      void runExclusive('Discarding...', async () => {
+        if (await load()) setAppStatus('Changes discarded.', 'ok');
+      });
+    })();
+    return;
+  }
+  const addButton = event.target.closest?.('[data-path-add]');
+  if (addButton) {
+    void pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
+    return;
+  }
+  const removeButton = event.target.closest?.('[data-path-remove]');
+  if (removeButton)
+    pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
+  const starButton = event.target.closest?.('.star-cta');
+  if (starButton?.tagName === 'BUTTON') {
+    void starRepo(starButton);
+    return;
+  }
+});
+qs('save').onclick = () => {
+  if (!state) {
+    setAppStatus('Load failed', 'error');
+    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    return;
+  }
+  if (state.errors.length) {
+    setAppStatus('Repair required', 'error');
+    setDetailStatus('Error: Repair policy before saving changes.', 'error');
+    return;
+  }
+  if (!dirty) {
+    setAppStatus('No changes to save', 'ok');
+    setDetailStatus('');
+    return;
+  }
+  const policy = collectFormPolicy();
+  void runExclusive('Saving...', async () => {
+    const result = await requestJson('/api/policy', {
+      method: 'POST',
+      body: JSON.stringify(policy),
+    });
+    if (!isWriteSuccess(result)) {
+      setAppStatus('Save failed', 'error');
+      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      return;
+    }
+    const savedPath = result.data.path;
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Saved \${savedPath}.\`, 'ok');
+      setDetailStatus('');
+    }
+  });
+};
+qs('repair').onclick = async () => {
+  if (!state) {
+    setAppStatus('Load failed', 'error');
+    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    return;
+  }
+  if (state.errors.length === 0) {
+    setAppStatus('Loaded', 'ok');
+    setDetailStatus('');
+    return;
+  }
+  if (
+    !(await confirmDialog({
+      title: 'Repair policy?',
+      body: 'This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.',
+      detail: state.path,
+      confirmLabel: 'Repair',
+      confirmClass: 'primary',
+    }))
+  ) {
+    return;
+  }
+  void runExclusive('Repairing...', async () => {
+    const result = await requestJson('/api/repair', { method: 'POST', body: '{}' });
+    if (!isWriteSuccess(result)) {
+      setAppStatus('Repair failed', 'error');
+      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      return;
+    }
+    const repairedPath = result.data.path;
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Repaired \${repairedPath}.\`, 'ok');
+      setDetailStatus('');
+    }
+  });
+};
+qs('reset').onclick = async () => {
+  if (!state) {
+    setAppStatus('Load failed', 'error');
+    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    return;
+  }
+  if (
+    !(await confirmDialog({
+      title: 'Reset policy?',
+      body: 'This will restore the default policy JSON at this path.',
+      detail: state.path,
+      confirmLabel: 'Reset policy',
+    }))
+  ) {
+    return;
+  }
+  void runExclusive('Resetting...', async () => {
+    const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
+    if (!isWriteSuccess(result)) {
+      setAppStatus('Reset failed', 'error');
+      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      return;
+    }
+    const resetPath = result.data.path;
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Reset \${resetPath} to defaults.\`, 'ok');
+      setDetailStatus('');
+    }
+  });
+};
+setRawCopyCopied(false);
+qs('raw-copy').onclick = () => {
+  void copyRawToClipboard();
+};
+const themeOrder = ['auto', 'light', 'dark'];
+const themeIcons = {
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
+  light:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>',
+};
+const themeLabels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+const applyTheme = (pref) => {
+  document.documentElement.style.colorScheme = pref === 'auto' ? 'light dark' : pref;
+  qs('theme-toggle').innerHTML = \`\${themeIcons[pref]}<span>\${themeLabels[pref]}</span>\`;
+  qs('theme-toggle').setAttribute(
+    'aria-label',
+    \`Color theme: \${themeLabels[pref]}. Click to change.\`,
+  );
+};
+let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme'))
+  ? localStorage.getItem('cc-safety-net-theme')
+  : 'auto';
+applyTheme(themePref);
+qs('theme-toggle').onclick = () => {
+  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
+  if (themePref === 'auto') localStorage.removeItem('cc-safety-net-theme');
+  else localStorage.setItem('cc-safety-net-theme', themePref);
+  applyTheme(themePref);
+};
+window.addEventListener('hashchange', applyView);
+applyView();
+load()
+  .then((loaded) => {
+    if (loaded) void loadStarContext();
+    void loadActivity();
+  })
+  .catch((error) => {
+    setAppStatus('Load failed', 'error');
+    setDetailStatus(String(error), 'error');
+  });
+`;function renderPolicyGuiHtml(token){return page_default.replace("/* __CC_SAFETY_NET_CUSTOM_CSS__ */",custom_default).replace("/* __CC_SAFETY_NET_SCRIPT__ */",()=>page_script_default).replace("__CC_SAFETY_NET_TOKEN__",JSON.stringify(token))}var REPO="kenryu42/cc-safety-net",REPO_URL=`https://github.com/${REPO}`,STAR_TIMEOUT_MS=1e4;async function runGuiCommand(args,options={}){let flags=parseGuiArgs(args),log=options.log??console.log,error=options.error??console.error;if(!flags)return error("Usage: cc-safety-net gui [--no-open]"),1;let server=await createPolicyGuiServer(options);if(log(`CC Safety Net policy GUI: ${server.url}`),!flags.noOpen)try{await(options.openBrowser??openBrowser)(server.url)}catch(openError){error(`Failed to open browser: ${openError instanceof Error?openError.message:String(openError)}`),error(`Open this URL manually: ${server.url}`)}if(options.keepAlive===!1)return await server.close(),0;return await waitForShutdown(server),0}async function createPolicyGuiServer(options={}){let token=options.token??randomBytes(24).toString("base64url"),server=createServer((request,response)=>{handleRequest(request,response,token,options)});await new Promise((resolve5,reject)=>{server.once("error",reject),server.listen(0,"127.0.0.1",()=>{server.off("error",reject),resolve5()})});let origin=`http://127.0.0.1:${server.address().port}`;return{origin,token,url:`${origin}/?token=${encodeURIComponent(token)}`,close:()=>closeServer(server)}}function parseGuiArgs(args){if(args.some((arg)=>arg!=="--no-open"))return null;return{noOpen:args.includes("--no-open")}}async function handleRequest(request,response,token,options){let url=new URL(request.url??"/","http://127.0.0.1");if(request.method==="GET"&&url.pathname==="/favicon.ico"){response.writeHead(204,{"cache-control":"no-store"}),response.end();return}if(!requestHasValidToken(request,url,token)){sendJson(response,403,{error:"Forbidden"});return}if(request.method==="GET"&&url.pathname==="/"){sendHtml(response,renderPolicyGuiHtml(token));return}if(request.method==="GET"&&url.pathname==="/api/policy"){let result=readUserPolicyForGui(options);sendJson(response,200,{...result,destructiveCommandRules:DESTRUCTIVE_COMMAND_RULE_METADATA,secretPatterns:SECRET_PROTECTION_RULE_METADATA,preview:result.errors.length>0?null:createPolicyPreview(result.policy)});return}if(request.method==="POST"&&url.pathname==="/api/policy/preview"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=previewUserPolicyForGui(body.value);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/policy"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=writeUserPolicyFromGui(body.value,options);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/reset"){sendJson(response,200,writeUserPolicyFromGui(DEFAULT_GUI_POLICY,options));return}if(request.method==="POST"&&url.pathname==="/api/repair"){sendJson(response,200,repairUserPolicyForGui(options));return}if(request.method==="GET"&&url.pathname==="/api/activity"){let days=parseActivityDays(url.searchParams.get("days"));if(days===null){sendJson(response,400,{error:"days must be an integer between 1 and 3650"});return}sendJson(response,200,getActivityFeed(days,options.activityLogsDir));return}if(request.method==="GET"&&url.pathname==="/api/star/context"){sendJson(response,200,await(options.fetchStarContext??(()=>fetchStarContext({logsDir:options.activityLogsDir})))());return}if(request.method==="POST"&&url.pathname==="/api/star"){let result=await(options.starRepo??starRepo)();sendJson(response,200,result.ok?{ok:!0}:{ok:!1,fallbackUrl:REPO_URL});return}sendJson(response,404,{error:"Not found"})}function parseActivityDays(raw){if(raw===null)return 7;let days=Number(raw);if(!Number.isInteger(days)||days<1||days>3650)return null;return days}function requestHasValidToken(request,url,token){if(url.searchParams.get("token")!==token)return!1;if(request.method!=="POST")return!0;return request.headers["x-cc-safety-net-token"]===token}async function readJsonBody(request){let chunks=[];for await(let chunk of request)chunks.push(chunk);try{return{ok:!0,value:JSON.parse(Buffer.concat(chunks).toString("utf-8")||"{}")}}catch(error){return{ok:!1,error:`Invalid JSON: ${error instanceof Error?error.message:String(error)}`}}}function sendHtml(response,html){response.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}),response.end(html)}function sendJson(response,status,body){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}),response.end(JSON.stringify(body))}function closeServer(server){return new Promise((resolve5,reject)=>{server.close((error)=>error?reject(error):resolve5())})}function waitForShutdown(server){return new Promise((resolve5)=>{let cleanup=()=>{process.off("SIGINT",shutdown),process.off("SIGTERM",shutdown)},shutdown=()=>{cleanup(),server.close().then(resolve5)};process.once("SIGINT",shutdown),process.once("SIGTERM",shutdown)})}function openBrowser(url){let command=process.platform==="darwin"?"open":process.platform==="win32"?"cmd":"xdg-open",args=process.platform==="win32"?["/c","start","",url]:[url];return new Promise((resolve5,reject)=>{let child=spawn2(command,args,{detached:!0,stdio:"ignore"}),handleError=(error)=>{child.off("spawn",handleSpawn),reject(error)},handleSpawn=()=>{child.off("error",handleError),child.unref(),resolve5()};child.once("error",handleError),child.once("spawn",handleSpawn)})}async function starRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){return{ok:await runGhCommand(command,["api","-X","PUT",`/user/starred/${REPO}`],timeoutMs)===0}}async function fetchStarContext(options={}){let[starred,starCount,blockedTotal]=await Promise.all([userHasStarredRepo(options.command),fetchStarCount(options.fetchRepo),Promise.resolve(getActivitySummary(36500,options.logsDir).totalBlocked)]);return{starred,starCount,blockedTotal}}async function userHasStarredRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){if(await runGhCommand(command,["auth","status"],timeoutMs)!==0)return null;let starredExitCode=await runGhCommand(command,["api",`/user/starred/${REPO}`],timeoutMs);if(starredExitCode===0)return!0;if(starredExitCode===null)return null;return!1}function runGhCommand(command,args,timeoutMs){return new Promise((resolve5)=>{let child=spawn2(command,args,{stdio:"ignore",windowsHide:!0}),settled=!1,timeout,finish=(code)=>{if(settled)return;if(settled=!0,timeout)clearTimeout(timeout);resolve5(code)};child.once("error",()=>finish(null)),child.once("close",finish),timeout=setTimeout(()=>{child.kill(),finish(null)},timeoutMs)})}async function fetchStarCount(fetchRepo=fetch){try{let response=await fetchRepo(`https://api.github.com/repos/${REPO}`,{headers:{accept:"application/vnd.github+json"},signal:AbortSignal.timeout(STAR_TIMEOUT_MS)});if(!response.ok)return null;let body=await response.json();return typeof body.stargazers_count==="number"?body.stargazers_count:null}catch{return null}}var version="1.0.6",INDENT="  ",PROGRAM_NAME="cc-safety-net";function formatOptionFlags(option){return option.argument?`${option.flags} ${option.argument}`:option.flags}function getOptionsColumnWidth(options){return Math.max(...options.map((opt)=>formatOptionFlags(opt).length))}function getSubcommandsColumnWidth(subcommands){return Math.max(...subcommands.map((subcommand)=>subcommand.usage.length))}function getCommandSummaryWidth(commands2){return Math.max(...commands2.map((cmd)=>`${PROGRAM_NAME} ${cmd.usage}`.length))}function formatCommandSummary(cmd,maxUsageWidth){let usage=`${PROGRAM_NAME} ${cmd.usage}`;return`${INDENT}${usage.padEnd(maxUsageWidth+2)}${cmd.description}`}function formatEnvironmentVariable(name,description){return`${INDENT}${name.padEnd(Math.max(40,name.length+2))}${description}`}function printCommandHelp(command){let lines=[];if(lines.push(`${PROGRAM_NAME} ${command.name}`),lines.push(""),lines.push(`${INDENT}${command.description}`),lines.push(""),lines.push("USAGE:"),lines.push(`${INDENT}${PROGRAM_NAME} ${command.usage}`),lines.push(""),command.subcommands&&command.subcommands.length>0){lines.push("SUBCOMMANDS:");let subcommandWidth=getSubcommandsColumnWidth(command.subcommands);for(let subcommand of command.subcommands)lines.push(`${INDENT}${subcommand.usage.padEnd(subcommandWidth+2)}${subcommand.description}`);lines.push("")}if(command.options.length>0){lines.push("OPTIONS:");let optWidth=getOptionsColumnWidth(command.options);for(let opt of command.options){let flags=formatOptionFlags(opt);lines.push(`${INDENT}${flags.padEnd(optWidth+2)}${opt.description}`)}lines.push("")}if(command.examples&&command.examples.length>0){lines.push("EXAMPLES:");for(let example of command.examples)lines.push(`${INDENT}${example}`)}console.log(lines.join(`
 `))}function printHelp(){let visibleCommands=getVisibleCommands(),maxUsageWidth=getCommandSummaryWidth(visibleCommands),lines=[];lines.push(`${PROGRAM_NAME} v${version}`),lines.push(""),lines.push("Blocks destructive git and filesystem commands before execution."),lines.push(""),lines.push("COMMANDS:");for(let cmd of visibleCommands)lines.push(formatCommandSummary(cmd,maxUsageWidth));lines.push(""),lines.push("GLOBAL OPTIONS:"),lines.push(`${INDENT}-h, --help       Show help (use with command for command-specific help)`),lines.push(`${INDENT}-V, --version    Show version`),lines.push(""),lines.push("HELP:"),lines.push(`${INDENT}${PROGRAM_NAME} help <command>     Show help for a specific command`),lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`),lines.push(""),lines.push("ENVIRONMENT VARIABLES:"),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.level.name}=standard|strict|paranoid`,"Set session safety level")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`,"Allow local git discards in linked worktrees")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`,"Log allowed hook commands for debugging")),lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME","Override rule config home directory")),lines.push(""),lines.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):"),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`,"Force safety.overrides.fail_closed on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`,"Force paranoid_rm and paranoid_interpreters on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`,"Force safety.overrides.paranoid_rm on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`,"Force safety.overrides.paranoid_interpreters on")),console.log(lines.join(`
 `))}function printVersion(){console.log(version)}function showCommandHelp(commandName){let command=findCommand(commandName);if(!command)return!1;if(command.hidden||command.name.toLowerCase()!==commandName.toLowerCase())return!1;return printCommandHelp(command),!0}import{homedir as homedir3}from"node:os";import{existsSync as existsSync3,mkdirSync,readFileSync as readFileSync4,writeFileSync}from"node:fs";import{dirname as dirname4}from"node:path";var ANTIGRAVITY_HOOK_COMMAND="npx -y cc-safety-net hook --agy-cli",MANAGED_HOOK_NAME="cc-safety-net";function managedHookEntry(){return{PreToolUse:[{hooks:[{type:"command",command:ANTIGRAVITY_HOOK_COMMAND,timeout:30}]}]}}function parseAntigravityHooksConfig(configPath){try{let config=JSON.parse(readFileSync4(configPath,"utf-8"));if(!config||typeof config!=="object"||Array.isArray(config))throw Error("Antigravity hooks config must be a JSON object");return config}catch(error){if(error instanceof SyntaxError)throw Error(`Failed to parse Antigravity hooks config ${configPath}: ${error.message}`);throw error}}function getManagedHookDefinition(config){let existing=config[MANAGED_HOOK_NAME];if(existing===void 0)return config[MANAGED_HOOK_NAME]=managedHookEntry(),config[MANAGED_HOOK_NAME];if(!existing||typeof existing!=="object"||Array.isArray(existing))throw Error(`Antigravity hooks config entry "${MANAGED_HOOK_NAME}" must be an object`);if(!Array.isArray(existing.PreToolUse))existing.PreToolUse=[];return existing}function hasManagedHookCommand(definition){return definition.PreToolUse?.some((entry)=>entry.hooks?.some((hook)=>hook.command===ANTIGRAVITY_HOOK_COMMAND))??!1}function hasActiveManagedHook(config){return Object.values(config).some((definition)=>definition.enabled!==!1&&hasManagedHookCommand(definition))}function enableManagedHookDefinition(config){if(config[MANAGED_HOOK_NAME]===void 0)return!1;let definition=getManagedHookDefinition(config);if(definition.enabled!==!1||!hasManagedHookCommand(definition))return!1;return definition.enabled=!0,!0}function appendManagedHook(config){if(config[MANAGED_HOOK_NAME]===void 0){config[MANAGED_HOOK_NAME]=managedHookEntry();return}let definition=getManagedHookDefinition(config);definition.PreToolUse??=[],definition.enabled=!0,definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0]??{hooks:[]})}function removeManagedHook(config){let removed=!1;for(let definition of Object.values(config)){if(!Array.isArray(definition.PreToolUse))continue;definition.PreToolUse=definition.PreToolUse.flatMap((entry)=>{if(!Array.isArray(entry.hooks))return[entry];let hooks=entry.hooks.filter((hook)=>hook.command!==ANTIGRAVITY_HOOK_COMMAND);if(hooks.length!==entry.hooks.length)removed=!0;return hooks.length===0?[]:[{...entry,hooks}]})}return removed}function writeAntigravityHooksConfig(configPath,config){writeFileSync(configPath,`${JSON.stringify(config,null,2)}
 `)}function installAntigravityCli(homeDir){let configPath=getAntigravityHooksPath(homeDir);if(mkdirSync(dirname4(configPath),{recursive:!0}),!existsSync3(configPath))return writeAntigravityHooksConfig(configPath,{[MANAGED_HOOK_NAME]:managedHookEntry()}),{path:configPath,alreadyInstalled:!1};let config=parseAntigravityHooksConfig(configPath);if(hasActiveManagedHook(config))return{path:configPath,alreadyInstalled:!0};if(enableManagedHookDefinition(config))return writeAntigravityHooksConfig(configPath,config),{path:configPath,alreadyInstalled:!1};return appendManagedHook(config),writeAntigravityHooksConfig(configPath,config),{path:configPath,alreadyInstalled:!1}}function uninstallAntigravityCli(homeDir){let configPath=getAntigravityHooksPath(homeDir);if(!existsSync3(configPath))return{path:configPath,alreadyInstalled:!1};let config=parseAntigravityHooksConfig(configPath);if(!removeManagedHook(config))return{path:configPath,alreadyInstalled:!1};return writeAntigravityHooksConfig(configPath,config),{path:configPath,alreadyInstalled:!0}}import{existsSync as existsSync4,mkdirSync as mkdirSync2,readFileSync as readFileSync5,writeFileSync as writeFileSync2}from"node:fs";import{dirname as dirname5,join as join8}from"node:path";function isWhitespace(char){return char!==void 0&&/\s/.test(char)}function skipString(content,index,errorMessage){let current=index+1,isEscaped=!1;while(current<content.length){let char=content[current];if(isEscaped){isEscaped=!1,current++;continue}if(char==="\\"){isEscaped=!0,current++;continue}if(char==='"')return current+1;current++}throw Error(errorMessage)}function findMatchingBracket(content,openIndex,options){let open=content[openIndex],close=open==="["?"]":"}",depth=0,index=openIndex;while(index<content.length){let nextIndex=options.skipComment?.(content,index)??index;if(nextIndex!==index){index=nextIndex;continue}if(content[index]==='"'){index=skipString(content,index,options.stringError);continue}if(content[index]===open)depth++;if(content[index]===close){if(depth--,depth===0)return index}index++}throw Error(options.bracketError)}function getLineIndent(content,index){let lineStart=content.lastIndexOf(`

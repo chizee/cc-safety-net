@@ -14,6 +14,7 @@ import {
   writeUserPolicyFromGui,
 } from '@/core/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
+import { getActivityFeed } from './activity';
 import { renderPolicyGuiHtml } from './page';
 
 const REPO = 'kenryu42/cc-safety-net';
@@ -183,6 +184,16 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/activity') {
+    const days = parseActivityDays(url.searchParams.get('days'));
+    if (days === null) {
+      sendJson(response, 400, { error: 'days must be an integer between 1 and 3650' });
+      return;
+    }
+    sendJson(response, 200, getActivityFeed(days, options.activityLogsDir));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/star/context') {
     sendJson(
       response,
@@ -201,6 +212,13 @@ async function handleRequest(
   }
 
   sendJson(response, 404, { error: 'Not found' });
+}
+
+function parseActivityDays(raw: string | null): number | null {
+  if (raw === null) return 7;
+  const days = Number(raw);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) return null;
+  return days;
 }
 
 function requestHasValidToken(request: IncomingMessage, url: URL, token: string): boolean {
