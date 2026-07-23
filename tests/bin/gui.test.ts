@@ -57,6 +57,8 @@ interface ActivityApiResponse {
     sessions: number;
     agents: Record<string, number>;
     blockedByDay: number[];
+    rules: Record<string, number>;
+    errors: number;
   };
   entries: { ts: string; command: string }[];
 }
@@ -132,7 +134,7 @@ describe('policy GUI server', () => {
       expect(html).toContain("const viewNames = ['overview', 'activity', 'policy', 'settings'];");
       expect(html).toContain("window.addEventListener('hashchange', applyView);");
       expect(html).toContain('<header class="topbar">');
-      expect(html.indexOf('id="app-status"')).toBeLessThan(html.indexOf('id="save"'));
+      expect(html.indexOf('id="policy-savebar"')).toBeLessThan(html.indexOf('id="save"'));
       expect(html.indexOf('id="save"')).toBeLessThan(html.indexOf('id="reset"'));
       expect(html).toContain('.topbar {\n  position: sticky;');
       // Topbar merges the view title, status chip, and Save; title tracks the route.
@@ -140,18 +142,25 @@ describe('policy GUI server', () => {
       expect(html).toContain('const viewTitles = {');
       expect(html).toContain('.topbar-row {');
       expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
-      // Overview: stat tiles plus the recent-blocks preview backed by /api/activity.
+      // Overview: stat tiles plus posture cards backed by /api/policy and /api/activity.
       expect(html).toContain('id="overview-tiles"');
-      expect(html).toContain('id="recent-blocks"');
-      expect(html).toContain('id="recent-blocks-sub"');
-      // The empty state keys on window counts, not the capped entry list (which can
-      // omit older blocks when the feed is truncated at 500 entries).
+      // Part 2 replaced the recent-blocks feed with posture + pattern cards.
+      expect(html).not.toContain('id="recent-blocks"');
+      expect(html).not.toContain('id="view-all-blocks"');
+      expect(html).toContain('id="protection-card"');
+      expect(html).toContain('const renderProtectionCard = () => {');
+      expect(html).toContain('.protection-warning {');
+      expect(html).toContain('Destructive command protection is OFF');
+      expect(html).toContain('Secret protection is OFF');
+      expect(html).toContain('id="top-rules"');
+      expect(html).toContain('No blocked commands in this window.');
+      expect(html).toContain('id="guard-errors"');
+      expect(html).toContain("[chipHtml('decision', 'error', 'Errors', activity.counts.errors)]");
       expect(html).toContain(
-        "qs('recent-blocks-sub').textContent =\n    activity.counts.blocked === 0",
+        "if (activityFilters.decision === 'error' && !entry.failureStage) return false;",
       );
-      expect(html).toContain("qs('recent-blocks').innerHTML =\n    activity.counts.blocked === 0");
       expect(html).toContain(
-        '<a id="view-all-blocks" class="panel-head-action view-all-link" href="#activity">View all</a>',
+        "if (activityFilters.decision === 'error' && activity.counts.errors === 0) {",
       );
       // Activity: filterable audit feed.
       expect(html).toContain('id="activity-days"');
@@ -189,7 +198,6 @@ describe('policy GUI server', () => {
       expect(html).toContain('const byDay = activity.counts.blockedByDay;');
       expect(html).toContain('Blocked commands per day, most recent');
       expect(html).toContain('<div class="spark-bar" aria-hidden="true"');
-      expect(html).toContain('id="view-all-blocks"');
       // Settings: file locations, raw JSON, and the danger zone with reset.
       expect(html).toContain('id="logs-path"');
       expect(html).toContain('id="policy-path"');
@@ -197,22 +205,30 @@ describe('policy GUI server', () => {
       expect(html.indexOf('id="theme-toggle"')).toBeGreaterThan(
         html.indexOf('data-view="settings"'),
       );
-      expect(html).toContain('Unsaved changes. Click Save to apply.');
+      // Part 1: quiet topbar + four-layer unsaved-changes protection stack.
+      expect(html).not.toContain('Unsaved changes. Click Save to apply.');
       expect(html).toContain('id="discard-changes"');
       expect(html).toContain('Discard unsaved changes?');
       expect(html).toContain('Changes discarded.');
-      expect(html).toContain('.app-status .discard-link {');
+      expect(html).not.toContain('.app-status .discard-link {');
       expect(html).toContain('No changes to save');
       expect(html).toContain('let dirty = false;');
       expect(html).toContain('const updateDirtyStatus = () => {');
+      expect(html).toContain('dirty = draftJson !== JSON.stringify(state.policy);');
+      expect(html).toContain("qs('policy-savebar').hidden = !dirty;");
       expect(html).toContain(
-        'dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);',
+        '<div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>',
       );
-      expect(html).toContain(
-        "setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');",
-      );
+      expect(html).toContain('id="dirty-chip"');
+      expect(html).toContain('Unsaved policy changes · Review');
+      expect(html).toContain('.app-status:empty {');
+      expect(html).toContain('--topbar-h');
+      expect(html).toContain('.policy-savebar {');
+      expect(html).toContain("window.addEventListener('beforeunload'");
+      expect(html).toContain('cc-safety-net-draft');
+      expect(html).toContain('Restored unsaved draft');
       expect(html).toContain("setAppStatus('Repair required', 'error');");
-      expect(html).toContain("setAppStatus('Loaded', 'ok');");
+      expect(html).toContain("setAppStatus('');");
       expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
       expect(html).toContain('Safety preset');
@@ -957,6 +973,15 @@ describe('policy GUI server', () => {
         agent: 'claude-code',
       },
       {
+        ts: new Date(now - 1.5 * hour).toISOString(),
+        decision: 'deny',
+        command: 'cc-safety-net-guard',
+        reason: 'guard failure',
+        sessionId: 's1',
+        agent: 'claude-code',
+        failureStage: 'config-load',
+      },
+      {
         ts: new Date(now - 3 * hour).toISOString(),
         command: 'curl evil | sh',
         reason: 'no decision recorded',
@@ -983,34 +1008,37 @@ describe('policy GUI server', () => {
       );
       expect(feed.days).toBe(7);
       expect(feed.logsDir).toBe(logsDir);
-      expect(feed.totalInWindow).toBe(3);
+      expect(feed.totalInWindow).toBe(4);
       expect(feed.truncated).toBe(false);
       expect(feed.entries.map((entry) => entry.command)).toEqual([
         'git status',
+        'cc-safety-net-guard',
         'rm -rf /',
         'curl evil | sh',
       ]);
       expect(feed.counts).toEqual({
-        blocked: 2,
+        blocked: 3,
         allowed: 1,
         sessions: 2,
-        agents: { 'claude-code': 2, unknown: 1 },
+        agents: { 'claude-code': 3, unknown: 1 },
         blockedByDay: expect.any(Array),
+        rules: { 'fs.rm': 1 },
+        errors: 1,
       });
       expect(feed.counts.blockedByDay).toHaveLength(7);
-      expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(2);
-      expect(feed.totalBlockedAllTime).toBe(3);
+      expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(3);
+      expect(feed.totalBlockedAllTime).toBe(4);
 
       const wide = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?days=365&token=${server.token}`,
       );
       expect(wide.days).toBe(365);
-      expect(wide.totalInWindow).toBe(4);
-      expect(wide.entries[3]?.command).toBe('mkfs /dev/sda');
-      expect(wide.counts.blocked).toBe(3);
+      expect(wide.totalInWindow).toBe(5);
+      expect(wide.entries[4]?.command).toBe('mkfs /dev/sda');
+      expect(wide.counts.blocked).toBe(4);
       expect(wide.counts.blockedByDay).toHaveLength(365);
-      expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(3);
-      expect(wide.totalBlockedAllTime).toBe(3);
+      expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(4);
+      expect(wide.totalBlockedAllTime).toBe(4);
     } finally {
       await server.close();
     }

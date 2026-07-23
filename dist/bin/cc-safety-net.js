@@ -73,7 +73,7 @@ export default function (pi) {
 \x1B[0m\x1B[?25h`)}}var INSTALL_ASCII_ART=["┏━┛┏━┛  ┏━┛┏━┃┏━┛┏━┛━┏┛┃ ┃  ┏━ ┏━┛━┏┛","┃  ┃    ━━┃┏━┃┏━┛┏━┛ ┃ ━┏┛  ┃ ┃┏━┛ ┃ ","━━┛━━┛  ━━┛┛ ┛┛  ━━┛ ┛  ┛   ┛ ┛━━┛ ┛ "].join(`
 `);function shouldPrintInstallBanner(output){return Boolean(output.isTTY)}async function printInstallBanner(options={}){let output=options.output??process.stdout;if(!shouldPrintInstallBanner(output))return;let input=options.input??process.stdin,animationOptions={duration:options.duration,frequency:options.frequency,output,seed:options.seed??Math.random()*8192,sleep:options.sleep,speed:options.speed,spread:options.spread};if(!input.isTTY||typeof input.setRawMode!=="function"){await writeAnimatedLolcat(INSTALL_ASCII_ART,animationOptions);return}let controller=new AbortController,wasFlowing=input.readableFlowing===!0,wasRaw=input.isRaw===!0,interrupted=!1,onKeyPress=(_inputValue,key)=>{if(key.ctrl&&key.name==="c")interrupted=!0;if(interrupted||key.name==="return"||key.name==="enter")controller.abort()};readline.emitKeypressEvents(input),input.on("keypress",onKeyPress),input.setRawMode(!0),input.resume();try{await writeAnimatedLolcat(INSTALL_ASCII_ART,{...animationOptions,signal:controller.signal})}finally{if(input.off("keypress",onKeyPress),input.setRawMode(wasRaw),!wasFlowing)input.pause()}if(!interrupted)return;if(options.onInterrupt){options.onInterrupt();return}process.kill(process.pid,"SIGINT")}var CLEAR_LINE="\r\x1B[2K",HIDE_CURSOR="\x1B[?25l",RESET_FOREGROUND="\x1B[39m",SHOW_CURSOR="\x1B[?25h",SPINNER_DELAY=100,SPINNER_HUE_STEP=0.55,SPINNER_INTERVAL=80,SPINNER_FRAMES=["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];function wait2(milliseconds){return new Promise((resolve4)=>setTimeout(resolve4,milliseconds))}async function waitForReady(ready,options){let output=options.output??process.stdout;if(!output.isTTY){await ready;return}let sleep=options.sleep??wait2,settled=!1,trackedReady=ready.then((value)=>{return settled=!0,value},(error)=>{throw settled=!0,error});if(await Promise.race([trackedReady.then(()=>!0),sleep(SPINNER_DELAY).then(()=>!1)]))return;output.write(HIDE_CURSOR);try{for(let frameIndex=0;!settled;frameIndex+=1)output.write(`${CLEAR_LINE}${rainbowColorEscape(frameIndex*SPINNER_HUE_STEP)}${SPINNER_FRAMES[frameIndex%SPINNER_FRAMES.length]}${RESET_FOREGROUND} ${options.loadingMessage??"Loading…"}`),await Promise.race([trackedReady,sleep(SPINNER_INTERVAL)]);await trackedReady}finally{output.write(`${CLEAR_LINE}${SHOW_CURSOR}`)}}async function resolveAfterOptionalBanner(showBanner,startWork,printBanner,options={}){let work=startWork();if(showBanner)await printBanner();if(showBanner&&work.ready)await waitForReady(work.ready,options);return work.finish()}import{tmpdir as tmpdir2}from"node:os";import{join as join7}from"node:path";var CASES=Object.freeze([{command:"git reset --hard",description:"git reset --hard",expectBlocked:!0},{command:"rm -rf /",description:"rm -rf /",expectBlocked:!0},{command:"rm -rf ./node_modules",description:"rm in cwd (safe)",expectBlocked:!1}]),SNAPSHOT=Object.freeze({state:"ready",diagnostics:Object.freeze([]),policy:Object.freeze({rules:Object.freeze([]),transparentWrappers:Object.freeze([]),safety:Object.freeze({}),worktreeMode:!1,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:Object.freeze({}),destructiveCommandAllowPaths:Object.freeze([]),secretProtection:Object.freeze({enabled:!0,disabledRules:Object.freeze([]),denyPaths:Object.freeze([])})})}),STANDARD_MODES={strict:!1,paranoidRm:!1,paranoidInterpreters:!1,worktreeMode:!1,effectiveLevel:"standard",capabilities:{fail_closed:{enabled:!1,source:"preset",sources:[]},paranoid_rm:{enabled:!1,source:"preset",sources:[]},paranoid_interpreters:{enabled:!1,source:"preset",sources:[]}},sources:{failClosed:[],paranoidRm:[],paranoidInterpreters:[],worktreeMode:[]}};function runIntegrationSelfTest(){let cwd=join7(tmpdir2(),"cc-safety-net-self-test"),results=CASES.map((testCase)=>{let evaluation=evaluateRuntimeGuard(createToolInvocation("self-test",{command:testCase.command},{kind:"command",shell:"auto"},{configCwd:cwd,executionCwd:cwd},testCase.command),{guard:{dependencies:{loadPolicySnapshot:()=>SNAPSHOT,getModes:()=>STANDARD_MODES,findPolicyMutation:()=>null}},audit:{agent:"self-test",getSessionId:()=>{return}}}),expected=testCase.expectBlocked?"blocked":"allowed",actual=evaluation.decision.kind==="deny"?"blocked":"allowed";return{command:testCase.command,description:testCase.description,expected,actual,passed:expected===actual,reason:evaluation.decision.kind==="deny"?evaluation.decision.reason:void 0,ruleId:evaluation.decision.kind==="deny"?evaluation.decision.ruleId:void 0}});return{passed:results.filter((result)=>result.passed).length,failed:results.filter((result)=>!result.passed).length,total:results.length,results}}function parseDoctorFlags(args){return{json:args.includes("--json"),skipUpdateCheck:args.includes("--skip-update-check")}}async function runDoctor(options={}){let report=await resolveAfterOptionalBanner(!options.json,()=>{let reportPromise=collectDoctorReport(options);return{ready:reportPromise,finish:()=>reportPromise}},()=>printInstallBanner(),{loadingMessage:"Checking system status…"});if(options.json)console.log(JSON.stringify(report,null,2));else printReport(report);return doctorHasFailure(report.hooks,report.engineSelfTest,{userConfig:report.userConfig,projectConfig:report.projectConfig})?1:0}async function collectDoctorReport(options){let cwd=options.cwd??process.cwd(),system=await getSystemInfo(void 0,{cwd}),hooks=detectAllHooks(cwd,{claudePluginListOutput:system.claudePluginListOutput,codexPluginListOutput:system.codexPluginListOutput,geminiExtensionsListOutput:system.geminiExtensionsListOutput,copilotCliVersion:system.copilotCliVersion,copilotPluginInstalled:system.copilotPluginInstalled,piSafetyNetProbe:system.piSafetyNetProbe}),configInfo=getConfigInfo(cwd),environment=getEnvironmentInfo(),policy=loadPolicySnapshot({cwd}).policy,modes=getCCSafetyNetEnvModes(policy),ruleStates=resolveEffectiveDestructiveCommandRules(policy,modes.capabilities),activity=getActivitySummary(7),update=options.skipUpdateCheck?{currentVersion:getPackageVersion(),latestVersion:null,updateAvailable:!1}:await checkForUpdates(),report={hooks,engineSelfTest:runIntegrationSelfTest(),userConfig:configInfo.userConfig,projectConfig:configInfo.projectConfig,effectiveRules:configInfo.effectiveRules,shadowedRules:configInfo.shadowedRules,environment,effectiveSafety:{selectedPreset:policy.safety.level??"standard",level:modes.effectiveLevel,capabilities:modes.capabilities,ruleOverrides:policy.destructiveCommandRuleOverrides,weakenedRuleOverrides:Object.entries(ruleStates).filter(([,state])=>state.source==="rule_override"&&state.override==="off"&&state.inheritedEnabled&&state.changesInherited).map(([id])=>id),ruleCounts:{stored:Object.keys(policy.destructiveCommandRuleOverrides).length,effective:Object.values(ruleStates).filter((state)=>state.changesInherited).length}},posture:getDoctorPosture(configInfo.userConfig.path),activity,update,system};return{...report,findings:deriveDoctorFindings(report)}}function doctorHasFailure(hooks,engineSelfTest,configInfo){return hooks.length>0&&hooks.every((hook)=>!hook.configured)||hooks.some((hook)=>hook.inspectionStatus==="failed")||engineSelfTest.failed>0||configInfo.userConfig.exists&&!configInfo.userConfig.valid||configInfo.projectConfig.exists&&!configInfo.projectConfig.valid}function printReport(report){console.log(),console.log(formatHooksSection(report.hooks)),console.log(),console.log(formatEngineSelfTestSection(report.engineSelfTest)),console.log(),console.log(formatConfigSection(report)),console.log(),console.log(formatEnvironmentSection(report.environment)),console.log(),console.log(formatEffectiveSafetySection(report)),console.log(),console.log(formatFindingsSection(report.findings)),console.log(),console.log(formatActivitySection(report.activity)),console.log(),console.log(formatSystemInfoSection(report.system)),console.log(),console.log(formatUpdateSection(report.update)),console.log(formatSummary(report))}import{resolve as resolve4}from"node:path";function getConfigSource(options){let projectPath=getProjectRulesConfigPath(options?.cwd),userPath=options?.userConfigPath??getUserRulesConfigPath(options),paths=getPolicyPaths({cwd:options?.cwd,userConfigDir:options?.userConfigDir,userConfigPath:options?.userConfigPath});try{if(readPolicyFile(paths.projectConfigTarget)!==null){if(validateRulesConfigFile(paths.projectConfigTarget).errors.length===0)return{configSource:projectPath,configValid:!0};return{configSource:projectPath,configValid:!1}}}catch(error){if(error instanceof PolicyFilesystemError)return{configSource:projectPath,configValid:!1};throw error}try{if(readPolicyFile(paths.userConfigTarget)!==null){let validation=validateRulesConfigFile(paths.userConfigTarget);return{configSource:userPath,configValid:validation.errors.length===0}}return{configSource:null,configValid:!0}}catch(error){if(error instanceof PolicyFilesystemError)return{configSource:userPath,configValid:!1};throw error}}function buildAnalyzeOptions(explainOptions){let cwd=resolve4(explainOptions?.cwd??process.cwd()),policySnapshot=explainOptions?.policySnapshot??loadPolicySnapshot({cwd,userConfigDir:explainOptions?.userConfigDir}),modes=getCCSafetyNetEnvModes(policySnapshot.policy);return{cwd,effectiveCwd:cwd,policySnapshot,strict:explainOptions?.strict??modes.strict,paranoidRm:modes.paranoidRm,paranoidInterpreters:modes.paranoidInterpreters,worktreeMode:modes.worktreeMode}}var PROVIDER_HINTS=["AKIA","ASIA","ghp_","gho_","ghu_","ghs_","ghr_","github_pat_","glpat-","xox","npm_","pypi-","rk_","sk-","sk_","gsk_","xai-","pplx-","bastn_","tgp_v1_","flp_","wfr_","fw_","fwp_","tp-","psk-"];function createCommandTraceContext(recorder){let nextSegmentIndex=0,context={allocateSegment(){return nextSegmentIndex++},getNextSegmentIndex(){return nextSegmentIndex},recordGlobal(step){recorder.record({kind:"step",scope:"global",step})},recordSegment(step,segmentIndex=context.currentSegmentIndex){if(segmentIndex===void 0)return;recorder.record({kind:"step",scope:"segment",segmentIndex,step})}};return context}function createCommandTraceRecorder(options={}){let events=[],maxEvents=options.maxEvents??512,limits={maxTextLength:options.maxTextLength??2048,maxListLength:options.maxListLength??128,maxObjectProperties:options.maxObjectProperties??options.maxListLength??128,maxDepth:options.maxDepth??16},droppedEvents=0,result,sensitiveHashes=new Set;return{record(event){if(result)return;try{if(!event||events.length>=maxEvents){droppedEvents++;return}events.push(deepFreeze(sanitizeEvent(event,limits,sensitiveHashes)))}catch{droppedEvents++}},finish(terminal){if(result)return result;try{result=deepFreeze({events:Object.freeze(events),droppedEvents,terminal:sanitizeTerminal(terminal,limits,sensitiveHashes)})}catch{droppedEvents++,result=Object.freeze({events:Object.freeze(events),droppedEvents,terminal:Object.freeze({result:"blocked",reason:"trace unavailable".slice(0,limits.maxTextLength),segment:"trace unavailable".slice(0,limits.maxTextLength)})})}return result}}}function sanitizeEvent(event,limits,sensitiveHashes){if(event.kind!=="step")throw TypeError("invalid trace event");let{scope,step}=event;collectSensitiveHashes(step,sensitiveHashes,limits);let sanitizedStep=sanitizeValue(step,limits,sensitiveHashes);if(scope==="global")return{kind:"step",scope:"global",step:sanitizedStep};if(scope!=="segment")throw TypeError("invalid trace event scope");return{kind:"step",scope:"segment",segmentIndex:event.segmentIndex,step:sanitizedStep}}function sanitizeTerminal(terminal,limits,sensitiveHashes){let result=terminal.result;if(result==="allowed")return Object.freeze({result:"allowed"});if(result!=="blocked")throw TypeError("invalid trace terminal");let ruleId=terminal.ruleId;return Object.freeze({result:"blocked",reason:sanitizeValue(terminal.reason,limits,sensitiveHashes),segment:sanitizeValue(terminal.segment,limits,sensitiveHashes),...ruleId?{ruleId:sanitizeValue(ruleId,limits,sensitiveHashes)}:{}})}function collectSensitiveHashes(value,hashes,limits,depth=0,seen=new WeakSet){if(typeof value==="string"){let bounded=value.slice(0,limits.maxTextLength);if(!mightContainEnvAssignment(bounded))return;for(let assignment of getEnvAssignmentValues(bounded))for(let token of assignment.match(/[^\s"'()$]+/g)??[])hashes.add(hashText(token));return}if(!value||typeof value!=="object"||depth>=limits.maxDepth||seen.has(value))return;if(seen.add(value),Array.isArray(value)){let length=Math.min(value.length,limits.maxListLength);for(let index=0;index<length;index++)collectSensitiveHashes(value[index],hashes,limits,depth+1,seen);return}let retained=0,sanitizedKeys=new Set;for(let key in value){if(!Object.hasOwn(value,key))continue;if(retained>=limits.maxObjectProperties)break;retained++,collectSensitiveHashes(key,hashes,limits);let sanitizedKey=sanitizeText(key,limits,hashes);if(sanitizedKeys.has(sanitizedKey))continue;sanitizedKeys.add(sanitizedKey),collectSensitiveHashes(value[key],hashes,limits,depth+1,seen)}}function sanitizeValue(value,limits,sensitiveHashes,depth=0,seen=new WeakSet){if(typeof value==="string")return sanitizeText(value,limits,sensitiveHashes);if(!value||typeof value!=="object")return value;if(depth>=limits.maxDepth)return;if(seen.has(value))return;if(seen.add(value),Array.isArray(value)){let sanitized2=[],length=Math.min(value.length,limits.maxListLength);for(let index=0;index<length;index++)sanitized2.push(sanitizeValue(value[index],limits,sensitiveHashes,depth+1,seen));return sanitized2}let sanitized={},retained=0;for(let key in value){if(!Object.hasOwn(value,key))continue;if(retained>=limits.maxObjectProperties)break;retained++;let sanitizedKey=sanitizeText(key,limits,sensitiveHashes);if(Object.hasOwn(sanitized,sanitizedKey))continue;Object.defineProperty(sanitized,sanitizedKey,{value:sanitizeValue(value[key],limits,sensitiveHashes,depth+1,seen),enumerable:!0,configurable:!0,writable:!0})}return sanitized}function sanitizeText(value,limits,sensitiveHashes){let bounded=value.slice(0,limits.maxTextLength),assignmentsRedacted=mightContainEnvAssignment(bounded)?redactEnvAssignmentValues(bounded):bounded,derivedRedacted=sensitiveHashes.size>0?redactDerivedSecrets(assignmentsRedacted,sensitiveHashes):assignmentsRedacted;return(mightContainNonAssignmentSecret(derivedRedacted)?redactNonAssignmentSecrets(derivedRedacted):derivedRedacted).slice(0,limits.maxTextLength)}function mightContainNonAssignmentSecret(text){return text.includes("PRIVATE KEY")||text.includes("://")||text.includes("eyJ")||text.includes(":")&&/(?:authorization|cookie|x-api-key|api-key|(?:^|\s)(?:-u|--user)(?:\s|=))/i.test(text)||text.length>=14&&PROVIDER_HINTS.some((hint)=>text.includes(hint))||text.length>=49&&/\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/.test(text)}function redactDerivedSecrets(text,hashes){return text.replace(/[^\s"'()$]+/g,(token)=>hashes.has(hashText(token))?"<redacted>":token)}function hashText(text){let first=2166136261,second=2166136261;for(let index=0;index<text.length;index++)first=Math.imul(first^text.charCodeAt(index),16777619),second=Math.imul(second^text.charCodeAt(text.length-index-1),16777619);return`${first>>>0}:${second>>>0}:${text.length}`}function deepFreeze(value){if(value&&typeof value==="object"&&!Object.isFrozen(value)){for(let child of Object.values(value))deepFreeze(child);Object.freeze(value)}return value}function evaluateCommandWithTrace(command,options,suppliedProgram,suppliedFactStore){let factStore=suppliedFactStore??createSemanticFactStore(),program=suppliedProgram??factStore.getCommandProgram(command,options.shell??"auto"),recorder=createCommandTraceRecorder(),trace=createCommandTraceContext(recorder),displayProgram=program.dialect==="powershell"?factStore.getCommandProgram(command,"posix"):program,entries=projectLegacyCommandEntriesFromProgram(command,displayProgram);trace.recordGlobal({type:"parse",input:command,segments:entries.map((entry)=>[...entry.tokens])});let analysis=analyzeCommandInternal(command,0,{...options,...resolveCommandAnalysisContext(options),invalidReason:void 0,analyzePartialProgram:!0,compatibility:"explain-legacy",factStore,trace},program),index=trace.getNextSegmentIndex();if(analysis&&index>0&&index<entries.length)trace.recordSegment({type:"segment-skipped",index,reason:"prior-segment-blocked"},index);return Object.freeze({analysis,trace:recorder.finish(analysis?{result:"blocked",reason:analysis.reason,segment:analysis.segment,...analysis.ruleId?{ruleId:analysis.ruleId}:{}}:{result:"allowed"}),program})}function explainCommand2(command,options){let analyzeOptions=buildAnalyzeOptions(options),context=resolveCommandAnalysisContext(analyzeOptions),configuration={effectiveLevel:context.effectiveLevel,selectedPreset:analyzeOptions.policySnapshot.policy.safety.level??"standard",effectiveCapabilities:context.effectiveCapabilities,destructiveCommandRuleOverrides:analyzeOptions.policySnapshot.policy.destructiveCommandRuleOverrides},{configSource,configValid}=getConfigSource({cwd:options?.cwd,userConfigDir:options?.userConfigDir});if(!command||!command.trim())return{trace:{steps:[{type:"error",message:"No command provided"}],segments:[]},result:"allowed",configSource,configValid,...configuration};let evaluation=evaluateCommandWithTrace(command,analyzeOptions),activationRuleId=evaluation.analysis?.ruleId??identifyModeGatedCandidate(command,analyzeOptions),activationMetadata=DESTRUCTIVE_COMMAND_RULE_METADATA.find((rule)=>rule.id===activationRuleId&&rule.activationCapability),activationState=activationMetadata?context.policy.effectiveDestructiveCommandRules[activationMetadata.id]:void 0;return{trace:projectExplainTrace(evaluation.trace),result:evaluation.analysis?"blocked":"allowed",reason:evaluation.analysis?sanitizeDiagnosticText(evaluation.analysis.reason):void 0,segment:evaluation.analysis?sanitizeDiagnosticText(evaluation.analysis.segment):void 0,customRule:sanitizeCustomRule(getCustomRule(evaluation.analysis?.ruleId,analyzeOptions.policySnapshot)),configSource,configValid,...configuration,...activationMetadata&&activationState?{ruleActivation:{id:activationMetadata.id,...activationState}}:{}}}function identifyModeGatedCandidate(command,options){let policy=options.policySnapshot.policy,candidateSnapshot=createPolicySnapshot({...policy,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:{...policy.destructiveCommandRuleOverrides,...Object.fromEntries(DESTRUCTIVE_COMMAND_RULE_METADATA.flatMap((rule)=>rule.activationCapability?[[rule.id,"on"]]:[]))}},options.policySnapshot.state==="invalid"?{diagnostics:options.policySnapshot.diagnostics,reason:options.policySnapshot.reason}:void 0);return analyzeCommand(command,{...options,policySnapshot:candidateSnapshot,effectiveCapabilities:void 0,strict:!0,paranoidRm:!0,paranoidInterpreters:!0})?.ruleId}function sanitizeCustomRule(rule){if(!rule)return;return{id:sanitizeDiagnosticText(rule.id),...rule.rulebook?{rulebook:{name:sanitizeDiagnosticText(rule.rulebook.name),version:sanitizeDiagnosticText(rule.rulebook.version)}}:{},...rule.source?{source:sanitizeDiagnosticText(rule.source)}:{},...rule.override?{override:{type:"reason",reason:sanitizeDiagnosticText(rule.override.reason)}}:{}}}function projectExplainTrace(trace){let steps=trace.events.flatMap((event)=>event.kind==="step"&&event.scope==="global"?[event.step]:[]),segments=new Map;for(let event of trace.events){if(event.kind!=="step"||event.scope!=="segment")continue;let segment=segments.get(event.segmentIndex)??{index:event.segmentIndex,steps:[]};segment.steps.push(event.step),segments.set(event.segmentIndex,segment)}return{steps,segments:[...segments.values()]}}function getCustomRule(ruleId,snapshot){let id=ruleId?.replace(/^custom\./,"");if(!id||!snapshot.policy.rules.some((rule)=>rule.name===id))return;return getPolicyRuleMetadata(snapshot,id)??Object.freeze({id})}function parseExplainFlags(args){let json=!1,cwd,remaining=[],i=0;while(i<args.length){let arg=args[i];if(arg==="--help"||arg==="-h"){i++;continue}if(arg==="--"){remaining.push(...args.slice(i+1));break}if(!arg?.startsWith("--")){remaining.push(...args.slice(i));break}if(arg==="--json")json=!0,i++;else if(arg==="--cwd"){if(i++,i>=args.length||args[i]?.startsWith("--"))return console.error("Error: --cwd requires a path"),null;cwd=args[i],i++}else{remaining.push(...args.slice(i));break}}let command=remaining.length===1?remaining[0]:$quote(remaining);if(!command)return console.error("Error: No command provided"),console.error("Usage: cc-safety-net explain [--json] [--cwd <path>] <command>"),null;return{json,cwd,command}}function getBoxChars(asciiOnly){if(asciiOnly)return{dh:"=",dv:"|",dtl:"+",dtr:"+",dbl:"+",dbr:"+",h:"-",v:"|",tl:"+",tr:"+",bl:"+",br:"+",sh:"="};return{dh:"═",dv:"║",dtl:"╔",dtr:"╗",dbl:"╚",dbr:"╝",h:"─",v:"│",tl:"┌",tr:"┐",bl:"└",br:"┘",sh:"━"}}function formatHeader(box,width){let padding=width-18;return[`${box.dtl}${box.dh.repeat(width)}${box.dtr}`,`${box.dv}  Command Analysis${" ".repeat(padding)}${box.dv}`,`${box.dbl}${box.dh.repeat(width)}${box.dbr}`]}function formatTokenArray(tokens){return JSON.stringify(tokens)}function formatColoredTokenArray(tokens,seed=0){return`[${tokens.map((token,index)=>colorizeToken(token,index,seed)).join(",")}]`}function wrapReason(reason,indent,maxWidth=70){let words=reason.split(" "),lines=[],current="";for(let word of words)if(current.length+word.length+1>maxWidth)lines.push(current),current=word;else current=current?`${current} ${word}`:word;if(current)lines.push(current);return lines.map((line,i)=>i===0?line:`${indent}${line}`)}function formatStepStyleD(step,stepNum,box){let lines=[];switch(step.type){case"parse":return null;case"env-strip":{lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strip environment variables`);let envKeys=Object.keys(step.envVars);return lines.push(`  Removed: ${envKeys.map((k)=>`${k}=<redacted>`).join(", ")}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0}}case"leading-tokens-stripped":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strip wrappers`),lines.push(`  Removed: ${step.removed.join(", ")}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0};case"shell-wrapper":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Detect shell wrapper`),lines.push(`  Wrapper: ${step.wrapper} -c`),lines.push(`  Inner:   ${step.innerCommand}`),{lines,incrementStep:!0};case"interpreter":{if(lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Detect interpreter`),lines.push(`  Interpreter: ${step.interpreter}`),lines.push(`  Code:        ${step.codeArg}`),step.paranoidBlocked)lines.push("  Result:      ✗ BLOCKED (paranoid mode)");return{lines,incrementStep:!0}}case"busybox":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`),lines.push(`  Subcommand: ${step.subcommand}`),{lines,incrementStep:!0};case"transparent-wrapper":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Transparent wrapper`),lines.push(`  Wrapper: ${step.wrapper}`),lines.push(`  Tokens:  ${formatTokenArray(step.output)}`),{lines,incrementStep:!0};case"recurse":return{lines:[],incrementStep:!1};case"rule-check":{lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Match rules`);let ruleRef=`${step.ruleModule}:${step.ruleFunction}()`;if(lines.push(`  Rule:   ${ruleRef}`),step.matched)lines.push("  Result: MATCHED");else lines.push("  Result: No match");return{lines,incrementStep:!0}}case"worktree-relaxation":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Worktree relaxation`),lines.push(`  Mode:   ${ENV_FLAGS.worktree.name}`),lines.push(`  Git cwd: ${step.gitCwd}`),lines.push("  Result: Allowed local discard in linked worktree"),{lines,incrementStep:!0};case"tmpdir-check":return null;case"fallback-scan":{if(step.embeddedCommandFound)return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Fallback scan`),lines.push(`  Found: ${step.embeddedCommandFound}`),{lines,incrementStep:!0};return null}case"custom-rules-check":{if(step.rulesChecked){if(lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Custom rules`),step.matched)lines.push("  Result: MATCHED");else lines.push("  Result: No match");return{lines,incrementStep:!0}}return null}case"cwd-change":return null;case"dangerous-text":{if(step.matched)return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Dangerous text check`),lines.push(`  Token:  ${step.token}`),lines.push("  Result: MATCHED"),{lines,incrementStep:!0};return null}case"strict-unparseable":return lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Strict mode check`),lines.push(`  Command: ${step.rawCommand}`),lines.push("  Result:  ✗ UNPARSEABLE"),{lines,incrementStep:!0};case"segment-skipped":return null;case"error":return lines.push(""),lines.push(`ERROR: ${step.message}`),{lines,incrementStep:!1};default:return null}}function formatTraceHuman(result,options){let box=getBoxChars(options?.asciiOnly??!1),width=58,lines=[],stepNum=1;lines.push(...formatHeader(box,58)),lines.push("");let errorStep=result.trace.steps.find((s)=>s.type==="error");if(errorStep&&errorStep.type==="error"){lines.push("ERROR"),lines.push(`  ${errorStep.message}`),lines.push(""),lines.push("RESULT"),lines.push(`  Status: ${result.result==="blocked"?colors.red("BLOCKED"):colors.green("ALLOWED")}`),lines.push(""),lines.push("CONFIG");let configPath2=result.configSource??"none";return lines.push(`  Path: ${configPath2}`),lines.join(`
 `)}let parseStep=result.trace.steps.find((s)=>s.type==="parse");if(parseStep&&parseStep.type==="parse"){lines.push("INPUT"),lines.push(`  ${parseStep.input}`),lines.push(""),lines.push(`STEP ${stepNum} ${box.h} Split shell commands`),stepNum++;for(let i=0;i<parseStep.segments.length;i++){let seg=parseStep.segments[i];if(seg){let seed=Math.random();lines.push(`  Segment ${i+1}: ${formatColoredTokenArray(seg,seed)}`)}}}let segments=result.trace.segments,hasMultipleSegments=segments.length>1;for(let seg of segments){if(hasMultipleSegments){lines.push("");let segCommand="";if(parseStep&&parseStep.type==="parse"){let tokens=parseStep.segments[seg.index];if(tokens)segCommand=tokens.join(" ")}let maxLabelLen=54,displayCommand=segCommand,baseLabel=` Segment ${seg.index+1}: `,suffix=" ";if(segCommand){if(baseLabel.length+segCommand.length+suffix.length>maxLabelLen){let availableForCmd=maxLabelLen-baseLabel.length-suffix.length;displayCommand=`${segCommand.substring(0,availableForCmd-1)}…`}}let labelContent=segCommand?`${baseLabel}${displayCommand}${suffix}`:` Segment ${seg.index+1} `,coloredContent=segCommand?`${baseLabel}${colors.cyan(displayCommand)}${suffix}`:labelContent,segLineLen=58-labelContent.length,leftLen=Math.floor(segLineLen/2),rightLen=segLineLen-leftLen;lines.push(`${box.sh.repeat(leftLen)}${coloredContent}${box.sh.repeat(rightLen)}`)}if(seg.steps.find((s)=>s.type==="segment-skipped")){lines.push(""),lines.push("  (skipped — prior segment blocked)");continue}let inRecursion=!1,hasVisibleSteps=!1;for(let step of seg.steps){let formattedStep=formatStepStyleD(step,stepNum,box);if(formattedStep){if(hasVisibleSteps=!0,step.type==="recurse"){lines.push("");let recurseLabel=" RECURSING ",recurseLineLen=58-recurseLabel.length-4;lines.push(`  ${box.tl}${box.h}${recurseLabel}${box.h.repeat(recurseLineLen)}`),lines.push(`  ${box.v}`),inRecursion=!0;continue}for(let line of formattedStep.lines)if(inRecursion)lines.push(`  ${box.v} ${line}`);else lines.push(line);if(formattedStep.incrementStep)stepNum++}}if(inRecursion)lines.push(`  ${box.v}`),lines.push(`  ${box.bl}${box.h.repeat(56)}`),inRecursion=!1;if(!hasVisibleSteps)lines.push(""),lines.push(`  ${colors.green("✓")} Allowed (no matching rules)`)}if(lines.push(""),lines.push("RESULT"),result.result==="blocked"){if(lines.push(`  Status: ${colors.red("BLOCKED")}`),result.customRule){if(lines.push(`  Rule: ${result.customRule.id}`),result.customRule.rulebook)lines.push(`  Rulebook: ${result.customRule.rulebook.name} ${result.customRule.rulebook.version}`);if(result.customRule.source)lines.push(`  Source: ${result.customRule.source}`);if(result.customRule.override)lines.push(`  Override: reason ${result.customRule.override.reason}`)}if(result.reason){let reasonLines=wrapReason(result.reason,"          ");lines.push(`  Reason: ${reasonLines[0]}`);for(let i=1;i<reasonLines.length;i++)lines.push(reasonLines[i]??"")}}else lines.push(`  Status: ${colors.green("ALLOWED")}`);lines.push(""),lines.push("CONFIG");let configPath=result.configSource??"none",configStatus=result.configValid?"":" (invalid)";lines.push(`  Path: ${configPath}${configStatus}`),lines.push(`  Safety preset: ${result.selectedPreset??"standard"}`),lines.push(`  Effective capabilities: ${result.effectiveLevel}`);let overrides=Object.entries(result.destructiveCommandRuleOverrides??{});if(lines.push(`  Rule customizations: ${overrides.length}`),result.ruleActivation)lines.push(`  Rule activation: ${result.ruleActivation.id} — ${result.ruleActivation.enabled?"on":"off"} via ${result.ruleActivation.source}`);return lines.join(`
-`)}function formatTraceJson(result){return JSON.stringify(result,null,2)}import{spawn as spawn2}from"node:child_process";import{randomBytes}from"node:crypto";import{createServer}from"node:http";var ENTRY_CAP=500;function getActivityFeed(days,logsDir=getAuditLogsDir()){let cutoff=Date.now()-days*24*60*60*1000,windowEntries=[],totalBlockedAllTime=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;if(entry.decision!=="allow")totalBlockedAllTime++;let ts=new Date(entry.ts).getTime();if(Number.isFinite(ts)&&ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,blocked=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){blocked++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,totalBlockedAllTime,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay},entries:windowEntries.slice(0,ENTRY_CAP)}}var custom_default=`/* cc-safety-net-gui-custom-css */
+`)}function formatTraceJson(result){return JSON.stringify(result,null,2)}import{spawn as spawn2}from"node:child_process";import{randomBytes}from"node:crypto";import{createServer}from"node:http";var ENTRY_CAP=500;function getActivityFeed(days,logsDir=getAuditLogsDir()){let cutoff=Date.now()-days*24*60*60*1000,windowEntries=[],totalBlockedAllTime=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;if(entry.decision!=="allow")totalBlockedAllTime++;let ts=new Date(entry.ts).getTime();if(Number.isFinite(ts)&&ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,rules={},blocked=0,errors=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){if(blocked++,entry.ruleId)rules[entry.ruleId]=(rules[entry.ruleId]??0)+1;if(entry.failureStage)errors++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,totalBlockedAllTime,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay,rules,errors},entries:windowEntries.slice(0,ENTRY_CAP)}}var custom_default=`/* cc-safety-net-gui-custom-css */
 :root {
   color-scheme: light dark;
 
@@ -131,6 +131,8 @@ export default function (pi) {
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
+
+  --topbar-h: 58px;
 
   font-family: var(--font-sans);
 }
@@ -258,6 +260,9 @@ h1 {
   position: sticky;
   top: 0;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  min-height: var(--topbar-h);
   padding: 12px 28px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -268,6 +273,7 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex: 1;
   max-width: 1040px;
   margin: 0 auto;
 }
@@ -300,6 +306,10 @@ h1 {
   overflow: hidden;
 }
 
+.app-status:empty {
+  display: none;
+}
+
 .app-status.ok {
   color: var(--ok-fg);
   border-color: var(--ok-border);
@@ -312,29 +322,15 @@ h1 {
   background: var(--err-bg);
 }
 
-.app-status.dirty {
-  color: var(--ink);
-  border-color: var(--border-strong);
-  background: var(--surface-2);
-}
-
-.app-status .discard-link {
-  margin-left: 4px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.app-status .discard-link:hover:not(:disabled) {
-  background: transparent;
-  opacity: 0.75;
+.dirty-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .view-search {
@@ -493,6 +489,25 @@ main {
   flex-wrap: wrap;
 }
 
+.policy-savebar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.savebar-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -537,6 +552,38 @@ main {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.protection-warning {
+  border-color: var(--err-border);
+  background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
+}
+
+#top-rules {
+  display: grid;
+  gap: 6px;
+}
+
+.top-rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.guard-errors {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
 }
 
 .activity-controls {
@@ -1829,7 +1876,7 @@ textarea {
           <div class="topbar-title" id="topbar-title">Overview</div>
           <div class="topbar-actions">
             <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
-            <button class="primary" id="save">Save</button>
+            <button type="button" class="dirty-chip" id="dirty-chip" hidden>Unsaved policy changes · Review</button>
           </div>
         </div>
       </header>
@@ -1845,16 +1892,16 @@ textarea {
             <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
             <span id="star-slot"></span>
           </div>
+          <section class="panel" id="protection-card" hidden></section>
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
-                <h2>Recent blocks</h2>
-                <p class="panel-sub muted" id="recent-blocks-sub"></p>
+                <h2>Top blocked rules</h2>
               </div>
-              <a id="view-all-blocks" class="panel-head-action view-all-link" href="#activity">View all</a>
             </div>
-            <div id="recent-blocks"></div>
+            <div id="top-rules"></div>
           </section>
+          <button type="button" class="guard-errors" id="guard-errors" hidden></button>
         </section>
 
         <section class="view" data-view="activity" hidden>
@@ -1898,6 +1945,7 @@ textarea {
               </label>
             </div>
           </div>
+          <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
           <div class="recovery" id="recovery" hidden>
             <div>
               <strong>Policy repair available</strong>
@@ -2124,9 +2172,12 @@ const setDetailStatus = (text, kind = '') => {
   qs('status').textContent = text;
   qs('status').className = \`status \${kind}\`;
 };
+let appStatusTimer;
 const setAppStatus = (text, kind = '') => {
   qs('app-status').textContent = text;
   qs('app-status').className = \`app-status \${kind}\`;
+  clearTimeout(appStatusTimer);
+  if (kind === 'ok') appStatusTimer = setTimeout(() => setAppStatus(''), 4000);
 };
 let busy = false;
 const updateActions = () => {
@@ -2208,7 +2259,7 @@ const applyView = () => {
     if (link.dataset.nav === view) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
-  if (view === 'overview') applyFeedClamps(qs('recent-blocks'));
+  qs('dirty-chip').hidden = !dirty || view === 'policy';
   if (view === 'activity') applyFeedClamps(qs('activity-feed'));
 };
 const relativeTime = (ts) => {
@@ -2281,21 +2332,49 @@ const renderOverviewActivity = () => {
     tile(Object.keys(activity.counts.agents).length, \`Agents · last \${activity.days} days\`),
     tile(activity.totalBlockedAllTime, 'Blocked · all time'),
   ].join('');
-  const blocks = activity.entries.filter((entry) => entry.decision !== 'allow').slice(0, 8);
-  const blockedLabel = \`\${activity.counts.blocked.toLocaleString('en-US')} blocked command\${activity.counts.blocked === 1 ? '' : 's'} in the last \${activity.days} days\`;
-  qs('recent-blocks-sub').textContent =
-    activity.counts.blocked === 0
-      ? \`No blocked commands in the last \${activity.days} days.\`
-      : blocks.length === 0
-        ? \`\${blockedLabel}, all older than the newest \${activity.entries.length.toLocaleString('en-US')} log entries.\`
-        : \`The newest of \${blockedLabel}.\`;
-  qs('recent-blocks').innerHTML =
-    activity.counts.blocked === 0
-      ? '<p class="empty">Nothing blocked recently. That is a good sign.</p>'
-      : blocks.length === 0
-        ? '<p class="empty">They are older than the newest entries the Activity tab can show; see the audit log files for the rest.</p>'
-        : \`<div class="feed-list">\${blocks.map(feedItemHtml).join('')}</div>\`;
-  applyFeedClamps(qs('recent-blocks'));
+};
+const renderProtectionCard = () => {
+  // Saved state only: state.policy/state.preview are server-confirmed; draftPolicy is not,
+  // so unsaved toggles do not flip the posture card.
+  if (!state || !state.preview) {
+    qs('protection-card').hidden = true;
+    return;
+  }
+  const policy = state.policy;
+  const customized =
+    state.preview.counts.effectiveCustomizations > 0 ||
+    Object.entries(policy.safety.overrides).some(
+      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key],
+    );
+  const commandsOn = policy.destructive_command_protection.enabled;
+  const secretsOn = policy.secret_protection.enabled;
+  qs('protection-card').hidden = false;
+  qs('protection-card').classList.toggle('protection-warning', !commandsOn || !secretsOn);
+  qs('protection-card').innerHTML =
+    \`<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>\` +
+    \`<p>\${escapeHtml(safetyLevels[policy.safety.level][0])}\${customized ? ' · Customized' : ''}</p>\` +
+    \`<p\${commandsOn ? '' : ' class="state-disabled"'}>\${commandsOn ? \`\${state.preview.counts.enabled} rules active\` : 'Destructive command protection is OFF'}</p>\` +
+    \`<p\${secretsOn ? '' : ' class="state-disabled"'}>\${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>\`;
+};
+const renderTopRules = () => {
+  const top = Object.entries(activity.counts.rules)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  qs('top-rules').innerHTML =
+    top.length === 0
+      ? '<p class="empty">No blocked commands in this window.</p>'
+      : top
+          .map(
+            ([ruleId, count]) =>
+              \`<button type="button" class="top-rule" data-rule-id="\${escapeHtml(ruleId)}"><code class="rule-id">\${escapeHtml(ruleId)}</code><span class="chip-count">\${count.toLocaleString('en-US')}</span></button>\`,
+          )
+          .join('');
+};
+const renderGuardErrors = () => {
+  qs('guard-errors').hidden = activity.counts.errors === 0;
+  if (activity.counts.errors === 0) return;
+  qs('guard-errors').textContent =
+    \`\${activity.counts.errors.toLocaleString('en-US')} guard error\${activity.counts.errors === 1 ? '' : 's'} in the last \${activity.days} days — commands blocked because evaluation failed, not by policy. View\`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>
@@ -2304,6 +2383,9 @@ const renderActivityControls = () => {
     chipHtml('decision', 'all', 'All', activity.totalInWindow),
     chipHtml('decision', 'deny', 'Blocked', activity.counts.blocked),
     chipHtml('decision', 'allow', 'Allowed', activity.counts.allowed),
+    ...(activity.counts.errors > 0
+      ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
+      : []),
   ].join('');
   const agentNames = Object.keys(activity.counts.agents).sort();
   qs('activity-agents').innerHTML =
@@ -2321,6 +2403,7 @@ const renderActivityFeed = () => {
   const matchesFilters = (entry) => {
     if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
     if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
+    if (activityFilters.decision === 'error' && !entry.failureStage) return false;
     if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
       return false;
     if (!activityFilters.query) return true;
@@ -2353,8 +2436,8 @@ const loadActivity = async () => {
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
     qs('overview-tiles').innerHTML = '';
-    qs('recent-blocks-sub').textContent = '';
-    qs('recent-blocks').innerHTML = message;
+    qs('top-rules').innerHTML = message;
+    qs('guard-errors').hidden = true;
     qs('activity-feed').innerHTML = message;
     qs('activity-count').textContent = '';
     return;
@@ -2363,8 +2446,13 @@ const loadActivity = async () => {
   if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
     activityFilters.agent = 'all';
   }
+  if (activityFilters.decision === 'error' && activity.counts.errors === 0) {
+    activityFilters.decision = 'all';
+  }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
   renderOverviewActivity();
+  renderTopRules();
+  renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();
 };
@@ -2534,13 +2622,12 @@ const syncRawFromForm = () => {
 };
 const updateDirtyStatus = () => {
   if (state?.errors.length) return;
-  dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
-  setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
-  if (dirty)
-    qs('app-status').insertAdjacentHTML(
-      'beforeend',
-      ' <button type="button" class="discard-link" id="discard-changes">Discard</button>',
-    );
+  const draftJson = JSON.stringify(collectFormPolicy());
+  dirty = draftJson !== JSON.stringify(state.policy);
+  qs('policy-savebar').hidden = !dirty;
+  qs('dirty-chip').hidden = !dirty || currentView() === 'policy';
+  if (dirty) sessionStorage.setItem('cc-safety-net-draft', draftJson);
+  if (!dirty) sessionStorage.removeItem('cc-safety-net-draft');
   setDetailStatus('');
   updateActions();
 };
@@ -2924,6 +3011,7 @@ const refreshPolicyPreview = async () => {
     return false;
   }
   preview = result.data.preview;
+  renderProtectionCard();
   renderSafety();
   renderDestructiveCommands();
   return true;
@@ -2932,6 +3020,8 @@ function render() {
   draftPolicy = clonePolicy(state.policy);
   preview = state.preview;
   dirty = false;
+  qs('policy-savebar').hidden = true;
+  qs('dirty-chip').hidden = true;
   qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
   renderSafety();
   qs('destructive-command').innerHTML =
@@ -2974,15 +3064,53 @@ function render() {
   updateRawSource();
   qs('recovery').hidden = state.errors.length === 0;
   updateActions();
+  renderProtectionCard();
   if (state.errors.length) {
     if (currentView() !== 'policy') location.hash = 'policy';
     setAppStatus('Repair required', 'error');
     setDetailStatus(\`Error: \${state.errors.join('\\n')}\`, 'error');
     return;
   }
-  setAppStatus('Loaded', 'ok');
+  setAppStatus('');
   setDetailStatus('');
 }
+const restoreDraft = () => {
+  if (state.errors.length) return;
+  const stored = sessionStorage.getItem('cc-safety-net-draft');
+  if (!stored) return;
+  const parsed = (() => {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  })();
+  const isPolicyShape = [
+    'safety',
+    'workflow',
+    'destructive_command_protection',
+    'secret_protection',
+  ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
+  if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
+    sessionStorage.removeItem('cc-safety-net-draft');
+    return;
+  }
+  draftPolicy = parsed;
+  // render() builds the two master-toggle checkboxes from state.policy and the
+  // sub-renders below do not rebuild them, so sync them from the restored draft.
+  document.querySelector('[data-destructive-command-enabled]').checked =
+    draftPolicy.destructive_command_protection.enabled;
+  qs('secret-enabled').checked = draftPolicy.secret_protection.enabled;
+  renderSafety();
+  renderDestructiveCommands();
+  renderSecretPatterns();
+  pathLists['deny-paths'].render();
+  pathLists['allow-paths'].render();
+  syncRawFromForm();
+  updateDirtyStatus();
+  void refreshPolicyPreview();
+  setAppStatus('Restored unsaved draft', 'ok');
+};
 async function load() {
   const result = await requestJson('/api/policy');
   if (!isPolicyState(result.data)) {
@@ -2992,6 +3120,7 @@ async function load() {
   }
   state = result.data;
   render();
+  restoreDraft();
   return true;
 }
 document.addEventListener('input', (event) => {
@@ -3120,12 +3249,21 @@ document.addEventListener('click', (event) => {
     feedToggle.textContent = expanded ? 'Show less' : 'Show more';
     return;
   }
-  if (event.target.closest?.('#view-all-blocks')) {
-    activityFilters.decision = 'deny';
+  const topRule = event.target.closest?.('.top-rule');
+  if (topRule) {
+    activityFilters.query = topRule.dataset.ruleId.toLowerCase();
+    qs('activity-search').value = topRule.dataset.ruleId;
+    if (activity) renderActivityFeed();
+    location.hash = 'activity';
+    return;
+  }
+  if (event.target.closest?.('#guard-errors')) {
+    activityFilters.decision = 'error';
     if (activity) {
       renderActivityControls();
       renderActivityFeed();
     }
+    location.hash = 'activity';
     return;
   }
   const chip = event.target.closest?.('[data-activity-chip]');
@@ -3211,6 +3349,7 @@ document.addEventListener('click', (event) => {
       )
         return;
       void runExclusive('Discarding...', async () => {
+        sessionStorage.removeItem('cc-safety-net-draft');
         if (await load()) setAppStatus('Changes discarded.', 'ok');
       });
     })();
@@ -3230,6 +3369,9 @@ document.addEventListener('click', (event) => {
     return;
   }
 });
+qs('dirty-chip').onclick = () => {
+  location.hash = 'policy';
+};
 qs('save').onclick = () => {
   if (!state) {
     setAppStatus('Load failed', 'error');
@@ -3258,6 +3400,7 @@ qs('save').onclick = () => {
       return;
     }
     const savedPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(\`Saved \${savedPath}.\`, 'ok');
@@ -3272,7 +3415,7 @@ qs('repair').onclick = async () => {
     return;
   }
   if (state.errors.length === 0) {
-    setAppStatus('Loaded', 'ok');
+    setAppStatus('');
     setDetailStatus('');
     return;
   }
@@ -3295,6 +3438,7 @@ qs('repair').onclick = async () => {
       return;
     }
     const repairedPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(\`Repaired \${repairedPath}.\`, 'ok');
@@ -3326,6 +3470,7 @@ qs('reset').onclick = async () => {
       return;
     }
     const resetPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(\`Reset \${resetPath} to defaults.\`, 'ok');
@@ -3363,6 +3508,11 @@ qs('theme-toggle').onclick = () => {
   else localStorage.setItem('cc-safety-net-theme', themePref);
   applyTheme(themePref);
 };
+window.addEventListener('beforeunload', (event) => {
+  if (!dirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 window.addEventListener('hashchange', applyView);
 applyView();
 load()

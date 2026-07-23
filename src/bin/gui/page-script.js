@@ -98,9 +98,12 @@ const setDetailStatus = (text, kind = '') => {
   qs('status').textContent = text;
   qs('status').className = `status ${kind}`;
 };
+let appStatusTimer;
 const setAppStatus = (text, kind = '') => {
   qs('app-status').textContent = text;
   qs('app-status').className = `app-status ${kind}`;
+  clearTimeout(appStatusTimer);
+  if (kind === 'ok') appStatusTimer = setTimeout(() => setAppStatus(''), 4000);
 };
 let busy = false;
 const updateActions = () => {
@@ -182,7 +185,7 @@ const applyView = () => {
     if (link.dataset.nav === view) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
-  if (view === 'overview') applyFeedClamps(qs('recent-blocks'));
+  qs('dirty-chip').hidden = !dirty || view === 'policy';
   if (view === 'activity') applyFeedClamps(qs('activity-feed'));
 };
 const relativeTime = (ts) => {
@@ -255,21 +258,49 @@ const renderOverviewActivity = () => {
     tile(Object.keys(activity.counts.agents).length, `Agents · last ${activity.days} days`),
     tile(activity.totalBlockedAllTime, 'Blocked · all time'),
   ].join('');
-  const blocks = activity.entries.filter((entry) => entry.decision !== 'allow').slice(0, 8);
-  const blockedLabel = `${activity.counts.blocked.toLocaleString('en-US')} blocked command${activity.counts.blocked === 1 ? '' : 's'} in the last ${activity.days} days`;
-  qs('recent-blocks-sub').textContent =
-    activity.counts.blocked === 0
-      ? `No blocked commands in the last ${activity.days} days.`
-      : blocks.length === 0
-        ? `${blockedLabel}, all older than the newest ${activity.entries.length.toLocaleString('en-US')} log entries.`
-        : `The newest of ${blockedLabel}.`;
-  qs('recent-blocks').innerHTML =
-    activity.counts.blocked === 0
-      ? '<p class="empty">Nothing blocked recently. That is a good sign.</p>'
-      : blocks.length === 0
-        ? '<p class="empty">They are older than the newest entries the Activity tab can show; see the audit log files for the rest.</p>'
-        : `<div class="feed-list">${blocks.map(feedItemHtml).join('')}</div>`;
-  applyFeedClamps(qs('recent-blocks'));
+};
+const renderProtectionCard = () => {
+  // Saved state only: state.policy/state.preview are server-confirmed; draftPolicy is not,
+  // so unsaved toggles do not flip the posture card.
+  if (!state || !state.preview) {
+    qs('protection-card').hidden = true;
+    return;
+  }
+  const policy = state.policy;
+  const customized =
+    state.preview.counts.effectiveCustomizations > 0 ||
+    Object.entries(policy.safety.overrides).some(
+      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key],
+    );
+  const commandsOn = policy.destructive_command_protection.enabled;
+  const secretsOn = policy.secret_protection.enabled;
+  qs('protection-card').hidden = false;
+  qs('protection-card').classList.toggle('protection-warning', !commandsOn || !secretsOn);
+  qs('protection-card').innerHTML =
+    `<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>` +
+    `<p>${escapeHtml(safetyLevels[policy.safety.level][0])}${customized ? ' · Customized' : ''}</p>` +
+    `<p${commandsOn ? '' : ' class="state-disabled"'}>${commandsOn ? `${state.preview.counts.enabled} rules active` : 'Destructive command protection is OFF'}</p>` +
+    `<p${secretsOn ? '' : ' class="state-disabled"'}>${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>`;
+};
+const renderTopRules = () => {
+  const top = Object.entries(activity.counts.rules)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  qs('top-rules').innerHTML =
+    top.length === 0
+      ? '<p class="empty">No blocked commands in this window.</p>'
+      : top
+          .map(
+            ([ruleId, count]) =>
+              `<button type="button" class="top-rule" data-rule-id="${escapeHtml(ruleId)}"><code class="rule-id">${escapeHtml(ruleId)}</code><span class="chip-count">${count.toLocaleString('en-US')}</span></button>`,
+          )
+          .join('');
+};
+const renderGuardErrors = () => {
+  qs('guard-errors').hidden = activity.counts.errors === 0;
+  if (activity.counts.errors === 0) return;
+  qs('guard-errors').textContent =
+    `${activity.counts.errors.toLocaleString('en-US')} guard error${activity.counts.errors === 1 ? '' : 's'} in the last ${activity.days} days — commands blocked because evaluation failed, not by policy. View`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>
@@ -278,6 +309,9 @@ const renderActivityControls = () => {
     chipHtml('decision', 'all', 'All', activity.totalInWindow),
     chipHtml('decision', 'deny', 'Blocked', activity.counts.blocked),
     chipHtml('decision', 'allow', 'Allowed', activity.counts.allowed),
+    ...(activity.counts.errors > 0
+      ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
+      : []),
   ].join('');
   const agentNames = Object.keys(activity.counts.agents).sort();
   qs('activity-agents').innerHTML =
@@ -295,6 +329,7 @@ const renderActivityFeed = () => {
   const matchesFilters = (entry) => {
     if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
     if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
+    if (activityFilters.decision === 'error' && !entry.failureStage) return false;
     if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
       return false;
     if (!activityFilters.query) return true;
@@ -327,8 +362,8 @@ const loadActivity = async () => {
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = `<p class="empty">Could not load activity: ${escapeHtml(errorText(result))}</p>`;
     qs('overview-tiles').innerHTML = '';
-    qs('recent-blocks-sub').textContent = '';
-    qs('recent-blocks').innerHTML = message;
+    qs('top-rules').innerHTML = message;
+    qs('guard-errors').hidden = true;
     qs('activity-feed').innerHTML = message;
     qs('activity-count').textContent = '';
     return;
@@ -337,8 +372,13 @@ const loadActivity = async () => {
   if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
     activityFilters.agent = 'all';
   }
+  if (activityFilters.decision === 'error' && activity.counts.errors === 0) {
+    activityFilters.decision = 'all';
+  }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
   renderOverviewActivity();
+  renderTopRules();
+  renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();
 };
@@ -508,13 +548,12 @@ const syncRawFromForm = () => {
 };
 const updateDirtyStatus = () => {
   if (state?.errors.length) return;
-  dirty = JSON.stringify(collectFormPolicy()) !== JSON.stringify(state.policy);
-  setAppStatus(dirty ? 'Unsaved changes. Click Save to apply.' : 'Loaded', dirty ? 'dirty' : 'ok');
-  if (dirty)
-    qs('app-status').insertAdjacentHTML(
-      'beforeend',
-      ' <button type="button" class="discard-link" id="discard-changes">Discard</button>',
-    );
+  const draftJson = JSON.stringify(collectFormPolicy());
+  dirty = draftJson !== JSON.stringify(state.policy);
+  qs('policy-savebar').hidden = !dirty;
+  qs('dirty-chip').hidden = !dirty || currentView() === 'policy';
+  if (dirty) sessionStorage.setItem('cc-safety-net-draft', draftJson);
+  if (!dirty) sessionStorage.removeItem('cc-safety-net-draft');
   setDetailStatus('');
   updateActions();
 };
@@ -898,6 +937,7 @@ const refreshPolicyPreview = async () => {
     return false;
   }
   preview = result.data.preview;
+  renderProtectionCard();
   renderSafety();
   renderDestructiveCommands();
   return true;
@@ -906,6 +946,8 @@ function render() {
   draftPolicy = clonePolicy(state.policy);
   preview = state.preview;
   dirty = false;
+  qs('policy-savebar').hidden = true;
+  qs('dirty-chip').hidden = true;
   qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
   renderSafety();
   qs('destructive-command').innerHTML =
@@ -948,15 +990,53 @@ function render() {
   updateRawSource();
   qs('recovery').hidden = state.errors.length === 0;
   updateActions();
+  renderProtectionCard();
   if (state.errors.length) {
     if (currentView() !== 'policy') location.hash = 'policy';
     setAppStatus('Repair required', 'error');
     setDetailStatus(`Error: ${state.errors.join('\n')}`, 'error');
     return;
   }
-  setAppStatus('Loaded', 'ok');
+  setAppStatus('');
   setDetailStatus('');
 }
+const restoreDraft = () => {
+  if (state.errors.length) return;
+  const stored = sessionStorage.getItem('cc-safety-net-draft');
+  if (!stored) return;
+  const parsed = (() => {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  })();
+  const isPolicyShape = [
+    'safety',
+    'workflow',
+    'destructive_command_protection',
+    'secret_protection',
+  ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
+  if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
+    sessionStorage.removeItem('cc-safety-net-draft');
+    return;
+  }
+  draftPolicy = parsed;
+  // render() builds the two master-toggle checkboxes from state.policy and the
+  // sub-renders below do not rebuild them, so sync them from the restored draft.
+  document.querySelector('[data-destructive-command-enabled]').checked =
+    draftPolicy.destructive_command_protection.enabled;
+  qs('secret-enabled').checked = draftPolicy.secret_protection.enabled;
+  renderSafety();
+  renderDestructiveCommands();
+  renderSecretPatterns();
+  pathLists['deny-paths'].render();
+  pathLists['allow-paths'].render();
+  syncRawFromForm();
+  updateDirtyStatus();
+  void refreshPolicyPreview();
+  setAppStatus('Restored unsaved draft', 'ok');
+};
 async function load() {
   const result = await requestJson('/api/policy');
   if (!isPolicyState(result.data)) {
@@ -966,6 +1046,7 @@ async function load() {
   }
   state = result.data;
   render();
+  restoreDraft();
   return true;
 }
 document.addEventListener('input', (event) => {
@@ -1094,12 +1175,21 @@ document.addEventListener('click', (event) => {
     feedToggle.textContent = expanded ? 'Show less' : 'Show more';
     return;
   }
-  if (event.target.closest?.('#view-all-blocks')) {
-    activityFilters.decision = 'deny';
+  const topRule = event.target.closest?.('.top-rule');
+  if (topRule) {
+    activityFilters.query = topRule.dataset.ruleId.toLowerCase();
+    qs('activity-search').value = topRule.dataset.ruleId;
+    if (activity) renderActivityFeed();
+    location.hash = 'activity';
+    return;
+  }
+  if (event.target.closest?.('#guard-errors')) {
+    activityFilters.decision = 'error';
     if (activity) {
       renderActivityControls();
       renderActivityFeed();
     }
+    location.hash = 'activity';
     return;
   }
   const chip = event.target.closest?.('[data-activity-chip]');
@@ -1185,6 +1275,7 @@ document.addEventListener('click', (event) => {
       )
         return;
       void runExclusive('Discarding...', async () => {
+        sessionStorage.removeItem('cc-safety-net-draft');
         if (await load()) setAppStatus('Changes discarded.', 'ok');
       });
     })();
@@ -1204,6 +1295,9 @@ document.addEventListener('click', (event) => {
     return;
   }
 });
+qs('dirty-chip').onclick = () => {
+  location.hash = 'policy';
+};
 qs('save').onclick = () => {
   if (!state) {
     setAppStatus('Load failed', 'error');
@@ -1232,6 +1326,7 @@ qs('save').onclick = () => {
       return;
     }
     const savedPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(`Saved ${savedPath}.`, 'ok');
@@ -1246,7 +1341,7 @@ qs('repair').onclick = async () => {
     return;
   }
   if (state.errors.length === 0) {
-    setAppStatus('Loaded', 'ok');
+    setAppStatus('');
     setDetailStatus('');
     return;
   }
@@ -1269,6 +1364,7 @@ qs('repair').onclick = async () => {
       return;
     }
     const repairedPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(`Repaired ${repairedPath}.`, 'ok');
@@ -1300,6 +1396,7 @@ qs('reset').onclick = async () => {
       return;
     }
     const resetPath = result.data.path;
+    sessionStorage.removeItem('cc-safety-net-draft');
     if (await load()) {
       dirty = false;
       setAppStatus(`Reset ${resetPath} to defaults.`, 'ok');
@@ -1337,6 +1434,11 @@ qs('theme-toggle').onclick = () => {
   else localStorage.setItem('cc-safety-net-theme', themePref);
   applyTheme(themePref);
 };
+window.addEventListener('beforeunload', (event) => {
+  if (!dirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 window.addEventListener('hashchange', applyView);
 applyView();
 load()

@@ -30,13 +30,17 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   const blockedByDay = Array.from({ length: days }, () => 0);
   const agents: Record<string, number> = {};
   const sessions = new Set<string>();
+  const rules: Record<string, number> = {};
   let blocked = 0;
+  let errors = 0;
   for (const entry of windowEntries) {
     const agent = entry.agent || 'unknown';
     agents[agent] = (agents[agent] ?? 0) + 1;
     if (entry.sessionId) sessions.add(entry.sessionId);
     if (entry.decision !== 'allow') {
       blocked++;
+      if (entry.ruleId) rules[entry.ruleId] = (rules[entry.ruleId] ?? 0) + 1;
+      if (entry.failureStage) errors++;
       const daysAgo = Math.round((todayStart - dayStart(new Date(entry.ts))) / 86400000);
       const bucket = days - 1 - daysAgo;
       if (daysAgo >= 0 && daysAgo < days) blockedByDay[bucket] = (blockedByDay[bucket] ?? 0) + 1;
@@ -55,6 +59,8 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
       sessions: sessions.size,
       agents,
       blockedByDay,
+      rules,
+      errors,
     },
     entries: windowEntries.slice(0, ENTRY_CAP),
   };

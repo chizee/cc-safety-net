@@ -41,7 +41,7 @@
           <div class="topbar-title" id="topbar-title">Overview</div>
           <div class="topbar-actions">
             <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
-            <button class="primary" id="save">Save</button>
+            <button type="button" class="dirty-chip" id="dirty-chip" hidden>Unsaved policy changes · Review</button>
           </div>
         </div>
       </header>
@@ -57,16 +57,16 @@
             <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
             <span id="star-slot"></span>
           </div>
+          <section class="panel" id="protection-card" hidden></section>
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
-                <h2>Recent blocks</h2>
-                <p class="panel-sub muted" id="recent-blocks-sub"></p>
+                <h2>Top blocked rules</h2>
               </div>
-              <a id="view-all-blocks" class="panel-head-action view-all-link" href="#activity">View all</a>
             </div>
-            <div id="recent-blocks"></div>
+            <div id="top-rules"></div>
           </section>
+          <button type="button" class="guard-errors" id="guard-errors" hidden></button>
         </section>
 
         <section class="view" data-view="activity" hidden>
@@ -110,6 +110,7 @@
               </label>
             </div>
           </div>
+          <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
           <div class="recovery" id="recovery" hidden>
             <div>
               <strong>Policy repair available</strong>
