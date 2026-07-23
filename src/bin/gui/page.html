@@ -40,7 +40,7 @@
           <div class="topbar-title" id="topbar-title">Overview</div>
           <label class="view-search topbar-search" data-search-view="activity" hidden>
             <span class="sr-only">Filter activity</span>
-            <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule, command, or reason">
+            <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule or command">
           </label>
           <label class="view-search topbar-search" data-search-view="policy" hidden>
             <span class="sr-only">Search all protections</span>
@@ -65,6 +65,14 @@
             <span id="star-slot"></span>
           </div>
           <section class="panel" id="protection-card" hidden></section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Top blocked commands</h2>
+              </div>
+            </div>
+            <div id="top-commands"></div>
+          </section>
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
@@ -95,6 +103,7 @@
               </div>
               <div class="chip-row" id="activity-decision" role="group" aria-label="Filter by decision"></div>
               <div class="chip-row" id="activity-agents" role="group" aria-label="Filter by agent"></div>
+              <div class="chip-row" id="activity-command-filter"></div>
             </div>
             <div id="activity-feed"></div>
             <p class="muted activity-count" id="activity-count"></p>

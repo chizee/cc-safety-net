@@ -502,12 +502,14 @@ main {
   background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
 }
 
-#top-rules {
+#top-rules,
+#top-commands {
   display: grid;
   gap: 6px;
 }
 
-.top-rule {
+.top-rule,
+.top-command {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -602,6 +604,27 @@ button.chip[aria-pressed="true"] {
 .chip-count {
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
+}
+
+button.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--master-bg);
+  border-color: var(--master-border);
+  color: var(--master-fg);
+}
+
+button.filter-pill code {
+  font-family: var(--font-mono);
+}
+
+.filter-pill-x {
+  opacity: 0.7;
 }
 
 .feed-list {

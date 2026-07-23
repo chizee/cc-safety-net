@@ -31,6 +31,7 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   const agents: Record<string, number> = {};
   const sessions = new Set<string>();
   const rules: Record<string, number> = {};
+  const commands: Record<string, number> = {};
   let blocked = 0;
   let errors = 0;
   for (const entry of windowEntries) {
@@ -40,6 +41,8 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
     if (entry.decision !== 'allow') {
       blocked++;
       if (entry.ruleId) rules[entry.ruleId] = (rules[entry.ruleId] ?? 0) + 1;
+      const signature = commandSignature(entry.segment || entry.command);
+      if (signature) commands[signature] = (commands[signature] ?? 0) + 1;
       if (entry.failureStage) errors++;
       const daysAgo = Math.round((todayStart - dayStart(new Date(entry.ts))) / 86400000);
       const bucket = days - 1 - daysAgo;
@@ -60,8 +63,26 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
       agents,
       blockedByDay,
       rules,
+      commands,
       errors,
     },
     entries: windowEntries.slice(0, ENTRY_CAP),
   };
+}
+
+/**
+ * Reduce a blocked command to a stable "binary" or "binary subcommand" key so
+ * the GUI can rank which commands trip protection most. Leading `VAR=value`
+ * assignments and path prefixes are stripped; a following bare word (not a
+ * flag, path, or number) is kept as the subcommand.
+ */
+function commandSignature(source: string): string | null {
+  const tokens = source
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
+  const binary = tokens[0]?.split('/').pop();
+  if (!binary) return null;
+  const next = tokens[1];
+  return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
 }

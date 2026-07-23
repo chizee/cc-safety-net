@@ -42,7 +42,7 @@ let previewRequestId = 0;
 let dirty = false;
 let searchActive = false;
 let activity = null;
-const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '' };
+const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };
 const tierExpanded = new Map([
   ['enforced', false],
   ['normal', false],
@@ -241,7 +241,7 @@ const feedItemHtml = (entry, index) => {
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
     </div>
-    <code class="feed-command">${escapeHtml(entry.command || entry.segment || '(no command recorded)')}</code>
+    <code class="feed-command">${escapeHtml(entry.segment || entry.command || '(no command recorded)')}</code>
     ${entry.reason && entry.reason !== 'allowed' ? `<p class="feed-reason muted">${escapeHtml(entry.reason)}</p>` : ''}
   </article>`;
 };
@@ -312,6 +312,39 @@ const renderTopRules = () => {
           )
           .join('');
 };
+// Mirrors commandSignature in activity.ts so the drill-down can match the same
+// blocked entries the Top blocked commands count is built from.
+const commandSignature = (source) => {
+  const tokens = source
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
+  const binary = tokens[0]?.split('/').pop();
+  if (!binary) return null;
+  const next = tokens[1];
+  return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
+};
+// Returns true when an exact command filter was actually cleared, so callers
+// can skip re-rendering the controls when nothing changed.
+const clearCommandFilter = () => {
+  if (!activityFilters.command) return false;
+  activityFilters.command = '';
+  return true;
+};
+const renderTopCommands = () => {
+  const top = Object.entries(activity.counts.commands)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  qs('top-commands').innerHTML =
+    top.length === 0
+      ? '<p class="empty">No blocked commands in this window.</p>'
+      : top
+          .map(
+            ([signature, count]) =>
+              `<button type="button" class="top-command" data-command="${escapeHtml(signature)}"><code class="rule-id">${escapeHtml(signature)}</code><span class="chip-count">${count.toLocaleString('en-US')}</span></button>`,
+          )
+          .join('');
+};
 const renderGuardErrors = () => {
   qs('guard-errors').hidden = activity.counts.errors === 0;
   if (activity.counts.errors === 0) return;
@@ -341,6 +374,9 @@ const renderActivityControls = () => {
             chipHtml('agent', name, agentLabels[name] ?? name, activity.counts.agents[name]),
           ),
         ].join('');
+  qs('activity-command-filter').innerHTML = activityFilters.command
+    ? `<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>`
+    : '';
   qs('activity-days').value = String(activity.days);
 };
 const renderActivityFeed = () => {
@@ -350,16 +386,12 @@ const renderActivityFeed = () => {
     if (activityFilters.decision === 'error' && !entry.failureStage) return false;
     if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
       return false;
+    if (activityFilters.command) {
+      if (entry.decision === 'allow') return false;
+      return commandSignature(entry.segment || entry.command) === activityFilters.command;
+    }
     if (!activityFilters.query) return true;
-    return [
-      entry.ruleId,
-      entry.command,
-      entry.segment,
-      entry.reason,
-      entry.toolName,
-      entry.cwd,
-      entry.agent || 'unknown',
-    ]
+    return [entry.ruleId, entry.segment || entry.command]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
@@ -404,6 +436,7 @@ const loadActivity = async () => {
   }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
   renderOverviewActivity();
+  renderTopCommands();
   renderTopRules();
   renderGuardErrors();
   renderActivityControls();
@@ -1124,6 +1157,7 @@ document.addEventListener('input', (event) => {
     return;
   }
   if (input.id === 'activity-search' && activity) {
+    if (clearCommandFilter()) renderActivityControls();
     activityFilters.query = input.value.trim().toLowerCase();
     renderActivityFeed();
   }
@@ -1248,13 +1282,40 @@ document.addEventListener('click', (event) => {
   }
   const topRule = event.target.closest?.('.top-rule');
   if (topRule) {
+    activityFilters.command = '';
     activityFilters.query = topRule.dataset.ruleId.toLowerCase();
     qs('activity-search').value = topRule.dataset.ruleId;
-    if (activity) renderActivityFeed();
+    if (activity) {
+      renderActivityControls();
+      renderActivityFeed();
+    }
     location.hash = 'activity';
     return;
   }
+  const topCommand = event.target.closest?.('.top-command');
+  if (topCommand) {
+    // Exact, blocked-only match on the signature so the feed count reconciles
+    // with the Top blocked commands tally; shown as a removable pill, not search
+    // text, since a substring query would over-match.
+    activityFilters.command = topCommand.dataset.command;
+    activityFilters.decision = 'deny';
+    activityFilters.query = '';
+    qs('activity-search').value = '';
+    if (activity) {
+      renderActivityControls();
+      renderActivityFeed();
+    }
+    location.hash = 'activity';
+    return;
+  }
+  if (event.target.closest?.('[data-clear-command]')) {
+    clearCommandFilter();
+    renderActivityControls();
+    renderActivityFeed();
+    return;
+  }
   if (event.target.closest?.('#guard-errors')) {
+    clearCommandFilter();
     activityFilters.decision = 'error';
     if (activity) {
       renderActivityControls();
@@ -1265,6 +1326,7 @@ document.addEventListener('click', (event) => {
   }
   const chip = event.target.closest?.('[data-activity-chip]');
   if (chip && activity) {
+    clearCommandFilter();
     activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue;
     renderActivityControls();
     renderActivityFeed();
