@@ -212,7 +212,6 @@ const agentLabels = {
   gemini: 'Gemini',
   antigravity: 'Antigravity',
   pi: 'Pi',
-  unknown: 'unrecorded',
 };
 const feedItemHtml = (entry) => {
   const deny = entry.decision !== 'allow';
@@ -221,7 +220,7 @@ const feedItemHtml = (entry) => {
   return `<article class="feed-item">
     <div class="feed-meta">
       <span class="decision-badge ${badgeClass}">${badgeLabel}</span>
-      <span class="agent-badge">${escapeHtml(agentLabels[entry.agent || 'unknown'] ?? entry.agent)}</span>
+      ${entry.agent && entry.agent !== 'unknown' ? `<span class="agent-badge">${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>` : ''}
       ${entry.ruleId ? `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>` : ''}
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
     </div>
@@ -255,7 +254,7 @@ const renderOverviewActivity = () => {
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, `Blocked · last ${activity.days} days`, sparkline),
     tile(activity.counts.sessions, `Sessions · last ${activity.days} days`),
-    tile(Object.keys(activity.counts.agents).length, `Agents · last ${activity.days} days`),
+    tile(activity.totalInWindow, `Commands reviewed · last ${activity.days} days`),
     tile(activity.totalBlockedAllTime, 'Blocked · all time'),
   ].join('');
 };
@@ -313,7 +312,9 @@ const renderActivityControls = () => {
       ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
       : []),
   ].join('');
-  const agentNames = Object.keys(activity.counts.agents).sort();
+  const agentNames = Object.keys(activity.counts.agents)
+    .filter((name) => name !== 'unknown')
+    .sort();
   qs('activity-agents').innerHTML =
     agentNames.length < 2
       ? ''
@@ -333,7 +334,15 @@ const renderActivityFeed = () => {
     if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
       return false;
     if (!activityFilters.query) return true;
-    return [entry.ruleId, entry.command, entry.segment, entry.reason, entry.toolName, entry.cwd]
+    return [
+      entry.ruleId,
+      entry.command,
+      entry.segment,
+      entry.reason,
+      entry.toolName,
+      entry.cwd,
+      entry.agent || 'unknown',
+    ]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()

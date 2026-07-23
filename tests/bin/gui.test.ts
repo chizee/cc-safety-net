@@ -182,9 +182,12 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         "const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';",
       );
-      // Agent display names; filtering keeps the raw key via data-chip-value.
+      // Agent display names; the badge renders only for identified agents.
       expect(html).toContain('const agentLabels = {');
-      expect(html).toContain("agentLabels[entry.agent || 'unknown'] ?? entry.agent");
+      expect(html).toContain("entry.agent && entry.agent !== 'unknown'");
+      // Unattributed logs get no chip, but stay filterable by typing in search.
+      expect(html).toContain(".filter((name) => name !== 'unknown')");
+      expect(html).toContain("entry.agent || 'unknown',");
       expect(html).toContain('data-chip-value=');
       // Clamp toggle for long feed commands.
       expect(html).toContain('max-height: 7.2em');
