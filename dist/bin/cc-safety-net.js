@@ -213,6 +213,7 @@ h1 {
 .sidenav a[aria-current="page"] {
   background: var(--surface-2);
   color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .sidenav svg {
@@ -1709,10 +1710,11 @@ textarea {
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
   }
 
   .sidebar {
-    position: static;
+    z-index: 100;
     height: auto;
     flex-direction: row;
     align-items: center;
@@ -1722,7 +1724,13 @@ textarea {
     border-bottom: 1px solid var(--border);
   }
 
+  .topbar {
+    position: static;
+    z-index: auto;
+  }
+
   .brand {
+    flex: none;
     padding: 0;
   }
 
