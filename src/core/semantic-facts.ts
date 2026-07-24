@@ -6,7 +6,13 @@ import {
   extractPathLikeToolValues,
   getCommandFromToolInput,
 } from '@/core/tool-input';
-import type { CommandProgram, CommandView, ShellKind } from '@/domain/command';
+import type {
+  CommandProgram,
+  CommandSpan,
+  CommandView,
+  CommandWord,
+  ShellKind,
+} from '@/domain/command';
 import type { ToolInvocation } from '@/domain/invocation';
 import type {
   CommandFactUsage,
@@ -176,7 +182,7 @@ export function createSemanticFactStore(
     }
     const existing = shellFacts.get(source);
     if (existing) return existing;
-    const syntax = parseShellSyntax(source, parsers.parseShell);
+    const syntax = parseShellSyntax(maskQuotedHeredocBodies(source, program), parsers.parseShell);
     shellFacts.set(source, syntax);
     return syntax;
   };
@@ -202,6 +208,57 @@ function projectAnalysisOrder(program: CommandProgram): readonly CommandView[] {
       if (node.kind !== 'command') return [];
       return [...node.nested.flatMap((nested) => [...projectAnalysisOrder(nested)]), node];
     }),
+  );
+}
+
+function maskQuotedHeredocBodies(source: string, program: CommandProgram): string {
+  if (program.status !== 'complete') return source;
+  return collectDataSinkHeredocSpans(program).reduce(
+    (masked, span) =>
+      masked.slice(0, span.start) + ' '.repeat(span.end - span.start) + masked.slice(span.end),
+    source,
+  );
+}
+
+// Bodies fed to executing/applying consumers (bash, python, git apply, a pipe into another
+// command, an output process substitution) must stay scannable; only inert data sinks qualify.
+function collectDataSinkHeredocSpans(program: CommandProgram): CommandSpan[] {
+  return program.nodes.flatMap((node, index): CommandSpan[] => {
+    if (node.kind === 'group') return collectDataSinkHeredocSpans(node.body);
+    if (node.kind !== 'command') return [];
+    const nestedSpans = node.nested.flatMap((nested) => collectDataSinkHeredocSpans(nested));
+    const next = program.nodes[index + 1];
+    const piped = next?.kind === 'connector' && (next.operator === '|' || next.operator === '|&');
+    if (piped || !isDataSinkHeredocConsumer(node)) return nestedSpans;
+    return [
+      ...nestedSpans,
+      ...node.redirections.flatMap((redirection) =>
+        redirection.heredoc?.quotedDelimiter ? [redirection.heredoc.bodySpan] : [],
+      ),
+    ];
+  });
+}
+
+function isDataSinkHeredocConsumer(view: CommandView): boolean {
+  const head = view.words[0];
+  const isDataSink =
+    head !== undefined &&
+    head.provenance === 'literal' &&
+    !head.quoted &&
+    head.raw === head.text &&
+    (head.text === 'cat' || head.text === 'tee');
+  return (
+    isDataSink &&
+    !view.words.some(hasOutputProcessSubstitution) &&
+    !view.redirections.some((redirection) => hasOutputProcessSubstitution(redirection.target))
+  );
+}
+
+function hasOutputProcessSubstitution(word: CommandWord | undefined): boolean {
+  return (
+    word?.parts.some(
+      (part) => part.provenance === 'command-substitution' && part.raw.startsWith('>('),
+    ) ?? false
   );
 }
 

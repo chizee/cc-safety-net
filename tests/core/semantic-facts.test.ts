@@ -484,6 +484,68 @@ describe('semantic facts', () => {
       'printf safe': 1,
     });
   });
+
+  // Commands below are analyzer input strings only; they are never executed in a shell.
+  describe('quoted-heredoc body masking', () => {
+    function bodyWordTexts(source: string) {
+      const facts = createCommandFacts(source);
+      return facts.commands[0]?.shell.entries
+        .filter((entry) => entry.kind === 'word')
+        .map((entry) => entry.text);
+    }
+
+    function hereDataRedirections(source: string) {
+      const facts = createCommandFacts(source);
+      return facts.commands[0]?.shell.entries.filter(
+        (entry) => entry.kind === 'redirection' && entry.role === 'here-data',
+      );
+    }
+
+    test('masks a quoted-delimiter body so its words never enter the token stream', () => {
+      const source = "cat <<'EOF'\ncat .env\nEOF";
+
+      expect(bodyWordTexts(source)).not.toContain('.env');
+      expect(hereDataRedirections(source)).toEqual([
+        {
+          kind: 'redirection',
+          operator: '<<',
+          role: 'here-data',
+          targetOrder: 'legacy-segment',
+          target: 'EOF',
+        },
+      ]);
+    });
+
+    test('leaves an unquoted-delimiter body scannable', () => {
+      expect(bodyWordTexts('cat <<EOF\ncat .env\nEOF')).toContain('.env');
+    });
+
+    test('leaves bodies fed to executing or applying consumers scannable', () => {
+      for (const source of [
+        "bash <<'EOF'\ncat .env\nEOF",
+        "git apply <<'EOF'\n--- a/.env\n+++ b/.env\nEOF",
+        "cat <<'EOF' | bash\ncat .env\nEOF",
+        "cat <<'EOF' > >(bash)\ncat .env\nEOF",
+        "tee >(bash) <<'EOF'\ncat .env\nEOF",
+      ]) {
+        expect(createCommandFacts(source).commands[0]?.shell.source, source).toContain('.env');
+      }
+    });
+
+    test('masks before the unclosed-quote check so an apostrophe body still parses', () => {
+      const facts = createCommandFacts("cat <<'EOF'\nit's literal\nEOF");
+
+      expect(facts.commands[0]?.shell.status).toBe('complete');
+    });
+
+    test('never masks an unterminated heredoc (program is not complete)', () => {
+      expect(bodyWordTexts("cat <<'EOF'\ncat .env")).toContain('.env');
+    });
+
+    test('masks a strip-tabs body using the body span, not the tab-stripped text', () => {
+      expect(bodyWordTexts("cat <<-'EOF'\n\tcat .env\n\tEOF")).not.toContain('.env');
+    });
+  });
 });
 
 function createCommandFacts(command: string) {

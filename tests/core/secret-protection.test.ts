@@ -919,6 +919,85 @@ for runtime in /Users/kenryu/.nvm/versions/node/v26.0.0/bin/node /Users/kenryu/.
   });
 });
 
+describe('treats quoted heredoc bodies as literal data', () => {
+  // Commands below are analyzer input strings only; they are never executed in a shell.
+  const cwd = join(tmpdir(), 'secret-protection-project');
+
+  test('does not block sensitive filenames mentioned in quoted heredoc prose', () => {
+    for (const command of [
+      "cat <<'EOF'\nthe report mentions `cat .env` in prose\nEOF",
+      "cat <<'EOF'\ntry cat .env later\nEOF",
+      `git commit -m "$(cat <<'EOF'\nsee \`cat .env\` here\nEOF\n)"`,
+      "cat <<E'O'F\ncat .env\nEOF",
+      "cat <<'EOF'\nit's about cat .env\nEOF",
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
+    }
+  });
+
+  test('applies heredoc body masking in strict mode too', () => {
+    expect(
+      findSensitiveTargetInCommand(
+        "cat <<'EOF'\nthe report mentions `cat .env` in prose\nEOF",
+        cwd,
+        undefined,
+        { strict: true },
+      ),
+    ).toBeNull();
+  });
+
+  test('keeps scanning quoted bodies fed to executing or applying consumers', () => {
+    for (const command of [
+      "bash <<'EOF'\ncat .env\nEOF",
+      "sh <<'EOF'\ncat .env\nEOF",
+      "python3 <<'EOF'\nopen('.env')\nEOF",
+      "git apply <<'EOF'\n--- a/.env\n+++ b/.env\nEOF",
+      "cat <<'EOF' | bash\ncat .env\nEOF",
+      "cat <<'EOF' > >(bash)\ncat .env\nEOF",
+      "tee >(bash) <<'EOF'\ncat .env\nEOF",
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
+        command,
+      ).not.toBeNull();
+    }
+  });
+
+  test('stops matching deny paths named only in quoted heredoc prose', () => {
+    const config = { disabledRules: new Set<string>(), denyPaths: ['secret-notes.txt'] };
+
+    expect(
+      findSensitiveTargetInCommand("cat <<'EOF'\nsee secret-notes.txt here\nEOF", cwd, config),
+    ).toBeNull();
+    expect(findSensitiveTargetInCommand('cat secret-notes.txt', cwd, config)?.ruleId).toBe(
+      'secret.deny-path',
+    );
+  });
+
+  test('still blocks substitutions expanded by unquoted heredoc bodies', () => {
+    for (const command of ['cat <<EOF\n$(cat .env)\nEOF', 'cat <<EOF\n`cat .env`\nEOF']) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+    }
+  });
+
+  test('still blocks real substitutions outside any heredoc', () => {
+    expect(findSensitiveTargetInCommand('echo $(cat .env)', cwd)).not.toBeNull();
+  });
+
+  test('still blocks a quoted heredoc writing to a sensitive redirection target', () => {
+    expect(findSensitiveTargetInCommand("cat <<'EOF' > .env\nbody\nEOF", cwd)?.ruleId).toBe(
+      'secret.basename.env',
+    );
+  });
+
+  test('does not mask on delimiter or termination uncertainty', () => {
+    for (const command of ['cat <<$(printf EOF)\ncat .env\nEOF', "cat <<'EOF'\ncat .env"]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
+    }
+  });
+});
+
 describe('secret protection generic tool input extraction', () => {
   test('blocks sensitive patch targets identically across every patch text field', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');

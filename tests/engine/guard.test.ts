@@ -843,6 +843,26 @@ describe('guard evaluation', () => {
     });
   });
 
+  test('treats a quoted heredoc body as literal data but still scans unquoted ones', async () => {
+    await withTempDir('cc-safety-net-guard-quoted-heredoc-', (cwd) => {
+      const nested = `git commit -m "$(cat <<'EOF'\nsee \`cat .env\` here\nEOF\n)"`;
+      expect(evaluateGuard(commandInvocation(cwd, nested))).toEqual({
+        stage: 'command-analysis',
+        decision: { kind: 'allow' },
+      });
+
+      const unquoted = 'cat <<EOF\n$(cat .env)\nEOF';
+      expect(evaluateGuard(commandInvocation(cwd, unquoted))).toEqual(
+        expectedSecretBlock(unquoted),
+      );
+
+      const executed = "bash <<'EOF'\ncat .env\nEOF";
+      expect(evaluateGuard(commandInvocation(cwd, executed))).toEqual(
+        expectedSecretBlock(executed),
+      );
+    });
+  });
+
   test('passes explicit policy paths without runtime repair', async () => {
     await withTempDir('cc-safety-net-guard-config-options-', (cwd) => {
       let received: unknown;

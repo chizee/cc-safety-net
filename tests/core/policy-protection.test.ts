@@ -297,6 +297,23 @@ describe('policy config protection', () => {
     );
   });
 
+  test('reads a quoted heredoc body as literal data but still blocks header-line writes', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const policyPath = getUserPolicyPath();
+      expect(
+        findPolicyMutation('Bash', { command: `cat <<'EOF'\nit's about ${policyPath}\nEOF` }, cwd),
+      ).toBeNull();
+      expect(
+        findPolicyMutation('Bash', { command: `cat <<'EOF' > ${policyPath}\nbody\nEOF` }, cwd)
+          ?.target,
+      ).toContain('policy.json');
+      expect(
+        findPolicyMutation('Bash', { command: `bash <<'EOF'\nrm ${policyPath}\nEOF` }, cwd)?.target,
+      ).toContain('policy.json');
+    });
+  });
+
   test('protects patch metadata while treating patch content as inert', () => {
     const policyPath = getUserPolicyPath();
     for (const field of ['command', 'patch', 'diff', 'input']) {
