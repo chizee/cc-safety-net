@@ -10,6 +10,7 @@ artifacts
 .cc-safety-net
 coverage
 .codex
+.playwright
 codex-security-scans
 
 # --- Node.js ---
