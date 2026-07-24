@@ -317,16 +317,14 @@ button:hover:not(:disabled) {
 #theme-toggle,
 #raw-copy,
 #activity-refresh,
-#integrations-refresh,
-#reset-rule-customizations {
+#integrations-refresh {
   border-color: transparent;
 }
 
 #theme-toggle:hover:not(:disabled),
 #raw-copy:hover:not(:disabled),
 #activity-refresh:hover:not(:disabled),
-#integrations-refresh:hover:not(:disabled),
-#reset-rule-customizations:hover:not(:disabled) {
+#integrations-refresh:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -819,6 +817,7 @@ button.rule-id:hover {
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  max-width: 85ch;
   max-height: 7.2em;
   overflow: hidden;
 }
@@ -876,6 +875,10 @@ button.rule-id:hover {
   border-radius: 1px;
 }
 
+.spark-bar.spark-zero {
+  background: var(--border-strong);
+}
+
 .spark-col::after {
   content: attr(data-count);
   position: absolute;
@@ -902,6 +905,7 @@ button.rule-id:hover {
 
 .feed-reason {
   margin: 0;
+  max-width: 85ch;
   font-size: 12px;
 }
 
@@ -964,6 +968,15 @@ button.rule-id:hover {
 
 .status:empty {
   display: none;
+}
+
+.protection-banner {
+  padding: 10px 14px;
+  border: 1px solid var(--err-fg);
+  border-radius: var(--radius);
+  background: var(--err-bg);
+  color: var(--err-fg);
+  font-weight: 600;
 }
 
 .status.ok {
@@ -1288,6 +1301,7 @@ label.row.safety-override-row select {
 :is(label.row, .rule-control) small {
   display: block;
   margin-top: 4px;
+  font-size: 11.5px;
   color: var(--muted);
   line-height: 1.45;
 }
@@ -1478,6 +1492,10 @@ label.row.master:hover {
   background: var(--err-bg);
 }
 
+label.row.master:not(:has(input:checked)) {
+  border-left: 3px solid var(--err-fg);
+}
+
 label.row.master:has(input:checked) {
   border-color: var(--master-border);
   background: color-mix(in srgb, var(--master-bg) 72%, var(--surface));
@@ -1525,18 +1543,10 @@ label.row.master input[type="checkbox"]:checked::before {
   letter-spacing: 0.02em;
 }
 
-.master-badge::before {
-  content: "Off";
-}
-
 label.row.master:has(input:checked) .master-badge {
   border-color: var(--master-border);
   background: var(--master-bg);
   color: var(--master-fg);
-}
-
-label.row.master:has(input:checked) .master-badge::before {
-  content: "On";
 }
 
 .state-active {
@@ -1624,6 +1634,7 @@ label.row.master:has(input:checked) .master-badge::before {
 }
 
 .field small {
+  font-size: 11.5px;
   color: var(--muted);
   font-weight: 400;
   line-height: 1.45;
@@ -2035,6 +2046,13 @@ textarea {
 
   .inherit-button {
     align-self: flex-start;
+  }
+}
+
+@media (min-width: 1440px) {
+  body[data-view="overview"] main,
+  body[data-view="overview"] .topbar-row {
+    max-width: 1200px;
   }
 }
 

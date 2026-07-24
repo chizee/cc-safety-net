@@ -463,7 +463,7 @@ describe('Antigravity CLI hook', () => {
         });
 
         expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
-          'Policy config is protected and you must not modify it.',
+          'This path contains the protected policy config and you must not modify or delete it.',
         );
       });
     });

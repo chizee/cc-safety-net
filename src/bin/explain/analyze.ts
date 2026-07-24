@@ -132,7 +132,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
     return {
       reason: REASON_POLICY_CONFIG_PROTECTION,
       target: policyTarget.target,
-      ruleId: undefined,
+      ruleId: 'policy-protection',
       ruleModule: 'policy-protection',
       ruleFunction: 'findPolicyConfigMutationTarget',
     };
@@ -144,7 +144,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
     return {
       reason: REASON_GIT_METADATA_PROTECTION,
       target: gitMetadataTarget.target,
-      ruleId: undefined,
+      ruleId: 'git-metadata-protection',
       ruleModule: 'git-metadata-protection',
       ruleFunction: 'findGitMetadataMutationTarget',
     };

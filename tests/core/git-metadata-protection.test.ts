@@ -395,7 +395,8 @@ describe('Git metadata guard protection', () => {
           ).toMatchObject({
             kind: 'deny',
             intent: 'hard_stop',
-            reason: 'Policy config is protected and you must not modify it.',
+            reason:
+              'This path contains the protected policy config and you must not modify or delete it.',
           });
         }
       }

@@ -213,7 +213,7 @@ describe('hook adapter direct integration', () => {
 
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Policy config is protected and you must not modify it.',
+        'This path contains the protected policy config and you must not modify or delete it.',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });

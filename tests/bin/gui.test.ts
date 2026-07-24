@@ -22,6 +22,8 @@ import {
   userHasStarredRepo,
 } from '@/bin/gui';
 import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
+import { getUserPolicyPath } from '@/core/policy';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
 import { syncInitialGitRulebook } from '../helpers/rulebook';
 
@@ -133,6 +135,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
       expect(html).toContain('id="app-status"');
+      expect(html).toContain('id="protection-banner"');
       // Sidebar shell with hash-routed views; the global status bar sits in the topbar.
       expect(html).toContain('<aside class="sidebar">');
       expect(html).toContain('<nav class="sidenav" aria-label="Sections">');
@@ -251,7 +254,9 @@ describe('policy GUI server', () => {
       // Blocks-per-day sparkline built from server counts only.
       expect(html).toContain('const byDay = activity.counts.blockedByDay;');
       expect(html).toContain('Blocked commands per day, most recent');
-      expect(html).toContain('<div class="spark-bar" aria-hidden="true"');
+      expect(html).toContain(
+        '<div class="spark-bar${count === 0 ? \' spark-zero\' : \'\'}" aria-hidden="true"',
+      );
       // Settings: file locations, raw JSON, and the danger zone with reset.
       expect(html).toContain('id="logs-path"');
       expect(html).toContain('id="policy-path"');
@@ -844,6 +849,19 @@ describe('policy GUI server', () => {
       );
       expect(denyPathBlocked.result).toBe('blocked');
       expect(denyPathBlocked.ruleId).toBe('secret.deny-path');
+
+      // Deletes the protected policy config; analyzer input only and is never executed.
+      const policyBlocked = await postJson<{
+        result: string;
+        ruleId?: string;
+        reason?: string;
+      }>(`${server.origin}/api/policy/explain?token=${server.token}`, server.token, {
+        command: `rm "${getUserPolicyPath()}"`,
+        policy: DEFAULT_POLICY_BODY,
+      });
+      expect(policyBlocked.result).toBe('blocked');
+      expect(policyBlocked.ruleId).toBe('policy-protection');
+      expect(policyBlocked.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
 
       expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
     } finally {

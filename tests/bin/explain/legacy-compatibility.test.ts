@@ -88,6 +88,7 @@ describe('legacy explain compatibility', () => {
         result: 'blocked',
         reason: REASON_POLICY_CONFIG_PROTECTION,
         segment: '/',
+        ruleId: 'policy-protection',
         configSource: null,
         configValid: true,
         effectiveLevel: 'standard',

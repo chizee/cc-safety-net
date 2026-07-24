@@ -369,7 +369,9 @@ describe('built CLI protection contract', () => {
         writeFileSync(policyPath, 'mutated'),
       );
       expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('Policy config is protected and you must not modify it.');
+      expect(result.reason).toContain(
+        'This path contains the protected policy config and you must not modify or delete it.',
+      );
       expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
       expectSingleAudit(home, sessionId, { agent: 'claude-code' });
     });
@@ -562,7 +564,7 @@ describe('built OpenCode plugin protection contract', () => {
         () => writeFileSync(policyPath, 'mutated'),
       );
       expect(policyResult.allowed).toBe(false);
-      expect(policyResult.reason).toContain('Policy config is protected');
+      expect(policyResult.reason).toContain('protected policy config');
       expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
       expectSingleAudit(home, policySession, { agent: 'opencode' });
     });
@@ -673,7 +675,7 @@ for (const integration of [
           sessionId,
           () => writeFileSync(policyPath, 'mutated'),
         );
-        expect(expectDeniedReason(result)).toContain('Policy config is protected');
+        expect(expectDeniedReason(result)).toContain('protected policy config');
         expect(readFileSync(policyPath, 'utf8')).toBe(originalPolicy);
         expectSingleAudit(home, sessionId, { agent: integration.agent });
       });

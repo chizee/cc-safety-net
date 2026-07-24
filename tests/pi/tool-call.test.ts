@@ -118,13 +118,17 @@ describe('Pi tool_call event', () => {
             toolCall('Write', { file_path: policyPath, content: '{}' }),
             piContext(dir),
           )?.reason,
-        ).toContain('Policy config is protected and you must not modify it.');
+        ).toContain(
+          'This path contains the protected policy config and you must not modify or delete it.',
+        );
         const result = handlePiToolCall(
           bashToolCall(`cat package.json > ${policyPath}`),
           piContext(dir),
         );
 
-        expect(result?.reason).toContain('Policy config is protected and you must not modify it.');
+        expect(result?.reason).toContain(
+          'This path contains the protected policy config and you must not modify or delete it.',
+        );
         expect(result?.reason).toContain(`Command: cat package.json > ${policyPath}`);
         expect(result?.reason).toContain(`Segment: ${policyPath}`);
         expect(result?.reason).not.toContain(
@@ -490,7 +494,7 @@ describe('Pi tool_call event', () => {
 
         expect(secretResult?.reason).toContain('Access to a sensitive path is not allowed.');
         expect(policyResult?.reason).toContain(
-          'Policy config is protected and you must not modify it.',
+          'This path contains the protected policy config and you must not modify or delete it.',
         );
       });
     } finally {
@@ -596,7 +600,7 @@ describe('Pi tool_call event', () => {
 
       expect(handler(bashToolCall('cat .env'), piContext(dir))).toBeUndefined();
       expect(handler(bashToolCall('rm -rf /'), piContext(dir))?.reason).toContain(
-        'Policy config is protected and you must not modify it.',
+        'This path contains the protected policy config and you must not modify or delete it.',
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -895,7 +899,9 @@ describe('Pi tool_call event', () => {
       expect(
         handlePiToolCall(bashToolCall('npx -y cc-safety-net rule sync && rm -rf /'), piContext(dir))
           ?.reason,
-      ).toContain('Policy config is protected and you must not modify it.');
+      ).toContain(
+        'This path contains the protected policy config and you must not modify or delete it.',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

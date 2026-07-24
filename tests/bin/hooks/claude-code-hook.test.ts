@@ -144,7 +144,7 @@ describe('Claude Code hook', () => {
         const parsed = JSON.parse(result.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'Policy config is protected and you must not modify it.',
+          'This path contains the protected policy config and you must not modify or delete it.',
         );
       });
     });
@@ -409,7 +409,7 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
           });
 
           expect(getHookDenyReason(result, 'claude-code')).toContain(
-            'Policy config is protected and you must not modify it.',
+            'This path contains the protected policy config and you must not modify or delete it.',
           );
         }
       });
@@ -427,7 +427,7 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
           const result = await context.runClaudeCodeHook(context.claudeCodeBashInput(command));
 
           expect(getHookDenyReason(result, 'claude-code')).toContain(
-            'Policy config is protected and you must not modify it.',
+            'This path contains the protected policy config and you must not modify or delete it.',
           );
         }
       });

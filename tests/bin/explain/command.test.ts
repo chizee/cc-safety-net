@@ -471,6 +471,7 @@ describe('explainCommand rm with home directory', () => {
     const result = explainCommand('rm -rf .', { cwd: homeDir });
     expect(result.result).toBe('blocked');
     expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
+    expect(result.ruleId).toBe('policy-protection');
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
       (s) =>
@@ -1282,7 +1283,7 @@ describe('explainCommand pre-analysis protection stages', () => {
     const result = explainCommand(`rm "${getUserPolicyPath()}"`);
     expect(result.result).toBe('blocked');
     expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
-    expect(result.ruleId).toBeUndefined();
+    expect(result.ruleId).toBe('policy-protection');
   });
 
   test('protects git metadata resolved from the analysis cwd', async () => {
@@ -1290,6 +1291,16 @@ describe('explainCommand pre-analysis protection stages', () => {
       mkdirSync(join(cwd, '.git'));
       const result = explainCommand('rm -rf .git', { cwd });
       expect(result.result).toBe('blocked');
+      expect(result.reason).toBe(REASON_GIT_METADATA_PROTECTION);
+    });
+  });
+
+  test('attributes pre-analysis git metadata blocks to git-metadata-protection', async () => {
+    await withTempDir('cc-safety-net-explain-git-metadata-', (cwd) => {
+      mkdirSync(join(cwd, '.git'));
+      const result = explainCommand('mv .git stash', { cwd });
+      expect(result.result).toBe('blocked');
+      expect(result.ruleId).toBe('git-metadata-protection');
       expect(result.reason).toBe(REASON_GIT_METADATA_PROTECTION);
     });
   });

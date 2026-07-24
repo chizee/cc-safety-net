@@ -132,6 +132,13 @@ const runExclusive = async (pendingText, fn) => {
   }
 };
 const checkbox = (checked) => (checked ? 'checked' : '');
+const syncMasterBadges = () => {
+  document.querySelectorAll('label.row.master input').forEach((input) => {
+    input.closest('label').querySelector('.master-badge').textContent = input.checked
+      ? 'On'
+      : 'Off';
+  });
+};
 const escapeHtml = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -183,6 +190,7 @@ const currentView = () => {
 };
 const applyView = () => {
   const view = currentView();
+  document.body.dataset.view = view;
   const hasSearch = view === 'activity' || view === 'policy';
   qs('topbar-title').textContent = viewTitles[view];
   qs('topbar-title').hidden = hasSearch;
@@ -276,7 +284,7 @@ const renderOverviewActivity = () => {
     `<div class="tile"><strong>${escapeHtml(value.toLocaleString('en-US'))}</strong><span>${escapeHtml(label)}</span>${extra}</div>`;
   const byDay = activity.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
-  const sparkline = `<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay.map((count) => `<div class="spark-col" data-count="${count.toLocaleString('en-US')}"><div class="spark-bar" aria-hidden="true" style="height:${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`).join('')}</div>`;
+  const sparkline = `<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay.map((count) => `<div class="spark-col" data-count="${count.toLocaleString('en-US')}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`).join('')}</div>`;
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, `Blocked · last ${activity.days} days`, sparkline),
     tile(activity.counts.sessions, `Sessions · last ${activity.days} days`),
@@ -289,6 +297,7 @@ const renderProtectionCard = () => {
   // so unsaved toggles do not flip the posture card.
   if (!state || !state.preview) {
     qs('protection-card').hidden = true;
+    qs('protection-banner').hidden = true;
     return;
   }
   const policy = state.policy;
@@ -299,6 +308,18 @@ const renderProtectionCard = () => {
     );
   const commandsOn = policy.destructive_command_protection.enabled;
   const secretsOn = policy.secret_protection.enabled;
+  const off = [
+    commandsOn
+      ? null
+      : 'Destructive command protection is off — configurable destructive command rules are not being enforced (catastrophic and custom rules remain active)',
+    secretsOn
+      ? null
+      : 'Secret protection is off — sensitive paths and deny paths are not being blocked',
+  ].filter(Boolean);
+  qs('protection-banner').hidden = off.length === 0;
+  if (off.length > 0)
+    qs('protection-banner').textContent =
+      `${off.join('. ')}. Re-enable ${off.length > 1 ? 'them' : 'it'} in Policy.`;
   qs('protection-card').hidden = false;
   qs('protection-card').classList.toggle('protection-warning', !commandsOn || !secretsOn);
   qs('protection-card').innerHTML =
@@ -1201,7 +1222,9 @@ function render() {
   qs('destructive-command').innerHTML =
     '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' +
     checkbox(state.policy.destructive_command_protection.enabled) +
-    '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+    '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge">' +
+    (state.policy.destructive_command_protection.enabled ? 'On' : 'Off') +
+    '</span></label>' +
     '<div id="destructive-command-rules"></div>' +
     '<section class="rule-tier">' +
     '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
@@ -1216,7 +1239,9 @@ function render() {
   qs('secret').innerHTML =
     '<label class="row master"><input type="checkbox" id="secret-enabled" ' +
     checkbox(state.policy.secret_protection.enabled) +
-    '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge" aria-hidden="true"></span></label>' +
+    '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge">' +
+    (state.policy.secret_protection.enabled ? 'On' : 'Off') +
+    '</span></label>' +
     '<div id="secret-patterns"></div>' +
     '<section class="rule-tier">' +
     '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
@@ -1275,6 +1300,7 @@ const restoreDraft = () => {
   document.querySelector('[data-destructive-command-enabled]').checked =
     draftPolicy.destructive_command_protection.enabled;
   qs('secret-enabled').checked = draftPolicy.secret_protection.enabled;
+  syncMasterBadges();
   renderSafety();
   renderDestructiveCommands();
   renderSecretPatterns();
@@ -1375,6 +1401,7 @@ document.addEventListener('change', (event) => {
         return;
       }
       draftPolicy.destructive_command_protection.enabled = input.checked;
+      syncMasterBadges();
       pathLists['allow-paths'].render();
       syncRawFromForm();
       updateDirtyStatus();
@@ -1414,6 +1441,7 @@ document.addEventListener('change', (event) => {
         return;
       }
       draftPolicy.secret_protection.enabled = input.checked;
+      syncMasterBadges();
       renderSecretPatterns();
       pathLists['deny-paths'].render();
       syncRawFromForm();
@@ -1578,6 +1606,7 @@ document.addEventListener('click', (event) => {
           title: 'Discard unsaved changes?',
           body: 'All changes since your last save will be reverted.',
           confirmLabel: 'Discard changes',
+          confirmClass: '',
         }))
       )
         return;

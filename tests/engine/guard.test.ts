@@ -370,7 +370,8 @@ describe('guard evaluation', () => {
         stage: 'policy-protection',
         decision: {
           kind: 'deny',
-          reason: 'Policy config is protected and you must not modify it.',
+          reason:
+            'This path contains the protected policy config and you must not modify or delete it.',
           intent: 'hard_stop',
           evidence: [
             { kind: 'command', command: 'rm policy.json', segment: 'policy.json' },
@@ -609,7 +610,8 @@ describe('guard evaluation', () => {
           .decision,
       ).toMatchObject({
         kind: 'deny',
-        reason: 'Policy config is protected and you must not modify it.',
+        reason:
+          'This path contains the protected policy config and you must not modify or delete it.',
         intent: 'hard_stop',
       });
     });
@@ -906,7 +908,8 @@ function expectedPolicyBlock(command: string, target: string): GuardEvaluation {
     stage: 'policy-protection',
     decision: {
       kind: 'deny',
-      reason: 'Policy config is protected and you must not modify it.',
+      reason:
+        'This path contains the protected policy config and you must not modify or delete it.',
       intent: 'hard_stop',
       evidence: [
         { kind: 'command', command, segment: target },

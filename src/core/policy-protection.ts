@@ -24,7 +24,7 @@ import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/do
 import type { SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
-  'Policy config is protected and you must not modify it.';
+  'This path contains the protected policy config and you must not modify or delete it.';
 
 const READ_ONLY_COMMANDS = new Set([
   '[',

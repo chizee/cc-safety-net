@@ -407,7 +407,9 @@ describe('OpenCode plugin', () => {
       for (const field of ['command', 'patch', 'diff', 'input', 'patchText']) {
         await expect(
           plugin['tool.execute.before']({ tool: 'apply_patch' }, { args: { [field]: patch } }),
-        ).rejects.toThrow('Policy config is protected and you must not modify it.');
+        ).rejects.toThrow(
+          'This path contains the protected policy config and you must not modify or delete it.',
+        );
       }
     });
   });
@@ -430,7 +432,9 @@ describe('OpenCode plugin', () => {
           { tool: 'custom_runner' },
           { args: { command: `cat package.json > ${getUserPolicyPath()}` } },
         ),
-      ).rejects.toThrow('Policy config is protected and you must not modify it.');
+      ).rejects.toThrow(
+        'This path contains the protected policy config and you must not modify or delete it.',
+      );
     });
   });
 
@@ -444,7 +448,9 @@ describe('OpenCode plugin', () => {
           { tool: 'Write' },
           { args: { file_path: policyPath, content: '{}' } },
         ),
-      ).rejects.toThrow('Policy config is protected and you must not modify it.');
+      ).rejects.toThrow(
+        'This path contains the protected policy config and you must not modify or delete it.',
+      );
       await expect(
         plugin['tool.execute.before'](
           { tool: 'bash' },
@@ -492,7 +498,9 @@ describe('OpenCode plugin', () => {
                 },
               },
             ),
-          ).rejects.toThrow('Policy config is protected and you must not modify it.');
+          ).rejects.toThrow(
+            'This path contains the protected policy config and you must not modify or delete it.',
+          );
           await expect(
             plugin['tool.execute.before'](
               { tool: 'read' },
@@ -522,7 +530,9 @@ describe('OpenCode plugin', () => {
         ).resolves.toBeUndefined();
         await expect(
           plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: 'rm -rf /' } }),
-        ).rejects.toThrow('Policy config is protected and you must not modify it.');
+        ).rejects.toThrow(
+          'This path contains the protected policy config and you must not modify or delete it.',
+        );
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -740,7 +750,9 @@ describe('OpenCode plugin', () => {
           { tool: 'bash' },
           { args: { command: 'npx -y cc-safety-net rule sync && rm -rf /' } },
         ),
-      ).rejects.toThrow('Policy config is protected and you must not modify it.');
+      ).rejects.toThrow(
+        'This path contains the protected policy config and you must not modify or delete it.',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
