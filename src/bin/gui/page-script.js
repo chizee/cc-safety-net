@@ -42,6 +42,7 @@ let previewRequestId = 0;
 let dirty = false;
 let searchActive = false;
 let activity = null;
+let knownRuleIds = new Set();
 const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };
 const tierExpanded = new Map([
   ['enforced', false],
@@ -245,7 +246,7 @@ const feedItemHtml = (entry, index) => {
     <div class="feed-meta">
       <span class="decision-badge ${badgeClass}">${badgeLabel}</span>
       ${entry.agent && entry.agent !== 'unknown' ? `<span class="agent-badge">${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>` : ''}
-      ${entry.ruleId ? `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>` : ''}
+      ${entry.ruleId ? (knownRuleIds.has(entry.ruleId) ? `<button type="button" class="rule-id" data-jump-rule="${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">${escapeHtml(entry.ruleId)}</button>` : `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>`) : ''}
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
     </div>
@@ -338,6 +339,16 @@ const clearCommandFilter = () => {
   if (!activityFilters.command) return false;
   activityFilters.command = '';
   return true;
+};
+const jumpToActivityRule = (ruleId) => {
+  activityFilters.command = '';
+  activityFilters.query = ruleId.toLowerCase();
+  qs('activity-search').value = ruleId;
+  if (activity) {
+    renderActivityControls();
+    renderActivityFeed();
+  }
+  location.hash = 'activity';
 };
 const renderTopCommands = () => {
   const top = Object.entries(activity.counts.commands)
@@ -487,6 +498,28 @@ const renderIntegrations = () => {
       </div>`;
     })
     .join('');
+};
+const loadHealth = async () => {
+  const result = await requestJson('/api/health');
+  if (!result.ok || !Array.isArray(result.data?.hooks)) return;
+  const active = result.data.hooks.filter((hook) => hook.configured);
+  const inactive = result.data.hooks.filter((hook) => !hook.configured);
+  const attention = inactive.length > 0 || active.length === 0;
+  const parts = [];
+  const labelHtml = (hook) => `<strong>${escapeHtml(hook.label)}</strong>`;
+  if (active.length) parts.push(`Hook active in ${active.map(labelHtml).join(', ')}`);
+  if (inactive.length)
+    parts.push(`${inactive.map(labelHtml).join(', ')} detected without an active hook`);
+  if (!parts.length) parts.push('No agent hooks detected');
+  if (result.data.update?.updateAvailable)
+    parts.push(`v${escapeHtml(result.data.update.latestVersion)} available`);
+  const link = attention
+    ? ' <a class="view-all-link" href="#integrations">Fix in Integrations</a>'
+    : '';
+  const el = qs('health-strip');
+  el.className = attention ? 'status health-strip error' : 'status health-strip ok';
+  el.innerHTML = parts.join(' · ') + link;
+  el.hidden = false;
 };
 const loadIntegrations = async () => {
   const result = await requestJson('/api/integrations');
@@ -883,7 +916,7 @@ const renderSecretPatterns = () => {
             <input type="checkbox" data-secret-active="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled ? 'disabled' : ''}>
             <span>
               <strong>${escapeHtml(rule.label)}</strong>
-              <code class="rule-id">${escapeHtml(rule.id)}</code>
+              <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}" title="Show recent blocks in Activity">${escapeHtml(rule.id)}</button>
               <small><span class="${ruleState.className}">${ruleState.label}</span> ${escapeHtml(rule.description)}</small>
             </span>
           </label>`;
@@ -1034,7 +1067,7 @@ const renderDestructiveCommands = () => {
                 <span class="rule-control">
                   <span>
                     <strong>${escapeHtml(rule.label)}</strong>
-                    <code class="rule-id">${escapeHtml(rule.id)}</code>
+                    <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}" title="Show recent blocks in Activity">${escapeHtml(rule.id)}</button>
                     <small><span class="state-active">Always enforced</span> ${escapeHtml(rule.description)}</small>
                   </span>
                 </span>
@@ -1088,7 +1121,7 @@ const renderDestructiveCommands = () => {
                   <input type="checkbox" data-destructive-command-active="${escapeHtml(rule.id)}" ${checkbox(effective.enabled)} ${disabled ? 'disabled' : ''} aria-label="${escapeHtml(`${rule.label}: ${status}`)}">
                   <span>
                     <strong>${escapeHtml(rule.label)}</strong>
-                    <code class="rule-id">${escapeHtml(rule.id)}</code>
+                    <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}" title="Show recent blocks in Activity">${escapeHtml(rule.id)}</button>
                     <small><span class="${effective.enabled ? 'state-active' : 'state-disabled'}">${escapeHtml(status)}</span> ${escapeHtml(rule.description)}</small>
                   </span>
                 </label>
@@ -1121,11 +1154,48 @@ const refreshPolicyPreview = async () => {
   renderProtectionCard();
   renderSafety();
   renderDestructiveCommands();
+  void runCommandTest();
   return true;
+};
+let testerRequestId = 0;
+const runCommandTest = async () => {
+  const command = qs('tester-input').value.trim();
+  if (!command) {
+    qs('tester-result').hidden = true;
+    return;
+  }
+  const requestId = ++testerRequestId;
+  const result = await requestJson('/api/policy/explain', {
+    method: 'POST',
+    body: JSON.stringify({ command, policy: collectFormPolicy() }),
+  });
+  if (requestId !== testerRequestId) return;
+  const el = qs('tester-result');
+  el.hidden = false;
+  if (!result.ok) {
+    el.className = 'status error';
+    el.textContent = `Could not evaluate: ${errorText(result)}`;
+    return;
+  }
+  if (result.data.result === 'allowed') {
+    el.className = 'status ok';
+    el.textContent = 'Allowed — no rule blocks this command under the current draft policy.';
+    return;
+  }
+  const ruleId = result.data.customRule?.id ?? result.data.ruleId;
+  const segment =
+    result.data.segment && result.data.segment !== command
+      ? `<div class="tester-segment">Segment: <code>${escapeHtml(result.data.segment)}</code></div>`
+      : '';
+  el.className = 'status error';
+  el.innerHTML = `Blocked${ruleId ? ` by <code class="rule-id">${escapeHtml(ruleId)}</code>` : ''} — ${escapeHtml(result.data.reason || '')}${segment}`;
 };
 function render() {
   draftPolicy = clonePolicy(state.policy);
   preview = state.preview;
+  knownRuleIds = new Set(
+    [...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id),
+  );
   dirty = false;
   qs('policy-savebar').hidden = true;
   qs('dirty-chip').hidden = true;
@@ -1245,6 +1315,11 @@ document.addEventListener('input', (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
+  if (event.target?.id === 'tester-input' && event.key === 'Enter') {
+    event.preventDefault();
+    void runCommandTest();
+    return;
+  }
   const list = pathLists[event.target?.dataset?.pathInput];
   if (!list || event.key !== 'Enter') return;
   event.preventDefault();
@@ -1350,6 +1425,10 @@ document.addEventListener('change', (event) => {
   }
 });
 document.addEventListener('click', (event) => {
+  if (event.target.closest?.('#tester-run')) {
+    void runCommandTest();
+    return;
+  }
   const feedToggle = event.target.closest?.('[data-feed-toggle]');
   if (feedToggle) {
     const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
@@ -1364,14 +1443,21 @@ document.addEventListener('click', (event) => {
   }
   const topRule = event.target.closest?.('.top-rule');
   if (topRule) {
-    activityFilters.command = '';
-    activityFilters.query = topRule.dataset.ruleId.toLowerCase();
-    qs('activity-search').value = topRule.dataset.ruleId;
-    if (activity) {
-      renderActivityControls();
-      renderActivityFeed();
-    }
-    location.hash = 'activity';
+    jumpToActivityRule(topRule.dataset.ruleId);
+    return;
+  }
+  const ruleActivity = event.target.closest?.('[data-rule-activity]');
+  if (ruleActivity) {
+    jumpToActivityRule(ruleActivity.dataset.ruleActivity);
+    return;
+  }
+  const jumpRule = event.target.closest?.('[data-jump-rule]');
+  if (jumpRule) {
+    qs('policy-search').value = jumpRule.dataset.jumpRule;
+    syncSearchState();
+    renderDestructiveCommands();
+    renderSecretPatterns();
+    location.hash = 'policy';
     return;
   }
   const topCommand = event.target.closest?.('.top-command');
@@ -1665,6 +1751,7 @@ window.addEventListener('beforeunload', (event) => {
 });
 window.addEventListener('hashchange', applyView);
 applyView();
+void loadHealth();
 load()
   .then((loaded) => {
     if (loaded) void loadStarContext();

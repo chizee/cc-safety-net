@@ -370,7 +370,7 @@ function createDefaultGuiPolicy(): GuiPolicy {
   };
 }
 
-function normalizeGuiPolicy(policy: unknown): GuiPolicy {
+export function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   const config = policy as Record<string, unknown>;
   const safety = (config.safety as Record<string, unknown> | undefined) ?? {};
   const safetyOverrides =
@@ -487,7 +487,7 @@ function normalizePolicyConfig(config: UserPolicy): PartialPolicy {
   };
 }
 
-function normalizeSafety(value: unknown): PolicySafety {
+export function normalizeSafety(value: unknown): PolicySafety {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const safety = value as Record<string, unknown>;
   const overrides = (safety.overrides as Record<string, boolean | undefined> | undefined) ?? {};

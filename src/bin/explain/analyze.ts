@@ -49,6 +49,9 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     result: evaluation.analysis ? 'blocked' : 'allowed',
     reason: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.reason) : undefined,
     segment: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.segment) : undefined,
+    ruleId: evaluation.analysis?.ruleId
+      ? sanitizeDiagnosticText(evaluation.analysis.ruleId)
+      : undefined,
     customRule: sanitizeCustomRule(
       getCustomRule(evaluation.analysis?.ruleId, analyzeOptions.policySnapshot),
     ),

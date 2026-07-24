@@ -183,8 +183,12 @@ export default function (pi) {
           }))
         : [];
       const resources = [...commands, ...tools];
+      const npmSpec = "npm:" + needle;
       const matched = resources.filter(
-        (resource) => resource.name === needle || resource.path === needle,
+        (resource) =>
+          resource.name === needle ||
+          resource.source === npmSpec ||
+          (resource.source || "").startsWith(npmSpec + "@"),
       );
 
       writeFileSync(
@@ -273,7 +277,10 @@ function runCommand(
  * Run Pi with a temporary probe extension to verify the CC Safety Net extension
  * is runtime-visible under Pi's normal package and extension resolver.
  */
-export const defaultPiProbeRunner: PiProbeRunner = async (cwd: string): Promise<PiProbeInfo> => {
+export const defaultPiProbeRunner = async (
+  cwd: string,
+  timeoutMs = PI_PROBE_TIMEOUT_MS,
+): Promise<PiProbeInfo> => {
   const tempDir = await mkdtemp(join(tmpdir(), 'cc-safety-net-pi-probe-'));
   const probePath = join(tempDir, 'pi-extension-probe.ts');
   const resultPath = join(tempDir, 'result.json');
@@ -287,13 +294,19 @@ export const defaultPiProbeRunner: PiProbeRunner = async (cwd: string): Promise<
       {
         cwd,
         env: { PI_PROBE_OUT: resultPath },
-        timeoutMs: PI_PROBE_TIMEOUT_MS,
+        timeoutMs,
       },
     );
 
     await writeFile(stdoutPath, result.stdout);
 
     if (result.timedOut) {
+      // Pi exits by event-loop drain in json mode, so a dangling handle elsewhere can
+      // hang the process after the probe already wrote its result — salvage it.
+      const salvaged = existsSync(resultPath)
+        ? parsePiProbeResult(await readFile(resultPath, 'utf-8'))
+        : null;
+      if (salvaged && salvaged.status !== 'error') return salvaged;
       return {
         status: 'error',
         installedAndEnabled: false,
@@ -312,6 +325,17 @@ export const defaultPiProbeRunner: PiProbeRunner = async (cwd: string): Promise<
     }
 
     if (result.code !== 0) {
+      // Pi refuses to dispatch commands in json mode without a configured model
+      // provider, even though the probe itself makes no LLM call.
+      if (stripVTControlCharacters(result.stderr).includes('No models available')) {
+        return {
+          status: 'error',
+          installedAndEnabled: false,
+          matched: [],
+          error:
+            'Pi has no configured model provider, so the extension probe cannot run. Log in to a provider in Pi and re-run.',
+        };
+      }
       return {
         status: 'error',
         installedAndEnabled: false,

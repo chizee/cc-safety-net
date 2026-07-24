@@ -51,7 +51,15 @@ function expectCopilotVersionProbesStarted(calls: string[][]): void {
 }
 
 async function withFakePi<T>(
-  mode: 'configured' | 'not-found' | 'nonzero' | 'missing-result' | 'invalid-json' | 'non-object',
+  mode:
+    | 'configured'
+    | 'not-found'
+    | 'nonzero'
+    | 'missing-result'
+    | 'invalid-json'
+    | 'non-object'
+    | 'no-model'
+    | 'timeout-after-write',
   fn: (cwd: string) => Promise<T>,
 ): Promise<T> {
   return withTempDir('doctor-fake-pi-', async (tmpDir) => {
@@ -81,6 +89,15 @@ if (process.env.FAKE_PI_MODE === "invalid-json") {
 if (process.env.FAKE_PI_MODE === "non-object") {
   writeFileSync(process.env.PI_PROBE_OUT, "[]");
   process.exit(0);
+}
+
+if (process.env.FAKE_PI_MODE === "no-model") {
+  console.error("\\u001b[31mNo models available. Run /login or set an API key.\\u001b[0m");
+  process.exit(1);
+}
+
+if (process.env.FAKE_PI_MODE === "timeout-after-write") {
+  setTimeout(() => process.exit(0), 60000);
 }
 
 writeFileSync(
@@ -268,6 +285,24 @@ describe('getSystemInfo', () => {
       expect(probe.status).toBe('error');
       expect(probe.error).toContain('code 7');
       expect(probe.error).toContain('extension failed');
+    });
+  });
+
+  test('salvages the default Pi probe result when the process hangs after writing', async () => {
+    await withFakePi('timeout-after-write', async (cwd) => {
+      const probe = await defaultPiProbeRunner(cwd, 300);
+
+      expect(probe.status).toBe('configured');
+      expect(probe.installedAndEnabled).toBe(true);
+    });
+  });
+
+  test('reports a missing Pi model provider distinctly when the probe cannot run', async () => {
+    await withFakePi('no-model', async (cwd) => {
+      const probe = await defaultPiProbeRunner(cwd);
+
+      expect(probe.status).toBe('error');
+      expect(probe.error).toContain('no configured model provider');
     });
   });
 

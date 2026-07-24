@@ -6,17 +6,23 @@ import { Writable } from 'node:stream';
 import { getActivitySummary } from '@/bin/doctor/activity';
 import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
-import type { SystemInfo } from '@/bin/doctor/types';
+import type { SystemInfo, UpdateInfo } from '@/bin/doctor/types';
+import { checkForUpdates } from '@/bin/doctor/updates';
+import { explainCommand } from '@/bin/explain';
 import { type RunInstallCommandOptions, runInstallCommand } from '@/bin/hook/install';
 import {
   INSTALL_TARGETS,
   type InstallAction,
   type InstallTarget,
 } from '@/bin/hook/install/targets';
+import { createPolicySnapshot, loadPolicySnapshot } from '@/config/policy-snapshot';
+import { getUserPolicyDiagnostics } from '@/config/schema';
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
+  normalizeGuiPolicy,
+  normalizeSafety,
   previewUserPolicyForGui,
   readUserPolicyForGui,
   repairUserPolicyForGui,
@@ -25,6 +31,7 @@ import {
 } from '@/core/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
+import type { ExplainResult } from '@/types';
 import { getActivityFeed } from './activity';
 import { renderPolicyGuiHtml } from './page';
 
@@ -50,6 +57,11 @@ interface IntegrationsStatus {
   system: { version: string; nodeVersion: string | null; platform: string };
 }
 
+interface HealthStatus {
+  hooks: { platform: string; label: string; configured: boolean }[];
+  update: { currentVersion: string; latestVersion: string | null; updateAvailable: boolean };
+}
+
 /** @internal */
 export interface PolicyGuiServer {
   origin: string;
@@ -62,6 +74,7 @@ interface PolicyGuiServerOptions extends RulesPolicyOptions {
   starRepo?: () => Promise<{ ok: boolean }>;
   fetchStarContext?: () => Promise<StarContext>;
   fetchIntegrations?: () => Promise<IntegrationsStatus>;
+  fetchHealth?: () => Promise<HealthStatus>;
   runIntegration?: (
     action: InstallAction,
     target: InstallTarget,
@@ -189,6 +202,26 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/policy/explain') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, 400, { errors: [body.error] });
+      return;
+    }
+    const payload = body.value as { command?: unknown; policy?: unknown } | null;
+    if (payload === null || typeof payload.command !== 'string') {
+      sendJson(response, 400, { errors: ['command must be a string'] });
+      return;
+    }
+    const errors = getUserPolicyDiagnostics(payload.policy);
+    if (errors.length > 0) {
+      sendJson(response, 400, { errors });
+      return;
+    }
+    sendJson(response, 200, explainDraftCommand(payload.command, payload.policy, options));
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/policy') {
     const body = await readJsonBody(request);
     if (!body.ok) {
@@ -242,6 +275,11 @@ async function handleRequest(
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/health') {
+    sendJson(response, 200, await (options.fetchHealth ?? fetchHealth)());
+    return;
+  }
+
   if (
     request.method === 'POST' &&
     (url.pathname === '/api/install' || url.pathname === '/api/uninstall')
@@ -266,6 +304,34 @@ async function handleRequest(
   }
 
   sendJson(response, 404, { error: 'Not found' });
+}
+
+function explainDraftCommand(
+  command: string,
+  policy: unknown,
+  options: RulesPolicyOptions,
+): ExplainResult {
+  const draft = normalizeGuiPolicy(policy);
+  const diskSnapshot = loadPolicySnapshot(options);
+  const snapshot = createPolicySnapshot({
+    rules: diskSnapshot.policy.rules,
+    transparentWrappers: diskSnapshot.policy.transparentWrappers,
+    safety: normalizeSafety(draft.safety),
+    worktreeMode: draft.workflow.worktree_mode,
+    destructiveCommandProtectionEnabled: draft.destructive_command_protection.enabled,
+    destructiveCommandRuleOverrides: draft.destructive_command_protection.overrides,
+    destructiveCommandAllowPaths: draft.destructive_command_protection.allow_paths,
+    secretProtection: {
+      enabled: draft.secret_protection.enabled,
+      disabledRules: Object.keys(draft.secret_protection.overrides),
+      denyPaths: draft.secret_protection.deny_paths,
+    },
+  });
+  return explainCommand(command, {
+    policySnapshot: snapshot,
+    cwd: options.cwd,
+    userConfigDir: options.userConfigDir,
+  });
 }
 
 function parseActivityDays(raw: string | null): number | null {
@@ -382,15 +448,7 @@ export async function fetchIntegrations(
   probe: { fetcher?: VersionFetcher; homeDir?: string } = {},
 ): Promise<IntegrationsStatus> {
   const systemInfo = await getSystemInfo(probe.fetcher);
-  const hookStatuses = detectAllHooks(process.cwd(), {
-    homeDir: probe.homeDir,
-    claudePluginListOutput: systemInfo.claudePluginListOutput,
-    codexPluginListOutput: systemInfo.codexPluginListOutput,
-    geminiExtensionsListOutput: systemInfo.geminiExtensionsListOutput,
-    copilotCliVersion: systemInfo.copilotCliVersion,
-    copilotPluginInstalled: systemInfo.copilotPluginInstalled,
-    piSafetyNetProbe: systemInfo.piSafetyNetProbe,
-  });
+  const hookStatuses = detectHooksFromSystemInfo(systemInfo, probe.homeDir);
   return {
     targets: installIntegrationMetadata.map((meta) => ({
       target: meta.id,
@@ -402,6 +460,52 @@ export async function fetchIntegrations(
       version: systemInfo.version,
       nodeVersion: systemInfo.nodeVersion,
       platform: systemInfo.platform,
+    },
+  };
+}
+
+function detectHooksFromSystemInfo(systemInfo: SystemInfo, homeDir?: string) {
+  return detectAllHooks(process.cwd(), {
+    homeDir,
+    claudePluginListOutput: systemInfo.claudePluginListOutput,
+    codexPluginListOutput: systemInfo.codexPluginListOutput,
+    geminiExtensionsListOutput: systemInfo.geminiExtensionsListOutput,
+    copilotCliVersion: systemInfo.copilotCliVersion,
+    copilotPluginInstalled: systemInfo.copilotPluginInstalled,
+    piSafetyNetProbe: systemInfo.piSafetyNetProbe,
+  });
+}
+
+/**
+ * Full-probe health for the Overview strip. The strip loads asynchronously after first
+ * paint, so it can afford the same getSystemInfo batch the Integrations tab uses (Pi
+ * probe up to 5s); a cheaper subset would silently omit runtime-probed agents (Pi,
+ * Gemini) and misreport machines where only those hooks are active.
+ * @internal
+ */
+export async function fetchHealth(
+  probe: {
+    fetcher?: VersionFetcher;
+    homeDir?: string;
+    checkUpdates?: () => Promise<UpdateInfo>;
+  } = {},
+): Promise<HealthStatus> {
+  const [systemInfo, update] = await Promise.all([
+    getSystemInfo(probe.fetcher),
+    (probe.checkUpdates ?? checkForUpdates)(),
+  ]);
+  return {
+    hooks: detectHooksFromSystemInfo(systemInfo, probe.homeDir)
+      .filter((hook) => hook.detected)
+      .map((hook) => ({
+        platform: hook.platform,
+        label: getIntegrationDisplayName(hook.platform),
+        configured: hook.configured,
+      })),
+    update: {
+      currentVersion: update.currentVersion,
+      latestVersion: update.latestVersion ?? null,
+      updateAvailable: update.updateAvailable,
     },
   };
 }

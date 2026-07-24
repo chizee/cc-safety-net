@@ -292,6 +292,7 @@ export interface ExplainResult {
   result: 'blocked' | 'allowed';
   reason?: string;
   segment?: string;
+  ruleId?: string;
   customRule?: {
     id: string;
     rulebook?: {

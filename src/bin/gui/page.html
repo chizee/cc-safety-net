@@ -60,6 +60,7 @@
           <div class="view-head">
             <p class="panel-sub muted">What CC Safety Net has been doing on this machine.</p>
           </div>
+          <div class="status health-strip" id="health-strip" hidden></div>
           <div class="tiles" id="overview-tiles"></div>
           <div class="star-row" id="star-row" hidden>
             <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
@@ -123,6 +124,19 @@
             </div>
             <button class="primary" id="repair" type="button">Repair</button>
           </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Test a command</h2>
+                <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits.</p>
+              </div>
+            </div>
+            <div class="tester-row">
+              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter">
+              <button type="button" id="tester-run">Test</button>
+            </div>
+            <div id="tester-result" class="status" hidden></div>
+          </section>
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">

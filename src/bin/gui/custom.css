@@ -734,6 +734,20 @@ button.filter-pill code {
   overflow-wrap: anywhere;
 }
 
+button.rule-id {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.rule-id:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .decision-badge {
   padding: 1px 8px;
   border: 1px solid;
@@ -901,6 +915,11 @@ button.filter-pill code {
   color: var(--err-fg);
   background: var(--err-bg);
   border-color: var(--err-border);
+}
+
+.health-strip strong {
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .recovery {
@@ -1578,6 +1597,31 @@ textarea:focus {
 input[type="text"]:disabled {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.tester-row {
+  display: flex;
+  gap: 8px;
+}
+
+.tester-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.tester-row button {
+  flex: none;
+  align-self: center;
+}
+
+#tester-result {
+  margin-top: 12px;
+}
+
+.tester-segment {
+  margin-top: 6px;
 }
 
 .paths-add {

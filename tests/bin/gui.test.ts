@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createPolicyGuiServer,
+  fetchHealth,
   fetchIntegrations,
   fetchStarContext,
   runGuiCommand,
@@ -22,6 +23,7 @@ import {
 } from '@/bin/gui';
 import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
+import { syncInitialGitRulebook } from '../helpers/rulebook';
 
 interface PolicyApiResponse {
   exists: boolean;
@@ -163,6 +165,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
       // Overview: stat tiles plus posture cards backed by /api/policy and /api/activity.
       expect(html).toContain('id="overview-tiles"');
+      // Overview health strip loads asynchronously after first render via GET /api/health.
+      expect(html).toContain('id="health-strip"');
+      expect(html).toContain("requestJson('/api/health')");
       // Part 2 replaced the recent-blocks feed with posture + pattern cards.
       expect(html).not.toContain('id="recent-blocks"');
       expect(html).not.toContain('id="view-all-blocks"');
@@ -173,6 +178,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('Secret protection is OFF');
       expect(html).toContain('id="top-rules"');
       expect(html).toContain('id="top-commands"');
+      // Activity <-> Policy cross-links reuse the rule-id chip as a button in both directions.
+      expect(html).toContain('data-rule-activity=');
+      expect(html).toContain('data-jump-rule');
+      expect(html).toContain('const jumpToActivityRule');
       // Top command drill-down filters the feed by exact signature, blocked-only,
       // so the feed count reconciles with the Top blocked commands tally.
       expect(html).toContain(
@@ -307,6 +316,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('.rule-example-button {');
       expect(html).toContain('.rule-example-popover {');
       expect(html).toContain("requestJson('/api/policy/preview'");
+      expect(html).toContain('id="tester-input"');
+      expect(html).toContain("requestJson('/api/policy/explain'");
       expect(html).toContain('let previewRequestId = 0;');
       expect(html).toContain('const requestId = ++previewRequestId;');
       expect(html).toContain('if (requestId !== previewRequestId) return false;');
@@ -467,10 +478,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
       expect(html).toContain(
-        '<strong>${escapeHtml(rule.label)}</strong>\n              <code class="rule-id">${escapeHtml(rule.id)}</code>',
+        '<strong>${escapeHtml(rule.label)}</strong>\n              <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}" title="Show recent blocks in Activity">${escapeHtml(rule.id)}</button>',
       );
       expect(html).not.toContain(
-        '<strong>${escapeHtml(rule.label)}</strong> <code class="rule-id">${escapeHtml(rule.id)}</code>',
+        '<strong>${escapeHtml(rule.label)}</strong> <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}"',
       );
       expect(html).toContain(':is(label.row, .rule-control) .rule-id {');
       expect(html).toContain('display: block;');
@@ -694,6 +705,127 @@ describe('policy GUI server', () => {
       expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
     } finally {
       await server.close();
+    }
+  });
+
+  // A PowerShell rule the standard preset enforces but a draft override can toggle; the string is
+  // analyzer input only and is never executed.
+  const TOGGLE_RULE_ID = 'powershell.remove-item-recursive-force-outside-cwd';
+  const TOGGLE_COMMAND = 'Remove-Item ../outside -Recurse -Force';
+
+  test('POST api policy explain evaluates the draft without writing', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect(
+        (
+          await fetch(`${server.origin}/api/policy/explain?token=${server.token}`, {
+            method: 'POST',
+            body: JSON.stringify({ command: TOGGLE_COMMAND, policy: DEFAULT_POLICY_BODY }),
+          })
+        ).status,
+      ).toBe(403);
+
+      const missingCommand = await fetch(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
+          body: JSON.stringify({ policy: DEFAULT_POLICY_BODY }),
+        },
+      );
+      expect(missingCommand.status).toBe(400);
+      expect(await missingCommand.json()).toEqual({ errors: ['command must be a string'] });
+
+      const nullBody = await fetch(`${server.origin}/api/policy/explain?token=${server.token}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
+        body: 'null',
+      });
+      expect(nullBody.status).toBe(400);
+      expect(await nullBody.json()).toEqual({ errors: ['command must be a string'] });
+
+      const invalidPolicy = await fetch(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
+          body: JSON.stringify({
+            command: TOGGLE_COMMAND,
+            policy: {
+              ...DEFAULT_POLICY_BODY,
+              destructive_command_protection: {
+                enabled: true,
+                overrides: { [TOGGLE_RULE_ID]: 'maybe' },
+              },
+            },
+          }),
+        },
+      );
+      expect(invalidPolicy.status).toBe(400);
+      expect(await invalidPolicy.json()).toMatchObject({
+        errors: [expect.stringContaining('must be "on" or "off"')],
+      });
+
+      const allowed = await postJson<{ result: string; ruleId?: string }>(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        server.token,
+        {
+          command: TOGGLE_COMMAND,
+          policy: {
+            ...DEFAULT_POLICY_BODY,
+            destructive_command_protection: {
+              enabled: true,
+              overrides: { [TOGGLE_RULE_ID]: 'off' },
+            },
+          },
+        },
+      );
+      expect(allowed.result).toBe('allowed');
+
+      const blocked = await postJson<{ result: string; ruleId?: string }>(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        server.token,
+        {
+          command: TOGGLE_COMMAND,
+          policy: {
+            ...DEFAULT_POLICY_BODY,
+            destructive_command_protection: {
+              enabled: true,
+              overrides: { [TOGGLE_RULE_ID]: 'on' },
+            },
+          },
+        },
+      );
+      expect(blocked.result).toBe('blocked');
+      expect(blocked.ruleId).toBe(TOGGLE_RULE_ID);
+
+      expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('POST api policy explain matches custom rules loaded from disk', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'safety-net-gui-rulebook-'));
+    try {
+      await syncInitialGitRulebook(projectDir);
+      const server = await createPolicyGuiServer({
+        cwd: projectDir,
+        userConfigDir: join(projectDir, 'home', '.cc-safety-net', 'rules'),
+      });
+      try {
+        const blocked = await postJson<{ result: string; customRule?: { id: string } }>(
+          `${server.origin}/api/policy/explain?token=${server.token}`,
+          server.token,
+          { command: 'git add -A', policy: DEFAULT_POLICY_BODY },
+        );
+        expect(blocked.result).toBe('blocked');
+        expect(blocked.customRule?.id).toBe('project-rules/block-git-add-all');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 
@@ -1400,6 +1532,69 @@ describe('policy GUI server', () => {
       if (originalKimiHome === undefined) delete process.env.KIMI_CODE_HOME;
       else process.env.KIMI_CODE_HOME = originalKimiHome;
     }
+  });
+
+  test('GET /api/health rejects missing and wrong tokens', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      expect((await fetch(`${server.origin}/api/health`)).status).toBe(403);
+      expect((await fetch(`${server.origin}/api/health?token=wrong`)).status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/health returns the injected status verbatim', async () => {
+    const status = {
+      hooks: [
+        { platform: 'claude-code', label: 'Claude Code', configured: true },
+        { platform: 'codex', label: 'Codex', configured: false },
+      ],
+      update: { currentVersion: '1.0.0', latestVersion: '2.0.0', updateAvailable: true },
+    };
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      fetchHealth: async () => status,
+    });
+    try {
+      expect(
+        await getJson<typeof status>(`${server.origin}/api/health?token=${server.token}`),
+      ).toEqual(status);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('fetchHealth runs the full probe and reports all detected hooks without spawning', async () => {
+    const status = await fetchHealth({
+      fetcher: mockVersionFetcher,
+      homeDir: join(tempDir, 'home'),
+      checkUpdates: async () => ({
+        currentVersion: '1.0.0',
+        latestVersion: '2.0.0',
+        updateAvailable: true,
+      }),
+    });
+
+    const platforms = status.hooks.map((hook) => hook.platform);
+    expect(platforms).toContain('claude-code');
+    expect(platforms).toContain('codex');
+    // Full-probe wiring: the Gemini extensions list reaches hook detection.
+    expect(platforms).toContain('gemini-cli');
+    // The Pi probe is skipped when a fetcher is injected, so no process spawns in tests.
+    expect(platforms).not.toContain('pi');
+    const configured = Object.fromEntries(
+      status.hooks.map((hook) => [hook.platform, hook.configured]),
+    );
+    expect(configured['claude-code']).toBe(true);
+    expect(configured.codex).toBe(true);
+    expect(configured['gemini-cli']).toBe(true);
+    expect(status.hooks.find((hook) => hook.platform === 'claude-code')?.label).toBe('Claude Code');
+    expect(status.update).toEqual({
+      currentVersion: '1.0.0',
+      latestVersion: '2.0.0',
+      updateAvailable: true,
+    });
   });
 
   test('runIntegration captures console output and restores the console afterward', async () => {
