@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { explainCommand, formatTraceHuman } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import type { ExplainResult, TraceStep } from '@/types';
 import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
@@ -61,29 +62,36 @@ describe('legacy explain compatibility', () => {
       ),
     },
     {
-      name: 'disabled rm rule',
+      // Root/home rm is shadowed by the policy-config pre-analysis stage (`/` is an ancestor of
+      // the user policy directory), exactly as the runtime guard blocks it before command analysis.
+      name: 'root-or-home rm shadowed by policy protection',
       command: 'rm -rf /',
-      disabled: ['rm.recursive-force-root-or-home'],
-      expected: exactBlocked(
-        'rm -rf /',
-        ['rm', '-rf', '/'],
-        [
-          {
-            type: 'tmpdir-check',
-            tmpdirValue: '<redacted>',
-            isOverriddenToNonTemp: false,
-            allowTmpdirVar: true,
-          },
-          {
-            type: 'rule-check',
-            ruleModule: 'analyze/rm.ts',
-            ruleFunction: 'analyzeRm',
-            matched: true,
-            reason: RM_REASON,
-          },
-        ],
-        RM_REASON,
-      ),
+      disabled: [],
+      expected: {
+        trace: {
+          steps: [],
+          segments: [
+            {
+              index: 0,
+              steps: [
+                {
+                  type: 'rule-check',
+                  ruleModule: 'policy-protection',
+                  ruleFunction: 'findPolicyConfigMutationTarget',
+                  matched: true,
+                  reason: REASON_POLICY_CONFIG_PROTECTION,
+                },
+              ],
+            },
+          ],
+        },
+        result: 'blocked',
+        reason: REASON_POLICY_CONFIG_PROTECTION,
+        segment: '/',
+        configSource: null,
+        configValid: true,
+        effectiveLevel: 'standard',
+      },
     },
     {
       name: 'disabled find rule',

@@ -115,6 +115,19 @@ describe('secret redaction in shell wrappers and interpreters', () => {
     ).not.toContain(customSecret);
   });
 
+  test('secret deny-path block redacts a secret-shaped target in the new pre-analysis path', () => {
+    // A deny path named after a canonical secret-shaped token must reach the result only
+    // through sanitizeDiagnosticText on the new reason/segment/ruleId fields. The command is
+    // analyzer input only and is never executed.
+    const token = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+    const result = explainCommandBase(`cat ${token}`, {
+      policySnapshot: policySnapshot({ secretProtection: { denyPaths: [token] } }),
+    });
+    expect(result.result).toBe('blocked');
+    expect(result.ruleId).toBe('secret.deny-path');
+    expect(JSON.stringify(result)).not.toContain(token);
+  });
+
   test('custom-rule metadata uses a closed fully sanitized projection', () => {
     const secrets = {
       id: 'ghp_abcdefghijklmnopqrstuvwxyz',

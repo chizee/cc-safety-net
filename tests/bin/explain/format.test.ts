@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { formatTraceHuman, formatTraceJson } from '@/bin/explain/index';
+import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import type { ExplainResult, TraceStep } from '@/types';
 import { testModes } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
@@ -59,6 +60,16 @@ describe('formatTraceHuman', () => {
     expect(output).toContain('Rulebook: git-rules 1.0.0');
     expect(output).toContain('Source: git-rules');
     expect(output).toContain('Override: reason Stage precise files.');
+  });
+
+  test('renders a secret-protection block from the hand-built pre-analysis trace', () => {
+    // `cat .env` short-circuits into the parse-less pre-analysis trace; the formatter must
+    // render it without a parse step. Command is analyzer input only and is never executed.
+    const result = explainCommand('cat .env');
+    const output = formatTraceHuman(result);
+    expect(output).toContain('BLOCKED');
+    expect(output).toContain(REASON_SECRET_PROTECTION);
+    expect(output).toContain('Match rules');
   });
 
   test('includes Status: ALLOWED for allowed commands', () => {

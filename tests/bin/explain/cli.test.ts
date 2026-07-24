@@ -84,15 +84,34 @@ describe('explain CLI flag parsing', () => {
   });
 
   test('explain single-arg command with pipe preserves shell operators', async () => {
-    const { parsed, exitCode } = await explainJson(['git status | rm -rf /']);
+    // `rm -rf /` now short-circuits at policy-config protection before the parse trace; use an
+    // escaping rm that reaches command analysis so the pipe still produces a parse step.
+    const { parsed, exitCode } = await explainJson(['git status | rm -rf ../outside']);
     const parseStep = parsed.trace.steps.find((s: { type: string }) => s.type === 'parse');
-    expect(parseStep.input).toBe('git status | rm -rf /');
+    expect(parseStep.input).toBe('git status | rm -rf ../outside');
     expect(parseStep.segments).toEqual([
       ['git', 'status'],
-      ['rm', '-rf', '/'],
+      ['rm', '-rf', '../outside'],
     ]);
     expect(parsed.result).toBe('blocked');
     expect(exitCode).toBe(0);
+  });
+
+  test('explain --json blocks a sensitive-path read via secret protection', async () => {
+    await withTempDir('safety-net-explain-cli-', async (tempDir) => {
+      // `.env` matches by basename regardless of cwd; isolate HOME so the user's real policy
+      // (which could disable secret protection) is never read. `cat .env` is analyzer input
+      // only and is never executed.
+      const result = await runCCSafetyNetCli(
+        ['explain', '--json', 'cat .env'],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+      const parsed = JSON.parse(result.output);
+      expect(parsed.result).toBe('blocked');
+      expect(parsed.ruleId).toBe('secret.basename.env');
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   test('explain --cwd <path> passes cwd to analysis', async () => {

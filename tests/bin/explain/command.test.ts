@@ -8,8 +8,12 @@ import { dirname, join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
+import { REASON_GIT_METADATA_PROTECTION } from '@/core/git-metadata-protection';
+import { getUserPolicyPath } from '@/core/policy';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
+import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
 import { MAX_RECURSION_DEPTH } from '@/types';
 import {
@@ -19,7 +23,13 @@ import {
   type TestExplainOptions,
   testExplainOptions,
 } from '../../helpers/policy';
-import { getTraceSteps, toShellPath, withEnv, withLinkedWorktreeFixture } from '../../helpers.ts';
+import {
+  getTraceSteps,
+  toShellPath,
+  withEnv,
+  withLinkedWorktreeFixture,
+  withTempDir,
+} from '../../helpers.ts';
 
 function explainCommand(command: string, options?: TestExplainOptions) {
   return explainCommandBase(command, testExplainOptions(options));
@@ -290,7 +300,9 @@ describe('explainCommand edge cases', () => {
   });
 
   test('rm command traces rule check', () => {
-    const result = explainCommand('rm -rf /');
+    // `rm -rf /` now short-circuits at policy-config protection (`/` is an ancestor of the
+    // user policy directory), mirroring the guard; use an escaping rm that reaches command analysis.
+    const result = explainCommand('rm -rf ../outside');
     expect(result.result).toBe('blocked');
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
@@ -454,15 +466,17 @@ describe('explainCommand rm with home directory', () => {
   test('rm in home directory cwd is blocked', () => {
     const homeDir = process.env.HOME;
     if (!homeDir) return;
+    // `rm -rf .` in the home directory deletes the user policy directory, so it short-circuits at
+    // policy-config protection before command analysis, mirroring the runtime guard.
     const result = explainCommand('rm -rf .', { cwd: homeDir });
     expect(result.result).toBe('blocked');
-    expect(result.reason).toContain('home directory');
+    expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
       (s) =>
         s.type === 'rule-check' &&
-        s.ruleModule === 'analyze/rm.ts' &&
-        s.ruleFunction === 'analyzeRm',
+        s.ruleModule === 'policy-protection' &&
+        s.ruleFunction === 'findPolicyConfigMutationTarget',
     );
     expect(ruleStep).toBeDefined();
   });
@@ -1223,5 +1237,83 @@ describe('explainSegment direct depth limit', () => {
     });
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
     expect(recorder.finish({ result: 'allowed' }).events).toHaveLength(1);
+  });
+});
+
+// Commands below are analyzer input strings only; they are never executed in a shell.
+describe('explainCommand pre-analysis protection stages', () => {
+  test('blocks a sensitive-path read the way the runtime hook does', () => {
+    const result = explainCommand('cat .env');
+    expect(result.result).toBe('blocked');
+    expect(result.ruleId).toBe('secret.basename.env');
+    expect(result.reason).toBe(REASON_SECRET_PROTECTION);
+    expect(result.segment).toBe('.env');
+    expect(result.trace.segments[0]?.steps[0]).toMatchObject({
+      type: 'rule-check',
+      ruleModule: 'secret-protection',
+      ruleFunction: 'findSensitiveTarget',
+      matched: true,
+    });
+  });
+
+  test('honours the secret-protection disabled gate', () => {
+    const result = explainCommand('cat .env', {
+      config: { secretProtection: { enabled: false, denyPaths: [] } },
+    });
+    expect(result.result).toBe('allowed');
+  });
+
+  test('reads deny paths off the provided snapshot', () => {
+    const result = explainCommand('cat notes.txt', {
+      config: { secretProtection: { denyPaths: ['notes.txt'] } },
+    });
+    expect(result.result).toBe('blocked');
+    expect(result.ruleId).toBe('secret.deny-path');
+  });
+
+  test('threads strict mode into metadata-only secret discovery', () => {
+    expect(explainCommand('test -f ~/.ssh/id_rsa').result).toBe('allowed');
+    const strict = explainCommand('test -f ~/.ssh/id_rsa', { strict: true });
+    expect(strict.result).toBe('blocked');
+    expect(strict.ruleId).toBe('secret.home.ssh');
+  });
+
+  test('hard-stops policy config mutation before command analysis', () => {
+    const result = explainCommand(`rm "${getUserPolicyPath()}"`);
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
+    expect(result.ruleId).toBeUndefined();
+  });
+
+  test('protects git metadata resolved from the analysis cwd', async () => {
+    await withTempDir('cc-safety-net-explain-git-metadata-', (cwd) => {
+      mkdirSync(join(cwd, '.git'));
+      const result = explainCommand('rm -rf .git', { cwd });
+      expect(result.result).toBe('blocked');
+      expect(result.reason).toBe(REASON_GIT_METADATA_PROTECTION);
+    });
+  });
+
+  test('runs secret protection before destructive command analysis', () => {
+    const result = explainCommand('rm -rf .env');
+    expect(result.result).toBe('blocked');
+    expect(result.ruleId).toBe('secret.basename.env');
+  });
+
+  test('allows a quoted heredoc body that merely mentions a sensitive path in prose', () => {
+    const result = explainCommand(`git commit -m "$(cat <<'EOF'\nsee \`cat .env\` here\nEOF\n)"`);
+    expect(result.result).toBe('allowed');
+  });
+
+  test('still blocks an unquoted heredoc body whose substitution reads a sensitive path', () => {
+    const result = explainCommand(`git commit -m "$(cat <<EOF\nsee \`cat .env\` here\nEOF\n)"`);
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toBe(REASON_SECRET_PROTECTION);
+  });
+
+  test('still blocks a quoted heredoc body fed to an executing consumer', () => {
+    const result = explainCommand("bash <<'EOF'\ncat .env\nEOF");
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toBe(REASON_SECRET_PROTECTION);
   });
 });

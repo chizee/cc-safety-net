@@ -799,6 +799,47 @@ describe('policy GUI server', () => {
       expect(blocked.result).toBe('blocked');
       expect(blocked.ruleId).toBe(TOGGLE_RULE_ID);
 
+      // Reads a sensitive path; analyzer input only and is never executed.
+      const READ_ENV_COMMAND = 'cat .env';
+      const secretBlocked = await postJson<{ result: string; ruleId?: string; reason?: string }>(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        server.token,
+        { command: READ_ENV_COMMAND, policy: DEFAULT_POLICY_BODY },
+      );
+      expect(secretBlocked.result).toBe('blocked');
+      expect(secretBlocked.ruleId).toBe('secret.basename.env');
+      expect(secretBlocked.reason).toEqual(expect.any(String));
+      expect(secretBlocked.reason?.length).toBeGreaterThan(0);
+
+      const secretDisabled = await postJson<{ result: string; ruleId?: string }>(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        server.token,
+        {
+          command: READ_ENV_COMMAND,
+          policy: {
+            ...DEFAULT_POLICY_BODY,
+            secret_protection: { enabled: false, overrides: {}, deny_paths: [] },
+          },
+        },
+      );
+      expect(secretDisabled.result).toBe('allowed');
+
+      // Matches the draft deny path; analyzer input only and is never executed.
+      const READ_NOTES_COMMAND = 'cat notes.txt';
+      const denyPathBlocked = await postJson<{ result: string; ruleId?: string }>(
+        `${server.origin}/api/policy/explain?token=${server.token}`,
+        server.token,
+        {
+          command: READ_NOTES_COMMAND,
+          policy: {
+            ...DEFAULT_POLICY_BODY,
+            secret_protection: { enabled: true, overrides: {}, deny_paths: ['notes.txt'] },
+          },
+        },
+      );
+      expect(denyPathBlocked.result).toBe('blocked');
+      expect(denyPathBlocked.ruleId).toBe('secret.deny-path');
+
       expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
     } finally {
       await server.close();

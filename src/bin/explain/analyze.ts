@@ -4,8 +4,23 @@ import { createPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
 import { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
+import {
+  findGitMetadataMutationTargetInSemanticFacts,
+  REASON_GIT_METADATA_PROTECTION,
+  resolveProtectedGitMetadata,
+} from '@/core/git-metadata-protection';
+import {
+  findPolicyConfigMutationTargetInSemanticFacts,
+  REASON_POLICY_CONFIG_PROTECTION,
+} from '@/core/policy-protection';
 import { sanitizeDiagnosticText } from '@/core/sanitize';
+import {
+  findSensitiveTargetInSemanticFacts,
+  REASON_SECRET_PROTECTION,
+} from '@/core/secret-protection';
+import { createSemanticFacts } from '@/core/semantic-facts';
 import type { CommandTrace } from '@/domain/command-trace';
+import { createToolInvocation } from '@/domain/invocation';
 import type { PolicySnapshot } from '@/domain/policy';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
 import type { AnalyzeOptions, ExplainOptions, ExplainResult, ExplainTrace } from '@/types';
@@ -29,6 +44,38 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     return {
       trace: { steps: [{ type: 'error', message: 'No command provided' }], segments: [] },
       result: 'allowed',
+      configSource,
+      configValid,
+      ...configuration,
+    };
+  }
+
+  const preAnalysisBlock = findPreAnalysisBlock(command, analyzeOptions);
+  if (preAnalysisBlock) {
+    return {
+      trace: {
+        steps: [],
+        segments: [
+          {
+            index: 0,
+            steps: [
+              {
+                type: 'rule-check',
+                ruleModule: preAnalysisBlock.ruleModule,
+                ruleFunction: preAnalysisBlock.ruleFunction,
+                matched: true,
+                reason: preAnalysisBlock.reason,
+              },
+            ],
+          },
+        ],
+      },
+      result: 'blocked',
+      reason: sanitizeDiagnosticText(preAnalysisBlock.reason),
+      segment: sanitizeDiagnosticText(preAnalysisBlock.target),
+      ...(preAnalysisBlock.ruleId
+        ? { ruleId: sanitizeDiagnosticText(preAnalysisBlock.ruleId) }
+        : {}),
       configSource,
       configValid,
       ...configuration,
@@ -67,6 +114,56 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
         }
       : {}),
   };
+}
+
+function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
+  const cwd = options.cwd ?? process.cwd();
+  const facts = createSemanticFacts(
+    createToolInvocation(
+      '',
+      { command },
+      { kind: 'command', shell: 'posix' },
+      { executionCwd: cwd, configCwd: cwd },
+      command,
+    ),
+  );
+  const policyTarget = findPolicyConfigMutationTargetInSemanticFacts(facts);
+  if (policyTarget)
+    return {
+      reason: REASON_POLICY_CONFIG_PROTECTION,
+      target: policyTarget.target,
+      ruleId: undefined,
+      ruleModule: 'policy-protection',
+      ruleFunction: 'findPolicyConfigMutationTarget',
+    };
+  const gitMetadataTarget = findGitMetadataMutationTargetInSemanticFacts(
+    facts,
+    resolveProtectedGitMetadata(cwd),
+  );
+  if (gitMetadataTarget)
+    return {
+      reason: REASON_GIT_METADATA_PROTECTION,
+      target: gitMetadataTarget.target,
+      ruleId: undefined,
+      ruleModule: 'git-metadata-protection',
+      ruleFunction: 'findGitMetadataMutationTarget',
+    };
+  const policy = options.policySnapshot.policy;
+  const secretTarget =
+    policy.secretProtection.enabled === false
+      ? null
+      : findSensitiveTargetInSemanticFacts(facts, policy.secretProtection, {
+          strict: options.strict,
+        });
+  if (secretTarget)
+    return {
+      reason: REASON_SECRET_PROTECTION,
+      target: secretTarget.target,
+      ruleId: secretTarget.ruleId,
+      ruleModule: 'secret-protection',
+      ruleFunction: 'findSensitiveTarget',
+    };
+  return null;
 }
 
 function identifyModeGatedCandidate(command: string, options: AnalyzeOptions) {
