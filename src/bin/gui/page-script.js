@@ -479,15 +479,18 @@ const renderIntegrations = () => {
         row.version === null
           ? '<span class="muted">not detected</span>'
           : `<span class="agent-badge">v${escapeHtml(row.version)}</span>`;
-      const status = row.configured
-        ? '<span class="state-active">Installed</span>'
-        : '<span class="muted">Not installed</span>';
-      const uninstall = row.configured;
+      const status =
+        row.status === 'active'
+          ? '<span class="state-active">Installed</span>'
+          : row.status === 'disabled'
+            ? '<span class="state-disabled">Disabled</span>'
+            : '<span class="muted">Not installed</span>';
+      const uninstall = row.status === 'active';
       const busyLabel = uninstall ? 'Uninstalling…' : 'Installing…';
       const action =
         row.version === null
           ? ''
-          : `<button type="button" class="${uninstall ? 'danger' : 'primary'}" data-integration-action="${uninstall ? 'uninstall' : 'install'}" data-integration-target="${escapeHtml(row.target)}"${busy ? ' disabled' : ''}>${busy ? busyLabel : uninstall ? 'Uninstall' : 'Install'}</button>`;
+          : `<button type="button" class="${uninstall ? 'danger' : 'primary'}" data-integration-action="${uninstall ? 'uninstall' : 'install'}" data-integration-target="${escapeHtml(row.target)}"${busy ? ' disabled' : ''}>${busy ? busyLabel : uninstall ? 'Uninstall' : row.status === 'disabled' ? 'Enable' : 'Install'}</button>`;
       const note = row.note
         ? `<div class="status ${row.note.kind}">${escapeHtml(row.note.text)}</div>`
         : '';
@@ -559,7 +562,7 @@ const runIntegrationAction = async (button) => {
   integrationBusy.delete(target);
   const row = integrations.targets.find((entry) => entry.target === target);
   const ok = result.ok && result.data.ok === true;
-  if (ok) row.configured = action === 'install';
+  if (ok) row.status = action === 'install' ? 'active' : 'not-installed';
   row.note = {
     kind: ok ? 'ok' : 'error',
     text: ok ? result.data.output : result.data?.output || errorText(result),

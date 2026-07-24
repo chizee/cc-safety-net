@@ -294,6 +294,33 @@ fi
     );
   });
 
+  test('Claude Code: enables a disabled plugin during install', async () => {
+    await expectNativeInstall(
+      '--claude-code',
+      ['claude'],
+      [
+        'claude plugin list',
+        'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin install cc-safety-net@cc-marketplace',
+        'claude plugin enable cc-safety-net@cc-marketplace',
+      ],
+      'Installed Claude Code integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'claude'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n\\n  cc-safety-net@cc-marketplace\\n    Version: 0.8.2\\n    Scope: user\\n    Status: ✘ disabled\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
   test('Codex: removes the legacy plugin after installing the replacement', async () => {
     await expectNativeInstall(
       '--codex',
@@ -492,8 +519,55 @@ fi
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      ['gemini extensions install https://github.com/kenryu42/gemini-safety-net --consent'],
+      [
+        'gemini extensions list',
+        'gemini extensions install https://github.com/kenryu42/gemini-safety-net --consent',
+      ],
       'Installed Gemini CLI integration',
+    );
+  });
+
+  test('Gemini CLI: enables a disabled extension instead of reinstalling', async () => {
+    await expectNativeInstall(
+      '--gemini-cli',
+      ['gemini'],
+      ['gemini extensions list', 'gemini extensions enable gemini-safety-net'],
+      'Installed Gemini CLI integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'gemini'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "extensions list" ]; then
+  printf 'gemini-safety-net\\n  Source: https://github.com/kenryu42/gemini-safety-net\\n  Enabled (User): false\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
+  test('Gemini CLI: install is idempotent when the extension is already enabled', async () => {
+    await expectNativeInstall(
+      '--gemini-cli',
+      ['gemini'],
+      ['gemini extensions list'],
+      'Gemini CLI integration already installed',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'gemini'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "extensions list" ]; then
+  printf 'gemini-safety-net\\n  Source: https://github.com/kenryu42/gemini-safety-net\\n  Enabled (User): true\\n'
+fi
+`,
+          );
+        },
+      },
     );
   });
 
@@ -554,6 +628,171 @@ if [ "$*" = "plugin list" ]; then
 fi
 `,
           );
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: enables a disabled plugin in settings after install', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          const settingsDir = join(fake.homeDir, '.copilot');
+          mkdirSync(settingsDir, { recursive: true });
+          writeFileSync(
+            join(settingsDir, 'settings.json'),
+            `${JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': false } }, null, 2)}\n`,
+          );
+        },
+        assert: (fake, result) => {
+          const settings = JSON.parse(
+            readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8'),
+          );
+          expect(settings.enabledPlugins['cc-safety-net@cc-marketplace']).toBe(true);
+          expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: tolerates JSONC comments in settings.json', async () => {
+    const jsoncSettings = `{
+  // plugins I turned off
+  "enabledPlugins": {
+    "some-other-plugin": false,
+  },
+}
+`;
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          const settingsDir = join(fake.homeDir, '.copilot');
+          mkdirSync(settingsDir, { recursive: true });
+          writeFileSync(join(settingsDir, 'settings.json'), jsoncSettings);
+        },
+        assert: (fake) => {
+          expect(readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8')).toBe(
+            jsoncSettings,
+          );
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: enabling a disabled plugin preserves JSONC comments and formatting', async () => {
+    const jsoncSettings = `{
+  // plugins I turned off
+  "enabledPlugins": {
+    "some-other-plugin": false,
+    "cc-safety-net@cc-marketplace": false,
+  },
+}
+`;
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          const settingsDir = join(fake.homeDir, '.copilot');
+          mkdirSync(settingsDir, { recursive: true });
+          writeFileSync(join(settingsDir, 'settings.json'), jsoncSettings);
+        },
+        assert: (fake, result) => {
+          expect(readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8')).toBe(
+            jsoncSettings.replace(
+              '"cc-safety-net@cc-marketplace": false',
+              '"cc-safety-net@cc-marketplace": true',
+            ),
+          );
+          expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
+        },
+      },
+    );
+  });
+
+  test('Copilot CLI: does not create settings.json when absent', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace add kenryu42/cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        assert: (fake) => {
+          expect(existsSync(join(fake.homeDir, '.copilot', 'settings.json'))).toBe(false);
+        },
+      },
+    );
+  });
+
+  test('Pi: removes the disabling extensions filter after install', async () => {
+    await expectNativeInstall(
+      '--pi',
+      ['pi'],
+      ['pi install npm:cc-safety-net'],
+      'Installed Pi integration',
+      {
+        setup: (fake) => {
+          const agentDir = join(fake.homeDir, '.pi', 'agent');
+          mkdirSync(agentDir, { recursive: true });
+          writeFileSync(
+            join(agentDir, 'settings.json'),
+            `${JSON.stringify(
+              {
+                packages: [
+                  { source: 'npm:cc-safety-net', extensions: ['-dist/pi/index.js'] },
+                  'npm:pi-web-access',
+                  {
+                    source: '../../Developer/420024-lab/cc-safety-net',
+                    extensions: ['-dist/pi/index.js'],
+                  },
+                ],
+              },
+              null,
+              2,
+            )}\n`,
+          );
+        },
+        assert: (fake, result) => {
+          const settings = JSON.parse(
+            readFileSync(join(fake.homeDir, '.pi', 'agent', 'settings.json'), 'utf-8'),
+          );
+          expect(settings.packages[0]).toEqual({ source: 'npm:cc-safety-net' });
+          expect(settings.packages[1]).toBe('npm:pi-web-access');
+          expect(settings.packages[2]).toEqual({
+            source: '../../Developer/420024-lab/cc-safety-net',
+            extensions: ['-dist/pi/index.js'],
+          });
+          expect(result.stdout).toContain('Enabled npm:cc-safety-net extensions');
         },
       },
     );

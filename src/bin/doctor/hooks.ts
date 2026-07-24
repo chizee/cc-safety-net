@@ -70,7 +70,7 @@ const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-c
 /**
  * Detect Claude Code hook configuration.
  */
-function detectClaudeCode(pluginListOutput: string | null | undefined): HookDetection {
+export function detectClaudeCode(pluginListOutput: string | null | undefined): HookDetection {
   if (!pluginListOutput) {
     return { platform: 'claude-code', status: 'n/a' };
   }
@@ -182,7 +182,7 @@ function detectOpenCode(homeDir: string): HookDetection {
  * - 'disabled': Extension source is installed but effectively disabled
  * - 'n/a': Extension source is not installed, or list output is unavailable
  */
-function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookDetection {
+export function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookDetection {
   if (!extensionsListOutput) {
     return { platform: 'gemini-cli', status: 'n/a' };
   }
@@ -325,7 +325,36 @@ function detectKimiCode(homeDir: string): HookDetection {
   };
 }
 
-function detectPi(probe: PiProbeInfo | undefined): HookDetection {
+export function getPiSettingsPath(homeDir: string): string {
+  return join(homeDir, '.pi', 'agent', 'settings.json');
+}
+
+export function isPiSafetyNetPackageSource(source: unknown): source is string {
+  if (typeof source !== 'string') return false;
+  return source === 'npm:cc-safety-net' || source.startsWith('npm:cc-safety-net@');
+}
+
+function _hasPiSafetyNetPackage(settingsPath: string): boolean {
+  if (!existsSync(settingsPath)) return false;
+
+  const settings = (() => {
+    try {
+      return JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    } catch {
+      return undefined;
+    }
+  })();
+
+  if (!Array.isArray(settings?.packages)) return false;
+
+  return settings.packages.some((entry: unknown) =>
+    isPiSafetyNetPackageSource(
+      typeof entry === 'string' ? entry : (entry as { source?: unknown } | null)?.source,
+    ),
+  );
+}
+
+function detectPi(probe: PiProbeInfo | undefined, homeDir: string): HookDetection {
   if (!probe || probe.status === 'unavailable') {
     return { platform: 'pi', status: 'n/a' };
   }
@@ -340,6 +369,16 @@ function detectPi(probe: PiProbeInfo | undefined): HookDetection {
   }
 
   if (!probe.installedAndEnabled) {
+    const settingsPath = getPiSettingsPath(homeDir);
+    if (_hasPiSafetyNetPackage(settingsPath)) {
+      return {
+        platform: 'pi',
+        status: 'disabled',
+        method: 'pi probe',
+        configPath: settingsPath,
+        errors: ['npm:cc-safety-net is installed but its extension is disabled in Pi settings'],
+      };
+    }
     return { platform: 'pi', status: 'n/a', method: 'pi probe' };
   }
 
@@ -460,7 +499,7 @@ function _supportsCopilotInlineHooks(version: string | null | undefined): boolea
   return comparison >= 0;
 }
 
-function _getCopilotConfigHome(homeDir: string): string {
+export function _getCopilotConfigHome(homeDir: string): string {
   return process.env.COPILOT_HOME || join(homeDir, '.copilot');
 }
 
@@ -715,7 +754,7 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
         case 'kimi-code':
           return detectKimiCode(homeDir);
         case 'pi':
-          return detectPi(options?.piSafetyNetProbe);
+          return detectPi(options?.piSafetyNetProbe, homeDir);
         case 'codex':
           return detectCodex(options?.codexPluginListOutput);
       }

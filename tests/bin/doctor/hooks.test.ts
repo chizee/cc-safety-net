@@ -378,6 +378,103 @@ describe('detectAllHooks', () => {
     }
   });
 
+  test('Pi: disabled when probe not enabled but settings has npm:cc-safety-net object entry', () => {
+    const tmpBase = join(tmpdir(), `doctor-pi-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    const settingsPath = join(homeDir, '.pi', 'agent', 'settings.json');
+    mkdirSync(join(homeDir, '.pi', 'agent'), { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        packages: [{ source: 'npm:cc-safety-net', extensions: ['-dist/pi/index.js'] }],
+      }),
+    );
+
+    try {
+      const pi = detectAllHooks(projectDir, {
+        homeDir,
+        piSafetyNetProbe: { status: 'not-found', installedAndEnabled: false, matched: [] },
+      }).find((hook) => hook.platform === 'pi');
+
+      expectHookState(pi, 'disabled');
+      expect(pi?.configPath).toBe(settingsPath);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Pi: disabled when settings has npm:cc-safety-net pinned string entry', () => {
+    const tmpBase = join(tmpdir(), `doctor-pi-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(join(homeDir, '.pi', 'agent'), { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(homeDir, '.pi', 'agent', 'settings.json'),
+      JSON.stringify({ packages: ['npm:cc-safety-net@1.2.3'] }),
+    );
+
+    try {
+      const pi = detectAllHooks(projectDir, {
+        homeDir,
+        piSafetyNetProbe: { status: 'not-found', installedAndEnabled: false, matched: [] },
+      }).find((hook) => hook.platform === 'pi');
+
+      expectHookState(pi, 'disabled');
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Pi: n/a when settings has only unrelated and local-path entries', () => {
+    const tmpBase = join(tmpdir(), `doctor-pi-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(join(homeDir, '.pi', 'agent'), { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(homeDir, '.pi', 'agent', 'settings.json'),
+      JSON.stringify({
+        packages: [
+          'npm:pi-web-access',
+          { source: '../../Developer/420024-lab/cc-safety-net', extensions: ['-dist/pi/index.js'] },
+        ],
+      }),
+    );
+
+    try {
+      const pi = detectAllHooks(projectDir, {
+        homeDir,
+        piSafetyNetProbe: { status: 'not-found', installedAndEnabled: false, matched: [] },
+      }).find((hook) => hook.platform === 'pi');
+
+      expectHookState(pi, 'n/a');
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Pi: n/a when probe not enabled and settings file missing', () => {
+    const tmpBase = join(tmpdir(), `doctor-pi-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+
+    try {
+      const pi = detectAllHooks(projectDir, {
+        homeDir,
+        piSafetyNetProbe: { status: 'not-found', installedAndEnabled: false, matched: [] },
+      }).find((hook) => hook.platform === 'pi');
+
+      expectHookState(pi, 'n/a');
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
   test('Pi: n/a with error when runtime probe fails', () => {
     const tmpBase = join(tmpdir(), `doctor-pi-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');

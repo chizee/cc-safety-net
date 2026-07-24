@@ -147,22 +147,29 @@ process.stdout.write(JSON.stringify({ choices: capturedChoices, exitCode, events
   );
 }
 
-async function runInstallGateProbe(homeDir: string, codexPluginListFixture: string) {
+async function runInstallGateProbe(
+  homeDir: string,
+  fixtures: Partial<Record<'codex' | 'claude', string>>,
+) {
   const binDir = join(homeDir, 'bin');
   mkdirSync(binDir);
-  ['claude', 'gemini', 'copilot', 'pi', 'kimi', 'agy', 'opencode'].forEach((command) => {
-    symlinkSync('/usr/bin/true', join(binDir, command));
-  });
-  const codexPath = join(binDir, 'codex');
-  writeFileSync(
-    codexPath,
-    `#!/usr/bin/env sh
+  ['claude', 'gemini', 'copilot', 'pi', 'kimi', 'agy', 'opencode', 'codex'].forEach((command) => {
+    const fixture = fixtures[command as 'codex' | 'claude'];
+    if (!fixture) {
+      symlinkSync('/usr/bin/true', join(binDir, command));
+      return;
+    }
+    const commandPath = join(binDir, command);
+    writeFileSync(
+      commandPath,
+      `#!/usr/bin/env sh
 if [ "$*" = "plugin list" ]; then
-  printf '%s\\n' '${codexPluginListFixture}'
+  printf '%s\\n' '${fixture}'
 fi
 `,
-  );
-  chmodSync(codexPath, 0o755);
+    );
+    chmodSync(commandPath, 0o755);
+  });
 
   return spawnInstallEval<{ choices: CapturedChoice[]; exitCode: number }>(
     `
@@ -177,7 +184,7 @@ const exitCode = await runInstallCommand("install", [], {
       callback();
     },
   }),
-  probeTargets: (command) => command[0] === "codex",
+  probeTargets: (command) => ${JSON.stringify(Object.keys(fixtures))}.includes(command[0]),
   selectTargets: async (_action, choices) => {
     capturedChoices = choices.map((choice) => ({
       target: choice.target,
@@ -485,10 +492,44 @@ describe('interactive install dispatch', () => {
 
   async function probeCodexGateChoice(prefix: string, codexPluginListFixture: string) {
     return withTempDir(prefix, async (homeDir) => {
-      const result = await runInstallGateProbe(homeDir, codexPluginListFixture);
+      const result = await runInstallGateProbe(homeDir, { codex: codexPluginListFixture });
       return result.choices.find((choice) => choice.target === 'codex');
     });
   }
+
+  const DISABLED_CLAUDE_PLUGIN_LIST = `Installed plugins:
+
+  cc-safety-net@cc-marketplace
+    Version: 0.8.2
+    Scope: user
+    Status: disabled`;
+  const ENABLED_CLAUDE_PLUGIN_LIST = `Installed plugins:
+
+  cc-safety-net@cc-marketplace
+    Version: 0.8.2
+    Scope: user
+    Status: enabled`;
+
+  test('interactive install keeps a disabled Claude Code plugin selectable', async () => {
+    await withTempDir('safety-net-install-claude-disabled-', async (homeDir) => {
+      const result = await runInstallGateProbe(homeDir, { claude: DISABLED_CLAUDE_PLUGIN_LIST });
+      const claude = result.choices.find((choice) => choice.target === 'claude-code');
+
+      expect(result.exitCode).toBe(0);
+      expect(claude?.available).toBe(true);
+      expect(claude?.unavailableReason).toBeUndefined();
+    });
+  });
+
+  test('interactive install gates an enabled Claude Code plugin', async () => {
+    await withTempDir('safety-net-install-claude-enabled-', async (homeDir) => {
+      const result = await runInstallGateProbe(homeDir, { claude: ENABLED_CLAUDE_PLUGIN_LIST });
+      const claude = result.choices.find((choice) => choice.target === 'claude-code');
+
+      expect(claude?.available).toBe(false);
+      expect(claude?.unavailableReason).toBe('already installed');
+    });
+  });
 
   test('Codex: interactive install offers codex when only the legacy plugin is installed', async () => {
     const codex = await probeCodexGateChoice('safety-net-install-codex-legacy-', LEGACY_CODEX_ROW);

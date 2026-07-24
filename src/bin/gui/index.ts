@@ -52,7 +52,7 @@ interface IntegrationsStatus {
     target: InstallTarget;
     label: string;
     version: string | null;
-    configured: boolean;
+    status: 'active' | 'disabled' | 'not-installed';
   }[];
   system: { version: string; nodeVersion: string | null; platform: string };
 }
@@ -450,12 +450,15 @@ export async function fetchIntegrations(
   const systemInfo = await getSystemInfo(probe.fetcher);
   const hookStatuses = detectHooksFromSystemInfo(systemInfo, probe.homeDir);
   return {
-    targets: installIntegrationMetadata.map((meta) => ({
-      target: meta.id,
-      label: getIntegrationDisplayName(meta.id),
-      version: systemInfo[VERSION_FIELDS[meta.id]],
-      configured: hookStatuses.find((status) => status.platform === meta.id)?.configured ?? false,
-    })),
+    targets: installIntegrationMetadata.map((meta) => {
+      const hook = hookStatuses.find((status) => status.platform === meta.id);
+      return {
+        target: meta.id,
+        label: getIntegrationDisplayName(meta.id),
+        version: systemInfo[VERSION_FIELDS[meta.id]],
+        status: hook?.configured ? 'active' : hook?.detected ? 'disabled' : 'not-installed',
+      } as const;
+    }),
     system: {
       version: systemInfo.version,
       nodeVersion: systemInfo.nodeVersion,

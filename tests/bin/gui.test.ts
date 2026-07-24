@@ -70,7 +70,12 @@ interface ActivityApiResponse {
 }
 
 interface IntegrationsApiResponse {
-  targets: { target: string; label: string; version: string | null; configured: boolean }[];
+  targets: {
+    target: string;
+    label: string;
+    version: string | null;
+    status: 'active' | 'disabled' | 'not-installed';
+  }[];
   system: { version: string; nodeVersion: string | null; platform: string };
 }
 
@@ -1401,8 +1406,24 @@ describe('policy GUI server', () => {
   test('GET /api/integrations returns the injected status verbatim', async () => {
     const status = {
       targets: [
-        { target: 'codex' as InstallTarget, label: 'Codex', version: '1.2.0', configured: true },
-        { target: 'pi' as InstallTarget, label: 'Pi', version: null, configured: false },
+        {
+          target: 'codex' as InstallTarget,
+          label: 'Codex',
+          version: '1.2.0',
+          status: 'active' as const,
+        },
+        {
+          target: 'gemini-cli' as InstallTarget,
+          label: 'Gemini CLI',
+          version: '0.20.0',
+          status: 'disabled' as const,
+        },
+        {
+          target: 'pi' as InstallTarget,
+          label: 'Pi',
+          version: null,
+          status: 'not-installed' as const,
+        },
       ],
       system: { version: '1.0.0', nodeVersion: 'v22.0.0', platform: 'darwin arm64' },
     };
@@ -1561,18 +1582,39 @@ describe('policy GUI server', () => {
         opencode: '0.1.0',
         pi: '0.4.0',
       });
-      const configured = Object.fromEntries(
-        status.targets.map((target) => [target.target, target.configured]),
+      const statuses = Object.fromEntries(
+        status.targets.map((target) => [target.target, target.status]),
       );
-      expect(configured['kimi-code']).toBe(true);
-      expect(configured.opencode).toBe(false);
-      expect(configured.pi).toBe(false);
+      expect(statuses['kimi-code']).toBe('active');
+      expect(statuses.opencode).toBe('not-installed');
+      expect(statuses.pi).toBe('not-installed');
       // The system block carries only version/node/platform — npm and bun are excluded.
       expect(Object.keys(status.system).sort()).toEqual(['nodeVersion', 'platform', 'version']);
     } finally {
       if (originalKimiHome === undefined) delete process.env.KIMI_CODE_HOME;
       else process.env.KIMI_CODE_HOME = originalKimiHome;
     }
+  });
+
+  test('fetchIntegrations maps a detected-but-disabled hook to disabled', async () => {
+    const status = await fetchIntegrations({
+      fetcher: async (args) => {
+        if (args[0] === 'claude' && args[1] === 'plugin') {
+          return `Installed plugins:
+
+  ❯ cc-safety-net@cc-marketplace
+    Version: 0.8.2
+    Scope: user
+    Status: ✘ disabled`;
+        }
+        return mockVersionFetcher(args);
+      },
+    });
+
+    const statuses = Object.fromEntries(
+      status.targets.map((target) => [target.target, target.status]),
+    );
+    expect(statuses['claude-code']).toBe('disabled');
   });
 
   test('GET /api/health rejects missing and wrong tokens', async () => {

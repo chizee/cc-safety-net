@@ -1,5 +1,15 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { detectAllHooks } from '@/bin/doctor/hooks';
+import { join } from 'node:path';
+import { stripJsonComments } from '@/bin/config/jsonc';
+import {
+  _getCopilotConfigHome,
+  detectAllHooks,
+  detectClaudeCode,
+  detectGeminiCLI,
+  getPiSettingsPath,
+  isPiSafetyNetPackageSource,
+} from '@/bin/doctor/hooks';
 import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system-info';
 import type { PiProbeInfo } from '@/bin/doctor/types';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
@@ -73,13 +83,19 @@ function hasCodexReplacementPlugin(output: string | null): boolean {
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
-    installCommands: () => [
-      ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
-      ...(hasClaudeLegacyPlugin(runNativeCommand(['claude', 'plugin', 'list']))
-        ? ([['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace']] as const)
-        : []),
-    ],
+    installCommands: () => {
+      const pluginList = runNativeCommand(['claude', 'plugin', 'list']);
+      return [
+        ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
+        ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
+        ...(detectClaudeCode(pluginList).status === 'disabled'
+          ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
+          : []),
+        ...(hasClaudeLegacyPlugin(pluginList)
+          ? ([['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace']] as const)
+          : []),
+      ];
+    },
     uninstallCommands: [
       ['claude', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
       ['claude', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
@@ -122,15 +138,21 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   'gemini-cli': {
-    installCommands: [
-      [
-        'gemini',
-        'extensions',
-        'install',
-        'https://github.com/kenryu42/gemini-safety-net',
-        '--consent',
-      ],
-    ],
+    installCommands: () => {
+      const detection = detectGeminiCLI(runNativeCommand(['gemini', 'extensions', 'list']));
+      if (detection.status === 'configured') return [];
+      if (detection.status === 'disabled')
+        return [['gemini', 'extensions', 'enable', 'gemini-safety-net']];
+      return [
+        [
+          'gemini',
+          'extensions',
+          'install',
+          'https://github.com/kenryu42/gemini-safety-net',
+          '--consent',
+        ],
+      ];
+    },
     uninstallCommands: [['gemini', 'extensions', 'uninstall', 'gemini-safety-net']],
   },
   opencode: {
@@ -145,6 +167,66 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
 
 function getHomeDir() {
   return process.env.HOME ?? homedir();
+}
+
+function parseJsonSettings(
+  configPath: string,
+  preprocess = (raw: string) => raw,
+): Record<string, unknown> {
+  try {
+    const config = JSON.parse(preprocess(readFileSync(configPath, 'utf-8')));
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      throw new Error(`Settings file ${configPath} must be a JSON object`);
+    }
+    return config as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Failed to parse ${configPath}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+function enableCopilotPlugin(homeDir: string): void {
+  const settingsPath = join(_getCopilotConfigHome(homeDir), 'settings.json');
+  if (!existsSync(settingsPath)) return;
+
+  const settings = parseJsonSettings(settingsPath, stripJsonComments);
+  const enabledPlugins = settings.enabledPlugins;
+  if (!enabledPlugins || typeof enabledPlugins !== 'object' || Array.isArray(enabledPlugins))
+    return;
+  if ((enabledPlugins as Record<string, unknown>)[COPILOT_PLUGIN_ID] !== false) return;
+
+  // Flip the flag in the raw text so hand-written JSONC comments and formatting survive;
+  // fall back to a stringify rewrite when the text form is unmatchable (e.g. a comment
+  // between key and value).
+  const raw = readFileSync(settingsPath, 'utf-8');
+  const flipped = raw.replace(new RegExp(`("${COPILOT_PLUGIN_ID}"\\s*:\\s*)false`), '$1true');
+  (enabledPlugins as Record<string, unknown>)[COPILOT_PLUGIN_ID] = true;
+  writeFileSync(settingsPath, flipped !== raw ? flipped : `${JSON.stringify(settings, null, 2)}\n`);
+  console.log(`Enabled ${COPILOT_PLUGIN_ID} plugin in ${settingsPath}`);
+}
+
+function removePiExtensionsFilter(homeDir: string): void {
+  const settingsPath = getPiSettingsPath(homeDir);
+  if (!existsSync(settingsPath)) return;
+
+  const settings = parseJsonSettings(settingsPath);
+  if (!Array.isArray(settings.packages)) return;
+
+  const entry = settings.packages.find(
+    (candidate): candidate is Record<string, unknown> =>
+      !!candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate) &&
+      isPiSafetyNetPackageSource((candidate as Record<string, unknown>).source) &&
+      'extensions' in candidate,
+  );
+  if (!entry) return;
+
+  delete entry.extensions;
+  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  console.log(`Enabled npm:cc-safety-net extensions in ${settingsPath}`);
 }
 
 function parseInstallTarget(args: readonly string[], action: InstallAction): InstallTarget {
@@ -162,7 +244,7 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
   return targets[0] as InstallTarget;
 }
 
-async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
+async function detectConfiguredInstallTargets(action: InstallAction): Promise<InstallTarget[]> {
   const piRawPromise = defaultVersionFetcher(['pi', '--version']);
   const copilotBinaryVersionPromise = defaultVersionFetcher(['copilot', '--binary-version']);
   const copilotFallbackVersionPromise = defaultVersionFetcher(['copilot', '--version']);
@@ -197,7 +279,7 @@ async function detectConfiguredInstallTargets(): Promise<InstallTarget[]> {
     copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
     piSafetyNetProbe,
   })
-    .filter((hook) => hook.detected)
+    .filter((hook) => (action === 'install' ? hook.configured : hook.detected))
     .filter(
       (hook) =>
         hook.platform !== 'codex' ||
@@ -222,7 +304,8 @@ function startResolveInstallTargets(
     };
   }
 
-  const detectConfiguredTargets = options.detectConfiguredTargets ?? detectConfiguredInstallTargets;
+  const detectConfiguredTargets =
+    options.detectConfiguredTargets ?? (() => detectConfiguredInstallTargets(action));
   const ready = Promise.all([
     buildInstallTargetChoicesAsync(options.probeTargets),
     detectConfiguredTargets(),
@@ -325,7 +408,10 @@ const INSTALL_OPERATIONS = {
     uninstall: () => uninstallNativeTarget('codex'),
   },
   'copilot-cli': {
-    install: (homeDir: string) => installNativeTarget('copilot-cli', homeDir),
+    install: (homeDir: string) => {
+      installNativeTarget('copilot-cli', homeDir);
+      enableCopilotPlugin(homeDir);
+    },
     uninstall: () => uninstallNativeTarget('copilot-cli'),
   },
   'gemini-cli': {
@@ -341,7 +427,10 @@ const INSTALL_OPERATIONS = {
     uninstall: (homeDir: string) => uninstallOpenCodeTarget(homeDir),
   },
   pi: {
-    install: (homeDir: string) => installNativeTarget('pi', homeDir),
+    install: (homeDir: string) => {
+      installNativeTarget('pi', homeDir);
+      removePiExtensionsFilter(homeDir);
+    },
     uninstall: () => uninstallNativeTarget('pi'),
   },
 } satisfies Record<InstallTarget, Record<InstallAction, (homeDir: string) => void>>;
