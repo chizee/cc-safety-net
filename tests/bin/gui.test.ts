@@ -303,10 +303,12 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         '${override && !effective.changesInherited ? `<button type="button" class="inherit-button"',
       );
-      expect(html).toContain('Reset rule customizations');
       // Reset button lives at the far right of the panel head, not inside the rules body.
       expect(html).toContain(
-        '<button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>',
+        '<button type="button" id="reset-rule-customizations" class="panel-head-action">Restore defaults</button>',
+      );
+      expect(html).toContain(
+        '<button type="button" id="reset-secret-customizations" class="panel-head-action">Restore defaults</button>',
       );
       expect(html).not.toContain('rule-customization-actions');
       expect(html.indexOf('id="reset-rule-customizations"')).toBeLessThan(

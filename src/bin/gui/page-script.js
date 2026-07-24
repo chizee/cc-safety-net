@@ -1580,19 +1580,41 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest?.('#reset-rule-customizations')) {
     if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
-      setAppStatus('No rule customizations to reset', 'ok');
+      setAppStatus('No customizations to reset', 'ok');
       return;
     }
     void (async () => {
       if (
         !(await confirmDialog({
-          title: 'Reset rule customizations?',
+          title: 'Restore defaults?',
           body: 'All built-in destructive-command rules will return to their inherited preset settings.',
-          confirmLabel: 'Reset customizations',
+          confirmLabel: 'Restore defaults',
         }))
       )
         return;
       draftPolicy.destructive_command_protection.overrides = {};
+      syncRawFromForm();
+      updateDirtyStatus();
+      void refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (event.target.closest?.('#reset-secret-customizations')) {
+    if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
+      setAppStatus('No customizations to reset', 'ok');
+      return;
+    }
+    void (async () => {
+      if (
+        !(await confirmDialog({
+          title: 'Restore defaults?',
+          body: 'All built-in secret rules will return to their inherited preset settings.',
+          confirmLabel: 'Restore defaults',
+        }))
+      )
+        return;
+      draftPolicy.secret_protection.overrides = {};
+      renderSecretPatterns();
       syncRawFromForm();
       updateDirtyStatus();
       void refreshPolicyPreview();

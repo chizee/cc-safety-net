@@ -428,14 +428,19 @@ button:hover:not(:disabled) {
 #theme-toggle,
 #raw-copy,
 #activity-refresh,
-#integrations-refresh {
+#integrations-refresh,
+#tester-run,
+#reset-rule-customizations,
+#reset-secret-customizations {
   border-color: transparent;
 }
 
 #theme-toggle:hover:not(:disabled),
 #raw-copy:hover:not(:disabled),
 #activity-refresh:hover:not(:disabled),
-#integrations-refresh:hover:not(:disabled) {
+#integrations-refresh:hover:not(:disabled),
+#tester-run:hover:not(:disabled),
+#reset-rule-customizations:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -744,7 +749,7 @@ main {
 
 .integration-row button.primary,
 .integration-row button.danger {
-  min-width: 124px;
+  min-width: 88px;
   background: transparent;
   border-color: transparent;
   color: var(--ink);
@@ -2355,7 +2360,7 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
                 <h2>Destructive Command Protection</h2>
                 <p class="panel-sub muted" id="destructive-command-summary"></p>
               </div>
-              <button type="button" id="reset-rule-customizations" class="panel-head-action">Reset rule customizations</button>
+              <button type="button" id="reset-rule-customizations" class="panel-head-action">Restore defaults</button>
             </div>
             <div id="destructive-command"></div>
           </section>
@@ -2365,6 +2370,7 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
                 <h2>Secret Protection</h2>
                 <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
               </div>
+              <button type="button" id="reset-secret-customizations" class="panel-head-action">Restore defaults</button>
             </header>
             <div id="secret"></div>
           </section>
@@ -4060,19 +4066,41 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest?.('#reset-rule-customizations')) {
     if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
-      setAppStatus('No rule customizations to reset', 'ok');
+      setAppStatus('No customizations to reset', 'ok');
       return;
     }
     void (async () => {
       if (
         !(await confirmDialog({
-          title: 'Reset rule customizations?',
+          title: 'Restore defaults?',
           body: 'All built-in destructive-command rules will return to their inherited preset settings.',
-          confirmLabel: 'Reset customizations',
+          confirmLabel: 'Restore defaults',
         }))
       )
         return;
       draftPolicy.destructive_command_protection.overrides = {};
+      syncRawFromForm();
+      updateDirtyStatus();
+      void refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (event.target.closest?.('#reset-secret-customizations')) {
+    if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
+      setAppStatus('No customizations to reset', 'ok');
+      return;
+    }
+    void (async () => {
+      if (
+        !(await confirmDialog({
+          title: 'Restore defaults?',
+          body: 'All built-in secret rules will return to their inherited preset settings.',
+          confirmLabel: 'Restore defaults',
+        }))
+      )
+        return;
+      draftPolicy.secret_protection.overrides = {};
+      renderSecretPatterns();
       syncRawFromForm();
       updateDirtyStatus();
       void refreshPolicyPreview();

@@ -317,14 +317,19 @@ button:hover:not(:disabled) {
 #theme-toggle,
 #raw-copy,
 #activity-refresh,
-#integrations-refresh {
+#integrations-refresh,
+#tester-run,
+#reset-rule-customizations,
+#reset-secret-customizations {
   border-color: transparent;
 }
 
 #theme-toggle:hover:not(:disabled),
 #raw-copy:hover:not(:disabled),
 #activity-refresh:hover:not(:disabled),
-#integrations-refresh:hover:not(:disabled) {
+#integrations-refresh:hover:not(:disabled),
+#tester-run:hover:not(:disabled),
+#reset-rule-customizations:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -633,7 +638,7 @@ main {
 
 .integration-row button.primary,
 .integration-row button.danger {
-  min-width: 124px;
+  min-width: 88px;
   background: transparent;
   border-color: transparent;
   color: var(--ink);
