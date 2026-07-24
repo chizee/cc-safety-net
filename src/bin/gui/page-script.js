@@ -276,7 +276,7 @@ const renderOverviewActivity = () => {
     `<div class="tile"><strong>${escapeHtml(value.toLocaleString('en-US'))}</strong><span>${escapeHtml(label)}</span>${extra}</div>`;
   const byDay = activity.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
-  const sparkline = `<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay.map((count) => `<div class="spark-bar" aria-hidden="true" style="height:${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div>`).join('')}</div>`;
+  const sparkline = `<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay.map((count) => `<div class="spark-col" data-count="${count.toLocaleString('en-US')}"><div class="spark-bar" aria-hidden="true" style="height:${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`).join('')}</div>`;
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, `Blocked · last ${activity.days} days`, sparkline),
     tile(activity.counts.sessions, `Sessions · last ${activity.days} days`),
@@ -307,20 +307,23 @@ const renderProtectionCard = () => {
     `<p${commandsOn ? '' : ' class="state-disabled"'}>${commandsOn ? `${state.preview.counts.enabled} rules active` : 'Destructive command protection is OFF'}</p>` +
     `<p${secretsOn ? '' : ' class="state-disabled"'}>${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>`;
 };
-const renderTopRules = () => {
-  const top = Object.entries(activity.counts.rules)
+// Renders a top-5 ranked list as label + count rows.
+const renderTopList = (containerId, counts, className, dataAttr) => {
+  const top = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
-  qs('top-rules').innerHTML =
+  qs(containerId).innerHTML =
     top.length === 0
       ? '<p class="empty">No blocked commands in this window.</p>'
       : top
           .map(
-            ([ruleId, count]) =>
-              `<button type="button" class="top-rule" data-rule-id="${escapeHtml(ruleId)}"><code class="rule-id">${escapeHtml(ruleId)}</code><span class="chip-count">${count.toLocaleString('en-US')}</span></button>`,
+            ([key, count]) =>
+              `<button type="button" class="${className}" ${dataAttr}="${escapeHtml(key)}"><code class="rule-id">${escapeHtml(key)}</code><span class="chip-count">${count.toLocaleString('en-US')}</span></button>`,
           )
           .join('');
 };
+const renderTopRules = () =>
+  renderTopList('top-rules', activity.counts.rules, 'top-rule', 'data-rule-id');
 // Mirrors commandSignature in activity.ts so the drill-down can match the same
 // blocked entries the Top blocked commands count is built from.
 const commandSignature = (source) => {
@@ -350,19 +353,11 @@ const jumpToActivityRule = (ruleId) => {
   }
   location.hash = 'activity';
 };
-const renderTopCommands = () => {
-  const top = Object.entries(activity.counts.commands)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  qs('top-commands').innerHTML =
-    top.length === 0
-      ? '<p class="empty">No blocked commands in this window.</p>'
-      : top
-          .map(
-            ([signature, count]) =>
-              `<button type="button" class="top-command" data-command="${escapeHtml(signature)}"><code class="rule-id">${escapeHtml(signature)}</code><span class="chip-count">${count.toLocaleString('en-US')}</span></button>`,
-          )
-          .join('');
+const renderTopCommands = () =>
+  renderTopList('top-commands', activity.counts.commands, 'top-command', 'data-command');
+const renderTopLists = () => {
+  renderTopCommands();
+  renderTopRules();
 };
 const renderGuardErrors = () => {
   qs('guard-errors').hidden = activity.counts.errors === 0;
@@ -455,8 +450,7 @@ const loadActivity = async () => {
   }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
   renderOverviewActivity();
-  renderTopCommands();
-  renderTopRules();
+  renderTopLists();
   renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();

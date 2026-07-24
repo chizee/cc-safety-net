@@ -504,10 +504,22 @@ main {
   background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
 }
 
+.dual-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 720px) {
+  .dual-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
 #top-rules,
 #top-commands {
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 
 .top-rule,
@@ -517,8 +529,24 @@ main {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 7px 10px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
   text-align: left;
+}
+
+.top-rule:hover:not(:disabled),
+.top-command:hover:not(:disabled) {
+  background: var(--btn-hover-fill);
+  border-color: transparent;
+}
+
+.top-rule .rule-id,
+.top-command .rule-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guard-errors {
@@ -826,17 +854,50 @@ button.rule-id:hover {
 
 .tile-spark {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 2px;
   height: 28px;
   margin-top: 8px;
 }
 
-.spark-bar {
+/* Full-height hover column so short bars are easy to target; the visible bar
+   sits at the bottom and the tooltip anchors at a consistent height. */
+.spark-col {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
   flex: 1 1 0;
   min-width: 1px;
+}
+
+.spark-bar {
+  width: 100%;
   background: var(--accent);
   border-radius: 1px;
+}
+
+.spark-col::after {
+  content: attr(data-count);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.spark-col:hover::after {
+  opacity: 1;
 }
 
 .feed-reason {

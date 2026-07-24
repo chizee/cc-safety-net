@@ -109,7 +109,7 @@ ${output}`.trim()));if(result.status!==0)throw Error(formatCommandFailure(comman
 `))}function uninstallNativeTarget(target){let definition=NATIVE_INSTALLS[target];if(!definition.uninstallCommands)throw Error(`${getIntegrationInstallLabel(target)} uninstall is not supported`);runNativeCommands(definition.uninstallCommands),console.log(`Uninstalled ${getIntegrationInstallLabel(target)} integration`)}function uninstallOpenCodeTarget(homeDir){let result=uninstallOpenCode(homeDir);console.log(result.alreadyInstalled?`Uninstalled OpenCode plugin from ${result.path}`:`OpenCode plugin not installed in ${result.path}`)}function runConfigInstallTarget(action,target,homeDir){let result=target==="kimi-code"?action==="install"?installKimiCode(homeDir):uninstallKimiCode(homeDir):action==="install"?installAntigravityCli(homeDir):uninstallAntigravityCli(homeDir),name=getIntegrationInstallLabel(target),pastTense=action==="install"?"Installed":"Uninstalled";console.log(action==="install"&&result.alreadyInstalled?`${name} hook already installed in ${result.path}`:action==="uninstall"&&!result.alreadyInstalled?`${name} hook not installed in ${result.path}`:`${pastTense} ${name} hook ${action==="install"?"in":"from"} ${result.path}`)}var INSTALL_OPERATIONS={"antigravity-cli":{install:(homeDir)=>runConfigInstallTarget("install","antigravity-cli",homeDir),uninstall:(homeDir)=>runConfigInstallTarget("uninstall","antigravity-cli",homeDir)},"claude-code":{install:(homeDir)=>installNativeTarget("claude-code",homeDir),uninstall:()=>uninstallNativeTarget("claude-code")},codex:{install:(homeDir)=>installNativeTarget("codex",homeDir),uninstall:()=>uninstallNativeTarget("codex")},"copilot-cli":{install:(homeDir)=>{installNativeTarget("copilot-cli",homeDir),enableCopilotPlugin(homeDir)},uninstall:()=>uninstallNativeTarget("copilot-cli")},"gemini-cli":{install:(homeDir)=>installNativeTarget("gemini-cli",homeDir),uninstall:()=>uninstallNativeTarget("gemini-cli")},"kimi-code":{install:(homeDir)=>runConfigInstallTarget("install","kimi-code",homeDir),uninstall:(homeDir)=>runConfigInstallTarget("uninstall","kimi-code",homeDir)},opencode:{install:(homeDir)=>installNativeTarget("opencode",homeDir),uninstall:(homeDir)=>uninstallOpenCodeTarget(homeDir)},pi:{install:(homeDir)=>{installNativeTarget("pi",homeDir),removePiExtensionsFilter(homeDir)},uninstall:()=>uninstallNativeTarget("pi")}};function runSingleInstallTarget(action,target,homeDir){INSTALL_OPERATIONS[target][action](homeDir)}async function runInstallCommand(action,args,options={}){try{let targets=await resolveAfterOptionalBanner(!0,()=>startResolveInstallTargets(action,args,options),()=>printInstallBanner({input:options.input??process.stdin,output:options.output??process.stdout}),{loadingMessage:action==="install"?"Checking available integrations…":"Checking installed integrations…",output:options.output??process.stdout});if(!targets)return 0;let homeDir=getHomeDir();return runInstallTargetsInOrder(targets,(target)=>runSingleInstallTarget(action,target,homeDir)),0}catch(e){return console.error(formatInstallError(e)),1}}function formatInstallError(error){let message=error instanceof Error?error.message:String(error),code=typeof error==="object"&&error!==null&&"code"in error?error.code:null;if(code==="EACCES"||code==="EPERM")return`${message}
 Check file permissions for the target config file and parent directory.`;if(code==="ENOENT")return`${message}
 Check that the target config path and parent directory exist.`;if(code==="ENOTDIR")return`${message}
-Check that every parent path component is a directory.`;return message}var ENTRY_CAP=500;function getActivityFeed(days,logsDir=getAuditLogsDir()){let cutoff=Date.now()-days*24*60*60*1000,windowEntries=[],totalBlockedAllTime=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;if(entry.decision!=="allow")totalBlockedAllTime++;let ts=new Date(entry.ts).getTime();if(Number.isFinite(ts)&&ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,rules={},commands2={},blocked=0,errors=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){if(blocked++,entry.ruleId)rules[entry.ruleId]=(rules[entry.ruleId]??0)+1;let signature=commandSignature(entry.segment||entry.command);if(signature)commands2[signature]=(commands2[signature]??0)+1;if(entry.failureStage)errors++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,totalBlockedAllTime,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay,rules,commands:commands2,errors},entries:windowEntries.slice(0,ENTRY_CAP)}}function commandSignature(source){let tokens=source.trim().split(/\s+/).filter((token)=>token&&!/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)),binary=tokens[0]?.split("/").pop();if(!binary)return null;let next=tokens[1];return next&&/^[a-z][a-z0-9-]*$/.test(next)?`${binary} ${next}`:binary}var custom_default=`/* cc-safety-net-gui-custom-css */
+Check that every parent path component is a directory.`;return message}var ENTRY_CAP=500;function getActivityFeed(days,logsDir=getAuditLogsDir()){let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),windowStart=new Date(todayStart);windowStart.setDate(windowStart.getDate()-(days-1));let cutoff=windowStart.getTime(),windowEntries=[],totalBlockedAllTime=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;if(entry.decision!=="allow")totalBlockedAllTime++;let ts=new Date(entry.ts).getTime();if(Number.isFinite(ts)&&ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,rules={},commands2={},blocked=0,errors=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){if(blocked++,entry.ruleId)rules[entry.ruleId]=(rules[entry.ruleId]??0)+1;let signature=commandSignature(entry.segment||entry.command);if(signature)commands2[signature]=(commands2[signature]??0)+1;if(entry.failureStage)errors++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,totalBlockedAllTime,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay,rules,commands:commands2,errors},entries:windowEntries.slice(0,ENTRY_CAP)}}function commandSignature(source){let tokens=source.trim().split(/\s+/).filter((token)=>token&&!/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)),binary=tokens[0]?.split("/").pop();if(!binary)return null;let next=tokens[1];return next&&/^[a-z][a-z0-9-]*$/.test(next)?`${binary} ${next}`:binary}var custom_default=`/* cc-safety-net-gui-custom-css */
 :root {
   color-scheme: light dark;
 
@@ -615,10 +615,22 @@ main {
   background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
 }
 
+.dual-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 720px) {
+  .dual-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
 #top-rules,
 #top-commands {
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 
 .top-rule,
@@ -628,8 +640,24 @@ main {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 7px 10px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
   text-align: left;
+}
+
+.top-rule:hover:not(:disabled),
+.top-command:hover:not(:disabled) {
+  background: var(--btn-hover-fill);
+  border-color: transparent;
+}
+
+.top-rule .rule-id,
+.top-command .rule-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guard-errors {
@@ -937,17 +965,50 @@ button.rule-id:hover {
 
 .tile-spark {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 2px;
   height: 28px;
   margin-top: 8px;
 }
 
-.spark-bar {
+/* Full-height hover column so short bars are easy to target; the visible bar
+   sits at the bottom and the tooltip anchors at a consistent height. */
+.spark-col {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
   flex: 1 1 0;
   min-width: 1px;
+}
+
+.spark-bar {
+  width: 100%;
   background: var(--accent);
   border-radius: 1px;
+}
+
+.spark-col::after {
+  content: attr(data-count);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.spark-col:hover::after {
+  opacity: 1;
 }
 
 .feed-reason {
@@ -2174,22 +2235,24 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
             <span id="star-slot"></span>
           </div>
           <section class="panel" id="protection-card" hidden></section>
-          <section class="panel">
-            <div class="panel-head">
-              <div class="panel-title">
-                <h2>Top blocked commands</h2>
+          <div class="dual-panels">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title">
+                  <h2>Top blocked commands</h2>
+                </div>
               </div>
-            </div>
-            <div id="top-commands"></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div class="panel-title">
-                <h2>Top blocked rules</h2>
+              <div id="top-commands"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title">
+                  <h2>Top blocked rules</h2>
+                </div>
               </div>
-            </div>
-            <div id="top-rules"></div>
-          </section>
+              <div id="top-rules"></div>
+            </section>
+          </div>
           <button type="button" class="guard-errors" id="guard-errors" hidden></button>
         </section>
 
@@ -2674,7 +2737,7 @@ const renderOverviewActivity = () => {
     \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
   const byDay = activity.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
-  const sparkline = \`<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay.map((count) => \`<div class="spark-bar" aria-hidden="true" style="height:\${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div>\`).join('')}</div>\`;
+  const sparkline = \`<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay.map((count) => \`<div class="spark-col" data-count="\${count.toLocaleString('en-US')}"><div class="spark-bar" aria-hidden="true" style="height:\${count === 0 ? 0 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>\`).join('')}</div>\`;
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, \`Blocked · last \${activity.days} days\`, sparkline),
     tile(activity.counts.sessions, \`Sessions · last \${activity.days} days\`),
@@ -2705,20 +2768,23 @@ const renderProtectionCard = () => {
     \`<p\${commandsOn ? '' : ' class="state-disabled"'}>\${commandsOn ? \`\${state.preview.counts.enabled} rules active\` : 'Destructive command protection is OFF'}</p>\` +
     \`<p\${secretsOn ? '' : ' class="state-disabled"'}>\${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>\`;
 };
-const renderTopRules = () => {
-  const top = Object.entries(activity.counts.rules)
+// Renders a top-5 ranked list as label + count rows.
+const renderTopList = (containerId, counts, className, dataAttr) => {
+  const top = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
-  qs('top-rules').innerHTML =
+  qs(containerId).innerHTML =
     top.length === 0
       ? '<p class="empty">No blocked commands in this window.</p>'
       : top
           .map(
-            ([ruleId, count]) =>
-              \`<button type="button" class="top-rule" data-rule-id="\${escapeHtml(ruleId)}"><code class="rule-id">\${escapeHtml(ruleId)}</code><span class="chip-count">\${count.toLocaleString('en-US')}</span></button>\`,
+            ([key, count]) =>
+              \`<button type="button" class="\${className}" \${dataAttr}="\${escapeHtml(key)}"><code class="rule-id">\${escapeHtml(key)}</code><span class="chip-count">\${count.toLocaleString('en-US')}</span></button>\`,
           )
           .join('');
 };
+const renderTopRules = () =>
+  renderTopList('top-rules', activity.counts.rules, 'top-rule', 'data-rule-id');
 // Mirrors commandSignature in activity.ts so the drill-down can match the same
 // blocked entries the Top blocked commands count is built from.
 const commandSignature = (source) => {
@@ -2748,19 +2814,11 @@ const jumpToActivityRule = (ruleId) => {
   }
   location.hash = 'activity';
 };
-const renderTopCommands = () => {
-  const top = Object.entries(activity.counts.commands)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  qs('top-commands').innerHTML =
-    top.length === 0
-      ? '<p class="empty">No blocked commands in this window.</p>'
-      : top
-          .map(
-            ([signature, count]) =>
-              \`<button type="button" class="top-command" data-command="\${escapeHtml(signature)}"><code class="rule-id">\${escapeHtml(signature)}</code><span class="chip-count">\${count.toLocaleString('en-US')}</span></button>\`,
-          )
-          .join('');
+const renderTopCommands = () =>
+  renderTopList('top-commands', activity.counts.commands, 'top-command', 'data-command');
+const renderTopLists = () => {
+  renderTopCommands();
+  renderTopRules();
 };
 const renderGuardErrors = () => {
   qs('guard-errors').hidden = activity.counts.errors === 0;
@@ -2853,8 +2911,7 @@ const loadActivity = async () => {
   }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
   renderOverviewActivity();
-  renderTopCommands();
-  renderTopRules();
+  renderTopLists();
   renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();

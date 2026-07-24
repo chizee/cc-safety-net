@@ -11,7 +11,15 @@ const ENTRY_CAP = 500;
  * when the entry list is truncated.
  */
 export function getActivityFeed(days: number, logsDir: string | null = getAuditLogsDir()) {
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const dayStart = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const todayStart = dayStart(new Date());
+  // Window by whole local calendar days (today plus the prior days-1) so the
+  // per-day sparkline buckets sum exactly to the blocked total. A rolling
+  // now-minus-N*24h cutoff would span a partial extra day with no bucket.
+  const windowStart = new Date(todayStart);
+  windowStart.setDate(windowStart.getDate() - (days - 1));
+  const cutoff = windowStart.getTime();
   const windowEntries: AuditLogEntry[] = [];
   let totalBlockedAllTime = 0;
   for (const file of logsDir ? listAuditLogFiles(logsDir) : []) {
@@ -24,9 +32,6 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   }
   windowEntries.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
 
-  const dayStart = (date: Date) =>
-    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const todayStart = dayStart(new Date());
   const blockedByDay = Array.from({ length: days }, () => 0);
   const agents: Record<string, number> = {};
   const sessions = new Set<string>();

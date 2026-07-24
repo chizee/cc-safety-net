@@ -1341,6 +1341,12 @@ describe('policy GUI server', () => {
         `${server.origin}/api/activity?days=5&token=${server.token}`,
       );
       expect(feed.counts.blockedByDay).toEqual([0, 0, 1, 0, 1]);
+      // The per-day buckets must sum to the in-window blocked total: the tile
+      // headline and the sparkline are the same number, split by day.
+      expect(feed.counts.blocked).toBe(2);
+      expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(
+        feed.counts.blocked,
+      );
       expect(feed.totalBlockedAllTime).toBe(3);
     } finally {
       await server.close();
