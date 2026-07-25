@@ -2,6 +2,28 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { syncRulesConfig } from '@/core/rules/policy';
 
+export function writeLocalRulebook(path: string, name: string): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({
+      rulebook_version: 1,
+      name,
+      version: '1.0.0',
+      allowed_commands: ['echo'],
+      rules: [
+        {
+          name: `${name}-rule`,
+          command: 'echo',
+          block_args: ['danger'],
+          reason: 'Do not run echo danger.',
+        },
+      ],
+      tests: [{ command: 'echo danger', expect: 'blocked', rule: `${name}-rule` }],
+    }),
+  );
+}
+
 export const initialGitRule = {
   name: 'block-git-add-all',
   subcommand: 'add',

@@ -59,7 +59,8 @@ async function withFakePi<T>(
     | 'invalid-json'
     | 'non-object'
     | 'no-model'
-    | 'timeout-after-write',
+    | 'timeout-after-write'
+    | 'timeout-no-write',
   fn: (cwd: string) => Promise<T>,
 ): Promise<T> {
   return withTempDir('doctor-fake-pi-', async (tmpDir) => {
@@ -96,9 +97,11 @@ if (process.env.FAKE_PI_MODE === "no-model") {
   process.exit(1);
 }
 
-if (process.env.FAKE_PI_MODE === "timeout-after-write") {
+if (String(process.env.FAKE_PI_MODE).startsWith("timeout-")) {
   setTimeout(() => process.exit(0), 60000);
 }
+
+if (process.env.FAKE_PI_MODE !== "timeout-no-write") {
 
 writeFileSync(
   process.env.PI_PROBE_OUT,
@@ -120,6 +123,7 @@ writeFileSync(
         },
   ),
 );
+}
 `,
     );
     writeFileSync(join(tmpDir, 'pi'), '#!/bin/sh\nexec bun "$0.js" "$@"\n');
@@ -294,6 +298,19 @@ describe('getSystemInfo', () => {
 
       expect(probe.status).toBe('configured');
       expect(probe.installedAndEnabled).toBe(true);
+    });
+  });
+
+  test('reports a plain timeout when the default Pi probe hangs without writing a result', async () => {
+    await withFakePi('timeout-no-write', async (cwd) => {
+      const probe = await defaultPiProbeRunner(cwd, 300);
+
+      expect(probe).toEqual({
+        status: 'error',
+        installedAndEnabled: false,
+        matched: [],
+        error: 'Pi probe timed out',
+      });
     });
   });
 

@@ -21,7 +21,7 @@ import {
   uninstallAmp,
 } from '@/bin/hook/install/amp';
 import { getCursorHooksPath, installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
-import { runCli } from './hook-helpers';
+import { makeTempHome, runCli } from './hook-helpers';
 
 const CURSOR_CANONICAL_ENTRY = {
   command: 'npx -y cc-safety-net hook --cursor',
@@ -35,12 +35,6 @@ command = "npx -y cc-safety-net hook --kimi-code"`;
 const KIMI_INLINE_HOOK =
   '{ event = "PreToolUse", command = "npx -y cc-safety-net hook --kimi-code" }';
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
-
-function makeTempHome(name: string) {
-  const dir = join(tmpdir(), `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function writeKimiConfig(homeDir: string, content: string) {
   const shareDir = join(homeDir, '.kimi-code');

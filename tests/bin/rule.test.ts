@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { RULE_DOC } from '@/bin/rule/doc';
 import { runRulesVerify } from '@/bin/rule/verify';
 import { runCCSafetyNetCli, withTempDir } from '../helpers';
+import { writeLocalRulebook } from '../helpers/rulebook';
 
 describe('rule command docs', () => {
   test('documents current rulebook configuration', () => {
@@ -929,21 +930,6 @@ function legacyRule(name: string, command: string) {
     block_args: ['danger'],
     reason: `Do not run ${command} danger.`,
   };
-}
-
-function writeLocalRulebook(path: string, name: string): void {
-  mkdirSync(join(path, '..'), { recursive: true });
-  writeFileSync(
-    path,
-    JSON.stringify({
-      rulebook_version: 1,
-      name,
-      version: '1.0.0',
-      allowed_commands: ['echo'],
-      rules: [legacyRule(`${name}-rule`, 'echo')],
-      tests: [{ command: 'echo danger', expect: 'blocked', rule: `${name}-rule` }],
-    }),
-  );
 }
 
 function readRulesConfig(path: string) {
