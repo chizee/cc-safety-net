@@ -991,6 +991,25 @@ describe('treats quoted heredoc bodies as literal data', () => {
     );
   });
 
+  test('does not choke on a JavaScript template literal carried in a heredoc body', () => {
+    expect(
+      findSensitiveTargetInCommand(
+        'python3 - <<\'PY\'\ncode = """const dir = `${name}-${Date.now()}`;"""\nprint(code)\nPY',
+        cwd,
+      ),
+    ).toBeNull();
+    expect(findSensitiveTargetInCommand('node -e "console.log(`v${Date.now()}`)"', cwd)).toBeNull();
+  });
+
+  test('still blocks a sensitive path beside an expansion holding a parenthesis', () => {
+    expect(findSensitiveTargetInCommand('cat ${x:-$(true)} .env', cwd)?.ruleId).toBe(
+      'secret.basename.env',
+    );
+    expect(findSensitiveTargetInCommand('echo "$(cat .env ${x:-$(true)})"', cwd)?.ruleId).toBe(
+      'secret.basename.env',
+    );
+  });
+
   test('does not mask on delimiter or termination uncertainty', () => {
     for (const command of ['cat <<$(printf EOF)\ncat .env\nEOF', "cat <<'EOF'\ncat .env"]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();

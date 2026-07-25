@@ -46,6 +46,10 @@ const GLOB_KEYS = new Set([...GREP_KEYS, 'pattern']);
 const REDIRECTS = new Set(['>', '>>', '<', '<<', '<<<', '<>', '>&', '<&', '&>', '&>>']);
 const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
 const EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
+// Stands in for the `$` of a `${...}` expansion so shell-quote never runs its brace
+// matcher on it; undone on every token text it produces.
+const EXPANSION_MASK = '\u0000';
+const CLOSED_EXPANSION_START = /\$\{(?=[^}]*\})/g;
 const NEUTRAL_ENV_PROXY: Readonly<Record<string, string | undefined>> = new Proxy(
   {} as Record<string, string | undefined>,
   { get: (_, name) => ['$', '{', String(name), '}'].join('') },
@@ -273,6 +277,24 @@ function parseShellSyntax(
       entries: Object.freeze([]),
     });
   }
+  // shell-quote splits input at control operators before it matches `${...}` braces, so a
+  // closed expansion holding a parenthesis (`${Date.now()}`, `${OUT:-$(pwd)}`) makes it throw
+  // and costs us every path in the command. Retry with the `$` of closed expansions masked,
+  // leaving them as the inert literal text NEUTRAL_ENV_PROXY would have produced anyway. An
+  // expansion that never closes still fails here, as it does in the shell.
+  const entries =
+    tokenizeShellEntries(source, parseShell) ??
+    tokenizeShellEntries(source.replace(CLOSED_EXPANSION_START, `${EXPANSION_MASK}{`), parseShell);
+  if (entries === null) {
+    return Object.freeze({ status: 'invalid', source, entries: Object.freeze([]) });
+  }
+  return Object.freeze({ status: 'complete', source, entries: Object.freeze(entries) });
+}
+
+function tokenizeShellEntries(
+  source: string,
+  parseShell: FactParserDependencies['parseShell'],
+): ShellSyntaxEntry[] | null {
   try {
     const parsed = parseShell(source, NEUTRAL_ENV_PROXY);
     const entries: ShellSyntaxEntry[] = [];
@@ -281,7 +303,7 @@ function parseShellSyntax(
       const operator = getOperator(token);
       if (operator === '<' && getOperator(parsed[index + 1]) === '<') {
         const targetIndex = index + 2;
-        const target = getCommandTokenText(parsed[targetIndex]);
+        const target = readTokenText(parsed[targetIndex]);
         entries.push(
           Object.freeze({
             kind: 'redirection',
@@ -297,7 +319,7 @@ function parseShellSyntax(
       if (operator && REDIRECTS.has(operator)) {
         const pipeAdjusted = operator === '>' && getOperator(parsed[index + 1]) === '|';
         const targetIndex = index + (pipeAdjusted ? 2 : 1);
-        const target = getCommandTokenText(parsed[targetIndex]);
+        const target = readTokenText(parsed[targetIndex]);
         entries.push(
           Object.freeze({
             kind: 'redirection',
@@ -325,13 +347,18 @@ function parseShellSyntax(
         );
         continue;
       }
-      const text = getCommandTokenText(token);
+      const text = readTokenText(token);
       if (text !== null) entries.push(Object.freeze({ kind: 'word', text }));
     }
-    return Object.freeze({ status: 'complete', source, entries: Object.freeze(entries) });
+    return entries;
   } catch {
-    return Object.freeze({ status: 'invalid', source, entries: Object.freeze([]) });
+    return null;
   }
+}
+
+function readTokenText(token: ParseEntry | undefined): string | null {
+  const text = getCommandTokenText(token);
+  return text === null ? null : text.replaceAll(EXPANSION_MASK, '$');
 }
 
 function getRedirectionRole(operator: string) {

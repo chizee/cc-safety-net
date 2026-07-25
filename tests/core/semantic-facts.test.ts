@@ -166,6 +166,15 @@ describe('semantic facts', () => {
     expect(facts.commands[0]?.shell.status).toBe(shellStatus);
   });
 
+  test('keeps tokenizing when a closed expansion holds a parenthesis', () => {
+    const shell = commandFacts('cat ${OUT:-$(pwd)}/.env').commands[0]?.shell;
+
+    expect(shell?.status).toBe('complete');
+    expect(
+      shell?.entries.some((entry) => entry.kind === 'word' && entry.text.includes('.env')),
+    ).toBe(true);
+  });
+
   test('policy protection does not emulate nested shell bodies', () => {
     const body = 'a a a';
     const command = `bash -c '${body}'`;
