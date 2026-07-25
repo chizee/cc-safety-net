@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   findMatchingBracket,
@@ -6,6 +6,7 @@ import {
   removeArrayRangeItem,
   type TextRange,
 } from '@/bin/hook/config-edit';
+import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import type { InstallResult } from '@/bin/hook/install/types';
 
 const KIMI_HOOK_COMMAND = 'npx -y cc-safety-net hook --kimi-code';
@@ -122,14 +123,14 @@ export function installKimiCode(homeDir: string): InstallResult {
   mkdirSync(dirname(configPath), { recursive: true });
 
   if (!existsSync(configPath)) {
-    writeFileSync(configPath, `${KIMI_HOOK_BLOCK}\n`);
+    atomicWriteFile(configPath, `${KIMI_HOOK_BLOCK}\n`);
     return { path: configPath, alreadyInstalled: false };
   }
 
   const content = readFileSync(configPath, 'utf-8');
   if (content.includes(KIMI_HOOK_COMMAND)) return { path: configPath, alreadyInstalled: true };
 
-  writeFileSync(configPath, appendKimiHook(content));
+  atomicWriteFile(configPath, appendKimiHook(content));
   return { path: configPath, alreadyInstalled: false };
 }
 
@@ -145,6 +146,6 @@ export function uninstallKimiCode(homeDir: string): InstallResult {
     ? removeKimiInlineHook(content, inlineHooksRange)
     : `${removeKimiTableHookBlocks(content)}\n`;
 
-  writeFileSync(configPath, updated);
+  atomicWriteFile(configPath, updated);
   return { path: configPath, alreadyInstalled: true };
 }

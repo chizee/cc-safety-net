@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import type { InstallResult } from '@/bin/hook/install/types';
 
 export const CURSOR_HOOK_COMMAND = 'npx -y cc-safety-net hook --cursor';
@@ -90,7 +91,7 @@ function writeCursorHooksConfig(
 ): void {
   const hooks = isRecord(config.hooks) ? config.hooks : {};
   const next = { ...config, hooks: { ...hooks, preToolUse } };
-  writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
+  atomicWriteFile(configPath, `${JSON.stringify(next, null, 2)}\n`);
 }
 
 export function installCursor(homeDir: string): InstallResult {
@@ -98,7 +99,7 @@ export function installCursor(homeDir: string): InstallResult {
 
   if (!existsSync(configPath)) {
     mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(
+    atomicWriteFile(
       configPath,
       `${JSON.stringify({ version: 1, hooks: { preToolUse: [canonicalCursorEntry()] } }, null, 2)}\n`,
     );

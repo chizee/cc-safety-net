@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
+import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import type { InstallResult } from '@/bin/hook/install/types';
 
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
@@ -125,7 +126,7 @@ function removeManagedHook(config: AntigravityHooksConfig): boolean {
 }
 
 function writeAntigravityHooksConfig(configPath: string, config: AntigravityHooksConfig): void {
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  atomicWriteFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 export function installAntigravityCli(homeDir: string): InstallResult {
