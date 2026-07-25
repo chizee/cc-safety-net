@@ -101,7 +101,9 @@ function appendKimiHook(content: string) {
 }
 
 function removeKimiTableHookBlocks(content: string) {
-  const blocks = content.split(/(?=^\s*\[\[hooks]]\s*$)/m);
+  // Split at every table header, not just [[hooks]]: a managed block ends where the
+  // next table begins, so unrelated tables after it are not swallowed with it.
+  const blocks = content.split(/(?=^\s*\[)/m);
   return blocks
     .filter((block) => !/^\s*\[\[hooks]]\s*$/m.test(block) || !block.includes(KIMI_HOOK_COMMAND))
     .join('')

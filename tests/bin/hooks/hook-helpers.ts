@@ -30,6 +30,10 @@ export type HookFormat =
 
 export const TEST_HOOK_CWD = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'));
 
+export function makeTempHome(name: string) {
+  return mkdtempSync(join(tmpdir(), `${name}-`));
+}
+
 process.on('exit', () => {
   rmSync(TEST_HOOK_CWD, { recursive: true, force: true });
 });
