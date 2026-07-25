@@ -75,10 +75,12 @@ function getManagedHookDefinition(config: AntigravityHooksConfig): AntigravityHo
 }
 
 function hasManagedHookCommand(definition: AntigravityHookDefinition): boolean {
-  return (
-    definition.PreToolUse?.some((entry) =>
-      entry.hooks?.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND),
-    ) ?? false
+  if (!Array.isArray(definition.PreToolUse)) return false;
+
+  return definition.PreToolUse.some(
+    (entry) =>
+      Array.isArray(entry.hooks) &&
+      entry.hooks.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND),
   );
 }
 
