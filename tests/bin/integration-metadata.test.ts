@@ -10,10 +10,12 @@ describe('integration metadata', () => {
   test('includes display names for every doctor platform', () => {
     expect(doctorIntegrationOrder.map((id) => getIntegrationDisplayName(id))).toEqual([
       'Claude Code',
+      'Amp Code',
       'Antigravity CLI',
       'Codex',
-      'Copilot CLI',
+      'Cursor',
       'Gemini CLI',
+      'GitHub Copilot CLI',
       'Kimi Code',
       'OpenCode',
       'Pi',
@@ -23,10 +25,12 @@ describe('integration metadata', () => {
   test('keeps doctor coding CLI order alphabetical after Claude Code', () => {
     expect(doctorIntegrationOrder).toEqual([
       'claude-code',
+      'amp',
       'antigravity-cli',
       'codex',
-      'copilot-cli',
+      'cursor',
       'gemini-cli',
+      'copilot-cli',
       'kimi-code',
       'opencode',
       'pi',
@@ -37,20 +41,23 @@ describe('integration metadata', () => {
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.id)).toEqual([
       'antigravity-cli',
       'claude-code',
-      'copilot-cli',
+      'cursor',
       'gemini-cli',
+      'copilot-cli',
       'kimi-code',
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.flags)).toEqual([
       ['-ac', '--agy-cli'],
       ['-cc', '--coding-cli'],
-      ['-cp', '--copilot-cli'],
+      ['-cu', '--cursor'],
       ['-gc', '--gemini-cli'],
+      ['-cp', '--copilot-cli'],
       ['-kc', '--kimi-code'],
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyFlags)).toEqual([
       [],
       ['--claude-code'],
+      [],
       [],
       [],
       [],
@@ -60,8 +67,9 @@ describe('integration metadata', () => {
     ).toEqual([
       [],
       ['-cc', '--claude-code'],
-      ['-cp', '--copilot-cli'],
+      [],
       ['-gc', '--gemini-cli'],
+      ['-cp', '--copilot-cli'],
       [],
     ]);
   });
@@ -70,8 +78,9 @@ describe('integration metadata', () => {
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.displayName)).toEqual([
       'Antigravity CLI',
       'Coding CLI',
-      'Copilot CLI',
+      'Cursor',
       'Gemini CLI',
+      'GitHub Copilot CLI',
       'Kimi Code',
     ]);
     expect(getIntegrationDisplayName('claude-code')).toBe('Claude Code');
@@ -79,9 +88,11 @@ describe('integration metadata', () => {
 
   test('keeps install order and labels separate from runtime and doctor presentation', () => {
     expect(installIntegrationMetadata.map((integration) => integration.id)).toEqual([
+      'amp',
       'antigravity-cli',
       'claude-code',
       'codex',
+      'cursor',
       'gemini-cli',
       'copilot-cli',
       'kimi-code',
@@ -96,6 +107,6 @@ describe('integration metadata', () => {
       installLabel: 'GitHub Copilot CLI',
       probeCommand: ['copilot', '--binary-version'],
     });
-    expect(getIntegrationDisplayName('copilot-cli')).toBe('Copilot CLI');
+    expect(getIntegrationDisplayName('copilot-cli')).toBe('GitHub Copilot CLI');
   });
 });

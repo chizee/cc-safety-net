@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from './integration-host-scripts';
+import { AMP_HOST_SCRIPT, OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from './integration-host-scripts';
 import { verifyBuildArtifacts } from './verify-build';
 
 const PACKAGE_ROOT_FILES = [
@@ -21,7 +21,9 @@ const PACKAGE_ROOT_FILES = [
   'package/README.md',
   'package/package.json',
 ] as const;
-const MAX_TARBALL_BYTES = 240_000;
+// The standalone Amp plugin bundles its own zod copy (~183 KB gzipped), so the
+// tarball is materially larger than the pure-Node bundles alone.
+const MAX_TARBALL_BYTES = 470_000;
 
 interface PackResult {
   filename: string;
@@ -113,7 +115,12 @@ export async function verifyPackage(): Promise<void> {
     const packageRoot = join(directory, 'node_modules', 'cc-safety-net');
     const cli = join(packageRoot, 'dist', 'bin', 'cc-safety-net.js');
     const packageVerificationEnv = getPackageVerificationEnv(directory);
-    for (const bundle of ['dist/index.js', 'dist/bin/cc-safety-net.js', 'dist/pi/index.js']) {
+    for (const bundle of [
+      'dist/index.js',
+      'dist/bin/cc-safety-net.js',
+      'dist/pi/index.js',
+      'dist/amp/cc-safety-net.ts',
+    ]) {
       if (readFileSync(join(packageRoot, bundle), 'utf8').includes('_operation')) {
         throw new Error(`Packed ${bundle} exposes the internal rule synchronization operation`);
       }
@@ -123,6 +130,7 @@ export async function verifyPackage(): Promise<void> {
       cli,
       pi: join(packageRoot, 'dist', 'pi', 'index.js'),
       openCode: join(packageRoot, 'dist', 'index.js'),
+      amp: join(packageRoot, 'dist', 'amp', 'cc-safety-net.ts'),
       env: packageVerificationEnv,
     });
     const overLimitRulebook = join(
@@ -313,6 +321,7 @@ function verifyInstalledProtectionJourneys(options: {
   cli: string;
   pi: string;
   openCode: string;
+  amp: string;
   env: Record<string, string | undefined>;
 }) {
   const cliSafe = runPackedCliHook(options, 'git status', 'package-cli-safe');
@@ -408,6 +417,39 @@ function verifyInstalledProtectionJourneys(options: {
   if (openCodeReset.allowed !== false || !String(openCodeReset.reason).includes('git.reset-hard')) {
     throw new Error('Packed OpenCode plugin did not block git reset --hard');
   }
+
+  const ampSafe = runPackedAmpHost(options, 'git status', 'package-amp-safe');
+  if (ampSafe.action !== 'allow') throw new Error('Packed Amp plugin blocked git status');
+
+  const ampReset = runPackedAmpHost(options, 'git reset --hard', 'package-amp-reset');
+  if (
+    ampReset.action !== 'reject-and-continue' ||
+    !String(ampReset.message).includes('git.reset-hard')
+  ) {
+    throw new Error('Packed Amp plugin did not block git reset --hard');
+  }
+}
+
+function runPackedAmpHost(
+  options: { directory: string; amp: string; env: Record<string, string | undefined> },
+  command: string,
+  threadId: string,
+) {
+  const result = run(
+    [process.execPath, '--eval', AMP_HOST_SCRIPT],
+    options.directory,
+    [0],
+    JSON.stringify({
+      artifact: options.amp,
+      workspaceRoot: options.directory,
+      command,
+      threadId,
+    }),
+    options.env,
+  );
+  if (result.stderr.length > 0)
+    throw new Error(`Packed Amp plugin wrote to stderr: ${result.stderr}`);
+  return parsePackedJson('Packed Amp plugin', result.stdout) as Record<string, unknown>;
 }
 
 function runPackedCliHook(

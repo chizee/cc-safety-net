@@ -176,6 +176,25 @@ export interface AntigravityCliHookOutput {
   reason: string;
 }
 
+/** Cursor preToolUse hook input format */
+export interface CursorHookInput {
+  conversation_id?: string;
+  hook_event_name?: string;
+  tool_name?: string;
+  tool_input?: {
+    command?: string;
+    working_directory?: string;
+    [key: string]: unknown;
+  };
+  cwd?: string;
+  workspace_roots?: string[];
+}
+
+/** Cursor preToolUse hook output format */
+export type CursorHookOutput =
+  | { permission: 'allow' }
+  | { permission: 'deny'; user_message: string; agent_message: string };
+
 /** Options for command analysis */
 export interface AnalyzeOptions {
   /** Immutable policy snapshot to evaluate. */

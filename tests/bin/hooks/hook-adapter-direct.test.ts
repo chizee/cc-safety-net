@@ -110,7 +110,7 @@ describe('hook adapter direct integration', () => {
     expect(entry.decision).toBe('deny');
   });
 
-  test('Copilot CLI hook parses toolArgs before blocking bash commands', async () => {
+  test('GitHub Copilot CLI hook parses toolArgs before blocking bash commands', async () => {
     const output = await runHookJson(runCopilotCliHook, copilotBashInput('git reset --hard'));
 
     expect(output.permissionDecision).toBe('deny');
@@ -145,7 +145,7 @@ describe('hook adapter direct integration', () => {
     });
   });
 
-  test('Copilot CLI hook fails closed for invalid toolArgs JSON', async () => {
+  test('GitHub Copilot CLI hook fails closed for invalid toolArgs JSON', async () => {
     const output = await runHookJson(runCopilotCliHook, copilotRawToolArgsInput('{'));
 
     expect(output.permissionDecision).toBe('deny');

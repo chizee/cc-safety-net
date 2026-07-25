@@ -58,6 +58,8 @@ function createReport(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
       copilotCliVersion: null,
       kimiCodeVersion: null,
       piCliVersion: null,
+      cursorVersion: null,
+      ampVersion: null,
       nodeVersion: null,
       npmVersion: null,
       bunVersion: null,

@@ -77,10 +77,12 @@ describe('doctor report verification ownership', () => {
           })),
         ).toEqual([
           { platform: 'claude-code', inspectionStatus: 'not-applicable' },
+          { platform: 'amp', inspectionStatus: 'not-applicable' },
           { platform: 'antigravity-cli', inspectionStatus: 'not-applicable' },
           { platform: 'codex', inspectionStatus: 'not-applicable' },
-          { platform: 'copilot-cli', inspectionStatus: 'not-applicable' },
+          { platform: 'cursor', inspectionStatus: 'not-applicable' },
           { platform: 'gemini-cli', inspectionStatus: 'not-applicable' },
+          { platform: 'copilot-cli', inspectionStatus: 'not-applicable' },
           { platform: 'kimi-code', inspectionStatus: 'not-applicable' },
           { platform: 'opencode', inspectionStatus: 'not-applicable' },
           { platform: 'pi', inspectionStatus: 'not-applicable' },

@@ -5,7 +5,7 @@ import {
   hasCopilotSafetyNetPlugin,
 } from '@/integrations/copilot-cli';
 
-describe('Copilot CLI installation output', () => {
+describe('GitHub Copilot CLI installation output', () => {
   test('matches complete plugin and marketplace identifiers without substring false positives', () => {
     expect(hasCopilotSafetyNetPlugin('Installed cc-safety-net@cc-marketplace (v1.0.0)')).toBeTrue();
     expect(hasCopilotSafetyNetPlugin('not-cc-safety-net@cc-marketplace-extra')).toBeFalse();

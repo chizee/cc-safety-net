@@ -204,7 +204,7 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.copilot-cli',
     category: 'Coding CLI',
     label: 'GitHub Copilot CLI credentials',
-    description: 'Blocks Copilot CLI auth config and MCP OAuth credential storage.',
+    description: 'Blocks GitHub Copilot CLI auth config and MCP OAuth credential storage.',
   },
   {
     id: 'secret.cli.kimi-code',

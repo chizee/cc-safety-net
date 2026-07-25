@@ -28,6 +28,7 @@ type HookAdapter<T> = {
   agent: string;
   getAgent?: (input: T) => string;
   outputDeny: HookDenyOutput;
+  outputAllow?: () => void;
   guardDependencies?: Partial<GuardDependencies>;
   isSupported: (input: T) => boolean;
   getToolName: (input: T) => unknown;
@@ -41,8 +42,9 @@ type HookAdapter<T> = {
   getSessionId: (input: T) => string | undefined;
 };
 
-type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny'> & {
+type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny' | 'outputAllow'> & {
   createDenyOutput: (message: string) => object;
+  createAllowOutput?: () => object;
 };
 
 type ToolInputResult = { ok: true; input: unknown; route: ToolRoute } | { ok: false };
@@ -144,7 +146,7 @@ export function resolveStandardHookContext(
   return null;
 }
 
-function outputFailedClosed(
+export function outputFailedClosed(
   outputDeny: HookDenyOutput,
   toolInput?: unknown,
   toolName?: string,
@@ -247,7 +249,11 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
       includeEvidence: true,
       toolName: evaluation.stage === 'command-analysis' ? undefined : toolName,
     });
-    if (denial) adapter.outputDeny(denial);
+    if (denial) {
+      adapter.outputDeny(denial);
+      return;
+    }
+    adapter.outputAllow?.();
   } catch (error) {
     if (!(error instanceof GuardEvaluationError)) {
       throw error;
@@ -306,11 +312,16 @@ export async function runConfiguredHookAdapter<T>(
   adapter: ConfiguredHookAdapter<T>,
 ): Promise<void> {
   const outputDeny: HookDenyOutput = (denial) => outputHookDeny(adapter.createDenyOutput, denial);
+  const createAllowOutput = adapter.createAllowOutput;
+  const outputAllow = createAllowOutput
+    ? () => console.log(JSON.stringify(createAllowOutput()))
+    : undefined;
 
   await runHookAdapter<T>({
     agent: adapter.agent,
     getAgent: adapter.getAgent,
     outputDeny,
+    outputAllow,
     guardDependencies: adapter.guardDependencies,
     isSupported: adapter.isSupported,
     getToolName: adapter.getToolName,

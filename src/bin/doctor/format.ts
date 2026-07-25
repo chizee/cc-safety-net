@@ -474,10 +474,12 @@ function formatSystemInfoTable(system: SystemInfo): string {
   const rowData = [
     { label: 'cc-safety-net', value: system.version },
     { label: 'Claude Code', value: system.claudeCodeVersion },
+    { label: 'Amp Code', value: system.ampVersion },
     { label: 'Antigravity CLI', value: system.antigravityCliVersion },
     { label: 'Codex', value: system.codexCliVersion },
-    { label: 'Copilot CLI', value: system.copilotCliVersion },
+    { label: 'Cursor', value: system.cursorVersion },
     { label: 'Gemini CLI', value: system.geminiCliVersion },
+    { label: 'GitHub Copilot CLI', value: system.copilotCliVersion },
     { label: 'Kimi Code', value: system.kimiCodeVersion },
     { label: 'OpenCode', value: system.openCodeVersion },
     { label: 'Pi', value: system.piCliVersion },

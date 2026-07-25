@@ -160,7 +160,7 @@ describe('getSystemInfo', () => {
     expect(sysInfo.bunVersion).toBe('1.0.0');
   });
 
-  test('includes Copilot CLI version with mock fetcher', async () => {
+  test('includes GitHub Copilot CLI version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.copilotCliVersion).toBe('1.0.9');
   });

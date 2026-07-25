@@ -3,12 +3,15 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildAmpArtifactHeader } from '@/amp/index';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import { detectAllHooks } from '@/bin/doctor/hooks';
+import { getPackageVersion } from '@/bin/doctor/system-info';
 import type { HookStatus } from '@/bin/doctor/types';
+import { getAmpPluginPath } from '@/bin/hook/install/amp';
 import { withEnv } from '../../helpers.ts';
 
 function expectHookState(
@@ -181,10 +184,12 @@ describe('detectAllHooks', () => {
     try {
       expect(detectAllHooks(projectDir, { homeDir }).map((hook) => hook.platform)).toEqual([
         'claude-code',
+        'amp',
         'antigravity-cli',
         'codex',
-        'copilot-cli',
+        'cursor',
         'gemini-cli',
+        'copilot-cli',
         'kimi-code',
         'opencode',
         'pi',
@@ -321,6 +326,248 @@ describe('detectAllHooks', () => {
           error.includes('Failed to parse Antigravity hooks config'),
         ),
       ).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  function _writeCursorHooks(homeDir: string, config: unknown): string {
+    const configPath = join(homeDir, '.cursor', 'hooks.json');
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return configPath;
+  }
+
+  function _findCursor(homeDir: string, projectDir: string): HookStatus | undefined {
+    return detectAllHooks(projectDir, { homeDir }).find((hook) => hook.platform === 'cursor');
+  }
+
+  test('Cursor: n/a when hooks.json is missing', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'n/a');
+      expect(cursor?.inspectionStatus).toBe('not-applicable');
+      expect(cursor?.configPath).toBe(join(homeDir, '.cursor', 'hooks.json'));
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Cursor: configured with no drift for canonical managed entry', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeCursorHooks(homeDir, {
+      version: 1,
+      hooks: {
+        preToolUse: [
+          { command: 'npx -y cc-safety-net hook --cursor', timeout: 30, failClosed: true },
+        ],
+      },
+    });
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'configured');
+      expect(cursor?.method).toBe('hook config');
+      expect(cursor?.configPath).toBe(configPath);
+      expect(cursor?.errors).toBeUndefined();
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Cursor: configured with drift warning when failClosed is missing', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    _writeCursorHooks(homeDir, {
+      version: 1,
+      hooks: {
+        preToolUse: [{ command: 'npx -y cc-safety-net hook --cursor', timeout: 30 }],
+      },
+    });
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'configured');
+      expect(cursor?.errors?.some((error) => error.includes('failClosed'))).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Cursor: configured with drift warning for duplicate managed entries', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    _writeCursorHooks(homeDir, {
+      version: 1,
+      hooks: {
+        preToolUse: [
+          { command: 'npx -y cc-safety-net hook --cursor', timeout: 30, failClosed: true },
+          { command: 'npx -y cc-safety-net hook --cursor', timeout: 30, failClosed: true },
+        ],
+      },
+    });
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'configured');
+      expect(cursor?.errors?.some((error) => error.includes('Multiple'))).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Cursor: n/a with error when hooks.json is malformed', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    const configPath = join(homeDir, '.cursor', 'hooks.json');
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(configPath, '{ invalid json');
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'n/a');
+      expect(cursor?.inspectionStatus).toBe('failed');
+      expect(cursor?.configPath).toBe(configPath);
+      expect(
+        cursor?.errors?.some((error) => error.includes('Failed to parse Cursor hooks config')),
+      ).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Cursor: n/a when config has no managed command', () => {
+    const tmpBase = join(tmpdir(), `doctor-cursor-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    _writeCursorHooks(homeDir, {
+      version: 1,
+      hooks: { preToolUse: [{ command: 'some-other-tool' }] },
+    });
+
+    try {
+      const cursor = _findCursor(homeDir, projectDir);
+      expectHookState(cursor, 'n/a');
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  function _writeAmpPlugin(homeDir: string, content: string): string {
+    const configPath = getAmpPluginPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, content);
+    return configPath;
+  }
+
+  function _findAmp(homeDir: string, projectDir: string): HookStatus | undefined {
+    return detectAllHooks(projectDir, { homeDir }).find((hook) => hook.platform === 'amp');
+  }
+
+  test('Amp: n/a when the plugin file is missing', () => {
+    const tmpBase = join(tmpdir(), `doctor-amp-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+
+    try {
+      const amp = _findAmp(homeDir, projectDir);
+      expectHookState(amp, 'n/a');
+      expect(amp?.inspectionStatus).toBe('not-applicable');
+      expect(amp?.configPath).toBe(getAmpPluginPath(homeDir));
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Amp: configured with no drift for the current managed artifact', () => {
+    const tmpBase = join(tmpdir(), `doctor-amp-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeAmpPlugin(
+      homeDir,
+      `${buildAmpArtifactHeader(getPackageVersion())}export default function () {}\n`,
+    );
+
+    try {
+      const amp = _findAmp(homeDir, projectDir);
+      expectHookState(amp, 'configured');
+      expect(amp?.method).toBe('plugin file');
+      expect(amp?.configPath).toBe(configPath);
+      expect(amp?.errors).toBeUndefined();
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Amp: configured with a drift note for an outdated managed artifact', () => {
+    const tmpBase = join(tmpdir(), `doctor-amp-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    _writeAmpPlugin(homeDir, `${buildAmpArtifactHeader('0.0.1')}export default function () {}\n`);
+
+    try {
+      const amp = _findAmp(homeDir, projectDir);
+      expectHookState(amp, 'configured');
+      expect(amp?.errors?.some((error) => error.includes('outdated'))).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Amp: error for an unmarked file at the plugin path', () => {
+    const tmpBase = join(tmpdir(), `doctor-amp-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = _writeAmpPlugin(homeDir, 'export default 1;\n');
+
+    try {
+      const amp = _findAmp(homeDir, projectDir);
+      expectHookState(amp, 'n/a');
+      expect(amp?.inspectionStatus).toBe('failed');
+      expect(amp?.configPath).toBe(configPath);
+      expect(amp?.errors?.some((error) => error.includes('Unmanaged file'))).toBe(true);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test('Amp: error when the plugin path is a symlink', () => {
+    const tmpBase = join(tmpdir(), `doctor-amp-${Date.now()}`);
+    const homeDir = join(tmpBase, 'home');
+    const projectDir = join(tmpBase, 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const configPath = getAmpPluginPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    const target = join(homeDir, 'real-plugin.ts');
+    writeFileSync(target, `${buildAmpArtifactHeader('1.0.0')}export default function () {}\n`);
+    symlinkSync(target, configPath);
+
+    try {
+      const amp = _findAmp(homeDir, projectDir);
+      expectHookState(amp, 'n/a');
+      expect(amp?.inspectionStatus).toBe('failed');
+      expect(amp?.errors?.some((error) => error.includes('symlink'))).toBe(true);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -1040,7 +1287,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from local project hook config', () => {
+  test('GitHub Copilot CLI: configured from local project hook config', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1061,7 +1308,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from installed plugin list without hook config', () => {
+  test('GitHub Copilot CLI: configured from installed plugin list without hook config', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1082,7 +1329,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: accepts commented managed config when configured from installed plugin list', () => {
+  test('GitHub Copilot CLI: accepts commented managed config when configured from installed plugin list', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1121,7 +1368,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: installed plugin list overrides legacy hook config as configured signal', () => {
+  test('GitHub Copilot CLI: installed plugin list overrides legacy hook config as configured signal', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1144,7 +1391,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: disableAllHooks still overrides installed plugin list', () => {
+  test('GitHub Copilot CLI: disableAllHooks still overrides installed plugin list', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1170,7 +1417,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from global hook config', () => {
+  test('GitHub Copilot CLI: configured from global hook config', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1191,7 +1438,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores global hook config on unsupported versions', () => {
+  test('GitHub Copilot CLI: ignores global hook config on unsupported versions', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1214,7 +1461,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: unsupported user hook warning uses resolved COPILOT_HOME hooks path', () => {
+  test('GitHub Copilot CLI: unsupported user hook warning uses resolved COPILOT_HOME hooks path', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const customCopilotHome = join(tmpBase, 'custom-copilot');
@@ -1244,7 +1491,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores malformed global hook config on unsupported versions', () => {
+  test('GitHub Copilot CLI: ignores malformed global hook config on unsupported versions', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1269,7 +1516,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: does not warn about unsupported user hook files when none configure CC Safety Net', () => {
+  test('GitHub Copilot CLI: does not warn about unsupported user hook files when none configure CC Safety Net', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1291,7 +1538,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: reports repo and global hook configs together', () => {
+  test('GitHub Copilot CLI: reports repo and global hook configs together', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1317,7 +1564,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: continues checking files after parse errors', () => {
+  test('GitHub Copilot CLI: continues checking files after parse errors', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1339,7 +1586,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores non-CC Safety Net preToolUse hooks', () => {
+  test('GitHub Copilot CLI: ignores non-CC Safety Net preToolUse hooks', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1359,7 +1606,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: supports powershell hook commands', () => {
+  test('GitHub Copilot CLI: supports powershell hook commands', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1383,7 +1630,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: reports parse errors when all hook files are invalid', () => {
+  test('GitHub Copilot CLI: reports parse errors when all hook files are invalid', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1405,7 +1652,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: supports the nested short -cp flag', () => {
+  test('GitHub Copilot CLI: supports the nested short -cp flag', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1425,7 +1672,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores old top-level -cp flag', () => {
+  test('GitHub Copilot CLI: ignores old top-level -cp flag', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1445,7 +1692,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from global config.json inline hooks', () => {
+  test('GitHub Copilot CLI: configured from global config.json inline hooks', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1466,7 +1713,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores global config.json inline hooks on unsupported versions', () => {
+  test('GitHub Copilot CLI: ignores global config.json inline hooks on unsupported versions', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1488,7 +1735,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: supports global config.json inline hooks at the minimum supported version', () => {
+  test('GitHub Copilot CLI: supports global config.json inline hooks at the minimum supported version', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1509,7 +1756,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from repository settings.json inline hooks', () => {
+  test('GitHub Copilot CLI: configured from repository settings.json inline hooks', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1530,7 +1777,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: configured from repository settings.local.json inline hooks', () => {
+  test('GitHub Copilot CLI: configured from repository settings.local.json inline hooks', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1551,7 +1798,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: user disableAllHooks reports disabled', () => {
+  test('GitHub Copilot CLI: user disableAllHooks reports disabled', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1575,7 +1822,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: unknown version still honors inline disableAllHooks over repo hook files', () => {
+  test('GitHub Copilot CLI: unknown version still honors inline disableAllHooks over repo hook files', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1600,7 +1847,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: repository settings can override user disableAllHooks', () => {
+  test('GitHub Copilot CLI: repository settings can override user disableAllHooks', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1624,7 +1871,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: settings.local disableAllHooks overrides broader configs', () => {
+  test('GitHub Copilot CLI: settings.local disableAllHooks overrides broader configs', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1651,7 +1898,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: honors COPILOT_HOME for user config discovery', () => {
+  test('GitHub Copilot CLI: honors COPILOT_HOME for user config discovery', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const customCopilotHome = join(tmpBase, 'custom-copilot');
@@ -1674,7 +1921,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: warns when version is unavailable for gated sources', () => {
+  test('GitHub Copilot CLI: warns when version is unavailable for gated sources', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1688,15 +1935,15 @@ describe('detectAllHooks', () => {
       const copilot = hooks.find((hook) => hook.platform === 'copilot-cli');
 
       expectHookState(copilot, 'n/a');
-      expect(copilot?.errors?.some((e) => e.includes('Copilot CLI version unavailable'))).toBe(
-        true,
-      );
+      expect(
+        copilot?.errors?.some((e) => e.includes('GitHub Copilot CLI version unavailable')),
+      ).toBe(true);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
   });
 
-  test('Copilot CLI: does not warn about unsupported inline hooks when none configure CC Safety Net', () => {
+  test('GitHub Copilot CLI: does not warn about unsupported inline hooks when none configure CC Safety Net', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1718,7 +1965,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores malformed inline config on unsupported versions', () => {
+  test('GitHub Copilot CLI: ignores malformed inline config on unsupported versions', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1743,7 +1990,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: ignores malformed inline config when version is unavailable', () => {
+  test('GitHub Copilot CLI: ignores malformed inline config when version is unavailable', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1761,15 +2008,16 @@ describe('detectAllHooks', () => {
         false,
       );
       expect(
-        copilot?.errors?.some((error) => error.includes('Copilot CLI version unavailable')) ??
-          false,
+        copilot?.errors?.some((error) =>
+          error.includes('GitHub Copilot CLI version unavailable'),
+        ) ?? false,
       ).toBe(false);
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
   });
 
-  test('Copilot CLI: continues after inline config parse errors', () => {
+  test('GitHub Copilot CLI: continues after inline config parse errors', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');
@@ -1793,7 +2041,7 @@ describe('detectAllHooks', () => {
     }
   });
 
-  test('Copilot CLI: reports an error when the repository hooks path is not a directory', () => {
+  test('GitHub Copilot CLI: reports an error when the repository hooks path is not a directory', () => {
     const tmpBase = join(tmpdir(), `doctor-copilot-${Date.now()}`);
     const homeDir = join(tmpBase, 'home');
     const projectDir = join(tmpBase, 'project');

@@ -160,12 +160,16 @@ export interface SystemInfo {
   geminiCliVersion: string | null;
   /** Gemini CLI extension list output (from `gemini extensions list`) */
   geminiExtensionsListOutput: string | null;
-  /** Copilot CLI version (from `copilot --binary-version`, falling back to `copilot --version`) */
+  /** GitHub Copilot CLI version (from `copilot --binary-version`, falling back to `copilot --version`) */
   copilotCliVersion: string | null;
   /** Kimi Code version (from `kimi --version`) */
   kimiCodeVersion: string | null;
   /** Pi CLI version (from `pi --version`) */
   piCliVersion: string | null;
+  /** Cursor version (from `cursor --version`) */
+  cursorVersion: string | null;
+  /** Amp Code version (from `amp --version`) */
+  ampVersion: string | null;
   /** Node.js version (from `node --version`) */
   nodeVersion: string | null;
   /** npm version (from `npm --version`) */

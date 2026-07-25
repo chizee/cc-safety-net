@@ -50,8 +50,9 @@ type KeyPress = {
   ctrl?: boolean;
 };
 
-const PROBE_TIMEOUT_MS = 2000;
-const ASYNC_PROBE_TIMEOUT_MS = 1000;
+// All targets probe in parallel, so a slow CLI (Electron-backed Cursor, or a Node CLI under
+// contention) must not be misreported as missing. Absent binaries still fail fast on spawn error.
+const PROBE_TIMEOUT_MS = 5000;
 
 function titleCaseAction(action: InstallAction): string {
   return action === 'install' ? 'Install' : 'Uninstall';
@@ -129,7 +130,7 @@ function defaultAsyncInstallTargetProbe(command: NativeCommand): Promise<boolean
     const timeoutId = setTimeout(() => {
       proc.kill();
       finish(false);
-    }, ASYNC_PROBE_TIMEOUT_MS);
+    }, PROBE_TIMEOUT_MS);
 
     proc.on('error', () => finish(false));
     proc.on('close', (code) => finish(code === 0));

@@ -1586,9 +1586,11 @@ describe('policy GUI server', () => {
       const status = await fetchIntegrations({ fetcher: mockVersionFetcher, homeDir });
 
       expect(status.targets.map((target) => target.target)).toEqual([
+        'amp',
         'antigravity-cli',
         'claude-code',
         'codex',
+        'cursor',
         'gemini-cli',
         'copilot-cli',
         'kimi-code',
@@ -1607,6 +1609,8 @@ describe('policy GUI server', () => {
         'kimi-code': '0.3.0',
         opencode: '0.1.0',
         pi: '0.4.0',
+        cursor: null,
+        amp: null,
       });
       const statuses = Object.fromEntries(
         status.targets.map((target) => [target.target, target.status]),

@@ -42,6 +42,35 @@ if (request.kind === 'registration') {
 `;
 
 /** @internal */
+export const AMP_HOST_SCRIPT = `
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const request = JSON.parse(input);
+const plugin = (await import(pathToFileURL(request.artifact).href)).default;
+let handler;
+const amp = {
+  system: { workspaceRoot: pathToFileURL(request.workspaceRoot).href },
+  helpers: {
+    filePathFromURI: (uri) => fileURLToPath(uri),
+    shellCommandFromToolCall: (event) =>
+      event.tool === 'Bash' ? { command: event.input.command } : null,
+  },
+  on: (name, registered) => {
+    if (name === 'tool.call') handler = registered;
+  },
+};
+plugin(amp);
+const result = await handler({
+  tool: 'Bash',
+  input: { command: request.command },
+  thread: { id: request.threadId },
+});
+process.stdout.write(JSON.stringify(result));
+`;
+
+/** @internal */
 export const OPENCODE_HOST_SCRIPT = `
 import { pathToFileURL } from 'node:url';
 

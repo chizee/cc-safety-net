@@ -65,7 +65,18 @@ function createPromptStreams() {
 
 function writeFakeInstallProbeBinaries(binDir: string) {
   mkdirSync(binDir);
-  ['codex', 'claude', 'agy', 'gemini', 'copilot', 'kimi', 'opencode', 'pi'].forEach((command) => {
+  [
+    'codex',
+    'claude',
+    'agy',
+    'gemini',
+    'copilot',
+    'kimi',
+    'opencode',
+    'pi',
+    'cursor',
+    'amp',
+  ].forEach((command) => {
     const installed = command === 'codex' || command === 'gemini';
     symlinkSync(installed ? '/usr/bin/true' : '/usr/bin/false', join(binDir, command));
   });
@@ -207,9 +218,11 @@ describe('install target availability', () => {
       const choices = buildInstallTargetChoices();
 
       expect(choices.map((choice) => choice.target)).toEqual([
+        'amp',
         'antigravity-cli',
         'claude-code',
         'codex',
+        'cursor',
         'gemini-cli',
         'copilot-cli',
         'kimi-code',
@@ -269,8 +282,10 @@ describe('install target availability', () => {
     });
 
     expectAvailableTargets(choices, [
+      'amp',
       'antigravity-cli',
       'claude-code',
+      'cursor',
       'gemini-cli',
       'copilot-cli',
       'opencode',
@@ -454,15 +469,17 @@ describe('interactive install dispatch', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.events).toEqual([
+        'probe:amp',
         'probe:agy',
         'probe:claude',
         'probe:codex',
+        'probe:cursor',
         'probe:gemini',
         'probe:copilot',
         'probe:kimi',
         'probe:opencode',
         'probe:pi',
-        'select:8',
+        'select:10',
       ]);
     });
   });
@@ -472,7 +489,7 @@ describe('interactive install dispatch', () => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: ['kimi-code'] });
 
       expect(result.exitCode).toBe(0);
-      expect(result.events.at(-1)).toBe('select:8');
+      expect(result.events.at(-1)).toBe('select:10');
     });
   });
 

@@ -2,12 +2,16 @@
  * Hook discovery and configuration inspection for the doctor command.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { AMP_MANAGED_HEADER } from '@/amp/index';
 import { stripJsonComments } from '@/bin/config/jsonc';
+import { getPackageVersion } from '@/bin/doctor/system-info';
 import type { HookPlatform, HookStatus, PiProbeInfo } from '@/bin/doctor/types';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
+import { getAmpPluginPath } from '@/bin/hook/install/amp';
+import { CURSOR_HOOK_COMMAND, getCursorHooksPath } from '@/bin/hook/install/cursor';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { doctorIntegrationOrder } from '@/integrations/catalog';
 
@@ -573,13 +577,13 @@ function _warnOnUnsupportedCopilotSource(
 ): void {
   if (version) {
     errors.push(
-      `Copilot CLI ${version} does not support ${sourceDescription}; requires ${requiredVersion}+`,
+      `GitHub Copilot CLI ${version} does not support ${sourceDescription}; requires ${requiredVersion}+`,
     );
     return;
   }
 
   errors.push(
-    `Copilot CLI version unavailable; skipping ${sourceDescription} because it requires ${requiredVersion}+`,
+    `GitHub Copilot CLI version unavailable; skipping ${sourceDescription} because it requires ${requiredVersion}+`,
   );
 }
 
@@ -603,7 +607,7 @@ function _resolveCopilotInlineDisableSource(inlineSources: {
 }
 
 /**
- * Check if Copilot CLI hooks are enabled via supported repository, user, and inline config sources.
+ * Check if GitHub Copilot CLI hooks are enabled via supported repository, user, and inline config sources.
  */
 function _checkCopilotEnabled(
   homeDir: string,
@@ -631,7 +635,7 @@ function _checkCopilotEnabled(
     if (disableSource) {
       if (inlineSupport === null) {
         errors.push(
-          `Copilot CLI version unavailable; treating disableAllHooks in ${disableSource} as active`,
+          `GitHub Copilot CLI version unavailable; treating disableAllHooks in ${disableSource} as active`,
         );
       }
       return { activeConfigPaths: [], disabledBy: disableSource };
@@ -697,6 +701,133 @@ function _checkCopilotEnabled(
   };
 }
 
+function _findCursorManagedEntries(config: unknown): Array<Record<string, unknown>> {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const hooks = (config as Record<string, unknown>).hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
+  const preToolUse = (hooks as Record<string, unknown>).preToolUse;
+  if (!Array.isArray(preToolUse)) return [];
+
+  return preToolUse.filter(
+    (entry): entry is Record<string, unknown> =>
+      !!entry &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      (entry as Record<string, unknown>).command === CURSOR_HOOK_COMMAND,
+  );
+}
+
+function _cursorDriftErrors(entries: Array<Record<string, unknown>>): string[] {
+  const errors: string[] = [];
+  if (entries.length > 1) {
+    errors.push('Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates');
+  }
+  const entry = entries[0];
+  if (entry && entry.failClosed !== true) {
+    errors.push('Managed hook is missing "failClosed": true; reinstall to repair');
+  }
+  if (entry && entry.timeout !== 30) {
+    errors.push('Managed hook "timeout" is not 30; reinstall to repair');
+  }
+  return errors;
+}
+
+function detectCursor(homeDir: string): HookDetection {
+  const configPath = getCursorHooksPath(homeDir);
+
+  if (!existsSync(configPath)) {
+    return { platform: 'cursor', status: 'n/a', configPath };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, 'utf-8'));
+  } catch (e) {
+    return {
+      platform: 'cursor',
+      status: 'n/a',
+      configPath,
+      errors: [
+        `Failed to parse Cursor hooks config ${configPath}: ${e instanceof Error ? e.message : String(e)}`,
+      ],
+    };
+  }
+
+  const entries = _findCursorManagedEntries(parsed);
+  if (entries.length === 0) {
+    return { platform: 'cursor', status: 'n/a', configPath };
+  }
+
+  const errors = _cursorDriftErrors(entries);
+  return {
+    platform: 'cursor',
+    status: 'configured',
+    method: 'hook config',
+    configPath,
+    errors: errors.length > 0 ? errors : undefined,
+  };
+}
+
+function _ampArtifactVersion(content: string): string | undefined {
+  return /^\/\/ version:\s*(.+)$/m.exec(content)?.[1]?.trim();
+}
+
+function detectAmp(homeDir: string): HookDetection {
+  const configPath = getAmpPluginPath(homeDir);
+
+  const info = (() => {
+    try {
+      return lstatSync(configPath);
+    } catch {
+      return undefined;
+    }
+  })();
+  if (!info) return { platform: 'amp', status: 'n/a', configPath };
+
+  if (info.isSymbolicLink() || !info.isFile()) {
+    return {
+      platform: 'amp',
+      status: 'n/a',
+      configPath,
+      errors: [
+        `${configPath} is a symlink or not a regular file; move or remove it before installing`,
+      ],
+    };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(configPath, 'utf-8');
+  } catch (e) {
+    return {
+      platform: 'amp',
+      status: 'n/a',
+      configPath,
+      errors: [`Failed to read ${configPath}: ${e instanceof Error ? e.message : String(e)}`],
+    };
+  }
+
+  if (!content.startsWith(AMP_MANAGED_HEADER)) {
+    return {
+      platform: 'amp',
+      status: 'n/a',
+      configPath,
+      errors: [`Unmanaged file occupies ${configPath}; move or remove it before installing`],
+    };
+  }
+
+  const outdated = _ampArtifactVersion(content) !== getPackageVersion();
+  return {
+    platform: 'amp',
+    status: 'configured',
+    method: 'plugin file',
+    configPath,
+    errors: outdated
+      ? ['Installed Amp plugin is outdated; run install --amp to update']
+      : undefined,
+  };
+}
+
 /**
  * Detect all hooks and inspect their configuration.
  */
@@ -757,6 +888,10 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
           return detectPi(options?.piSafetyNetProbe, homeDir);
         case 'codex':
           return detectCodex(options?.codexPluginListOutput);
+        case 'cursor':
+          return detectCursor(homeDir);
+        case 'amp':
+          return detectAmp(homeDir);
       }
       return platform satisfies never;
     })();

@@ -1,7 +1,13 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
+import { isBuiltin } from 'node:module';
 import { posix, relative, resolve } from 'node:path';
+import pkg from '../package.json';
+import { AMP_MANAGED_HEADER } from '../src/amp/index';
+
+export const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
 
 export const BUILD_ENTRY_ARTIFACTS = [
+  AMP_ARTIFACT,
   'dist/bin/cc-safety-net.js',
   'dist/index.d.ts',
   'dist/index.js',
@@ -20,6 +26,26 @@ export function hasUnresolvedShellQuoteImport(source: string): boolean {
   return /(?:\bfrom\s+|\bimport\s*(?:\(\s*)?|\brequire\w*\(\s*)['"]shell-quote(?:\/[^'"]*)?['"]/.test(
     source,
   );
+}
+
+// Every module specifier the source actually imports or requires at runtime.
+// Only import (`from "x"`), dynamic import (`import("x")`), and require (`require("x")`)
+// positions are matched, so the word "import" appearing inside a string literal is ignored.
+export function getRuntimeImportSpecifiers(source: string): string[] {
+  return [
+    ...source.matchAll(/(?:\bfrom\s*["']|\bimport\s*\(\s*["']|\brequire\w*\(\s*["'])([^"']+)["']/g),
+  ]
+    .map((match) => match[1])
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+// A self-contained artifact may only import Node built-ins; any other specifier
+// (zod, a repository `@/` alias, a shared `./chunks/` file, `@ampcode/plugin`) means
+// a runtime dependency leaked into the bundle.
+export function unbundledRuntimeImports(source: string): string[] {
+  return [
+    ...new Set(getRuntimeImportSpecifiers(source).filter((specifier) => !isBuiltin(specifier))),
+  ];
 }
 
 async function listFiles(directory: string): Promise<string[]> {
@@ -111,5 +137,19 @@ export async function verifyBuildArtifacts(): Promise<string[]> {
       `Build artifacts contain unresolved shell-quote imports:\n${unresolvedShellQuoteImports.join('\n')}`,
     );
   }
+  await verifyAmpArtifact(await readFile(AMP_ARTIFACT, 'utf8'));
   return files;
+}
+
+export function verifyAmpArtifact(source: string): void {
+  if (!source.startsWith(AMP_MANAGED_HEADER)) {
+    throw new Error('Amp artifact is missing the managed-file header');
+  }
+  if (!source.includes(`// version: ${pkg.version}`)) {
+    throw new Error(`Amp artifact is missing the package version ${pkg.version}`);
+  }
+  const unresolved = unbundledRuntimeImports(source);
+  if (unresolved.length > 0) {
+    throw new Error(`Amp artifact has unresolved runtime imports:\n${unresolved.join('\n')}`);
+  }
 }

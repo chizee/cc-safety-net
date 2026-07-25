@@ -1,6 +1,7 @@
 import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook } from '@/bin/hook/claude-code';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
+import { runCursorHook } from '@/bin/hook/cursor';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 import {
@@ -22,6 +23,7 @@ const hookRunners = {
   'antigravity-cli': runAntigravityCliHook,
   'claude-code': runClaudeCodeHook,
   'copilot-cli': runCopilotCliHook,
+  cursor: runCursorHook,
   'gemini-cli': runGeminiCLIHook,
   'kimi-code': runKimiCodeHook,
 } satisfies Record<RuntimeHookIntegrationId, () => Promise<void>>;

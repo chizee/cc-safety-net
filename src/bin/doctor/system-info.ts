@@ -15,7 +15,9 @@ import { hasCopilotSafetyNetPlugin } from '@/integrations/copilot-cli';
 declare const __PKG_VERSION__: string | undefined;
 
 const CURRENT_VERSION = typeof __PKG_VERSION__ !== 'undefined' ? __PKG_VERSION__ : 'dev';
-const VERSION_FETCH_TIMEOUT_MS = 2000;
+// Matches PI_PROBE_TIMEOUT_MS so it does not widen the worst case: these probes all race in one
+// Promise.all, and Electron-backed CLIs (Cursor) can exceed 2s while 18 probes contend.
+const VERSION_FETCH_TIMEOUT_MS = 5000;
 const PI_PROBE_TIMEOUT_MS = 5000;
 const PI_SENTINEL_COMMAND = 'cc-safety-net';
 const PI_PROBE_COMMAND = '__cc_safety_net_probe';
@@ -467,6 +469,8 @@ export async function getSystemInfo(
     copilotRaw,
     kimiRaw,
     piRaw,
+    cursorRaw,
+    ampRaw,
     nodeRaw,
     npmRaw,
     bunRaw,
@@ -484,6 +488,8 @@ export async function getSystemInfo(
     fetchCopilotVersion(),
     fetcher(['kimi', '--version']),
     piRawPromise,
+    fetcher(['cursor', '--version']),
+    fetcher(['amp', '--version']),
     fetcher(['node', '--version']),
     fetcher(['npm', '--version']),
     fetcher(['bun', '--version']),
@@ -504,6 +510,8 @@ export async function getSystemInfo(
     copilotCliVersion: parseVersion(copilotRaw),
     kimiCodeVersion: parseVersion(kimiRaw),
     piCliVersion: parseVersion(piRaw),
+    cursorVersion: parseVersion(cursorRaw),
+    ampVersion: parseVersion(ampRaw),
     nodeVersion: parseVersion(nodeRaw),
     npmVersion: parseVersion(npmRaw),
     bunVersion: parseVersion(bunRaw),

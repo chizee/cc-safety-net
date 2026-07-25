@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { getAntigravityCliToolRoute } from '@/bin/hook/antigravity-cli';
 import { getClaudeCodeToolRoute } from '@/bin/hook/claude-code';
 import { getCopilotCliToolRoute } from '@/bin/hook/copilot-cli';
+import { getCursorToolRoute } from '@/bin/hook/cursor';
 import { getGeminiCliToolRoute } from '@/bin/hook/gemini-cli';
 import { getKimiCodeToolRoute } from '@/bin/hook/kimi-code';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
@@ -86,6 +87,20 @@ describe('hook command routing', () => {
       { kind: 'path' },
       { kind: 'glob' },
       { kind: 'path' },
+    ]);
+  });
+
+  test('Cursor adapter routes Shell to auto shell and file tools to protections', () => {
+    expect([
+      getCursorToolRoute('Shell'),
+      getCursorToolRoute('shell'),
+      getCursorToolRoute('Read'),
+      getCursorToolRoute('apply_patch'),
+    ]).toEqual([
+      { kind: 'command', shell: 'auto' },
+      { kind: 'unknown' },
+      { kind: 'path' },
+      { kind: 'patch' },
     ]);
   });
 

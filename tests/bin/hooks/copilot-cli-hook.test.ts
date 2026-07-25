@@ -18,7 +18,7 @@ async function expectDeny(input: object | string, reason: string) {
   expect(getHookDenyReason(result, 'copilot-cli')).toContain(reason);
 }
 
-describe('Copilot CLI hook', () => {
+describe('GitHub Copilot CLI hook', () => {
   describe('blocked commands', () => {
     test('blocks rm -rf via bash tool', async () => {
       const { stdout, exitCode } = await runCopilotHook(copilotBashInput('rm -rf /'));

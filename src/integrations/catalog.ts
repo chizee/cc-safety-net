@@ -26,7 +26,7 @@ const catalog = [
   {
     id: 'antigravity-cli',
     displayName: 'Antigravity CLI',
-    doctorOrder: 2,
+    doctorOrder: 3,
     runtime: {
       order: 1,
       flags: ['-ac', '--agy-cli'],
@@ -34,7 +34,7 @@ const catalog = [
       legacyTopLevelFlags: [],
     },
     install: {
-      order: 1,
+      order: 2,
       flag: '--agy-cli',
       installLabel: 'Antigravity CLI',
       probeCommand: ['agy', '--version'],
@@ -53,7 +53,7 @@ const catalog = [
       legacyTopLevelFlags: ['-cc', '--claude-code'],
     },
     install: {
-      order: 2,
+      order: 3,
       flag: '--claude-code',
       installLabel: 'Claude Code',
       probeCommand: ['claude', '--version'],
@@ -62,9 +62,9 @@ const catalog = [
   {
     id: 'codex',
     displayName: 'Codex',
-    doctorOrder: 3,
+    doctorOrder: 4,
     install: {
-      order: 3,
+      order: 4,
       flag: '--codex',
       installLabel: 'Codex',
       probeCommand: ['codex', '--version'],
@@ -72,16 +72,16 @@ const catalog = [
   },
   {
     id: 'copilot-cli',
-    displayName: 'Copilot CLI',
-    doctorOrder: 4,
+    displayName: 'GitHub Copilot CLI',
+    doctorOrder: 7,
     runtime: {
-      order: 3,
+      order: 5,
       flags: ['-cp', '--copilot-cli'],
-      description: 'Run as Copilot CLI PreToolUse hook',
+      description: 'Run as GitHub Copilot CLI PreToolUse hook',
       legacyTopLevelFlags: ['-cp', '--copilot-cli'],
     },
     install: {
-      order: 5,
+      order: 7,
       flag: '--copilot-cli',
       installLabel: 'GitHub Copilot CLI',
       probeCommand: ['copilot', '--binary-version'],
@@ -90,7 +90,7 @@ const catalog = [
   {
     id: 'gemini-cli',
     displayName: 'Gemini CLI',
-    doctorOrder: 5,
+    doctorOrder: 6,
     runtime: {
       order: 4,
       flags: ['-gc', '--gemini-cli'],
@@ -98,7 +98,7 @@ const catalog = [
       legacyTopLevelFlags: ['-gc', '--gemini-cli'],
     },
     install: {
-      order: 4,
+      order: 6,
       flag: '--gemini-cli',
       installLabel: 'Gemini CLI',
       probeCommand: ['gemini', '--version'],
@@ -107,15 +107,15 @@ const catalog = [
   {
     id: 'kimi-code',
     displayName: 'Kimi Code',
-    doctorOrder: 6,
+    doctorOrder: 8,
     runtime: {
-      order: 5,
+      order: 6,
       flags: ['-kc', '--kimi-code'],
       description: 'Run as Kimi Code PreToolUse hook',
       legacyTopLevelFlags: [],
     },
     install: {
-      order: 6,
+      order: 8,
       flag: '--kimi-code',
       installLabel: 'Kimi Code',
       probeCommand: ['kimi', '--version'],
@@ -124,9 +124,9 @@ const catalog = [
   {
     id: 'opencode',
     displayName: 'OpenCode',
-    doctorOrder: 7,
+    doctorOrder: 9,
     install: {
-      order: 7,
+      order: 9,
       flag: '--opencode',
       installLabel: 'OpenCode',
       probeCommand: ['opencode', '--version'],
@@ -135,12 +135,40 @@ const catalog = [
   {
     id: 'pi',
     displayName: 'Pi',
-    doctorOrder: 8,
+    doctorOrder: 10,
     install: {
-      order: 8,
+      order: 10,
       flag: '--pi',
       installLabel: 'Pi',
       probeCommand: ['pi', '--version'],
+    },
+  },
+  {
+    id: 'cursor',
+    displayName: 'Cursor',
+    doctorOrder: 5,
+    runtime: {
+      order: 3,
+      flags: ['-cu', '--cursor'],
+      description: 'Run as Cursor preToolUse hook',
+      legacyTopLevelFlags: [],
+    },
+    install: {
+      order: 5,
+      flag: '--cursor',
+      installLabel: 'Cursor',
+      probeCommand: ['cursor', '--version'],
+    },
+  },
+  {
+    id: 'amp',
+    displayName: 'Amp Code',
+    doctorOrder: 2,
+    install: {
+      order: 1,
+      flag: '--amp',
+      installLabel: 'Amp Code',
+      probeCommand: ['amp', '--version'],
     },
   },
 ] as const satisfies readonly IntegrationCatalogEntry[];

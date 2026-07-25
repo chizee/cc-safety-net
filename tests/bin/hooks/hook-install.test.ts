@@ -1,9 +1,33 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { buildAmpArtifactHeader } from '@/amp/index';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
+import {
+  ampArtifactCandidates,
+  getAmpPluginPath,
+  installAmp,
+  resolveAmpArtifactPath,
+  uninstallAmp,
+} from '@/bin/hook/install/amp';
+import { getCursorHooksPath, installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
 import { runCli } from './hook-helpers';
+
+const CURSOR_CANONICAL_ENTRY = {
+  command: 'npx -y cc-safety-net hook --cursor',
+  timeout: 30,
+  failClosed: true,
+};
 
 const KIMI_HOOK_BLOCK = `[[hooks]]
 event = "PreToolUse"
@@ -427,7 +451,7 @@ fi
     );
   });
 
-  test('Copilot CLI: uninstalls the legacy plugin after installing the replacement', async () => {
+  test('GitHub Copilot CLI: uninstalls the legacy plugin after installing the replacement', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -455,7 +479,7 @@ fi
     );
   });
 
-  test('Copilot CLI: removes the legacy plugin when the new plugin is already installed', async () => {
+  test('GitHub Copilot CLI: removes the legacy plugin when the new plugin is already installed', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -571,7 +595,7 @@ fi
     );
   });
 
-  test('Copilot CLI: installs marketplace plugin through native CLI', async () => {
+  test('GitHub Copilot CLI: installs marketplace plugin through native CLI', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -585,7 +609,7 @@ fi
     );
   });
 
-  test('Copilot CLI: skips an already registered marketplace', async () => {
+  test('GitHub Copilot CLI: skips an already registered marketplace', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -611,7 +635,7 @@ fi
     );
   });
 
-  test('Copilot CLI: install is idempotent when the plugin is already installed', async () => {
+  test('GitHub Copilot CLI: install is idempotent when the plugin is already installed', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -633,7 +657,7 @@ fi
     );
   });
 
-  test('Copilot CLI: enables a disabled plugin in settings after install', async () => {
+  test('GitHub Copilot CLI: enables a disabled plugin in settings after install', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -664,7 +688,7 @@ fi
     );
   });
 
-  test('Copilot CLI: tolerates JSONC comments in settings.json', async () => {
+  test('GitHub Copilot CLI: tolerates JSONC comments in settings.json', async () => {
     const jsoncSettings = `{
   // plugins I turned off
   "enabledPlugins": {
@@ -697,7 +721,7 @@ fi
     );
   });
 
-  test('Copilot CLI: enabling a disabled plugin preserves JSONC comments and formatting', async () => {
+  test('GitHub Copilot CLI: enabling a disabled plugin preserves JSONC comments and formatting', async () => {
     const jsoncSettings = `{
   // plugins I turned off
   "enabledPlugins": {
@@ -735,7 +759,7 @@ fi
     );
   });
 
-  test('Copilot CLI: does not create settings.json when absent', async () => {
+  test('GitHub Copilot CLI: does not create settings.json when absent', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
@@ -1214,7 +1238,7 @@ describe('uninstall command', () => {
     );
   });
 
-  test('Copilot CLI: uninstalls marketplace plugin through native CLI', async () => {
+  test('GitHub Copilot CLI: uninstalls marketplace plugin through native CLI', async () => {
     await expectNativeUninstall(
       '--copilot-cli',
       ['copilot'],
@@ -1512,6 +1536,493 @@ command = "prettier --write"
       expect(uninstalled.result.exitCode).toBe(0);
       expect(uninstalled.result.stdout).toContain('not installed');
       expect(JSON.stringify(uninstalled.config)).toContain('./scripts/other.sh');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+function writeCursorConfig(homeDir: string, config: unknown): string {
+  const configPath = getCursorHooksPath(homeDir);
+  mkdirSync(join(configPath, '..'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return configPath;
+}
+
+function readCursorConfig(configPath: string): {
+  version?: unknown;
+  hooks?: { preToolUse?: unknown[] } & Record<string, unknown>;
+} & Record<string, unknown> {
+  return JSON.parse(readFileSync(configPath, 'utf-8'));
+}
+
+describe('Cursor install', () => {
+  test('creates hooks.json with version 1 and the canonical entry when missing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+
+    try {
+      const result = installCursor(homeDir);
+      const config = readCursorConfig(result.path);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(result.path).toBe(getCursorHooksPath(homeDir));
+      expect(config.version).toBe(1);
+      expect(config.hooks?.preToolUse).toEqual([CURSOR_CANONICAL_ENTRY]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves unrelated top-level keys, hook events, and preToolUse entries', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      customKey: 'keep-me',
+      hooks: {
+        afterFileEdit: [{ command: './scripts/other.sh' }],
+        preToolUse: [{ command: './scripts/other.sh', timeout: 5 }],
+      },
+    });
+
+    try {
+      const result = installCursor(homeDir);
+      const config = readCursorConfig(configPath);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(config.customKey).toBe('keep-me');
+      expect(config.hooks?.afterFileEdit).toEqual([{ command: './scripts/other.sh' }]);
+      expect(config.hooks?.preToolUse).toEqual([
+        { command: './scripts/other.sh', timeout: 5 },
+        CURSOR_CANONICAL_ENTRY,
+      ]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('is idempotent when the canonical entry is already present', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: { preToolUse: [CURSOR_CANONICAL_ENTRY] },
+    });
+    const before = readFileSync(configPath, 'utf-8');
+
+    try {
+      const result = installCursor(homeDir);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('repairs a drifted managed entry and reports installed', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: {
+        preToolUse: [{ command: 'npx -y cc-safety-net hook --cursor', timeout: 5, matcher: '*' }],
+      },
+    });
+
+    try {
+      const result = installCursor(homeDir);
+      const config = readCursorConfig(configPath);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(config.hooks?.preToolUse).toEqual([CURSOR_CANONICAL_ENTRY]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('collapses duplicate managed entries into one canonical entry at the first position', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: {
+        preToolUse: [
+          { command: 'npx -y cc-safety-net hook --cursor', timeout: 5 },
+          { command: './scripts/other.sh' },
+          { command: 'npx -y cc-safety-net hook --cursor', timeout: 30, failClosed: true },
+        ],
+      },
+    });
+
+    try {
+      const result = installCursor(homeDir);
+      const config = readCursorConfig(configPath);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(config.hooks?.preToolUse).toEqual([
+        CURSOR_CANONICAL_ENTRY,
+        { command: './scripts/other.sh' },
+      ]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects invalid JSON without writing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = getCursorHooksPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, '{ invalid json');
+
+    try {
+      expect(() => installCursor(homeDir)).toThrow('Failed to parse Cursor hooks config');
+      expect(readFileSync(configPath, 'utf-8')).toBe('{ invalid json');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects unsupported versions without writing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, { version: 2, hooks: {} });
+    const before = readFileSync(configPath, 'utf-8');
+
+    try {
+      expect(() => installCursor(homeDir)).toThrow('must set "version": 1');
+      expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects incompatible preToolUse shape without writing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: { preToolUse: { command: 'x' } },
+    });
+    const before = readFileSync(configPath, 'utf-8');
+
+    try {
+      expect(() => installCursor(homeDir)).toThrow('"hooks.preToolUse" must be an array');
+      expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('routes through the install command dispatch', async () => {
+    const homeDir = makeTempHome('safety-net-cursor-install');
+
+    try {
+      const result = await runCli(['install', '--cursor'], '', { HOME: homeDir });
+      const configPath = getCursorHooksPath(homeDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`Installed Cursor hook in ${configPath}`);
+      expect(readCursorConfig(configPath).hooks?.preToolUse).toEqual([CURSOR_CANONICAL_ENTRY]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Cursor uninstall', () => {
+  test('removes only exact-command entries and retains unrelated structure', () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      customKey: 'keep-me',
+      hooks: {
+        afterFileEdit: [{ command: './scripts/other.sh' }],
+        preToolUse: [CURSOR_CANONICAL_ENTRY, { command: './scripts/other.sh' }],
+      },
+    });
+
+    try {
+      const result = uninstallCursor(homeDir);
+      const config = readCursorConfig(configPath);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(config.customKey).toBe('keep-me');
+      expect(config.hooks?.afterFileEdit).toEqual([{ command: './scripts/other.sh' }]);
+      expect(config.hooks?.preToolUse).toEqual([{ command: './scripts/other.sh' }]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('retains an empty preToolUse container after removing the only managed entry', () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: { preToolUse: [CURSOR_CANONICAL_ENTRY] },
+    });
+
+    try {
+      const result = uninstallCursor(homeDir);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(readCursorConfig(configPath).hooks?.preToolUse).toEqual([]);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('is idempotent when no managed entry exists', () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+    const configPath = writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: { preToolUse: [{ command: './scripts/other.sh' }] },
+    });
+    const before = readFileSync(configPath, 'utf-8');
+
+    try {
+      const result = uninstallCursor(homeDir);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports not installed when the config file is missing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+
+    try {
+      const result = uninstallCursor(homeDir);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(existsSync(getCursorHooksPath(homeDir))).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects invalid JSON without writing', () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+    const configPath = getCursorHooksPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, '{ invalid json');
+
+    try {
+      expect(() => uninstallCursor(homeDir)).toThrow('Failed to parse Cursor hooks config');
+      expect(readFileSync(configPath, 'utf-8')).toBe('{ invalid json');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+function writeAmpArtifactFixture(dir: string, version = '9.9.9', name = 'artifact.ts'): string {
+  const artifactPath = join(dir, name);
+  writeFileSync(artifactPath, `${buildAmpArtifactHeader(version)}export default function () {}\n`);
+  return artifactPath;
+}
+
+describe('Amp artifact resolution', () => {
+  test('lists candidate paths relative to the installed CLI', () => {
+    const candidates = ampArtifactCandidates();
+    expect(candidates.length).toBe(2);
+    for (const candidate of candidates) {
+      expect(candidate.endsWith(join('amp', 'cc-safety-net.ts'))).toBe(true);
+    }
+  });
+
+  test('resolves the first existing candidate and throws when none exist', () => {
+    const homeDir = makeTempHome('safety-net-amp-resolve');
+    try {
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+      expect(resolveAmpArtifactPath(['/no/such/artifact.ts', artifactPath])).toBe(artifactPath);
+      expect(() => resolveAmpArtifactPath(['/no/such/artifact.ts'])).toThrow(
+        'Packaged Amp plugin artifact not found',
+      );
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Amp install', () => {
+  test('creates the plugins directory and writes the packaged artifact when missing', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+      const result = installAmp(homeDir, artifactPath);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(result.path).toBe(getAmpPluginPath(homeDir));
+      expect(readFileSync(result.path)).toEqual(readFileSync(artifactPath));
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports already installed without rewriting when bytes match', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+      const dest = installAmp(homeDir, artifactPath).path;
+      const mtimeBefore = statSync(dest).mtimeMs;
+
+      const result = installAmp(homeDir, artifactPath);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(statSync(dest).mtimeMs).toBe(mtimeBefore);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('replaces an older managed artifact and reports installed', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      writeFileSync(dest, `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`);
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+
+      const result = installAmp(homeDir, artifactPath);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(readFileSync(dest)).toEqual(readFileSync(artifactPath));
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to overwrite an unmarked regular file', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      writeFileSync(dest, 'export default 1;\n');
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+
+      expect(() => installAmp(homeDir, artifactPath)).toThrow(
+        'Refusing to overwrite unmanaged file',
+      );
+      expect(readFileSync(dest, 'utf-8')).toBe('export default 1;\n');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to overwrite a symlink at the plugin path', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      const target = writeAmpArtifactFixture(homeDir, '1.0.0', 'target.ts');
+      symlinkSync(target, dest);
+      const artifactPath = writeAmpArtifactFixture(homeDir, '1.2.3', 'artifact.ts');
+
+      expect(() => installAmp(homeDir, artifactPath)).toThrow('not a regular file');
+      expect(readFileSync(target)).not.toEqual(readFileSync(artifactPath));
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to overwrite a directory at the plugin path', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(dest, { recursive: true });
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+
+      expect(() => installAmp(homeDir, artifactPath)).toThrow('not a regular file');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves unrelated Amp plugins', () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+      const pluginsDir = join(getAmpPluginPath(homeDir), '..');
+      mkdirSync(pluginsDir, { recursive: true });
+      const other = join(pluginsDir, 'other-plugin.ts');
+      writeFileSync(other, 'export default 42;\n');
+
+      installAmp(homeDir, artifactPath);
+
+      expect(readFileSync(other, 'utf-8')).toBe('export default 42;\n');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('routes through the install command dispatch', async () => {
+    const homeDir = makeTempHome('safety-net-amp-install');
+    try {
+      const result = await runCli(['install', '--amp'], '', { HOME: homeDir });
+      // Depending on whether the package artifact is built, the installer either
+      // writes the managed plugin or reports the missing artifact — both prove the
+      // --amp flag routed to the Amp installer rather than another target.
+      expect(`${result.stdout}${result.stderr}`).toMatch(
+        /Amp Code plugin|Packaged Amp plugin artifact not found/,
+      );
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Amp uninstall', () => {
+  test('removes only the managed artifact and keeps unrelated plugins', () => {
+    const homeDir = makeTempHome('safety-net-amp-uninstall');
+    try {
+      const artifactPath = writeAmpArtifactFixture(homeDir);
+      const dest = installAmp(homeDir, artifactPath).path;
+      const other = join(dest, '..', 'other-plugin.ts');
+      writeFileSync(other, 'export default 42;\n');
+
+      const result = uninstallAmp(homeDir);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(existsSync(dest)).toBe(false);
+      expect(existsSync(join(dest, '..'))).toBe(true);
+      expect(readFileSync(other, 'utf-8')).toBe('export default 42;\n');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports not installed when the plugin is absent', () => {
+    const homeDir = makeTempHome('safety-net-amp-uninstall');
+    try {
+      const result = uninstallAmp(homeDir);
+      expect(result.alreadyInstalled).toBe(false);
+      expect(existsSync(getAmpPluginPath(homeDir))).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to remove an unmarked regular file', () => {
+    const homeDir = makeTempHome('safety-net-amp-uninstall');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      writeFileSync(dest, 'export default 1;\n');
+
+      expect(() => uninstallAmp(homeDir)).toThrow('Refusing to remove unmanaged file');
+      expect(readFileSync(dest, 'utf-8')).toBe('export default 1;\n');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to remove a symlink at the plugin path', () => {
+    const homeDir = makeTempHome('safety-net-amp-uninstall');
+    try {
+      const dest = getAmpPluginPath(homeDir);
+      mkdirSync(join(dest, '..'), { recursive: true });
+      const target = writeAmpArtifactFixture(homeDir);
+      symlinkSync(target, dest);
+
+      expect(() => uninstallAmp(homeDir)).toThrow('not a regular file');
+      expect(existsSync(target)).toBe(true);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

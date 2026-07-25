@@ -12,11 +12,13 @@
 [![Codex](https://img.shields.io/badge/Codex-white)](#codex-installation)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-D27656)](#claude-code-installation)
 [![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-99C074)](#antigravity-cli-installation)
-[![Copilot CLI](https://img.shields.io/badge/Copilot%20CLI-4EA5C9)](#github-copilot-cli-installation)
+[![GitHub Copilot CLI](https://img.shields.io/badge/GitHub%20Copilot%20CLI-4EA5C9)](#github-copilot-cli-installation)
 [![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](#gemini-cli-installation)
 [![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](#kimi-code-installation)
 [![OpenCode](https://img.shields.io/badge/OpenCode-black)](#opencode-installation)
 [![Pi](https://img.shields.io/badge/Pi%20Coding-22262E)](#pi-installation)
+[![Cursor](https://img.shields.io/badge/Cursor-000000)](#cursor-installation)
+[![Amp Code](https://img.shields.io/badge/Amp%20Code-EB5C2E)](#amp-code-installation)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
 <div align="center">
@@ -41,13 +43,13 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 - **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
 - **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
 - **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
-- **Universal installer** — interactive `install`/`uninstall` across all eight supported agent CLIs.
+- **Universal installer** — interactive `install`/`uninstall` across all ten supported agent CLIs.
 - **Structured audit logs** — per-project JSONL with secret redaction, browsable via `cc-safety-net logs`.
 - **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
 
 ## Supported agents
 
-CC Safety Net works across eight coding agent CLIs: **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
+CC Safety Net works across ten coding agent CLIs: **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, Pi, Cursor, and Amp Code**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
 
 ## Supported platforms
 
@@ -109,6 +111,15 @@ To remove integrations interactively:
 ```bash
 npx -y cc-safety-net uninstall
 ```
+
+If you use the CLI often, install it globally to get `ccsn`, a shorter alias for the same commands:
+
+```bash
+npm install -g cc-safety-net
+ccsn doctor
+```
+
+The alias ships with the global install; `npx` runs use the full `cc-safety-net` name.
 
 ### Codex Installation
 
@@ -196,6 +207,56 @@ Install CC Safety Net with Pi's package installer:
 ```bash
 npx -y cc-safety-net install --pi
 ```
+
+---
+
+### Cursor Installation
+
+Install CC Safety Net into your global Cursor hooks config (`~/.cursor/hooks.json`):
+
+```bash
+npx -y cc-safety-net install --cursor
+```
+
+This protects local Cursor IDE and Cursor CLI sessions across all projects. To remove it:
+
+```bash
+npx -y cc-safety-net uninstall --cursor
+```
+
+---
+
+### Amp Code Installation
+
+Install CC Safety Net as an Amp Code system plugin (`~/.config/amp/plugins/cc-safety-net.ts`):
+
+```bash
+npx -y cc-safety-net install --amp
+```
+
+The installer copies a self-contained plugin artifact from the npm package, so no URL, hosted
+plugin, or global npm dependency is required. Rerunning the command updates the managed plugin in
+place. To remove it:
+
+```bash
+npx -y cc-safety-net uninstall --amp
+```
+
+> [!NOTE]
+> Restart Amp or run `plugins: reload` after installing, updating, or uninstalling so the change
+> takes effect.
+
+#### Amp Orbs and remote executors limitation
+
+A system plugin protects only the machine where it is installed. It is not installed into Amp Orbs
+or any other executor, so tool calls that run on a remote machine without the plugin are not
+covered by CC Safety Net.
+
+#### Amp multi-plugin ordering limitation
+
+Amp does not define the execution order of multiple plugins listening on the same `tool.call`
+event. CC Safety Net evaluates the input it receives and cannot guarantee re-evaluation if another
+plugin rewrites an already-approved input after CC Safety Net has allowed it.
 
 ---
 

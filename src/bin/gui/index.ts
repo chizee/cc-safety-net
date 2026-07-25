@@ -433,10 +433,12 @@ export async function starRepo(
 }
 
 const VERSION_FIELDS = {
+  amp: 'ampVersion',
   'antigravity-cli': 'antigravityCliVersion',
   'claude-code': 'claudeCodeVersion',
   codex: 'codexCliVersion',
   'copilot-cli': 'copilotCliVersion',
+  cursor: 'cursorVersion',
   'gemini-cli': 'geminiCliVersion',
   'kimi-code': 'kimiCodeVersion',
   opencode: 'openCodeVersion',

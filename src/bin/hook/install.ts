@@ -12,8 +12,10 @@ import {
 } from '@/bin/doctor/hooks';
 import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system-info';
 import type { PiProbeInfo } from '@/bin/doctor/types';
+import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { printInstallBanner } from '@/bin/hook/install/banner';
+import { installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
 import { type NativeCommand, runNativeCommand, runNativeCommands } from '@/bin/hook/install/native';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
@@ -32,6 +34,7 @@ import {
   runInstallTargetsInOrder,
   TARGET_FLAGS,
 } from '@/bin/hook/install/targets';
+import type { InstallResult } from '@/bin/hook/install/types';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { getIntegrationInstallLabel } from '@/integrations/catalog';
 import {
@@ -41,8 +44,10 @@ import {
   hasCopilotSafetyNetPlugin,
 } from '@/integrations/copilot-cli';
 
-type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code'>;
-type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget>;
+type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
+type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | 'amp'>;
+
+const AMP_RESTART_NOTE = 'Restart Amp or run "plugins: reload" to apply the change.';
 export type RunInstallCommandOptions = {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
@@ -369,19 +374,18 @@ function uninstallOpenCodeTarget(homeDir: string): void {
   );
 }
 
+const CONFIG_INSTALLS = {
+  'antigravity-cli': { install: installAntigravityCli, uninstall: uninstallAntigravityCli },
+  cursor: { install: installCursor, uninstall: uninstallCursor },
+  'kimi-code': { install: installKimiCode, uninstall: uninstallKimiCode },
+} satisfies Record<ConfigInstallTarget, Record<InstallAction, (homeDir: string) => InstallResult>>;
+
 function runConfigInstallTarget(
   action: InstallAction,
   target: ConfigInstallTarget,
   homeDir: string,
 ): void {
-  const result =
-    target === 'kimi-code'
-      ? action === 'install'
-        ? installKimiCode(homeDir)
-        : uninstallKimiCode(homeDir)
-      : action === 'install'
-        ? installAntigravityCli(homeDir)
-        : uninstallAntigravityCli(homeDir);
+  const result = CONFIG_INSTALLS[target][action](homeDir);
   const name = getIntegrationInstallLabel(target);
   const pastTense = action === 'install' ? 'Installed' : 'Uninstalled';
 
@@ -394,7 +398,26 @@ function runConfigInstallTarget(
   );
 }
 
+function runAmpInstallTarget(action: InstallAction, homeDir: string): void {
+  const result = action === 'install' ? installAmp(homeDir) : uninstallAmp(homeDir);
+  const name = getIntegrationInstallLabel('amp');
+  const noChange =
+    (action === 'install' && result.alreadyInstalled) ||
+    (action === 'uninstall' && !result.alreadyInstalled);
+  const message = noChange
+    ? action === 'install'
+      ? `${name} plugin already installed at ${result.path}`
+      : `${name} plugin not installed at ${result.path}`
+    : `${action === 'install' ? 'Installed' : 'Uninstalled'} ${name} plugin ${action === 'install' ? 'at' : 'from'} ${result.path}`;
+
+  console.log([message, noChange ? undefined : AMP_RESTART_NOTE].filter(Boolean).join('\n'));
+}
+
 const INSTALL_OPERATIONS = {
+  amp: {
+    install: (homeDir: string) => runAmpInstallTarget('install', homeDir),
+    uninstall: (homeDir: string) => runAmpInstallTarget('uninstall', homeDir),
+  },
   'antigravity-cli': {
     install: (homeDir: string) => runConfigInstallTarget('install', 'antigravity-cli', homeDir),
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'antigravity-cli', homeDir),
@@ -413,6 +436,10 @@ const INSTALL_OPERATIONS = {
       enableCopilotPlugin(homeDir);
     },
     uninstall: () => uninstallNativeTarget('copilot-cli'),
+  },
+  cursor: {
+    install: (homeDir: string) => runConfigInstallTarget('install', 'cursor', homeDir),
+    uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'cursor', homeDir),
   },
   'gemini-cli': {
     install: (homeDir: string) => installNativeTarget('gemini-cli', homeDir),

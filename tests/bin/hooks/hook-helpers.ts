@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/bin/hook/claude-code';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
+import { runCursorHook } from '@/bin/hook/cursor';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 
@@ -23,6 +24,7 @@ export type HookFormat =
   | 'antigravity-cli'
   | 'claude-code'
   | 'copilot-cli'
+  | 'cursor'
   | 'gemini-cli'
   | 'kimi-code';
 
@@ -41,12 +43,14 @@ export type HookTestContext = {
   geminiShellInput: typeof geminiShellInput;
   claudeCodeBashInput: typeof claudeCodeBashInput;
   kimiShellInput: typeof kimiShellInput;
+  cursorShellInput: typeof cursorShellInput;
   runCli: typeof runCli;
   runAntigravityHook: typeof runAntigravityHook;
   runClaudeCodeHook: typeof runClaudeCodeHookDirect;
   runGeminiHook: typeof runGeminiHook;
   runKimiHook: typeof runKimiHook;
   runCopilotHook: typeof runCopilotHook;
+  runCursorHook: typeof runCursorHookDirect;
 };
 
 export function writeUserPolicy(home: string, policy: unknown): void {
@@ -68,6 +72,7 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
       geminiShellInput: (command) => geminiShellInput(command, cwd),
       claudeCodeBashInput: (command) => claudeCodeBashInput(command, cwd),
       kimiShellInput: (command) => kimiShellInput(command, cwd),
+      cursorShellInput: (command) => cursorShellInput(command, cwd),
       runCli: (args, input = '', env) =>
         runCli(args, input, { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) }, cwd),
       runClaudeCodeHook: (input, env) =>
@@ -96,6 +101,12 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
         ),
       runAntigravityHook: (input, env) =>
         runAntigravityHookDirect(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
+      runCursorHook: (input, env) =>
+        runCursorHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
@@ -168,6 +179,32 @@ export function kimiShellInput(command: string, cwd = TEST_HOOK_CWD) {
     tool_name: 'Bash',
     tool_input: { command },
     tool_call_id: 'kimi-test-tool-call',
+  };
+}
+
+export function cursorShellInput(command: string, cwd = TEST_HOOK_CWD) {
+  return {
+    conversation_id: 'cursor-test-session',
+    hook_event_name: 'preToolUse',
+    cwd,
+    workspace_roots: [cwd],
+    tool_name: 'Shell',
+    tool_input: { command },
+  };
+}
+
+export function cursorFileInput(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return {
+    conversation_id: 'cursor-test-session',
+    hook_event_name: 'preToolUse',
+    cwd,
+    workspace_roots: [cwd],
+    tool_name: toolName,
+    tool_input: toolInput,
   };
 }
 
@@ -324,6 +361,19 @@ export function runAntigravityHookDirect(
   return runHookDirect(runAntigravityCliHook, input, env, cwd);
 }
 
+export function runCursorHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runCursorHook, input, env, cwd);
+}
+
+export function expectCursorAllowOutput(result: HookResult): void {
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({ permission: 'allow' });
+}
+
 export async function expectNoHookOutput(
   run: (input: object | string, env?: Record<string, string>) => Promise<HookResult>,
   input: object | string,
@@ -351,6 +401,12 @@ export function getHookDenyReason(result: HookResult, format: HookFormat): strin
   if (format === 'antigravity-cli') {
     expect(output.decision).toBe('deny');
     return output.reason;
+  }
+
+  if (format === 'cursor') {
+    expect(output.permission).toBe('deny');
+    expect(output.agent_message).toBe(output.user_message);
+    return output.user_message;
   }
 
   expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
@@ -402,7 +458,7 @@ export async function runKimiHook(
 }
 
 /**
- * Runs the Copilot CLI hook.
+ * Runs the GitHub Copilot CLI hook.
  */
 export async function runCopilotHook(
   input: object | string,

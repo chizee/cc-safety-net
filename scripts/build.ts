@@ -4,8 +4,9 @@
  * to avoid embedding the full package.json in the bundle.
  */
 
+import { statSync } from 'node:fs';
 import { getBundledOutputs, isRootDeclarationOutput } from './build-output';
-import { buildRuntimeBundles } from './build-runtime';
+import { buildAmpBundle, buildRuntimeBundles } from './build-runtime';
 import { formatSubprocessFailure } from './subprocess-output';
 import { verifyBuildArtifacts } from './verify-build';
 
@@ -14,6 +15,15 @@ const result = await buildRuntimeBundles('dist');
 if (!result.success) {
   console.error('Build failed:');
   for (const log of result.logs) {
+    console.error(log);
+  }
+  process.exit(1);
+}
+
+const ampResult = await buildAmpBundle('dist');
+if (!ampResult.success) {
+  console.error('Amp bundle failed:');
+  for (const log of ampResult.logs) {
     console.error(log);
   }
   process.exit(1);
@@ -46,4 +56,7 @@ if (!indexOutput || !binOutput || !piOutput) {
 console.log(`  dist/index.js              ${(indexOutput.size / 1024).toFixed(2)} KB`);
 console.log(`  dist/bin/cc-safety-net.js  ${(binOutput.size / 1024).toFixed(2)} KB`);
 console.log(`  dist/pi/index.js           ${(piOutput.size / 1024).toFixed(2)} KB`);
+console.log(
+  `  dist/amp/cc-safety-net.ts  ${(statSync('dist/amp/cc-safety-net.ts').size / 1024).toFixed(2)} KB`,
+);
 console.log('  ✓ Build verification passed');

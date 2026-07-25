@@ -35,6 +35,8 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
     copilotCliVersion: null,
     kimiCodeVersion: null,
     piCliVersion: null,
+    cursorVersion: null,
+    ampVersion: null,
     nodeVersion: '22.0.0',
     npmVersion: '10.0.0',
     bunVersion: '1.0.0',
@@ -186,7 +188,7 @@ describe('formatHooksSection', () => {
     expect(output).toContain('Not applicable');
   });
 
-  test('formats Copilot CLI hooks', () => {
+  test('formats GitHub Copilot CLI hooks', () => {
     const hooks: HookStatus[] = [
       {
         platform: 'copilot-cli',
@@ -197,7 +199,7 @@ describe('formatHooksSection', () => {
     ];
 
     const output = formatHooksSection(hooks);
-    expect(output).toContain('Copilot CLI');
+    expect(output).toContain('GitHub Copilot CLI');
     expect(output).toContain('Configured');
   });
 
@@ -238,7 +240,7 @@ describe('formatHooksSection', () => {
     ];
 
     const output = formatHooksSection(hooks);
-    expect(output).not.toContain('Sources (Copilot CLI):');
+    expect(output).not.toContain('Sources (GitHub Copilot CLI):');
     expect(output).not.toContain('/repo/.github/copilot/settings.json');
     expect(output).not.toContain('/repo/.github/hooks/safety-net.json');
   });
@@ -576,17 +578,21 @@ describe('formatSystemInfoSection', () => {
     expect(output).toContain('cc-safety-net');
     expect(output).toContain('Platform');
     expect(output).toContain('Bun');
-    expect(output).toContain('Copilot CLI');
+    expect(output).toContain('GitHub Copilot CLI');
     expect(output).toContain('Antigravity CLI');
+    expect(output).toContain('Amp Code');
     expect(output).toContain('Codex');
+    expect(output).toContain('Cursor');
     expect(output).toContain('Kimi Code');
     expect(output).toContain('Pi');
     expect(output.indexOf('cc-safety-net')).toBeLessThan(output.indexOf('Claude Code'));
-    expect(output.indexOf('Claude Code')).toBeLessThan(output.indexOf('Antigravity CLI'));
+    expect(output.indexOf('Claude Code')).toBeLessThan(output.indexOf('Amp Code'));
+    expect(output.indexOf('Amp Code')).toBeLessThan(output.indexOf('Antigravity CLI'));
     expect(output.indexOf('Antigravity CLI')).toBeLessThan(output.indexOf('Codex'));
-    expect(output.indexOf('Codex')).toBeLessThan(output.indexOf('Copilot CLI'));
-    expect(output.indexOf('Copilot CLI')).toBeLessThan(output.indexOf('Gemini CLI'));
-    expect(output.indexOf('Gemini CLI')).toBeLessThan(output.indexOf('Kimi Code'));
+    expect(output.indexOf('Codex')).toBeLessThan(output.indexOf('Cursor'));
+    expect(output.indexOf('Cursor')).toBeLessThan(output.indexOf('Gemini CLI'));
+    expect(output.indexOf('Gemini CLI')).toBeLessThan(output.indexOf('GitHub Copilot CLI'));
+    expect(output.indexOf('GitHub Copilot CLI')).toBeLessThan(output.indexOf('Kimi Code'));
     expect(output.indexOf('Kimi Code')).toBeLessThan(output.indexOf('OpenCode'));
     expect(output.indexOf('OpenCode')).toBeLessThan(output.indexOf('Pi'));
     expect(output.indexOf('Pi')).toBeLessThan(output.indexOf('Node.js'));

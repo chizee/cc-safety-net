@@ -13,7 +13,8 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "cc-safety-net": "dist/bin/cc-safety-net.js"
+    "cc-safety-net": "dist/bin/cc-safety-net.js",
+    "ccsn": "dist/bin/cc-safety-net.js"
   },
   "files": [
     "dist"
@@ -59,6 +60,7 @@
   },
   "homepage": "https://github.com/kenryu42/cc-safety-net#readme",
   "devDependencies": {
+    "@ampcode/plugin": "0.0.0-20260724002649-ga3413e7",
     "@ast-grep/cli": "^0.40.4",
     "@biomejs/biome": "2.3.10",
     "@opencode-ai/plugin": "^1.18.3",
@@ -105,6 +107,8 @@
     "safety",
     "plugin",
     "security",
-    "pi-package"
+    "pi-package",
+    "cursor",
+    "amp"
   ]
 }
