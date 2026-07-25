@@ -1,0 +1,72 @@
+name: 🚧 False Positive
+description: A safe command was blocked
+title: "[False Positive]: "
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when CC Safety Net **blocked a command that was safe**.
+
+        - Blocked something safe → you are in the right place.
+        - Allowed something destructive → use the [Bug Report](https://github.com/kenryu42/cc-safety-net/issues/new?template=bug_report.yml) form instead. Missed detections are public bugs, see [SECURITY.md](https://github.com/kenryu42/cc-safety-net/blob/main/SECURITY.md).
+        - The tool leaked a secret or wrote outside its own directory → that is a vulnerability, please report it privately per [SECURITY.md](https://github.com/kenryu42/cc-safety-net/blob/main/SECURITY.md).
+
+        **Finding the block.** Agents usually run unattended, so the block has probably already scrolled past. Browse what was recorded:
+
+        ```
+        npx cc-safety-net logs              # recent denials, newest first
+        npx cc-safety-net logs --id <id>    # full detail for one entry
+        ```
+
+        **Before you paste:** log entries have secrets redacted, but **not file paths**. Commands and the `cwd` field routinely contain directory names, and this is a public issue. Replace anything you would rather not publish — `<project>` and `~` are fine substitutes, just keep the structure intact so the path still reproduces the block.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What were you doing, and why should it have been allowed?
+      description: The one thing we cannot work out from the logs. What was the agent trying to accomplish, and what makes this command safe in that context?
+      placeholder: |
+        The agent was reverting two files to HEAD to check that new tests fail
+        against the unfixed source. It had already copied both files aside, so
+        nothing uncommitted would have been lost.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Blocked command
+      description: The full command, not just the part that matched. If it was a chain, keep the whole chain — that context is often the point.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: entry
+    attributes:
+      label: Audit log entry
+      description: |
+        Output of `npx cc-safety-net logs --id <id> --json`. This carries the rule, the matched segment, the safety level, and the version, so it saves a round trip.
+        If audit logging was off or the entry is gone, say so here instead.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor Output
+      description: |
+        Output of `npx cc-safety-net doctor --json`. Mainly tells us whether custom rules or overrides are in play — a block from your own rule is configuration, not a bug in the built-in ruleset.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Anything else worth knowing — how often it happens, whether you worked around it, and how (custom rule, lower safety level, running the command manually).
+    validations:
+      required: false
