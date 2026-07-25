@@ -90,6 +90,25 @@ const adapters = [
       return String(output.reason);
     },
   },
+  {
+    agent: 'cursor',
+    flag: '-cu',
+    commandInput: (command: string, cwd: string, _home: string, sessionId: string) => ({
+      conversation_id: sessionId,
+      hook_event_name: 'preToolUse',
+      cwd,
+      workspace_roots: [cwd],
+      tool_name: 'Shell',
+      tool_input: { command },
+    }),
+    // Cursor is the one adapter that emits a decision on allow too, so silence
+    // cannot stand in for permission the way it does for the others.
+    isAllowOutput: (output: Record<string, unknown>) => output.permission === 'allow',
+    denyReason: (output: Record<string, unknown>) => {
+      expect(output.permission).toBe('deny');
+      return String(output.user_message);
+    },
+  },
 ] as const;
 
 let buildRoot = '';
@@ -786,14 +805,12 @@ async function runGated(
   level?: 'standard' | 'strict' | 'paranoid',
 ) {
   const stdout = await runBuiltHook(adapter.flag, input, cwd, home, level);
-  if (!stdout) {
+  const output = stdout ? parseJsonOutput('CLI hook', stdout) : undefined;
+  if (!output || ('isAllowOutput' in adapter && adapter.isAllowOutput(output))) {
     action();
     return { allowed: true } as const;
   }
-  return {
-    allowed: false,
-    reason: adapter.denyReason(parseJsonOutput('CLI hook', stdout)),
-  } as const;
+  return { allowed: false, reason: adapter.denyReason(output) } as const;
 }
 
 function runCodingCliTool(
