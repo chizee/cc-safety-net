@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stripJsonComments } from '@/bin/config/jsonc';
@@ -14,6 +14,7 @@ import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system
 import type { PiProbeInfo } from '@/bin/doctor/types';
 import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
+import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
@@ -208,7 +209,10 @@ function enableCopilotPlugin(homeDir: string): void {
   const raw = readFileSync(settingsPath, 'utf-8');
   const flipped = raw.replace(new RegExp(`("${COPILOT_PLUGIN_ID}"\\s*:\\s*)false`), '$1true');
   (enabledPlugins as Record<string, unknown>)[COPILOT_PLUGIN_ID] = true;
-  writeFileSync(settingsPath, flipped !== raw ? flipped : `${JSON.stringify(settings, null, 2)}\n`);
+  atomicWriteFile(
+    settingsPath,
+    flipped !== raw ? flipped : `${JSON.stringify(settings, null, 2)}\n`,
+  );
   console.log(`Enabled ${COPILOT_PLUGIN_ID} plugin in ${settingsPath}`);
 }
 
@@ -230,7 +234,7 @@ function removePiExtensionsFilter(homeDir: string): void {
   if (!entry) return;
 
   delete entry.extensions;
-  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  atomicWriteFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   console.log(`Enabled npm:cc-safety-net extensions in ${settingsPath}`);
 }
 

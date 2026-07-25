@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import { findMatchingBracket, removeArrayRangeItem, type TextRange } from '@/bin/hook/config-edit';
+import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import type { InstallResult } from '@/bin/hook/install/types';
 
 const OPENCODE_PACKAGE = 'cc-safety-net';
@@ -194,7 +195,7 @@ export function uninstallOpenCode(homeDir: string): InstallResult {
       const content = readFileSync(configPath, 'utf-8');
       if (!hasManagedPlugin(parseOpenCodeConfig(content, configPath))) continue;
 
-      writeFileSync(configPath, removeManagedPlugins(content, configPath));
+      atomicWriteFile(configPath, removeManagedPlugins(content, configPath));
       return { path: configPath, alreadyInstalled: true };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
