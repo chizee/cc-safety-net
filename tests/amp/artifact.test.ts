@@ -20,6 +20,9 @@ function runAmpHost(command: string) {
       ),
       stdout: 'pipe',
       stderr: 'pipe',
+      // Spawned children inherit the process-start environment, so the audit
+      // home from tests/setup.ts is only passed on when env is explicit.
+      env: { ...process.env },
     });
     if (result.exitCode !== 0) {
       throw new Error(`Amp host failed (${result.exitCode}): ${result.stderr.toString()}`);
