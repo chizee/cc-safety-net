@@ -42,6 +42,7 @@ describe('integration runtime', () => {
 
     expect(evaluation).toEqual({
       stage: 'command-analysis',
+      level: 'standard',
       decision: { kind: 'allow' },
     });
     expect(sessionCalls).toBe(0);

@@ -60,6 +60,33 @@ describe('runtime audit integration', () => {
     });
   });
 
+  test('carries the effective level and leaves it out when the guard never resolved one', () => {
+    const denial = {
+      kind: 'deny' as const,
+      reason: 'blocked',
+      intent: 'hard_stop' as const,
+      evidence: [],
+    };
+    expect(
+      projectGuardAudit(
+        invocation,
+        { stage: 'command-analysis', level: 'paranoid', decision: denial },
+        false,
+      )?.level,
+    ).toBe('paranoid');
+    expect(
+      projectGuardAudit(
+        invocation,
+        { stage: 'command-analysis', level: 'strict', decision: { kind: 'allow' } },
+        true,
+      )?.level,
+    ).toBe('strict');
+    // Denials raised before the policy snapshot resolves have no level to report.
+    expect(
+      projectGuardAudit(invocation, { stage: 'policy-protection', decision: denial }, false)?.level,
+    ).toBeUndefined();
+  });
+
   test('falls back to invocation command and then empty evidence', () => {
     const denied = {
       stage: 'config-state' as const,

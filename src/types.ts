@@ -263,6 +263,8 @@ export interface AuditLogEntry {
   decision?: AuditLogDecision;
   agent?: string;
   shape?: string;
+  /** Effective safety level in force when the decision was made. */
+  level?: EffectiveSafetyLevel;
   toolName?: string;
   command: string;
   segment: string;

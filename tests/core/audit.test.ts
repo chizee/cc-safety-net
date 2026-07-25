@@ -599,12 +599,14 @@ describe('writeAuditLog', () => {
       homeDir: testDir,
       agent: 'claude-code',
       shape: 'copilot-cli',
+      level: 'paranoid',
       toolName: 'Bash',
     });
 
     const entries = readLogEntries(sessionId);
     expect(entries[0]?.agent).toBe('claude-code');
     expect(entries[0]?.shape).toBe('copilot-cli');
+    expect(entries[0]?.level).toBe('paranoid');
     expect(entries[0]?.toolName).toBe('Bash');
   });
 
@@ -617,6 +619,7 @@ describe('writeAuditLog', () => {
     const entries = readLogEntries(sessionId);
     expect('agent' in (entries[0] ?? {})).toBe(false);
     expect('shape' in (entries[0] ?? {})).toBe(false);
+    expect('level' in (entries[0] ?? {})).toBe(false);
     expect('toolName' in (entries[0] ?? {})).toBe(false);
     expect('truncated' in (entries[0] ?? {})).toBe(false);
   });

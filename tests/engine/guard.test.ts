@@ -318,7 +318,7 @@ describe('guard evaluation', () => {
 
       expect(
         evaluateGuard(commandInvocation(cwd), { dependencies: dependencies({}, calls) }),
-      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'command-analysis', level: 'standard', decision: { kind: 'allow' } });
       expect(calls).toEqual(['policy', 'config', 'secret', 'analysis']);
     });
   });
@@ -350,7 +350,7 @@ describe('guard evaluation', () => {
             },
           }),
         }),
-      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'command-analysis', level: 'standard', decision: { kind: 'allow' } });
       expect(resolutions).toBe(1);
     });
   });
@@ -402,7 +402,7 @@ describe('guard evaluation', () => {
         evaluateGuard(commandInvocation(cwd, command), {
           policyOptions: { userConfigDir: join(cwd, 'user-rules') },
         }),
-      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'command-analysis', level: 'standard', decision: { kind: 'allow' } });
     });
   });
 
@@ -468,7 +468,7 @@ describe('guard evaluation', () => {
             calls,
           ),
         }),
-      ).toEqual({ stage: 'non-command', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'non-command', level: 'standard', decision: { kind: 'allow' } });
       expect(calls).toEqual(['policy', 'config']);
     });
   });
@@ -494,6 +494,7 @@ describe('guard evaluation', () => {
 
       expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
       expect(
@@ -515,6 +516,7 @@ describe('guard evaluation', () => {
 
       expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
 
@@ -549,7 +551,7 @@ describe('guard evaluation', () => {
             },
           }),
         }),
-      ).toEqual({ stage: 'non-command', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'non-command', level: 'standard', decision: { kind: 'allow' } });
       expect(analyzed).toBeFalse();
     });
   });
@@ -564,6 +566,7 @@ describe('guard evaluation', () => {
         }),
       ).toEqual({
         stage: 'config-state',
+        level: 'standard',
         decision: {
           kind: 'deny',
           reason: 'invalid policy config',
@@ -582,6 +585,7 @@ describe('guard evaluation', () => {
         evaluateGuard(commandInvocation(cwd, null), { dependencies: dependencies({}, calls) }),
       ).toEqual({
         stage: 'command-validation',
+        level: 'standard',
         decision: {
           kind: 'deny',
           reason:
@@ -604,7 +608,7 @@ describe('guard evaluation', () => {
 
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync'), options),
-      ).toEqual({ stage: 'command-analysis', decision: { kind: 'allow' } });
+      ).toEqual({ stage: 'command-analysis', level: 'standard', decision: { kind: 'allow' } });
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync && rm -rf /'), options)
           .decision,
@@ -704,6 +708,7 @@ describe('guard evaluation', () => {
     await withTempDir('cc-safety-net-guard-default-', (cwd) => {
       expect(evaluateGuard(commandInvocation(cwd))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
     });
@@ -713,6 +718,7 @@ describe('guard evaluation', () => {
     await withTempDir('cc-safety-net-guard-redirection-order-', (cwd) => {
       expect(evaluateGuard(commandInvocation(cwd, 'echo <<< .env'))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
 
@@ -759,6 +765,7 @@ describe('guard evaluation', () => {
 
       expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
     });
@@ -806,6 +813,7 @@ describe('guard evaluation', () => {
       for (const command of ['cat <<<', 'cat <<', 'cat < <']) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
           stage: 'command-analysis',
+          level: 'standard',
           decision: { kind: 'allow' },
         });
       }
@@ -818,6 +826,7 @@ describe('guard evaluation', () => {
         }),
       ).toEqual({
         stage: 'command-analysis',
+        level: 'strict',
         decision: {
           kind: 'deny',
           intent: 'stop_and_explain',
@@ -833,6 +842,7 @@ describe('guard evaluation', () => {
       for (const command of ['echo ok <(cat .env)', 'echo ok >(cat .env)']) {
         expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
           stage: 'command-analysis',
+          level: 'standard',
           decision: { kind: 'allow' },
         });
       }
@@ -850,6 +860,7 @@ describe('guard evaluation', () => {
       const nested = `git commit -m "$(cat <<'EOF'\nsee \`cat .env\` here\nEOF\n)"`;
       expect(evaluateGuard(commandInvocation(cwd, nested))).toEqual({
         stage: 'command-analysis',
+        level: 'standard',
         decision: { kind: 'allow' },
       });
 
@@ -890,6 +901,7 @@ describe('guard evaluation', () => {
 function expectedSecretBlock(command: string): GuardEvaluation {
   return {
     stage: 'secret-protection',
+    level: 'standard',
     decision: {
       kind: 'deny',
       reason: 'Access to a sensitive path is not allowed.',

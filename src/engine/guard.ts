@@ -30,7 +30,12 @@ import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
-import type { AnalyzeOptions, AnalyzeResult, AuditFailureStage } from '@/types';
+import type {
+  AnalyzeOptions,
+  AnalyzeResult,
+  AuditFailureStage,
+  EffectiveSafetyLevel,
+} from '@/types';
 
 /** @internal */
 export type GuardStage = AuditFailureStage;
@@ -41,6 +46,12 @@ type FinalDecision = Exclude<Decision, { kind: 'indeterminate' }>;
 export type GuardEvaluation = {
   stage: GuardStage;
   decision: FinalDecision;
+  /**
+   * Effective safety level in force for this evaluation. Absent when the guard
+   * returned before the policy snapshot resolved, since those denials (input
+   * limits, policy and git metadata protection) do not depend on the level.
+   */
+  level?: EffectiveSafetyLevel;
 };
 
 /** @internal */
@@ -178,20 +189,20 @@ export function evaluateGuard(
     }),
   );
   const policy = snapshot.policy;
+  const modes = dependencies.getModes(policy);
   const secretTarget =
     policy.secretProtection.enabled === false
       ? null
       : callDependency('secret-protection', command, () =>
           dependencies.findSensitiveTarget(facts, policy.secretProtection, {
-            strict: isCommandInvocation(invocation)
-              ? dependencies.getModes(policy).strict
-              : undefined,
+            strict: isCommandInvocation(invocation) ? modes.strict : undefined,
           }),
         );
   if (secretTarget) {
     const displayCommand = command ?? secretTarget.target;
     return {
       stage: 'secret-protection',
+      level: modes.effectiveLevel,
       decision: {
         kind: 'deny',
         reason: REASON_SECRET_PROTECTION,
@@ -209,6 +220,7 @@ export function evaluateGuard(
     if (snapshot.state === 'invalid') {
       return {
         stage: 'config-state',
+        level: modes.effectiveLevel,
         decision: {
           kind: 'deny',
           reason: snapshot.reason,
@@ -219,15 +231,17 @@ export function evaluateGuard(
         },
       };
     }
-    return { stage: 'non-command', decision: { kind: 'allow' } };
+    return { stage: 'non-command', level: modes.effectiveLevel, decision: { kind: 'allow' } };
   }
 
   if (!invocation.command || invocation.command.trim() === '') {
-    return failedClosedEvaluation('command-validation', command);
+    return {
+      ...failedClosedEvaluation('command-validation', command),
+      level: modes.effectiveLevel,
+    };
   }
 
   const result = callDependency('command-analysis', command, () => {
-    const modes = dependencies.getModes(policy);
     return dependencies.analyzeCommand(
       invocation.command as string,
       {
@@ -245,8 +259,9 @@ export function evaluateGuard(
       protectedGitMetadata,
     );
   });
-  if (result) return blockedCommandEvaluation(invocation, result);
-  return { stage: 'command-analysis', decision: { kind: 'allow' } };
+  if (result)
+    return { ...blockedCommandEvaluation(invocation, result), level: modes.effectiveLevel };
+  return { stage: 'command-analysis', level: modes.effectiveLevel, decision: { kind: 'allow' } };
 }
 
 function getDeclaredCommandProgram(facts: SemanticFacts) {

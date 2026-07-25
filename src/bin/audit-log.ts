@@ -238,6 +238,7 @@ function formatLogEntryDetail(entry: AuditLogEntry, timeZone?: string): string {
     `ts:        ${value(formatHumanTimestamp(entry.ts, timeZone))}`,
     `decision:  ${value(entry.decision)}`,
     `agent:     ${value(agent)}`,
+    `level:     ${value(entry.level)}`,
     `tool:      ${value(entry.toolName)}`,
     `rule:      ${value(entry.ruleId)}`,
     `intent:    ${value(entry.intent)}`,

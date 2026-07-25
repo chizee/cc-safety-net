@@ -2,11 +2,12 @@ import { writeAuditLog } from '@/core/audit';
 import type { BlockIntent, Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { IntegrationDenial } from '@/integrations/denial';
-import type { AuditErrorCode, AuditFailureStage } from '@/types';
+import type { AuditErrorCode, AuditFailureStage, EffectiveSafetyLevel } from '@/types';
 
 type GuardEvaluation = {
   stage: string;
   decision: Exclude<Decision, { kind: 'indeterminate' }>;
+  level?: EffectiveSafetyLevel;
 };
 
 type GuardAuditDescriptor = {
@@ -16,6 +17,7 @@ type GuardAuditDescriptor = {
   reason: string;
   cwd: string;
   toolName: string;
+  level?: EffectiveSafetyLevel;
   ruleId?: string;
   intent?: BlockIntent;
   failureStage?: AuditFailureStage;
@@ -40,6 +42,7 @@ export function projectGuardAudit(
       reason: 'allowed',
       cwd: invocation.context.executionCwd,
       toolName: invocation.toolName,
+      level: evaluation.level,
     };
   }
 
@@ -53,6 +56,7 @@ export function projectGuardAudit(
     reason: evaluation.decision.reason,
     cwd: invocation.context.executionCwd,
     toolName: invocation.toolName,
+    level: evaluation.level,
     ruleId: evaluation.decision.ruleId,
     intent: evaluation.decision.intent,
     failureStage: failure?.stage,
@@ -83,6 +87,7 @@ export function writeGuardAudit(
     decision: audit.decision,
     agent: options.agent,
     shape: options.shape,
+    level: audit.level,
     toolName: audit.toolName,
     ruleId: audit.ruleId,
     intent: audit.intent,

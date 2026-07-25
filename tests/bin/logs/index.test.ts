@@ -45,6 +45,7 @@ function createLogsFixture(): LogsFixture {
     sessionId: 's1',
     decision: 'deny',
     agent: 'claude-code',
+    level: 'strict',
     command: 'git reset --hard',
     segment: 'git reset --hard',
     reason: 'blocked',
@@ -366,6 +367,7 @@ describe('runLogsCommand', () => {
       expect(result.stdout).toContain(`command:   ${command}`);
       if (id === '1111111111111111') {
         expect(result.stdout).toContain('stage:     policy-protection');
+        expect(result.stdout).toContain('level:     strict');
         expect(result.stdout).toContain('error:     path-canonicalization-limit');
         const json = await captureLogsCommand(['--id', id, '--json'], fixture.logsDir);
         expect(JSON.parse(json.stdout)).toMatchObject([
@@ -376,6 +378,7 @@ describe('runLogsCommand', () => {
         ]);
       } else {
         expect(result.stdout).toContain('stage:     -');
+        expect(result.stdout).toContain('level:     -');
         expect(result.stdout).toContain('error:     -');
       }
     } finally {
