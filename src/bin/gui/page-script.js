@@ -1117,7 +1117,7 @@ const renderSafety = () => {
   qs('safety-level').innerHTML = Object.entries(safetyLevels)
     .map(
       ([level, meta]) =>
-        `<label class="row"><input type="radio" name="safety-level" value="${level}" ${checkbox(draftPolicy.safety.level === level)}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`,
+        `<label class="row preset-${level}"><input type="radio" name="safety-level" value="${level}" ${checkbox(draftPolicy.safety.level === level)}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`,
     )
     .join('');
   const inherited = levelCapabilities(draftPolicy.safety.level);

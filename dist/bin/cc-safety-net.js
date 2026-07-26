@@ -139,6 +139,11 @@ Check that every parent path component is a directory.`;return message}import{ho
   --switch-track-hover: #767d87;
   --switch-knob: #ffffff;
 
+  /* Neutral, not accent-tinted: the ring is a position indicator, not a state.
+     Solid rather than a translucent mix so its contrast does not depend on
+     whichever surface the focused control happens to sit on. */
+  --focus-ring: var(--ink);
+
   --accent: light-dark(#166534, #3fb950);
   --safe: #14532d;
   --safe-hover: #0f3d20;
@@ -294,7 +299,7 @@ h1 {
 }
 
 .sidebar-links a:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }
 
@@ -524,7 +529,7 @@ button.icon-button svg {
 }
 
 :where(button, input, textarea):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -1034,7 +1039,7 @@ button.rule-id:hover {
 
 .spark-col:focus-visible {
   border-radius: var(--radius-sm);
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -1469,6 +1474,38 @@ label.row.safety-override-row select {
   color: var(--master-fg);
 }
 
+/* The picker is the most consequential control in the console, and it named
+   the same three tiers the rule sections below already color. The selected
+   card now speaks that vocabulary; unselected cards stay neutral. */
+.preset-standard {
+  --preset-fg: var(--ok-fg);
+  --preset-bg: var(--ok-bg);
+  --preset-border: var(--ok-border);
+}
+
+.preset-strict {
+  --preset-fg: var(--strict-fg);
+  --preset-bg: var(--strict-bg);
+  --preset-border: var(--strict-border);
+}
+
+.preset-paranoid {
+  --preset-fg: var(--paranoid-fg);
+  --preset-bg: var(--paranoid-bg);
+  --preset-border: var(--paranoid-border);
+}
+
+#safety-level label.row:has(input:checked),
+#safety-level label.row:has(input:checked):hover {
+  border-color: var(--preset-border);
+  background: var(--preset-bg);
+  accent-color: var(--preset-fg);
+}
+
+#safety-level label.row:has(input:checked) strong {
+  color: var(--preset-fg);
+}
+
 .panel-head-action {
   flex: none;
 }
@@ -1482,6 +1519,10 @@ label.row.safety-override-row select {
 .rule-tier + .rule-tier,
 #destructive-command-rules + .rule-tier {
   margin-top: 10px;
+}
+
+.rule-tier-enforced {
+  border-color: var(--ok-border);
 }
 
 .rule-tier-strict {
@@ -1507,6 +1548,14 @@ label.row.safety-override-row select {
 
 .rule-tier-head:hover:not(:disabled) {
   background: var(--surface-2);
+}
+
+/* The tiers that can be switched off carried the only hues, leaving the tier
+   that can never be switched off as the quietest thing on the panel. */
+.rule-tier-enforced .rule-tier-head,
+.rule-tier-enforced .rule-tier-head:hover:not(:disabled) {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
 }
 
 .rule-tier-strict .rule-tier-head,
@@ -1804,12 +1853,14 @@ textarea:hover {
   border-color: var(--muted);
 }
 
-/* Keeps the global :focus-visible ring: the border shift alone is the same one
-   hover produces, so it cannot distinguish keyboard focus on its own. */
+/* Text fields carry no focus ring. \`outline: none\` is load-bearing rather than
+   redundant: without it these fall back to the browser's default focus-visible
+   outline. Buttons, links, and the sparkline columns keep theirs. */
 input[type="search"]:focus,
 input[type="text"]:focus,
 textarea:focus {
   border-color: var(--muted);
+  outline: none;
 }
 
 input[type="text"]:disabled {
@@ -1987,7 +2038,7 @@ textarea {
 }
 
 .star-cta:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -3657,7 +3708,7 @@ const renderSafety = () => {
   qs('safety-level').innerHTML = Object.entries(safetyLevels)
     .map(
       ([level, meta]) =>
-        \`<label class="row"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`,
+        \`<label class="row preset-\${level}"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`,
     )
     .join('');
   const inherited = levelCapabilities(draftPolicy.safety.level);
