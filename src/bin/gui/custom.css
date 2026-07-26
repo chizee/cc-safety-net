@@ -18,8 +18,10 @@
   --border: light-dark(#e3e6ea, #292d33);
   --border-strong: light-dark(#cfd4da, #363b42);
 
-  --switch-track: light-dark(#c2c8d0, #3a3f47);
-  --switch-track-hover: light-dark(#aab1bb, #474d56);
+  /* Both track tones clear 3:1 against --surface so an off switch, and the knob
+     inside it, stay visible without relying on the accent. */
+  --switch-track: light-dark(#8b929c, #626973);
+  --switch-track-hover: #767d87;
   --switch-knob: #ffffff;
 
   --accent: light-dark(#166534, #3fb950);
@@ -329,7 +331,8 @@ button:hover:not(:disabled) {
 #activity-refresh:hover:not(:disabled),
 #integrations-refresh:hover:not(:disabled),
 #tester-run:hover:not(:disabled),
-#reset-rule-customizations:hover:not(:disabled) {
+#reset-rule-customizations:hover:not(:disabled),
+#reset-secret-customizations:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -519,9 +522,12 @@ main {
   }
 }
 
+/* minmax(0, 1fr), not the implicit auto track: rule IDs are nowrap, and their
+   min-content would otherwise widen the whole Overview grid past the viewport. */
 #top-rules,
 #top-commands {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -684,7 +690,6 @@ button.chip[aria-pressed="true"] {
 }
 
 .chip-count {
-  opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }
 
@@ -907,8 +912,15 @@ button.rule-id:hover {
   transition: opacity 0.12s ease;
 }
 
-.spark-col:hover::after {
+.spark-col:hover::after,
+.spark-col:focus-visible::after {
   opacity: 1;
+}
+
+.spark-col:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .feed-reason {
@@ -1310,7 +1322,7 @@ label.row.safety-override-row select {
 
 :is(label.row, .rule-control) .rule-id {
   display: block;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
@@ -1405,7 +1417,6 @@ label.row.safety-override-row select {
 .tier-counts {
   color: inherit;
   font-size: 11px;
-  opacity: 0.82;
 }
 
 .tier-counts {
@@ -1526,7 +1537,7 @@ label.row.master:has(input:checked):hover {
 }
 
 label.row.master strong {
-  font-size: 14px;
+  font-size: 15px;
 }
 
 label.row.master input[type="checkbox"] {
@@ -1678,10 +1689,11 @@ textarea:hover {
   border-color: var(--muted);
 }
 
+/* Keeps the global :focus-visible ring: the border shift alone is the same one
+   hover produces, so it cannot distinguish keyboard focus on its own. */
 input[type="search"]:focus,
 input[type="text"]:focus,
 textarea:focus {
-  outline: none;
   border-color: var(--muted);
 }
 
@@ -1893,9 +1905,14 @@ textarea {
   cursor: default;
 }
 
+/* !important and the pseudo-element selectors are load-bearing: the universal
+   selector loses to every class-level transition in this file, and does not
+   match the switch knob's ::before at all. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
   }
 
   .activity-refresh.spinning svg,
@@ -1922,9 +1939,15 @@ textarea {
     flex-direction: row;
     align-items: center;
     gap: 14px;
-    padding: 12px 16px;
+    padding: 0 16px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* The bar's five nav items sit at their minimum width, so the wordmark is
+     what has to give for the row to fit a 320px viewport. */
+  .brand-logo svg {
+    height: 24px;
   }
 
   .topbar {
@@ -1980,8 +2003,10 @@ textarea {
     gap: 2px;
   }
 
+  /* Vertical padding fills the bar for a taller touch target; the horizontal
+     side stays tight because the row already has no width to spare at 320px. */
   .sidenav a {
-    padding: 7px 9px;
+    padding: 15px 9px;
   }
 
   .sr-only-collapse {

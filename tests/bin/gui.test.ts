@@ -513,9 +513,7 @@ describe('policy GUI server', () => {
       );
       expect(html).toContain(':is(label.row, .rule-control) .rule-id {');
       expect(html).toContain('display: block;');
-      expect(html).toContain(
-        'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
-      );
+      expect(html).toContain('font-family: var(--font-mono);');
       expect(html).toContain('word-break: break-all;');
       expect(html).toContain('syncRawFromForm();');
       expect(html).not.toContain('secret-panel-content');

@@ -38,7 +38,7 @@
     <div class="content">
       <header class="topbar" id="topbar">
         <div class="topbar-row">
-          <div class="topbar-title" id="topbar-title">Overview</div>
+          <h2 class="topbar-title" id="topbar-title">Overview</h2>
           <label class="view-search topbar-search" data-search-view="activity" hidden>
             <span class="sr-only">Filter activity</span>
             <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule or command">
@@ -129,12 +129,12 @@
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
-                <h2>Test a command</h2>
+                <h2 id="tester-label">Test a command</h2>
                 <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits.</p>
               </div>
             </div>
             <div class="tester-row">
-              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter">
+              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter" aria-labelledby="tester-label">
               <button type="button" id="tester-run">Test</button>
             </div>
             <div id="tester-result" class="status" hidden></div>

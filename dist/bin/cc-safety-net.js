@@ -133,8 +133,10 @@ Check that every parent path component is a directory.`;return message}import{ho
   --border: light-dark(#e3e6ea, #292d33);
   --border-strong: light-dark(#cfd4da, #363b42);
 
-  --switch-track: light-dark(#c2c8d0, #3a3f47);
-  --switch-track-hover: light-dark(#aab1bb, #474d56);
+  /* Both track tones clear 3:1 against --surface so an off switch, and the knob
+     inside it, stay visible without relying on the accent. */
+  --switch-track: light-dark(#8b929c, #626973);
+  --switch-track-hover: #767d87;
   --switch-knob: #ffffff;
 
   --accent: light-dark(#166534, #3fb950);
@@ -444,7 +446,8 @@ button:hover:not(:disabled) {
 #activity-refresh:hover:not(:disabled),
 #integrations-refresh:hover:not(:disabled),
 #tester-run:hover:not(:disabled),
-#reset-rule-customizations:hover:not(:disabled) {
+#reset-rule-customizations:hover:not(:disabled),
+#reset-secret-customizations:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -634,9 +637,12 @@ main {
   }
 }
 
+/* minmax(0, 1fr), not the implicit auto track: rule IDs are nowrap, and their
+   min-content would otherwise widen the whole Overview grid past the viewport. */
 #top-rules,
 #top-commands {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -799,7 +805,6 @@ button.chip[aria-pressed="true"] {
 }
 
 .chip-count {
-  opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1022,8 +1027,15 @@ button.rule-id:hover {
   transition: opacity 0.12s ease;
 }
 
-.spark-col:hover::after {
+.spark-col:hover::after,
+.spark-col:focus-visible::after {
   opacity: 1;
+}
+
+.spark-col:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .feed-reason {
@@ -1425,7 +1437,7 @@ label.row.safety-override-row select {
 
 :is(label.row, .rule-control) .rule-id {
   display: block;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
@@ -1520,7 +1532,6 @@ label.row.safety-override-row select {
 .tier-counts {
   color: inherit;
   font-size: 11px;
-  opacity: 0.82;
 }
 
 .tier-counts {
@@ -1641,7 +1652,7 @@ label.row.master:has(input:checked):hover {
 }
 
 label.row.master strong {
-  font-size: 14px;
+  font-size: 15px;
 }
 
 label.row.master input[type="checkbox"] {
@@ -1793,10 +1804,11 @@ textarea:hover {
   border-color: var(--muted);
 }
 
+/* Keeps the global :focus-visible ring: the border shift alone is the same one
+   hover produces, so it cannot distinguish keyboard focus on its own. */
 input[type="search"]:focus,
 input[type="text"]:focus,
 textarea:focus {
-  outline: none;
   border-color: var(--muted);
 }
 
@@ -2008,9 +2020,14 @@ textarea {
   cursor: default;
 }
 
+/* !important and the pseudo-element selectors are load-bearing: the universal
+   selector loses to every class-level transition in this file, and does not
+   match the switch knob's ::before at all. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
   }
 
   .activity-refresh.spinning svg,
@@ -2037,9 +2054,15 @@ textarea {
     flex-direction: row;
     align-items: center;
     gap: 14px;
-    padding: 12px 16px;
+    padding: 0 16px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* The bar's five nav items sit at their minimum width, so the wordmark is
+     what has to give for the row to fit a 320px viewport. */
+  .brand-logo svg {
+    height: 24px;
   }
 
   .topbar {
@@ -2095,8 +2118,10 @@ textarea {
     gap: 2px;
   }
 
+  /* Vertical padding fills the bar for a taller touch target; the horizontal
+     side stays tight because the row already has no width to spare at 320px. */
   .sidenav a {
-    padding: 7px 9px;
+    padding: 15px 9px;
   }
 
   .sr-only-collapse {
@@ -2247,7 +2272,7 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
     <div class="content">
       <header class="topbar" id="topbar">
         <div class="topbar-row">
-          <div class="topbar-title" id="topbar-title">Overview</div>
+          <h2 class="topbar-title" id="topbar-title">Overview</h2>
           <label class="view-search topbar-search" data-search-view="activity" hidden>
             <span class="sr-only">Filter activity</span>
             <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule or command">
@@ -2338,12 +2363,12 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
           <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
-                <h2>Test a command</h2>
+                <h2 id="tester-label">Test a command</h2>
                 <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits.</p>
               </div>
             </div>
             <div class="tester-row">
-              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter">
+              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter" aria-labelledby="tester-label">
               <button type="button" id="tester-run">Test</button>
             </div>
             <div id="tester-result" class="status" hidden></div>
@@ -2572,6 +2597,7 @@ const secretGroupExpanded = new Map();
 const searchCollapsedSecretGroups = new Set();
 let rawCopyResetTimer = null;
 let feedCopyResetTimer = null;
+let activityQueryTimer = null;
 let renderedFeedEntries = [];
 let suspects = new Set();
 let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
@@ -2711,7 +2737,9 @@ const applyView = () => {
   document.body.dataset.view = view;
   const hasSearch = view === 'activity' || view === 'policy';
   qs('topbar-title').textContent = viewTitles[view];
-  qs('topbar-title').hidden = hasSearch;
+  // Search takes the bar's space on these views, but the heading is the only
+  // thing naming the current view, so it stays in the accessibility tree.
+  qs('topbar-title').classList.toggle('sr-only', hasSearch);
   document.querySelectorAll('.topbar-search').forEach((el) => {
     el.hidden = el.dataset.searchView !== view;
   });
@@ -2781,10 +2809,14 @@ const feedItemHtml = (entry, index) => {
     \${entry.reason && entry.reason !== 'allowed' ? \`<p class="feed-reason muted">\${escapeHtml(entry.reason)}</p>\` : ''}
   </article>\`;
 };
+// Every measurement runs before the first write: interleaving them invalidates
+// layout on each entry, which costs ~570ms over a full 500-entry feed.
 const applyFeedClamps = (root) => {
-  root.querySelectorAll('.feed-command').forEach((command) => {
-    if (command.classList.contains('clamped') || command.scrollHeight <= command.clientHeight + 1)
-      return;
+  const overflowing = [...root.querySelectorAll('.feed-command')].filter(
+    (command) =>
+      !command.classList.contains('clamped') && command.scrollHeight > command.clientHeight + 1,
+  );
+  overflowing.forEach((command) => {
     command.classList.add('clamped');
     command.insertAdjacentHTML(
       'afterend',
@@ -2803,7 +2835,17 @@ const renderOverviewActivity = () => {
     \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
   const byDay = activity.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
-  const sparkline = \`<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay.map((count) => \`<div class="spark-col" data-count="\${count.toLocaleString('en-US')}"><div class="spark-bar\${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>\`).join('')}</div>\`;
+  // Buckets run oldest-first, so the last one is today. Each column carries its
+  // own count: the tooltip is a pointer affordance and cannot be the only way
+  // to read the series.
+  const dayAgoLabel = (daysAgo) =>
+    daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : \`\${daysAgo} days ago\`;
+  const sparkline = \`<div class="tile-spark" role="group" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay
+    .map((count, index) => {
+      const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString('en-US')} blocked\`;
+      return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString('en-US')}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>\`;
+    })
+    .join('')}</div>\`;
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, \`Blocked · last \${activity.days} days\`, sparkline),
     tile(activity.counts.sessions, \`Sessions · last \${activity.days} days\`),
@@ -3968,7 +4010,10 @@ document.addEventListener('input', (event) => {
   if (input.id === 'activity-search' && activity) {
     if (clearCommandFilter()) renderActivityControls();
     activityFilters.query = input.value.trim().toLowerCase();
-    renderActivityFeed();
+    // Rebuilding a windowed feed costs ~250ms, so coalesce a burst of typing
+    // into one render rather than blocking the keystroke that triggered it.
+    clearTimeout(activityQueryTimer);
+    activityQueryTimer = setTimeout(renderActivityFeed, 120);
   }
 });
 document.addEventListener('keydown', (event) => {

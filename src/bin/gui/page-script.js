@@ -57,6 +57,7 @@ const secretGroupExpanded = new Map();
 const searchCollapsedSecretGroups = new Set();
 let rawCopyResetTimer = null;
 let feedCopyResetTimer = null;
+let activityQueryTimer = null;
 let renderedFeedEntries = [];
 let suspects = new Set();
 let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
@@ -196,7 +197,9 @@ const applyView = () => {
   document.body.dataset.view = view;
   const hasSearch = view === 'activity' || view === 'policy';
   qs('topbar-title').textContent = viewTitles[view];
-  qs('topbar-title').hidden = hasSearch;
+  // Search takes the bar's space on these views, but the heading is the only
+  // thing naming the current view, so it stays in the accessibility tree.
+  qs('topbar-title').classList.toggle('sr-only', hasSearch);
   document.querySelectorAll('.topbar-search').forEach((el) => {
     el.hidden = el.dataset.searchView !== view;
   });
@@ -266,10 +269,14 @@ const feedItemHtml = (entry, index) => {
     ${entry.reason && entry.reason !== 'allowed' ? `<p class="feed-reason muted">${escapeHtml(entry.reason)}</p>` : ''}
   </article>`;
 };
+// Every measurement runs before the first write: interleaving them invalidates
+// layout on each entry, which costs ~570ms over a full 500-entry feed.
 const applyFeedClamps = (root) => {
-  root.querySelectorAll('.feed-command').forEach((command) => {
-    if (command.classList.contains('clamped') || command.scrollHeight <= command.clientHeight + 1)
-      return;
+  const overflowing = [...root.querySelectorAll('.feed-command')].filter(
+    (command) =>
+      !command.classList.contains('clamped') && command.scrollHeight > command.clientHeight + 1,
+  );
+  overflowing.forEach((command) => {
     command.classList.add('clamped');
     command.insertAdjacentHTML(
       'afterend',
@@ -288,7 +295,17 @@ const renderOverviewActivity = () => {
     `<div class="tile"><strong>${escapeHtml(value.toLocaleString('en-US'))}</strong><span>${escapeHtml(label)}</span>${extra}</div>`;
   const byDay = activity.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
-  const sparkline = `<div class="tile-spark" role="img" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay.map((count) => `<div class="spark-col" data-count="${count.toLocaleString('en-US')}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`).join('')}</div>`;
+  // Buckets run oldest-first, so the last one is today. Each column carries its
+  // own count: the tooltip is a pointer affordance and cannot be the only way
+  // to read the series.
+  const dayAgoLabel = (daysAgo) =>
+    daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
+  const sparkline = `<div class="tile-spark" role="group" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay
+    .map((count, index) => {
+      const label = `${dayAgoLabel(byDay.length - 1 - index)}: ${count.toLocaleString('en-US')} blocked`;
+      return `<div class="spark-col" role="img" tabindex="0" data-count="${count.toLocaleString('en-US')}" aria-label="${escapeHtml(label)}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`;
+    })
+    .join('')}</div>`;
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, `Blocked · last ${activity.days} days`, sparkline),
     tile(activity.counts.sessions, `Sessions · last ${activity.days} days`),
@@ -1453,7 +1470,10 @@ document.addEventListener('input', (event) => {
   if (input.id === 'activity-search' && activity) {
     if (clearCommandFilter()) renderActivityControls();
     activityFilters.query = input.value.trim().toLowerCase();
-    renderActivityFeed();
+    // Rebuilding a windowed feed costs ~250ms, so coalesce a burst of typing
+    // into one render rather than blocking the keystroke that triggered it.
+    clearTimeout(activityQueryTimer);
+    activityQueryTimer = setTimeout(renderActivityFeed, 120);
   }
 });
 document.addEventListener('keydown', (event) => {
