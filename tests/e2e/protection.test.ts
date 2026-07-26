@@ -136,7 +136,7 @@ afterAll(() => {
 describe('built CLI protection contract', () => {
   for (const adapter of adapters) {
     describe(`${adapter.agent === 'claude-code' ? 'Coding CLI' : adapter.agent} hook protocol`, () => {
-      test('allows git status and produces no audit', async () => {
+      test('allows git status and records the allowed decision', async () => {
         await withWorkspace(async ({ cwd, home }) => {
           const safeSession = `${adapter.agent}-safe`;
           await expectAllowedAction(cwd, home, safeSession, (action) =>
@@ -198,7 +198,7 @@ describe('built CLI protection contract', () => {
     ],
   ] as const)('Coding CLI allows log-derived %s in standard mode', async (name, command) => {
     await withWorkspace(async ({ cwd, home }) => {
-      const sessionId = `log-regression-${name}-standard`;
+      const sessionId = `log-regression-${name.replaceAll(' ', '-')}-standard`;
       await expectAllowedAction(cwd, home, sessionId, (action) =>
         runCodingCliTool('Bash', { command }, cwd, home, sessionId, action, 'standard'),
       );
@@ -339,11 +339,15 @@ describe('built CLI protection contract', () => {
         ].join('\n'),
       },
     ],
-  ] as const)('Coding CLI allows harmless %s', async (name, toolName, toolInput) => {
+  ] as const)('Coding CLI allows harmless %s without auditing it', async (name, toolName, toolInput) => {
     await withSecretWorkspace(async ({ cwd, home }) => {
       const sessionId = `claude-${name.replaceAll(' ', '-')}`;
-      await expectAllowedAction(cwd, home, sessionId, (action) =>
-        runCodingCliTool(toolName, toolInput, cwd, home, sessionId, action),
+      await expectAllowedAction(
+        cwd,
+        home,
+        sessionId,
+        (action) => runCodingCliTool(toolName, toolInput, cwd, home, sessionId, action),
+        false,
       );
     });
   });
@@ -424,7 +428,9 @@ describe('built CLI protection contract', () => {
         ),
       ).toEqual({ allowed: true });
       expect(reads.at(-1)).toContain('policy.json');
-      expect(readAuditLogEntriesForSession(home, inspectSession)).toEqual([]);
+      expect(readAuditLogEntriesForSession(home, inspectSession)).toMatchObject([
+        { decision: 'allow', reason: 'allowed' },
+      ]);
     });
   });
 
@@ -540,24 +546,29 @@ describe('built OpenCode plugin protection contract', () => {
   test('allows harmless patchText content', async () => {
     await withWorkspace(async ({ cwd, home }) => {
       const patchSession = 'opencode-patch-content';
-      await expectAllowedAction(cwd, home, patchSession, (action) =>
-        runOpenCodeGated(
-          'apply_patch',
-          {
-            patchText: [
-              '*** Begin Patch',
-              '*** Update File: README.md',
-              '@@',
-              '+rm -rf .',
-              '+.env',
-              '*** End Patch',
-            ].join('\n'),
-          },
-          cwd,
-          home,
-          patchSession,
-          action,
-        ),
+      await expectAllowedAction(
+        cwd,
+        home,
+        patchSession,
+        (action) =>
+          runOpenCodeGated(
+            'apply_patch',
+            {
+              patchText: [
+                '*** Begin Patch',
+                '*** Update File: README.md',
+                '@@',
+                '+rm -rf .',
+                '+.env',
+                '*** End Patch',
+              ].join('\n'),
+            },
+            cwd,
+            home,
+            patchSession,
+            action,
+          ),
+        false,
       );
     });
   });
@@ -607,7 +618,7 @@ for (const integration of [
   },
 ] as const) {
   describe(integration.title, () => {
-    test('allows git status and produces no audit', async () => {
+    test('allows git status', async () => {
       await withWorkspace(async ({ cwd, home }) => {
         const sessionId = `${integration.agent}-safe`;
         await expectAllowedAction(cwd, home, sessionId, (action) =>
@@ -789,11 +800,14 @@ async function expectAllowedAction(
   home: string,
   sessionId: string,
   run: (action: () => void) => Promise<{ allowed: true } | { allowed: false; reason: string }>,
+  recordsAllowDecision = true,
 ) {
   const action = join(cwd, `${sessionId}-ran`);
   expect(await run(() => writeFileSync(action, 'ran'))).toEqual({ allowed: true });
   expect(readFileSync(action, 'utf8')).toBe('ran');
-  expect(readAuditLogEntriesForSession(home, sessionId)).toEqual([]);
+  expect(readAuditLogEntriesForSession(home, sessionId)).toMatchObject(
+    recordsAllowDecision ? [{ decision: 'allow', reason: 'allowed', sessionId }] : [],
+  );
 }
 
 async function runGated(

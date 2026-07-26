@@ -1,5 +1,16 @@
-import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { describe, expect, spyOn, test } from 'bun:test';
+import * as fs from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runLogsCommand } from '@/bin/audit-log';
@@ -474,7 +485,9 @@ describe('runLogsCommand', () => {
 
       expect(JSON.parse(found.stdout)).toHaveLength(1);
       expect(JSON.parse(missingJson.stdout)).toEqual([]);
-      expect(missingHuman.stdout).toBe('No audit log entry found for id ffffffffffffffff.');
+      expect(missingHuman.stdout).toBe(
+        'No retained audit log entry found for id ffffffffffffffff.',
+      );
     } finally {
       fixture.cleanup();
     }
@@ -781,6 +794,312 @@ describe('runLogsCommand', () => {
       expect(invalidLimit.stderr).toContain('--limit must be a positive number');
     } finally {
       fixture.cleanup();
+    }
+  });
+});
+
+type PruneLegacyFixture = {
+  cleanup: () => void;
+  logsDir: string;
+  legacyFiles: string[];
+  survivors: string[];
+  legacyBytes: number;
+};
+
+/**
+ * Root-level `*.jsonl` files spanning every shape the explicit cleanup must
+ * still delete (fresh, ancient, malformed, empty) alongside every neighbour it
+ * must leave alone (nested v2, non-JSONL, a directory, and symlinks).
+ */
+function createPruneLegacyFixture(): PruneLegacyFixture {
+  const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-prune-legacy-'));
+  const logsDir = join(root, 'logs');
+  const outside = join(root, 'outside');
+  mkdirSync(logsDir, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+
+  writeJsonlFixture(join(logsDir, 'fresh-sess.jsonl'), [
+    {
+      ts: new Date().toISOString(),
+      decision: 'deny',
+      command: 'legacy-secret-command',
+      segment: 'legacy-secret-command',
+      reason: 'blocked',
+    },
+  ]);
+  writeJsonlFixture(join(logsDir, 'ancient-sess.jsonl'), [
+    {
+      ts: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString(),
+      decision: 'allow',
+      command: 'ancient-allowed-command',
+      segment: 'ancient-allowed-command',
+      reason: 'allowed',
+    },
+  ]);
+  writeFileSync(join(logsDir, 'malformed.jsonl'), 'not json at all\n{"broken":');
+  writeFileSync(join(logsDir, 'empty.jsonl'), '');
+
+  const nestedTs = new Date().toISOString();
+  writeNestedAuditLogFixture(logsDir, '-project-a', {
+    ts: nestedTs,
+    sessionId: 'nested-sess',
+    id: '1111111111111111',
+    decision: 'deny',
+    command: 'nested-v2-command',
+    segment: 'nested-v2-command',
+    reason: 'blocked',
+  });
+  writeFileSync(join(logsDir, 'notes.txt'), 'keep me');
+  mkdirSync(join(logsDir, 'directory.jsonl'));
+  writeFileSync(join(outside, 'target.jsonl'), '{}');
+  symlinkSync(join(outside, 'target.jsonl'), join(logsDir, 'linked.jsonl'));
+  symlinkSync(outside, join(logsDir, 'linked-dir.jsonl'));
+
+  const legacyFiles = [
+    'fresh-sess.jsonl',
+    'ancient-sess.jsonl',
+    'malformed.jsonl',
+    'empty.jsonl',
+  ].map((name) => join(logsDir, name));
+  return {
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    logsDir,
+    legacyFiles,
+    survivors: [
+      join(
+        logsDir,
+        '-project-a',
+        nestedTs.slice(0, 7),
+        `${nestedTs.slice(0, 10)}-nested-sess.jsonl`,
+      ),
+      join(logsDir, 'notes.txt'),
+      join(logsDir, 'directory.jsonl'),
+      join(logsDir, 'linked.jsonl'),
+      join(logsDir, 'linked-dir.jsonl'),
+      join(outside, 'target.jsonl'),
+    ],
+    legacyBytes: legacyFiles.reduce((total, file) => total + statSync(file).size, 0),
+  };
+}
+
+describe('runLogsCommand --prune-legacy', () => {
+  test('deletes every regular root-level JSONL file regardless of age or contents', async () => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const result = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+      for (const file of fixture.legacyFiles) expect(existsSync(file)).toBe(false);
+      expect(result.stdout).toBe(
+        [
+          `Removed 4 legacy audit log files (${fixture.legacyBytes} B).`,
+          'Nested v2 audit logs were not changed.',
+          'This deletion cannot be undone.',
+        ].join('\n'),
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('preserves nested v2 files, non-JSONL files, directories, and symlinks', async () => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const result = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+      for (const survivor of fixture.survivors) {
+        expect(lstatSync(survivor, { throwIfNoEntry: false })).toBeDefined();
+      }
+      expect(lstatSync(join(fixture.logsDir, 'linked.jsonl')).isSymbolicLink()).toBe(true);
+      expect(lstatSync(join(fixture.logsDir, 'linked-dir.jsonl')).isSymbolicLink()).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('reports no candidates with exit code 0 and creates nothing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-prune-empty-'));
+    const logsDir = join(root, 'logs');
+    try {
+      const missing = await captureLogsCommand(['--prune-legacy'], logsDir);
+      expect(missing.exitCode).toBe(0);
+      expect(existsSync(logsDir)).toBe(false);
+
+      mkdirSync(logsDir, { recursive: true });
+      const empty = await captureLogsCommand(['--prune-legacy'], logsDir);
+
+      expect(empty.exitCode).toBe(0);
+      expect(empty.stdout).toBe(
+        ['No legacy audit log files found.', 'Nested v2 audit logs were not changed.'].join('\n'),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('is idempotent when repeated', async () => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const first = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+      const second = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+
+      expect(first.exitCode).toBe(0);
+      expect(second.exitCode).toBe(0);
+      expect(second.stdout).toContain('No legacy audit log files found.');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('emits only the summary object with --json', async () => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const result = await captureLogsCommand(['--prune-legacy', '--json'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(
+        `{"removedFiles":4,"removedBytes":${fixture.legacyBytes},"failedFiles":0}`,
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('never prints command text or entry contents', async () => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const human = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+      const json = await captureLogsCommand(['--prune-legacy', '--json'], fixture.logsDir);
+
+      for (const output of [human.stdout, human.stderr, json.stdout, json.stderr]) {
+        expect(output).not.toContain('legacy-secret-command');
+        expect(output).not.toContain('ancient-allowed-command');
+        expect(output).not.toContain('blocked');
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('returns 1 with accurate counts when every deletion fails', async () => {
+    const fixture = createPruneLegacyFixture();
+    const spy = spyOn(fs, 'unlinkSync').mockImplementation(() => {
+      throw new Error('EACCES: permission denied');
+    });
+    try {
+      const result = await captureLogsCommand(['--prune-legacy', '--json'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('{"removedFiles":0,"removedBytes":0,"failedFiles":4}');
+      for (const file of fixture.legacyFiles) expect(existsSync(file)).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fixture.cleanup();
+    }
+  });
+
+  test('returns 1 and reports the failed file when deletion partly fails', async () => {
+    const fixture = createPruneLegacyFixture();
+    const blocked = join(fixture.logsDir, 'malformed.jsonl');
+    const blockedBytes = statSync(blocked).size;
+    const real = fs.unlinkSync;
+    const spy = spyOn(fs, 'unlinkSync').mockImplementation(((path: string) => {
+      if (path === blocked) throw new Error('EACCES: permission denied');
+      real(path);
+    }) as typeof fs.unlinkSync);
+    try {
+      const result = await captureLogsCommand(['--prune-legacy'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain(
+        `Removed 3 legacy audit log files (${fixture.legacyBytes - blockedBytes} B).`,
+      );
+      expect(result.stderr).toBe('Could not remove malformed.jsonl: EACCES: permission denied');
+      expect(existsSync(blocked)).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fixture.cleanup();
+    }
+  });
+
+  test.each([
+    '--id 1111111111111111',
+    '--limit 5',
+    '--since 7',
+    '--agent claude-code',
+    '--rule legacy.rule',
+    '--session s1',
+    '--project .',
+    '--suspect',
+    '--all',
+  ])('rejects --prune-legacy combined with %s', async (combination) => {
+    const fixture = createPruneLegacyFixture();
+    try {
+      const result = await captureLogsCommand(
+        ['--prune-legacy', ...combination.split(' ')],
+        fixture.logsDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--prune-legacy cannot be combined');
+      for (const file of fixture.legacyFiles) expect(existsSync(file)).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
+describe('runLogsCommand retained history window', () => {
+  test.each([['0.5'], ['90']])('accepts --since %s', async (since) => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--since', since], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('rejects --since beyond the retained window', async () => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--since', '90.1'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe('--since must be a positive number of days no greater than 90');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('--id returns a physically retained entry that is already expired', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-expired-id-'));
+    const logsDir = join(root, 'logs');
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      // Freshly written, so opportunistic pruning keeps it, while its only
+      // entry is far outside the 90-day retention window.
+      writeJsonlFixture(join(logsDir, 'expired-sess.jsonl'), [
+        {
+          ts: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(),
+          id: '9999999999999999',
+          decision: 'deny',
+          command: 'expired but retained',
+          segment: 'expired but retained',
+          reason: 'blocked',
+        },
+      ]);
+
+      const found = await captureLogsCommand(['--id', '9999999999999999'], logsDir);
+      const missing = await captureLogsCommand(['--id', 'ffffffffffffffff'], logsDir);
+
+      expect(found.exitCode).toBe(0);
+      expect(found.stdout).toContain('expired but retained');
+      expect(missing.stdout).toBe('No retained audit log entry found for id ffffffffffffffff.');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

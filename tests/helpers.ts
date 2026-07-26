@@ -147,7 +147,15 @@ export function writeNestedAuditLogFixture(
   writeJsonlFixture(join(monthDir, `${date}-${entry.sessionId}.jsonl`), [entry]);
 }
 
-export function withEnv<T>(env: Record<string, string>, fn: () => T): T {
+function setEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
+
+export function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
   const effectiveEnv =
     env.HOME !== undefined && env.CC_SAFETY_NET_AUDIT_HOME === undefined
       ? { ...env, CC_SAFETY_NET_AUDIT_HOME: env.HOME }
@@ -155,17 +163,11 @@ export function withEnv<T>(env: Record<string, string>, fn: () => T): T {
   const original: Record<string, string | undefined> = {};
   for (const key of Object.keys(effectiveEnv)) {
     original[key] = process.env[key];
-    process.env[key] = effectiveEnv[key];
+    setEnvValue(key, effectiveEnv[key]);
   }
 
   const restore = () => {
-    for (const key of Object.keys(effectiveEnv)) {
-      if (original[key] === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = original[key];
-      }
-    }
+    for (const key of Object.keys(effectiveEnv)) setEnvValue(key, original[key]);
   };
 
   try {

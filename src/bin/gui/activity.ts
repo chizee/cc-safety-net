@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { getAuditLogsDir } from '@/core/audit';
+import { AUDIT_RETENTION_DAYS, pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { commandSignature, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
@@ -12,6 +13,7 @@ const ENTRY_CAP = 500;
  * when the entry list is truncated.
  */
 export function getActivityFeed(days: number, logsDir: string | null = getAuditLogsDir()) {
+  if (logsDir) pruneExpiredAuditLogs(logsDir);
   const dayStart = (date: Date) =>
     new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const todayStart = dayStart(new Date());
@@ -21,14 +23,18 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   const windowStart = new Date(todayStart);
   windowStart.setDate(windowStart.getDate() - (days - 1));
   const cutoff = windowStart.getTime();
+  // Opportunistic pruning may not have removed an expired file yet, so the
+  // retained total is filtered by age rather than by what is still on disk.
+  const retentionCutoff = Date.now() - AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   const windowEntries: AuditLogEntry[] = [];
-  let totalBlockedAllTime = 0;
+  let totalBlockedRetained = 0;
   for (const file of logsDir ? listAuditLogFiles(logsDir) : []) {
     for (const entry of readAuditLogEntries(file)) {
       if (!entry || typeof entry.ts !== 'string' || typeof entry.command !== 'string') continue;
-      if (entry.decision !== 'allow') totalBlockedAllTime++;
       const ts = new Date(entry.ts).getTime();
-      if (Number.isFinite(ts) && ts >= cutoff) windowEntries.push(entry);
+      if (!Number.isFinite(ts)) continue;
+      if (entry.decision !== 'allow' && ts >= retentionCutoff) totalBlockedRetained++;
+      if (ts >= cutoff) windowEntries.push(entry);
     }
   }
   windowEntries.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
@@ -62,7 +68,7 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
     // Entries carry unredacted paths; the client scrubs this prefix out of
     // false-positive reports before they reach the public issue tracker.
     homeDir: homedir(),
-    totalBlockedAllTime,
+    totalBlockedRetained,
     totalInWindow: windowEntries.length,
     truncated: windowEntries.length > ENTRY_CAP,
     counts: {
@@ -75,6 +81,14 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
       commands,
       errors,
     },
-    entries: windowEntries.slice(0, ENTRY_CAP),
+    // Denials are the rare, actionable class: keep them all before filling the
+    // cap with allowed entries, so the Blocked filter can never render empty
+    // while the tiles report a nonzero blocked count.
+    entries: [
+      ...windowEntries.filter((entry) => entry.decision !== 'allow'),
+      ...windowEntries.filter((entry) => entry.decision === 'allow'),
+    ]
+      .slice(0, ENTRY_CAP)
+      .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()),
   };
 }

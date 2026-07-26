@@ -815,8 +815,12 @@ describe('Pi tool_call event', () => {
     expect(result?.reason).toContain('BLOCKED by CC Safety Net');
   });
 
-  test('resolves a safe-command session only when debug auditing is enabled', () => {
-    const originalDebug = process.env.CC_SAFETY_NET_DEBUG;
+  test.each([
+    [undefined, 1],
+    ['all', 1],
+    ['blocked', 0],
+    ['everything', 0],
+  ])('resolves a safe-command session only when the audit scope %p records allows', (scope, expectedLookups) => {
     let sessionLookups = 0;
     const ctx = {
       ...piContext(process.cwd()),
@@ -827,18 +831,11 @@ describe('Pi tool_call event', () => {
         },
       },
     };
-    try {
-      delete process.env.CC_SAFETY_NET_DEBUG;
-      expect(handlePiToolCall(bashToolCall('git status'), ctx)).toBeUndefined();
-      expect(sessionLookups).toBe(0);
 
-      process.env.CC_SAFETY_NET_DEBUG = '1';
+    withEnv({ CC_SAFETY_NET_AUDIT_SCOPE: scope, CC_SAFETY_NET_DEBUG: undefined }, () => {
       expect(handlePiToolCall(bashToolCall('git status'), ctx)).toBeUndefined();
-      expect(sessionLookups).toBe(1);
-    } finally {
-      if (originalDebug === undefined) delete process.env.CC_SAFETY_NET_DEBUG;
-      else process.env.CC_SAFETY_NET_DEBUG = originalDebug;
-    }
+    });
+    expect(sessionLookups).toBe(expectedLookups);
   });
 
   test.each([
@@ -872,19 +869,67 @@ describe('Pi tool_call event', () => {
     expect(calls).toEqual(['session']);
   });
 
-  test('logs allowed commands when debug mode is enabled', () => {
-    const originalDebug = process.env.CC_SAFETY_NET_DEBUG;
-    process.env.CC_SAFETY_NET_DEBUG = '1';
+  test.each([
+    [undefined, 'allow'],
+    ['all', 'allow'],
+    ['blocked', undefined],
+    ['everything', undefined],
+  ])('records an allowed command under the %p audit scope as %p', (scope, decision) => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-scope-'));
+    const home = join(dir, 'home');
+    const sessionId = 'pi-scope-session';
     try {
-      expect(
-        handlePiToolCall(bashToolCall('git status'), piContext(process.cwd())),
-      ).toBeUndefined();
+      withEnv({ HOME: home, CC_SAFETY_NET_AUDIT_SCOPE: scope }, () => {
+        expect(
+          handlePiToolCall(bashToolCall('TOKEN=secret git status'), {
+            ...piContext(dir),
+            sessionManager: { getSessionId: () => sessionId },
+          }),
+        ).toBeUndefined();
+
+        const entries = readAuditLogEntriesForSession(home, sessionId);
+        if (decision === undefined) {
+          expect(entries).toEqual([]);
+          return;
+        }
+        expect(entries).toMatchObject([
+          {
+            decision: 'allow',
+            reason: 'allowed',
+            agent: 'pi',
+            command: 'TOKEN=<redacted> git status',
+          },
+        ]);
+      });
     } finally {
-      if (originalDebug === undefined) {
-        delete process.env.CC_SAFETY_NET_DEBUG;
-      } else {
-        process.env.CC_SAFETY_NET_DEBUG = originalDebug;
-      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    undefined,
+    'all',
+    'blocked',
+    'everything',
+  ])('records a denial under the %p audit scope', (scope) => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-scope-deny-'));
+    const home = join(dir, 'home');
+    const sessionId = 'pi-scope-deny-session';
+    try {
+      withEnv({ HOME: home, CC_SAFETY_NET_AUDIT_SCOPE: scope }, () => {
+        expect(
+          handlePiToolCall(bashToolCall('git reset --hard'), {
+            ...piContext(dir),
+            sessionManager: { getSessionId: () => sessionId },
+          })?.block,
+        ).toBeTrue();
+
+        expect(readAuditLogEntriesForSession(home, sessionId)).toMatchObject([
+          { decision: 'deny', agent: 'pi', ruleId: 'git.reset-hard' },
+        ]);
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

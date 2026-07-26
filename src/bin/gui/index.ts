@@ -17,6 +17,7 @@ import {
 } from '@/bin/hook/install/targets';
 import { createPolicySnapshot, loadPolicySnapshot } from '@/config/policy-snapshot';
 import { getUserPolicyDiagnostics } from '@/config/schema';
+import { AUDIT_RETENTION_DAYS } from '@/core/audit-retention';
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
@@ -246,7 +247,9 @@ async function handleRequest(
   if (request.method === 'GET' && url.pathname === '/api/activity') {
     const days = parseActivityDays(url.searchParams.get('days'));
     if (days === null) {
-      sendJson(response, 400, { error: 'days must be an integer between 1 and 3650' });
+      sendJson(response, 400, {
+        error: `days must be an integer between 1 and ${AUDIT_RETENTION_DAYS}`,
+      });
       return;
     }
     sendJson(response, 200, getActivityFeed(days, options.activityLogsDir));
@@ -337,7 +340,7 @@ function explainDraftCommand(
 function parseActivityDays(raw: string | null): number | null {
   if (raw === null) return 7;
   const days = Number(raw);
-  if (!Number.isInteger(days) || days < 1 || days > 3650) return null;
+  if (!Number.isInteger(days) || days < 1 || days > AUDIT_RETENTION_DAYS) return null;
   return days;
 }
 
@@ -560,7 +563,7 @@ export async function fetchStarContext(
   const [starred, starCount, blockedTotal] = await Promise.all([
     userHasStarredRepo(options.command),
     fetchStarCount(options.fetchRepo),
-    Promise.resolve(getActivitySummary(36_500, options.logsDir).totalBlocked),
+    Promise.resolve(getActivitySummary(AUDIT_RETENTION_DAYS, options.logsDir).totalBlocked),
   ]);
   return { starred, starCount, blockedTotal };
 }

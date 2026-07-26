@@ -323,7 +323,7 @@ export function formatActivitySection(activity: ActivitySummary): string {
     lines.push('   Tip: This is normal for new installations');
   } else {
     lines.push(
-      `Recent Activity (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`,
+      `Recent Activity · last 7 days (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`,
     );
     lines.push(formatActivityTable(activity.recentEntries));
   }

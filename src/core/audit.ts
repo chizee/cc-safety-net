@@ -5,6 +5,7 @@ import { isAbsolute, join } from 'node:path';
 
 export { redactSecrets } from '@/core/sanitize';
 
+import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { redactSecrets } from '@/core/sanitize';
 
 import type {
@@ -137,6 +138,9 @@ export function writeAuditLog(
     };
 
     appendFileSync(logFile, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8', mode: 0o600 });
+    // Retention runs after the append so a pruning failure can never cost the
+    // entry this call was made to persist.
+    pruneExpiredAuditLogs(logsDir, options.now);
   } catch {
     // Silently ignore errors (matches Python behavior)
   }

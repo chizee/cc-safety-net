@@ -1,6 +1,8 @@
-import { basename, dirname, resolve } from 'node:path';
+import { readdirSync, statSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
+import { AUDIT_RETENTION_DAYS, pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { findSuspectEntries, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
@@ -12,6 +14,7 @@ type LogsFlags = {
   all: boolean;
   json: boolean;
   suspect: boolean;
+  pruneLegacy: boolean;
   id?: string;
   agent?: string;
   rule?: string;
@@ -33,6 +36,7 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     all: false,
     json: false,
     suspect: false,
+    pruneLegacy: false,
   };
 
   for (let index = 0; index < args.length; index++) {
@@ -47,6 +51,10 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     }
     if (arg === '--json') {
       flags.json = true;
+      continue;
+    }
+    if (arg === '--prune-legacy') {
+      flags.pruneLegacy = true;
       continue;
     }
     if (arg === '--id') {
@@ -73,8 +81,12 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     }
     if (arg === '--since') {
       const since = parsePositiveNumber(args[index + 1]);
-      if (since === null) {
-        console.error('--since must be a positive number');
+      // Retained history is the only history, so a wider window would imply a
+      // completeness the log cannot back up.
+      if (since === null || since > AUDIT_RETENTION_DAYS) {
+        console.error(
+          `--since must be a positive number of days no greater than ${AUDIT_RETENTION_DAYS}`,
+        );
         return null;
       }
       flags.since = since;
@@ -130,6 +142,24 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     return null;
   }
 
+  if (
+    flags.pruneLegacy &&
+    (flags.id !== undefined ||
+      flags.agent !== undefined ||
+      flags.rule !== undefined ||
+      flags.session !== undefined ||
+      flags.project !== undefined ||
+      flags.suspect ||
+      flags.all ||
+      flags.sinceExplicit ||
+      flags.limitExplicit)
+  ) {
+    console.error(
+      '--prune-legacy cannot be combined with --id, --agent, --rule, --session, --project, --suspect, --all, --since, or --limit',
+    );
+    return null;
+  }
+
   return flags;
 }
 
@@ -141,16 +171,18 @@ export async function runLogsCommand(
   if (!flags) return 1;
 
   const logsDir = options.logsDir ?? getAuditLogsDir();
+  if (flags.pruneLegacy) return pruneLegacyAuditLogs(logsDir, flags.json);
   if (!logsDir) {
     console.log(
       flags.json
         ? '[]'
         : flags.id
-          ? `No audit log entry found for id ${renderTerminalText(flags.id)}.`
+          ? `No retained audit log entry found for id ${renderTerminalText(flags.id)}.`
           : 'No audit log entries found.',
     );
     return 0;
   }
+  pruneExpiredAuditLogs(logsDir);
   const allEntries = listAuditLogFiles(logsDir).flatMap((file) =>
     readAuditLogEntries(file).map((entry) => ({ entry, file })),
   );
@@ -187,6 +219,73 @@ export async function runLogsCommand(
   return 0;
 }
 
+/**
+ * Delete every regular `*.jsonl` file sitting directly in the audit root. That
+ * layout is only ever produced by the legacy writer, so membership is decided
+ * by position alone: entry age, schema, and malformed lines are irrelevant
+ * because the user asked for all of it to go. Nested project directories are
+ * never entered, and symlinks are not regular files, so neither can be a target.
+ */
+function pruneLegacyAuditLogs(logsDir: string | null, json: boolean): number {
+  const files = logsDir ? listLegacyLogFiles(logsDir).map((name) => join(logsDir, name)) : [];
+  const failures: string[] = [];
+  let removedFiles = 0;
+  let removedBytes = 0;
+
+  for (const file of files) {
+    const bytes = statSync(file, { throwIfNoEntry: false })?.size ?? 0;
+    const error = unlinkLegacyLogFile(file);
+    if (error) {
+      failures.push(`${basename(file)}: ${error}`);
+      continue;
+    }
+    removedFiles++;
+    removedBytes += bytes;
+  }
+
+  if (json) {
+    console.log(JSON.stringify({ removedFiles, removedBytes, failedFiles: failures.length }));
+    return failures.length === 0 ? 0 : 1;
+  }
+
+  console.log(
+    removedFiles === 0 && failures.length === 0
+      ? 'No legacy audit log files found.'
+      : `Removed ${removedFiles} legacy audit log ${removedFiles === 1 ? 'file' : 'files'} (${formatBytes(removedBytes)}).`,
+  );
+  for (const failure of failures) {
+    console.error(`Could not remove ${renderTerminalText(failure)}`);
+  }
+  console.log('Nested v2 audit logs were not changed.');
+  if (removedFiles > 0) console.log('This deletion cannot be undone.');
+  return failures.length === 0 ? 0 : 1;
+}
+
+function listLegacyLogFiles(logsDir: string): string[] {
+  try {
+    return readdirSync(logsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+function unlinkLegacyLogFile(file: string): string | null {
+  try {
+    unlinkSync(file);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB'];
+  const unit = Math.min(Math.floor(Math.log2(Math.max(bytes, 1)) / 10), units.length - 1);
+  return `${Math.round((bytes / 1024 ** unit) * 10) / 10} ${units[unit]}`;
+}
+
 function outputIdLookup(
   entries: SourcedAuditLogEntry[],
   flags: LogsFlags,
@@ -209,7 +308,7 @@ function outputIdLookup(
   }
   const match = matches[0];
   if (!match) {
-    console.log(`No audit log entry found for id ${renderTerminalText(flags.id ?? '')}.`);
+    console.log(`No retained audit log entry found for id ${renderTerminalText(flags.id ?? '')}.`);
     return 0;
   }
   console.log(formatLogEntryDetail(match.entry, timeZone));

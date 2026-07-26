@@ -5,6 +5,7 @@ import type {
   ProtectedDirectoryIssue,
   ProtectedDirectoryKind,
 } from '@/bin/doctor/types';
+import { resolveAuditScope } from '@/core/env';
 import { getIntegrationDisplayName } from '@/integrations/catalog';
 
 type DoctorFacts = Omit<DoctorReport, 'findings'>;
@@ -97,16 +98,19 @@ const findingRules: FindingRule[] = [
   },
   {
     derive: (report) => {
-      const debug = report.environment.find((item) => item.name === 'CC_SAFETY_NET_DEBUG');
-      return debug?.value?.trim().toLowerCase() === '1' ||
-        debug?.value?.trim().toLowerCase() === 'true'
+      const scope = report.environment.find((item) => item.name === 'CC_SAFETY_NET_AUDIT_SCOPE');
+      // The raw value is deliberately not echoed: findings are rendered without
+      // terminal-safe escaping.
+      return resolveAuditScope(scope?.value) === 'invalid'
         ? [
             {
-              checkId: 'environment.debug-allow-logging',
+              checkId: 'environment.audit-scope-invalid',
               severity: 'warning',
-              title: 'Debug allow-logging is enabled',
-              detail: 'Allowed hook commands may be written to debug output.',
-              fixHint: 'Unset CC_SAFETY_NET_DEBUG, then restart the integration.',
+              title: 'Audit scope value is invalid',
+              detail:
+                'CC_SAFETY_NET_AUDIT_SCOPE is not `all` or `blocked`, so allowed command decisions are not recorded.',
+              fixHint:
+                'Set CC_SAFETY_NET_AUDIT_SCOPE to `all` or `blocked`, then restart the integration.',
             },
           ]
         : [];

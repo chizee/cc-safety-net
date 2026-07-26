@@ -1,5 +1,5 @@
 import { firstTrustedRoot } from '@/core/cwd-containment';
-import { ENV_FLAGS, envTruthy } from '@/core/env';
+import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
 import {
   getCommandFromToolInput,
   getNonCommandToolInputKind,
@@ -240,7 +240,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
   try {
     const evaluation = evaluateRuntimeGuard(invocation, {
       guard: {
-        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        auditAllowed: shouldRecordAllowedCommands(),
         dependencies: adapter.guardDependencies,
       },
       audit: { agent, shape, getSessionId: () => adapter.getSessionId(input) },

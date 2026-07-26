@@ -159,7 +159,7 @@ describe('hook adapter direct integration', () => {
     expect(output.reason).toContain('Missing hook input JSON.');
   });
 
-  test('allowed commands with debug sessions return no hook output', async () => {
+  test('allowed commands return no hook output while debug diagnostics are enabled', async () => {
     const output = await runWithInput(runKimiCodeHook, kimiShellInput('git status'), {
       CC_SAFETY_NET_DEBUG: '1',
     });

@@ -42,8 +42,13 @@ const ENV_VARS: Array<{
   },
   {
     flag: ENV_FLAGS.debug,
-    description: 'Log allowed hook commands for debugging',
+    description: 'Print diagnostic messages to stderr',
     defaultBehavior: 'off',
+  },
+  {
+    flag: ENV_FLAGS.auditScope,
+    description: 'Command decisions recorded: all, or blocked (privacy-minimizing, denials only)',
+    defaultBehavior: 'all',
   },
 ];
 

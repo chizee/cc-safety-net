@@ -1,6 +1,6 @@
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { resolveContainedCwd } from '@/core/cwd-containment';
-import { ENV_FLAGS, envTruthy } from '@/core/env';
+import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
 import { getNonCommandToolInputKind } from '@/core/tool-input';
 import type { CommandToolKind, ToolInvocation } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
@@ -104,7 +104,7 @@ function handlePiToolCallWithDependencies(
   try {
     const evaluation = evaluateRuntimeGuard(toolCall, {
       guard: {
-        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        auditAllowed: shouldRecordAllowedCommands(),
         policyOptions: options.policyOptions,
         dependencies: options.guardDependencies,
       },

@@ -1,7 +1,7 @@
 import type { ShellCommand, ToolCall, URI } from '@ampcode/plugin';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { resolveContainedCwd } from '@/core/cwd-containment';
-import { ENV_FLAGS, envTruthy } from '@/core/env';
+import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
 import * as toolRouting from '@/core/tool-input';
 import * as invocationDomain from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
@@ -71,7 +71,7 @@ function handleAmpToolCallWithDependencies(
   try {
     const evaluation = guardEngine.evaluateRuntimeGuard(toolCall, {
       guard: {
-        auditAllowed: envTruthy(ENV_FLAGS.debug),
+        auditAllowed: shouldRecordAllowedCommands(),
         policyOptions: options.policyOptions,
         dependencies: options.guardDependencies,
       },

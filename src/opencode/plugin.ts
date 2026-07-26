@@ -1,6 +1,7 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
+import { shouldRecordAllowedCommands } from '@/core/env';
 import * as toolRouting from '@/core/tool-input';
 import * as invocationDomain from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
@@ -85,7 +86,7 @@ export function createCCSafetyNetPlugin(
         );
         try {
           const evaluation = guardEngine.evaluateRuntimeGuard(invocation, {
-            guard: { dependencies: guardDependencies },
+            guard: { auditAllowed: shouldRecordAllowedCommands(), dependencies: guardDependencies },
             audit: {
               agent: 'opencode',
               homeDir,

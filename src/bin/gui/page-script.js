@@ -292,8 +292,8 @@ const renderOverviewActivity = () => {
   qs('overview-tiles').innerHTML = [
     tile(activity.counts.blocked, `Blocked · last ${activity.days} days`, sparkline),
     tile(activity.counts.sessions, `Sessions · last ${activity.days} days`),
-    tile(activity.totalInWindow, `Commands reviewed · last ${activity.days} days`),
-    tile(activity.totalBlockedAllTime, 'Blocked · all time'),
+    tile(activity.totalInWindow, `Commands recorded · last ${activity.days} days`),
+    tile(activity.totalBlockedRetained, 'Blocked · retained 90 days'),
   ].join('');
 };
 const renderProtectionCard = () => {
@@ -823,7 +823,7 @@ const hideStarCta = () => {
 const renderStarPitch = (context, starred = false) => {
   const evidence =
     context.blockedTotal > 0
-      ? `CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? '' : 's'} on this machine.`
+      ? `CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? '' : 's'} on this machine in its retained 90-day history.`
       : '';
   if (starred) {
     qs('star-pitch-text').innerHTML = evidence;

@@ -81,7 +81,8 @@ HELP:
 ENVIRONMENT VARIABLES:
   CC_SAFETY_NET_LEVEL=standard|strict|paranoid  Set session safety level
   CC_SAFETY_NET_WORKTREE=1                Allow local git discards in linked worktrees
-  CC_SAFETY_NET_DEBUG=1                   Log allowed hook commands for debugging
+  CC_SAFETY_NET_DEBUG=1                   Print diagnostic messages to stderr
+  CC_SAFETY_NET_AUDIT_SCOPE=all|blocked   Record all command decisions, or denials only
   CC_SAFETY_NET_HOME                      Override rule config home directory
 
 LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):

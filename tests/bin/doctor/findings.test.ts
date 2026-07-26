@@ -164,33 +164,53 @@ describe('deriveDoctorFindings', () => {
     });
   }
 
-  test('reports debug allow-logging only when its collected value is truthy', () => {
+  test('reports an unrecognized audit scope and never echoes its value', () => {
     const environment = (value: string | undefined) => [
       {
-        name: 'CC_SAFETY_NET_DEBUG',
+        name: 'CC_SAFETY_NET_AUDIT_SCOPE',
         value,
         isSet: value !== undefined,
-        description: 'debug',
-        defaultBehavior: 'off',
+        description: 'audit scope',
+        defaultBehavior: 'all',
       },
     ];
 
-    for (const value of ['1', 'true', ' TRUE ']) {
-      expect(
-        deriveDoctorFindings(createReport({ environment: environment(value) })),
-      ).toContainEqual({
-        checkId: 'environment.debug-allow-logging',
+    for (const value of ['', 'ALL', 'Blocked', 'sensitive-env-value']) {
+      const findings = deriveDoctorFindings(createReport({ environment: environment(value) }));
+      expect(findings).toContainEqual({
+        checkId: 'environment.audit-scope-invalid',
         severity: 'warning',
-        title: 'Debug allow-logging is enabled',
-        detail: 'Allowed hook commands may be written to debug output.',
-        fixHint: 'Unset CC_SAFETY_NET_DEBUG, then restart the integration.',
+        title: 'Audit scope value is invalid',
+        detail:
+          'CC_SAFETY_NET_AUDIT_SCOPE is not `all` or `blocked`, so allowed command decisions are not recorded.',
+        fixHint:
+          'Set CC_SAFETY_NET_AUDIT_SCOPE to `all` or `blocked`, then restart the integration.',
       });
+      expect(JSON.stringify(findings)).not.toContain('sensitive-env-value');
     }
-    for (const value of [undefined, '0', 'false', 'sensitive-env-value']) {
+    for (const value of [undefined, 'all', 'blocked']) {
       expect(
         deriveDoctorFindings(createReport({ environment: environment(value) })),
-      ).not.toContainEqual(expect.objectContaining({ checkId: 'environment.debug-allow-logging' }));
+      ).not.toContainEqual(expect.objectContaining({ checkId: 'environment.audit-scope-invalid' }));
     }
+  });
+
+  test('debug no longer produces an allow-logging finding', () => {
+    expect(
+      deriveDoctorFindings(
+        createReport({
+          environment: [
+            {
+              name: 'CC_SAFETY_NET_DEBUG',
+              value: '1',
+              isSet: true,
+              description: 'debug',
+              defaultBehavior: 'off',
+            },
+          ],
+        }),
+      ),
+    ).toEqual([]);
   });
 
   for (const kind of ['policy', 'config', 'audit'] as const) {
@@ -318,11 +338,11 @@ describe('deriveDoctorFindings', () => {
       },
       environment: [
         {
-          name: 'CC_SAFETY_NET_DEBUG',
-          value: '1',
+          name: 'CC_SAFETY_NET_AUDIT_SCOPE',
+          value: 'everything',
           isSet: true,
-          description: 'debug',
-          defaultBehavior: 'off',
+          description: 'audit scope',
+          defaultBehavior: 'all',
         },
       ],
       effectiveSafety: {
@@ -347,7 +367,7 @@ describe('deriveDoctorFindings', () => {
       'integration.none-configured',
       'config.user-invalid',
       'posture.audit-directory-unsafe',
-      'environment.debug-allow-logging',
+      'environment.audit-scope-invalid',
       'posture.rule-overrides-weaken-preset',
     ]);
   });

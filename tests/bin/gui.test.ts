@@ -55,7 +55,7 @@ interface StarContextApiResponse {
 interface ActivityApiResponse {
   days: number;
   logsDir: string | null;
-  totalBlockedAllTime: number;
+  totalBlockedRetained: number;
   totalInWindow: number;
   truncated: boolean;
   counts: {
@@ -68,7 +68,7 @@ interface ActivityApiResponse {
     commands: Record<string, number>;
     errors: number;
   };
-  entries: { ts: string; command: string }[];
+  entries: { ts: string; command: string; decision?: string }[];
 }
 
 interface IntegrationsApiResponse {
@@ -206,6 +206,16 @@ describe('policy GUI server', () => {
       );
       // Activity: filterable audit feed.
       expect(html).toContain('id="activity-days"');
+      // Windows cannot exceed retained history, and no count may claim more
+      // than the window it was measured over.
+      expect(html).toContain('<option value="7">Last 7 days</option>');
+      expect(html).toContain('<option value="30">Last 30 days</option>');
+      expect(html).toContain('<option value="90">Last 90 days</option>');
+      expect(html).not.toContain('Last year');
+      expect(html).not.toContain('reviewed');
+      expect(html).not.toContain('all time');
+      expect(html).toContain('`Commands recorded · last ${activity.days} days`');
+      expect(html).toContain("tile(activity.totalBlockedRetained, 'Blocked · retained 90 days')");
       expect(html).toContain('id="activity-refresh"');
       expect(html).toContain('id="activity-search"');
       expect(html).toContain('id="activity-decision"');
@@ -215,6 +225,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('data-clear-command');
       // Feed rows lead with the offending segment (fallback to the raw command).
       expect(html).toContain("entry.segment || entry.command || '(no command recorded)'");
+      // False-positive reporting stays blocked-entry-only and prefills nothing
+      // but the selected entry.
+      expect(html).toContain(
+        '${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}"',
+      );
+      expect(html).toContain('const entry = renderedFeedEntries[Number(button.dataset.reportFp)];');
       expect(html).toContain('placeholder="Filter by rule or command"');
       expect(html).toContain('id="activity-feed"');
       expect(html).toContain('id="activity-count"');
@@ -556,6 +572,9 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         "CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? ",
       );
+      // The star count comes from a 90-day filtered summary, so its copy must
+      // name that window instead of implying a lifetime total.
+      expect(html).toContain("'s'} on this machine in its retained 90-day history.");
       expect(html).toContain("qs('star-mechanism').hidden = context.starred !== false;");
       expect(html).toContain('if (context.starred === null) {');
       expect(html).toContain('renderStarLink(context);');
@@ -1144,7 +1163,7 @@ describe('policy GUI server', () => {
     }
   });
 
-  test('star context reads all-time blocked activity and degrades failed fields independently', async () => {
+  test('star context reads retained blocked activity and degrades failed fields independently', async () => {
     const logsDir = join(safetyNetHome, 'logs');
     mkdirSync(logsDir, { recursive: true });
     writeFileSync(
@@ -1166,6 +1185,14 @@ describe('policy GUI server', () => {
           ts: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
           decision: 'block',
           command: 'git reset --hard',
+          reason: 'destructive',
+        }),
+        // Physically retained but expired: opportunistic pruning keeps a legacy
+        // file whose modification time is fresh, so the count must exclude it.
+        JSON.stringify({
+          ts: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(),
+          decision: 'block',
+          command: 'git clean -fdx',
           reason: 'destructive',
         }),
       ].join('\n'),
@@ -1190,10 +1217,20 @@ describe('policy GUI server', () => {
       expect((await fetch(`${server.origin}/api/activity?token=wrong`)).status).toBe(403);
       const bad = await fetch(`${server.origin}/api/activity?days=abc&token=${server.token}`);
       expect(bad.status).toBe(400);
-      expect(await bad.json()).toEqual({ error: 'days must be an integer between 1 and 3650' });
+      expect(await bad.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
       const zero = await fetch(`${server.origin}/api/activity?days=0&token=${server.token}`);
       expect(zero.status).toBe(400);
-      expect(await zero.json()).toEqual({ error: 'days must be an integer between 1 and 3650' });
+      expect(await zero.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
+      // The window cannot exceed retained history, so 90 is the last valid day.
+      for (const days of [7, 30, 90]) {
+        const accepted = await getJson<ActivityApiResponse>(
+          `${server.origin}/api/activity?days=${days}&token=${server.token}`,
+        );
+        expect(accepted.days).toBe(days);
+      }
+      const tooWide = await fetch(`${server.origin}/api/activity?days=91&token=${server.token}`);
+      expect(tooWide.status).toBe(400);
+      expect(await tooWide.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
     } finally {
       await server.close();
     }
@@ -1278,18 +1315,60 @@ describe('policy GUI server', () => {
       });
       expect(feed.counts.blockedByDay).toHaveLength(7);
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(3);
-      expect(feed.totalBlockedAllTime).toBe(4);
+      expect(feed.totalBlockedRetained).toBe(4);
 
       const wide = await getJson<ActivityApiResponse>(
-        `${server.origin}/api/activity?days=365&token=${server.token}`,
+        `${server.origin}/api/activity?days=90&token=${server.token}`,
       );
-      expect(wide.days).toBe(365);
+      expect(wide.days).toBe(90);
       expect(wide.totalInWindow).toBe(5);
       expect(wide.entries[4]?.command).toBe('mkfs /dev/sda');
       expect(wide.counts.blocked).toBe(4);
-      expect(wide.counts.blockedByDay).toHaveLength(365);
+      expect(wide.counts.blockedByDay).toHaveLength(90);
       expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(4);
-      expect(wide.totalBlockedAllTime).toBe(4);
+      expect(wide.totalBlockedRetained).toBe(4);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity keeps the retained blocked total on 90 days and excludes expired entries', async () => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const logFile = join(logsDir, 'retained.jsonl');
+    // A legacy root-level file with a fresh modification time is never
+    // automatically pruned, so its expired entry stays physically on disk.
+    writeJsonlFixture(logFile, [
+      { ts: new Date(now - 1000).toISOString(), decision: 'deny', command: 'rm -rf /' },
+      { ts: new Date(now - 1000).toISOString(), decision: 'allow', command: 'git status' },
+      {
+        ts: new Date(now - 88 * day).toISOString(),
+        decision: 'deny',
+        command: 'shred /etc/passwd',
+      },
+      { ts: new Date(now - 100 * day).toISOString(), decision: 'deny', command: 'chmod -R 000 /' },
+    ]);
+
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      const narrow = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?days=7&token=${server.token}`,
+      );
+      expect(narrow.counts.blocked).toBe(1);
+      expect(narrow.totalBlockedRetained).toBe(2);
+
+      const wide = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?days=90&token=${server.token}`,
+      );
+      expect(wide.counts.blocked).toBe(2);
+      // The retained tile is a 90-day count regardless of the selected window.
+      expect(wide.totalBlockedRetained).toBe(2);
+      expect(existsSync(logFile)).toBe(true);
     } finally {
       await server.close();
     }
@@ -1326,11 +1405,18 @@ describe('policy GUI server', () => {
       expect(feed.truncated).toBe(true);
       expect(feed.totalInWindow).toBe(502);
       expect(feed.entries).toHaveLength(500);
-      // The deny falls outside the capped entry list but must still be counted.
       expect(feed.counts.blocked).toBe(1);
+      expect(feed.counts.allowed).toBe(501);
+      expect(feed.totalBlockedRetained).toBe(1);
       expect(feed.counts.commands).toEqual({ rm: 1 });
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(1);
-      expect(feed.entries.every((entry) => entry.command.startsWith('git status'))).toBe(true);
+      // The deny is the oldest entry in the window, but allowed entries must not
+      // crowd it out of the capped feed: the Blocked filter reads this list.
+      expect(feed.entries.filter((entry) => entry.decision === 'deny')).toHaveLength(1);
+      expect(feed.entries.at(-1)?.command).toBe('rm -rf /');
+      expect(
+        feed.entries.slice(0, -1).every((entry) => entry.command.startsWith('git status')),
+      ).toBe(true);
     } finally {
       await server.close();
     }
@@ -1369,7 +1455,7 @@ describe('policy GUI server', () => {
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(
         feed.counts.blocked,
       );
-      expect(feed.totalBlockedAllTime).toBe(3);
+      expect(feed.totalBlockedRetained).toBe(3);
     } finally {
       await server.close();
     }

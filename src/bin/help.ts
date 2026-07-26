@@ -150,9 +150,12 @@ export function printHelp(): void {
     ),
   );
   lines.push(
+    formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, 'Print diagnostic messages to stderr'),
+  );
+  lines.push(
     formatEnvironmentVariable(
-      `${ENV_FLAGS.debug.name}=1`,
-      'Log allowed hook commands for debugging',
+      `${ENV_FLAGS.auditScope.name}=all|blocked`,
+      'Record all command decisions, or denials only',
     ),
   );
   lines.push(

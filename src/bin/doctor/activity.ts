@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { ActivitySummary } from '@/bin/doctor/types';
 import { getAuditLogsDir } from '@/core/audit';
+import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { listAuditLogFiles } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
@@ -33,6 +34,7 @@ export function getActivitySummary(
   let oldestEntryTs: number | undefined;
   let newestEntry: string | undefined;
   let newestEntryTs: number | undefined;
+  if (logsDir) pruneExpiredAuditLogs(logsDir);
   const files = logsDir ? listAuditLogFiles(logsDir) : [];
 
   for (const file of files) {

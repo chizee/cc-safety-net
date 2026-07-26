@@ -236,22 +236,65 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
       });
     });
 
-    test('debug mode logs allowed command without output', async () => {
+    test.each([
+      ['unset', {}],
+      ['all', { CC_SAFETY_NET_AUDIT_SCOPE: 'all' }],
+      ['debug-only', { CC_SAFETY_NET_DEBUG: '1' }],
+    ] as const)('records a redacted allowed command when the scope is %s', async (label, env) => {
       await withHookTestContext(async (context) => {
+        const sessionId = `scope-${label}-allow`;
         await expectNoHookOutput(
           context.runClaudeCodeHook,
-          {
-            ...context.claudeCodeBashInput('TOKEN=secret git status'),
-            session_id: 'debug-session',
-          },
-          { CC_SAFETY_NET_DEBUG: '1' },
+          { ...context.claudeCodeBashInput('TOKEN=secret git status'), session_id: sessionId },
+          env,
         );
 
-        const entry = readLatestAuditLogEntry(context.home, 'debug-session');
+        const entry = readLatestAuditLogEntry(context.home, sessionId);
         expect(entry.decision).toBe('allow');
         expect(entry.reason).toBe('allowed');
         expect(entry.command).toContain('<redacted>');
         expect(entry.command).not.toContain('secret');
+      });
+    });
+
+    test.each([
+      ['blocked', { CC_SAFETY_NET_AUDIT_SCOPE: 'blocked' }],
+      ['invalid', { CC_SAFETY_NET_AUDIT_SCOPE: 'everything' }],
+      ['blocked-with-debug', { CC_SAFETY_NET_AUDIT_SCOPE: 'blocked', CC_SAFETY_NET_DEBUG: '1' }],
+    ] as const)('suppresses allowed commands but still records denials when the scope is %s', async (label, env) => {
+      await withHookTestContext(async (context) => {
+        const allowSession = `scope-${label}-allow`;
+        await expectNoHookOutput(
+          context.runClaudeCodeHook,
+          { ...context.claudeCodeBashInput('git status'), session_id: allowSession },
+          env,
+        );
+        expect(readAuditLogEntriesForSession(context.home, allowSession)).toEqual([]);
+
+        const denySession = `scope-${label}-deny`;
+        await context.runClaudeCodeHook(
+          { ...context.claudeCodeBashInput('git reset --hard'), session_id: denySession },
+          env,
+        );
+        expect(readAuditLogEntriesForSession(context.home, denySession)).toMatchObject([
+          { decision: 'deny', ruleId: 'git.reset-hard' },
+        ]);
+      });
+    });
+
+    test('leaves an allowed non-command tool route unrecorded', async () => {
+      await withHookTestContext(async (context) => {
+        const sessionId = 'scope-non-command-allow';
+        writeFileSync(join(context.cwd, 'README.md'), 'public');
+        await expectNoHookOutput(context.runClaudeCodeHook, {
+          hook_event_name: 'PreToolUse',
+          session_id: sessionId,
+          cwd: context.cwd,
+          tool_name: 'Read',
+          tool_input: { file_path: join(context.cwd, 'README.md') },
+        });
+
+        expect(readAuditLogEntriesForSession(context.home, sessionId)).toEqual([]);
       });
     });
 

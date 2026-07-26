@@ -5,7 +5,10 @@ import {
   envTruthy,
   getCCSafetyNetEnvModes,
   getEnvFlagValue,
+  resolveAuditScope,
+  shouldRecordAllowedCommands,
 } from '@/core/env';
+import { withEnv } from '../helpers';
 
 describe('envTruthy', () => {
   test("returns true for '1'", () => {
@@ -136,6 +139,42 @@ describe('envFlagIsSet', () => {
     delete process.env.SAFETY_NET_DEBUG;
 
     expect(envFlagIsSet(ENV_FLAGS.debug)).toBe(false);
+  });
+});
+
+describe('audit scope', () => {
+  test.each([
+    [undefined, 'all', true],
+    ['all', 'all', true],
+    ['blocked', 'blocked', false],
+    ['everything', 'invalid', false],
+    ['', 'invalid', false],
+    ['ALL', 'invalid', false],
+    ['Blocked', 'invalid', false],
+  ])('%p resolves to %p and records allowed commands: %p', (value, scope, recordsAllowed) => {
+    withEnv({ CC_SAFETY_NET_AUDIT_SCOPE: value }, () => {
+      expect(resolveAuditScope(value)).toBe(scope as 'all' | 'blocked' | 'invalid');
+      expect(shouldRecordAllowedCommands()).toBe(recordsAllowed as boolean);
+    });
+  });
+
+  test('ignores CC_SAFETY_NET_DEBUG', () => {
+    withEnv({ CC_SAFETY_NET_DEBUG: '1', CC_SAFETY_NET_AUDIT_SCOPE: undefined }, () => {
+      expect(shouldRecordAllowedCommands()).toBe(true);
+    });
+    withEnv({ CC_SAFETY_NET_DEBUG: '1', CC_SAFETY_NET_AUDIT_SCOPE: 'blocked' }, () => {
+      expect(shouldRecordAllowedCommands()).toBe(false);
+    });
+    withEnv({ CC_SAFETY_NET_DEBUG: undefined, CC_SAFETY_NET_AUDIT_SCOPE: 'all' }, () => {
+      expect(shouldRecordAllowedCommands()).toBe(true);
+    });
+  });
+
+  test('has no legacy env flag name', () => {
+    withEnv({ SAFETY_NET_AUDIT_SCOPE: 'blocked', CC_SAFETY_NET_AUDIT_SCOPE: undefined }, () => {
+      expect(getEnvFlagValue(ENV_FLAGS.auditScope)).toBeUndefined();
+      expect(shouldRecordAllowedCommands()).toBe(true);
+    });
   });
 });
 

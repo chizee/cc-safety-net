@@ -17,6 +17,7 @@ export const ENV_FLAGS = {
   },
   worktree: { name: 'CC_SAFETY_NET_WORKTREE', legacyName: 'SAFETY_NET_WORKTREE' },
   debug: { name: 'CC_SAFETY_NET_DEBUG' },
+  auditScope: { name: 'CC_SAFETY_NET_AUDIT_SCOPE' },
 } as const satisfies Record<string, EnvFlag>;
 
 const SAFETY_LEVELS: PolicySafetyLevel[] = ['standard', 'strict', 'paranoid'];
@@ -46,6 +47,17 @@ function parseEnvLevel(): PolicySafetyLevel | undefined {
     console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
   }
   return undefined;
+}
+
+export function resolveAuditScope(value: string | undefined): 'all' | 'blocked' | 'invalid' {
+  if (value === undefined || value === 'all') return 'all';
+  if (value === 'blocked') return 'blocked';
+  return 'invalid';
+}
+
+/** Denials are always recorded; an invalid scope falls back to blocked-only recording. */
+export function shouldRecordAllowedCommands(): boolean {
+  return resolveAuditScope(getEnvFlagValue(ENV_FLAGS.auditScope)) === 'all';
 }
 
 /** @internal */

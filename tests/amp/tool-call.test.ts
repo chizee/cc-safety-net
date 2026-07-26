@@ -305,6 +305,50 @@ describe('Amp tool.call event', () => {
     });
   });
 
+  test.each([
+    [undefined, 1],
+    ['all', 1],
+    ['blocked', 0],
+    ['everything', 0],
+  ])('records an allowed shell command only when the %p audit scope allows it', (scope, recorded) => {
+    withTempDir((dir) => {
+      const home = join(dir, 'home');
+      const sessionId = 'T-amp-scope-allow';
+      withEnv({ HOME: home, CC_SAFETY_NET_AUDIT_SCOPE: scope }, () => {
+        expect(
+          handleAmpToolCall(shellEvent('git status', undefined, sessionId), ampApi(dir)),
+        ).toEqual({ action: 'allow' });
+
+        const entries = readAuditLogEntriesForSession(home, sessionId);
+        expect(entries).toHaveLength(recorded as number);
+        if (recorded) {
+          expect(entries[0]).toMatchObject({ agent: 'amp', decision: 'allow', reason: 'allowed' });
+        }
+      });
+    });
+  });
+
+  test.each([
+    undefined,
+    'all',
+    'blocked',
+    'everything',
+  ])('records a denial under the %p audit scope', (scope) => {
+    withTempDir((dir) => {
+      const home = join(dir, 'home');
+      const sessionId = 'T-amp-scope-deny';
+      withEnv({ HOME: home, CC_SAFETY_NET_AUDIT_SCOPE: scope }, () => {
+        expect(
+          handleAmpToolCall(shellEvent('git reset --hard', undefined, sessionId), ampApi(dir)),
+        ).toMatchObject({ action: 'reject-and-continue' });
+
+        expect(readAuditLogEntriesForSession(home, sessionId)).toMatchObject([
+          { agent: 'amp', decision: 'deny', ruleId: 'git.reset-hard' },
+        ]);
+      });
+    });
+  });
+
   test('audits malformed tool calls with the amp agent', () => {
     withTempDir((dir) => {
       const home = join(dir, 'home');
