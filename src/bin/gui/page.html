@@ -288,6 +288,18 @@
       </div>
     </form>
   </dialog>
+  <dialog class="confirm-dialog report-dialog" id="report-dialog" aria-labelledby="report-dialog-title" aria-describedby="report-dialog-body">
+    <form method="dialog">
+      <h2 id="report-dialog-title">Report false positive</h2>
+      <p class="muted" id="report-dialog-body">This opens a prefilled GitHub issue form — it is public, and nothing is submitted until you submit it there. Paths were replaced with <code>&lt;project&gt;</code> and <code>~</code>; edit anything else you would rather not publish.</p>
+      <label class="report-field"><span>Blocked command</span><textarea id="report-command" spellcheck="false"></textarea></label>
+      <label class="report-field"><span>Audit log entry</span><textarea id="report-entry" spellcheck="false"></textarea></label>
+      <div class="dialog-actions">
+        <button type="submit" id="report-dialog-cancel" value="cancel">Cancel</button>
+        <button type="submit" class="primary" id="report-dialog-open" value="report">Open GitHub form</button>
+      </div>
+    </form>
+  </dialog>
   <script>
 /* __CC_SAFETY_NET_SCRIPT__ */
   </script>

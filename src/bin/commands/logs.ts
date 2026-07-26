@@ -43,6 +43,10 @@ export const logsCommand = {
       description: 'Filter by project path',
     },
     {
+      flags: '--suspect',
+      description: 'Only denials that look like false positives',
+    },
+    {
       flags: '--all',
       description: 'Include allow entries',
     },
@@ -59,6 +63,7 @@ export const logsCommand = {
     'cc-safety-net logs --id 3fa9c2d1a70e8b42',
     'cc-safety-net logs --agent claude-code',
     'cc-safety-net logs --project . --since 7',
+    'cc-safety-net logs --suspect --since 7',
     'cc-safety-net logs --json',
   ],
 } satisfies Command;

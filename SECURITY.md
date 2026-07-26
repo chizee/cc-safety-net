@@ -21,6 +21,7 @@ The current implementation preserves these product invariants:
 - Runtime evaluation loads a deeply immutable policy snapshot from local policy, lockfiles, and verified caches. It performs no repair writes, network requests, or in-memory caching; synchronization remains an explicit CLI operation. See `tests/config/policy-snapshot.test.ts` and the fail-closed-to-sync integration coverage.
 - Invalid policy or rulebook state denies ordinary analyzed commands while allowing only the exact rule-sync recovery forms. Chained commands and lookalikes remain denied. See `tests/core/analyze/fail-closed-repair.test.ts`, `tests/bin/hooks/hook-routing.test.ts`, `tests/opencode/plugin.test.ts`, and `tests/pi/tool-call.test.ts`.
 - Audit command and segment fields are redacted for recognized credential forms before serialization. Audit paths, serialization, decision metadata, and redaction behavior are covered by `tests/core/audit.test.ts` and the integration audit tests.
+- False-positive reports prepared in the GUI replace the entry's own working directory and the user's home directory with `<project>` and `~` before the report is displayed. Substitution requires a path boundary, so sibling directories and unrelated paths sharing a prefix are left intact rather than rewritten. Nothing else is scrubbed: absolute paths outside those two prefixes, hostnames, and branch or remote names are carried through. The report is shown in an editable preview, prefills a GitHub issue form only on explicit user action, and issues no network request itself. Coverage lives in `tests/bin/gui/report.test.ts`.
 - On Windows, untrusted cwd-selection and recursive-delete operands that select Win32 UNC or device namespaces are rejected before filesystem access. Trusted roots, including namespaced roots established by an adapter, and relative paths beneath them remain supported.
 - Untrusted recursive tool input is bounded to 64 object levels, 10,000 visited values, 10,000 own keys, 1 MiB per string, and 4 MiB of aggregate string data. Hook stdin is capped at 8 MiB of raw bytes. Exceeding either boundary fails closed.
 - `GIT_CONFIG_COUNT` is capped at 1,024 entries. Malformed counts and incomplete key/value pairs fail closed before linked-worktree relaxation.
@@ -75,7 +76,7 @@ The dividing line is: **did the tool fail to stop a destructive command, or did 
 
 Report these privately:
 
-- Leakage of secrets through block messages, audit logs, diagnostics, or debug output, including a redaction bypass for a specific token format
+- Leakage of secrets through block messages, audit logs, diagnostics, debug output, or a false-positive report prefill, including a redaction bypass for a specific token format or a path the report preview claims to have replaced
 - A path traversal or filesystem issue in audit logging or configuration handling, where crafted input writes outside the intended directory
 - A supply-chain or packaging issue affecting the published npm package or plugin distribution, including rulebook integrity
 

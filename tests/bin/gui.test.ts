@@ -578,7 +578,9 @@ describe('policy GUI server', () => {
       );
       expect(html).not.toContain('window.location.href');
       expect(html).not.toContain('Could not star via GitHub CLI (gh missing or not authenticated)');
-      expect(html).not.toContain('window.open(');
+      // The star CTA stays a real link: the only popup in the page is the
+      // false-positive report opening the prefilled GitHub form.
+      expect(html.match(/window\.open\(/g)).toHaveLength(1);
       expect(html).not.toContain("window.open('', '_blank')");
       expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
       expect(html).toContain('.sidebar-links {');

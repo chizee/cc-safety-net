@@ -270,7 +270,7 @@ plugin rewrites an already-approved input after CC Safety Net has allowed it.
 | **Fail-closed by default** | Malformed hook input, unparseable commands (in strict mode), invalid config, and broken rulebooks block rather than allow. |
 | **Sensitive-path protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
-| **Audit logging** | Every blocked command logged to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted. Browse them with `npx cc-safety-net logs`. |
+| **Audit logging** | Every blocked command logged to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** tab of `npx cc-safety-net gui`. |
 
 Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands).
 
@@ -325,9 +325,11 @@ npx cc-safety-net doctor
 npx cc-safety-net explain "git reset --hard"
 # Browse recorded denials from the audit logs
 npx cc-safety-net logs
-# Edit your policy in a local web GUI
+# Review what was blocked and edit your policy in a local web GUI
 npx cc-safety-net gui
 ```
+
+Reach for `gui` when an unattended agent comes back with a batch of blocks: its **Activity** tab lists audited commands newest first, and every blocked entry shows the matched command segment, the reason it was blocked, the agent that ran it, a copy-as-JSON button, and the rule ID as a button that jumps straight to that rule in **Policy**. If a block was wrong, report it as a false positive from the same entry.
 
 `doctor`, `explain`, and `logs` support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
 

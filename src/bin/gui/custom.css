@@ -737,7 +737,8 @@ button.filter-pill code {
   white-space: nowrap;
 }
 
-.feed-copy {
+.feed-copy,
+.feed-report {
   width: 26px;
   height: 26px;
   margin: -4px 0;
@@ -745,11 +746,13 @@ button.filter-pill code {
   background: transparent;
 }
 
-.feed-copy:hover:not(:disabled) {
+.feed-copy:hover:not(:disabled),
+.feed-report:hover:not(:disabled) {
   background: transparent;
 }
 
-.feed-copy svg {
+.feed-copy svg,
+.feed-report svg {
   width: 14px;
   height: 14px;
 }
@@ -1118,6 +1121,17 @@ button.rule-id:hover {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+.report-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.report-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .panel {

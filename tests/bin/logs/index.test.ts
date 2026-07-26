@@ -163,7 +163,7 @@ describe('runLogsCommand', () => {
       expect(result.exitCode).toBe(0);
       expect(lines.length).toBe(3);
       expect(lines[0]).toContain('git reset --hard');
-      expect(lines[1]).toContain('cat .env');
+      expect(lines[1]).toContain('↳ .env');
       expect(lines[2]).toContain('legacy blocked');
       expect(result.stdout).not.toContain('git status');
     } finally {
@@ -282,7 +282,7 @@ describe('runLogsCommand', () => {
       const result = await captureLogsCommand(['--agent', 'claude-code'], fixture.logsDir);
 
       expect(result.stdout).toContain('git reset --hard');
-      expect(result.stdout).not.toContain('cat .env');
+      expect(result.stdout).not.toContain('↳ .env');
     } finally {
       fixture.cleanup();
     }
@@ -293,7 +293,7 @@ describe('runLogsCommand', () => {
     try {
       const result = await captureLogsCommand(['--rule', 'secret.basename.env'], fixture.logsDir);
 
-      expect(result.stdout).toContain('cat .env');
+      expect(result.stdout).toContain('↳ .env');
       expect(result.stdout).not.toContain('git reset --hard');
     } finally {
       fixture.cleanup();
@@ -306,7 +306,7 @@ describe('runLogsCommand', () => {
       const result = await captureLogsCommand(['--project', fixture.projectA], fixture.logsDir);
 
       expect(result.stdout).toContain('git reset --hard');
-      expect(result.stdout).toContain('cat .env');
+      expect(result.stdout).toContain('↳ .env');
       expect(result.stdout).not.toContain('legacy blocked');
     } finally {
       fixture.cleanup();
@@ -320,7 +320,7 @@ describe('runLogsCommand', () => {
       const legacyResult = await captureLogsCommand(['--session', 'legacy-sess'], fixture.logsDir);
 
       expect(sessionResult.stdout).toContain('git reset --hard');
-      expect(sessionResult.stdout).not.toContain('cat .env');
+      expect(sessionResult.stdout).not.toContain('↳ .env');
       expect(legacyResult.stdout).toContain('legacy blocked');
     } finally {
       fixture.cleanup();
@@ -417,6 +417,48 @@ describe('runLogsCommand', () => {
     }
   });
 
+  test('shows the matched segment in the table and marks it as an excerpt', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-segment-'));
+    const logsDir = join(root, 'logs');
+    const now = Date.now();
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'segments.jsonl'), [
+        {
+          ts: new Date(now).toISOString(),
+          decision: 'deny',
+          command: 'cp a.ts /tmp/a.bak && git restore src/x.ts && echo done',
+          segment: 'git restore src/x.ts',
+          reason: 'blocked',
+        },
+        {
+          ts: new Date(now - 100).toISOString(),
+          decision: 'deny',
+          command: 'git reset --hard',
+          segment: 'git reset --hard',
+          reason: 'blocked',
+        },
+        {
+          ts: new Date(now - 200).toISOString(),
+          decision: 'deny',
+          command: 'segmentless legacy entry',
+          reason: 'blocked',
+        },
+      ]);
+
+      const lines = (await captureLogsCommand([], logsDir)).stdout.split('\n');
+
+      expect(lines[0]).toContain('↳ git restore src/x.ts');
+      expect(lines[0]).not.toContain('cp a.ts');
+      expect(lines[1]).toContain('git reset --hard');
+      expect(lines[1]).not.toContain('↳');
+      expect(lines[2]).toContain('segmentless legacy entry');
+      expect(lines[2]).not.toContain('↳');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('returns zero-or-one JSON entries and a specific human miss message', async () => {
     const fixture = createLogsFixture();
     try {
@@ -475,6 +517,7 @@ describe('runLogsCommand', () => {
     '--rule',
     '--session',
     '--project',
+    '--suspect',
     '--since',
     '--limit',
   ])('rejects --id combined with %s', async (flag) => {
@@ -482,7 +525,9 @@ describe('runLogsCommand', () => {
     try {
       const value = flag === '--since' || flag === '--limit' ? '1' : 'value';
       const result = await captureLogsCommand(
-        ['--id', '1111111111111111', flag, value],
+        flag === '--suspect'
+          ? ['--id', '1111111111111111', flag]
+          : ['--id', '1111111111111111', flag, value],
         fixture.logsDir,
       );
 
@@ -490,6 +535,88 @@ describe('runLogsCommand', () => {
       expect(result.stderr).toContain('--id cannot be combined');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test('--suspect keeps fail-closed denials and drops ordinary ones', async () => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--suspect'], fixture.logsDir);
+
+      expect(result.exitCode).toBe(0);
+      // Blocked because analysis failed, not because the command was dangerous.
+      expect(result.stdout).toContain('1111111111111111');
+      // Blocked once, by a rule that matched: a catch, not a suspect.
+      expect(result.stdout).not.toContain('3333333333333333');
+      expect(result.stdout).not.toContain('legacy blocked');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('--suspect never flags an allowed entry, even with --all', async () => {
+    const fixture = createLogsFixture();
+    try {
+      const result = await captureLogsCommand(['--suspect', '--all'], fixture.logsDir);
+
+      expect(result.stdout).not.toContain('2222222222222222');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('--suspect flags a signature one session was blocked on twice', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-suspect-'));
+    const logsDir = join(root, 'logs');
+    const now = new Date();
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      writeJsonlFixture(join(logsDir, 'repeat.jsonl'), [
+        {
+          ts: now.toISOString(),
+          id: 'aaaaaaaaaaaaaaaa',
+          sessionId: 's1',
+          decision: 'deny',
+          command: 'git restore -h',
+          segment: 'git restore -h',
+          reason: 'blocked',
+          ruleId: 'git.restore-unstaged',
+        },
+        {
+          ts: new Date(now.getTime() - 10).toISOString(),
+          id: 'bbbbbbbbbbbbbbbb',
+          sessionId: 's1',
+          decision: 'deny',
+          command: 'git restore --staged app.ts',
+          segment: 'git restore --staged app.ts',
+          reason: 'blocked',
+          ruleId: 'git.restore-unstaged',
+        },
+        {
+          // Same signature, but a different session blocked on it only once.
+          ts: new Date(now.getTime() - 20).toISOString(),
+          id: 'cccccccccccccccc',
+          sessionId: 's2',
+          decision: 'deny',
+          command: 'git restore other.ts',
+          segment: 'git restore other.ts',
+          reason: 'blocked',
+          ruleId: 'git.restore-unstaged',
+        },
+      ]);
+
+      const result = await captureLogsCommand(['--suspect'], logsDir);
+      expect(result.stdout).toContain('aaaaaaaaaaaaaaaa');
+      expect(result.stdout).toContain('bbbbbbbbbbbbbbbb');
+      expect(result.stdout).not.toContain('cccccccccccccccc');
+
+      // Counting has to span the matched window, not the truncated output: with
+      // --limit 1 applied first, the surviving row would have a repeat count of
+      // one and nothing would be flagged at all.
+      const limited = await captureLogsCommand(['--suspect', '--limit', '1'], logsDir);
+      expect(limited.stdout).toContain('aaaaaaaaaaaaaaaa');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -573,7 +700,7 @@ describe('runLogsCommand', () => {
 
       const human = await captureLogsCommand([], logsDir);
       expect(human.exitCode).toBe(0);
-      expect(human.stdout).toContain('curl -H \'{"Authorization":"<redacted>"}\'');
+      expect(human.stdout).toContain('↳ {"Cookie":"<redacted>"}');
       expect(human.stdout).not.toContain('output-canary');
 
       const json = await captureLogsCommand(['--json'], logsDir);

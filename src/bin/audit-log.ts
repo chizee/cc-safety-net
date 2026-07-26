@@ -1,7 +1,7 @@
 import { basename, dirname, resolve } from 'node:path';
 import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
-import { listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
+import { findSuspectEntries, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
 type LogsFlags = {
@@ -11,6 +11,7 @@ type LogsFlags = {
   sinceExplicit: boolean;
   all: boolean;
   json: boolean;
+  suspect: boolean;
   id?: string;
   agent?: string;
   rule?: string;
@@ -31,12 +32,17 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     sinceExplicit: false,
     all: false,
     json: false,
+    suspect: false,
   };
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--all') {
       flags.all = true;
+      continue;
+    }
+    if (arg === '--suspect') {
+      flags.suspect = true;
       continue;
     }
     if (arg === '--json') {
@@ -114,11 +120,12 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
       flags.rule !== undefined ||
       flags.session !== undefined ||
       flags.project !== undefined ||
+      flags.suspect ||
       flags.sinceExplicit ||
       flags.limitExplicit)
   ) {
     console.error(
-      '--id cannot be combined with --agent, --rule, --session, --project, --since, or --limit',
+      '--id cannot be combined with --agent, --rule, --session, --project, --suspect, --since, or --limit',
     );
     return null;
   }
@@ -150,13 +157,22 @@ export async function runLogsCommand(
   if (flags.id) return outputIdLookup(allEntries, flags, options.timeZone);
 
   const cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000;
-  const entries = allEntries
-    .filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff))
+  const matched = allEntries.filter((item) => matchesLogsFlags(item, flags, logsDir, cutoff));
+  // Repeats are counted across the whole matched window before --limit truncates
+  // it; counting after the slice would lose the retries the signal is built on.
+  const suspects = flags.suspect ? findSuspectEntries(matched.map((item) => item.entry)) : null;
+  const entries = (suspects ? matched.filter((item) => suspects.has(item.entry)) : matched)
     .sort((left, right) => Date.parse(right.entry.ts) - Date.parse(left.entry.ts))
     .slice(0, flags.limit);
 
   if (flags.json) {
-    console.log(JSON.stringify(entries.map((item) => item.entry)));
+    console.log(
+      JSON.stringify(
+        entries.map((item) => item.entry),
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
@@ -182,7 +198,13 @@ function outputIdLookup(
     return 1;
   }
   if (flags.json) {
-    console.log(JSON.stringify(matches.map((item) => item.entry)));
+    console.log(
+      JSON.stringify(
+        matches.map((item) => item.entry),
+        null,
+        2,
+      ),
+    );
     return 0;
   }
   const match = matches[0];
@@ -223,8 +245,10 @@ function formatLogEntry(entry: AuditLogEntry, timeZone?: string): string {
   const id = renderTerminalText(entry.id ?? '-');
   const decision = renderTerminalText(entry.decision ?? 'deny');
   const cwd = entry.cwd ? `  [${renderTerminalText(entry.cwd)}]` : '';
-  const command = entry.command.length > 50 ? `${entry.command.slice(0, 50)}…` : entry.command;
-  return `${id.padEnd(16)}  ${renderTerminalText(formatHumanTimestamp(entry.ts, timeZone))}  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${renderTerminalText(command)}${cwd}`;
+  const segment = entry.segment || entry.command;
+  const marker = segment === entry.command ? '' : '↳ ';
+  const command = segment.length > 50 ? `${segment.slice(0, 50)}…` : segment;
+  return `${id.padEnd(16)}  ${renderTerminalText(formatHumanTimestamp(entry.ts, timeZone))}  ${decision.padEnd(5)}  ${renderTerminalText(entry.agent ?? '-').padEnd(15)}  ${renderTerminalText(entry.ruleId ?? '-').padEnd(20)}  ${marker}${renderTerminalText(command)}${cwd}`;
 }
 
 function formatLogEntryDetail(entry: AuditLogEntry, timeZone?: string): string {

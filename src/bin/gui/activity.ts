@@ -1,5 +1,6 @@
+import { homedir } from 'node:os';
 import { getAuditLogsDir } from '@/core/audit';
-import { listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
+import { commandSignature, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
 const ENTRY_CAP = 500;
@@ -58,6 +59,9 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   return {
     days,
     logsDir,
+    // Entries carry unredacted paths; the client scrubs this prefix out of
+    // false-positive reports before they reach the public issue tracker.
+    homeDir: homedir(),
     totalBlockedAllTime,
     totalInWindow: windowEntries.length,
     truncated: windowEntries.length > ENTRY_CAP,
@@ -73,21 +77,4 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
     },
     entries: windowEntries.slice(0, ENTRY_CAP),
   };
-}
-
-/**
- * Reduce a blocked command to a stable "binary" or "binary subcommand" key so
- * the GUI can rank which commands trip protection most. Leading `VAR=value`
- * assignments and path prefixes are stripped; a following bare word (not a
- * flag, path, or number) is kept as the subcommand.
- */
-function commandSignature(source: string): string | null {
-  const tokens = source
-    .trim()
-    .split(/\s+/)
-    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const binary = tokens[0]?.split('/').pop();
-  if (!binary) return null;
-  const next = tokens[1];
-  return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
 }

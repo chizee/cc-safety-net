@@ -30,6 +30,8 @@ const starIcons = {
   filled:
     '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
 };
+const reportIcon =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><path d="M4 22v-7"></path></svg>';
 const pathListIcons = {
   add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
   remove:
@@ -56,6 +58,7 @@ const searchCollapsedSecretGroups = new Set();
 let rawCopyResetTimer = null;
 let feedCopyResetTimer = null;
 let renderedFeedEntries = [];
+let suspects = new Set();
 let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
 let integrations = null;
 let integrationsRequested = false;
@@ -257,6 +260,7 @@ const feedItemHtml = (entry, index) => {
       ${entry.ruleId ? (knownRuleIds.has(entry.ruleId) ? `<button type="button" class="rule-id" data-jump-rule="${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">${escapeHtml(entry.ruleId)}</button>` : `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>`) : ''}
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
+      ${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}" aria-label="Report false positive" title="Report false positive">${reportIcon}</button>` : ''}
     </div>
     <code class="feed-command">${escapeHtml(entry.segment || entry.command || '(no command recorded)')}</code>
     ${entry.reason && entry.reason !== 'allowed' ? `<p class="feed-reason muted">${escapeHtml(entry.reason)}</p>` : ''}
@@ -357,6 +361,26 @@ const commandSignature = (source) => {
   const next = tokens[1];
   return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
 };
+// Blocks that look like false positives rather than catches: a fail-closed
+// denial reports that analysis failed, not that the command was dangerous, and
+// a signature one session was blocked on twice is a workload that kept wanting
+// the command. Computed from the loaded entries, so it follows the entry cap.
+const findSuspects = (entries) => {
+  const signatureKey = (entry) =>
+    `${entry.sessionId}\n${commandSignature(entry.segment || entry.command)}`;
+  const repeats = entries
+    .filter((entry) => entry.decision !== 'allow' && entry.sessionId)
+    .reduce((counts, entry) => {
+      const key = signatureKey(entry);
+      return counts.set(key, (counts.get(key) ?? 0) + 1);
+    }, new Map());
+  return new Set(
+    entries.filter(
+      (entry) =>
+        entry.decision !== 'allow' && (entry.failureStage || repeats.get(signatureKey(entry)) >= 2),
+    ),
+  );
+};
 // Returns true when an exact command filter was actually cleared, so callers
 // can skip re-rendering the controls when nothing changed.
 const clearCommandFilter = () => {
@@ -396,6 +420,9 @@ const renderActivityControls = () => {
     ...(activity.counts.errors > 0
       ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
       : []),
+    ...(suspects.size > 0
+      ? [chipHtml('decision', 'suspect', 'Likely false positive', suspects.size)]
+      : []),
   ].join('');
   const agentNames = Object.keys(activity.counts.agents)
     .filter((name) => name !== 'unknown')
@@ -419,6 +446,7 @@ const renderActivityFeed = () => {
     if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
     if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
     if (activityFilters.decision === 'error' && !entry.failureStage) return false;
+    if (activityFilters.decision === 'suspect' && !suspects.has(entry)) return false;
     if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
       return false;
     if (activityFilters.command) {
@@ -463,10 +491,14 @@ const loadActivity = async () => {
     return;
   }
   activity = result.data;
+  suspects = findSuspects(activity.entries);
   if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
     activityFilters.agent = 'all';
   }
   if (activityFilters.decision === 'error' && activity.counts.errors === 0) {
+    activityFilters.decision = 'all';
+  }
+  if (activityFilters.decision === 'suspect' && suspects.size === 0) {
     activityFilters.decision = 'all';
   }
   qs('logs-path').textContent = activity.logsDir ?? 'Not available';
@@ -656,6 +688,93 @@ const resetFeedCopy = () => {
     button.setAttribute('aria-label', 'Copy log entry as JSON');
   });
 };
+const reportIssueUrl =
+  'https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml';
+// GitHub rejects issue links past roughly 8k characters.
+const reportUrlLimit = 8000;
+// Audit entries have secrets redacted at write time but not paths, and the issue
+// tracker is public. The entry's own cwd goes first so the most specific prefix
+// wins when the project sits inside the home directory. A prefix only counts when
+// the match ends at a path boundary, so a sibling directory (`<cwd>-backup`) or an
+// unrelated path that merely starts with it (`/app` inside `/var/lib/appdata`) is
+// left intact instead of being mangled mid-segment.
+const endsAtPathBoundary = (following) => following === '' || /^[/\\\s'"]/.test(following);
+const scrubReportPaths = (text, cwd, home) =>
+  [
+    [cwd, '<project>'],
+    [home, '~'],
+  ].reduce(
+    (scrubbed, [from, to]) =>
+      from
+        ? scrubbed
+            .split(from)
+            .reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part)
+        : scrubbed,
+    text,
+  );
+const buildReportUrl = (fields) => {
+  const url = new URL(reportIssueUrl);
+  Object.entries(fields)
+    .filter(([, value]) => value)
+    .forEach(([field, value]) => {
+      url.searchParams.set(field, value);
+    });
+  return url.toString();
+};
+// GitHub rejects the entire link past the cap, so the largest field is dropped
+// until the rest fits. Dropping one is not always enough: `entry` embeds the
+// command, so a long command still overflows once the entry is gone.
+const buildReportRequest = (fields, dropped = []) => {
+  const url = buildReportUrl(fields);
+  if (url.length <= reportUrlLimit) return { url, dropped };
+  const largest = Object.entries(fields)
+    .filter(([, value]) => value)
+    .sort((left, right) => right[1].length - left[1].length)[0];
+  if (!largest) return { url, dropped };
+  return buildReportRequest({ ...fields, [largest[0]]: '' }, [...dropped, largest[0]]);
+};
+const openReportDialog = (button) => {
+  const entry = renderedFeedEntries[Number(button.dataset.reportFp)];
+  if (!entry) return;
+  const scrub = (text) => scrubReportPaths(text, entry.cwd, activity.homeDir);
+  qs('report-command').value = scrub(entry.command || entry.segment || '');
+  // Scrub each string value before serialising, not the serialised text: on
+  // Windows JSON.stringify doubles every backslash, so a cwd of C:\Users\... would
+  // never match its own needle and the entry would ship unscrubbed.
+  qs('report-entry').value = JSON.stringify(
+    entry,
+    (_key, value) => (typeof value === 'string' ? scrub(value) : value),
+    2,
+  );
+  qs('report-dialog').returnValue = 'cancel';
+  qs('report-dialog').showModal();
+};
+const openFalsePositiveForm = async () => {
+  const fields = {
+    command: qs('report-command').value,
+    entry: qs('report-entry').value,
+  };
+  const request = buildReportRequest(fields);
+  // Start the copy before the new tab takes focus, and open in the same task so
+  // the click that submitted the dialog still counts as user activation.
+  const copying = request.dropped.length
+    ? navigator.clipboard.writeText(
+        request.dropped.map((field) => `### ${field}\n${fields[field]}`).join('\n\n'),
+      )
+    : null;
+  window.open(request.url, '_blank', 'noopener');
+  if (!copying) return;
+  const names = request.dropped.join(' and ');
+  setAppStatus(
+    (await copying.then(() => true).catch(() => false))
+      ? `Report too long to prefill — ${names} copied to your clipboard. Paste into the form on GitHub.`
+      : `Report too long to prefill — ${names} left out. Copy the entry from the feed and paste it into the form on GitHub.`,
+    'error',
+  );
+};
+qs('report-dialog').addEventListener('close', () => {
+  if (qs('report-dialog').returnValue === 'report') void openFalsePositiveForm();
+});
 const copyFeedEntry = async (button) => {
   const entry = renderedFeedEntries[Number(button.dataset.logCopy)];
   if (!entry) return;
@@ -1464,6 +1583,11 @@ document.addEventListener('click', (event) => {
   const feedCopy = event.target.closest?.('[data-log-copy]');
   if (feedCopy) {
     copyFeedEntry(feedCopy);
+    return;
+  }
+  const feedReport = event.target.closest?.('[data-report-fp]');
+  if (feedReport) {
+    openReportDialog(feedReport);
     return;
   }
   const topRule = event.target.closest?.('.top-rule');
