@@ -99,3 +99,58 @@ describe('heredoc command analysis', () => {
     });
   });
 });
+
+describe('interpreter stdin heredocs', () => {
+  // Field false positive: a python heredoc rewriting a test file whose fixture
+  // strings mention destructive commands. Never executed; analyzer input only.
+  const editScript = [
+    "python3 - <<'PY'",
+    "p = 'tests/bin/gui.test.ts'",
+    's = open(p).read()',
+    's = s.replace("""expect(wide.entries[4]?.command).toBe(\'mkfs /dev/sda\');""",',
+    '              """expect(wide.entries[4]?.command).toBe(\'mkfs /dev/sdb\');""")',
+    "open(p, 'w').write(s)",
+    'PY',
+  ].join('\n');
+
+  test('allows dangerous-looking text confined to string literals without an exec sink', () => {
+    expect(analyzeTestCommand(editScript)).toBeNull();
+  });
+
+  test('blocks a dangerous literal handed to an exec sink', () => {
+    expect(
+      analyzeTestCommand("python3 - <<'PY'\nimport os\nos.system('mkfs.ext4 /dev/sda1')\nPY"),
+    ).toMatchObject({ ruleId: 'interpreter.dangerous-command' });
+  });
+
+  test('blocks dangerous text outside string literals', () => {
+    expect(analyzeTestCommand("node - <<'JS'\nrm -rf ~\nJS")).toMatchObject({
+      ruleId: 'interpreter.dangerous-command',
+    });
+  });
+
+  test('keeps the raw-text scan for unquoted delimiters', () => {
+    expect(analyzeTestCommand("python3 - <<PY\ns = 'mkfs /dev/sda1'\nPY")).toMatchObject({
+      ruleId: 'raw-text.dangerous-command',
+    });
+  });
+
+  test('keeps the raw-text scan when stdin is data for a script operand', () => {
+    expect(analyzeTestCommand("python3 tool.py <<'PY'\ns = 'mkfs /dev/sda1'\nPY")).toMatchObject({
+      ruleId: 'raw-text.dangerous-command',
+    });
+  });
+
+  test('fails closed in strict mode', () => {
+    expect(analyzeTestCommand(editScript, { strict: true })).toMatchObject({
+      intent: 'stop_and_explain',
+      reason: expect.stringContaining('heredoc'),
+    });
+  });
+
+  test('blocks the body when paranoid interpreters are enabled', () => {
+    expect(analyzeTestCommand(editScript, { paranoidInterpreters: true })).toMatchObject({
+      ruleId: 'interpreter.one-liner-paranoid',
+    });
+  });
+});

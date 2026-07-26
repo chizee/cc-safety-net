@@ -251,39 +251,39 @@ describe('legacy explain compatibility', () => {
       },
       {
         id: 'interpreter.dangerous-command',
-        command: `python -c "print('git reset --hard')"`,
+        command: `python -c "os.system('git reset --hard')"`,
         expected: exactBlocked(
-          `python -c "print('git reset --hard')"`,
-          ['python', '-c', "print('git reset --hard')"],
+          `python -c "os.system('git reset --hard')"`,
+          ['python', '-c', "os.system('git reset --hard')"],
           [
             {
               type: 'interpreter',
               interpreter: 'python',
-              codeArg: "print('git reset --hard')",
+              codeArg: "os.system('git reset --hard')",
               paranoidBlocked: false,
             },
             {
               type: 'recurse',
               reason: 'interpreter',
-              innerCommand: "print('git reset --hard')",
+              innerCommand: "os.system('git reset --hard')",
               depth: 1,
             },
             {
               type: 'dangerous-text',
-              token: 'print(git reset --hard',
+              token: 'os.system(git reset --hard',
               matched: true,
               reason:
                 'Unparseable command text contains a destructive pattern (git reset --hard). Rewrite as a plain, parseable command so it can be analyzed.',
             },
             {
               type: 'dangerous-text',
-              token: "print('git reset --hard')",
+              token: "os.system('git reset --hard')",
               matched: true,
               reason: interpreterReason,
             },
           ],
           interpreterReason,
-          "python -c print('git reset --hard')",
+          "python -c os.system('git reset --hard')",
         ),
       },
     ];

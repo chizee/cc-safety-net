@@ -505,6 +505,48 @@ function supportsInlineEval(interpreter: string): boolean {
 
 export function containsDangerousCode(code: string, scanWork?: { units: number }): boolean {
   const executableCode = collapseInterpreterShellContinuations(code, scanWork);
+  if (!interpreterCodeHasDangerousText(executableCode, scanWork)) return false;
+  // A match confined to string literals is inert data unless the code can hand
+  // it to a shell: rescan with literals stripped, then look for an exec sink.
+  chargeNativeLinearPass(scanWork, executableCode);
+  const strippedCode = stripStringLiterals(executableCode);
+  if (interpreterCodeHasDangerousText(strippedCode, scanWork)) return true;
+  chargeNativeLinearPass(scanWork, strippedCode);
+  return INTERPRETER_EXEC_SINK.test(strippedCode);
+}
+
+const INTERPRETER_EXEC_SINK =
+  /`|%x|\b(?:system|exec|spawn|popen|subprocess|child_process|open3|eval|fork|qx)/i;
+
+function stripStringLiterals(code: string): string {
+  const parts: string[] = [];
+  let plainStart = 0;
+  let i = 0;
+  while (i < code.length) {
+    const quote = code[i];
+    if (quote !== "'" && quote !== '"') {
+      i++;
+      continue;
+    }
+    const delimiter = code.startsWith(quote.repeat(3), i) ? quote.repeat(3) : quote;
+    let end = i + delimiter.length;
+    while (end < code.length && !code.startsWith(delimiter, end)) {
+      end += code[end] === '\\' ? 2 : 1;
+    }
+    // Unterminated literal: keep the tail so the conservative scan still sees it.
+    if (end >= code.length) break;
+    parts.push(code.slice(plainStart, i), ' ');
+    i = end + delimiter.length;
+    plainStart = i;
+  }
+  parts.push(code.slice(plainStart));
+  return parts.join('');
+}
+
+function interpreterCodeHasDangerousText(
+  executableCode: string,
+  scanWork?: { units: number },
+): boolean {
   if (hasLinearInterpreterDanger(executableCode, 'rm', scanWork)) return true;
   for (const pattern of [
     /\bgit[^\S\n]+reset[^\S\n]+--ha(?:r(?:d)?)?\b/,

@@ -156,9 +156,10 @@ describe('linear dangerous-text scan work', () => {
     expect(raw.units).toBeGreaterThan(repeatedPush.length);
     expect(interpreter.units).toBeGreaterThan(repeatedPush.length);
     expect(measure(`'${repeatedPush}--force'`).result?.ruleId).toBe('raw-text.dangerous-command');
-    expect(measure(`python -c '"${repeated('rm ', 44_980)}dd of=/dev/sda"'`).result?.ruleId).toBe(
-      'interpreter.dangerous-command',
-    );
+    expect(
+      measure(`python -c '"${repeated('rm ', 44_980)}";os.system("dd of=/dev/sda")'`).result
+        ?.ruleId,
+    ).toBe('interpreter.dangerous-command');
   });
 
   test.each(['xargs', 'parallel'])('%s handles large quoted interpreter code', (wrapper) => {
@@ -166,7 +167,7 @@ describe('linear dangerous-text scan work', () => {
     const suffix = wrapper === 'parallel' ? ' ::: child' : '';
     const safe = measure(`${wrapper} python -c '${code}'${suffix}`);
     const destructive = measure(
-      `${wrapper} python -c '"${repeated('rm ', 9_990)}dd of=/dev/sda"'${suffix}`,
+      `${wrapper} python -c '"${repeated('rm ', 9_990)}";os.system("dd of=/dev/sda")'${suffix}`,
     );
 
     expect(safe.result).toBeNull();

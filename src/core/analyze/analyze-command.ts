@@ -14,6 +14,12 @@ import {
   resolveTrackedHeredocPath,
 } from '@/core/analyze/heredoc-files';
 import {
+  containsDangerousCode,
+  isInterpreterCommand,
+  REASON_INTERPRETER_BLOCKED,
+  REASON_INTERPRETER_DANGEROUS,
+} from '@/core/analyze/interpreters';
+import {
   createParallelAnalysisBudget,
   type ParallelAnalysisBudget,
   ParallelAnalysisLimitError,
@@ -30,7 +36,11 @@ import {
   type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
 import { isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
-import { filterDestructiveCommandMatch } from '@/core/destructive-command-rules';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+  filterDestructiveCommandMatch,
+} from '@/core/destructive-command-rules';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, normalizeCommandToken, stripWrappersWithInfo } from '@/core/shell';
@@ -973,11 +983,84 @@ function analyzeUnsupportedHeredoc(
     redirection.heredoc ? [redirection.heredoc.body] : [],
   );
   if (isInertShellHeredoc(commandView, heredocs, state, envAssignments)) return null;
+  const interpreterMatch = analyzeInterpreterHeredocMatch(commandView, heredocs, options);
+  if (interpreterMatch !== undefined) {
+    return interpreterMatch
+      ? {
+          reason: interpreterMatch.reason,
+          segment: commandView.legacyNormalized,
+          ruleId: interpreterMatch.id,
+          intent: interpreterMatch.intent,
+        }
+      : null;
+  }
   const result = analyzeUnparseableCommand(
     bodies.length === heredocs.length ? bodies.join('\n') : commandView.source,
     options,
   );
   return result ? { ...result, segment: commandView.legacyNormalized } : null;
+}
+
+// A quoted heredoc feeding an interpreter's stdin is that interpreter's program, so
+// scan it like inline -c/-e code instead of raw unparseable shell text. Returns
+// undefined when the heredoc is not a literal interpreter program (fall back to the
+// raw-text scan) and null when the body is analyzed and allowed.
+function analyzeInterpreterHeredocMatch(
+  commandView: CommandView,
+  heredocs: readonly CommandRedirection[],
+  options: ActiveInternalOptions,
+): DestructiveCommandRuleMatch | null | undefined {
+  const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
+  if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
+    return undefined;
+  }
+  const head = commandView.words[0];
+  if (head?.provenance !== 'literal' || !isInterpreterCommand(head.text)) return undefined;
+  const stdinIsProgram = commandView.words
+    .slice(1)
+    .every((word) => word.provenance === 'literal' && word.text.startsWith('-'));
+  if (!stdinIsProgram) return undefined;
+
+  const body = heredoc.heredoc.body;
+  const paranoidEnabled = destructiveCommandRuleIsEnabled(
+    options.policy,
+    'interpreter.one-liner-paranoid',
+    !!options.paranoidInterpreters,
+  );
+  options.trace?.recordSegment({
+    type: 'interpreter',
+    interpreter: head.text,
+    codeArg: body,
+    paranoidBlocked: paranoidEnabled,
+  });
+  if (paranoidEnabled) {
+    const paranoidMatch = destructiveCommandMatch(
+      'interpreter.one-liner-paranoid',
+      REASON_INTERPRETER_BLOCKED,
+    );
+    const filteredParanoidMatch =
+      options.compatibility === 'explain-legacy'
+        ? paranoidMatch
+        : filterDestructiveCommandMatch(paranoidMatch, options.policy);
+    if (filteredParanoidMatch) return filteredParanoidMatch;
+  }
+  if (!containsDangerousCode(body, options.scanWork)) return null;
+  const dangerousMatch = destructiveCommandMatch(
+    'interpreter.dangerous-command',
+    REASON_INTERPRETER_DANGEROUS,
+  );
+  const match =
+    options.compatibility === 'explain-legacy'
+      ? dangerousMatch
+      : filterDestructiveCommandMatch(dangerousMatch, options.policy);
+  if (!match) return null;
+  options.trace?.recordSegment({
+    type: 'dangerous-text',
+    token: body,
+    matched: true,
+    reason: match.reason,
+  });
+  return match;
 }
 
 function isInertShellHeredoc(

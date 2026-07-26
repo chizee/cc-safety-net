@@ -801,6 +801,22 @@ describe('containsDangerousCode', () => {
       true,
     );
   });
+
+  test('ignores dangerous text confined to string literals without an exec sink', () => {
+    expect(containsDangerousCode('s = s.replace("x", "run mkfs.ext4 /dev/sda1 first")')).toBe(
+      false,
+    );
+    expect(containsDangerousCode('s = """expect(cmd).toBe(\'rm -rf /tmp/x\');"""')).toBe(false);
+  });
+
+  test('keeps blocking dangerous literals when an exec sink is present', () => {
+    expect(containsDangerousCode('subprocess.run("rm -rf /some/path", shell=True)')).toBe(true);
+    expect(containsDangerousCode('`rm -rf /some/path`')).toBe(true);
+  });
+
+  test('keeps blocking dangerous text outside string literals', () => {
+    expect(containsDangerousCode('rm -rf /some/path')).toBe(true);
+  });
 });
 
 describe('extractInterpreterCodeArg', () => {
