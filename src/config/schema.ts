@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
 import { getDestructiveAllowPathError } from '@/core/analyze/allow-paths';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
+import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
 import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/core/rules/policy/resource-limits';
 import { getRulebookSourceSyntaxError } from '@/core/rules/policy/source-syntax';
@@ -142,6 +143,17 @@ function createSchemas() {
           deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional(),
         })
         .optional(),
+      audit: z
+        .strictObject({
+          retention_days: z
+            .number()
+            .int()
+            .min(MIN_AUDIT_RETENTION_DAYS)
+            .max(MAX_AUDIT_RETENTION_DAYS)
+            .optional()
+            .describe('Days of audit log history to keep before the sweep deletes it'),
+        })
+        .optional(),
     })
     .superRefine((policy, context) => {
       (policy.destructive_command_protection?.allow_paths ?? []).forEach((path, index) => {
@@ -256,6 +268,7 @@ export function getUserPolicyDiagnostics(config: unknown): string[] {
       'workflow',
       'destructive_command_protection',
       'secret_protection',
+      'audit',
     ]),
     errors,
   );
@@ -264,7 +277,28 @@ export function getUserPolicyDiagnostics(config: unknown): string[] {
   validateUserWorkflow(config.workflow, errors);
   validateUserDestructivePolicy(config.destructive_command_protection, errors);
   validateUserSecretPolicy(config.secret_protection, errors);
+  validateUserAudit(config.audit, errors);
   return errors;
+}
+
+function validateUserAudit(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    errors.push('audit must be an object if provided');
+    return;
+  }
+  addUnknownFieldErrors(value, new Set(['retention_days']), errors, 'audit');
+  if (value.retention_days === undefined) return;
+  if (
+    typeof value.retention_days !== 'number' ||
+    !Number.isInteger(value.retention_days) ||
+    value.retention_days < MIN_AUDIT_RETENTION_DAYS ||
+    value.retention_days > MAX_AUDIT_RETENTION_DAYS
+  ) {
+    errors.push(
+      `audit.retention_days must be an integer between ${MIN_AUDIT_RETENTION_DAYS} and ${MAX_AUDIT_RETENTION_DAYS}`,
+    );
+  }
 }
 
 function validateRuleOverrides(value: unknown, errors: string[]): void {

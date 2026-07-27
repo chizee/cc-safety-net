@@ -460,6 +460,25 @@ main {
   gap: 8px;
 }
 
+.retention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.retention-row input {
+  width: 84px;
+  text-align: right;
+}
+
+.retention-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
 /* States the window once for the row, so each tile label stays a single word. */
 .tiles-window {
   margin: 0 0 8px;

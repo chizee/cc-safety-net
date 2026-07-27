@@ -12,8 +12,9 @@ import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
 
+import { clampAuditRetentionDays, DEFAULT_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
 import { writeJsonAtomic } from '@/core/rules/policy/config-file';
-import { getUserRulesDir } from '@/core/rules/policy/paths';
+import { getUserRulesDir, POLICY_FILE } from '@/core/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type {
   DestructiveCommandRuleOverride,
@@ -22,7 +23,6 @@ import type {
 } from '@/domain/policy';
 import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 
-const POLICY_FILE = 'policy.json';
 const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
 
 type PolicyConfig = {
@@ -68,6 +68,9 @@ export type GuiPolicy = {
     overrides: Record<string, 'off'>;
     deny_paths: string[];
   };
+  audit: {
+    retention_days: number;
+  };
 };
 
 export const DEFAULT_GUI_POLICY: GuiPolicy = {
@@ -88,6 +91,9 @@ export const DEFAULT_GUI_POLICY: GuiPolicy = {
     enabled: true,
     overrides: {},
     deny_paths: [],
+  },
+  audit: {
+    retention_days: DEFAULT_AUDIT_RETENTION_DAYS,
   },
 };
 
@@ -307,6 +313,11 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
       overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
       deny_paths: repairDenyPaths(secret.deny_paths),
     },
+    audit: {
+      retention_days: clampAuditRetentionDays(
+        isRecord(value.audit) ? value.audit.retention_days : undefined,
+      ),
+    },
   };
 }
 
@@ -403,6 +414,11 @@ export function normalizeGuiPolicy(policy: unknown): GuiPolicy {
         ),
       ) as Record<string, 'off'>,
       deny_paths: [...((secret.deny_paths as string[] | undefined) ?? [])],
+    },
+    audit: {
+      retention_days: clampAuditRetentionDays(
+        (config.audit as Record<string, unknown> | undefined)?.retention_days,
+      ),
     },
   };
 }

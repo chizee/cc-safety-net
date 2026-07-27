@@ -21,9 +21,14 @@ import { listAuditLogFiles } from '@/core/audit-scan';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-07-26T12:00:00.000Z');
 const now = () => NOW;
-// The 90-day cutoff for NOW is 2026-04-27T12:00:00.000Z.
+// With no policy file the sweep uses the 30-day default, whose cutoff for NOW is
+// 2026-06-26T12:00:00.000Z. The boundary pair straddles it: 2026-06-25 ends
+// before the cutoff, 2026-06-26 ends after it.
+const BOUNDARY_EXPIRED_DAY = '2026-06-25';
+const CUTOFF_DAY = '2026-06-26';
+// Comfortably outside any window under test, for fixtures about layout rather
+// than the boundary.
 const EXPIRED_DAY = '2026-04-26';
-const CUTOFF_DAY = '2026-04-27';
 const RECENT_DAY = '2026-07-20';
 const FUTURE_DAY = '2026-12-01';
 const EXPIRED_MTIME = new Date('2026-04-01T00:00:00.000Z');
@@ -64,7 +69,7 @@ function writeLegacyLog(filePath: string, lines: readonly string[], mtime: Date)
 describe('pruneExpiredAuditLogs dated layout', () => {
   test('deletes a file whose whole UTC day ended before the cutoff', () => {
     withLogsDir((logsDir) => {
-      const expired = writeDatedLog(logsDir, EXPIRED_DAY);
+      const expired = writeDatedLog(logsDir, BOUNDARY_EXPIRED_DAY);
 
       pruneExpiredAuditLogs(logsDir, now);
 

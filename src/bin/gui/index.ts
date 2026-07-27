@@ -17,7 +17,7 @@ import {
 } from '@/bin/hook/install/targets';
 import { createPolicySnapshot, loadPolicySnapshot } from '@/config/policy-snapshot';
 import { getUserPolicyDiagnostics } from '@/config/schema';
-import { AUDIT_RETENTION_DAYS } from '@/core/audit-retention';
+import { resolveAuditRetentionDays } from '@/core/audit-retention';
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
@@ -39,6 +39,7 @@ import { renderPolicyGuiHtml } from './page';
 const REPO = 'kenryu42/cc-safety-net';
 const REPO_URL = `https://github.com/${REPO}`;
 const STAR_TIMEOUT_MS = 10_000;
+const DEFAULT_ACTIVITY_DAYS = 7;
 type StarCountFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /** @internal */
@@ -245,10 +246,11 @@ async function handleRequest(
   }
 
   if (request.method === 'GET' && url.pathname === '/api/activity') {
-    const days = parseActivityDays(url.searchParams.get('days'));
+    const retentionDays = resolveAuditRetentionDays(options);
+    const days = parseActivityDays(url.searchParams.get('days'), retentionDays);
     if (days === null) {
       sendJson(response, 400, {
-        error: `days must be an integer between 1 and ${AUDIT_RETENTION_DAYS}`,
+        error: `days must be an integer between 1 and ${retentionDays}`,
       });
       return;
     }
@@ -337,10 +339,11 @@ function explainDraftCommand(
   });
 }
 
-function parseActivityDays(raw: string | null): number | null {
-  if (raw === null) return 7;
+function parseActivityDays(raw: string | null, retentionDays: number): number | null {
+  // The default window cannot outrun a retention set below it.
+  if (raw === null) return Math.min(DEFAULT_ACTIVITY_DAYS, retentionDays);
   const days = Number(raw);
-  if (!Number.isInteger(days) || days < 1 || days > AUDIT_RETENTION_DAYS) return null;
+  if (!Number.isInteger(days) || days < 1 || days > retentionDays) return null;
   return days;
 }
 
@@ -563,7 +566,7 @@ export async function fetchStarContext(
   const [starred, starCount, blockedTotal] = await Promise.all([
     userHasStarredRepo(options.command),
     fetchStarCount(options.fetchRepo),
-    Promise.resolve(getActivitySummary(AUDIT_RETENTION_DAYS, options.logsDir).totalBlocked),
+    Promise.resolve(getActivitySummary(resolveAuditRetentionDays(), options.logsDir).totalBlocked),
   ]);
   return { starred, starCount, blockedTotal };
 }

@@ -18,6 +18,9 @@ export {
 } from './source-syntax';
 
 const RULES_CONFIG_FILE = 'rule.json';
+/** Lives here rather than in core/policy so audit retention can resolve the
+ *  policy path without importing the module that reads retention back. */
+export const POLICY_FILE = 'policy.json';
 const RULES_LOCK_FILE = 'rule.lock';
 const LEGACY_RULES_CONFIG_FILE = 'config.json';
 const SAFETY_NET_DIR = '.cc-safety-net';

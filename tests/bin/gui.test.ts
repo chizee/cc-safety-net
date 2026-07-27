@@ -106,6 +106,17 @@ describe('policy GUI server', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  // The server resolves retention from the policy file beside the rules dir it
+  // was given, so this is what a configured window looks like on disk.
+  const writeRetentionPolicy = (retentionDays: number) => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(
+      join(safetyNetHome, 'policy.json'),
+      JSON.stringify({ version: 1, audit: { retention_days: retentionDays } }),
+      'utf-8',
+    );
+  };
+
   test('binds localhost and rejects missing or wrong tokens', async () => {
     const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
     try {
@@ -174,7 +185,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="overview-tiles"');
       // Overview owns a fixed window so the Activity window selector cannot
       // rewrite its tiles, sparkline, and top lists.
-      expect(html).toContain('requestJson(`/api/activity?days=${OVERVIEW_DAYS}`)');
+      expect(html).toContain('requestJson(`/api/activity?days=${overviewDays()}`)');
       // Both tiles measure the guard over one window, stated once in the caption
       // so each label stays a single word and neither restates the other.
       expect(html).toContain('id="overview-window"');
@@ -219,10 +230,13 @@ describe('policy GUI server', () => {
       // Activity: filterable audit feed.
       expect(html).toContain('id="activity-days"');
       // Windows cannot exceed retained history, and no count may claim more
-      // than the window it was measured over.
-      expect(html).toContain('<option value="7">Last 7 days</option>');
-      expect(html).toContain('<option value="30">Last 30 days</option>');
-      expect(html).toContain('<option value="90">Last 90 days</option>');
+      // than the window it was measured over. The options are built from the
+      // configured retention rather than hardcoded, so a shortened retention
+      // cannot leave an option the server would reject.
+      expect(html).toContain(
+        'const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);',
+      );
+      expect(html).toContain('return [...windows, retained];');
       expect(html).not.toContain('Last year');
       expect(html).not.toContain('reviewed');
       expect(html).not.toContain('all time');
@@ -1225,17 +1239,33 @@ describe('policy GUI server', () => {
       expect((await fetch(`${server.origin}/api/activity?token=wrong`)).status).toBe(403);
       const bad = await fetch(`${server.origin}/api/activity?days=abc&token=${server.token}`);
       expect(bad.status).toBe(400);
-      expect(await bad.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
+      expect(await bad.json()).toEqual({ error: 'days must be an integer between 1 and 30' });
       const zero = await fetch(`${server.origin}/api/activity?days=0&token=${server.token}`);
       expect(zero.status).toBe(400);
-      expect(await zero.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
-      // The window cannot exceed retained history, so 90 is the last valid day.
-      for (const days of [7, 30, 90]) {
+      expect(await zero.json()).toEqual({ error: 'days must be an integer between 1 and 30' });
+      // No policy file, so the bound is the 30-day default.
+      for (const days of [7, 30]) {
         const accepted = await getJson<ActivityApiResponse>(
           `${server.origin}/api/activity?days=${days}&token=${server.token}`,
         );
         expect(accepted.days).toBe(days);
       }
+      const tooWide = await fetch(`${server.origin}/api/activity?days=31&token=${server.token}`);
+      expect(tooWide.status).toBe(400);
+      expect(await tooWide.json()).toEqual({ error: 'days must be an integer between 1 and 30' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET /api/activity bounds the window by the configured retention', async () => {
+    writeRetentionPolicy(90);
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const accepted = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?days=90&token=${server.token}`,
+      );
+      expect(accepted.days).toBe(90);
       const tooWide = await fetch(`${server.origin}/api/activity?days=91&token=${server.token}`);
       expect(tooWide.status).toBe(400);
       expect(await tooWide.json()).toEqual({ error: 'days must be an integer between 1 and 90' });
@@ -1244,9 +1274,26 @@ describe('policy GUI server', () => {
     }
   });
 
+  test('GET /api/activity clamps its default window to a shorter retention', async () => {
+    writeRetentionPolicy(3);
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const feed = await getJson<ActivityApiResponse>(
+        `${server.origin}/api/activity?token=${server.token}`,
+      );
+      expect(feed.days).toBe(3);
+      const tooWide = await fetch(`${server.origin}/api/activity?days=7&token=${server.token}`);
+      expect(tooWide.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
   test('GET /api/activity aggregates the audit log window newest-first', async () => {
     const logsDir = join(safetyNetHome, 'logs');
     mkdirSync(logsDir, { recursive: true });
+    // The wide case below asks for 90 days, which the default retention refuses.
+    writeRetentionPolicy(90);
     const now = Date.now();
     const hour = 60 * 60 * 1000;
     writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
@@ -1346,6 +1393,7 @@ describe('policy GUI server', () => {
   test('GET /api/activity excludes entries older than the window still present on disk', async () => {
     const logsDir = join(safetyNetHome, 'logs');
     mkdirSync(logsDir, { recursive: true });
+    writeRetentionPolicy(90);
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     const logFile = join(logsDir, 'retained.jsonl');

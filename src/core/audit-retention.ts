@@ -8,10 +8,12 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { clampAuditRetentionDays, DEFAULT_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
+import { getUserRulesDir, POLICY_FILE } from '@/core/rules/policy/paths';
+import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { AuditLogEntry } from '@/types';
 
-export const AUDIT_RETENTION_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Zero-content throttle marker. Deliberately not named `*.jsonl` so neither the
@@ -24,8 +26,30 @@ const DATED_LOG_FILE = /^((\d{4}-\d{2})-\d{2})-.+\.jsonl$/;
 const utcDay = (ms: number) => Math.floor(ms / DAY_MS);
 
 /**
- * Delete audit logs whose 90-day retention window has passed, from the writer's
- * dated layout and from wholly expired legacy root-level files, then reclaim the
+ * Read the configured retention window straight from the policy file rather
+ * than threading it through the audit write path, which reaches prune from six
+ * adapters that hold no policy. The sweep calls this only after its once-per-UTC
+ * -day throttle passes, so the read costs one file per audit root per day.
+ *
+ * Parses the field alone: a policy that fails full validation elsewhere still
+ * has to prune, and any unusable value falls back to the default.
+ */
+export function resolveAuditRetentionDays(options?: RulesPolicyOptions): number {
+  try {
+    const path = join(dirname(getUserRulesDir(options)), POLICY_FILE);
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as {
+      audit?: { retention_days?: unknown };
+    };
+    return clampAuditRetentionDays(parsed?.audit?.retention_days);
+  } catch {
+    // Missing, unreadable, or malformed: the default window still applies.
+    return DEFAULT_AUDIT_RETENTION_DAYS;
+  }
+}
+
+/**
+ * Delete audit logs whose configured retention window has passed, from the
+ * writer's dated layout and from wholly expired legacy root-level files, then reclaim the
  * month and project directories the sweep emptied. Ephemeral working directories
  * — git worktrees, sandboxes — each earn a project directory that outlives the
  * path it was named for, so without this they accumulate for good.
@@ -44,7 +68,7 @@ export function pruneExpiredAuditLogs(logsDir: string, now: () => Date = () => n
     const lastAttempt = statSync(markerPath, { throwIfNoEntry: false })?.mtimeMs;
     if (lastAttempt !== undefined && utcDay(lastAttempt) === utcDay(nowMs)) return;
 
-    const cutoff = nowMs - AUDIT_RETENTION_DAYS * DAY_MS;
+    const cutoff = nowMs - resolveAuditRetentionDays() * DAY_MS;
     const currentMonth = new Date(nowMs).toISOString().slice(0, 7);
     for (const entry of readDirEntries(logsDir)) {
       if (entry.isDirectory()) {

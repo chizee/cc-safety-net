@@ -2,7 +2,7 @@ import { readdirSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
-import { AUDIT_RETENTION_DAYS, pruneExpiredAuditLogs } from '@/core/audit-retention';
+import { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/core/audit-retention';
 import { findSuspectEntries, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
 import type { AuditLogEntry } from '@/types';
 
@@ -83,10 +83,9 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
       const since = parsePositiveNumber(args[index + 1]);
       // Retained history is the only history, so a wider window would imply a
       // completeness the log cannot back up.
-      if (since === null || since > AUDIT_RETENTION_DAYS) {
-        console.error(
-          `--since must be a positive number of days no greater than ${AUDIT_RETENTION_DAYS}`,
-        );
+      const retentionDays = resolveAuditRetentionDays();
+      if (since === null || since > retentionDays) {
+        console.error(`--since must be a positive number of days no greater than ${retentionDays}`);
         return null;
       }
       flags.since = since;

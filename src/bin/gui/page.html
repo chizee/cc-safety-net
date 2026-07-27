@@ -98,11 +98,7 @@
             <div class="activity-controls">
               <div class="activity-controls-row">
                 <label class="activity-days"><span>Window</span>
-                  <select id="activity-days">
-                    <option value="7">Last 7 days</option>
-                    <option value="30">Last 30 days</option>
-                    <option value="90">Last 90 days</option>
-                  </select>
+                  <select id="activity-days"></select>
                 </label>
                 <button type="button" class="icon-button activity-refresh" id="activity-refresh" aria-label="Refresh activity" title="Refresh activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
               </div>
@@ -209,6 +205,20 @@
               <div class="info-row"><span>Policy file</span><code id="policy-path"></code></div>
               <div class="info-row"><span>Audit logs</span><code id="logs-path"></code></div>
             </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Audit log retention</h2>
+                <p class="panel-sub muted">How long decisions are kept before the sweep deletes them. Every analyzed command is recorded, so a long window grows the log.</p>
+              </div>
+            </div>
+            <label class="retention-row">
+              <span>Keep for</span>
+              <input type="number" id="retention-days" min="1" max="365" step="1" inputmode="numeric" aria-describedby="retention-note">
+              <span>days</span>
+            </label>
+            <p class="muted retention-note" id="retention-note"></p>
           </section>
           <section class="panel">
             <div class="panel-head raw-json-head">

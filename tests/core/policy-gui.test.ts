@@ -210,6 +210,8 @@ describe('policy GUI helpers', () => {
         overrides: { 'secret.ext.pem': 'off' },
         deny_paths: ['private/token.txt'],
       },
+      // The fixture carries no audit section, so repair supplies the default.
+      audit: { retention_days: 30 },
     });
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe(
       `${JSON.stringify(result.policy, null, 2)}\n`,

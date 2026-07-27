@@ -44,6 +44,8 @@ let previewRequestId = 0;
 let dirty = false;
 let searchActive = false;
 const OVERVIEW_DAYS = 7;
+const DEFAULT_RETENTION_DAYS = 30;
+const MAX_RETENTION_DAYS = 365;
 let overview = null;
 let activity = null;
 let knownRuleIds = new Set();
@@ -181,6 +183,7 @@ const collectFormPolicy = () => ({
     overrides: draftPolicy.secret_protection.overrides,
     deny_paths: draftPolicy.secret_protection.deny_paths,
   },
+  audit: draftPolicy.audit,
 });
 const viewNames = ['overview', 'activity', 'policy', 'integrations', 'settings'];
 const viewTitles = {
@@ -316,6 +319,22 @@ const renderOverviewActivity = () => {
     tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
     tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
   ].join('');
+};
+const retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
+// A retention set below the Overview's fixed window would make its request a 400.
+const overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
+const renderRetention = () => {
+  qs('retention-days').value = String(state.policy.audit.retention_days);
+  qs('retention-note').textContent =
+    `Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.`;
+};
+// Windows the Activity tab offers. Anything wider than retention would promise
+// history the sweep has already deleted, and the retention value itself is
+// always offered so the whole log stays reachable.
+const activityWindowOptions = () => {
+  const retained = retentionDays();
+  const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);
+  return [...windows, retained];
 };
 const renderProtectionCard = () => {
   // Saved state only: state.policy/state.preview are server-confirmed; draftPolicy is not,
@@ -460,6 +479,9 @@ const renderActivityControls = () => {
   qs('activity-command-filter').innerHTML = activityFilters.command
     ? `<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>`
     : '';
+  qs('activity-days').innerHTML = activityWindowOptions()
+    .map((days) => `<option value="${days}">Last ${days} days</option>`)
+    .join('');
   qs('activity-days').value = String(activity.days);
 };
 const renderActivityFeed = () => {
@@ -501,7 +523,7 @@ const renderActivityFeed = () => {
     `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${activity.days} days${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.`;
 };
 const loadOverview = async () => {
-  const result = await requestJson(`/api/activity?days=${OVERVIEW_DAYS}`);
+  const result = await requestJson(`/api/activity?days=${overviewDays()}`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = `<p class="empty">Could not load activity: ${escapeHtml(errorText(result))}</p>`;
     qs('overview-window').textContent = '';
@@ -1414,6 +1436,7 @@ function render() {
   pathLists['deny-paths'].render();
   pathLists['allow-paths'].render();
   updateRawSource();
+  renderRetention();
   qs('recovery').hidden = state.errors.length === 0;
   updateActions();
   renderProtectionCard();
@@ -1437,11 +1460,14 @@ const restoreDraft = () => {
       return null;
     }
   })();
+  // 'audit' is listed so a draft stored before the field existed is discarded
+  // rather than restored and saved back over the configured retention.
   const isPolicyShape = [
     'safety',
     'workflow',
     'destructive_command_protection',
     'secret_protection',
+    'audit',
   ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
   if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
     sessionStorage.removeItem('cc-safety-net-draft');
@@ -1512,11 +1538,74 @@ document.addEventListener('paste', (event) => {
   event.preventDefault();
   void list.add(`${event.target.value}\n${text}`);
 });
+// Saves on its own rather than through the policy savebar, which lives in the
+// Policy view and cannot be reached from Settings. It writes the saved policy
+// with only this field changed, so unsaved Policy edits are not committed by
+// touching a Settings control.
+const saveRetentionDays = async (days) => {
+  const current = state?.policy.audit.retention_days;
+  if (current === undefined) return;
+  if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
+    qs('retention-days').value = String(current);
+    setAppStatus('Retention unchanged', 'error');
+    setDetailStatus(
+      `Error: retention must be a whole number of days from 1 to ${MAX_RETENTION_DAYS}.`,
+      'error',
+    );
+    return;
+  }
+  if (days === current) return;
+  // Saving reloads the policy, and the reload restores the stored draft — whose
+  // retention is the old value, so the next Policy save would undo this one.
+  if (dirty) {
+    qs('retention-days').value = String(current);
+    setAppStatus('Retention unchanged', 'error');
+    setDetailStatus('Error: save or discard your unsaved Policy changes first.', 'error');
+    return;
+  }
+  if (
+    days < current &&
+    !(await confirmDialog({
+      title: `Shorten retention to ${days} days?`,
+      body: `Audit entries older than ${days} days are deleted on the next sweep and cannot be recovered. The Activity tab will only look back ${days} days.`,
+      detail: overview?.logsDir ?? '',
+      confirmLabel: 'Shorten',
+      confirmClass: 'danger',
+    }))
+  ) {
+    qs('retention-days').value = String(current);
+    return;
+  }
+  await runExclusive('Saving...', async () => {
+    const policy = clonePolicy(state.policy);
+    policy.audit.retention_days = days;
+    const result = await requestJson('/api/policy', {
+      method: 'POST',
+      body: JSON.stringify(policy),
+    });
+    if (!isWriteSuccess(result)) {
+      qs('retention-days').value = String(current);
+      setAppStatus('Save failed', 'error');
+      setDetailStatus(`Error: ${errorText(result)}`, 'error');
+      return;
+    }
+    if (!(await load())) return;
+    // A narrower window may no longer offer the selected one.
+    activityFilters.days = Math.min(activityFilters.days, days);
+    await Promise.all([loadOverview(), loadActivity()]);
+    setAppStatus(`Retention set to ${days} days.`, 'ok');
+    setDetailStatus('');
+  });
+};
 document.addEventListener('change', (event) => {
   const input = event.target;
   if (input.id === 'activity-days') {
     activityFilters.days = Number(input.value);
     void loadActivity();
+    return;
+  }
+  if (input.id === 'retention-days') {
+    void saveRetentionDays(Number(input.value));
     return;
   }
   if (input.name === 'safety-level') {
@@ -1964,6 +2053,7 @@ void loadHealth();
 load()
   .then((loaded) => {
     if (loaded) void loadStarContext();
+    activityFilters.days = Math.min(activityFilters.days, retentionDays());
     void loadOverview();
     void loadActivity();
   })

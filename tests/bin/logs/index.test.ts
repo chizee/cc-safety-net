@@ -1051,7 +1051,8 @@ describe('runLogsCommand --prune-legacy', () => {
 });
 
 describe('runLogsCommand retained history window', () => {
-  test.each([['0.5'], ['90']])('accepts --since %s', async (since) => {
+  // No policy file in the fixture home, so the ceiling is the 30-day default.
+  test.each([['0.5'], ['30']])('accepts --since %s', async (since) => {
     const fixture = createLogsFixture();
     try {
       const result = await captureLogsCommand(['--since', since], fixture.logsDir);
@@ -1065,10 +1066,10 @@ describe('runLogsCommand retained history window', () => {
   test('rejects --since beyond the retained window', async () => {
     const fixture = createLogsFixture();
     try {
-      const result = await captureLogsCommand(['--since', '90.1'], fixture.logsDir);
+      const result = await captureLogsCommand(['--since', '30.1'], fixture.logsDir);
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe('--since must be a positive number of days no greater than 90');
+      expect(result.stderr).toBe('--since must be a positive number of days no greater than 30');
     } finally {
       fixture.cleanup();
     }
