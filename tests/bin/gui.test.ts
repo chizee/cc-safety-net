@@ -189,7 +189,10 @@ describe('policy GUI server', () => {
       // Both tiles measure the guard over one window, stated once in the caption
       // so each label stays a single word and neither restates the other.
       expect(html).toContain('id="overview-window"');
-      expect(html).toContain('`Last ${overview.days} days`');
+      expect(html).toContain('`Last ${dayCount(overview.days)}`');
+      // Retention goes down to 1, so day counts are rendered through one helper
+      // rather than hardcoding the plural at each label.
+      expect(html).toContain("const dayCount = (days) => `${days} day${days === 1 ? '' : 's'}`;");
       expect(html).toContain(
         "tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked'))",
       );

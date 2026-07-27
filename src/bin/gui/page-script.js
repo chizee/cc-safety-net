@@ -140,6 +140,8 @@ const runExclusive = async (pendingText, fn) => {
   }
 };
 const checkbox = (checked) => (checked ? 'checked' : '');
+// Retention goes down to 1, so every window label has to survive the singular.
+const dayCount = (days) => `${days} day${days === 1 ? '' : 's'}`;
 const syncMasterBadges = () => {
   document.querySelectorAll('label.row.master input').forEach((input) => {
     input.closest('label').querySelector('.master-badge').textContent = input.checked
@@ -307,14 +309,14 @@ const renderOverviewActivity = () => {
   // time within one tile and never as a comparison between the two.
   const sparkline = (byDay, noun) => {
     const max = Math.max(...byDay, 1);
-    return `<div class="tile-spark" role="group" aria-label="Commands ${noun} per day, most recent ${byDay.length} days">${byDay
+    return `<div class="tile-spark" role="group" aria-label="Commands ${noun} per day, most recent ${dayCount(byDay.length)}">${byDay
       .map((count, index) => {
         const label = `${dayAgoLabel(byDay.length - 1 - index)}: ${count.toLocaleString('en-US')} ${noun}`;
         return `<div class="spark-col" role="img" tabindex="0" data-count="${count.toLocaleString('en-US')}" aria-label="${escapeHtml(label)}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 40))}px"></div></div>`;
       })
       .join('')}</div>`;
   };
-  qs('overview-window').textContent = `Last ${overview.days} days`;
+  qs('overview-window').textContent = `Last ${dayCount(overview.days)}`;
   qs('overview-tiles').innerHTML = [
     tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
     tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
@@ -325,8 +327,9 @@ const retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETE
 const overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
 const renderRetention = () => {
   qs('retention-days').value = String(state.policy.audit.retention_days);
+  qs('retention-unit').textContent = state.policy.audit.retention_days === 1 ? 'day' : 'days';
   qs('retention-note').textContent =
-    `Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.`;
+    'Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.';
 };
 // Windows the Activity tab offers. Anything wider than retention would promise
 // history the sweep has already deleted, and the retention value itself is
@@ -448,7 +451,7 @@ const renderGuardErrors = () => {
   qs('guard-errors').hidden = overview.counts.errors === 0;
   if (overview.counts.errors === 0) return;
   qs('guard-errors').textContent =
-    `${overview.counts.errors.toLocaleString('en-US')} guard error${overview.counts.errors === 1 ? '' : 's'} in the last ${overview.days} days — commands blocked because evaluation failed, not by policy. Click to view.`;
+    `${overview.counts.errors.toLocaleString('en-US')} guard error${overview.counts.errors === 1 ? '' : 's'} in the last ${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>
@@ -480,7 +483,7 @@ const renderActivityControls = () => {
     ? `<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>`
     : '';
   qs('activity-days').innerHTML = activityWindowOptions()
-    .map((days) => `<option value="${days}">Last ${days} days</option>`)
+    .map((days) => `<option value="${days}">Last ${dayCount(days)}</option>`)
     .join('');
   qs('activity-days').value = String(activity.days);
 };
@@ -520,7 +523,7 @@ const renderActivityFeed = () => {
           .join('')}</div>`;
   applyFeedClamps(qs('activity-feed'));
   qs('activity-count').textContent =
-    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${activity.days} days${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.`;
+    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${dayCount(activity.days)}${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.`;
 };
 const loadOverview = async () => {
   const result = await requestJson(`/api/activity?days=${overviewDays()}`);
@@ -1566,8 +1569,8 @@ const saveRetentionDays = async (days) => {
   if (
     days < current &&
     !(await confirmDialog({
-      title: `Shorten retention to ${days} days?`,
-      body: `Audit entries older than ${days} days are deleted on the next sweep and cannot be recovered. The Activity tab will only look back ${days} days.`,
+      title: `Shorten retention to ${dayCount(days)}?`,
+      body: `Audit entries older than ${dayCount(days)} are deleted on the next sweep and cannot be recovered. The Activity tab will only look back ${dayCount(days)}.`,
       detail: overview?.logsDir ?? '',
       confirmLabel: 'Shorten',
       confirmClass: 'danger',
@@ -1593,7 +1596,7 @@ const saveRetentionDays = async (days) => {
     // A narrower window may no longer offer the selected one.
     activityFilters.days = Math.min(activityFilters.days, days);
     await Promise.all([loadOverview(), loadActivity()]);
-    setAppStatus(`Retention set to ${days} days.`, 'ok');
+    setAppStatus(`Retention set to ${dayCount(days)}.`, 'ok');
     setDetailStatus('');
   });
 };
