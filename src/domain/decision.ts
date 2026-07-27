@@ -22,5 +22,4 @@ export type Decision =
       intent: BlockIntent;
       ruleId?: string;
       evidence: readonly DecisionEvidence[];
-    }
-  | { kind: 'indeterminate'; reason: string; evidence: readonly DecisionEvidence[] };
+    };

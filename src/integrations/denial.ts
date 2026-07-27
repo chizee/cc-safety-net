@@ -4,7 +4,7 @@ import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import type { BlockIntent, Decision } from '@/domain/decision';
 
 type GuardEvaluation = {
-  decision: Exclude<Decision, { kind: 'indeterminate' }>;
+  decision: Decision;
 };
 
 /** @internal */

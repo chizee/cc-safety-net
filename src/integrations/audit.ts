@@ -6,7 +6,7 @@ import type { AuditErrorCode, AuditFailureStage, EffectiveSafetyLevel } from '@/
 
 type GuardEvaluation = {
   stage: string;
-  decision: Exclude<Decision, { kind: 'indeterminate' }>;
+  decision: Decision;
   level?: EffectiveSafetyLevel;
 };
 

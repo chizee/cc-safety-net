@@ -2,7 +2,7 @@ import type { Decision } from '@/domain/decision';
 import type { AnalyzeResult } from '@/types';
 
 type LegacyCommandBlock = {
-  decision: Exclude<Decision, { kind: 'allow' | 'indeterminate' }>;
+  decision: Extract<Decision, { kind: 'deny' }>;
 };
 
 /** @internal */

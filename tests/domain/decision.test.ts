@@ -10,20 +10,12 @@ const deny = {
   ruleId: 'git.reset-hard',
   evidence: [{ kind: 'command', command: 'git reset --hard', segment: 'git reset --hard' }],
 } satisfies Decision;
-const indeterminate = {
-  kind: 'indeterminate',
-  reason: 'The path could not be resolved safely.',
-  evidence: [{ kind: 'path', target: '../unknown' }],
-} satisfies Decision;
-
 function decisionKind(decision: Decision): Decision['kind'] {
   switch (decision.kind) {
     case 'allow':
       return 'allow';
     case 'deny':
       return 'deny';
-    case 'indeterminate':
-      return 'indeterminate';
     default: {
       const exhaustive: never = decision;
       return exhaustive;
@@ -43,11 +35,7 @@ describe('decision domain', () => {
   });
 
   test('supports every decision discriminant exhaustively', () => {
-    expect([allow, deny, indeterminate].map(decisionKind)).toEqual([
-      'allow',
-      'deny',
-      'indeterminate',
-    ]);
+    expect([allow, deny].map(decisionKind)).toEqual(['allow', 'deny']);
   });
 
   test('does not publish internal decision declarations as deep imports', async () => {

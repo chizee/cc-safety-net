@@ -40,12 +40,10 @@ import type {
 /** @internal */
 export type GuardStage = AuditFailureStage;
 
-type FinalDecision = Exclude<Decision, { kind: 'indeterminate' }>;
-
 /** @internal */
 export type GuardEvaluation = {
   stage: GuardStage;
-  decision: FinalDecision;
+  decision: Decision;
   /**
    * Effective safety level in force for this evaluation. Absent when the guard
    * returned before the policy snapshot resolved, since those denials (input
