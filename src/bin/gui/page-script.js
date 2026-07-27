@@ -494,7 +494,7 @@ const renderActivityFeed = () => {
           .join('')}</div>`;
   applyFeedClamps(qs('activity-feed'));
   qs('activity-count').textContent =
-    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${activity.days} days${activity.truncated ? ' (showing the newest 500)' : ''}.`;
+    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${activity.days} days${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.`;
 };
 const loadActivity = async () => {
   const result = await requestJson(`/api/activity?days=${activityFilters.days}`);

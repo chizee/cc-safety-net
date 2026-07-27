@@ -7,6 +7,23 @@ import type { AuditLogEntry } from '@/types';
 const ENTRY_CAP = 500;
 
 /**
+ * Fill the cap from both decision classes, newest first within each. Either
+ * filter renders from the same capped list the tiles count in full, so a class
+ * crowded out entirely reads as "no entries" while its chip promises thousands.
+ * A denial storm did exactly that to Allowed. Each class is guaranteed half the
+ * cap and lends whatever it does not use to the other.
+ */
+function capEntries(windowEntries: readonly AuditLogEntry[]): AuditLogEntry[] {
+  const denied = windowEntries.filter((entry) => entry.decision !== 'allow');
+  const allowed = windowEntries.filter((entry) => entry.decision === 'allow');
+  const deniedShare = Math.min(
+    denied.length,
+    Math.max(ENTRY_CAP - allowed.length, Math.ceil(ENTRY_CAP / 2)),
+  );
+  return [...denied.slice(0, deniedShare), ...allowed.slice(0, ENTRY_CAP - deniedShare)];
+}
+
+/**
  * Collect audit log entries for the GUI activity feed.
  * Returns entries in the requested window (newest first, capped at ENTRY_CAP)
  * plus window aggregates so the client can render tiles and filter chips even
@@ -81,14 +98,8 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
       commands,
       errors,
     },
-    // Denials are the rare, actionable class: keep them all before filling the
-    // cap with allowed entries, so the Blocked filter can never render empty
-    // while the tiles report a nonzero blocked count.
-    entries: [
-      ...windowEntries.filter((entry) => entry.decision !== 'allow'),
-      ...windowEntries.filter((entry) => entry.decision === 'allow'),
-    ]
-      .slice(0, ENTRY_CAP)
-      .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()),
+    entries: capEntries(windowEntries).sort(
+      (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime(),
+    ),
   };
 }
