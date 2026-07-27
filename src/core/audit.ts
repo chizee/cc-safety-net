@@ -154,6 +154,17 @@ function capField(value: string, maxLength: number) {
 export function getAuditLogHomeDir(
   homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME,
 ): string | null {
+  // The redirect that keeps test writes out of a developer's real home is set by
+  // tests/setup.ts, which only runs via the `preload` in bunfig.toml — and Bun
+  // reads bunfig.toml from the current working directory. Running `bun test`
+  // from anywhere but the repository root silently skipped it and appended
+  // hundreds of fixture entries to ~/.cc-safety-net/logs. Bun sets NODE_ENV
+  // itself from every cwd, so refusing the fallback here makes the leak
+  // impossible to reach, and tests that assert on audit output fail loudly
+  // instead of writing somewhere nobody looks.
+  if (process.env.NODE_ENV === 'test' && !process.env.CC_SAFETY_NET_AUDIT_HOME) {
+    return null;
+  }
   const home = homeFromEnv || homedir() || userInfo().homedir;
   return home && isAbsolute(home) ? home : null;
 }

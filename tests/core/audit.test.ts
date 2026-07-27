@@ -10,6 +10,7 @@ import {
   writeAuditLog,
 } from '@/core/audit';
 import type { AuditLogEntry } from '@/types';
+import { withEnv } from '../helpers';
 
 describe('sanitizeSessionIdForFilename', () => {
   test('returns valid session id unchanged', () => {
@@ -872,6 +873,22 @@ describe('writeAuditLog', () => {
 
   test('empty HOME env falls back to os homedir', () => {
     expect(getAuditLogHomeDir('')).toBe(userInfo().homedir);
+  });
+
+  test('a test run without the audit home redirect resolves nowhere', () => {
+    // bunfig.toml `preload` only runs when Bun starts in the repository root, so
+    // `bun test` from any other directory loses the redirect tests/setup.ts sets
+    // and every fixture entry lands in the developer's real home.
+    withEnv({ CC_SAFETY_NET_AUDIT_HOME: undefined, NODE_ENV: 'test' }, () => {
+      expect(getAuditLogHomeDir()).toBe(null);
+      expect(getAuditLogHomeDir(userInfo().homedir)).toBe(null);
+    });
+  });
+
+  test('a non-test run still resolves the real home', () => {
+    withEnv({ CC_SAFETY_NET_AUDIT_HOME: undefined, NODE_ENV: 'production' }, () => {
+      expect(getAuditLogHomeDir(userInfo().homedir)).toBe(userInfo().homedir);
+    });
   });
 
   test('audit home env overrides HOME by default', () => {
