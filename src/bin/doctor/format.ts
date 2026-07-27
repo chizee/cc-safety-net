@@ -21,29 +21,33 @@ import type { SelfTestSummary } from '@/integrations/self-test';
 interface TableOptions {
   headers?: string[];
   rows: string[][];
-  rawRows?: string[][];
 }
 
+// Colour codes occupy no columns, so every width is measured on the stripped cell.
+// The escape byte lives in a constant because a regex literal may not contain one.
+const ANSI_STYLE = new RegExp(`${'\x1b'}\\[[0-9;]*m`, 'g');
+const visibleWidth = (cell: string) => cell.replace(ANSI_STYLE, '').length;
+
 function formatAsciiTable(options: TableOptions): string {
-  const rawRows = options.rawRows ?? options.rows;
-  const colWidths = (options.headers ?? rawRows[0] ?? []).map((h, i) => {
-    const maxDataWidth = Math.max(...rawRows.map((r) => r[i]?.length ?? 0));
-    return Math.max(h.length, maxDataWidth);
+  const colWidths = (options.headers ?? options.rows[0] ?? []).map((h, i) => {
+    const maxDataWidth = Math.max(...options.rows.map((r) => visibleWidth(r[i] ?? '')));
+    // A headerless table measures its first data row here, which may be coloured.
+    return Math.max(visibleWidth(h), maxDataWidth);
   });
-  const pad = (s: string, w: number, raw: string) => s + ' '.repeat(Math.max(0, w - raw.length));
+  const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - visibleWidth(s)));
   const line = (char: string, corners: [string, string, string]) =>
     corners[0] + colWidths.map((w) => char.repeat(w + 2)).join(corners[1]) + corners[2];
-  const formatRow = (cells: string[], rawCells: string[]) =>
-    `│ ${cells.map((c, i) => pad(c, colWidths[i] ?? 0, rawCells[i] ?? '')).join(' │ ')} │`;
+  const formatRow = (cells: string[]) =>
+    `│ ${cells.map((c, i) => pad(c, colWidths[i] ?? 0)).join(' │ ')} │`;
 
   const headerLines = options.headers
-    ? [`   ${formatRow(options.headers, options.headers)}`, `   ${line('─', ['├', '┼', '┤'])}`]
+    ? [`   ${formatRow(options.headers)}`, `   ${line('─', ['├', '┼', '┤'])}`]
     : [];
 
   return [
     `   ${line('─', ['┌', '┬', '┐'])}`,
     ...headerLines,
-    ...options.rows.map((r, i) => `   ${formatRow(r, rawRows[i] ?? [])}`),
+    ...options.rows.map((r) => `   ${formatRow(r)}`),
     `   ${line('─', ['└', '┴', '┘'])}`,
   ].join('\n');
 }
@@ -96,33 +100,27 @@ function formatHooksTable(hooks: HookStatus[]): string {
   const rowData = hooks.map((h) => {
     const platformName = getIntegrationDisplayName(h.platform);
     const discovery = h.detected
-      ? { text: 'Detected', colored: colors.green('Detected') }
+      ? colors.green('Detected')
       : h.inspectionStatus === 'failed'
-        ? { text: 'Unknown', colored: colors.red('Unknown') }
-        : { text: 'Not detected', colored: colors.dim('Not detected') };
+        ? colors.red('Unknown')
+        : colors.dim('Not detected');
     const configuration = h.configured
-      ? { text: 'Configured', colored: colors.green('Configured') }
+      ? colors.green('Configured')
       : h.detected
-        ? { text: 'Not configured', colored: colors.yellow('Not configured') }
+        ? colors.yellow('Not configured')
         : h.inspectionStatus === 'failed'
-          ? { text: 'Unknown', colored: colors.red('Unknown') }
-          : { text: 'Not applicable', colored: colors.dim('Not applicable') };
+          ? colors.red('Unknown')
+          : colors.dim('Not applicable');
     const inspection =
       h.inspectionStatus === 'verified'
-        ? { text: 'Verified', colored: colors.green('Verified') }
+        ? colors.green('Verified')
         : h.inspectionStatus === 'failed'
-          ? { text: 'Failed', colored: colors.red('Failed') }
-          : { text: 'Not applicable', colored: colors.dim('Not applicable') };
-    return {
-      colored: [platformName, discovery.colored, configuration.colored, inspection.colored],
-      raw: [platformName, discovery.text, configuration.text, inspection.text],
-    };
+          ? colors.red('Failed')
+          : colors.dim('Not applicable');
+    return [platformName, discovery, configuration, inspection];
   });
 
-  const rows = rowData.map((r) => r.colored);
-  const rawRows = rowData.map((r) => r.raw);
-
-  return formatAsciiTable({ headers, rows, rawRows });
+  return formatAsciiTable({ headers, rows: rowData });
 }
 
 /** Format the shared guard-engine synthetic self-test. */
@@ -200,31 +198,18 @@ export function formatConfigSection(report: DoctorReport): string {
 function formatConfigTable(userConfig: ConfigSourceInfo, projectConfig: ConfigSourceInfo): string {
   const headers = ['Scope', 'Status'];
 
-  const getStatusDisplay = (config: ConfigSourceInfo): { text: string; colored: string } => {
-    if (!config.exists) {
-      return { text: 'N/A', colored: colors.dim('N/A') };
-    }
-    if (!config.valid) {
-      const errMsg = config.errors?.[0] ?? 'unknown error';
-      const text = `Invalid (${errMsg})`;
-      return { text, colored: colors.red(text) };
-    }
-    return { text: 'Configured', colored: colors.green('Configured') };
+  const getStatusDisplay = (config: ConfigSourceInfo): string => {
+    if (!config.exists) return colors.dim('N/A');
+    if (!config.valid) return colors.red(`Invalid (${config.errors?.[0] ?? 'unknown error'})`);
+    return colors.green('Configured');
   };
 
-  const userStatus = getStatusDisplay(userConfig);
-  const projectStatus = getStatusDisplay(projectConfig);
-
   const rows = [
-    ['User', userStatus.colored],
-    ['Project', projectStatus.colored],
-  ];
-  const rawRows = [
-    ['User', userStatus.text],
-    ['Project', projectStatus.text],
+    ['User', getStatusDisplay(userConfig)],
+    ['Project', getStatusDisplay(projectConfig)],
   ];
 
-  return formatAsciiTable({ headers, rows, rawRows });
+  return formatAsciiTable({ headers, rows });
 }
 
 /**
@@ -302,12 +287,7 @@ function formatEnvironmentTable(envVars: EnvVarInfo[]): string {
     return [v.name, statusIcon, legacyStatus];
   });
 
-  const rawRows = envVars.map((v) => [
-    v.name,
-    v.isSet ? '✓' : '✗',
-    v.legacyName && v.legacyIsSet ? `${v.legacyName} ✓` : (v.legacyName ?? ''),
-  ]);
-  return formatAsciiTable({ headers, rows, rawRows });
+  return formatAsciiTable({ headers, rows });
 }
 
 /**
@@ -354,64 +334,38 @@ export function formatUpdateSection(update: UpdateInfo): string {
   const lines: string[] = [];
   lines.push('Update Check');
 
-  // Build table rows based on state
-  const rowData: Array<{ label: string; value: string; rawValue: string }> = [];
-
   // Check if update check was skipped (latestVersion is null and no error)
   if (update.latestVersion === null && !update.error) {
-    rowData.push({
-      label: 'Status',
-      value: colors.dim('Skipped'),
-      rawValue: 'Skipped',
-    });
-    rowData.push({
-      label: 'Installed',
-      value: update.currentVersion,
-      rawValue: update.currentVersion,
-    });
-    lines.push(formatUpdateTable(rowData));
+    lines.push(
+      formatUpdateTable([
+        ['Status', colors.dim('Skipped')],
+        ['Installed', update.currentVersion],
+      ]),
+    );
     return lines.join('\n');
   }
 
   // Check if there was an error
   if (update.error) {
-    rowData.push({
-      label: 'Status',
-      value: `${colors.yellow('⚠')} Error`,
-      rawValue: '⚠ Error',
-    });
-    rowData.push({
-      label: 'Installed',
-      value: update.currentVersion,
-      rawValue: update.currentVersion,
-    });
-    rowData.push({
-      label: 'Error',
-      value: colors.dim(update.error),
-      rawValue: update.error,
-    });
-    lines.push(formatUpdateTable(rowData));
+    lines.push(
+      formatUpdateTable([
+        ['Status', `${colors.yellow('\u26a0')} Error`],
+        ['Installed', update.currentVersion],
+        ['Error', colors.dim(update.error)],
+      ]),
+    );
     return lines.join('\n');
   }
 
   // Check if update is available
   if (update.updateAvailable) {
-    rowData.push({
-      label: 'Status',
-      value: `${colors.yellow('⚠')} Update Available`,
-      rawValue: '⚠ Update Available',
-    });
-    rowData.push({
-      label: 'Current',
-      value: update.currentVersion,
-      rawValue: update.currentVersion,
-    });
-    rowData.push({
-      label: 'Latest',
-      value: colors.green(update.latestVersion ?? ''),
-      rawValue: update.latestVersion ?? '',
-    });
-    lines.push(formatUpdateTable(rowData));
+    lines.push(
+      formatUpdateTable([
+        ['Status', `${colors.yellow('\u26a0')} Update Available`],
+        ['Current', update.currentVersion],
+        ['Latest', colors.green(update.latestVersion ?? '')],
+      ]),
+    );
     lines.push('');
     lines.push('   Run: bunx cc-safety-net@latest doctor');
     lines.push('   Or:  npx cc-safety-net@latest doctor');
@@ -419,30 +373,20 @@ export function formatUpdateSection(update: UpdateInfo): string {
   }
 
   // Up to date
-  rowData.push({
-    label: 'Status',
-    value: `${colors.green('✓')} Up to date`,
-    rawValue: '✓ Up to date',
-  });
-  rowData.push({
-    label: 'Version',
-    value: update.currentVersion,
-    rawValue: update.currentVersion,
-  });
-  lines.push(formatUpdateTable(rowData));
+  lines.push(
+    formatUpdateTable([
+      ['Status', `${colors.green('\u2713')} Up to date`],
+      ['Version', update.currentVersion],
+    ]),
+  );
   return lines.join('\n');
 }
 
 /**
  * Format update info as an ASCII table.
  */
-function formatUpdateTable(
-  rowData: Array<{ label: string; value: string; rawValue: string }>,
-): string {
-  const rows = rowData.map((r) => [r.label, r.value]);
-  const rawRows = rowData.map((r) => [r.label, r.rawValue]);
-
-  return formatAsciiTable({ rows, rawRows });
+function formatUpdateTable(rows: string[][]): string {
+  return formatAsciiTable({ rows });
 }
 
 /**
@@ -467,10 +411,6 @@ function formatSystemInfoTable(system: SystemInfo): string {
     return value;
   };
 
-  const rawValue = (value: string | null): string => {
-    return value ?? 'not found';
-  };
-
   const rowData = [
     { label: 'cc-safety-net', value: system.version },
     { label: 'Claude Code', value: system.claudeCodeVersion },
@@ -490,9 +430,8 @@ function formatSystemInfoTable(system: SystemInfo): string {
   ];
 
   const rows = rowData.map((r) => [r.label, formatValue(r.value)]);
-  const rawRows = rowData.map((r) => [r.label, rawValue(r.value)]);
 
-  return formatAsciiTable({ headers, rows, rawRows });
+  return formatAsciiTable({ headers, rows });
 }
 
 /**
