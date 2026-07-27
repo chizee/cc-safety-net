@@ -109,55 +109,16 @@ export const defaultVersionFetcher = async (
   args: string[],
   timeoutMs = VERSION_FETCH_TIMEOUT_MS,
 ): Promise<string | null> => {
-  const [cmd, ...rest] = args;
-  if (!cmd) return null;
+  // Every non-zero exit, timeout, spawn error and empty argument list reports the
+  // version as unavailable, so only a clean exit is read for output.
+  const result = await runCommand(args, { timeoutMs });
+  if (result.code !== 0) return null;
 
-  return new Promise((resolve) => {
-    try {
-      const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
-      const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      let isSettled = false;
-
-      let output = '';
-      let errorOutput = '';
-      proc.stdout.on('data', (data: Buffer) => {
-        output += data.toString();
-      });
-      proc.stderr.on('data', (data: Buffer) => {
-        errorOutput += data.toString();
-      });
-
-      const finish = (value: string | null): void => {
-        if (isSettled) return;
-        isSettled = true;
-        clearTimeout(timeoutId);
-        resolve(value);
-      };
-
-      const timeoutId = setTimeout(() => {
-        proc.kill();
-        finish(null);
-      }, timeoutMs);
-
-      proc.on('close', (code) => {
-        finish(
-          code === 0
-            ? stripVTControlCharacters(output).trim() ||
-                stripVTControlCharacters(errorOutput).trim() ||
-                null
-            : null,
-        );
-      });
-
-      proc.on('error', () => {
-        finish(null);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+  return (
+    stripVTControlCharacters(result.stdout).trim() ||
+    stripVTControlCharacters(result.stderr).trim() ||
+    null
+  );
 };
 
 const PI_PROBE_EXTENSION = `

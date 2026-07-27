@@ -465,42 +465,32 @@ function _isSafetyNetCopilotCommand(command: string | undefined): boolean {
   return /(^|\s)hook\s+(?:[^\s]+\s+)*(--copilot-cli|-cp)(\s|$)/.test(command);
 }
 
-function _parseSemver(version: string | null | undefined): [number, number, number] | null {
+/** Null when the version is absent or unparseable, which callers report distinctly. */
+function _isAtLeastVersion(
+  version: string | null | undefined,
+  threshold: readonly [number, number, number],
+): boolean | null {
   if (!version) return null;
 
   const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) return null;
 
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-
-function _compareSemver(
-  version: string | null | undefined,
-  threshold: readonly [number, number, number],
-): number | null {
-  const parsed = _parseSemver(version);
-  if (!parsed) return null;
-
+  const parsed = [Number(match[1]), Number(match[2]), Number(match[3])];
   for (let index = 0; index < threshold.length; index++) {
     const left = parsed[index] ?? 0;
     const right = threshold[index] ?? 0;
-    if (left > right) return 1;
-    if (left < right) return -1;
+    if (left !== right) return left > right;
   }
 
-  return 0;
+  return true;
 }
 
 function _supportsCopilotUserHookFiles(version: string | null | undefined): boolean | null {
-  const comparison = _compareSemver(version, [0, 0, 422]);
-  if (comparison === null) return null;
-  return comparison >= 0;
+  return _isAtLeastVersion(version, [0, 0, 422]);
 }
 
 function _supportsCopilotInlineHooks(version: string | null | undefined): boolean | null {
-  const comparison = _compareSemver(version, [1, 0, 8]);
-  if (comparison === null) return null;
-  return comparison >= 0;
+  return _isAtLeastVersion(version, [1, 0, 8]);
 }
 
 export function _getCopilotConfigHome(homeDir: string): string {
