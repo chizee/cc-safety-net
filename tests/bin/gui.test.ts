@@ -173,6 +173,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
       // Overview: stat tiles plus posture cards backed by /api/policy and /api/activity.
       expect(html).toContain('id="overview-tiles"');
+      // Overview owns a fixed window so the Activity window selector cannot
+      // rewrite its tiles, sparkline, and top lists.
+      expect(html).toContain('requestJson(`/api/activity?days=${OVERVIEW_DAYS}`)');
       // Overview health strip loads asynchronously after first render via GET /api/health.
       expect(html).toContain('id="health-strip"');
       expect(html).toContain("requestJson('/api/health')");
@@ -214,8 +217,8 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Last year');
       expect(html).not.toContain('reviewed');
       expect(html).not.toContain('all time');
-      expect(html).toContain('`Commands recorded · last ${activity.days} days`');
-      expect(html).toContain("tile(activity.totalBlockedRetained, 'Blocked · retained 90 days')");
+      expect(html).toContain('`Commands recorded · last ${overview.days} days`');
+      expect(html).toContain("tile(overview.totalBlockedRetained, 'Blocked · retained 90 days')");
       expect(html).toContain('id="activity-refresh"');
       expect(html).toContain('id="activity-search"');
       expect(html).toContain('id="activity-decision"');
@@ -268,7 +271,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('.feed-day-sep {');
       expect(html).toContain('const dayLabel = (ts) => {');
       // Blocks-per-day sparkline built from server counts only.
-      expect(html).toContain('const byDay = activity.counts.blockedByDay;');
+      expect(html).toContain('const byDay = overview.counts.blockedByDay;');
       expect(html).toContain('Blocked commands per day, most recent');
       expect(html).toContain(
         '<div class="spark-bar${count === 0 ? \' spark-zero\' : \'\'}" aria-hidden="true"',

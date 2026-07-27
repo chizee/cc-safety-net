@@ -2635,6 +2635,8 @@ let preview;
 let previewRequestId = 0;
 let dirty = false;
 let searchActive = false;
+const OVERVIEW_DAYS = 7;
+let overview = null;
 let activity = null;
 let knownRuleIds = new Set();
 const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };
@@ -2885,7 +2887,7 @@ const dayLabel = (ts) => {
 const renderOverviewActivity = () => {
   const tile = (value, label, extra = '') =>
     \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
-  const byDay = activity.counts.blockedByDay;
+  const byDay = overview.counts.blockedByDay;
   const max = Math.max(...byDay, 1);
   // Buckets run oldest-first, so the last one is today. Each column carries its
   // own count: the tooltip is a pointer affordance and cannot be the only way
@@ -2899,10 +2901,10 @@ const renderOverviewActivity = () => {
     })
     .join('')}</div>\`;
   qs('overview-tiles').innerHTML = [
-    tile(activity.counts.blocked, \`Blocked · last \${activity.days} days\`, sparkline),
-    tile(activity.counts.sessions, \`Sessions · last \${activity.days} days\`),
-    tile(activity.totalInWindow, \`Commands recorded · last \${activity.days} days\`),
-    tile(activity.totalBlockedRetained, 'Blocked · retained 90 days'),
+    tile(overview.counts.blocked, \`Blocked · last \${overview.days} days\`, sparkline),
+    tile(overview.counts.sessions, \`Sessions · last \${overview.days} days\`),
+    tile(overview.totalInWindow, \`Commands recorded · last \${overview.days} days\`),
+    tile(overview.totalBlockedRetained, 'Blocked · retained 90 days'),
   ].join('');
 };
 const renderProtectionCard = () => {
@@ -2957,7 +2959,7 @@ const renderTopList = (containerId, counts, className, dataAttr) => {
           .join('');
 };
 const renderTopRules = () =>
-  renderTopList('top-rules', activity.counts.rules, 'top-rule', 'data-rule-id');
+  renderTopList('top-rules', overview.counts.rules, 'top-rule', 'data-rule-id');
 // Mirrors commandSignature in activity.ts so the drill-down can match the same
 // blocked entries the Top blocked commands count is built from.
 const commandSignature = (source) => {
@@ -3008,16 +3010,16 @@ const jumpToActivityRule = (ruleId) => {
   location.hash = 'activity';
 };
 const renderTopCommands = () =>
-  renderTopList('top-commands', activity.counts.commands, 'top-command', 'data-command');
+  renderTopList('top-commands', overview.counts.commands, 'top-command', 'data-command');
 const renderTopLists = () => {
   renderTopCommands();
   renderTopRules();
 };
 const renderGuardErrors = () => {
-  qs('guard-errors').hidden = activity.counts.errors === 0;
-  if (activity.counts.errors === 0) return;
+  qs('guard-errors').hidden = overview.counts.errors === 0;
+  if (overview.counts.errors === 0) return;
   qs('guard-errors').textContent =
-    \`\${activity.counts.errors.toLocaleString('en-US')} guard error\${activity.counts.errors === 1 ? '' : 's'} in the last \${activity.days} days — commands blocked because evaluation failed, not by policy. Click to view.\`;
+    \`\${overview.counts.errors.toLocaleString('en-US')} guard error\${overview.counts.errors === 1 ? '' : 's'} in the last \${overview.days} days — commands blocked because evaluation failed, not by policy. Click to view.\`;
 };
 const renderActivityControls = () => {
   const chipHtml = (kind, value, label, count) =>
@@ -3088,13 +3090,25 @@ const renderActivityFeed = () => {
   qs('activity-count').textContent =
     \`Showing \${entries.length.toLocaleString('en-US')} of \${activity.totalInWindow.toLocaleString('en-US')} entries from the last \${activity.days} days\${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.\`;
 };
-const loadActivity = async () => {
-  const result = await requestJson(\`/api/activity?days=\${activityFilters.days}\`);
+const loadOverview = async () => {
+  const result = await requestJson(\`/api/activity?days=\${OVERVIEW_DAYS}\`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
     qs('overview-tiles').innerHTML = '';
     qs('top-rules').innerHTML = message;
     qs('guard-errors').hidden = true;
+    return;
+  }
+  overview = result.data;
+  qs('logs-path').textContent = overview.logsDir ?? 'Not available';
+  renderOverviewActivity();
+  renderTopLists();
+  renderGuardErrors();
+};
+const loadActivity = async () => {
+  const result = await requestJson(\`/api/activity?days=\${activityFilters.days}\`);
+  if (!result.ok || !isActivityFeed(result.data)) {
+    const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
     qs('activity-feed').innerHTML = message;
     qs('activity-count').textContent = '';
     return;
@@ -3110,10 +3124,6 @@ const loadActivity = async () => {
   if (activityFilters.decision === 'suspect' && suspects.size === 0) {
     activityFilters.decision = 'all';
   }
-  qs('logs-path').textContent = activity.logsDir ?? 'Not available';
-  renderOverviewActivity();
-  renderTopLists();
-  renderGuardErrors();
   renderActivityControls();
   renderActivityFeed();
 };
@@ -3123,7 +3133,11 @@ const refreshActivity = async () => {
   button.disabled = true;
   button.classList.add('spinning');
   // Spin for a minimum duration so a fast local refresh still reads as an action.
-  await Promise.all([loadActivity(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  await Promise.all([
+    loadOverview(),
+    loadActivity(),
+    new Promise((resolve) => setTimeout(resolve, 600)),
+  ]);
   button.classList.remove('spinning');
   button.disabled = false;
 };
@@ -4539,6 +4553,7 @@ void loadHealth();
 load()
   .then((loaded) => {
     if (loaded) void loadStarContext();
+    void loadOverview();
     void loadActivity();
   })
   .catch((error) => {
