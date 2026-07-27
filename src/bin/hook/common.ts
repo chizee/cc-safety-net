@@ -317,16 +317,5 @@ export async function runConfiguredHookAdapter<T>(
     ? () => console.log(JSON.stringify(createAllowOutput()))
     : undefined;
 
-  await runHookAdapter<T>({
-    agent: adapter.agent,
-    getAgent: adapter.getAgent,
-    outputDeny,
-    outputAllow,
-    guardDependencies: adapter.guardDependencies,
-    isSupported: adapter.isSupported,
-    getToolName: adapter.getToolName,
-    getToolInput: adapter.getToolInput,
-    getContext: adapter.getContext,
-    getSessionId: adapter.getSessionId,
-  });
+  await runHookAdapter<T>({ ...adapter, outputDeny, outputAllow });
 }
