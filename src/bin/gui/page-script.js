@@ -293,26 +293,28 @@ const dayLabel = (ts) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 const renderOverviewActivity = () => {
-  const tile = (value, label, extra = '') =>
+  const tile = (value, label, extra) =>
     `<div class="tile"><strong>${escapeHtml(value.toLocaleString('en-US'))}</strong><span>${escapeHtml(label)}</span>${extra}</div>`;
-  const byDay = overview.counts.blockedByDay;
-  const max = Math.max(...byDay, 1);
   // Buckets run oldest-first, so the last one is today. Each column carries its
   // own count: the tooltip is a pointer affordance and cannot be the only way
   // to read the series.
   const dayAgoLabel = (daysAgo) =>
     daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
-  const sparkline = `<div class="tile-spark" role="group" aria-label="Blocked commands per day, most recent ${byDay.length} days">${byDay
-    .map((count, index) => {
-      const label = `${dayAgoLabel(byDay.length - 1 - index)}: ${count.toLocaleString('en-US')} blocked`;
-      return `<div class="spark-col" role="img" tabindex="0" data-count="${count.toLocaleString('en-US')}" aria-label="${escapeHtml(label)}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>`;
-    })
-    .join('')}</div>`;
+  // Each series scales to its own maximum, so bar heights read as shape over
+  // time within one tile and never as a comparison between the two.
+  const sparkline = (byDay, noun) => {
+    const max = Math.max(...byDay, 1);
+    return `<div class="tile-spark" role="group" aria-label="Commands ${noun} per day, most recent ${byDay.length} days">${byDay
+      .map((count, index) => {
+        const label = `${dayAgoLabel(byDay.length - 1 - index)}: ${count.toLocaleString('en-US')} ${noun}`;
+        return `<div class="spark-col" role="img" tabindex="0" data-count="${count.toLocaleString('en-US')}" aria-label="${escapeHtml(label)}"><div class="spark-bar${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 40))}px"></div></div>`;
+      })
+      .join('')}</div>`;
+  };
+  qs('overview-window').textContent = `Last ${overview.days} days`;
   qs('overview-tiles').innerHTML = [
-    tile(overview.counts.blocked, `Blocked · last ${overview.days} days`, sparkline),
-    tile(overview.counts.sessions, `Sessions · last ${overview.days} days`),
-    tile(overview.totalInWindow, `Commands recorded · last ${overview.days} days`),
-    tile(overview.totalBlockedRetained, 'Blocked · retained 90 days'),
+    tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
+    tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
   ].join('');
 };
 const renderProtectionCard = () => {
@@ -502,6 +504,7 @@ const loadOverview = async () => {
   const result = await requestJson(`/api/activity?days=${OVERVIEW_DAYS}`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = `<p class="empty">Could not load activity: ${escapeHtml(errorText(result))}</p>`;
+    qs('overview-window').textContent = '';
     qs('overview-tiles').innerHTML = '';
     qs('top-rules').innerHTML = message;
     qs('guard-errors').hidden = true;

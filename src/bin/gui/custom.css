@@ -460,6 +460,18 @@ main {
   gap: 8px;
 }
 
+/* States the window once for the row, so each tile label stays a single word. */
+.tiles-window {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.tiles-window:empty {
+  display: none;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -470,9 +482,16 @@ main {
   display: none;
 }
 
+/* Count and label stack on the left, series on the right: seven bars stretched
+   across a half-width tile read as blocks rather than a trend. */
 .tile {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 1fr minmax(0, 168px);
+  grid-template-areas:
+    "value spark"
+    "label spark";
+  align-items: center;
+  gap: 3px 16px;
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -480,6 +499,8 @@ main {
 }
 
 .tile strong {
+  grid-area: value;
+  align-self: end;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -487,6 +508,8 @@ main {
 }
 
 .tile span {
+  grid-area: label;
+  align-self: start;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--muted);
@@ -870,11 +893,12 @@ button.rule-id:hover {
 }
 
 .tile-spark {
+  grid-area: spark;
   display: flex;
   align-items: stretch;
   gap: 2px;
-  height: 28px;
-  margin-top: 8px;
+  width: 100%;
+  height: 40px;
 }
 
 /* Full-height hover column so short bars are easy to target; the visible bar

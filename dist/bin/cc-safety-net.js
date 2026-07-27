@@ -113,7 +113,7 @@ ${output}`.trim()));if(result.status!==0)throw Error(formatCommandFailure(comman
 `))}var INSTALL_OPERATIONS={amp:{install:(homeDir)=>runAmpInstallTarget("install",homeDir),uninstall:(homeDir)=>runAmpInstallTarget("uninstall",homeDir)},"antigravity-cli":{install:(homeDir)=>runConfigInstallTarget("install","antigravity-cli",homeDir),uninstall:(homeDir)=>runConfigInstallTarget("uninstall","antigravity-cli",homeDir)},"claude-code":{install:(homeDir)=>installNativeTarget("claude-code",homeDir),uninstall:()=>uninstallNativeTarget("claude-code")},codex:{install:(homeDir)=>installNativeTarget("codex",homeDir),uninstall:()=>uninstallNativeTarget("codex")},"copilot-cli":{install:(homeDir)=>{installNativeTarget("copilot-cli",homeDir),enableCopilotPlugin(homeDir)},uninstall:()=>uninstallNativeTarget("copilot-cli")},cursor:{install:(homeDir)=>runConfigInstallTarget("install","cursor",homeDir),uninstall:(homeDir)=>runConfigInstallTarget("uninstall","cursor",homeDir)},"gemini-cli":{install:(homeDir)=>installNativeTarget("gemini-cli",homeDir),uninstall:()=>uninstallNativeTarget("gemini-cli")},"kimi-code":{install:(homeDir)=>runConfigInstallTarget("install","kimi-code",homeDir),uninstall:(homeDir)=>runConfigInstallTarget("uninstall","kimi-code",homeDir)},opencode:{install:(homeDir)=>installNativeTarget("opencode",homeDir),uninstall:(homeDir)=>uninstallOpenCodeTarget(homeDir)},pi:{install:(homeDir)=>{installNativeTarget("pi",homeDir),removePiExtensionsFilter(homeDir)},uninstall:()=>uninstallNativeTarget("pi")}};function runSingleInstallTarget(action,target,homeDir){INSTALL_OPERATIONS[target][action](homeDir)}async function runInstallCommand(action,args,options={}){try{let targets=await resolveAfterOptionalBanner(!0,()=>startResolveInstallTargets(action,args,options),()=>printInstallBanner({input:options.input??process.stdin,output:options.output??process.stdout}),{loadingMessage:action==="install"?"Checking available integrations…":"Checking installed integrations…",output:options.output??process.stdout});if(!targets)return 0;let homeDir=getHomeDir();return runInstallTargetsInOrder(targets,(target)=>runSingleInstallTarget(action,target,homeDir)),0}catch(e){return console.error(formatInstallError(e)),1}}function formatInstallError(error){let message=error instanceof Error?error.message:String(error),code=typeof error==="object"&&error!==null&&"code"in error?error.code:null;if(code==="EACCES"||code==="EPERM")return`${message}
 Check file permissions for the target config file and parent directory.`;if(code==="ENOENT")return`${message}
 Check that the target config path and parent directory exist.`;if(code==="ENOTDIR")return`${message}
-Check that every parent path component is a directory.`;return message}import{homedir as homedir4}from"node:os";var ENTRY_CAP=500;function capEntries(windowEntries){let denied=windowEntries.filter((entry)=>entry.decision!=="allow"),allowed=windowEntries.filter((entry)=>entry.decision==="allow"),deniedShare=Math.min(denied.length,Math.max(ENTRY_CAP-allowed.length,Math.ceil(ENTRY_CAP/2)));return[...denied.slice(0,deniedShare),...allowed.slice(0,ENTRY_CAP-deniedShare)]}function getActivityFeed(days,logsDir=getAuditLogsDir()){if(logsDir)pruneExpiredAuditLogs(logsDir);let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),windowStart=new Date(todayStart);windowStart.setDate(windowStart.getDate()-(days-1));let cutoff=windowStart.getTime(),retentionCutoff=Date.now()-AUDIT_RETENTION_DAYS*24*60*60*1000,windowEntries=[],totalBlockedRetained=0;for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;let ts=new Date(entry.ts).getTime();if(!Number.isFinite(ts))continue;if(entry.decision!=="allow"&&ts>=retentionCutoff)totalBlockedRetained++;if(ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let blockedByDay=Array.from({length:days},()=>0),agents={},sessions=new Set,rules={},commands2={},blocked=0,errors=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";if(agents[agent]=(agents[agent]??0)+1,entry.sessionId)sessions.add(entry.sessionId);if(entry.decision!=="allow"){if(blocked++,entry.ruleId)rules[entry.ruleId]=(rules[entry.ruleId]??0)+1;let signature=commandSignature(entry.segment||entry.command);if(signature)commands2[signature]=(commands2[signature]??0)+1;if(entry.failureStage)errors++;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo;if(daysAgo>=0&&daysAgo<days)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,homeDir:homedir4(),totalBlockedRetained,totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,sessions:sessions.size,agents,blockedByDay,rules,commands:commands2,errors},entries:capEntries(windowEntries).sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime())}}var custom_default=`/* cc-safety-net-gui-custom-css */
+Check that every parent path component is a directory.`;return message}import{homedir as homedir4}from"node:os";var ENTRY_CAP=500;function capEntries(windowEntries){let denied=windowEntries.filter((entry)=>entry.decision!=="allow"),allowed=windowEntries.filter((entry)=>entry.decision==="allow"),deniedShare=Math.min(denied.length,Math.max(ENTRY_CAP-allowed.length,Math.ceil(ENTRY_CAP/2)));return[...denied.slice(0,deniedShare),...allowed.slice(0,ENTRY_CAP-deniedShare)]}function getActivityFeed(days,logsDir=getAuditLogsDir()){if(logsDir)pruneExpiredAuditLogs(logsDir);let dayStart=(date)=>new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime(),todayStart=dayStart(new Date),windowStart=new Date(todayStart);windowStart.setDate(windowStart.getDate()-(days-1));let cutoff=windowStart.getTime(),windowEntries=[];for(let file of logsDir?listAuditLogFiles(logsDir):[])for(let entry of readAuditLogEntries(file)){if(!entry||typeof entry.ts!=="string"||typeof entry.command!=="string")continue;let ts=new Date(entry.ts).getTime();if(!Number.isFinite(ts))continue;if(ts>=cutoff)windowEntries.push(entry)}windowEntries.sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());let blockedByDay=Array.from({length:days},()=>0),analyzedByDay=Array.from({length:days},()=>0),agents={},rules={},commands2={},blocked=0,errors=0;for(let entry of windowEntries){let agent=entry.agent||"unknown";agents[agent]=(agents[agent]??0)+1;let daysAgo=Math.round((todayStart-dayStart(new Date(entry.ts)))/86400000),bucket=days-1-daysAgo,bucketed=daysAgo>=0&&daysAgo<days;if(bucketed)analyzedByDay[bucket]=(analyzedByDay[bucket]??0)+1;if(entry.decision!=="allow"){if(blocked++,entry.ruleId)rules[entry.ruleId]=(rules[entry.ruleId]??0)+1;let signature=commandSignature(entry.segment||entry.command);if(signature)commands2[signature]=(commands2[signature]??0)+1;if(entry.failureStage)errors++;if(bucketed)blockedByDay[bucket]=(blockedByDay[bucket]??0)+1}}return{days,logsDir,homeDir:homedir4(),totalInWindow:windowEntries.length,truncated:windowEntries.length>ENTRY_CAP,counts:{blocked,allowed:windowEntries.length-blocked,agents,blockedByDay,analyzedByDay,rules,commands:commands2,errors},entries:capEntries(windowEntries).sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime())}}var custom_default=`/* cc-safety-net-gui-custom-css */
 :root {
   color-scheme: light dark;
 
@@ -575,6 +575,18 @@ main {
   gap: 8px;
 }
 
+/* States the window once for the row, so each tile label stays a single word. */
+.tiles-window {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.tiles-window:empty {
+  display: none;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -585,9 +597,16 @@ main {
   display: none;
 }
 
+/* Count and label stack on the left, series on the right: seven bars stretched
+   across a half-width tile read as blocks rather than a trend. */
 .tile {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 1fr minmax(0, 168px);
+  grid-template-areas:
+    "value spark"
+    "label spark";
+  align-items: center;
+  gap: 3px 16px;
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -595,6 +614,8 @@ main {
 }
 
 .tile strong {
+  grid-area: value;
+  align-self: end;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -602,6 +623,8 @@ main {
 }
 
 .tile span {
+  grid-area: label;
+  align-self: start;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--muted);
@@ -985,11 +1008,12 @@ button.rule-id:hover {
 }
 
 .tile-spark {
+  grid-area: spark;
   display: flex;
   align-items: stretch;
   gap: 2px;
-  height: 28px;
-  margin-top: 8px;
+  width: 100%;
+  height: 40px;
 }
 
 /* Full-height hover column so short bars are easy to target; the visible bar
@@ -2348,6 +2372,7 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
             <p class="panel-sub muted">What CC Safety Net has been doing on this machine.</p>
           </div>
           <div class="status health-strip" id="health-strip" hidden></div>
+          <p class="tiles-window" id="overview-window"></p>
           <div class="tiles" id="overview-tiles"></div>
           <div class="star-row" id="star-row" hidden>
             <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
@@ -2885,26 +2910,28 @@ const dayLabel = (ts) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 const renderOverviewActivity = () => {
-  const tile = (value, label, extra = '') =>
+  const tile = (value, label, extra) =>
     \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
-  const byDay = overview.counts.blockedByDay;
-  const max = Math.max(...byDay, 1);
   // Buckets run oldest-first, so the last one is today. Each column carries its
   // own count: the tooltip is a pointer affordance and cannot be the only way
   // to read the series.
   const dayAgoLabel = (daysAgo) =>
     daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : \`\${daysAgo} days ago\`;
-  const sparkline = \`<div class="tile-spark" role="group" aria-label="Blocked commands per day, most recent \${byDay.length} days">\${byDay
-    .map((count, index) => {
-      const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString('en-US')} blocked\`;
-      return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString('en-US')}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 28))}px"></div></div>\`;
-    })
-    .join('')}</div>\`;
+  // Each series scales to its own maximum, so bar heights read as shape over
+  // time within one tile and never as a comparison between the two.
+  const sparkline = (byDay, noun) => {
+    const max = Math.max(...byDay, 1);
+    return \`<div class="tile-spark" role="group" aria-label="Commands \${noun} per day, most recent \${byDay.length} days">\${byDay
+      .map((count, index) => {
+        const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString('en-US')} \${noun}\`;
+        return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString('en-US')}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 40))}px"></div></div>\`;
+      })
+      .join('')}</div>\`;
+  };
+  qs('overview-window').textContent = \`Last \${overview.days} days\`;
   qs('overview-tiles').innerHTML = [
-    tile(overview.counts.blocked, \`Blocked · last \${overview.days} days\`, sparkline),
-    tile(overview.counts.sessions, \`Sessions · last \${overview.days} days\`),
-    tile(overview.totalInWindow, \`Commands recorded · last \${overview.days} days\`),
-    tile(overview.totalBlockedRetained, 'Blocked · retained 90 days'),
+    tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
+    tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
   ].join('');
 };
 const renderProtectionCard = () => {
@@ -3094,6 +3121,7 @@ const loadOverview = async () => {
   const result = await requestJson(\`/api/activity?days=\${OVERVIEW_DAYS}\`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
+    qs('overview-window').textContent = '';
     qs('overview-tiles').innerHTML = '';
     qs('top-rules').innerHTML = message;
     qs('guard-errors').hidden = true;

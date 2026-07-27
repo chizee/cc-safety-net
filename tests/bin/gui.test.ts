@@ -55,15 +55,14 @@ interface StarContextApiResponse {
 interface ActivityApiResponse {
   days: number;
   logsDir: string | null;
-  totalBlockedRetained: number;
   totalInWindow: number;
   truncated: boolean;
   counts: {
     blocked: number;
     allowed: number;
-    sessions: number;
     agents: Record<string, number>;
     blockedByDay: number[];
+    analyzedByDay: number[];
     rules: Record<string, number>;
     commands: Record<string, number>;
     errors: number;
@@ -176,6 +175,16 @@ describe('policy GUI server', () => {
       // Overview owns a fixed window so the Activity window selector cannot
       // rewrite its tiles, sparkline, and top lists.
       expect(html).toContain('requestJson(`/api/activity?days=${OVERVIEW_DAYS}`)');
+      // Both tiles measure the guard over one window, stated once in the caption
+      // so each label stays a single word and neither restates the other.
+      expect(html).toContain('id="overview-window"');
+      expect(html).toContain('`Last ${overview.days} days`');
+      expect(html).toContain(
+        "tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked'))",
+      );
+      expect(html).toContain(
+        "tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed'))",
+      );
       // Overview health strip loads asynchronously after first render via GET /api/health.
       expect(html).toContain('id="health-strip"');
       expect(html).toContain("requestJson('/api/health')");
@@ -217,8 +226,6 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('Last year');
       expect(html).not.toContain('reviewed');
       expect(html).not.toContain('all time');
-      expect(html).toContain('`Commands recorded · last ${overview.days} days`');
-      expect(html).toContain("tile(overview.totalBlockedRetained, 'Blocked · retained 90 days')");
       expect(html).toContain('id="activity-refresh"');
       expect(html).toContain('id="activity-search"');
       expect(html).toContain('id="activity-decision"');
@@ -270,9 +277,9 @@ describe('policy GUI server', () => {
       // Day separators in the Activity feed.
       expect(html).toContain('.feed-day-sep {');
       expect(html).toContain('const dayLabel = (ts) => {');
-      // Blocks-per-day sparkline built from server counts only.
-      expect(html).toContain('const byDay = overview.counts.blockedByDay;');
-      expect(html).toContain('Blocked commands per day, most recent');
+      // Per-day sparklines built from server counts only.
+      expect(html).toContain('const sparkline = (byDay, noun) => {');
+      expect(html).toContain('Commands ${noun} per day, most recent');
       expect(html).toContain(
         '<div class="spark-bar${count === 0 ? \' spark-zero\' : \'\'}" aria-hidden="true"',
       );
@@ -1307,16 +1314,18 @@ describe('policy GUI server', () => {
       expect(feed.counts).toEqual({
         blocked: 3,
         allowed: 1,
-        sessions: 2,
         agents: { 'claude-code': 3, unknown: 1 },
         blockedByDay: expect.any(Array),
+        analyzedByDay: expect.any(Array),
         rules: { 'fs.rm': 1 },
         commands: { rm: 1, 'cc-safety-net-guard': 1, 'curl evil': 1 },
         errors: 1,
       });
       expect(feed.counts.blockedByDay).toHaveLength(7);
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(3);
-      expect(feed.totalBlockedRetained).toBe(4);
+      // Every windowed entry lands in a bucket, blocked or not.
+      expect(feed.counts.analyzedByDay).toHaveLength(7);
+      expect(feed.counts.analyzedByDay.reduce((total, count) => total + count, 0)).toBe(4);
 
       const wide = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?days=90&token=${server.token}`,
@@ -1327,13 +1336,14 @@ describe('policy GUI server', () => {
       expect(wide.counts.blocked).toBe(4);
       expect(wide.counts.blockedByDay).toHaveLength(90);
       expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(4);
-      expect(wide.totalBlockedRetained).toBe(4);
+      expect(wide.counts.analyzedByDay).toHaveLength(90);
+      expect(wide.counts.analyzedByDay.reduce((total, count) => total + count, 0)).toBe(5);
     } finally {
       await server.close();
     }
   });
 
-  test('GET /api/activity keeps the retained blocked total on 90 days and excludes expired entries', async () => {
+  test('GET /api/activity excludes entries older than the window still present on disk', async () => {
     const logsDir = join(safetyNetHome, 'logs');
     mkdirSync(logsDir, { recursive: true });
     const now = Date.now();
@@ -1361,14 +1371,13 @@ describe('policy GUI server', () => {
         `${server.origin}/api/activity?days=7&token=${server.token}`,
       );
       expect(narrow.counts.blocked).toBe(1);
-      expect(narrow.totalBlockedRetained).toBe(2);
 
       const wide = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?days=90&token=${server.token}`,
       );
+      // The 88-day entry joins the window; the 100-day one stays out of it even
+      // though the file holding both is still on disk.
       expect(wide.counts.blocked).toBe(2);
-      // The retained tile is a 90-day count regardless of the selected window.
-      expect(wide.totalBlockedRetained).toBe(2);
       expect(existsSync(logFile)).toBe(true);
     } finally {
       await server.close();
@@ -1408,7 +1417,6 @@ describe('policy GUI server', () => {
       expect(feed.entries).toHaveLength(500);
       expect(feed.counts.blocked).toBe(1);
       expect(feed.counts.allowed).toBe(501);
-      expect(feed.totalBlockedRetained).toBe(1);
       expect(feed.counts.commands).toEqual({ rm: 1 });
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(1);
       // The deny is the oldest entry in the window, but allowed entries must not
@@ -1423,7 +1431,7 @@ describe('policy GUI server', () => {
     }
   });
 
-  test('GET /api/activity buckets blockedByDay by local calendar day', async () => {
+  test('GET /api/activity buckets the per-day series by local calendar day', async () => {
     const logsDir = join(safetyNetHome, 'logs');
     mkdirSync(logsDir, { recursive: true });
     const noon = new Date();
@@ -1450,13 +1458,19 @@ describe('policy GUI server', () => {
         `${server.origin}/api/activity?days=5&token=${server.token}`,
       );
       expect(feed.counts.blockedByDay).toEqual([0, 0, 1, 0, 1]);
-      // The per-day buckets must sum to the in-window blocked total: the tile
-      // headline and the sparkline are the same number, split by day.
+      // The per-day buckets must sum to the in-window total each tile headlines:
+      // the headline and its sparkline are the same number, split by day.
       expect(feed.counts.blocked).toBe(2);
       expect(feed.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(
         feed.counts.blocked,
       );
-      expect(feed.totalBlockedRetained).toBe(3);
+      // Today holds one blocked and one allowed entry, so the analyzed series
+      // counts both where the blocked series counts one.
+      expect(feed.counts.analyzedByDay).toEqual([0, 0, 1, 0, 2]);
+      expect(feed.totalInWindow).toBe(3);
+      expect(feed.counts.analyzedByDay.reduce((total, count) => total + count, 0)).toBe(
+        feed.totalInWindow,
+      );
     } finally {
       await server.close();
     }
