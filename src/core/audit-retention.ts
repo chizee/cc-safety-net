@@ -2,6 +2,7 @@ import {
   lstatSync,
   readdirSync,
   readFileSync,
+  rmdirSync,
   statSync,
   unlinkSync,
   utimesSync,
@@ -24,7 +25,10 @@ const utcDay = (ms: number) => Math.floor(ms / DAY_MS);
 
 /**
  * Delete audit logs whose 90-day retention window has passed, from the writer's
- * dated layout and from wholly expired legacy root-level files.
+ * dated layout and from wholly expired legacy root-level files, then reclaim the
+ * month and project directories the sweep emptied. Ephemeral working directories
+ * — git worktrees, sandboxes — each earn a project directory that outlives the
+ * path it was named for, so without this they accumulate for good.
  *
  * Retention is opportunistic: callers invoke it after audit writes and before
  * audit reads, and it traverses at most once per UTC day per audit root. It
@@ -41,9 +45,10 @@ export function pruneExpiredAuditLogs(logsDir: string, now: () => Date = () => n
     if (lastAttempt !== undefined && utcDay(lastAttempt) === utcDay(nowMs)) return;
 
     const cutoff = nowMs - AUDIT_RETENTION_DAYS * DAY_MS;
+    const currentMonth = new Date(nowMs).toISOString().slice(0, 7);
     for (const entry of readDirEntries(logsDir)) {
       if (entry.isDirectory()) {
-        pruneProjectDir(join(logsDir, entry.name), cutoff);
+        pruneProjectDir(join(logsDir, entry.name), cutoff, currentMonth);
         continue;
       }
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
@@ -62,7 +67,7 @@ export function pruneExpiredAuditLogs(logsDir: string, now: () => Date = () => n
   }
 }
 
-function pruneProjectDir(projectDir: string, cutoff: number): void {
+function pruneProjectDir(projectDir: string, cutoff: number, currentMonth: string): void {
   for (const month of readDirEntries(projectDir)) {
     if (!month.isDirectory() || !MONTH_DIR.test(month.name)) continue;
     const monthDir = join(projectDir, month.name);
@@ -78,7 +83,12 @@ function pruneProjectDir(projectDir: string, cutoff: number): void {
       if (!Number.isFinite(endOfDay) || endOfDay >= cutoff) continue;
       unlinkQuietly(join(monthDir, file.name));
     }
+    // Writers only ever create the current month, so removing any other emptied
+    // month cannot land between the mkdir and the append in writeAuditLog. A
+    // current month left behind is reclaimed once the calendar moves on.
+    if (month.name !== currentMonth) rmdirQuietly(monthDir);
   }
+  rmdirQuietly(projectDir);
 }
 
 /**
@@ -133,5 +143,18 @@ function unlinkQuietly(filePath: string): void {
   } catch {
     // Concurrent pruning may have removed it already, or the directory may be
     // read-only; either way the next UTC day retries.
+  }
+}
+
+/**
+ * Remove a directory the retention sweep has emptied. `rmdir` refuses a
+ * non-empty directory, so every unrecognized file, symlink, and off-layout month
+ * keeps its parent alive without this needing to inspect any of them.
+ */
+function rmdirQuietly(dir: string): void {
+  try {
+    rmdirSync(dir);
+  } catch {
+    // Still populated, already gone, or read-only: nothing to reclaim today.
   }
 }

@@ -153,17 +153,47 @@ describe('pruneExpiredAuditLogs dated layout', () => {
     });
   });
 
-  test('retains directories left empty by pruning', () => {
+  test('reclaims the month and project directories left empty by pruning', () => {
     withLogsDir((logsDir) => {
       writeDatedLog(logsDir, EXPIRED_DAY);
-      const emptyProject = join(logsDir, '-project-empty');
-      mkdirSync(emptyProject);
+      const husk = join(logsDir, '-project-husk');
+      mkdirSync(husk);
 
       pruneExpiredAuditLogs(logsDir, now);
 
-      expect(existsSync(join(logsDir, '-project-a', '2026-04'))).toBe(true);
-      expect(existsSync(emptyProject)).toBe(true);
+      expect(existsSync(join(logsDir, '-project-a'))).toBe(false);
+      expect(existsSync(husk)).toBe(false);
       expect(existsSync(logsDir)).toBe(true);
+    });
+  });
+
+  test('keeps a project directory whose other months still hold logs', () => {
+    withLogsDir((logsDir) => {
+      writeDatedLog(logsDir, EXPIRED_DAY);
+      const recent = writeDatedLog(logsDir, RECENT_DAY);
+
+      pruneExpiredAuditLogs(logsDir, now);
+
+      expect(existsSync(join(logsDir, '-project-a', '2026-04'))).toBe(false);
+      expect(existsSync(recent)).toBe(true);
+    });
+  });
+
+  test('keeps an empty current-month directory a writer may be about to fill', () => {
+    withLogsDir((logsDir) => {
+      // writeAuditLog creates the month directory and appends as two steps, and
+      // only ever for the current month. Reclaiming that one could land between
+      // them and cost the entry the write was made to persist.
+      const current = join(logsDir, '-project-a', NOW.toISOString().slice(0, 7));
+      const past = join(logsDir, '-project-a', '2026-04');
+      mkdirSync(current, { recursive: true });
+      mkdirSync(past, { recursive: true });
+
+      pruneExpiredAuditLogs(logsDir, now);
+
+      expect(existsSync(current)).toBe(true);
+      expect(existsSync(past)).toBe(false);
+      expect(existsSync(join(logsDir, '-project-a'))).toBe(true);
     });
   });
 
