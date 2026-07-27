@@ -210,42 +210,11 @@ const commandHandlers = {
   },
 } satisfies { [Mode in ParsedCommand['mode']]: ParsedCommandHandler<Mode> };
 
-function assertNever(command: never): never {
-  throw new Error(`Unhandled command mode: ${JSON.stringify(command)}`);
-}
-
+// The `satisfies` clause above already forces a handler for every mode, so the
+// lookup cannot miss; the cast only re-joins the union the index signature splits.
 async function runParsedCommand(command: ParsedCommand): Promise<void> {
-  switch (command.mode) {
-    case 'hook':
-      await commandHandlers.hook(command);
-      return;
-    case 'install':
-      await commandHandlers.install(command);
-      return;
-    case 'uninstall':
-      await commandHandlers.uninstall(command);
-      return;
-    case 'rule':
-      await commandHandlers.rule(command);
-      return;
-    case 'statusline':
-      await commandHandlers.statusline(command);
-      return;
-    case 'doctor':
-      await commandHandlers.doctor(command);
-      return;
-    case 'logs':
-      await commandHandlers.logs(command);
-      return;
-    case 'gui':
-      await commandHandlers.gui(command);
-      return;
-    case 'explain':
-      await commandHandlers.explain(command);
-      return;
-    default:
-      assertNever(command);
-  }
+  const handler = commandHandlers[command.mode] as (c: ParsedCommand) => Promise<void>;
+  await handler(command);
 }
 
 async function main(): Promise<void> {
