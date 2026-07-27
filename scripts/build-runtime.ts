@@ -13,7 +13,8 @@ import { buildAmpArtifactHeader } from '../src/amp/index';
 const inlineZodForAmp: BunPlugin = {
   name: 'inline-zod-for-amp',
   setup(build) {
-    build.onLoad({ filter: /src\/config\/schema\.ts$/ }, async (args) => {
+    // `args.path` is native, so the separator is a backslash on Windows.
+    build.onLoad({ filter: /src[\\/]config[\\/]schema\.ts$/ }, async (args) => {
       const source = await Bun.file(args.path).text();
       const replacements: Array<[string, string]> = [
         ["import type * as Zod from 'zod';", "import * as Zod from 'zod';"],
