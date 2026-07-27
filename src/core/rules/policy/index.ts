@@ -17,8 +17,6 @@ export {
   RULES_DIR,
 } from './paths';
 export {
-  /** @internal */
-  getRulebookMigratedFrom,
   getRulesConfigRuntimeErrorsForConfig,
   getRulesConfigSourceDisplayMap,
   loadRulesPolicy,

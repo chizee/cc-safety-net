@@ -383,19 +383,7 @@ function projectSyncOptions(options: SyncRulesConfigOptions): SyncRulesConfigOpt
 }
 
 function projectRemoveOptions(options: RemoveRulebookSourceOptions): RemoveRulebookSourceOptions {
-  const projected = projectSyncOptions(options);
-  return {
-    cwd: projected.cwd,
-    cacheConfigDir: projected.cacheConfigDir,
-    userConfigDir: projected.userConfigDir,
-    userConfigPath: projected.userConfigPath,
-    projectConfigPath: projected.projectConfigPath,
-    global: projected.global,
-    check: projected.check,
-    only: projected.only,
-    refresh: projected.refresh,
-    deleteSource: options.deleteSource,
-  };
+  return { ...projectSyncOptions(options), deleteSource: options.deleteSource };
 }
 
 export async function removeRulebookSource(

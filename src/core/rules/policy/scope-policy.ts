@@ -433,15 +433,6 @@ function hasMigrationEvidence(
   );
 }
 
-/** @internal */
-export function getRulebookMigratedFrom(configDir: string, source: string): string | null {
-  return getRulebookMigratedFromTarget(
-    configDir,
-    source,
-    bindPolicyFilesystemScope(dirname(configDir), 'rules policy'),
-  );
-}
-
 function getRulebookMigratedFromTarget(
   configDir: string,
   source: string,

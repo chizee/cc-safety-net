@@ -4,16 +4,6 @@ interface ValidateCustomRuleOptions {
   messageStyle?: 'legacy' | 'rulebook';
 }
 
-export function validateCustomRule(
-  rule: unknown,
-  index: number,
-  ruleNames: Set<string>,
-  options: ValidateCustomRuleOptions = {},
-): string[] {
-  return [...iterateCustomRuleErrors(rule, index, ruleNames, options)];
-}
-
-/** @internal */
 export function* iterateCustomRuleErrors(
   rule: unknown,
   index: number,

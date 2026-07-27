@@ -299,10 +299,8 @@ export interface ExplainTrace {
 
 /** Options for explain command */
 export interface ExplainOptions {
-  json?: boolean;
   cwd?: string;
   userConfigDir?: string;
-  asciiOnly?: boolean;
   strict?: boolean;
   policySnapshot?: PolicySnapshot;
 }

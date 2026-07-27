@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import type { ValidationResult } from '@/types';
-import { validateCustomRule } from './rules/custom-rule-validation';
+import { iterateCustomRuleErrors } from './rules/custom-rule-validation';
 import { validateRulesConfig } from './rules/policy/config-file';
 import {
   bindDelegatedPolicyFilesystemTarget,
@@ -30,7 +30,7 @@ export function validateConfig(config: unknown): ValidationResult {
       errors.push('rules must be an array');
     } else {
       for (let i = 0; i < cfg.rules.length; i++) {
-        errors.push(...validateCustomRule(cfg.rules[i], i, ruleNames));
+        errors.push(...iterateCustomRuleErrors(cfg.rules[i], i, ruleNames));
       }
     }
   }
@@ -39,7 +39,9 @@ export function validateConfig(config: unknown): ValidationResult {
 }
 
 export function validateConfigFile(path: string | PolicyFilesystemTarget): ValidationResult {
-  return validateParsedConfigFile(path, validateConfig);
+  const loaded = readConfigFileInput(path);
+  if (!loaded.ok) return loaded.result;
+  return validateConfig(loaded.parsed);
 }
 
 type ConfigFileInput = { ok: true; parsed: unknown } | { ok: false; result: ValidationResult };
@@ -76,15 +78,6 @@ export function validateRulesConfigFile(path: string | PolicyFilesystemTarget): 
   if (!loaded.ok) return loaded.result;
   const result = validateRulesConfig(loaded.parsed);
   return { errors: result.errors, ruleNames: result.sources };
-}
-
-function validateParsedConfigFile(
-  path: string | PolicyFilesystemTarget,
-  validate: (config: unknown) => ValidationResult,
-): ValidationResult {
-  const loaded = readConfigFileInput(path);
-  if (!loaded.ok) return loaded.result;
-  return validate(loaded.parsed);
 }
 
 export type { ValidationResult };

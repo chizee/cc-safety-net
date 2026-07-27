@@ -349,25 +349,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Callers mutate the result, so every call needs its own containers rather than
+// references into the shared DEFAULT_GUI_POLICY.
 function createDefaultGuiPolicy(): GuiPolicy {
-  return {
-    version: 1,
-    safety: {
-      level: DEFAULT_GUI_POLICY.safety.level,
-      overrides: {},
-    },
-    workflow: { ...DEFAULT_GUI_POLICY.workflow },
-    destructive_command_protection: {
-      enabled: DEFAULT_GUI_POLICY.destructive_command_protection.enabled,
-      overrides: {},
-      allow_paths: [],
-    },
-    secret_protection: {
-      enabled: DEFAULT_GUI_POLICY.secret_protection.enabled,
-      overrides: {},
-      deny_paths: [],
-    },
-  };
+  return structuredClone(DEFAULT_GUI_POLICY);
 }
 
 export function normalizeGuiPolicy(policy: unknown): GuiPolicy {

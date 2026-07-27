@@ -137,7 +137,7 @@ function findPolicyConfigMutationTargetInCommand(
     isRedirectionTarget: (target, state) => isPolicyFile(target, state.cwd, identity, budget),
     findMalformedTarget: (source) =>
       findPolicyConfigTargetInMalformedText(source, cwd, identity, budget)?.target ?? null,
-    normalizeCwd: normalizePolicyCandidatePath,
+    normalizeCwd: normalizeProtectedPathCandidate,
   });
   return target ? { target } : null;
 }
@@ -270,7 +270,7 @@ function createPolicyPathIdentity(
   cwd: string,
   budget: PathCanonicalizationBudget,
 ): PolicyPathIdentity {
-  const file = normalizePolicyCandidatePath(getUserPolicyPath(), cwd, budget);
+  const file = normalizeProtectedPathCandidate(getUserPolicyPath(), cwd, budget);
   const directory = dirname(file);
   const directoryAndAncestors = new Set<string>();
   for (let current = directory; ; current = dirname(current)) {
@@ -286,7 +286,7 @@ function isPolicyFile(
   identity: PolicyPathIdentity,
   budget: PathCanonicalizationBudget,
 ): boolean {
-  return comparePath(normalizePolicyCandidatePath(target, cwd, budget)) === identity.file;
+  return comparePath(normalizeProtectedPathCandidate(target, cwd, budget)) === identity.file;
 }
 
 function isPolicyDirectoryOrAncestor(
@@ -296,7 +296,7 @@ function isPolicyDirectoryOrAncestor(
   budget: PathCanonicalizationBudget,
 ): boolean {
   return identity.directoryAndAncestors.has(
-    comparePath(normalizePolicyCandidatePath(target, cwd, budget)),
+    comparePath(normalizeProtectedPathCandidate(target, cwd, budget)),
   );
 }
 
@@ -306,16 +306,8 @@ function isPolicyFileOrDirectorySource(
   identity: PolicyPathIdentity,
   budget: PathCanonicalizationBudget,
 ): boolean {
-  const normalized = comparePath(normalizePolicyCandidatePath(target, cwd, budget));
+  const normalized = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
   return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
-}
-
-function normalizePolicyCandidatePath(
-  target: string,
-  cwd: string,
-  budget: PathCanonicalizationBudget,
-): string {
-  return normalizeProtectedPathCandidate(target, cwd, budget);
 }
 
 function comparePath(path: string): string {
