@@ -1963,6 +1963,7 @@ textarea {
   *,
   *::before,
   *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion must win over every class-level transition */
     transition: none !important;
   }
 

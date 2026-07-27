@@ -1,4 +1,12 @@
-import { lstatSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { AuditLogEntry } from '@/types';
 
@@ -46,6 +54,9 @@ export function pruneExpiredAuditLogs(logsDir: string, now: () => Date = () => n
     // Mark the attempt even when deletions failed, so a permission problem does
     // not add a full traversal to every command. Failures retry the next day.
     writeFileSync(markerPath, '', { mode: 0o600 });
+    // Stamp the marker from the same clock the throttle reads it back with, so
+    // the once-per-UTC-day window is decided by one source of truth.
+    utimesSync(markerPath, nowMs / 1000, nowMs / 1000);
   } catch {
     // Retention failures must never change or block an audit decision.
   }
