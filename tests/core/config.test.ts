@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import {
   getLegacyProjectConfigPath,
   validateConfig,
@@ -157,6 +158,20 @@ describe('runtime config loading', () => {
   function writeProjectPolicy(policy: unknown): void {
     mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
     writeFileSync(join(tempDir, '.cc-safety-net', 'policy.json'), JSON.stringify(policy), 'utf-8');
+  }
+
+  /**
+   * An unreadable policy file degrades: ordinary analysis keeps running on the
+   * fallback policy and the diagnostics ride the snapshot reason instead of a
+   * fail-closed denial.
+   */
+  function degradedReason(): string {
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
+    expect(config.failClosedReason).toBeUndefined();
+    expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
+    const snapshot = loadPolicySnapshot({ cwd: tempDir, userConfigDir: userRulesDir });
+    expect(snapshot.state).toBe('degraded');
+    return snapshot.state === 'degraded' ? snapshot.reason : '';
   }
 
   test('user policy safety overrides affect command analysis without env flags', () => {
@@ -367,7 +382,7 @@ describe('runtime config loading', () => {
     expect(config.worktreeMode).toBe(false);
   });
 
-  test('invalid policy fields fail closed with repair context', () => {
+  test('invalid policy fields degrade with every rejected field named', () => {
     writeUserPolicy({
       version: 1,
       destructive_command_protection: {
@@ -378,36 +393,29 @@ describe('runtime config loading', () => {
       extra: true,
     });
 
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
+    const reason = degradedReason();
 
-    expect(config.failClosedReason).toContain('invalid policy config');
-    expect(config.failClosedReason).toContain('unknown field "extra"');
-    expect(config.failClosedReason).toContain(
-      'destructive_command_protection.enabled must be a boolean',
-    );
-    expect(config.failClosedReason).toContain('unknown destructive command rule id "git.unknown"');
-    expect(config.failClosedReason).toContain(
+    expect(reason).toContain('invalid policy config');
+    expect(reason).toContain('unknown field "extra"');
+    expect(reason).toContain('destructive_command_protection.enabled must be a boolean');
+    expect(reason).toContain('unknown destructive command rule id "git.unknown"');
+    expect(reason).toContain(
       'destructive_command_protection.overrides.git.reset-hard must be "on" or "off"',
     );
-    expect(config.failClosedReason).toContain('unknown secret protection rule id "secret.unknown"');
-    expect(config.failClosedReason).toContain(
-      'secret_protection.overrides.secret.ext.pem must be "off"',
-    );
+    expect(reason).toContain('unknown secret protection rule id "secret.unknown"');
+    expect(reason).toContain('secret_protection.overrides.secret.ext.pem must be "off"');
   });
 
-  test('malformed policy JSON fails closed without exposing policy bytes', () => {
+  test('malformed policy JSON degrades without exposing policy bytes', () => {
     const token = 'sk-proj_1234567890abcdefghijklmnopqrstuv';
     writeUserPolicyRaw(`{"version":1,"token":"${token}"`);
 
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-    const result = analyzeCommand('echo ok', { cwd: tempDir, config });
+    const reason = degradedReason();
 
-    expect(config.failClosedReason).toContain('invalid policy config');
-    expect(config.failClosedReason).toContain('Invalid JSON');
-    expect(config.failClosedReason).toContain('Fix or remove the policy file manually');
-    expect(config.failClosedReason).not.toContain(token);
-    expect(config.failClosedReason).not.toContain('Invalid JSON:');
-    expect(result?.reason).toBe(config.failClosedReason);
+    expect(reason).toContain('Invalid JSON');
+    expect(reason).toContain('Fix the policy file manually');
+    expect(reason).not.toContain(token);
+    expect(reason).not.toContain('Invalid JSON:');
   });
 
   test('user secret overrides and deny paths apply', () => {

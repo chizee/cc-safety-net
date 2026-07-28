@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
+import type { PolicySnapshot } from '@/domain/policy';
 
 /**
  * Read piped stdin content asynchronously.
@@ -77,6 +78,16 @@ function isPluginEnabled(): boolean {
   }
 }
 
+/**
+ * Flags that the level shown is being enforced by a fallback policy. The full
+ * diagnostic does not fit one status line, so `cc-safety-net doctor` carries it.
+ */
+function getConfigStateMarker(state: PolicySnapshot['state']): string {
+  if (state === 'blocked') return '⛔';
+  if (state === 'degraded') return '⚠️';
+  return '';
+}
+
 export async function printStatusline(): Promise<void> {
   const enabled = isPluginEnabled();
 
@@ -86,7 +97,8 @@ export async function printStatusline(): Promise<void> {
   if (!enabled) {
     status = '🛡️ CC Safety Net ❌';
   } else {
-    const policy = loadPolicySnapshot({ cwd: process.cwd() }).policy;
+    const snapshot = loadPolicySnapshot({ cwd: process.cwd() });
+    const policy = snapshot.policy;
     const modes = getCCSafetyNetEnvModes(policy);
     const hasEffectiveRuleCustomization = Object.values(
       resolveEffectiveDestructiveCommandRules(policy, modes.capabilities),
@@ -98,11 +110,7 @@ export async function printStatusline(): Promise<void> {
       custom: '🔧',
     }[hasEffectiveRuleCustomization ? 'custom' : modes.effectiveLevel];
 
-    if (modes.worktreeMode) {
-      status = `🛡️ CC Safety Net ${levelEmoji}🌳`;
-    } else {
-      status = `🛡️ CC Safety Net ${levelEmoji}`;
-    }
+    status = `🛡️ CC Safety Net ${levelEmoji}${modes.worktreeMode ? '🌳' : ''}${getConfigStateMarker(snapshot.state)}`;
   }
 
   // Check for piped stdin input and prepend with separator

@@ -1,8 +1,9 @@
 import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
 import { loadPolicyConfig } from '@/core/policy';
+import { RULE_SYNC_COMMAND } from '@/core/rules/policy/paths';
 import { loadRulesPolicy } from '@/core/rules/policy/scope-policy';
-import type { RulesPolicyOptions } from '@/core/rules/policy/types';
-import type { EffectivePolicy, PolicySnapshot } from '@/domain/policy';
+import type { LoadedRulesPolicy, RulesPolicyOptions } from '@/core/rules/policy/types';
+import type { ConfigStateInfo, EffectivePolicy, PolicySnapshot } from '@/domain/policy';
 
 /** @internal */
 export type PolicySnapshotOptions = RulesPolicyOptions;
@@ -17,10 +18,9 @@ export type PolicySnapshotOptions = RulesPolicyOptions;
 export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicySnapshot {
   const rules = loadRulesPolicy(options);
   const userPolicy = loadPolicyConfig(options);
-  const diagnostics = [...rules.errors, ...userPolicy.errors];
   const policy = {
-    rules: rules.errors.length === 0 ? rules.rules : [],
-    transparentWrappers: rules.errors.length === 0 ? rules.transparent_wrappers : [],
+    rules: rules.rules,
+    transparentWrappers: rules.transparent_wrappers,
     safety: normalizeSafety(userPolicy.safety),
     worktreeMode: userPolicy.worktreeMode,
     destructiveCommandProtectionEnabled: userPolicy.destructiveCommandProtectionEnabled,
@@ -33,18 +33,7 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
     },
   };
 
-  const snapshot =
-    diagnostics.length === 0
-      ? createPolicySnapshot(policy)
-      : createPolicySnapshot(policy, {
-          diagnostics,
-          reason: combineInvalidReasons(
-            rules.errors.length > 0 ? withTerminalPeriod(rules.errors.join('; ')) : undefined,
-            userPolicy.errors.length > 0
-              ? `invalid policy config: ${userPolicy.errors.join('; ')}. Fix or remove the policy file manually`
-              : undefined,
-          ),
-        });
+  const snapshot = createPolicySnapshot(policy, getSnapshotFailure(rules, userPolicy));
   const overrides = {
     ...(rules.userConfig?.overrides ?? {}),
     ...(rules.projectConfig?.overrides ?? {}),
@@ -75,6 +64,72 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
   );
 }
 
+/**
+ * Projects a snapshot onto what diagnostic surfaces report: the state plus, when
+ * a fallback policy is enforced, the reason naming the failing source, the active
+ * fallback, and the exact repair.
+ *
+ * @internal
+ */
+export function describeConfigState(snapshot: PolicySnapshot): ConfigStateInfo {
+  if (snapshot.state === 'ready') return { state: snapshot.state };
+  return { state: snapshot.state, reason: snapshot.reason };
+}
+
+/**
+ * Splits loader diagnostics into the blocked state (no verified fallback for a
+ * required source) and the degraded state (a verified fallback stays enforced
+ * while the rejected candidate waits for `rule sync`).
+ *
+ * An unreadable user policy is always degraded: field-level repair leaves a
+ * usable enforcement policy behind, so it never removes the verified rules of a
+ * healthy rulebook scope.
+ */
+function getSnapshotFailure(
+  rules: LoadedRulesPolicy,
+  userPolicy: ReturnType<typeof loadPolicyConfig>,
+) {
+  const diagnostics = [...rules.errors, ...rules.warnings, ...userPolicy.errors];
+  const policyWarning = getPolicyFallbackWarning(userPolicy);
+  if (rules.errors.length > 0) {
+    return {
+      state: 'blocked' as const,
+      diagnostics,
+      repairTargets: rules.blockedConfigPaths,
+      reason: withRecoveryAdvice(
+        combineInvalidReasons(withTerminalPeriod(rules.errors.join('; ')), policyWarning),
+        rules.blockedConfigPaths,
+      ),
+    };
+  }
+  if (rules.warnings.length > 0 || policyWarning) {
+    return {
+      state: 'degraded' as const,
+      diagnostics,
+      reason: combineInvalidReasons(
+        rules.warnings.length > 0 ? withTerminalPeriod(rules.warnings.join('; ')) : undefined,
+        policyWarning,
+      ),
+    };
+  }
+  return undefined;
+}
+
+/** Names the failing file, the active fallback, and the exact repair action. */
+function getPolicyFallbackWarning(userPolicy: ReturnType<typeof loadPolicyConfig>) {
+  if (userPolicy.errors.length === 0) return undefined;
+  const fallback =
+    userPolicy.fallback === 'salvaged'
+      ? 'the salvaged policy with protective defaults'
+      : 'built-in protective defaults';
+  return `invalid policy config: ${userPolicy.errors.join('; ')}. Enforcing ${fallback}; the invalid values are not active. Fix the policy file manually`;
+}
+
+function withRecoveryAdvice(reason: string, repairTargets: string[]): string {
+  if (repairTargets.length === 0) return reason;
+  return `${reason} Recovery: read or edit ${repairTargets.join(' or ')} with your file tools, or run ${RULE_SYNC_COMMAND}.`;
+}
+
 function isPublicRuleSource(source: string): boolean {
   return /^(?:[A-Za-z0-9_.-]+$|https:\/\/github\.com\/|github:|gh:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#|$))/.test(
     source,
@@ -84,21 +139,35 @@ function isPublicRuleSource(source: string): boolean {
 /** @internal */
 export function createPolicySnapshot(
   policy: EffectivePolicy,
-  invalid?: { readonly diagnostics: readonly string[]; readonly reason: string },
+  failure?: {
+    readonly diagnostics: readonly string[];
+    readonly reason: string;
+    readonly state?: 'degraded' | 'blocked';
+    readonly repairTargets?: readonly string[];
+  },
 ): PolicySnapshot {
   const frozenPolicy = freezePolicy(policy);
-  if (!invalid) {
+  if (!failure) {
     return Object.freeze({
       state: 'ready',
       policy: frozenPolicy,
       diagnostics: Object.freeze([]),
     });
   }
+  if (failure.state === 'degraded') {
+    return Object.freeze({
+      state: 'degraded',
+      policy: frozenPolicy,
+      diagnostics: Object.freeze([...failure.diagnostics]),
+      reason: failure.reason,
+    });
+  }
   return Object.freeze({
-    state: 'invalid',
+    state: 'blocked',
     policy: frozenPolicy,
-    diagnostics: Object.freeze([...invalid.diagnostics]),
-    reason: invalid.reason,
+    diagnostics: Object.freeze([...failure.diagnostics]),
+    reason: failure.reason,
+    repairTargets: Object.freeze([...(failure.repairTargets ?? [])]),
   });
 }
 

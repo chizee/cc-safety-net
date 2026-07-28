@@ -28,7 +28,7 @@ export function analyzeCommandWithProgram(
       ...options,
       ...resolveCommandAnalysisContext(options),
       invalidReason:
-        options.policySnapshot.state === 'invalid' ? options.policySnapshot.reason : undefined,
+        options.policySnapshot.state === 'blocked' ? options.policySnapshot.reason : undefined,
       protectedGitMetadata,
       factStore,
     },

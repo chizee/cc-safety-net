@@ -567,6 +567,7 @@ describe('guard evaluation', () => {
       ).toEqual({
         stage: 'config-state',
         level: 'standard',
+        configState: { state: 'blocked', reason: 'invalid policy config' },
         decision: {
           kind: 'deny',
           reason: 'invalid policy config',
@@ -608,7 +609,13 @@ describe('guard evaluation', () => {
 
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync'), options),
-      ).toEqual({ stage: 'command-analysis', level: 'standard', decision: { kind: 'allow' } });
+      ).toEqual({
+        stage: 'command-analysis',
+        level: 'standard',
+        // The allowed repair still records the state it is repairing.
+        configState: { state: 'blocked', reason: 'missing lockfile' },
+        decision: { kind: 'allow' },
+      });
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync && rm -rf /'), options)
           .decision,

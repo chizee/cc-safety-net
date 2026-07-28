@@ -25,7 +25,7 @@ import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '
 import { checkForUpdates } from '@/bin/doctor/updates';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
+import { describeConfigState, loadPolicySnapshot } from '@/config/policy-snapshot';
 import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { runIntegrationSelfTest } from '@/integrations/self-test';
@@ -74,7 +74,8 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
   });
   const configInfo = getConfigInfo(cwd);
   const environment = getEnvironmentInfo();
-  const policy = loadPolicySnapshot({ cwd }).policy;
+  const snapshot = loadPolicySnapshot({ cwd });
+  const policy = snapshot.policy;
   const modes = getCCSafetyNetEnvModes(policy);
   const ruleStates = resolveEffectiveDestructiveCommandRules(policy, modes.capabilities);
   const activity = getActivitySummary(7);
@@ -91,6 +92,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
     engineSelfTest: runIntegrationSelfTest(),
     userConfig: configInfo.userConfig,
     projectConfig: configInfo.projectConfig,
+    configState: describeConfigState(snapshot),
     effectiveRules: configInfo.effectiveRules,
     shadowedRules: configInfo.shadowedRules,
     environment,

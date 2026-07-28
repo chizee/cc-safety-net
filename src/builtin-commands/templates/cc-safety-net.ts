@@ -37,5 +37,7 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 - Every rule command must be listed in \`allowed_commands\`, and every rule must have at least one blocked fixture.
 - Blocked fixtures must specify the expected \`rule\`; include allowed fixtures for close-but-safe commands.
 - Local source names are bare names such as \`project-rules\`; do not put filesystem paths in \`rules\`.
-- Invalid config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with \`npx -y cc-safety-net rule sync\`.
+- An edited or invalid local rulebook keeps its last synced, digest-verified version enforced and the edit stays pending until \`npx -y cc-safety-net rule sync\` validates it.
+- A missing lock entry or cache, a digest mismatch, an invalid \`rule.json\`, or a duplicate rulebook name leaves nothing verified to enforce and blocks ordinary tool calls. Recovery from inside the agent is the exact \`npx -y cc-safety-net rule sync\` form, or reading and editing the exact \`rule.json\` the block message names; shell edit forms of that file stay blocked.
+- \`rule sync\` reports failure with the remaining diagnostic instead of success when the synchronized scope still does not load cleanly.
 `;

@@ -267,7 +267,7 @@ plugin rewrites an already-approved input after CC Safety Net has allowed it.
 | **Semantic command analysis** | `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`/`mkfs`/`shred` — by intent, not string pattern. `git checkout -b feature` (safe) is allowed while `git checkout -- file` (destructive) is blocked. |
 | **Shell wrapper detection** | Destructive commands hidden in `bash -c`, `sh -c`, and similar wrappers, recursively analyzed up to 10 levels deep. |
 | **Interpreter one-liners** | Destructive code in `python -c`, `node -e`, `ruby -e`, `perl -e` one-liners (e.g. `os.system("rm -rf /")`). |
-| **Fail-closed by default** | Malformed hook input, unparseable commands (in strict mode), invalid config, and broken rulebooks block rather than allow. |
+| **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config degrades to a verified or protective fallback with a warning; a rule source with no verified fallback blocks until the exact recovery succeeds. |
 | **Sensitive-path protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
 | **Audit logging** | Allowed and blocked command decisions written to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted, retained for 90 days. Set `CC_SAFETY_NET_AUDIT_SCOPE=blocked` to record denials only. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** tab of `npx cc-safety-net gui`. |
@@ -342,9 +342,16 @@ CC Safety Net keeps a **command-decision audit trail**: one record per allowed o
 - **`logs --id`** — a retained-history lookup. It returns any matching record still physically present, including an expired one that pruning has not reached yet, so availability is not guaranteed once a record is older than 90 days.
 - **Legacy logs** — root-level `<session-id>.jsonl` files from older versions stay readable by default, and expire automatically only once every entry in them is valid and expired. `npx cc-safety-net logs --prune-legacy` deletes every one of them immediately and irreversibly, with no confirmation or dry run; it never touches nested per-project logs.
 
-Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches or lockfiles while evaluating a tool call. If local rulebook source content changes, or a required lock/cache entry is missing or invalid, commands fail closed until you explicitly run `npx -y cc-safety-net rule sync`. The next tool call reloads and verifies the synchronized snapshot from disk.
-
 Untrusted hook and tool payloads, plus remote rulebook responses, have generous fixed resource limits. Inputs that exceed them fail closed; the exact limits and security rationale are documented in [SECURITY.md](SECURITY.md).
+
+### Configuration recovery
+
+Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches, lockfiles, or policy files while evaluating a tool call. What an invalid config does depends on whether a verified fallback exists:
+
+- **Degraded** — a changed or invalid local rulebook keeps its digest-verified cached version enforced, with the edit pending until you run `npx -y cc-safety-net rule sync`. An unreadable `policy.json` keeps its valid sections and falls back to protective defaults for the rest. Commands keep running against that fallback, and the warning appears in the audit trail, `doctor`, the status surface, and the next block message.
+- **Blocked** — a missing lock entry or cache, a digest mismatch, an invalid `rule.json`, or a duplicate rulebook name leaves nothing verified to enforce, so ordinary tool calls are denied. Two things still work from inside the agent: the exact `npx -y cc-safety-net rule sync` form, and reading or editing the exact `rule.json` the block message names. Shell edit forms of that file, chained recovery commands, and writes to `policy.json` stay denied.
+
+`rule sync` reloads the synchronized scope before reporting success, so it fails with the remaining diagnostic rather than printing `Rule config synced.` while the runtime is still degraded or blocked. The next tool call reloads and verifies the snapshot from disk. Full contract: [docs/config-recovery.md](docs/config-recovery.md).
 
 ## Upgrading from an older version
 

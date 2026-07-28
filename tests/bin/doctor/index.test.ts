@@ -1,5 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
+import { join } from 'node:path';
 import { runDoctor } from '@/bin/doctor';
 import * as hookDetection from '@/bin/doctor/hooks';
 import * as selfTest from '@/integrations/self-test';
@@ -152,6 +154,42 @@ describe('doctor report verification ownership', () => {
         homeDir.mockRestore();
         runSelfTest.mockRestore();
         detectHooks.mockRestore();
+      }
+    });
+  });
+
+  test('reports the runtime configuration state the guard would enforce', async () => {
+    await withTempDir('doctor-config-state-', async (cwd) => {
+      mkdirSync(join(cwd, '.cc-safety-net', 'rules'), { recursive: true });
+      writeFileSync(join(cwd, '.cc-safety-net', 'rules', 'rule.json'), '{ "version": 1,');
+      const homeDir = spyOn(os, 'homedir').mockReturnValue(cwd);
+      const captured = captureConsoleLog();
+
+      try {
+        await withEnv({ HOME: cwd, PATH: '' }, () =>
+          runDoctor({ cwd, json: true, skipUpdateCheck: true }),
+        );
+        const report = JSON.parse(captured.output.join('\n')) as {
+          configState: { state: string; reason: string };
+          findings: unknown[];
+        };
+
+        expect(report.configState.state).toBe('blocked');
+        // The reason carries the failing file, the rejected condition, and the
+        // exact in-band repair through to the finding detail.
+        expect(report.configState.reason).toContain('Recovery: read or edit');
+        expect(report.findings).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              checkId: 'config.runtime-blocked',
+              severity: 'error',
+              detail: expect.stringContaining('Recovery: read or edit') as string,
+            }),
+          ]),
+        );
+      } finally {
+        captured.log.mockRestore();
+        homeDir.mockRestore();
       }
     });
   });

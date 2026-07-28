@@ -119,7 +119,7 @@ export function loadTestPolicy(
       disabledRules: new Set(snapshot.policy.secretProtection.disabledRules),
       denyPaths: [...snapshot.policy.secretProtection.denyPaths],
     },
-    ...(snapshot.state === 'invalid' ? { failClosedReason: snapshot.reason } : {}),
+    ...(snapshot.state === 'blocked' ? { failClosedReason: snapshot.reason } : {}),
   };
 }
 

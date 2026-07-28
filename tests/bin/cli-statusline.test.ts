@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCCSafetyNetCli } from '../helpers.ts';
@@ -137,6 +137,28 @@ describe('statusline command', () => {
     await expectStatusline(
       { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
       '🛡️ CC Safety Net 🔧',
+    );
+  });
+
+  test('marks a degraded fallback policy after the level emoji', async () => {
+    await writeFile(
+      join(tempDir, 'policy.json'),
+      JSON.stringify({ version: 1, not_a_real_field: true }),
+    );
+
+    await expectStatusline(
+      { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+      '🛡️ CC Safety Net ✅⚠️',
+    );
+  });
+
+  test('marks a blocked rule configuration after the level emoji', async () => {
+    await mkdir(join(tempDir, 'rules'), { recursive: true });
+    await writeFile(join(tempDir, 'rules', 'rule.json'), '{ invalid');
+
+    await expectStatusline(
+      { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+      '🛡️ CC Safety Net ✅⛔',
     );
   });
 

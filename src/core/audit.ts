@@ -8,6 +8,7 @@ export { redactSecrets } from '@/core/sanitize';
 import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { redactSecrets } from '@/core/sanitize';
 
+import type { PolicyFallbackState } from '@/domain/policy';
 import type {
   AuditErrorCode,
   AuditFailureStage,
@@ -72,6 +73,7 @@ export function writeAuditLog(
     agent?: string;
     shape?: string;
     level?: EffectiveSafetyLevel;
+    configState?: PolicyFallbackState;
     toolName?: string;
     ruleId?: string;
     intent?: BlockIntent;
@@ -120,6 +122,7 @@ export function writeAuditLog(
       agent: options.agent,
       shape: options.shape,
       level: options.level,
+      configState: options.configState,
       toolName: cappedToolName?.value,
       command: cappedCommand.value,
       segment: cappedSegment.value,

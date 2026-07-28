@@ -54,6 +54,7 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
 function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport {
   return {
     hooks: [],
+    configState: { state: 'ready' },
     engineSelfTest: {
       passed: 3,
       failed: 0,

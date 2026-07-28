@@ -91,8 +91,28 @@ export type PolicySnapshot =
       readonly diagnostics: readonly string[];
     }
   | {
-      readonly state: 'invalid';
+      readonly state: 'degraded';
       readonly policy: EffectivePolicy;
       readonly diagnostics: readonly string[];
+      readonly reason: string;
+    }
+  | {
+      readonly state: 'blocked';
+      readonly policy: EffectivePolicy;
+      readonly diagnostics: readonly string[];
+      readonly reason: string;
+      /** Config files whose in-band repair clears the block. */
+      readonly repairTargets: readonly string[];
+    };
+
+/** @internal Snapshot states in which a fallback policy is being enforced. */
+export type PolicyFallbackState = Exclude<PolicySnapshot['state'], 'ready'>;
+
+/** @internal The runtime configuration state as diagnostic surfaces report it. */
+export type ConfigStateInfo =
+  | { readonly state: 'ready' }
+  | {
+      readonly state: PolicyFallbackState;
+      /** The failing source, the active fallback, and the exact repair. */
       readonly reason: string;
     };

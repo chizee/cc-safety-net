@@ -97,6 +97,38 @@ const findingRules: FindingRule[] = [
         : [],
   },
   {
+    // The snapshot reason already names the failing source, the rejected condition,
+    // the active fallback, that the candidate is not active, and the exact repair.
+    derive: (report) =>
+      report.configState.state === 'blocked'
+        ? [
+            {
+              checkId: 'config.runtime-blocked',
+              severity: 'error',
+              title: 'Runtime rule configuration is blocked',
+              detail: `A required rule source has no verified fallback, so ordinary tool calls are denied: ${report.configState.reason}`,
+              fixHint:
+                'Repair the named config file, run `cc-safety-net rule sync`, then rerun doctor.',
+            },
+          ]
+        : [],
+  },
+  {
+    derive: (report) =>
+      report.configState.state === 'degraded'
+        ? [
+            {
+              checkId: 'config.runtime-degraded',
+              severity: 'warning',
+              title: 'Runtime is enforcing a fallback configuration',
+              detail: `The rejected candidate configuration is not active: ${report.configState.reason}`,
+              fixHint:
+                'Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor.',
+            },
+          ]
+        : [],
+  },
+  {
     derive: (report) => {
       const scope = report.environment.find((item) => item.name === 'CC_SAFETY_NET_AUDIT_SCOPE');
       // The raw value is deliberately not echoed: findings are rendered without

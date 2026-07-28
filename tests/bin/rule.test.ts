@@ -199,6 +199,47 @@ describe('rule command docs', () => {
   });
 });
 
+describe('rule sync', () => {
+  test('prints the remaining diagnostic instead of success when the runtime stays degraded', async () => {
+    await withTempDir('safety-net-rule-sync-truth-', async (tempDir) => {
+      const env = projectRuleEnv(tempDir);
+      const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
+      writeLocalRulebook(join(rulesDir, 'project-rules', 'rulebook.json'), 'project-rules');
+      writeFileSync(
+        join(rulesDir, 'rule.json'),
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: { 'project-rules/typo': 'off' },
+          transparent_wrappers: [],
+        }),
+      );
+
+      const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('unknown override key "project-rules/typo"');
+      expect(result.output).not.toContain('Rule config synced.');
+    });
+  });
+
+  test('prints success once the runtime loads cleanly', async () => {
+    await withTempDir('safety-net-rule-sync-clean-', async (tempDir) => {
+      const env = projectRuleEnv(tempDir);
+      writeLocalRulebook(
+        join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json'),
+        'project-rules',
+      );
+      writeProjectRulesConfig(tempDir, ['project-rules']);
+
+      const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
+
+      expectSuccessfulCli(result);
+      expect(result.output).toContain('Rule config synced.');
+    });
+  });
+});
+
 describe('rule list', () => {
   test('prints merged active sources, active rules, overrides, and issues', async () => {
     await withTempDir('safety-net-rule-list-', async (tempDir) => {
@@ -721,7 +762,7 @@ describe('rule migrate', () => {
         JSON.stringify({
           version: 1,
           rules: ['team-rules'],
-          overrides: { 'team-rules/old': 'off' },
+          overrides: { 'team-rules/team-rules-rule': 'off' },
           transparent_wrappers: ['rtk'],
         }),
       );
@@ -744,7 +785,7 @@ describe('rule migrate', () => {
       expect(readRulesConfig(join(userRulesDir, 'rule.json'))).toEqual({
         version: 1,
         rules: ['team-rules', 'user-rules'],
-        overrides: { 'team-rules/old': 'off' },
+        overrides: { 'team-rules/team-rules-rule': 'off' },
         transparent_wrappers: ['rtk'],
       });
       expect(readRulebook(join(userRulesDir, 'user-rules', 'rulebook.json')).rules).toEqual([

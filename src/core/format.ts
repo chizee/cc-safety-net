@@ -12,6 +12,7 @@ export interface FormatBlockedMessageInput {
   maxLen?: number;
   redact?: RedactFn;
   manualPermissionAdvice?: boolean;
+  configWarning?: string;
 }
 
 export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
@@ -37,6 +38,10 @@ export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
   if (segment && segment !== command) {
     const safeSegment = redact(segment);
     message += `\n\nSegment: ${excerpt(safeSegment, maxLen)}`;
+  }
+
+  if (input.configWarning) {
+    message += `\n\nConfig warning: ${redact(input.configWarning)}`;
   }
 
   message += `\n\n${getFooter(input)}`;

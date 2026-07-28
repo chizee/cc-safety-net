@@ -651,7 +651,7 @@ function analyzeCommandView(
   if (
     commandView.dialect === 'powershell' &&
     !options.invalidReason &&
-    (options.compatibility !== 'explain-legacy' || options.policySnapshot.state === 'ready')
+    (options.compatibility !== 'explain-legacy' || options.policySnapshot.state !== 'blocked')
   ) {
     const match = filterDestructiveCommandMatch(
       analyzePowerShellCommandViewMatch(

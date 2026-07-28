@@ -33,12 +33,15 @@ import type {
   RulesPolicyOptions,
 } from './types';
 
+const ENFORCING_CACHED_RULEBOOK = 'enforcing the verified cached rulebook';
+
 interface ScopePolicy {
   rules: CustomRule[];
   rulebooks: LoadedRulebookInfo[];
   entries: RulebookLockEntry[];
   knownRuleIds: Set<string>;
   errors: string[];
+  warnings: string[];
   canValidateOverrides: boolean;
 }
 
@@ -69,11 +72,8 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
     }
     throw error;
   }
-  const errors = [
-    ...legacyErrors,
-    ...formatPolicyReadErrors(paths.userConfigPath, user.errors),
-    ...formatPolicyReadErrors(paths.projectConfigPath, project.errors),
-  ];
+  const userReadErrors = formatPolicyReadErrors(paths.userConfigPath, user.errors);
+  const projectReadErrors = formatPolicyReadErrors(paths.projectConfigPath, project.errors);
 
   const userPolicy = user.config
     ? loadScopePolicy(
@@ -96,12 +96,19 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
       )
     : emptyScopePolicy();
 
-  const duplicateNames = getDuplicateRulebookNames([
-    ...(user.config ? getConfiguredLockEntries(user.config, paths.userLockTarget) : []),
-    ...(project.config ? getConfiguredLockEntries(project.config, paths.projectLockTarget) : []),
-  ]);
+  const userEntries = user.config
+    ? getConfiguredLockEntries(user.config, paths.userLockTarget)
+    : [];
+  const projectEntries = project.config
+    ? getConfiguredLockEntries(project.config, paths.projectLockTarget)
+    : [];
+  const duplicateNames = getDuplicateRulebookNames([...userEntries, ...projectEntries]);
   const userOverrides = user.config?.overrides ?? {};
   const projectOverrides = project.config?.overrides ?? {};
+  const isBlockedScope = (readErrors: string[], scope: ScopePolicy, entries: RulebookLockEntry[]) =>
+    readErrors.length > 0 ||
+    scope.errors.length > 0 ||
+    entries.some((entry) => duplicateNames.includes(entry.name));
 
   return {
     rules: [
@@ -111,18 +118,38 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
-      ...errors,
+      ...legacyErrors,
+      ...userReadErrors,
+      ...projectReadErrors,
       ...userPolicy.errors,
       ...projectPolicy.errors,
       ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
+    ],
+    warnings: [
+      ...userPolicy.warnings,
+      ...projectPolicy.warnings,
       ...(userPolicy.canValidateOverrides
-        ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds)
+        ? getUnknownOverrideErrors(userOverrides, userPolicy.knownRuleIds, paths.userConfigPath)
         : []),
       ...(userPolicy.canValidateOverrides
-        ? getProjectOverrideUserRuleErrors(projectOverrides, userPolicy.knownRuleIds)
+        ? getProjectOverrideUserRuleErrors(
+            projectOverrides,
+            userPolicy.knownRuleIds,
+            paths.projectConfigPath,
+          )
         : []),
       ...(projectPolicy.canValidateOverrides
-        ? getUnknownOverrideErrors(projectOverrides, projectPolicy.knownRuleIds)
+        ? getUnknownOverrideErrors(
+            projectOverrides,
+            projectPolicy.knownRuleIds,
+            paths.projectConfigPath,
+          )
+        : []),
+    ],
+    blockedConfigPaths: [
+      ...(isBlockedScope(userReadErrors, userPolicy, userEntries) ? [paths.userConfigPath] : []),
+      ...(isBlockedScope(projectReadErrors, projectPolicy, projectEntries)
+        ? [paths.projectConfigPath]
         : []),
     ],
     userConfig: user.config ?? undefined,
@@ -159,7 +186,11 @@ export function getRulesConfigRuntimeErrorsForConfig(
 ): string[] {
   const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
   if (!loaded) return [];
-  return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
+  return [
+    ...loaded.scope.errors,
+    ...loaded.scope.warnings,
+    ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope, configPath),
+  ];
 }
 
 /** @internal - exported for test coverage */
@@ -171,7 +202,7 @@ export function getUnknownOverrideErrorsForConfig(
 ): string[] {
   const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
   if (!loaded) return [];
-  return getUnknownOverrideErrorsForScope(loaded.config, loaded.scope);
+  return getUnknownOverrideErrorsForScope(loaded.config, loaded.scope, configPath);
 }
 
 function loadScopePolicyForConfig(
@@ -192,9 +223,13 @@ function loadScopePolicyForConfig(
   };
 }
 
-function getUnknownOverrideErrorsForScope(config: RulesConfig, scope: ScopePolicy): string[] {
+function getUnknownOverrideErrorsForScope(
+  config: RulesConfig,
+  scope: ScopePolicy,
+  configPath: string,
+): string[] {
   return scope.canValidateOverrides
-    ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds)
+    ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds, configPath)
     : [];
 }
 
@@ -233,6 +268,7 @@ export function loadScopePolicy(
   const entries = lock?.rulebooks ?? [];
   const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
   const errors: string[] = [];
+  const warnings: string[] = [];
   const loaded = config.rules.flatMap((spec) => {
     const entry = entriesBySpec.get(spec);
     if (!entry) {
@@ -240,6 +276,7 @@ export function loadScopePolicy(
       return [];
     }
     const loadedRulebook = loadLockedRulebook(entry, configDir, options, filesystemScope);
+    warnings.push(...loadedRulebook.warnings);
     if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
       errors.push(...loadedRulebook.errors);
       return [];
@@ -266,6 +303,7 @@ export function loadScopePolicy(
     entries,
     knownRuleIds: new Set(rules.map((rule) => rule.name)),
     errors,
+    warnings,
     canValidateOverrides: errors.length === 0,
   };
 }
@@ -275,15 +313,16 @@ function loadLockedRulebook(
   configDir: string,
   options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
-): { rulebook: Rulebook | null; errors: string[] } {
+): { rulebook: Rulebook | null; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
   let cacheContent: string | null;
   try {
     cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
   } catch (error) {
     if (error instanceof PolicyFilesystemError) {
-      return { rulebook: null, errors: [error.message] };
+      return { rulebook: null, errors: [error.message], warnings };
     }
     throw error;
   }
@@ -291,12 +330,13 @@ function loadLockedRulebook(
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
+      warnings,
     };
   }
 
   if (sha256Digest(cacheContent) !== entry.digest) {
     errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    return { rulebook: null, errors };
+    return { rulebook: null, errors, warnings };
   }
   let rulebook: Rulebook | null = null;
   try {
@@ -305,7 +345,7 @@ function loadLockedRulebook(
       parsed = JSON.parse(cacheContent) as unknown;
     } catch {
       errors.push(`invalid cached rulebook for ${entry.spec}`);
-      return { rulebook: null, errors };
+      return { rulebook: null, errors, warnings };
     }
     assertValidRulebook(parsed);
     rulebook = parsed as Rulebook;
@@ -313,6 +353,7 @@ function loadLockedRulebook(
     errors.push(
       `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : 'invalid rulebook'}`,
     );
+    return { rulebook: null, errors, warnings };
   }
   if (entry.kind === 'local-directory') {
     const sourcePath = resolve(configDir, entry.path);
@@ -325,7 +366,7 @@ function loadLockedRulebook(
       errors.push(
         `lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`,
       );
-      return { rulebook: null, errors };
+      return { rulebook: null, errors, warnings };
     }
     const localPath = join(sourcePath, RULEBOOK_FILE);
     let localContent: string | null;
@@ -333,19 +374,20 @@ function loadLockedRulebook(
       localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
     } catch (error) {
       if (error instanceof PolicyFilesystemError) {
-        return { rulebook: null, errors: [error.message] };
+        return { rulebook: null, errors: [error.message], warnings };
       }
       throw error;
     }
     if (localContent === null) {
-      errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    } else {
-      if (sha256Digest(localContent) !== entry.digest) {
-        errors.push(getLocalSourceDriftError(entry.spec, localContent));
-      }
+      warnings.push(
+        `missing local source for ${entry.spec}; ${ENFORCING_CACHED_RULEBOOK}; restore the source or remove it, then run ${RULE_SYNC_COMMAND}`,
+      );
+    }
+    if (localContent !== null && sha256Digest(localContent) !== entry.digest) {
+      warnings.push(getLocalSourceDriftWarning(entry.spec, localContent));
     }
   }
-  return { rulebook: errors.length === 0 ? rulebook : null, errors };
+  return { rulebook: errors.length === 0 ? rulebook : null, errors, warnings };
 }
 
 function mergeTransparentWrappers(
@@ -450,19 +492,19 @@ function getRulebookMigratedFromTarget(
   }
 }
 
-function getLocalSourceDriftError(spec: string, content: string): string {
+function getLocalSourceDriftWarning(spec: string, content: string): string {
   try {
     let parsed: unknown;
     try {
       parsed = JSON.parse(content) as unknown;
     } catch {
-      return `invalid local rulebook for ${spec}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
+      return `invalid local rulebook for ${spec}; ${ENFORCING_CACHED_RULEBOOK}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
     }
     assertValidRulebook(parsed);
   } catch (error) {
-    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
+    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; ${ENFORCING_CACHED_RULEBOOK}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
   }
-  return `local source digest mismatch for ${spec}; run ${RULE_SYNC_COMMAND}`;
+  return `local source digest mismatch for ${spec}; ${ENFORCING_CACHED_RULEBOOK}; the local edit stays pending until you run ${RULE_SYNC_COMMAND}`;
 }
 
 function applyOverrides(
@@ -484,19 +526,27 @@ function applyOverrides(
 function getUnknownOverrideErrors(
   overrides: Record<string, RuleOverride>,
   knownRuleIds: Set<string>,
+  configPath: string,
 ): string[] {
   return Object.keys(overrides)
     .filter((key) => !knownRuleIds.has(key))
-    .map((key) => `unknown override key "${key}"`);
+    .map(
+      (key) =>
+        `unknown override key "${key}" in ${configPath}; only that override is ignored and other overrides and rules keep their configured state; correct or remove it in that file`,
+    );
 }
 
 function getProjectOverrideUserRuleErrors(
   projectOverrides: Record<string, RuleOverride>,
   userRuleIds: Set<string>,
+  configPath: string,
 ): string[] {
   return Object.keys(projectOverrides)
     .filter((key) => userRuleIds.has(key))
-    .map((key) => `project override cannot target user-scoped rule "${key}"`);
+    .map(
+      (key) =>
+        `project override cannot target user-scoped rule "${key}" in ${configPath}; only that override is ignored and the rule keeps its user-configured state; remove it from that file`,
+    );
 }
 
 function getDuplicateRulebookNames(entries: RulebookLockEntry[]): string[] {
@@ -536,6 +586,8 @@ function invalidLoadedRulesPolicy(
     transparent_wrappers: [],
     rulebooks: [],
     errors: [error],
+    warnings: [],
+    blockedConfigPaths: [],
     userConfigPath: paths.userConfigPath,
     projectConfigPath: paths.projectConfigPath,
     userLockPath: paths.userLockPath,
@@ -550,6 +602,7 @@ function emptyScopePolicy(): ScopePolicy {
     entries: [],
     knownRuleIds: new Set(),
     errors: [],
+    warnings: [],
     canValidateOverrides: true,
   };
 }

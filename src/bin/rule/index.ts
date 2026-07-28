@@ -147,7 +147,7 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
       user: getRulesConfigSourceDisplayMap(policy.userConfigPath, paths.userScope),
       project: getRulesConfigSourceDisplayMap(policy.projectConfigPath, paths.projectScope),
     });
-    return policy.errors.length > 0 ? 1 : 0;
+    return policy.errors.length > 0 || policy.warnings.length > 0 ? 1 : 0;
   }
 
   if (subcommand === 'wrapper') {

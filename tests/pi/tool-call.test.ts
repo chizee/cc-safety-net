@@ -14,6 +14,7 @@ import {
 } from '../helpers';
 import { policySnapshot } from '../helpers/policy';
 import {
+  initialGitRule,
   syncInitialGitRulebook,
   updatedGitRule,
   writeUpdatedGitRulebook,
@@ -289,11 +290,11 @@ describe('Pi tool_call event', () => {
       await syncInitialGitRulebook(dir);
       writeUpdatedGitRulebook(dir);
 
-      const invalid = handlePiToolCall(
-        shellToolCall({ command: 'git status', working_directory: 'app' }),
+      const pending = handlePiToolCall(
+        shellToolCall({ command: 'git add -A', working_directory: 'app' }),
         piContext(dir),
       );
-      expect(invalid?.reason).toContain('local source digest mismatch');
+      expect(pending?.reason).toContain(initialGitRule.reason);
 
       expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       const result = handlePiToolCall(
@@ -582,14 +583,14 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('fails closed for non-shell Pi tools when policy config is invalid', () => {
+  test('keeps secret protection for non-shell Pi tools when policy config is invalid', () => {
     withInvalidSecretPolicy('safety-net-pi-read-invalid-policy-', (dir, userConfigDir) => {
-      const result = createPiToolCallHandler({ policyOptions: { userConfigDir } })(
+      expectDegradedPolicyStillProtects(
+        createPiToolCallHandler({ policyOptions: { userConfigDir } }),
+        dir,
         toolCall('read', { path: 'README.md' }),
-        piContext(dir),
+        toolCall('read', { path: '.env' }),
       );
-
-      expectInvalidPolicyBlock(result);
     });
   });
 
@@ -634,14 +635,14 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('fails closed when policy config is invalid', () => {
+  test('keeps secret protection for shell tools when policy config is invalid', () => {
     withInvalidSecretPolicy('safety-net-pi-invalid-policy-', (dir, userConfigDir) => {
-      const result = createPiToolCallHandler({ policyOptions: { userConfigDir } })(
+      expectDegradedPolicyStillProtects(
+        createPiToolCallHandler({ policyOptions: { userConfigDir } }),
+        dir,
         bashToolCall('git status'),
-        piContext(dir),
+        bashToolCall('cat .env'),
       );
-
-      expectInvalidPolicyBlock(result);
     });
   });
 
@@ -693,14 +694,16 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('fails closed until explicit sync, then reloads local rules', async () => {
+  test('enforces the verified rulebook until explicit sync, then reloads local rules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-tool-call-'));
     try {
       await syncInitialGitRulebook(dir);
       writeUpdatedGitRulebook(dir);
 
-      expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))?.reason).toContain(
-        'local source digest mismatch',
+      // The unsynced local edit stays pending: the verified cache still rules.
+      expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))).toBeUndefined();
+      expect(handlePiToolCall(bashToolCall('git add -A'), piContext(dir))?.reason).toContain(
+        initialGitRule.reason,
       );
       expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))?.reason).toContain(
@@ -1041,7 +1044,18 @@ function withInvalidSecretPolicy(
   }
 }
 
-function expectInvalidPolicyBlock(result: ReturnType<typeof handlePiToolCall>): void {
-  expect(result?.reason).toContain('invalid policy config');
-  expect(result?.reason).toContain('secret_protection.enabled must be a boolean');
+/**
+ * An unreadable policy degrades to protective defaults, so the rejected
+ * `secret_protection.enabled` never turns secret discovery off.
+ */
+function expectDegradedPolicyStillProtects(
+  handler: ReturnType<typeof createPiToolCallHandler>,
+  dir: string,
+  allowed: ReturnType<typeof toolCall>,
+  denied: ReturnType<typeof toolCall>,
+): void {
+  expect(handler(allowed, piContext(dir))).toBeUndefined();
+  expect(handler(denied, piContext(dir))?.reason).toContain(
+    'Access to a sensitive path is not allowed.',
+  );
 }

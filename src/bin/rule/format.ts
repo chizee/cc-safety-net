@@ -101,6 +101,7 @@ export function printRulesListReport(
   ]);
   printListSection('Transparent wrappers', policy.transparent_wrappers, (wrapper) => [wrapper]);
   printListSection('Issues', policy.errors, (error) => [error]);
+  printListSection('Warnings', policy.warnings, (warning) => [warning]);
 }
 
 function printListSection<T>(title: string, items: T[], format: (item: T) => string[]): void {

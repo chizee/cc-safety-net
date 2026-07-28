@@ -25,6 +25,13 @@ import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/
 
 const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
 
+/**
+ * Which protective fallback backs an unreadable policy file: `salvaged` keeps
+ * every recognized valid section from readable JSON, `defaults` replaces the
+ * whole file because nothing salvageable parsed.
+ */
+type PolicyFallback = 'salvaged' | 'defaults';
+
 type PolicyConfig = {
   safety: PolicySafety;
   worktreeMode: boolean;
@@ -33,6 +40,7 @@ type PolicyConfig = {
   destructiveCommandAllowPaths: string[];
   secretProtection: SecretProtectionConfig;
   errors: string[];
+  fallback?: PolicyFallback;
 };
 
 type PartialPolicy = {
@@ -269,6 +277,7 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     destructiveCommandAllowPaths: [...user.policy.destructiveCommandAllowPaths],
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
+    ...(user.fallback ? { fallback: user.fallback } : {}),
   };
 }
 
@@ -423,24 +432,36 @@ export function normalizeGuiPolicy(policy: unknown): GuiPolicy {
   };
 }
 
-function readPolicyConfig(path: string): { policy: PartialPolicy; errors: string[] } {
+function readPolicyConfig(path: string): {
+  policy: PartialPolicy;
+  errors: string[];
+  fallback?: PolicyFallback;
+} {
   const empty = createEmptyPolicy();
   if (!existsSync(path)) return { policy: empty, errors: [] };
 
   try {
     const content = readFileSync(path, 'utf-8');
     if (!content.trim()) {
-      return { policy: empty, errors: [`${path}: Config file is empty`] };
+      return { policy: empty, errors: [`${path}: Config file is empty`], fallback: 'defaults' };
     }
     const parsed = JSON.parse(content) as unknown;
     const errors = getUserPolicyDiagnostics(parsed);
     if (errors.length > 0)
-      return { policy: empty, errors: errors.map((error) => `${path}: ${error}`) };
+      return {
+        // Field-level repair keeps every recognized valid section active and
+        // substitutes protective defaults for the rest, so one bad field cannot
+        // drop protections the rest of the file still configures.
+        policy: normalizePolicyConfig(repairPolicyConfig(parsed)),
+        errors: errors.map((error) => `${path}: ${error}`),
+        fallback: isRecord(parsed) ? 'salvaged' : 'defaults',
+      };
     return { policy: normalizePolicyConfig(getUserPolicySchema().parse(parsed)), errors: [] };
   } catch {
     return {
       policy: empty,
       errors: [`${path}: Invalid JSON`],
+      fallback: 'defaults',
     };
   }
 }
@@ -456,7 +477,7 @@ function createEmptyPolicy(): PartialPolicy {
   };
 }
 
-function normalizePolicyConfig(config: UserPolicy): PartialPolicy {
+function normalizePolicyConfig(config: UserPolicy | GuiPolicy): PartialPolicy {
   const safety = normalizeSafety(config.safety);
   const workflow = config.workflow as Record<string, boolean | undefined> | undefined;
   const destructiveCommand = config.destructive_command_protection as

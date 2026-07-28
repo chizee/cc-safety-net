@@ -339,12 +339,29 @@ const activityWindowOptions = () => {
   const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);
   return [...windows, retained];
 };
+// The snapshot reason already names the failing source, the active fallback, that
+// the rejected candidate is not active, and the exact repair.
+const configStateNotice = () => {
+  const configState = state?.configState;
+  if (!configState || configState.state === 'ready') return null;
+  const lead =
+    configState.state === 'blocked'
+      ? 'Rule configuration is blocked, so no custom rules are active'
+      : 'A fallback configuration is being enforced';
+  return `${lead}: ${configState.reason}`;
+};
+const setProtectionBanner = (notices) => {
+  const text = notices.filter(Boolean).join(' ');
+  qs('protection-banner').textContent = text;
+  qs('protection-banner').hidden = text === '';
+};
 const renderProtectionCard = () => {
   // Saved state only: state.policy/state.preview are server-confirmed; draftPolicy is not,
   // so unsaved toggles do not flip the posture card.
+  const configNotice = configStateNotice();
   if (!state || !state.preview) {
     qs('protection-card').hidden = true;
-    qs('protection-banner').hidden = true;
+    setProtectionBanner([configNotice]);
     return;
   }
   const policy = state.policy;
@@ -363,10 +380,12 @@ const renderProtectionCard = () => {
       ? null
       : 'Secret protection is off — sensitive paths and deny paths are not being blocked',
   ].filter(Boolean);
-  qs('protection-banner').hidden = off.length === 0;
-  if (off.length > 0)
-    qs('protection-banner').textContent =
-      `${off.join('. ')}. Re-enable ${off.length > 1 ? 'them' : 'it'} in Policy.`;
+  setProtectionBanner([
+    off.length > 0
+      ? `${off.join('. ')}. Re-enable ${off.length > 1 ? 'them' : 'it'} in Policy.`
+      : null,
+    configNotice,
+  ]);
   qs('protection-card').hidden = false;
   qs('protection-card').classList.toggle('protection-warning', !commandsOn || !secretsOn);
   qs('protection-card').innerHTML =

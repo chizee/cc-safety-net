@@ -2,7 +2,11 @@
  * Type definitions for the doctor command.
  */
 
-import type { DestructiveCommandRuleOverride, EffectiveSafetyCapabilities } from '@/domain/policy';
+import type {
+  ConfigStateInfo,
+  DestructiveCommandRuleOverride,
+  EffectiveSafetyCapabilities,
+} from '@/domain/policy';
 import type { IntegrationId } from '@/integrations/catalog';
 
 import type { SelfTestSummary } from '@/integrations/self-test';
@@ -190,6 +194,8 @@ export interface DoctorReport {
   engineSelfTest: SelfTestSummary;
   userConfig: ConfigSourceInfo;
   projectConfig: ConfigSourceInfo;
+  /** Whether the runtime enforces the configured policy or a fallback. */
+  configState: ConfigStateInfo;
   effectiveRules: EffectiveRule[];
   shadowedRules: ShadowedRule[];
   environment: EnvVarInfo[];

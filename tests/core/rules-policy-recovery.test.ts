@@ -101,6 +101,10 @@ function makeTempDir(name: string) {
   return mkdtempSync(join(tmpdir(), `${name}-`));
 }
 
+function unknownOverrideWarning(key: string, configPath: string) {
+  return `unknown override key "${key}" in ${configPath}; only that override is ignored and other overrides and rules keep their configured state; correct or remove it in that file`;
+}
+
 function writeRulebook(path: string, name = 'project-rules') {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, rulebookJson(name), 'utf-8');
@@ -834,7 +838,9 @@ describe('rules policy recovery coverage', () => {
             userConfigDir,
           },
         ),
-      ).toEqual(['unknown override key "project-rules/missing"']);
+      ).toEqual([
+        unknownOverrideWarning('project-rules/missing', getProjectRulesConfigPath(tempDir)),
+      ]);
 
       const cachePath = getRulebookCachePath(synced.entries[0] as RulebookLockEntry, {
         cacheConfigDir: getProjectRulesDir(tempDir),
@@ -852,6 +858,23 @@ describe('rules policy recovery coverage', () => {
         )[0],
       ).toContain('missing cache entry');
 
+      // Restoring the cache is not enough to report success: the stale override
+      // above still degrades the runtime, so sync reports what remains.
+      const rebuilt = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(rebuilt.ok).toBe(false);
+      expect(rebuilt.errors).toEqual([
+        unknownOverrideWarning('project-rules/missing', getProjectRulesConfigPath(tempDir)),
+      ]);
+
+      writeFileSync(
+        getProjectRulesConfigPath(tempDir),
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: {},
+          transparent_wrappers: ['rtk'],
+        }),
+      );
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
       expect(
         (await removeRulebookSource('project-rules', { cwd: tempDir, userConfigDir })).ok,
@@ -944,6 +967,48 @@ describe('rules policy recovery coverage', () => {
           config: loadedRulesTestPolicy(policy),
         }),
       ).toBeNull();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps sibling rulebooks active while one local source drifts', async () => {
+    const tempDir = makeTempDir('rules-policy-drift-containment');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      const rulesDir = getProjectRulesDir(tempDir);
+      writeRulebook(join(rulesDir, 'project-rules', 'rulebook.json'));
+      writeRulebook(join(rulesDir, 'other-rules', 'rulebook.json'), 'other-rules');
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules', 'other-rules']);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+
+      writeFileSync(
+        join(rulesDir, 'project-rules', 'rulebook.json'),
+        rulebookJson().replace('Use targeted cleanup.', 'Pending local edit.'),
+        'utf-8',
+      );
+
+      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+
+      expect(policy.errors).toEqual([]);
+      expect(policy.blockedConfigPaths).toEqual([]);
+      expect(policy.warnings).toEqual([
+        expect.stringContaining(
+          'local source digest mismatch for project-rules; enforcing the verified cached rulebook',
+        ),
+      ]);
+      expect(policy.rules.map((rule) => rule.name)).toEqual([
+        'project-rules/block-docker-prune',
+        'other-rules/block-docker-prune',
+      ]);
+      // The pending local edit is not active: the digest-verified cache answers.
+      expect(
+        analyzeCommand('docker system prune', {
+          cwd: tempDir,
+          config: loadedRulesTestPolicy(policy),
+        })?.reason,
+      ).toBe('[project-rules/block-docker-prune] Use targeted cleanup.');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1068,16 +1133,22 @@ describe('rules policy recovery coverage', () => {
       const config = loadedRulesTestPolicy(policy);
 
       expect(policy.rules.map((rule) => rule.name)).toEqual(['project-rules/block-docker-prune']);
-      expect(policy.errors).toContain('unknown override key "project-rules/block-docker-prune"');
-      expect(config.failClosedReason).toContain(
-        'unknown override key "project-rules/block-docker-prune"',
+      expect(policy.errors).toEqual([]);
+      expect(policy.warnings).toContain(
+        unknownOverrideWarning(
+          'project-rules/block-docker-prune',
+          getUserRulesConfigPath({ userConfigDir }),
+        ),
       );
+      expect(config.failClosedReason).toBeUndefined();
+      // Only the unknown override is ignored; the rule it failed to reach stays
+      // loaded and keeps blocking.
       expect(
         analyzeCommand('docker system prune', {
           cwd: tempDir,
           config,
         })?.reason,
-      ).toContain('unknown override key "project-rules/block-docker-prune"');
+      ).toBe('[project-rules/block-docker-prune] Use targeted cleanup.');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1112,7 +1183,13 @@ describe('rules policy recovery coverage', () => {
         }),
         'utf-8',
       );
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      // The project config names no rule it owns, so sync reports the override as
+      // unknown for that scope exactly as `rule verify` and `doctor` do.
+      const synced = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(synced.ok).toBe(false);
+      expect(synced.errors).toEqual([
+        unknownOverrideWarning('user-rules/block-docker-prune', getProjectRulesConfigPath(tempDir)),
+      ]);
 
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
       const config = loadedRulesTestPolicy(policy);
@@ -1121,20 +1198,20 @@ describe('rules policy recovery coverage', () => {
         'user-rules/block-docker-prune',
         'project-rules/block-docker-prune',
       ]);
-      expect(policy.errors).toContain(
-        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
+      expect(policy.errors).toEqual([]);
+      expect(policy.warnings).toContain(
+        `project override cannot target user-scoped rule "user-rules/block-docker-prune" in ${getProjectRulesConfigPath(tempDir)}; only that override is ignored and the rule keeps its user-configured state; remove it from that file`,
       );
-      expect(config.failClosedReason).toContain(
-        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
-      );
+      expect(config.failClosedReason).toBeUndefined();
+      expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
+      // User policy stays authoritative: the project override never reaches the
+      // user-scoped rule, which keeps blocking.
       expect(
-        analyzeCommand('echo ok', {
+        analyzeCommand('docker system prune', {
           cwd: tempDir,
           config,
         })?.reason,
-      ).toContain(
-        'project override cannot target user-scoped rule "user-rules/block-docker-prune"',
-      );
+      ).toBe('[user-rules/block-docker-prune] Use targeted cleanup.');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1859,10 +1936,25 @@ describe('rules policy recovery coverage', () => {
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
       writeProjectRulebook(tempDir, 'shared');
       writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['shared']);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      // The collision only exists once both scopes are merged, so the scope that
+      // introduced it learns about it from sync instead of reporting success.
+      const collided = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(collided.ok).toBe(false);
+      expect(collided.errors).toContain('duplicate active rulebook name "shared"');
       expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toContain(
         'duplicate active rulebook name "shared"',
       );
+      const checkedProject = await syncRulesConfig({ cwd: tempDir, userConfigDir, check: true });
+      expect(checkedProject.ok).toBe(false);
+      expect(checkedProject.errors).toContain('duplicate active rulebook name "shared"');
+      const checkedUser = await syncRulesConfig({
+        cwd: tempDir,
+        userConfigDir,
+        global: true,
+        check: true,
+      });
+      expect(checkedUser.ok).toBe(false);
+      expect(checkedUser.errors).toContain('duplicate active rulebook name "shared"');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1886,6 +1978,80 @@ describe('rules policy recovery coverage', () => {
       expect(policy.rules.map((rule) => rule.name)).toEqual(['user-rules/block-docker-prune']);
       expect(config.failClosedReason).toBeUndefined();
       expect(analyzeCommand('echo ok', { cwd: homeDir, config })).toBeNull();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails sync while an unknown override remains in the runtime policy', async () => {
+    const tempDir = makeTempDir('rules-policy-sync-truth');
+    const userConfigDir = join(tempDir, 'user');
+    const writeProjectOverrides = (overrides: Record<string, string>) =>
+      writeFileSync(
+        getProjectRulesConfigPath(tempDir),
+        JSON.stringify({ version: 1, rules: ['project-rules'], overrides }),
+      );
+
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+
+      writeProjectOverrides({ 'project-rules/nope': 'off' });
+
+      // The `CONFIG_LOCKOUT.md` sync row: publishing a lock is not proof the
+      // runtime loads cleanly, so the reload decides what sync reports.
+      const stale = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(stale.ok).toBe(false);
+      expect(stale.errors).toEqual([
+        unknownOverrideWarning('project-rules/nope', getProjectRulesConfigPath(tempDir)),
+      ]);
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).warnings).toContain(
+        unknownOverrideWarning('project-rules/nope', getProjectRulesConfigPath(tempDir)),
+      );
+      const checked = await syncRulesConfig({ cwd: tempDir, userConfigDir, check: true });
+      expect(checked.ok).toBe(false);
+      expect(checked.errors).toContain(
+        unknownOverrideWarning('project-rules/nope', getProjectRulesConfigPath(tempDir)),
+      );
+
+      writeProjectOverrides({ 'project-rules/block-docker-prune': 'off' });
+
+      const repaired = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(repaired.ok).toBe(true);
+      expect(repaired.errors).toEqual([]);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, check: true })).ok).toBe(true);
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).warnings).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('promotes a pending local edit and clears the degraded state on the next sync', async () => {
+    const tempDir = makeTempDir('rules-policy-sync-promotion');
+    const userConfigDir = join(tempDir, 'user');
+
+    try {
+      writeProjectRulebookConfig(tempDir);
+      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+      writeFileSync(
+        join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'),
+        rulebookJson().replace('Use targeted cleanup.', 'Promoted by sync.'),
+        'utf-8',
+      );
+      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).warnings).toHaveLength(1);
+
+      const promoted = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+
+      expect(promoted.ok).toBe(true);
+      const runtime = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect(runtime.errors).toEqual([]);
+      expect(runtime.warnings).toEqual([]);
+      expect(
+        analyzeCommand('docker system prune', {
+          cwd: tempDir,
+          config: loadedRulesTestPolicy(runtime),
+        })?.reason,
+      ).toBe('[project-rules/block-docker-prune] Promoted by sync.');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

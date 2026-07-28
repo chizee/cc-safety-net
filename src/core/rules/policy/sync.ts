@@ -39,7 +39,11 @@ import {
   RULE_SYNC_RESOURCE_LIMITS,
   type RuleSyncOperation,
 } from './resource-limits';
-import { loadScopePolicy } from './scope-policy';
+import {
+  getRulesConfigRuntimeErrorsForConfig,
+  loadRulesPolicy,
+  loadScopePolicy,
+} from './scope-policy';
 import { getRemoveMatches, getSelectedUpdateSpecs, isGitHubRepositorySource } from './sources';
 import type {
   RulebookLockEntry,
@@ -65,7 +69,11 @@ interface RemoveRulebookSourceOptions extends SyncRulesConfigOptions {
 export async function syncRulesConfig(
   options: SyncRulesConfigOptions = {},
 ): Promise<SyncRulesConfigResult> {
-  return syncRulesConfigInternal(projectSyncOptions(options), createRuleSyncOperation());
+  const projected = projectSyncOptions(options);
+  return verifyRuntimeRulesPolicy(
+    projected,
+    await syncRulesConfigInternal(projected, createRuleSyncOperation()),
+  );
 }
 
 /** @internal Runs synchronization with an explicit operation for deterministic transport tests. */
@@ -73,7 +81,8 @@ export async function syncRulesConfigWithOperation(
   options: SyncRulesConfigOptions,
   operation: RuleSyncOperation,
 ): Promise<SyncRulesConfigResult> {
-  return syncRulesConfigInternal(projectSyncOptions(options), operation);
+  const projected = projectSyncOptions(options);
+  return verifyRuntimeRulesPolicy(projected, await syncRulesConfigInternal(projected, operation));
 }
 
 /** @internal Runs synchronization with explicit fault hooks. */
@@ -81,12 +90,42 @@ export async function syncRulesConfigWithHooks(
   options: SyncRulesConfigOptions,
   hooks: RuleSyncTestHooks,
 ): Promise<SyncRulesConfigResult> {
-  return syncRulesConfigInternal(
-    projectSyncOptions(options),
-    createRuleSyncOperation(),
-    undefined,
-    hooks,
+  const projected = projectSyncOptions(options);
+  return verifyRuntimeRulesPolicy(
+    projected,
+    await syncRulesConfigInternal(projected, createRuleSyncOperation(), undefined, hooks),
   );
+}
+
+/**
+ * Publishing a lock does not prove the synchronized scope loads cleanly: an unknown override key,
+ * a pending local edit, and a rulebook name that collides with the other scope only appear once the
+ * policy is reloaded the way the guard loads it. Report what that reload finds for this scope
+ * instead of reporting success while its runtime state stays degraded or blocked. Diagnostics owned
+ * by the scope that was not synchronized are left alone: this run cannot repair them, and failing on
+ * them would break synchronizing one scope while the other is still being set up. `--check`
+ * validates the scope in isolation and would miss the same classes, so it verifies too.
+ */
+function verifyRuntimeRulesPolicy(
+  options: SyncRulesConfigOptions,
+  result: SyncRulesConfigResult,
+): SyncRulesConfigResult {
+  if (!result.ok) return result;
+  const scope = getScopePaths(options);
+  const merged = loadRulesPolicy(options);
+  const remaining = [
+    ...new Set([
+      ...getRulesConfigRuntimeErrorsForConfig(
+        scope.configPath,
+        scope.lockPath,
+        options,
+        scope.filesystemScope,
+      ),
+      ...(merged.blockedConfigPaths.includes(scope.configPath) ? merged.errors : []),
+    ]),
+  ];
+  if (remaining.length === 0) return result;
+  return { ok: false, errors: remaining, warnings: result.warnings, entries: result.entries };
 }
 
 async function syncRulesConfigInternal(
@@ -507,8 +546,8 @@ async function checkRulesConfig(
     scope.filesystemScope,
   );
   return {
-    ok: result.errors.length === 0,
-    errors: result.errors,
+    ok: result.errors.length === 0 && result.warnings.length === 0,
+    errors: [...result.errors, ...result.warnings],
     warnings: [],
     entries: result.entries,
   };

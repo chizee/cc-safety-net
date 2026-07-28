@@ -27,6 +27,16 @@ describe('formatBlockedMessage', () => {
     expect(result.indexOf('Tool: Bash')).toBeLessThan(result.indexOf('Command:'));
   });
 
+  test('redacts the config warning and omits the line without one', () => {
+    const result = formatBlockedMessage({
+      reason: 'test reason',
+      configWarning: 'invalid policy config: token sk-proj_1234567890abcdefghijklmnopqrstuv',
+      redact: (text) => text.replace(/sk-proj_[A-Za-z0-9]+/g, '<redacted>'),
+    });
+    expect(result).toContain('Config warning: invalid policy config: token <redacted>');
+    expect(formatBlockedMessage({ reason: 'test reason' })).not.toContain('Config warning:');
+  });
+
   test('omits tool line when tool name is absent', () => {
     const result = formatBlockedMessage({ reason: 'test reason' });
     expect(result).not.toContain('Tool:');

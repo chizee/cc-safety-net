@@ -2,9 +2,11 @@ import { redactSecrets } from '@/core/audit';
 import { formatBlockedMessage } from '@/core/format';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
 import type { BlockIntent, Decision } from '@/domain/decision';
+import type { PolicyFallbackState } from '@/domain/policy';
 
 type GuardEvaluation = {
   decision: Decision;
+  configState?: { state: PolicyFallbackState; reason: string };
 };
 
 /** @internal */
@@ -16,6 +18,8 @@ export type IntegrationDenial = {
   segment?: string;
   toolName?: string;
   manualPermissionAdvice?: boolean;
+  /** Degraded-config diagnostics riding along with an unrelated denial. */
+  configWarning?: string;
 };
 
 /** @internal */
@@ -34,6 +38,11 @@ export function projectGuardDenial(
     command: evidence?.command,
     segment: evidence?.segment,
     toolName: options.toolName,
+    // A blocked snapshot is already the denial reason; only the degraded fallback
+    // needs to ride along with a denial it did not cause.
+    ...(evaluation.configState?.state === 'degraded'
+      ? { configWarning: evaluation.configState.reason }
+      : {}),
   };
 }
 

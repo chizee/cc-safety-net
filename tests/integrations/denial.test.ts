@@ -42,6 +42,31 @@ describe('integration denials', () => {
     if (denial) expect(formatDenial(denial)).toContain('<redacted>');
   });
 
+  test('appends the degraded configuration warning to an unrelated denial', () => {
+    const degraded = {
+      ...evaluation,
+      configState: {
+        state: 'degraded' as const,
+        reason:
+          'local source digest mismatch for team/rules; enforcing the verified cached rulebook',
+      },
+    };
+
+    const denial = projectGuardDenial(degraded, { includeEvidence: false });
+
+    expect(denial?.configWarning).toBe(degraded.configState.reason);
+    expect(denial && formatDenial(denial)).toContain(
+      `Config warning: ${degraded.configState.reason}`,
+    );
+    // A blocked snapshot is already the denial reason, so it never doubles up.
+    expect(
+      projectGuardDenial(
+        { ...evaluation, configState: { state: 'blocked', reason: 'missing lockfile' } },
+        { includeEvidence: false },
+      ),
+    ).not.toHaveProperty('configWarning');
+  });
+
   test('creates the canonical failed-closed denial', () => {
     expect(createFailedClosedDenial({ command: 'rm -rf /', toolName: 'Bash' })).toEqual({
       reason: REASON_SAFETY_NET_FAILED_CLOSED,

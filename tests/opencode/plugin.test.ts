@@ -23,6 +23,7 @@ import {
 } from '../helpers';
 import {
   gitCommitRule,
+  initialGitRule,
   syncInitialGitRulebook,
   syncTransparentGitCommitRulebook,
   updatedGitRule,
@@ -37,11 +38,15 @@ type ToolPlugin = {
   ) => Promise<void>;
 };
 
-function executeGitStatus(plugin: ToolPlugin, workdir?: string) {
+function executeBash(plugin: ToolPlugin, command: string, workdir?: string) {
   return plugin['tool.execute.before'](
     { tool: 'bash' },
-    { args: { command: 'git status', ...(workdir ? { workdir } : {}) } },
+    { args: { command, ...(workdir ? { workdir } : {}) } },
   );
+}
+
+function executeGitStatus(plugin: ToolPlugin, workdir?: string) {
+  return executeBash(plugin, 'git status', workdir);
 }
 
 const publicInputExposesGuardDependencies: 'safetyNetGuardDependencies' extends keyof Parameters<
@@ -568,7 +573,7 @@ describe('OpenCode plugin', () => {
     }
   });
 
-  test('fails closed for non-bash tools when policy config is invalid', async () => {
+  test('keeps secret protection for non-bash tools when policy config is invalid', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-invalid-policy-'));
     const safetyNetHome = join(dir, 'home', '.cc-safety-net');
     try {
@@ -579,9 +584,14 @@ describe('OpenCode plugin', () => {
       await withSafetyNetHome(safetyNetHome, async () => {
         const plugin = await loadToolPlugin(dir);
 
+        // The rejected `enabled` never becomes active, so the degraded policy
+        // keeps discovering secrets while ordinary reads keep working.
         await expect(
           plugin['tool.execute.before']({ tool: 'read' }, { args: { path: 'README.md' } }),
-        ).rejects.toThrow('invalid policy config');
+        ).resolves.toBeUndefined();
+        await expect(
+          plugin['tool.execute.before']({ tool: 'read' }, { args: { path: '.env' } }),
+        ).rejects.toThrow('Access to a sensitive path is not allowed.');
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -662,7 +672,7 @@ describe('OpenCode plugin', () => {
     );
   });
 
-  test('fails closed until explicit sync, then reloads local rules', async () => {
+  test('enforces the verified rulebook until explicit sync, then reloads local rules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-plugin-'));
     try {
       await syncInitialGitRulebook(dir);
@@ -670,7 +680,9 @@ describe('OpenCode plugin', () => {
 
       writeUpdatedGitRulebook(dir);
 
-      await expect(executeGitStatus(plugin)).rejects.toThrow('local source digest mismatch');
+      // The unsynced local edit stays pending: the verified cache still rules.
+      await executeGitStatus(plugin);
+      await expect(executeBash(plugin, 'git add -A')).rejects.toThrow(initialGitRule.reason);
       expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       await expect(executeGitStatus(plugin)).rejects.toThrow(updatedGitRule.reason);
     } finally {
@@ -688,8 +700,8 @@ describe('OpenCode plugin', () => {
 
       writeUpdatedGitRulebook(dir);
 
-      await expect(executeGitStatus(plugin, 'nested')).rejects.toThrow(
-        'local source digest mismatch',
+      await expect(executeBash(plugin, 'git add -A', 'nested')).rejects.toThrow(
+        initialGitRule.reason,
       );
       expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
       await expect(executeGitStatus(plugin, 'nested')).rejects.toThrow(updatedGitRule.reason);

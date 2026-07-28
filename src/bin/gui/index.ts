@@ -15,7 +15,11 @@ import {
   type InstallAction,
   type InstallTarget,
 } from '@/bin/hook/install/targets';
-import { createPolicySnapshot, loadPolicySnapshot } from '@/config/policy-snapshot';
+import {
+  createPolicySnapshot,
+  describeConfigState,
+  loadPolicySnapshot,
+} from '@/config/policy-snapshot';
 import { getUserPolicyDiagnostics } from '@/config/schema';
 import { resolveAuditRetentionDays } from '@/core/audit-retention';
 import {
@@ -186,6 +190,7 @@ async function handleRequest(
     const result = readUserPolicyForGui(options);
     sendJson(response, 200, {
       ...result,
+      configState: describeConfigState(loadPolicySnapshot(options)),
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
       preview: result.errors.length > 0 ? null : createPolicyPreview(result.policy),
