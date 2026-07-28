@@ -339,22 +339,29 @@ describe('hook command routing', () => {
     expect(stderr).toContain('Unknown option: --coding-cli');
   });
 
-  test('Coding CLI hook fails closed when config loading throws', async () => {
+  test('Coding CLI hook keeps running when config loading throws', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-bad-config-'));
     try {
       writeLockedGitHubRulebookPolicy(cwd, '{}', { cacheAsDirectory: true });
 
+      // An unreadable policy filesystem degrades to protective defaults rather than
+      // denying every command, so an ordinary command still passes with no output.
       const { stdout, exitCode } = await runCli(
         ['hook', '--coding-cli'],
         JSON.stringify({ ...claudeCodeBashInput('echo ok'), cwd }),
       );
-      const output = JSON.parse(stdout);
 
       expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Unable to access project policy filesystem safely.',
+      expect(stdout).toBe('');
+
+      // The built-in protections the fallback carries keep denying.
+      const denied = await runCli(
+        ['hook', '--coding-cli'],
+        JSON.stringify({ ...claudeCodeBashInput('git reset --hard'), cwd }),
       );
+
+      expect(denied.exitCode).toBe(0);
+      expect(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

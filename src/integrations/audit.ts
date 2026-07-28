@@ -1,7 +1,6 @@
 import { writeAuditLog } from '@/core/audit';
 import type { BlockIntent, Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
-import type { PolicyFallbackState } from '@/domain/policy';
 import type { IntegrationDenial } from '@/integrations/denial';
 import type { AuditErrorCode, AuditFailureStage, EffectiveSafetyLevel } from '@/types';
 
@@ -9,7 +8,7 @@ type GuardEvaluation = {
   stage: string;
   decision: Decision;
   level?: EffectiveSafetyLevel;
-  configState?: { state: PolicyFallbackState; reason: string };
+  configFallback?: { reason: string };
 };
 
 type GuardAuditDescriptor = {
@@ -20,7 +19,7 @@ type GuardAuditDescriptor = {
   cwd: string;
   toolName: string;
   level?: EffectiveSafetyLevel;
-  configState?: PolicyFallbackState;
+  configFallback?: true;
   ruleId?: string;
   intent?: BlockIntent;
   failureStage?: AuditFailureStage;
@@ -46,7 +45,7 @@ export function projectGuardAudit(
       cwd: invocation.context.executionCwd,
       toolName: invocation.toolName,
       level: evaluation.level,
-      configState: evaluation.configState?.state,
+      ...(evaluation.configFallback ? { configFallback: true as const } : {}),
     };
   }
 
@@ -61,7 +60,7 @@ export function projectGuardAudit(
     cwd: invocation.context.executionCwd,
     toolName: invocation.toolName,
     level: evaluation.level,
-    configState: evaluation.configState?.state,
+    ...(evaluation.configFallback ? { configFallback: true as const } : {}),
     ruleId: evaluation.decision.ruleId,
     intent: evaluation.decision.intent,
     failureStage: failure?.stage,
@@ -93,7 +92,7 @@ export function writeGuardAudit(
     agent: options.agent,
     shape: options.shape,
     level: audit.level,
-    configState: audit.configState,
+    configFallback: audit.configFallback,
     toolName: audit.toolName,
     ruleId: audit.ruleId,
     intent: audit.intent,

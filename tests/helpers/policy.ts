@@ -31,7 +31,7 @@ export interface TestPolicyInput {
   destructiveCommandRuleOverrides?: Readonly<Record<string, DestructiveCommandRuleOverride>>;
   destructiveCommandAllowPaths?: readonly string[];
   secretProtection?: SecretProtectionConfig;
-  failClosedReason?: string;
+  configFallbackReason?: string;
 }
 
 export function testModes(level: PolicySafetyLevel = 'standard') {
@@ -74,8 +74,8 @@ export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
   };
   return createPolicySnapshot(
     policy,
-    input.failClosedReason
-      ? { diagnostics: [input.failClosedReason], reason: input.failClosedReason }
+    input.configFallbackReason
+      ? { diagnostics: [input.configFallbackReason], reason: input.configFallbackReason }
       : undefined,
   );
 }
@@ -119,7 +119,7 @@ export function loadTestPolicy(
       disabledRules: new Set(snapshot.policy.secretProtection.disabledRules),
       denyPaths: [...snapshot.policy.secretProtection.denyPaths],
     },
-    ...(snapshot.state === 'blocked' ? { failClosedReason: snapshot.reason } : {}),
+    ...(snapshot.state === 'degraded' ? { configFallbackReason: snapshot.reason } : {}),
   };
 }
 

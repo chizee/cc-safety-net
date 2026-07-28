@@ -44,8 +44,6 @@ export function evaluateCommandWithTrace(
     {
       ...options,
       ...resolveCommandAnalysisContext(options),
-      // `explain` historically reports invalid configuration but analyzes with the safe empty policy.
-      invalidReason: undefined,
       analyzePartialProgram: true,
       compatibility: 'explain-legacy',
       factStore,

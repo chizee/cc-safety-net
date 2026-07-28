@@ -165,36 +165,21 @@ describe('deriveDoctorFindings', () => {
     });
   }
 
-  test.each([
-    [
-      'blocked' as const,
-      {
-        checkId: 'config.runtime-blocked',
-        severity: 'error' as const,
-        title: 'Runtime rule configuration is blocked',
-        detail:
-          'A required rule source has no verified fallback, so ordinary tool calls are denied: missing lockfile /user/rule.lock; run `cc-safety-net rule sync`. Recovery: read or edit /user/rule.json with your file tools, or run `cc-safety-net rule sync`.',
-        fixHint: 'Repair the named config file, run `cc-safety-net rule sync`, then rerun doctor.',
-      },
-    ],
-    [
-      'degraded' as const,
-      {
-        checkId: 'config.runtime-degraded',
-        severity: 'warning' as const,
-        title: 'Runtime is enforcing a fallback configuration',
-        detail:
-          'The rejected candidate configuration is not active: local source digest mismatch for ./rules; enforcing the verified cached rulebook; the local edit is pending; run `cc-safety-net rule sync`.',
-        fixHint:
-          'Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor.',
-      },
-    ],
-  ])('reports the %s runtime configuration state with its full reason', (state, expected) => {
+  test('reports the degraded runtime configuration state with its full reason', () => {
+    const expected = {
+      checkId: 'config.runtime-degraded',
+      severity: 'warning' as const,
+      title: 'Runtime is enforcing a fallback configuration',
+      detail:
+        'The rejected candidate configuration is not active: local source digest mismatch for ./rules; enforcing the verified cached rulebook; the local edit is pending; run `cc-safety-net rule sync`.',
+      fixHint:
+        'Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor.',
+    };
     const reason = expected.detail.slice(expected.detail.indexOf(': ') + 2);
 
-    expect(deriveDoctorFindings(createReport({ configState: { state, reason } }))).toContainEqual(
-      expected,
-    );
+    expect(
+      deriveDoctorFindings(createReport({ configState: { state: 'degraded', reason } })),
+    ).toContainEqual(expected);
     expect(deriveDoctorFindings(createReport())).not.toContainEqual(
       expect.objectContaining({ checkId: expected.checkId }),
     );

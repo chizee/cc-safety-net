@@ -39,11 +39,7 @@ import {
   RULE_SYNC_RESOURCE_LIMITS,
   type RuleSyncOperation,
 } from './resource-limits';
-import {
-  getRulesConfigRuntimeErrorsForConfig,
-  loadRulesPolicy,
-  loadScopePolicy,
-} from './scope-policy';
+import { getRulesConfigRuntimeErrorsForConfig, loadScopePolicy } from './scope-policy';
 import { getRemoveMatches, getSelectedUpdateSpecs, isGitHubRepositorySource } from './sources';
 import type {
   RulebookLockEntry,
@@ -98,13 +94,14 @@ export async function syncRulesConfigWithHooks(
 }
 
 /**
- * Publishing a lock does not prove the synchronized scope loads cleanly: an unknown override key,
- * a pending local edit, and a rulebook name that collides with the other scope only appear once the
- * policy is reloaded the way the guard loads it. Report what that reload finds for this scope
- * instead of reporting success while its runtime state stays degraded or blocked. Diagnostics owned
- * by the scope that was not synchronized are left alone: this run cannot repair them, and failing on
- * them would break synchronizing one scope while the other is still being set up. `--check`
- * validates the scope in isolation and would miss the same classes, so it verifies too.
+ * Publishing a lock does not prove the synchronized scope loads cleanly: an unknown override key
+ * and a pending local edit only appear once the policy is reloaded the way the guard loads it.
+ * Report what that reload finds instead of reporting success while the runtime state stays degraded.
+ * The reload covers the scope being synchronized, so diagnostics owned by the other scope are left
+ * alone: this run cannot repair them, and failing on them would break synchronizing one scope while
+ * the other is still being set up. A rulebook name colliding across scopes is one of those, and it
+ * resolves deterministically in favour of the first claim, so it warns rather than failing here.
+ * `--check` validates the scope in isolation and would miss the same classes, so it verifies too.
  */
 function verifyRuntimeRulesPolicy(
   options: SyncRulesConfigOptions,
@@ -112,17 +109,15 @@ function verifyRuntimeRulesPolicy(
 ): SyncRulesConfigResult {
   if (!result.ok) return result;
   const scope = getScopePaths(options);
-  const merged = loadRulesPolicy(options);
   const remaining = [
-    ...new Set([
-      ...getRulesConfigRuntimeErrorsForConfig(
+    ...new Set(
+      getRulesConfigRuntimeErrorsForConfig(
         scope.configPath,
         scope.lockPath,
         options,
         scope.filesystemScope,
       ),
-      ...(merged.blockedConfigPaths.includes(scope.configPath) ? merged.errors : []),
-    ]),
+    ),
   ];
   if (remaining.length === 0) return result;
   return { ok: false, errors: remaining, warnings: result.warnings, entries: result.entries };

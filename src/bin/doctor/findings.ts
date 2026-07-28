@@ -97,23 +97,8 @@ const findingRules: FindingRule[] = [
         : [],
   },
   {
-    // The snapshot reason already names the failing source, the rejected condition,
-    // the active fallback, that the candidate is not active, and the exact repair.
-    derive: (report) =>
-      report.configState.state === 'blocked'
-        ? [
-            {
-              checkId: 'config.runtime-blocked',
-              severity: 'error',
-              title: 'Runtime rule configuration is blocked',
-              detail: `A required rule source has no verified fallback, so ordinary tool calls are denied: ${report.configState.reason}`,
-              fixHint:
-                'Repair the named config file, run `cc-safety-net rule sync`, then rerun doctor.',
-            },
-          ]
-        : [],
-  },
-  {
+    // The snapshot reason already names the failing source, what is not active,
+    // that the rejected candidate is not active, and the repair.
     derive: (report) =>
       report.configState.state === 'degraded'
         ? [

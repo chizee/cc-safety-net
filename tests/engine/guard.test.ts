@@ -433,7 +433,8 @@ describe('guard evaluation', () => {
     await withTempDir('cc-safety-net-guard-secret-', (cwd) => {
       const result = evaluateGuard(commandInvocation(cwd, 'cat .env'), {
         dependencies: dependencies({
-          loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid policy config' }),
+          loadPolicySnapshot: () =>
+            policySnapshot({ configFallbackReason: 'invalid policy config' }),
           findSensitiveTarget: () => ({ target: '.env', ruleId: 'secret.basename.env' }),
         }),
       });
@@ -556,24 +557,20 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('denies non-command tools when config state is invalid', async () => {
+  test('allows non-command tools while a fallback config is enforced', async () => {
     await withTempDir('cc-safety-net-guard-config-', (cwd) => {
       expect(
         evaluateGuard(nonCommandInvocation(cwd), {
           dependencies: dependencies({
-            loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid policy config' }),
+            loadPolicySnapshot: () =>
+              policySnapshot({ configFallbackReason: 'invalid policy config' }),
           }),
         }),
       ).toEqual({
-        stage: 'config-state',
+        stage: 'non-command',
         level: 'standard',
-        configState: { state: 'blocked', reason: 'invalid policy config' },
-        decision: {
-          kind: 'deny',
-          reason: 'invalid policy config',
-          intent: 'stop_and_explain',
-          evidence: [],
-        },
+        configFallback: { reason: 'invalid policy config' },
+        decision: { kind: 'allow' },
       });
     });
   });
@@ -599,21 +596,22 @@ describe('guard evaluation', () => {
     });
   });
 
-  test('preserves exact rule-sync recovery and rejects chained lookalikes', async () => {
+  test('analyzes commands normally while a fallback config is enforced', async () => {
     await withTempDir('cc-safety-net-guard-recovery-', (cwd) => {
       const options = {
         dependencies: {
-          loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'missing lockfile' }),
+          loadPolicySnapshot: () => policySnapshot({ configFallbackReason: 'missing lockfile' }),
         },
       };
 
+      // No command is special-cased any more: the fallback state neither widens nor
+      // narrows analysis, it only rides along on the report.
       expect(
         evaluateGuard(commandInvocation(cwd, 'npx -y cc-safety-net rule sync'), options),
       ).toEqual({
         stage: 'command-analysis',
         level: 'standard',
-        // The allowed repair still records the state it is repairing.
-        configState: { state: 'blocked', reason: 'missing lockfile' },
+        configFallback: { reason: 'missing lockfile' },
         decision: { kind: 'allow' },
       });
       expect(

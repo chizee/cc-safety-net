@@ -12,7 +12,6 @@ import {
   withEnv,
   withLinkedWorktreeFixture,
 } from '../helpers';
-import { policySnapshot } from '../helpers/policy';
 import {
   initialGitRule,
   syncInitialGitRulebook,
@@ -769,11 +768,6 @@ describe('Pi tool_call event', () => {
     const policyHandler = createPiToolCallHandler({
       guardDependencies: { findPolicyMutation: () => ({ target: 'policy.json' }) },
     });
-    const invalidConfigHandler = createPiToolCallHandler({
-      guardDependencies: {
-        loadPolicySnapshot: () => policySnapshot({ failClosedReason: 'invalid config' }),
-      },
-    });
     const evaluatorErrorHandler = createPiToolCallHandler({
       guardDependencies: {
         analyzeCommand: () => {
@@ -784,21 +778,13 @@ describe('Pi tool_call event', () => {
 
     expect(handlePiToolCall(shellToolCall({}), ctx)?.block).toBeTrue();
     expect(policyHandler(bashToolCall('git status'), ctx)?.block).toBeTrue();
-    expect(invalidConfigHandler(toolCall('Read', { path: 'README.md' }), ctx)?.block).toBeTrue();
     expect(evaluatorErrorHandler(bashToolCall('git status'), ctx)?.block).toBeTrue();
     expect(handlePiToolCall(toolCall('Read', { path: 'README.md' }), ctx)).toBeUndefined();
-    expect(sessionLookups).toEqual(['session', 'session', 'session', 'session']);
+    expect(sessionLookups).toEqual(['session', 'session', 'session']);
 
     expect(handlePiToolCall(bashToolCall('cat .env'), ctx)?.block).toBeTrue();
     expect(handlePiToolCall(bashToolCall('git reset --hard'), ctx)?.block).toBeTrue();
-    expect(sessionLookups).toEqual([
-      'session',
-      'session',
-      'session',
-      'session',
-      'session',
-      'session',
-    ]);
+    expect(sessionLookups).toEqual(['session', 'session', 'session', 'session', 'session']);
   });
 
   test.each([

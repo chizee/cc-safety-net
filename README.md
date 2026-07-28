@@ -267,7 +267,7 @@ plugin rewrites an already-approved input after CC Safety Net has allowed it.
 | **Semantic command analysis** | `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`/`mkfs`/`shred` — by intent, not string pattern. `git checkout -b feature` (safe) is allowed while `git checkout -- file` (destructive) is blocked. |
 | **Shell wrapper detection** | Destructive commands hidden in `bash -c`, `sh -c`, and similar wrappers, recursively analyzed up to 10 levels deep. |
 | **Interpreter one-liners** | Destructive code in `python -c`, `node -e`, `ruby -e`, `perl -e` one-liners (e.g. `os.system("rm -rf /")`). |
-| **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config degrades to a verified or protective fallback with a warning; a rule source with no verified fallback blocks until the exact recovery succeeds. |
+| **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config never blocks: an unverifiable rule source is dropped and an unreadable `policy.json` falls back to protective defaults, both with a warning on every reporting surface. |
 | **Sensitive-path protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
 | **Audit logging** | Allowed and blocked command decisions written to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted, retained for 90 days. Set `CC_SAFETY_NET_AUDIT_SCOPE=blocked` to record denials only. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** tab of `npx cc-safety-net gui`. |
@@ -346,12 +346,14 @@ Untrusted hook and tool payloads, plus remote rulebook responses, have generous 
 
 ### Configuration recovery
 
-Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches, lockfiles, or policy files while evaluating a tool call. What an invalid config does depends on whether a verified fallback exists:
+Runtime policy evaluation is read-only. Hooks and plugins never repair rulebook caches, lockfiles, or policy files while evaluating a tool call. **Invalid configuration never blocks your agent.** The runtime degrades instead:
 
-- **Degraded** — a changed or invalid local rulebook keeps its digest-verified cached version enforced, with the edit pending until you run `npx -y cc-safety-net rule sync`. An unreadable `policy.json` keeps its valid sections and falls back to protective defaults for the rest. Commands keep running against that fallback, and the warning appears in the audit trail, `doctor`, the status surface, and the next block message.
-- **Blocked** — a missing lock entry or cache, a digest mismatch, an invalid `rule.json`, or a duplicate rulebook name leaves nothing verified to enforce, so ordinary tool calls are denied. Two things still work from inside the agent: the exact `npx -y cc-safety-net rule sync` form, and reading or editing the exact `rule.json` the block message names. Shell edit forms of that file, chained recovery commands, and writes to `policy.json` stay denied.
+- **A rule source that cannot be verified is dropped, not enforced.** A missing lock entry or cache, a digest mismatch, an invalid cached rulebook, an unreadable `rule.json`, or a legacy config awaiting `rule migrate` leaves that source contributing no rules. Every other rule, the other scope, and all built-in protections keep working. (One scoped exception: an unreadable `rule.json` also loses that scope's `transparent_wrappers`, so commands behind a wrapper it declared stop being unwrapped — a dropped rulebook cache or lock entry does not.)
+- **A rejected candidate never becomes active.** A changed or invalid local rulebook keeps its digest-verified cached version enforced, with the edit pending until you run `npx -y cc-safety-net rule sync`. An unreadable `policy.json` keeps its valid sections and falls back to protective defaults for the rest. A duplicate rulebook name keeps the first claim.
 
-`rule sync` reloads the synchronized scope before reporting success, so it fails with the remaining diagnostic rather than printing `Rule config synced.` while the runtime is still degraded or blocked. The next tool call reloads and verifies the snapshot from disk. Full contract: [docs/config-recovery.md](docs/config-recovery.md).
+Nothing is special-cased in return: there is no allowlisted repair command and no allowlisted config path, because nothing is denied for being unconfigurable. Every degraded state is reported on the next block message, the audit trail, `doctor`, the statusline, the GUI banner, and `rule list`.
+
+`rule sync` reloads the synchronized scope before reporting success, so it fails with the remaining diagnostic rather than printing `Rule config synced.` while the runtime is still degraded. The next tool call reloads and verifies the snapshot from disk. Full contract, including why dropping beats blocking: [docs/config-recovery.md](docs/config-recovery.md).
 
 ## Upgrading from an older version
 

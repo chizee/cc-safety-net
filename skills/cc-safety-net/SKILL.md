@@ -43,5 +43,6 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 - Blocked fixtures must specify the expected `rule`; include allowed fixtures for close-but-safe commands.
 - Local source names are bare names such as `project-rules`; do not put filesystem paths in `rules`.
 - An edited or invalid local rulebook keeps its last synced, digest-verified version enforced and the edit stays pending until `npx -y cc-safety-net rule sync` validates it.
-- A missing lock entry or cache, a digest mismatch, an invalid `rule.json`, or a duplicate rulebook name leaves nothing verified to enforce and blocks ordinary tool calls. Recovery from inside the agent is the exact `npx -y cc-safety-net rule sync` form, or reading and editing the exact `rule.json` the block message names; shell edit forms of that file stay blocked.
+- A missing lock entry or cache, a digest mismatch, an invalid cached rulebook, or an unreadable `rule.json` drops that source: its rules stop applying until `npx -y cc-safety-net rule sync` succeeds. Nothing is blocked, so a rule you just added silently does nothing until it is synced — check `npx -y cc-safety-net rule list` for warnings if a rule does not fire.
+- A duplicate rulebook name keeps the first claim, user scope before project scope, and ignores the later rulebook.
 - `rule sync` reports failure with the remaining diagnostic instead of success when the synchronized scope still does not load cleanly.

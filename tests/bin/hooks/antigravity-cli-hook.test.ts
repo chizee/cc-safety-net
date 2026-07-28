@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
 import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
-import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import {
+  syncRulesConfig,
+  writeDefaultRulesConfig,
+  writeStarterRulebook,
+} from '@/core/rules/policy';
 import { readAuditLogEntriesForSession } from '../../helpers';
 import {
   antigravityShellInput,
@@ -84,19 +88,21 @@ describe('Antigravity CLI hook', () => {
       await withHookTestContext(async (context) => {
         await withSecondWorkspace(async (secondWorkspace) => {
           mkdirSync(join(secondWorkspace, 'app'));
-          writeDefaultRulesConfig(join(secondWorkspace, '.cc-safety-net/rules/rule.json'), [
-            'project-rules',
-          ]);
+          await syncWorkspaceRulebook(secondWorkspace);
 
           const result = await context.runAntigravityHook({
             toolCall: {
               name: 'run_command',
-              args: { CommandLine: 'git status', Cwd: join(secondWorkspace, 'app') },
+              args: { CommandLine: 'docker system prune', Cwd: join(secondWorkspace, 'app') },
             },
             workspacePaths: [context.cwd, secondWorkspace],
           });
 
-          expect(getHookDenyReason(result, 'antigravity-cli')).toContain('missing lockfile');
+          // Only the second workspace configures this rule, so enforcing it proves
+          // which workspace root the configuration was loaded from.
+          expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+            'project-rules/block-docker-system-prune',
+          );
         });
       });
     });
@@ -136,19 +142,23 @@ describe('Antigravity CLI hook', () => {
     test('loads configuration from the workspace targeted by find_by_name', async () => {
       await withHookTestContext(async (context) => {
         await withSecondWorkspace(async (secondWorkspace) => {
-          writeDefaultRulesConfig(join(secondWorkspace, '.cc-safety-net/rules/rule.json'), [
-            'project-rules',
-          ]);
+          await syncWorkspaceRulebook(secondWorkspace);
+          writeUserPolicy(context.home, {
+            version: 1,
+            secret_protection: { deny_paths: [join(secondWorkspace, 'secrets')] },
+          });
 
           const result = await context.runAntigravityHook({
             toolCall: {
               name: 'find_by_name',
-              args: { SearchDirectory: secondWorkspace, Pattern: '*.ts' },
+              args: { SearchDirectory: join(secondWorkspace, 'secrets'), Pattern: '*.ts' },
             },
             workspacePaths: [context.cwd, secondWorkspace],
           });
 
-          expect(getHookDenyReason(result, 'antigravity-cli')).toContain('missing lockfile');
+          expect(getHookDenyReason(result, 'antigravity-cli')).toContain(
+            'Access to a sensitive path is not allowed.',
+          );
         });
       });
     });
@@ -615,6 +625,13 @@ function expectSingleNonReflectiveFailure(result: HookResult, privateValue: stri
   expect(result.stdout.split('\n')).toHaveLength(1);
   expect(getHookDenyReason(result, 'antigravity-cli')).toContain('CC Safety Net failed closed');
   expect(result.stdout).not.toContain(privateValue);
+}
+
+/** A workspace whose synced rulebook blocks `docker system prune`. */
+async function syncWorkspaceRulebook(workspace: string): Promise<void> {
+  writeStarterRulebook(join(workspace, '.cc-safety-net/rules/project-rules/rulebook.json'));
+  writeDefaultRulesConfig(join(workspace, '.cc-safety-net/rules/rule.json'), ['project-rules']);
+  expect((await syncRulesConfig({ cwd: workspace })).ok).toBeTrue();
 }
 
 async function withSecondWorkspace(run: (workspace: string) => Promise<void>): Promise<void> {

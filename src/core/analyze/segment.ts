@@ -101,7 +101,6 @@ import {
 
 export type InternalOptions = AnalyzeOptions & {
   policy: EffectivePolicy;
-  invalidReason: string | undefined;
   effectiveCwd: string | null | undefined;
   analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
   commandView?: CommandView;
@@ -230,10 +229,6 @@ export function analyzeSegment(
   ]);
   const head = stripped[0];
   if (!head) return null;
-
-  if (options.invalidReason) {
-    return { reason: options.invalidReason, intent: 'stop_and_explain' };
-  }
 
   if (isStandardCommandWrapper(head)) {
     throw new DerivedCommandWorkLimitError();

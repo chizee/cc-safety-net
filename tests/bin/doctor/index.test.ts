@@ -174,16 +174,16 @@ describe('doctor report verification ownership', () => {
           findings: unknown[];
         };
 
-        expect(report.configState.state).toBe('blocked');
-        // The reason carries the failing file, the rejected condition, and the
-        // exact in-band repair through to the finding detail.
-        expect(report.configState.reason).toContain('Recovery: read or edit');
+        expect(report.configState.state).toBe('degraded');
+        // The reason carries the failing file, the rejected condition, and what is
+        // no longer active through to the finding detail.
+        expect(report.configState.reason).toContain('Those rule sources are not active');
         expect(report.findings).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              checkId: 'config.runtime-blocked',
-              severity: 'error',
-              detail: expect.stringContaining('Recovery: read or edit') as string,
+              checkId: 'config.runtime-degraded',
+              severity: 'warning',
+              detail: expect.stringContaining('Those rule sources are not active') as string,
             }),
           ]),
         );

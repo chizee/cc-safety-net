@@ -15,7 +15,6 @@ import {
   REASON_SAFETY_NET_FAILED_CLOSED,
   REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
 } from '@/core/reasons';
-import { isRuleConfigRepairInvocation } from '@/core/rule-config-recovery';
 import {
   findSensitiveTargetInSemanticFacts,
   getCommandFromToolInput,
@@ -29,7 +28,7 @@ import {
 import { ToolInputLimitError } from '@/core/tool-input';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
-import type { PolicyFallbackState, PolicySnapshot } from '@/domain/policy';
+import type { PolicySnapshot } from '@/domain/policy';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
 import type {
@@ -53,11 +52,11 @@ export type GuardEvaluation = {
    */
   level?: EffectiveSafetyLevel;
   /**
-   * Set when the snapshot enforced a fallback policy instead of the configured
-   * one. The reason names the failing source, the rejected condition, the active
-   * fallback, and the exact repair, so diagnostic surfaces can relay all of it.
+   * Set when the snapshot enforced a fallback policy instead of the configured one.
+   * The reason names the failing source, what is not active, and the repair, so
+   * diagnostic surfaces can relay all of it.
    */
-  configState?: { state: PolicyFallbackState; reason: string };
+  configFallback?: { reason: string };
 };
 
 /** @internal */
@@ -197,8 +196,8 @@ export function evaluateGuard(
   const policy = snapshot.policy;
   const modes = dependencies.getModes(policy);
   // Every decision made after the snapshot resolved reports the level in force and,
-  // when a fallback policy is enforced, the configuration state behind it.
-  const reported = { level: modes.effectiveLevel, ...getConfigState(snapshot) };
+  // when a fallback policy is enforced, the reason behind it.
+  const reported = { level: modes.effectiveLevel, ...getConfigFallback(snapshot) };
   const secretTarget =
     policy.secretProtection.enabled === false
       ? null
@@ -226,27 +225,6 @@ export function evaluateGuard(
   }
 
   if (!isCommandInvocation(invocation)) {
-    // The blocked state keeps a recovery plane: the file tools may reach the
-    // exact config whose repair clears the block, and nothing else.
-    if (
-      snapshot.state === 'blocked' &&
-      !callDependency('config-state', command, () =>
-        isRuleConfigRepairInvocation(facts, snapshot.repairTargets),
-      )
-    ) {
-      return {
-        stage: 'config-state',
-        ...reported,
-        decision: {
-          kind: 'deny',
-          reason: snapshot.reason,
-          intent: 'stop_and_explain',
-          evidence: inputCommand
-            ? [{ kind: 'command', command: inputCommand, segment: inputCommand }]
-            : [],
-        },
-      };
-    }
     return { stage: 'non-command', ...reported, decision: { kind: 'allow' } };
   }
 
@@ -279,9 +257,9 @@ export function evaluateGuard(
   return { stage: 'command-analysis', ...reported, decision: { kind: 'allow' } };
 }
 
-function getConfigState(snapshot: PolicySnapshot) {
+function getConfigFallback(snapshot: PolicySnapshot) {
   if (snapshot.state === 'ready') return {};
-  return { configState: { state: snapshot.state, reason: snapshot.reason } };
+  return { configFallback: { reason: snapshot.reason } };
 }
 
 function getDeclaredCommandProgram(facts: SemanticFacts) {

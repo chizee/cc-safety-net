@@ -14,6 +14,7 @@ import {
   expectNoHookOutput,
   expectSecretProtectionDeny,
   getHookDenyReason,
+  type HookTestContext,
   runClaudeCodeHookDirect as runClaudeCodeHook,
   withHookTestContext,
   writeUserPolicy,
@@ -104,52 +105,27 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('policy fail-closed denial shows repair command without manual permission footer', async () => {
+    test('an unsynchronized rule source rides along as a warning on an unrelated denial', async () => {
       await withHookTestContext(async (context) => {
         writeProjectRulesConfigWithoutLock(context.cwd);
 
-        const result = await context.runClaudeCodeHook(
+        // The unsynchronized source is dropped, so an ordinary command passes...
+        const allowed = await context.runClaudeCodeHook(
           context.claudeCodeBashInput('git status --short --branch'),
         );
 
-        const parsed = JSON.parse(result.stdout);
-        expect(result.exitCode).toBe(0);
-        expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'BLOCKED by CC Safety Net',
-        );
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'run `cc-safety-net rule sync`',
-        );
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'Command: git status --short --branch',
-        );
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).not.toContain('ask the user');
+        expect(allowed.exitCode).toBe(0);
+        expect(allowed.stdout).toBe('');
+
+        // ...and the diagnostic surfaces on the next denial it did not cause.
+        const reason = await denialReason(context, 'git reset --hard');
+
+        expect(reason).toContain('Config warning: missing lockfile');
+        expect(reason).toContain('run `cc-safety-net rule sync`');
       });
     });
 
-    test('policy fail-closed allows exact rule sync repair command', async () => {
-      await withHookTestContext(async (context) => {
-        writeProjectRulesConfigWithoutLock(context.cwd);
-
-        await expectNoHookOutput(
-          context.runClaudeCodeHook,
-          context.claudeCodeBashInput('npx -y cc-safety-net rule sync'),
-        );
-        const result = await context.runClaudeCodeHook(
-          context.claudeCodeBashInput('npx -y cc-safety-net rule sync && rm -rf /'),
-        );
-
-        const parsed = JSON.parse(result.stdout);
-        expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'This path contains the protected policy config and you must not modify or delete it.',
-        );
-      });
-    });
-
-    test('legacy config with rules fail-closed tells the agent to stop and explain', async () => {
+    test('legacy config with rules is dropped and reported on the next denial', async () => {
       await withHookTestContext(async (context) => {
         writeFileSync(
           join(context.cwd, '.safety-net.json'),
@@ -167,15 +143,13 @@ describe('Claude Code hook', () => {
           'utf-8',
         );
 
-        const result = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo hello'));
+        // The legacy rule is inert until migration, so its command is not blocked.
+        const allowed = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo hello'));
 
-        const parsed = JSON.parse(result.stdout);
-        expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
+        expect(allowed.stdout).toBe('');
+
+        expect(await denialReason(context, 'git reset --hard')).toContain(
           'ask the user to run `npx -y cc-safety-net rule migrate`',
-        );
-        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          'Do not brute-force variants',
         );
       });
     });
@@ -298,18 +272,19 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
       });
     });
 
-    test('fails closed until explicit sync creates the local rule lock', async () => {
+    test('a local rulebook is inert until explicit sync creates the rule lock', async () => {
       await withHookTestContext(async (context) => {
         writeProjectRulesConfigWithoutLock(context.cwd);
         writeStarterRulebook(join(context.cwd, '.cc-safety-net/rules/project-rules/rulebook.json'));
 
+        // Unsynchronized rules are never enforced, so the command passes until sync
+        // publishes a verified lock entry for it.
         const result = await context.runClaudeCodeHook(
           context.claudeCodeBashInput('docker system prune'),
         );
 
-        const invalid = JSON.parse(result.stdout);
         expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(false);
-        expect(invalid.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
+        expect(result.stdout).toBe('');
 
         expect((await syncRulesConfig({ cwd: context.cwd })).ok).toBeTrue();
         const synced = JSON.parse(
@@ -716,6 +691,14 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
     });
   });
 });
+
+async function denialReason(context: HookTestContext, command: string): Promise<string> {
+  const result = await context.runClaudeCodeHook(context.claudeCodeBashInput(command));
+  const parsed = JSON.parse(result.stdout);
+
+  expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+  return parsed.hookSpecificOutput.permissionDecisionReason as string;
+}
 
 function writeProjectRulesConfigWithoutLock(cwd: string): void {
   rmSync(join(cwd, '.cc-safety-net/rules'), { recursive: true, force: true });

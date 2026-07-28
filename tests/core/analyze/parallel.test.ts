@@ -372,7 +372,6 @@ describe('parallel analysis budgets', () => {
       analyzeCommandInternal(command, 0, {
         policySnapshot: snapshot,
         policy: commandAnalysisPolicy(snapshot),
-        invalidReason: undefined,
         strict: false,
         paranoidRm: false,
         paranoidInterpreters: false,

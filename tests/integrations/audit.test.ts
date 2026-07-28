@@ -87,33 +87,33 @@ describe('runtime audit integration', () => {
     ).toBeUndefined();
   });
 
-  test('records the fallback configuration state on allowed and denied decisions', () => {
-    const configState = { state: 'degraded' as const, reason: 'enforcing the verified cache' };
+  test('records that a fallback config was in force on allowed and denied decisions', () => {
+    const configFallback = { reason: 'enforcing the verified cache' };
     expect(
       projectGuardAudit(
         invocation,
         {
           stage: 'command-analysis',
-          configState,
+          configFallback,
           decision: { kind: 'deny', reason: 'blocked', intent: 'hard_stop', evidence: [] },
         },
         false,
-      )?.configState,
-    ).toBe('degraded');
+      )?.configFallback,
+    ).toBeTrue();
     expect(
       projectGuardAudit(
         invocation,
-        { stage: 'command-analysis', configState, decision: { kind: 'allow' } },
+        { stage: 'command-analysis', configFallback, decision: { kind: 'allow' } },
         true,
-      )?.configState,
-    ).toBe('degraded');
+      )?.configFallback,
+    ).toBeTrue();
     // A ready snapshot leaves the field out entirely.
     expect(
       projectGuardAudit(
         invocation,
         { stage: 'command-analysis', decision: { kind: 'allow' } },
         true,
-      )?.configState,
+      )?.configFallback,
     ).toBeUndefined();
   });
 
@@ -207,16 +207,16 @@ describe('runtime audit integration', () => {
     });
   });
 
-  test('persists the fallback configuration state in the audit entry', async () => {
+  test('persists the config fallback flag in the audit entry', async () => {
     await withTempDir('cc-safety-net-audit-config-state-', (home) => {
-      writeGuardAudit({ ...AUDIT, configState: 'blocked' }, () => 'config-state-session', {
+      writeGuardAudit({ ...AUDIT, configFallback: true }, () => 'config-state-session', {
         agent: 'test',
         homeDir: home,
       });
 
-      expect(readLatestAuditLogEntry(home, 'config-state-session').configState).toBe('blocked');
+      expect(readLatestAuditLogEntry(home, 'config-state-session').configFallback).toBeTrue();
       writeGuardAudit(AUDIT, () => 'ready-session', { agent: 'test', homeDir: home });
-      expect(readLatestAuditLogEntry(home, 'ready-session')).not.toHaveProperty('configState');
+      expect(readLatestAuditLogEntry(home, 'ready-session')).not.toHaveProperty('configFallback');
     });
   });
 

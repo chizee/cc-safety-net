@@ -167,7 +167,6 @@ describe('runtime config loading', () => {
    */
   function degradedReason(): string {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-    expect(config.failClosedReason).toBeUndefined();
     expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
     const snapshot = loadPolicySnapshot({ cwd: tempDir, userConfigDir: userRulesDir });
     expect(snapshot.state).toBe('degraded');
@@ -375,7 +374,7 @@ describe('runtime config loading', () => {
 
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
     expect(config.destructiveCommandRuleOverrides).toEqual({});
     expect(config.secretProtection?.disabledRules).toEqual(new Set());
     expect(config.safety).toEqual({});
@@ -492,22 +491,25 @@ describe('runtime config loading', () => {
     );
   }
 
-  function expectLegacyFailClosed(): void {
+  /** A legacy config contributes no rules and reports the migration it needs. */
+  function expectLegacySourceDropped(): void {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBe(
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`.',
+    expect(config.configFallbackReason).toBe(
+      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`. Those rule sources are not active; every other rule and all built-in protections still apply.',
     );
+    // Ordinary analysis keeps running against the surviving policy.
+    expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
   }
 
-  function expectPolicyFailClosed(reason: string): void {
+  /** An unverifiable rule source is dropped, never enforced, and never blocking. */
+  function expectRuleSourceDropped(reason: string): void {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-    const result = analyzeCommand('echo ok', { cwd: tempDir, config });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toContain(reason);
-    expect(result?.reason).toContain(reason);
+    expect(config.configFallbackReason).toContain(reason);
+    expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
   }
 
   test('empty legacy project config is ignored when project rule config is missing', () => {
@@ -516,10 +518,10 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
   });
 
-  test('legacy project config with rules fails closed when project rule config is missing', () => {
+  test('legacy project config with rules is dropped when project rule config is missing', () => {
     writeLegacyProjectConfig([
       {
         name: 'block-echo',
@@ -529,7 +531,7 @@ describe('runtime config loading', () => {
       },
     ]);
 
-    expectLegacyFailClosed();
+    expectLegacySourceDropped();
   });
 
   test('empty legacy user config is ignored when user rule config is missing', () => {
@@ -542,7 +544,7 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
   });
 
   test('legacy user config with missing rules is ignored when user rule config is missing', () => {
@@ -555,10 +557,10 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
   });
 
-  test('legacy user config with rules fails closed when user rule config is missing', () => {
+  test('legacy user config with rules is dropped when user rule config is missing', () => {
     mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
     writeFileSync(
       join(tempDir, 'home', '.cc-safety-net', 'config.json'),
@@ -575,23 +577,23 @@ describe('runtime config loading', () => {
       }),
     );
 
-    expectLegacyFailClosed();
+    expectLegacySourceDropped();
   });
 
-  test('invalid legacy project config fails closed', () => {
+  test('invalid legacy project config is dropped', () => {
     writeFileSync(join(tempDir, '.safety-net.json'), '{bad json');
 
-    expectLegacyFailClosed();
+    expectLegacySourceDropped();
   });
 
-  test('invalid legacy user config fails closed', () => {
+  test('invalid legacy user config is dropped', () => {
     mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
     writeFileSync(join(tempDir, 'home', '.cc-safety-net', 'config.json'), '{bad json');
 
-    expectLegacyFailClosed();
+    expectLegacySourceDropped();
   });
 
-  test('legacy files with rules fail closed when new rule config has no migration evidence', () => {
+  test('legacy files with rules are dropped when new rule config has no migration evidence', () => {
     writeLegacyProjectConfig([
       {
         name: 'block-echo',
@@ -602,7 +604,7 @@ describe('runtime config loading', () => {
     ]);
     writeEmptyProjectRulesConfig();
 
-    expectLegacyFailClosed();
+    expectLegacySourceDropped();
   });
 
   test('empty legacy files are ignored when new rule config has no migration evidence', () => {
@@ -612,7 +614,7 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
   });
 
   test('legacy files are ignored after migration evidence exists', async () => {
@@ -639,19 +641,19 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.rules).toEqual([]);
-    expect(config.failClosedReason).toBeUndefined();
+    expect(config.configFallbackReason).toBeUndefined();
   });
 
-  test('unreadable rulebook cache entries fail closed', () => {
+  test('unreadable rulebook cache entries are dropped', () => {
     writeLockedGitHubRulebookPolicy(tempDir, '{}', { cacheAsDirectory: true });
 
-    expectPolicyFailClosed('Unable to access project policy filesystem safely.');
+    expectRuleSourceDropped('Unable to access project policy filesystem safely.');
   });
 
-  test('invalid rulebook cache JSON fails closed', () => {
+  test('invalid rulebook cache JSON is dropped', () => {
     writeLockedGitHubRulebookPolicy(tempDir, '{');
 
-    expectPolicyFailClosed('invalid cached rulebook');
+    expectRuleSourceDropped('invalid cached rulebook');
   });
 });
 

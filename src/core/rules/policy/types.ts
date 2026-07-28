@@ -71,12 +71,10 @@ export interface LoadedRulesPolicy {
   rules: CustomRule[];
   transparent_wrappers: string[];
   rulebooks: LoadedRulebookInfo[];
-  /** Blocking diagnostics: no verified fallback is available for the failing source. */
+  /** Diagnostics whose failing source is dropped, so its rules are not enforced. */
   errors: string[];
-  /** Degraded diagnostics: a verified fallback stays active while the candidate is rejected. */
+  /** Diagnostics that leave the source active, with only the rejected part ignored. */
   warnings: string[];
-  /** Config files whose repair clears a blocking diagnostic. */
-  blockedConfigPaths: string[];
   userConfig?: RulesConfig;
   projectConfig?: RulesConfig;
   userConfigPath: string;

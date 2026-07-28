@@ -181,7 +181,7 @@ function identifyModeGatedCandidate(command: string, options: AnalyzeOptions) {
         ),
       },
     },
-    options.policySnapshot.state === 'blocked'
+    options.policySnapshot.state === 'degraded'
       ? {
           diagnostics: options.policySnapshot.diagnostics,
           reason: options.policySnapshot.reason,

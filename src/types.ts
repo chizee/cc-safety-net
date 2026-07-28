@@ -10,7 +10,6 @@ import type {
   DestructiveCommandRuleOverride,
   EffectiveDestructiveCommandRuleState,
   EffectiveSafetyCapabilities,
-  PolicyFallbackState,
   PolicySnapshot,
 } from './domain/policy.js';
 
@@ -267,7 +266,7 @@ export interface AuditLogEntry {
   /** Effective safety level in force when the decision was made. */
   level?: EffectiveSafetyLevel;
   /** Set when the decision was made against a fallback policy instead of the configured one. */
-  configState?: PolicyFallbackState;
+  configFallback?: true;
   toolName?: string;
   command: string;
   segment: string;

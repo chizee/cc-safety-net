@@ -195,35 +195,22 @@ describe('custom rules integration', () => {
     assertAllowed('echo hello', tempDir);
   });
 
-  test('legacy project config with rules without new project config fails closed', () => {
+  test('legacy project config without new project config is dropped, not enforced', () => {
     writeLegacyProjectConfig(tempDir);
 
-    assertBlocked(
-      'git reset --hard',
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`',
-      tempDir,
-    );
-    assertBlocked(
-      'echo hello',
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`',
-      tempDir,
-    );
+    // Built-in protection is unaffected by the unmigrated config...
+    assertBlocked('git reset --hard', 'git reset --hard destroys', tempDir);
+    // ...and the legacy file's own rule is inert until it is migrated.
+    assertAllowed('git add -A', tempDir);
+    assertAllowed('echo hello', tempDir);
   });
 
-  test('legacy project config with rules fails closed when new project config has no migration evidence', () => {
+  test('legacy project config is dropped when new project config has no migration evidence', () => {
     writeLegacyProjectConfig(tempDir);
     writeEmptyRulesConfig(tempDir);
 
-    assertBlocked(
-      'git reset --hard',
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`',
-      tempDir,
-    );
-    assertBlocked(
-      'git add -A',
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`',
-      tempDir,
-    );
+    assertBlocked('git reset --hard', 'git reset --hard destroys', tempDir);
+    assertAllowed('git add -A', tempDir);
   });
 
   test('legacy project config is ignored after migration evidence exists', async () => {

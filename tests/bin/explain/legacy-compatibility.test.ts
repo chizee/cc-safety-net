@@ -380,34 +380,18 @@ describe('legacy explain compatibility', () => {
     });
   });
 
-  test('invalid policy keeps PowerShell Remove-Item allowed with the legacy trace', () => {
+  test('a fallback policy still analyzes PowerShell Remove-Item', () => {
+    // Invalid configuration no longer suppresses analysis: the fallback policy is a
+    // real enforcement policy, so explain reports what the guard would decide.
     expect(
       explainCommand('Remove-Item . -Recurse -Force', {
         ...OPTIONS,
-        policySnapshot: policySnapshot({ failClosedReason: 'invalid config' }),
+        policySnapshot: policySnapshot({ configFallbackReason: 'invalid config' }),
       }),
     ).toMatchObject({
-      trace: {
-        steps: [
-          {
-            type: 'parse',
-            input: 'Remove-Item . -Recurse -Force',
-            segments: [['Remove-Item', '.', '-Recurse', '-Force']],
-          },
-        ],
-        segments: [
-          {
-            index: 0,
-            steps: [
-              { type: 'fallback-scan', tokensScanned: ['.', '-Recurse', '-Force'] },
-              { type: 'custom-rules-check', rulesChecked: false, matched: false },
-            ],
-          },
-        ],
-      },
-      result: 'allowed',
-      reason: undefined,
-      segment: undefined,
+      result: 'blocked',
+      ruleId: 'powershell.remove-item-recursive-force-cwd-self',
+      segment: 'Remove-Item . -Recurse -Force',
       customRule: undefined,
       configSource: null,
       configValid: true,

@@ -152,13 +152,13 @@ describe('statusline command', () => {
     );
   });
 
-  test('marks a blocked rule configuration after the level emoji', async () => {
+  test('marks an unreadable rule configuration after the level emoji', async () => {
     await mkdir(join(tempDir, 'rules'), { recursive: true });
     await writeFile(join(tempDir, 'rules', 'rule.json'), '{ invalid');
 
     await expectStatusline(
       { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
-      '🛡️ CC Safety Net ✅⛔',
+      '🛡️ CC Safety Net ✅⚠️',
     );
   });
 

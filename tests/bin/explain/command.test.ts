@@ -1214,7 +1214,6 @@ describe('explainSegment direct depth limit', () => {
       cwd: '/tmp',
       policySnapshot: snapshot,
       policy: commandAnalysisPolicy(snapshot),
-      invalidReason: undefined,
       trace,
     });
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
@@ -1233,7 +1232,6 @@ describe('explainSegment direct depth limit', () => {
       cwd: '/tmp',
       policySnapshot: snapshot,
       policy: commandAnalysisPolicy(snapshot),
-      invalidReason: undefined,
       trace,
     });
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);

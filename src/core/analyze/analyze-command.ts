@@ -65,7 +65,6 @@ import {
 
 export type InternalOptions = AnalyzeOptions & {
   policy: CommandAnalysisPolicy;
-  invalidReason: string | undefined;
   factStore?: SemanticFactStore;
   trace?: CommandTraceContext;
   analyzePartialProgram?: boolean;
@@ -148,9 +147,6 @@ function analyzeCommandWithBudget(
     parsedProgram ??
     options.factStore?.getCommandProgram(command, options.shell ?? 'auto') ??
     parseCommand(command, options.shell);
-  if (depth === 0 && options.invalidReason && isFailClosedRepairCommand(program)) {
-    return null;
-  }
 
   if (program.status === 'limited') {
     options.trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
@@ -648,11 +644,7 @@ function analyzeCommandView(
     state.shellGitContextState,
   );
 
-  if (
-    commandView.dialect === 'powershell' &&
-    !options.invalidReason &&
-    (options.compatibility !== 'explain-legacy' || options.policySnapshot.state !== 'blocked')
-  ) {
+  if (commandView.dialect === 'powershell') {
     const match = filterDestructiveCommandMatch(
       analyzePowerShellCommandViewMatch(
         commandView,
@@ -1228,53 +1220,4 @@ function recordStrictUnparseable(command: string, options: InternalOptions): voi
   };
   if (options.trace?.currentSegmentIndex === undefined) options.trace?.recordGlobal(step);
   else options.trace.recordSegment(step);
-}
-
-function isFailClosedRepairCommand(program: ReturnType<typeof parseCommand>): boolean {
-  if (program.status !== 'complete' || program.nodes.length !== 1) return false;
-  const command = program.nodes[0];
-  if (command?.kind !== 'command') return false;
-  if (command.redirections.length > 0 || command.nested.length > 0) return false;
-  if (command.words.some((word) => word.provenance !== 'literal')) return false;
-
-  const tokens = command.tokens;
-  if (tokens.some((token) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token))) return false;
-  if (tokens[0] === 'cc-safety-net') {
-    return tokens[1] === 'rule' && isRuleSyncArgs(tokens.slice(2));
-  }
-
-  if (tokens[0] === 'npx') {
-    return (tokens[1] === '-y' || tokens[1] === '--yes') && isPackageRuleSyncRepair(tokens, 2);
-  }
-
-  if (tokens[0] === 'bunx' || tokens[0] === 'pnpx') {
-    return isPackageRuleSyncRepair(tokens, 1);
-  }
-
-  if ((tokens[0] === 'pnpm' || tokens[0] === 'yarn') && tokens[1] === 'dlx') {
-    return isPackageRuleSyncRepair(tokens, 2);
-  }
-
-  return false;
-}
-
-function isPackageRuleSyncRepair(tokens: readonly string[], packageIndex: number): boolean {
-  return (
-    isCCSafetyNetPackage(tokens[packageIndex]) &&
-    tokens[packageIndex + 1] === 'rule' &&
-    isRuleSyncArgs(tokens.slice(packageIndex + 2))
-  );
-}
-
-function isRuleSyncArgs(args: readonly string[]): boolean {
-  return (
-    args.length >= 1 &&
-    args.length <= 2 &&
-    args.filter((arg) => arg === 'sync').length === 1 &&
-    args.every((arg) => arg === 'sync' || arg === '--global' || arg === '-g')
-  );
-}
-
-function isCCSafetyNetPackage(value: string | undefined): boolean {
-  return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? '');
 }

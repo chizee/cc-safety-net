@@ -93,7 +93,7 @@ function loadedRulesTestPolicy(policy: LoadedRulesPolicy): TestPolicyInput {
   return {
     rules: [],
     transparent_wrappers: [],
-    failClosedReason: /[.!?]$/.test(reason) ? reason : `${reason}.`,
+    configFallbackReason: /[.!?]$/.test(reason) ? reason : `${reason}.`,
   };
 }
 
@@ -992,7 +992,6 @@ describe('rules policy recovery coverage', () => {
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
 
       expect(policy.errors).toEqual([]);
-      expect(policy.blockedConfigPaths).toEqual([]);
       expect(policy.warnings).toEqual([
         expect.stringContaining(
           'local source digest mismatch for project-rules; enforcing the verified cached rulebook',
@@ -1140,7 +1139,7 @@ describe('rules policy recovery coverage', () => {
           getUserRulesConfigPath({ userConfigDir }),
         ),
       );
-      expect(config.failClosedReason).toBeUndefined();
+      expect(config.configFallbackReason).toBeUndefined();
       // Only the unknown override is ignored; the rule it failed to reach stays
       // loaded and keeps blocking.
       expect(
@@ -1202,7 +1201,7 @@ describe('rules policy recovery coverage', () => {
       expect(policy.warnings).toContain(
         `project override cannot target user-scoped rule "user-rules/block-docker-prune" in ${getProjectRulesConfigPath(tempDir)}; only that override is ignored and the rule keeps its user-configured state; remove it from that file`,
       );
-      expect(config.failClosedReason).toBeUndefined();
+      expect(config.configFallbackReason).toBeUndefined();
       expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
       // User policy stays authoritative: the project override never reaches the
       // user-scoped rule, which keeps blocking.
@@ -1524,12 +1523,11 @@ describe('rules policy recovery coverage', () => {
       expect(policy.errors.join('\n')).toContain(RULEBOOK_LIMIT_ERROR);
       expect(policy.errors.join('\n')).not.toContain('TOPSECRET');
       const config = loadedRulesTestPolicy(policy);
-      const result = analyzeCommand('echo ok', {
-        cwd: tempDir,
-        config,
-      });
-      expect(result?.reason).toBe(config.failClosedReason);
-      expect(result?.reason).not.toContain('TOPSECRET');
+      // The oversized rulebook is dropped, so it contributes no rules and denies
+      // nothing; the diagnostic rides the snapshot reason without the secret.
+      expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
+      expect(config.configFallbackReason).toContain(RULEBOOK_LIMIT_ERROR);
+      expect(config.configFallbackReason).not.toContain('TOPSECRET');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1936,25 +1934,18 @@ describe('rules policy recovery coverage', () => {
       expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
       writeProjectRulebook(tempDir, 'shared');
       writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['shared']);
-      // The collision only exists once both scopes are merged, so the scope that
-      // introduced it learns about it from sync instead of reporting success.
+      // The collision resolves in favour of the first claim rather than failing the
+      // scope being set up, so sync succeeds and the runtime warns instead.
       const collided = await syncRulesConfig({ cwd: tempDir, userConfigDir });
-      expect(collided.ok).toBe(false);
-      expect(collided.errors).toContain('duplicate active rulebook name "shared"');
-      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toContain(
-        'duplicate active rulebook name "shared"',
+      expect(collided.ok).toBe(true);
+      const merged = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+      expect(merged.warnings).toContainEqual(
+        expect.stringContaining(
+          'duplicate active rulebook name "shared" for shared; keeping the first',
+        ),
       );
-      const checkedProject = await syncRulesConfig({ cwd: tempDir, userConfigDir, check: true });
-      expect(checkedProject.ok).toBe(false);
-      expect(checkedProject.errors).toContain('duplicate active rulebook name "shared"');
-      const checkedUser = await syncRulesConfig({
-        cwd: tempDir,
-        userConfigDir,
-        global: true,
-        check: true,
-      });
-      expect(checkedUser.ok).toBe(false);
-      expect(checkedUser.errors).toContain('duplicate active rulebook name "shared"');
+      // The user scope claimed the name first, so exactly one rulebook is active.
+      expect(merged.rulebooks.map((rulebook) => rulebook.source)).toEqual(['user']);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1976,7 +1967,7 @@ describe('rules policy recovery coverage', () => {
       expect(policy.errors).toEqual([]);
       expect(policy.rulebooks.map((rulebook) => rulebook.source)).toEqual(['user']);
       expect(policy.rules.map((rule) => rule.name)).toEqual(['user-rules/block-docker-prune']);
-      expect(config.failClosedReason).toBeUndefined();
+      expect(config.configFallbackReason).toBeUndefined();
       expect(analyzeCommand('echo ok', { cwd: homeDir, config })).toBeNull();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });

@@ -86,7 +86,7 @@ describe('policy snapshots', () => {
         }
 
         const snapshot = loadPolicySnapshot({ cwd, userConfigDir });
-        expect(snapshot.state).toBe('blocked');
+        expect(snapshot.state).toBe('degraded');
         expect(snapshot.policy.rules).toEqual([]);
         expect(JSON.stringify(snapshot)).not.toContain('TOPSECRET');
         expect(JSON.stringify(snapshot)).not.toContain('unexpected token');
@@ -164,17 +164,16 @@ describe('policy snapshots', () => {
 
       const snapshot = loadPolicySnapshot({ cwd, userConfigDir });
 
-      expect(snapshot.state).toBe('blocked');
-      if (snapshot.state !== 'blocked') return;
+      expect(snapshot.state).toBe('degraded');
+      if (snapshot.state !== 'degraded') return;
       expect(snapshot.policy.rules).toEqual([]);
       expect(snapshot.policy.safety.level).toBe('strict');
       expect(snapshot.diagnostics).toEqual([
         `missing lockfile ${join(cwd, '.cc-safety-net', 'rules', 'rule.lock')}; run \`cc-safety-net rule sync\``,
       ]);
       expect(snapshot.reason).toBe(
-        `missing lockfile ${join(cwd, '.cc-safety-net', 'rules', 'rule.lock')}; run \`cc-safety-net rule sync\`. Recovery: read or edit ${getProjectRulesConfigPath(cwd)} with your file tools, or run \`cc-safety-net rule sync\`.`,
+        `missing lockfile ${join(cwd, '.cc-safety-net', 'rules', 'rule.lock')}; run \`cc-safety-net rule sync\`. Those rule sources are not active; every other rule and all built-in protections still apply.`,
       );
-      expect(snapshot.repairTargets).toEqual([getProjectRulesConfigPath(cwd)]);
     });
 
     await withTempDir('cc-safety-net-snapshot-invalid-policy-', (cwd) => {
@@ -245,7 +244,7 @@ describe('policy snapshots', () => {
     });
   });
 
-  test('keeps verified rules from a healthy scope when another scope blocks', async () => {
+  test('keeps verified rules from a healthy scope when another scope is dropped', async () => {
     await withTempDir('cc-safety-net-snapshot-containment-', async (cwd) => {
       const userConfigDir = join(cwd, 'user', 'rules');
       writeStarterRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
@@ -260,8 +259,7 @@ describe('policy snapshots', () => {
         'user-rules/block-docker-system-prune',
       ]);
       expect(snapshot).toMatchObject({
-        state: 'blocked',
-        repairTargets: [getProjectRulesConfigPath(cwd)],
+        state: 'degraded',
         reason: expect.stringContaining('missing lockfile'),
       });
     });
@@ -289,8 +287,8 @@ describe('policy snapshots', () => {
       writeFileSync(join(cwd, cache as string), rulebook('Changed without sync.'));
 
       const invalid = loadPolicySnapshot({ cwd, userConfigDir });
-      expect(invalid.state).toBe('blocked');
-      if (invalid.state === 'blocked') expect(invalid.reason).toContain('cache digest mismatch');
+      expect(invalid.state).toBe('degraded');
+      if (invalid.state === 'degraded') expect(invalid.reason).toContain('cache digest mismatch');
       expect(fetchCalls).toBe(0);
     });
   });

@@ -1,125 +1,129 @@
-# Configuration recovery: ready, degraded, and blocked
+# Configuration recovery: ready and degraded
 
 Runtime policy evaluation loads a snapshot on every tool call from local policy, lockfiles, and
 digest-verified rulebook caches. It performs no writes, network requests, or caching. When one of
-those sources cannot be validated, the snapshot reports one of three states.
+those sources cannot be validated, the snapshot reports one of two states.
 
 | State | Meaning | Runtime behavior |
 | --- | --- | --- |
 | `ready` | Every active source validated | Ordinary evaluation |
-| `degraded` | A candidate source was rejected, but a verified or protective fallback is enforced | Ordinary evaluation against the fallback, plus a warning on every reporting surface |
-| `blocked` | A required enforcement source has no usable verified version | Ordinary execution is denied; only the recovery plane is available |
+| `degraded` | A candidate source was rejected | Ordinary evaluation against the fallback, plus a warning on every reporting surface |
 
-An invalid candidate never becomes active. A degraded snapshot enforces something that was
-previously verified or is protective by construction; a blocked snapshot has nothing left to
-enforce for the failing source, so it denies rather than running unprotected.
+**Invalid configuration never denies ordinary work.** An invalid candidate is never enforced, but it
+never locks the agent out either: a rule source that cannot be verified is dropped, and an unreadable
+policy file falls back to protective defaults, so there is always something safe left to enforce.
+
+## Why dropping beats blocking
+
+Denying every tool call on unverifiable rule configuration looks like fail-closed safety and is not.
+Tamper resistance covers the canonical user `policy.json` only; `rule.json`, rulebooks, lockfiles,
+and caches are best-effort. In the ready state nothing gates an agent removing a rulebook entry from
+`rule.json` — removal is not drift, so no diagnostic and no protection fires. An actor that wants
+those rules gone already has an unguarded path, so blocking on a *corrupt* cache buys nothing against
+them and only strands the user whose lockfile hit a merge conflict or whose cache went stale.
+
+Be precise about what dropping costs. It removes the denials that source contributed, so a command
+the user deliberately blocked can now run. That is less enforcement than the configured policy, and
+it is the accepted price of not locking the agent out — not a security-neutral outcome.
+
+What dropping cannot do is grant anything beyond the baseline of a machine with no rulebook
+configured:
+
+- Built-in destructive-command, secret, policy-file, and Git-metadata rules do not read rule
+  configuration at all, so they stay at full strength. Their *reach* has one user-configured input:
+  `transparent_wrappers`. See the caveat below the table.
+- A rulebook contributes only blocking rules, so dropping it can never add an allowance.
+- `overrides` in `rule.json` can disable built-in rules, so ignoring an unreadable `rule.json`
+  restores those built-ins rather than losing them.
+
+Closing the gap for real requires a protected or authenticated configuration contract for
+`rule.json` — the same tamper resistance `policy.json` already has. That is a deliberate product
+decision and is deferred, not part of this contract. A fail-closed default is not a substitute for
+it: blocking stopped the honest user and not the actor, since removing a `rule.json` entry is a
+single unguarded write that is strictly easier than corrupting a cache.
 
 ## Which fallback is active per failure
 
-| Failure | State | Active fallback |
-| --- | --- | --- |
-| Unknown field in an otherwise readable `policy.json` | degraded | The salvaged policy: recognized valid sections survive, invalid ones fall back to protective defaults |
-| Invalid recognized field in `policy.json` | degraded | The salvaged policy; the invalid section only falls back to its protective default |
-| Empty or malformed JSON in `policy.json` | degraded | Built-in protective defaults (destructive-command and secret protection enabled, no allow paths, no disabling overrides) |
-| Local rulebook source changed after sync | degraded | The digest-verified cached rulebook; the local edit stays pending |
-| Local rulebook source invalid or missing, cache still verified | degraded | The digest-verified cached rulebook |
-| Unknown rule override key | degraded | Every loaded rule, with only the unknown override ignored |
-| Project override naming a user-scoped rule | degraded | The user-scoped rule as configured; user policy stays authoritative |
-| Missing lockfile, or missing lock entry for a configured source | blocked | None |
-| Missing cache entry, or cache digest mismatch | blocked | None |
-| Invalid cached rulebook | blocked | None |
-| Malformed, empty, or unsupported-`version` `rule.json` (user or project scope) | blocked | None |
-| Duplicate active rulebook name across the configured sources | blocked | None — rule identity is ambiguous |
+`errors` name a source that was dropped. `warnings` name a source that stays active with only the
+rejected part ignored. Both produce the `degraded` state.
 
-A blocking failure in one scope does not erase the other scope's verified rules from the snapshot's
-own diagnostics, but it does hold the whole runtime in the blocked state until it is repaired: the
-guard cannot know that the missing source was not the one that mattered.
+| Failure | Severity | Active fallback |
+| --- | --- | --- |
+| Unknown field in an otherwise readable `policy.json` | warning | The salvaged policy: recognized valid sections survive, invalid ones fall back to protective defaults |
+| Invalid recognized field in `policy.json` | warning | The salvaged policy; the invalid section only falls back to its protective default |
+| Empty or malformed JSON in `policy.json` | warning | Built-in protective defaults (destructive-command and secret protection enabled, no allow paths, no disabling overrides) |
+| Local rulebook source changed after sync | warning | The digest-verified cached rulebook; the local edit stays pending |
+| Local rulebook source invalid or missing, cache still verified | warning | The digest-verified cached rulebook |
+| Unknown rule override key | warning | Every loaded rule, with only the unknown override ignored |
+| Project override naming a user-scoped rule | warning | The user-scoped rule as configured; user policy stays authoritative |
+| Duplicate active rulebook name | warning | The rulebook that claimed the name first; the later one contributes nothing |
+| Missing lockfile, or missing lock entry for a configured source | error | None — that source is dropped |
+| Missing cache entry, or cache digest mismatch | error | None — that source is dropped |
+| Invalid cached rulebook | error | None — that source is dropped |
+| Malformed, empty, or unsupported-`version` `rule.json` | error | None — that whole scope is dropped, including its `transparent_wrappers` |
+| Legacy inline rules config awaiting `rule migrate` | error | None — the legacy file's rules are inert until migrated |
+| Unreadable or unsafe policy filesystem | error | None for rule sources; `policy.json` falls back to protective defaults |
+
+A failure in one scope drops only that scope. The other scope's verified rules stay enforced, and
+every built-in rule keeps applying in every case.
+
+One caveat is worth stating precisely, because it is the only place dropped configuration reduces
+built-in *coverage* rather than removing custom rules. `transparent_wrappers` is declared in
+`rule.json`, not in a rulebook, and it is what lets analysis look through a user-declared wrapper to
+the command underneath. A dropped rulebook cache, missing lock entry, or digest mismatch leaves it
+intact, because `rule.json` still reads. An unreadable `rule.json` loses it for that scope, so a
+destructive command behind a wrapper that scope declared is no longer unwrapped. There is no verified
+copy to fall back to — `rule.json` carries no lock or digest by design — and the alternative is the
+lockout this contract exists to remove. An agent can already delete that key from a readable
+`rule.json` without tripping anything, so the gap sits inside the tamper boundary rather than opening
+a new one. Both halves are pinned in `tests/engine/guard-config-recovery.test.ts`.
 
 Failures unrelated to configuration are unchanged: malformed hook or tool payloads, unparseable
 commands in strict mode, and parser or resource-limit failures still deny that one tool call.
 
-## The recovery plane
+Duplicate rulebook names resolve deterministically in favour of the first claim, with the user scope
+claiming before the project scope. Because the collision is resolved rather than fatal, `rule sync`
+for one scope does not fail on a name the other scope already uses.
 
-The blocked state allows only the operations that inspect or repair the named failure.
+## No recovery plane
 
-Allowed:
+Nothing is special-cased while degraded, because nothing is denied for being unconfigurable. There is
+no allowlisted repair command and no allowlisted config path: `cc-safety-net rule sync`, reading
+`rule.json`, and editing it are ordinary calls that pass or fail on their own merits. Shell edit
+forms of `rule.json` (`sed -i`, `jq … > tmp && mv`) are likewise ordinary, consistent with
+`rule.json` not being a protected path.
 
-- The exact `cc-safety-net rule sync` form and its supported package-runner equivalents
-  (`npx -y`, `bunx`, `pnpx`, `pnpm dlx`, `yarn dlx`).
-- Reading, editing, or writing the exact offending `rule.json` — the file the deny message names —
-  through the file tools (`Read`, `Edit`, `Write`, and the patch route). Every path the call targets
-  must canonicalize onto a named repair target; a patch that also touches an unrelated file is
-  denied.
-
-Still denied:
-
-- Shell edit forms of the same file. `sed -i`, `jq … > tmp && mv`, redirections, and every other
-  command shape stay on the command route, which the recovery plane does not widen. Only the exact
-  `rule sync` forms pass.
-- Chained, wrapped, or decorated recovery commands, and recovery commands with redirections,
-  environment assignments, or trailing commands.
-- Writes to the canonical user `policy.json`. Policy protection runs before the config-state check,
-  so it applies in every state.
-- Ordinary execution while a required source has no verified fallback.
-
-Secret protection, policy-file protection, Git metadata protection, and catastrophic destructive-
-command rules run ahead of the config-state check and are unaffected by the state.
-
-## Admission rule for the blocked state
-
-> A blocked state is only permitted when no verified fallback exists **and** the deny message names
-> an in-band repair that actually works.
-
-Every blocking row above names its repair target in the deny message: the offending `rule.json` can
-be read and edited from inside the agent, or `cc-safety-net rule sync` resolves the sync-state gap.
-Two pre-existing blocking conditions predate this contract and are the known exceptions, because
-neither names a repair the agent can perform in band:
-
-- A legacy inline rules config that still needs `cc-safety-net rule migrate`. Its message asks the
-  user to run migration.
-- A policy filesystem error (an unreadable or unsafe config directory). Its message describes the
-  filesystem condition; repair happens outside the agent.
-
-New blocking conditions must satisfy the admission rule or not be added.
-
-## Tamper-resistance boundary
-
-Tamper resistance covers the canonical user `policy.json` only. Custom rule configuration —
-`rule.json`, rulebooks, lockfiles, and caches — is best-effort against agent modification. In the
-ready state nothing gates an agent removing a rulebook entry from `rule.json`: removal is not
-drift, so no diagnostic and no protection fires. The blocked-state edit allowance therefore opens no
-capability an agent did not already have while healthy. Protecting `rule.json` is a deferred product
-decision, not part of this contract.
+The canonical user `policy.json` remains protected in every state. Policy-file protection runs before
+the configuration snapshot is loaded, so it is unaffected by the state and denies mutation regardless.
 
 ## Truthful synchronization
 
 `cc-safety-net rule sync` reloads the synchronized scope the way the guard loads it before reporting
-success. If a diagnostic remains — an unknown override key, a pending local edit, a rulebook name
-that collides with the other scope — sync reports failure with that exact diagnostic and exits
-non-zero instead of printing `Rule config synced.`.
+success. If a diagnostic remains — an unknown override key, a pending local edit — sync reports
+failure with that exact diagnostic and exits non-zero instead of printing `Rule config synced.`.
 
-The verification covers the scope being synchronized, not the whole machine. Diagnostics owned
-solely by the other scope are left alone so that setting up one scope while the other is still
-incomplete remains possible. `rule migrate` propagates the sync result, so migrating a scope whose
-`rule.json` carries a stale override reports that diagnostic; the migrated files are written and the
-legacy file is retained, so re-running after the fix succeeds.
+The verification covers the scope being synchronized, not the whole machine. Diagnostics owned solely
+by the other scope are left alone so that setting up one scope while the other is still incomplete
+remains possible. `rule migrate` propagates the sync result, so migrating a scope whose `rule.json`
+carries a stale override reports that diagnostic; the migrated files are written and the legacy file
+is retained, so re-running after the fix succeeds.
 
 ## Where the state is reported
 
 Degraded operation is never silent. The reason names the failing file or source, the rejected
-condition, which fallback is active, the exact recovery action, and that the invalid candidate is
-not active.
+condition, what is no longer active, and the repair.
 
-- The deny message itself carries the diagnostics. A degraded snapshot appends a `Config warning:`
-  line to the next user-visible denial; a blocked snapshot's deny reason *is* the diagnostic.
-- Audit records carry the config state on allowed and denied decisions alike.
+- A degraded snapshot appends a `Config warning:` line to the next user-visible denial.
+- Audit records carry a `configFallback` flag on allowed and denied decisions alike. Allowed
+  decisions are the case that matters: they are where a dropped rule would otherwise pass unnoticed.
 - Both ride only on decisions made after the configuration snapshot is loaded: the always-on
   policy-file and Git metadata protections deny before config load, so those denials carry neither
-  the warning line nor the audit state.
-- `cc-safety-net doctor` reports the runtime state as a finding (`config.runtime-degraded` warning,
-  `config.runtime-blocked` error) with the full reason as its detail.
-- The statusline appends `⚠️` when degraded and `⛔` when blocked.
+  the warning line nor the audit flag.
+- `cc-safety-net doctor` reports the state as a `config.runtime-degraded` warning finding with the
+  full reason as its detail.
+- The statusline appends `⚠️`.
 - The GUI reports the state in the protection banner it already shows across views.
+- `rule list` prints a `Warnings` section and exits non-zero when either errors or warnings remain.
 
-`doctor`, `rule verify`, `rule list`, and the GUI are user-run, out-of-band surfaces: while blocked,
-an agent cannot run them, which is why the deny message has to be self-sufficient.
+Because nothing is blocked, an agent can also run `doctor`, `rule verify`, and `rule list` itself to
+see the same diagnostics.

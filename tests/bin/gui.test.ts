@@ -182,11 +182,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('const viewTitles = {');
       expect(html).toContain('.topbar-row {');
       expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
-      // A fallback or blocked runtime configuration is stated on every view through
-      // the existing alert banner, carrying the snapshot reason verbatim.
+      // A fallback runtime configuration is stated on every view through the
+      // existing alert banner, carrying the snapshot reason verbatim.
       expect(html).toContain("if (!configState || configState.state === 'ready') return null;");
       expect(html).toContain(
-        "? 'Rule configuration is blocked, so no custom rules are active'\n      : 'A fallback configuration is being enforced';",
+        'return `A fallback configuration is being enforced: ${configState.reason}`;',
       );
       expect(html).toContain('setProtectionBanner([configNotice]);');
       // Overview: stat tiles plus posture cards backed by /api/policy and /api/activity.

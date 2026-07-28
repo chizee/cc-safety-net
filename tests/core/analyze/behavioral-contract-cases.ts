@@ -59,7 +59,7 @@ export function behavioralContractCases(paths: {
     'printf safe',
   );
   const invalidConfig = {
-    failClosedReason: 'invalid policy config: run `cc-safety-net rule sync`.',
+    configFallbackReason: 'invalid policy config: run `cc-safety-net rule sync`.',
   };
 
   return [
@@ -292,49 +292,12 @@ export function behavioralContractCases(paths: {
       },
     },
     {
-      name: 'denies an ordinary command when configuration is invalid',
+      // Invalid configuration degrades: the rejected values never become active,
+      // and ordinary work is never denied for being unconfigurable.
+      name: 'allows an ordinary command while a fallback configuration is enforced',
       command: 'printf safe',
-      options: options({
-        cwd: paths.cwd,
-        policy: { failClosedReason: 'invalid policy config: unknown field "extra".' },
-      }),
-      expected: {
-        kind: 'block',
-        ruleId: undefined,
-        intent: 'stop_and_explain',
-        reasonIncludes: 'invalid policy config',
-        segment: 'printf safe',
-      },
-    },
-    {
-      name: 'allows the exact rule sync recovery while failed closed',
-      command: 'cc-safety-net rule sync',
       options: options({ cwd: paths.cwd, policy: invalidConfig }),
       expected: { kind: 'allow' },
-    },
-    {
-      name: 'denies a chained recovery command while failed closed',
-      command: 'cc-safety-net rule sync && git status',
-      options: options({ cwd: paths.cwd, policy: invalidConfig }),
-      expected: {
-        kind: 'block',
-        ruleId: undefined,
-        intent: 'stop_and_explain',
-        reasonIncludes: 'invalid policy config',
-        segment: 'cc-safety-net rule sync',
-      },
-    },
-    {
-      name: 'denies a recovery lookalike while failed closed',
-      command: 'cc-safety-net rule sync --check',
-      options: options({ cwd: paths.cwd, policy: invalidConfig }),
-      expected: {
-        kind: 'block',
-        ruleId: undefined,
-        intent: 'stop_and_explain',
-        reasonIncludes: 'invalid policy config',
-        segment: 'cc-safety-net rule sync --check',
-      },
     },
   ];
 }

@@ -339,16 +339,12 @@ const activityWindowOptions = () => {
   const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);
   return [...windows, retained];
 };
-// The snapshot reason already names the failing source, the active fallback, that
-// the rejected candidate is not active, and the exact repair.
+// The snapshot reason already names the failing source, what is not active, that
+// the rejected candidate is not active, and the repair.
 const configStateNotice = () => {
   const configState = state?.configState;
   if (!configState || configState.state === 'ready') return null;
-  const lead =
-    configState.state === 'blocked'
-      ? 'Rule configuration is blocked, so no custom rules are active'
-      : 'A fallback configuration is being enforced';
-  return `${lead}: ${configState.reason}`;
+  return `A fallback configuration is being enforced: ${configState.reason}`;
 };
 const setProtectionBanner = (notices) => {
   const text = notices.filter(Boolean).join(' ');

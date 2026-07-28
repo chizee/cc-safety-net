@@ -1,6 +1,5 @@
 import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
 import { loadPolicyConfig } from '@/core/policy';
-import { RULE_SYNC_COMMAND } from '@/core/rules/policy/paths';
 import { loadRulesPolicy } from '@/core/rules/policy/scope-policy';
 import type { LoadedRulesPolicy, RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { ConfigStateInfo, EffectivePolicy, PolicySnapshot } from '@/domain/policy';
@@ -66,8 +65,8 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
 
 /**
  * Projects a snapshot onto what diagnostic surfaces report: the state plus, when
- * a fallback policy is enforced, the reason naming the failing source, the active
- * fallback, and the exact repair.
+ * a fallback policy is enforced, the reason naming the failing source, what is no
+ * longer active, and the repair.
  *
  * @internal
  */
@@ -77,42 +76,37 @@ export function describeConfigState(snapshot: PolicySnapshot): ConfigStateInfo {
 }
 
 /**
- * Splits loader diagnostics into the blocked state (no verified fallback for a
- * required source) and the degraded state (a verified fallback stays enforced
- * while the rejected candidate waits for `rule sync`).
+ * Collects loader diagnostics into the degraded state. Invalid configuration never
+ * denies ordinary work: a rule source that cannot be verified is dropped rather
+ * than enforced, and an unreadable policy file falls back to protective defaults,
+ * so something safe is always left to enforce.
  *
- * An unreadable user policy is always degraded: field-level repair leaves a
- * usable enforcement policy behind, so it never removes the verified rules of a
- * healthy rulebook scope.
+ * `rules.errors` name sources that were dropped and `rules.warnings` name sources
+ * that stay active with one rejected part ignored, so the reason states which of
+ * the two happened rather than collapsing them.
  */
 function getSnapshotFailure(
   rules: LoadedRulesPolicy,
   userPolicy: ReturnType<typeof loadPolicyConfig>,
 ) {
-  const diagnostics = [...rules.errors, ...rules.warnings, ...userPolicy.errors];
   const policyWarning = getPolicyFallbackWarning(userPolicy);
-  if (rules.errors.length > 0) {
-    return {
-      state: 'blocked' as const,
-      diagnostics,
-      repairTargets: rules.blockedConfigPaths,
-      reason: withRecoveryAdvice(
-        combineInvalidReasons(withTerminalPeriod(rules.errors.join('; ')), policyWarning),
-        rules.blockedConfigPaths,
-      ),
-    };
-  }
-  if (rules.warnings.length > 0 || policyWarning) {
-    return {
-      state: 'degraded' as const,
-      diagnostics,
-      reason: combineInvalidReasons(
-        rules.warnings.length > 0 ? withTerminalPeriod(rules.warnings.join('; ')) : undefined,
-        policyWarning,
-      ),
-    };
-  }
-  return undefined;
+  if (rules.errors.length === 0 && rules.warnings.length === 0 && !policyWarning) return undefined;
+  return {
+    diagnostics: [...rules.errors, ...rules.warnings, ...userPolicy.errors],
+    reason: combineInvalidReasons(
+      rules.errors.length > 0 ? withDroppedSourceAdvice(rules.errors) : undefined,
+      rules.warnings.length > 0 ? withTerminalPeriod(rules.warnings.join('; ')) : undefined,
+      policyWarning,
+    ),
+  };
+}
+
+/**
+ * States that the dropped sources are inert and that everything else still applies.
+ * The repair is left to each diagnostic, which already names the one that fits it.
+ */
+function withDroppedSourceAdvice(errors: string[]): string {
+  return `${withTerminalPeriod(errors.join('; '))} Those rule sources are not active; every other rule and all built-in protections still apply`;
 }
 
 /** Names the failing file, the active fallback, and the exact repair action. */
@@ -125,11 +119,6 @@ function getPolicyFallbackWarning(userPolicy: ReturnType<typeof loadPolicyConfig
   return `invalid policy config: ${userPolicy.errors.join('; ')}. Enforcing ${fallback}; the invalid values are not active. Fix the policy file manually`;
 }
 
-function withRecoveryAdvice(reason: string, repairTargets: string[]): string {
-  if (repairTargets.length === 0) return reason;
-  return `${reason} Recovery: read or edit ${repairTargets.join(' or ')} with your file tools, or run ${RULE_SYNC_COMMAND}.`;
-}
-
 function isPublicRuleSource(source: string): boolean {
   return /^(?:[A-Za-z0-9_.-]+$|https:\/\/github\.com\/|github:|gh:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#|$))/.test(
     source,
@@ -139,12 +128,7 @@ function isPublicRuleSource(source: string): boolean {
 /** @internal */
 export function createPolicySnapshot(
   policy: EffectivePolicy,
-  failure?: {
-    readonly diagnostics: readonly string[];
-    readonly reason: string;
-    readonly state?: 'degraded' | 'blocked';
-    readonly repairTargets?: readonly string[];
-  },
+  failure?: { readonly diagnostics: readonly string[]; readonly reason: string },
 ): PolicySnapshot {
   const frozenPolicy = freezePolicy(policy);
   if (!failure) {
@@ -154,20 +138,11 @@ export function createPolicySnapshot(
       diagnostics: Object.freeze([]),
     });
   }
-  if (failure.state === 'degraded') {
-    return Object.freeze({
-      state: 'degraded',
-      policy: frozenPolicy,
-      diagnostics: Object.freeze([...failure.diagnostics]),
-      reason: failure.reason,
-    });
-  }
   return Object.freeze({
-    state: 'blocked',
+    state: 'degraded',
     policy: frozenPolicy,
     diagnostics: Object.freeze([...failure.diagnostics]),
     reason: failure.reason,
-    repairTargets: Object.freeze([...(failure.repairTargets ?? [])]),
   });
 }
 

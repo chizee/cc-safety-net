@@ -19,15 +19,17 @@ import type { ToolInvocation } from '@/domain/invocation';
 import { evaluateGuard, type GuardEvaluation, type GuardStage } from '@/engine/guard';
 import { projectGuardAudit } from '@/integrations/audit';
 import { formatDenial, projectGuardDenial } from '@/integrations/denial';
-import { toShellPath, withTempDir } from '../helpers';
+import { withTempDir } from '../helpers';
 
 /**
- * Behavior of the `CONFIG_LOCKOUT.md` failure rows against the guard.
+ * Every configuration failure against the guard.
  *
- * Each row records the state Plan C gives it: `degraded` keeps enforcing a
- * verified or protective fallback so ordinary tools keep running, `blocked`
- * keeps the recovery-only plane and denies both the command route and the
- * non-command (Read/Edit/Write) route.
+ * Invalid configuration never denies ordinary work. A source that cannot be
+ * verified is dropped rather than enforced, and an unreadable policy file falls
+ * back to protective defaults, so the runtime stays usable on every route and the
+ * failure is reported instead of enforced. Each row records which of the two
+ * happened: the affected source is `dropped`, or a verified fallback stays
+ * `enforced`.
  *
  * Harness contract: `evaluateGuard` ignores a caller-supplied snapshot and
  * reloads via `options.policyOptions` and `invocation.context.configCwd`
@@ -48,14 +50,20 @@ interface Fixture {
   scratchPath: string;
 }
 
-interface LockoutRow {
+interface FailureRow {
   prepare?: (fixture: Fixture) => Promise<void> | void;
   breakConfig: (fixture: Fixture) => Promise<void> | void;
   token: (fixture: Fixture) => string;
-  /** Command the surviving fallback rulebook must still block. */
-  fallbackCommand?: string;
-  fallbackReason?: string;
+  /**
+   * What happens to the custom rule the fixture synced. Omitted when the row
+   * never gets as far as a synced rulebook, so there is none to account for.
+   */
+  customRule?: 'enforced' | 'dropped';
 }
+
+/** The starter rulebook blocks this command with this reason. */
+const CUSTOM_RULE_COMMAND = 'docker system prune';
+const CUSTOM_RULE_REASON = 'Use targeted cleanup instead.';
 
 function createFixture(cwd: string): Fixture {
   const userConfigDir = join(cwd, 'user-home', '.cc-safety-net', 'rules');
@@ -121,24 +129,11 @@ function expectDenied(
   expect(evaluation.decision.reason).toContain(token);
 }
 
-function expectCleanBaseline(fixture: Fixture): void {
+/** Both routes an agent works through keep running. */
+function expectUsableRuntime(fixture: Fixture): void {
   expectAllowed(evaluateCommand(fixture, 'ls'), 'command-analysis');
   expectAllowed(evaluatePath(fixture, 'Read', fixture.scratchPath), 'non-command');
-}
-
-/**
- * Analyzer input strings only; never executed. The patch-route recovery plane
- * never widens the command route, so shell edit forms of the offending config
- * stay denied alongside every other blocked command.
- */
-function expectShellEditFormsDenied(fixture: Fixture, token: string): void {
-  const path = toShellPath(fixture.projectConfigPath);
-  expectDenied(evaluateCommand(fixture, `sed -i.bak s/1/2/ ${path}`), 'command-analysis', token);
-  expectDenied(
-    evaluateCommand(fixture, `jq . ${path} > /tmp/t && mv /tmp/t ${path}`),
-    'command-analysis',
-    token,
-  );
+  expectAllowed(evaluatePath(fixture, 'Write', fixture.scratchPath), 'non-command');
 }
 
 function writeProjectRulebook(fixture: Fixture, name = 'project-rules'): void {
@@ -156,7 +151,7 @@ async function syncProjectRulebook(fixture: Fixture): Promise<void> {
 function rewriteRulebookReason(path: string): void {
   writeFileSync(
     path,
-    readFileSync(path, 'utf-8').replace('Use targeted cleanup instead.', 'Prune specific images.'),
+    readFileSync(path, 'utf-8').replace(CUSTOM_RULE_REASON, 'Prune specific images.'),
   );
 }
 
@@ -167,8 +162,8 @@ function cachedRulebookPath(fixture: Fixture): string {
   return join(root, entries[0] ?? '', 'rulebook.json');
 }
 
-/** Rows Plan C keeps in the recovery-only blocked state on every route. */
-const DENIED_ROWS: [string, LockoutRow][] = [
+/** Failures whose source has no verified version left, so the source is dropped. */
+const DROPPED_SOURCE_ROWS: [string, FailureRow][] = [
   [
     'missing project rule lockfile',
     {
@@ -188,6 +183,8 @@ const DENIED_ROWS: [string, LockoutRow][] = [
         writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules', 'extra-rules']);
       },
       token: () => 'missing lock entry for extra-rules',
+      // Only the unsynchronized source is dropped; the verified one is untouched.
+      customRule: 'enforced',
     },
   ],
   [
@@ -197,6 +194,7 @@ const DENIED_ROWS: [string, LockoutRow][] = [
       breakConfig: (fixture) =>
         rmSync(join(fixture.cwd, '.cc-safety-net', 'cache'), { recursive: true, force: true }),
       token: () => 'missing cache entry for project-rules',
+      customRule: 'dropped',
     },
   ],
   [
@@ -205,20 +203,20 @@ const DENIED_ROWS: [string, LockoutRow][] = [
       prepare: syncProjectRulebook,
       breakConfig: (fixture) => rewriteRulebookReason(cachedRulebookPath(fixture)),
       token: () => 'cache digest mismatch for project-rules',
+      customRule: 'dropped',
     },
   ],
   [
     'malformed project rule.json',
     {
-      breakConfig: (fixture) => {
-        mkdirSync(fixture.projectRulesDir, { recursive: true });
-        writeFileSync(fixture.projectConfigPath, '{ "version": 1,');
-      },
+      prepare: syncProjectRulebook,
+      breakConfig: (fixture) => writeFileSync(fixture.projectConfigPath, '{ "version": 1,'),
       token: (fixture) => `${fixture.projectConfigPath}: Invalid JSON`,
+      customRule: 'dropped',
     },
   ],
   [
-    'malformed user rule.json blocks machine-wide',
+    'malformed user rule.json',
     {
       breakConfig: (fixture) => writeFileSync(fixture.userConfigPath, '{ "version": 1,'),
       token: (fixture) => `${fixture.userConfigPath}: Invalid JSON`,
@@ -227,11 +225,47 @@ const DENIED_ROWS: [string, LockoutRow][] = [
   [
     'unsupported rule.json version',
     {
-      breakConfig: (fixture) => {
-        mkdirSync(fixture.projectRulesDir, { recursive: true });
-        writeFileSync(fixture.projectConfigPath, JSON.stringify({ version: 2, rules: [] }));
-      },
+      prepare: syncProjectRulebook,
+      breakConfig: (fixture) =>
+        writeFileSync(fixture.projectConfigPath, JSON.stringify({ version: 2, rules: [] })),
       token: (fixture) => `${fixture.projectConfigPath}: version must be 1`,
+      customRule: 'dropped',
+    },
+  ],
+];
+
+/** Failures a verified or protective fallback absorbs, so enforcement continues. */
+const FALLBACK_ROWS: [string, FailureRow][] = [
+  [
+    'local rulebook source drift after sync',
+    {
+      prepare: syncProjectRulebook,
+      breakConfig: (fixture) =>
+        rewriteRulebookReason(join(fixture.projectRulesDir, 'project-rules', 'rulebook.json')),
+      token: () => 'local source digest mismatch for project-rules',
+      // The verified cache still carries the pre-drift reason, so the pending
+      // local edit is provably not active.
+      customRule: 'enforced',
+    },
+  ],
+  [
+    'unknown rule override key',
+    {
+      prepare: syncProjectRulebook,
+      breakConfig: (fixture) =>
+        writeFileSync(
+          fixture.projectConfigPath,
+          JSON.stringify({
+            version: 1,
+            rules: ['project-rules'],
+            overrides: { 'project-rules/nope': 'off' },
+          }),
+        ),
+      // The warning names the offending file, that the override is ignored, and
+      // the repair, so the reason is self-sufficient on every surface.
+      token: (fixture) =>
+        `unknown override key "project-rules/nope" in ${fixture.projectConfigPath}; only that override is ignored and other overrides and rules keep their configured state; correct or remove it in that file`,
+      customRule: 'enforced',
     },
   ],
   [
@@ -250,57 +284,26 @@ const DENIED_ROWS: [string, LockoutRow][] = [
       breakConfig: async (fixture) => {
         writeProjectRulebook(fixture, 'shared');
         writeDefaultRulesConfig(fixture.projectConfigPath, ['shared']);
-        // The sync publishes the conflicting lock entry; its own result is not
-        // the subject here and becomes a failure once Plan C makes sync truthful.
-        await syncRulesConfig({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir });
+        // Synchronizing the project scope succeeds: a name colliding with the
+        // other scope resolves in favour of the first claim rather than failing
+        // the scope being set up.
+        const result = await syncRulesConfig({
+          cwd: fixture.cwd,
+          userConfigDir: fixture.userConfigDir,
+        });
+        expect(result.ok).toBeTrue();
       },
-      token: () => 'duplicate active rulebook name "shared"',
-    },
-  ],
-];
-
-/** Rows Plan C degrades: the verified fallback stays enforced on every route. */
-const DEGRADED_ROWS: [string, LockoutRow][] = [
-  [
-    'local rulebook source drift after sync',
-    {
-      prepare: syncProjectRulebook,
-      breakConfig: (fixture) =>
-        rewriteRulebookReason(join(fixture.projectRulesDir, 'project-rules', 'rulebook.json')),
-      token: () => 'local source digest mismatch for project-rules',
-      fallbackCommand: 'docker system prune',
-      // The verified cache still carries the pre-drift reason, so the pending
-      // local edit is provably not active.
-      fallbackReason: 'Use targeted cleanup instead.',
-    },
-  ],
-  [
-    'unknown rule override key',
-    {
-      prepare: syncProjectRulebook,
-      breakConfig: (fixture) =>
-        writeFileSync(
-          fixture.projectConfigPath,
-          JSON.stringify({
-            version: 1,
-            rules: ['project-rules'],
-            overrides: { 'project-rules/nope': 'off' },
-          }),
-        ),
-      // The warning names the offending file, that the override is ignored, and
-      // the repair, so the degraded reason is self-sufficient on every surface.
-      token: (fixture) =>
-        `unknown override key "project-rules/nope" in ${fixture.projectConfigPath}; only that override is ignored and other overrides and rules keep their configured state; correct or remove it in that file`,
-      fallbackCommand: 'docker system prune',
-      fallbackReason: 'Use targeted cleanup instead.',
+      token: () => 'duplicate active rulebook name "shared" for shared; keeping the first',
+      // The user scope claimed the name first, so its rulebook stays enforced.
+      customRule: 'enforced',
     },
   ],
 ];
 
 /**
- * `policy.json` rows Plan C degrades. The rejected values never become active:
- * a salvaged or built-in protective policy is enforced instead, and the
- * protections that do not depend on the rejected values keep denying.
+ * `policy.json` failures. The rejected values never become active: a salvaged or
+ * built-in protective policy is enforced instead, and the protections that do not
+ * depend on the rejected values keep denying.
  */
 interface PolicyRow {
   breakPolicy: (fixture: Fixture) => void;
@@ -352,13 +355,21 @@ const POLICY_ROWS: [string, PolicyRow][] = [
 
 /** Proves the fixture is the config being read before breaking it. */
 async function withBrokenFixture(
-  row: LockoutRow,
+  row: FailureRow,
   assertBrokenState: (fixture: Fixture) => void,
 ): Promise<void> {
-  await withTempDir('cc-safety-net-config-lockout-', async (cwd) => {
+  await withTempDir('cc-safety-net-config-recovery-', async (cwd) => {
     const fixture = createFixture(cwd);
     await row.prepare?.(fixture);
-    expectCleanBaseline(fixture);
+    expectUsableRuntime(fixture);
+    if (row.customRule) {
+      expectDenied(
+        evaluateCommand(fixture, CUSTOM_RULE_COMMAND),
+        'command-analysis',
+        CUSTOM_RULE_REASON,
+        'manual_only',
+      );
+    }
 
     await row.breakConfig(fixture);
 
@@ -366,46 +377,60 @@ async function withBrokenFixture(
   });
 }
 
-describe('config lockout characterization', () => {
-  test.each(DENIED_ROWS)('denies every route when %s', async (_name, row) => {
-    await withBrokenFixture(row, (fixture) => {
-      const token = row.token(fixture);
+/** Shared assertion for every failure row: usable runtime, reported state. */
+function expectDegraded(fixture: Fixture, row: FailureRow): void {
+  expectUsableRuntime(fixture);
+  if (row.customRule === 'enforced') {
+    expectDenied(
+      evaluateCommand(fixture, CUSTOM_RULE_COMMAND),
+      'command-analysis',
+      CUSTOM_RULE_REASON,
+      'manual_only',
+    );
+  }
+  if (row.customRule === 'dropped') {
+    expectAllowed(evaluateCommand(fixture, CUSTOM_RULE_COMMAND), 'command-analysis');
+  }
+  expect(
+    loadPolicySnapshot({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir }),
+  ).toMatchObject({
+    state: 'degraded',
+    diagnostics: expect.arrayContaining([expect.stringContaining(row.token(fixture))]),
+  });
+}
 
-      expectDenied(evaluateCommand(fixture, 'ls'), 'command-analysis', token);
-      expectDenied(evaluatePath(fixture, 'Read', fixture.scratchPath), 'config-state', token);
-    });
+describe('configuration recovery', () => {
+  test.each(DROPPED_SOURCE_ROWS)('drops the unverifiable source when %s', async (_name, row) => {
+    await withBrokenFixture(row, (fixture) => expectDegraded(fixture, row));
   });
 
-  test.each(DEGRADED_ROWS)('keeps enforcing the verified fallback when %s', async (_name, row) => {
-    await withBrokenFixture(row, (fixture) => {
-      expectCleanBaseline(fixture);
-      expectAllowed(evaluatePath(fixture, 'Write', fixture.scratchPath), 'non-command');
-      expectDenied(
-        evaluateCommand(fixture, row.fallbackCommand as string),
-        'command-analysis',
-        row.fallbackReason as string,
-        'manual_only',
-      );
-      expect(
-        loadPolicySnapshot({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir }),
-      ).toMatchObject({
-        state: 'degraded',
-        diagnostics: [expect.stringContaining(row.token(fixture))],
+  test.each(FALLBACK_ROWS)('keeps enforcing the fallback when %s', async (_name, row) => {
+    await withBrokenFixture(row, (fixture) => expectDegraded(fixture, row));
+  });
+
+  test('states that the dropped sources are inert and everything else still applies', async () => {
+    await withBrokenFixture(DROPPED_SOURCE_ROWS[2]?.[1] as FailureRow, (fixture) => {
+      const snapshot = loadPolicySnapshot({
+        cwd: fixture.cwd,
+        userConfigDir: fixture.userConfigDir,
       });
+
+      expect(snapshot.state === 'degraded' && snapshot.reason).toContain(
+        'Those rule sources are not active; every other rule and all built-in protections still apply.',
+      );
     });
   });
 
   test.each(POLICY_ROWS)('keeps every built-in protection active when %s', (_name, row) => {
-    return withTempDir('cc-safety-net-config-lockout-policy-', (cwd) => {
+    return withTempDir('cc-safety-net-config-recovery-policy-', (cwd) => {
       const fixture = createFixture(cwd);
       mkdirSync(join(cwd, '.git', 'hooks'), { recursive: true });
-      expectCleanBaseline(fixture);
+      expectUsableRuntime(fixture);
 
       row.breakPolicy(fixture);
 
       // Ordinary tools keep running on the fallback policy...
-      expectCleanBaseline(fixture);
-      expectAllowed(evaluatePath(fixture, 'Write', fixture.scratchPath), 'non-command');
+      expectUsableRuntime(fixture);
       // ...while every protection that does not depend on the rejected values
       // still denies, including the disables the rejected file asked for.
       expectDenied(
@@ -448,7 +473,7 @@ describe('config lockout characterization', () => {
     await withTempDir('cc-safety-net-config-degraded-report-', async (cwd) => {
       const fixture = createFixture(cwd);
       await syncProjectRulebook(fixture);
-      expectCleanBaseline(fixture);
+      expectUsableRuntime(fixture);
 
       rewriteRulebookReason(join(fixture.projectRulesDir, 'project-rules', 'rulebook.json'));
       const token = 'sk-proj_1234567890abcdefghijklmnopqrstuv';
@@ -458,16 +483,16 @@ describe('config lockout characterization', () => {
       // so the state rides into the audit metadata there too.
       const allowed = evaluateCommand(fixture, 'ls');
       expectAllowed(allowed, 'command-analysis');
-      expect(allowed.configState?.state).toBe('degraded');
-      expect(projectGuardAudit(commandInvocation(fixture, 'ls'), allowed, true)?.configState).toBe(
-        'degraded',
-      );
+      expect(allowed.configFallback?.reason).toContain('local source digest mismatch');
+      expect(
+        projectGuardAudit(commandInvocation(fixture, 'ls'), allowed, true)?.configFallback,
+      ).toBeTrue();
 
       // A denial the fallback did not cause still carries the warning.
-      const denial = projectGuardDenial(evaluateCommand(fixture, 'docker system prune'), {
+      const denial = projectGuardDenial(evaluateCommand(fixture, CUSTOM_RULE_COMMAND), {
         includeEvidence: true,
       });
-      expect(denial?.configWarning).toBe(allowed.configState?.reason);
+      expect(denial?.configWarning).toBe(allowed.configFallback?.reason);
       const message = denial ? formatDenial(denial) : '';
       expect(message).toContain('Config warning: local source digest mismatch for project-rules');
       expect(message).toContain('enforcing the verified cached rulebook');
@@ -478,103 +503,81 @@ describe('config lockout characterization', () => {
     });
   });
 
-  test('allows only the exact rule sync repair command while locked out', async () => {
-    await withTempDir('cc-safety-net-config-lockout-repair-', async (cwd) => {
+  // Transparent wrappers are the one part of rule configuration that widens what
+  // built-in analysis can see, so where they survive is worth pinning exactly.
+  test('a dropped rulebook keeps the scope transparent wrappers', async () => {
+    await withTempDir('cc-safety-net-config-recovery-wrapper-', async (cwd) => {
       const fixture = createFixture(cwd);
-      expectCleanBaseline(fixture);
-
       writeProjectRulebook(fixture);
-      writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules']);
-      const token = `missing lockfile ${fixture.projectLockPath}`;
-
-      expectDenied(evaluateCommand(fixture, 'ls'), 'command-analysis', token);
-      expectAllowed(evaluateCommand(fixture, 'cc-safety-net rule sync'), 'command-analysis');
-      expectAllowed(evaluateCommand(fixture, 'npx -y cc-safety-net rule sync'), 'command-analysis');
-      // Analyzer input string only; never executed. Chaining the exact repair
-      // stays denied.
-      expectDenied(
-        evaluateCommand(fixture, 'cc-safety-net rule sync && ls'),
-        'command-analysis',
-        token,
+      writeFileSync(
+        fixture.projectConfigPath,
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: {},
+          transparent_wrappers: ['rtk'],
+        }),
       );
-      expectShellEditFormsDenied(fixture, token);
+      expect(
+        (await syncRulesConfig({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir })).ok,
+      ).toBeTrue();
+
+      rmSync(join(cwd, '.cc-safety-net', 'cache'), { recursive: true, force: true });
+      const snapshot = loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir });
+
+      // The rulebook is dropped, but wrappers come from rule.json, which still reads.
+      expect(snapshot.state).toBe('degraded');
+      expect(snapshot.policy.rules).toEqual([]);
+      expect(snapshot.policy.transparentWrappers).toEqual(['rtk']);
     });
   });
 
-  test('allows reading and editing only the exact offending rule.json', async () => {
-    await withTempDir('cc-safety-net-config-lockout-edit-', async (cwd) => {
+  test('an unreadable rule.json loses that scope transparent wrappers', async () => {
+    await withTempDir('cc-safety-net-config-recovery-wrapper-lost-', (cwd) => {
       const fixture = createFixture(cwd);
-      expectCleanBaseline(fixture);
+      mkdirSync(fixture.projectRulesDir, { recursive: true });
+      writeFileSync(
+        fixture.projectConfigPath,
+        JSON.stringify({ version: 1, rules: [], overrides: {}, transparent_wrappers: ['rtk'] }),
+      );
+      expect(
+        loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir }).policy
+          .transparentWrappers,
+      ).toEqual(['rtk']);
+
+      writeFileSync(fixture.projectConfigPath, '{ "version": 1,');
+
+      // rule.json has no lock or digest, so there is no verified copy to fall back
+      // to: the documented cost of not blocking is that its wrappers stop applying.
+      expect(
+        loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir }).policy
+          .transparentWrappers,
+      ).toEqual([]);
+    });
+  });
+
+  test('special-cases no command or path while a fallback config is enforced', async () => {
+    await withTempDir('cc-safety-net-config-recovery-plane-', async (cwd) => {
+      const fixture = createFixture(cwd);
+      expectUsableRuntime(fixture);
 
       mkdirSync(fixture.projectRulesDir, { recursive: true });
       writeFileSync(fixture.projectConfigPath, '{ "version": 1,');
-      const token = `${fixture.projectConfigPath}: Invalid JSON`;
 
-      // A blocked state is only admissible when the deny message names an
-      // in-band repair, so the offending config path rides in the reason and in
-      // the snapshot's repair targets.
-      expectDenied(
-        evaluateCommand(fixture, 'ls'),
-        'command-analysis',
-        `Recovery: read or edit ${fixture.projectConfigPath} with your file tools`,
-      );
-      expect(loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir })).toMatchObject({
-        state: 'blocked',
-        repairTargets: [fixture.projectConfigPath],
-      });
-      // The deny reason is already the config reason, so the blocked state rides
-      // into the audit metadata rather than doubling up in the message.
-      const blocked = evaluatePath(fixture, 'Read', fixture.scratchPath);
-      expect(blocked.configState?.state).toBe('blocked');
-      expect(projectGuardDenial(blocked, { includeEvidence: true })).not.toHaveProperty(
-        'configWarning',
-      );
-
-      // The named repair works in band: the file tools reach that exact path.
-      expectAllowed(evaluatePath(fixture, 'Read', fixture.projectConfigPath), 'non-command');
+      // Nothing needs an allowance any more, because nothing is denied for being
+      // config: `rule sync` and editing the offending file are ordinary calls.
+      expectAllowed(evaluateCommand(fixture, 'cc-safety-net rule sync'), 'command-analysis');
+      expectAllowed(evaluateCommand(fixture, 'cc-safety-net rule sync && ls'), 'command-analysis');
       expectAllowed(evaluatePath(fixture, 'Edit', fixture.projectConfigPath), 'non-command');
-      expectAllowed(evaluatePath(fixture, 'Write', fixture.projectConfigPath), 'non-command');
-      // Everything else stays outside the plane, including lookalikes.
-      expectDenied(evaluatePath(fixture, 'Write', fixture.scratchPath), 'config-state', token);
-      expectDenied(
-        evaluatePath(fixture, 'Write', `${fixture.projectConfigPath}.bak`),
-        'config-state',
-        token,
-      );
-      expectDenied(
-        evaluatePath(fixture, 'Write', join(fixture.projectRulesDir, 'rule.lock')),
-        'config-state',
-        token,
-      );
-      // The protected user policy is not part of the recovery plane; policy
-      // protection runs before the config load and keeps denying it.
+      expectAllowed(evaluatePath(fixture, 'Write', fixture.scratchPath), 'non-command');
+      // The protected user policy is unaffected: policy protection runs before the
+      // config load, so it denies in every state.
       expectDenied(
         evaluatePath(fixture, 'Write', getUserPolicyPath()),
         'policy-protection',
         REASON_POLICY_CONFIG_PROTECTION,
         'hard_stop',
       );
-      expectShellEditFormsDenied(fixture, token);
-    });
-  });
-
-  test('allows editing the user rule.json that blocks the whole machine', async () => {
-    await withTempDir('cc-safety-net-config-lockout-user-edit-', async (cwd) => {
-      const fixture = createFixture(cwd);
-      expectCleanBaseline(fixture);
-
-      writeFileSync(fixture.userConfigPath, '{ "version": 1,');
-      const token = `${fixture.userConfigPath}: Invalid JSON`;
-
-      // Amendment 2 keeps this row blocked machine-wide, so the named in-band
-      // repair is editing that exact file.
-      expectDenied(
-        evaluatePath(fixture, 'Read', fixture.scratchPath),
-        'config-state',
-        `Recovery: read or edit ${fixture.userConfigPath} with your file tools`,
-      );
-      expectAllowed(evaluatePath(fixture, 'Edit', fixture.userConfigPath), 'non-command');
-      expectDenied(evaluatePath(fixture, 'Edit', fixture.projectConfigPath), 'config-state', token);
     });
   });
 });

@@ -75,6 +75,9 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   const userReadErrors = formatPolicyReadErrors(paths.userConfigPath, user.errors);
   const projectReadErrors = formatPolicyReadErrors(paths.projectConfigPath, project.errors);
 
+  // Shared across both scopes so a name claimed by the user scope shadows the
+  // project one, keeping user policy authoritative over an ambiguous name.
+  const claimedRulebookNames = new Set<string>();
   const userPolicy = user.config
     ? loadScopePolicy(
         user.config,
@@ -83,6 +86,7 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
         options,
         'user',
         paths.userScope,
+        claimedRulebookNames,
       )
     : emptyScopePolicy();
   const projectPolicy = project.config
@@ -93,22 +97,12 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
         options,
         'project',
         paths.projectScope,
+        claimedRulebookNames,
       )
     : emptyScopePolicy();
 
-  const userEntries = user.config
-    ? getConfiguredLockEntries(user.config, paths.userLockTarget)
-    : [];
-  const projectEntries = project.config
-    ? getConfiguredLockEntries(project.config, paths.projectLockTarget)
-    : [];
-  const duplicateNames = getDuplicateRulebookNames([...userEntries, ...projectEntries]);
   const userOverrides = user.config?.overrides ?? {};
   const projectOverrides = project.config?.overrides ?? {};
-  const isBlockedScope = (readErrors: string[], scope: ScopePolicy, entries: RulebookLockEntry[]) =>
-    readErrors.length > 0 ||
-    scope.errors.length > 0 ||
-    entries.some((entry) => duplicateNames.includes(entry.name));
 
   return {
     rules: [
@@ -123,7 +117,6 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
       ...projectReadErrors,
       ...userPolicy.errors,
       ...projectPolicy.errors,
-      ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
     ],
     warnings: [
       ...userPolicy.warnings,
@@ -144,12 +137,6 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
             projectPolicy.knownRuleIds,
             paths.projectConfigPath,
           )
-        : []),
-    ],
-    blockedConfigPaths: [
-      ...(isBlockedScope(userReadErrors, userPolicy, userEntries) ? [paths.userConfigPath] : []),
-      ...(isBlockedScope(projectReadErrors, projectPolicy, projectEntries)
-        ? [paths.projectConfigPath]
         : []),
     ],
     userConfig: user.config ?? undefined,
@@ -243,6 +230,7 @@ export function loadScopePolicy(
     dirname(dirname(configDir)),
     source === 'user' ? 'user policy' : 'project policy',
   ),
+  claimedRulebookNames: Set<string> = new Set(),
 ): ScopePolicy {
   let lockTarget: PolicyFilesystemTarget;
   try {
@@ -282,6 +270,15 @@ export function loadScopePolicy(
       return [];
     }
     const rulebook = loadedRulebook.rulebook;
+    // Colliding names make rule identity ambiguous, so the first claim wins and
+    // the later rulebook contributes nothing rather than shadowing its rules.
+    if (claimedRulebookNames.has(rulebook.name)) {
+      warnings.push(
+        `duplicate active rulebook name "${rulebook.name}" for ${spec}; keeping the first and ignoring this one, so its rules are not active; rename one of them, then run ${RULE_SYNC_COMMAND}`,
+      );
+      return [];
+    }
+    claimedRulebookNames.add(rulebook.name);
     return [
       {
         rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
@@ -549,28 +546,6 @@ function getProjectOverrideUserRuleErrors(
     );
 }
 
-function getDuplicateRulebookNames(entries: RulebookLockEntry[]): string[] {
-  const seen = new Set<string>();
-  const duplicates = new Set<string>();
-  for (const entry of entries) {
-    if (seen.has(entry.name)) {
-      duplicates.add(entry.name);
-      continue;
-    }
-    seen.add(entry.name);
-  }
-  return [...duplicates];
-}
-
-function getConfiguredLockEntries(
-  config: RulesConfig,
-  path: string | PolicyFilesystemTarget,
-): RulebookLockEntry[] {
-  return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) =>
-    config.rules.includes(entry.spec),
-  );
-}
-
 function formatPolicyReadErrors(path: string, errors: string[]): string[] {
   return errors.map((error) =>
     error.startsWith('Unable to access ') ? error : `${path}: ${error}`,
@@ -587,7 +562,6 @@ function invalidLoadedRulesPolicy(
     rulebooks: [],
     errors: [error],
     warnings: [],
-    blockedConfigPaths: [],
     userConfigPath: paths.userConfigPath,
     projectConfigPath: paths.projectConfigPath,
     userLockPath: paths.userLockPath,

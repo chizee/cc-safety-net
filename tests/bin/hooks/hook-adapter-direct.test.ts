@@ -167,20 +167,24 @@ describe('hook adapter direct integration', () => {
     expect(output.stdout).toBe('');
   });
 
-  test('analysis errors fail closed through the shared handler', async () => {
+  test('an unreadable policy filesystem degrades through the shared handler', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-bad-config-'));
     try {
       writeLockedGitHubRulebookPolicy(cwd, '{}', { cacheAsDirectory: true });
-      const result = await runWithInput(runCopilotCliHook, {
+      const allowed = await runWithInput(runCopilotCliHook, {
         ...copilotBashInput('git status'),
         cwd,
       });
-      const output = JSON.parse(result.stdout);
 
-      expect(output.permissionDecision).toBe('deny');
-      expect(output.permissionDecisionReason).toContain(
-        'Unable to access project policy filesystem safely.',
-      );
+      expect(allowed.stdout).toBe('');
+
+      // The protective defaults the fallback carries still deny.
+      const denied = await runWithInput(runCopilotCliHook, {
+        ...copilotBashInput('git reset --hard'),
+        cwd,
+      });
+
+      expect(JSON.parse(denied.stdout).permissionDecision).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -247,15 +251,6 @@ describe('hook adapter direct integration', () => {
           },
         },
         {
-          label: 'config',
-          input: {
-            hook_event_name: 'PreToolUse',
-            cwd,
-            tool_name: 'Read',
-            tool_input: { file_path: 'README.md' },
-          },
-        },
-        {
           label: 'validation',
           input: {
             hook_event_name: 'PreToolUse',
@@ -310,22 +305,19 @@ describe('hook adapter direct integration', () => {
     }
   });
 
-  test('non-command tools fail closed when rule config requires repair', async () => {
+  test('non-command tools keep running when rule config needs a sync', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-rule-repair-'));
     try {
       writeDefaultRulesConfig(join(cwd, '.cc-safety-net/rules/rule.json'), ['project-rules']);
-      const output = await runHookJson(runClaudeCodeHook, {
+      const result = await runWithInput(runClaudeCodeHook, {
         hook_event_name: 'PreToolUse',
         cwd,
         tool_name: 'Read',
         tool_input: { file_path: 'README.md' },
       });
 
-      expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain('missing lockfile');
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
-        'Do not brute-force variants',
-      );
+      // The unsynchronized source is dropped, not enforced, so nothing is denied.
+      expect(result.stdout).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
