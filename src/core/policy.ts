@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getUserPolicyDiagnostics, getUserPolicySchema, type UserPolicy } from '@/config/schema';
-import { getDestructiveAllowPathError } from '@/core/analyze/allow-paths';
+import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/core/analyze/allow-paths';
 import {
   DESTRUCTIVE_COMMAND_RULE_ID_SET,
   resolveEffectiveDestructiveCommandRules,
@@ -357,7 +357,7 @@ function repairOffOverrides(
 
 function repairDenyPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((path): path is string => typeof path === 'string' && path.trim() !== '');
+  return value.filter((path): path is string => getSecretDenyPathError(path) === null);
 }
 
 function repairAllowPaths(value: unknown): string[] {

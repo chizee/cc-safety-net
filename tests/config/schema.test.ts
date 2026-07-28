@@ -213,6 +213,43 @@ describe('configuration schemas', () => {
     expect(getUserPolicySchema().safeParse(allowPolicy([homedir()])).success).toBeFalse();
   });
 
+  test('validates secret protection deny paths', () => {
+    const denyPolicy = (deny_paths: unknown) => ({
+      version: 1,
+      secret_protection: { deny_paths },
+    });
+    const blocksEverything =
+      'cannot be the home directory or a path above it (this would block every command the agent runs)';
+
+    expect(
+      getUserPolicyDiagnostics(
+        denyPolicy(['protected', 'server.pem', '~/documents/private', '/opt/secrets']),
+      ),
+    ).toEqual([]);
+    expect(getUserPolicyDiagnostics(denyPolicy('protected'))).toEqual([
+      'secret_protection.deny_paths must be an array of paths',
+    ]);
+    expect(getUserPolicyDiagnostics(denyPolicy([' ', 42]))).toEqual([
+      'secret_protection.deny_paths[0] must be a non-empty path string',
+      'secret_protection.deny_paths[1] must be a non-empty path string',
+    ]);
+    expect(getUserPolicyDiagnostics(denyPolicy(['~', homedir(), '$HOME', '${HOME}']))).toEqual([
+      `secret_protection.deny_paths[0] ${blocksEverything}`,
+      `secret_protection.deny_paths[1] ${blocksEverything}`,
+      `secret_protection.deny_paths[2] ${blocksEverything}`,
+      `secret_protection.deny_paths[3] ${blocksEverything}`,
+    ]);
+    expect(getUserPolicyDiagnostics(denyPolicy(['/', dirname(homedir()), '$HOME/..']))).toEqual([
+      `secret_protection.deny_paths[0] ${blocksEverything}`,
+      `secret_protection.deny_paths[1] ${blocksEverything}`,
+      `secret_protection.deny_paths[2] ${blocksEverything}`,
+    ]);
+    expect(getUserPolicySchema().safeParse(denyPolicy(['~'])).success).toBeFalse();
+    expect(
+      getUserPolicySchema().safeParse(denyPolicy(['protected', '~/documents/private'])).success,
+    ).toBeTrue();
+  });
+
   test('preserves accepted deny path whitespace through schema and snapshot loading', async () => {
     const input = {
       version: 1 as const,
@@ -337,6 +374,9 @@ describe('configuration schemas', () => {
       { enabled: true, deny_paths: ['private/token'] },
       { overrides: { unknown: 'off' } },
       { deny_paths: [' '] },
+      { deny_paths: ['~'] },
+      { deny_paths: ['/', 'private/token'] },
+      { deny_paths: ['$HOME'] },
     ];
     const destructiveFields = [
       undefined,

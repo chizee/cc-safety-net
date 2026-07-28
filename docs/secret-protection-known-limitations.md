@@ -74,3 +74,70 @@ The complete mitigation for this class is runtime filesystem enforcement, such
 as operating-system permissions, a sandbox, container isolation, Landlock on
 Linux, or another policy that prevents the executed process from opening
 sensitive files even if the command text evades static detection.
+
+## Known Limitation: A Deny Path Covering the Workspace
+
+Configuration validation rejects the deny entries that would block every
+command in every workspace under the home directory: home itself, any path
+above it, and `/`, in their `~`, `$HOME`, and `${HOME}` spellings too
+(`getSecretDenyPathError` in `src/core/analyze/allow-paths.ts`). The check
+runs at the same save-time sites as the allow-path home guard — the policy
+schema and diagnostics in `src/config/schema.ts`, the salvage repair in
+`src/core/policy.ts`, which drops rejected entries and reports them, and the
+GUI deny-path list, which posts the candidate policy to `/api/policy/preview`
+and surfaces the rejection inline before the entry is added.
+
+Validation deliberately stops there. An entry that names a specific workspace
+— the project path itself, or a relative entry such as `.` (relative entries
+are supported behavior; they resolve against the config cwd, which
+`tests/core/secret-protection.test.ts` pins) — cannot be judged at save time:
+whether it covers the session depends on each session's cwd, and denying a
+project directory is legitimate configuration when working from somewhere
+else.
+
+Inside a workspace such an entry covers, essentially every command blocks.
+Operand extraction is fail-safe: an operand that is not recognized as
+something else is kept as a path candidate and resolved against the cwd, so
+`ls src` blocks on `src`, `git status` blocks on `status`, and
+`cat README.md` blocks on `README.md`. What survives is the narrow set whose
+tokens are not kept as path candidates: operand-less commands, `echo` and
+`printf`, and shapes such as a pattern-only `grep` or interpreter inline code
+with no path-like literal.
+
+The failure is loud, not silent. Each denial carries `Rule: secret.deny-path`
+in the hook message (`formatBlockedMessage` in `src/core/format.ts`), and
+secret-protection denials use the `hard_stop` footer, which tells the agent to
+stop retrying and report the block to the user.
+
+Diagnosis from inside the session is unavailable in this state:
+
+- `cc-safety-net status` is blocked. The analyzer's carve-out for the CLI
+  (`extractSafetyNetExplainPathTargets` in `src/core/secret-protection.ts`)
+  recognizes only the `explain` subcommand, and `status` was added after it, so
+  the literal word `status` stays an ordinary operand and resolves to
+  `<cwd>/status`.
+- `cc-safety-net explain` is blocked despite its carve-out, because the
+  carve-out keeps the executable token itself among the candidate targets, and
+  `cc-safety-net` resolves to `<cwd>/cc-safety-net` — a child of any deny root
+  covering the cwd.
+
+Recovery is out of band. The hook sees only agent tool calls, so the user's own
+shell and the GUI policy editor keep working; removing or narrowing the entry
+there restores the session.
+
+## Why Deny-Path Validation Stops at Home
+
+The residual misconfiguration fails closed. It is immediate, it names its own
+rule id in every message, and it is repaired from a shell the hook does not
+guard. That is the opposite of `destructive_command_protection.allow_paths`,
+whose home guard exists because an allow path covering home fails open and
+silently: protection disappears with nothing printed anywhere. For the same
+reason the allow-path guard re-checks its roots after symlink canonicalization
+at match time (`resolveAllowRoots`), while deny paths get no match-time
+validation: a deny entry can only over-block, never widen access.
+
+The deny-path matcher itself stays fail-safe and unvalidated:
+`tests/core/secret-protection.test.ts` deliberately pins that
+`denyPaths: ['/']` matches everything at the matcher level, so a
+home-covering value that reaches the matcher from outside a validated config
+still blocks rather than being silently ignored.

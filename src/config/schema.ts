@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
-import { getDestructiveAllowPathError } from '@/core/analyze/allow-paths';
+import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/core/analyze/allow-paths';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
@@ -140,7 +140,7 @@ function createSchemas() {
         .strictObject({
           enabled: z.boolean().optional(),
           overrides: OffOverridesSchema.optional(),
-          deny_paths: z.array(z.string().refine((path) => path.trim().length > 0)).optional(),
+          deny_paths: z.array(z.string()).optional(),
         })
         .optional(),
       audit: z
@@ -163,6 +163,16 @@ function createSchemas() {
             code: 'custom',
             message: error,
             path: ['destructive_command_protection', 'allow_paths', index],
+          });
+        }
+      });
+      (policy.secret_protection?.deny_paths ?? []).forEach((path, index) => {
+        const error = getSecretDenyPathError(path);
+        if (error) {
+          context.addIssue({
+            code: 'custom',
+            message: error,
+            path: ['secret_protection', 'deny_paths', index],
           });
         }
       });
@@ -464,10 +474,8 @@ function validateUserSecretPolicy(value: unknown, errors: string[]): void {
     return;
   }
   for (let index = 0; index < value.deny_paths.length; index++) {
-    const path = value.deny_paths[index];
-    if (typeof path !== 'string' || path.trim() === '') {
-      errors.push(`secret_protection.deny_paths[${index}] must be a non-empty path string`);
-    }
+    const error = getSecretDenyPathError(value.deny_paths[index]);
+    if (error) errors.push(`secret_protection.deny_paths[${index}] ${error}`);
   }
 }
 

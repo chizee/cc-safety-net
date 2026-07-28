@@ -178,7 +178,7 @@ describe('policy GUI helpers', () => {
             'secret.ext.pem': 'off',
             'secret.unknown': 'off',
           },
-          deny_paths: ['private/token.txt', '', 42],
+          deny_paths: ['private/token.txt', '', 42, '~', '/'],
         },
         extra: true,
       }),

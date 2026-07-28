@@ -1046,6 +1046,19 @@ const pathLists = {
     },
     isDisabled: () => !draftPolicy.secret_protection.enabled,
     itemLabel: 'deny path',
+    validateAdditions: async (paths) => {
+      const candidate = collectFormPolicy();
+      candidate.secret_protection = {
+        ...candidate.secret_protection,
+        deny_paths: paths,
+      };
+      const result = await requestJson('/api/policy/preview', {
+        method: 'POST',
+        body: JSON.stringify(candidate),
+      });
+      if (result.ok && result.data?.preview) return null;
+      return errorText(result);
+    },
   }),
   'allow-paths': createPathList('allow-paths', {
     getPaths: () => draftPolicy.destructive_command_protection.allow_paths,

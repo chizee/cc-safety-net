@@ -25,6 +25,25 @@ export function getDestructiveAllowPathError(value: unknown): string | null {
   return getAllowPathHomeConflictError(expanded, getAllowPathHomeDir());
 }
 
+// Deny entries may be relative (they resolve against each session's config cwd,
+// which is unknowable at save time), so only absolute and home-anchored entries
+// are judged here. The rejected class — home, anything above it, `/` — has no
+// legitimate reading and blocks essentially every command in every workspace
+// under home.
+export function getSecretDenyPathError(value: unknown): string | null {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return 'must be a non-empty path string';
+  }
+  const home = getAllowPathHomeDir();
+  const expanded = expandAllowPathHome(
+    value.trim().replace(/^\$(?:\{HOME\}|HOME(?=\/|$))/, '~'),
+    home,
+  );
+  if (!isAbsolute(expanded)) return null;
+  if (getAllowPathHomeConflictError(expanded, home) === null) return null;
+  return 'cannot be the home directory or a path above it (this would block every command the agent runs)';
+}
+
 export function getAllowPathHomeConflictError(absolutePath: string, home: string): string | null {
   const normalized = comparableAllowPath(absolutePath);
   const normalizedHome = comparableAllowPath(home);

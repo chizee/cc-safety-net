@@ -498,6 +498,8 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         'Configured paths and everything inside them are blocked while Secret protection is on.',
       );
+      expect(html).not.toContain('blocks nearly every command the agent runs');
+      expect(html).toContain('deny_paths: paths,');
       expect(html).not.toContain('Deny paths remain active');
       expect(html).not.toContain('Deny paths are always blocked');
       expect(html).not.toContain('trusted user policy');
@@ -747,6 +749,24 @@ describe('policy GUI server', () => {
       expect(invalidResponse.status).toBe(400);
       expect(await invalidResponse.json()).toMatchObject({
         errors: [expect.stringContaining('must be "on" or "off"')],
+      });
+      const homeDenyResponse = await fetch(
+        `${server.origin}/api/policy/preview?token=${server.token}`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-cc-safety-net-token': server.token,
+          },
+          body: JSON.stringify({
+            ...DEFAULT_POLICY_BODY,
+            secret_protection: { enabled: true, overrides: {}, deny_paths: ['~'] },
+          }),
+        },
+      );
+      expect(homeDenyResponse.status).toBe(400);
+      expect(await homeDenyResponse.json()).toMatchObject({
+        errors: [expect.stringContaining('cannot be the home directory or a path above it')],
       });
       const result = await postJson<{
         errors: string[];
