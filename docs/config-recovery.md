@@ -110,8 +110,9 @@ is retained, so re-running after the fix succeeds.
 
 ## Where the state is reported
 
-Degraded operation is never silent. The reason names the failing file or source, the rejected
-condition, what is no longer active, and the repair.
+Every degraded state is reported on all of the surfaces below. The reason names the failing file or
+source, the rejected condition, what is no longer active, and the repair. How likely you are to
+*notice* without going looking varies by failure; see the next section.
 
 - A degraded snapshot appends a `Config warning:` line to the next user-visible denial.
 - Audit records carry a `configFallback` flag on allowed and denied decisions alike. Allowed
@@ -124,6 +125,34 @@ condition, what is no longer active, and the repair.
 - The statusline appends `⚠️`.
 - The GUI reports the state in the protection banner it already shows across views.
 - `rule list` prints a `Warnings` section and exits non-zero when either errors or warnings remain.
+  It covers rule configuration only, not `policy.json`. `doctor` is the one command that reports both.
 
 Because nothing is blocked, an agent can also run `doctor`, `rule verify`, and `rule list` itself to
 see the same diagnostics.
+
+## Which failures you will feel
+
+Reporting is not the same as being noticed. Only the statusline marker is passive; the `Config
+warning:` line needs an unrelated denial to ride on, and everything else waits for you to run a
+command or open the GUI. Whether a degraded runtime is self-announcing depends on which direction it
+moved:
+
+- **Dropped rule sources are silent.** They remove denials, so nothing rubs. A command a rulebook
+  used to block simply runs, and a clean session produces no signal at all. This is the accepted cost
+  of not blocking, and it is the case worth running `doctor` for after any change to rule
+  configuration — or after an upgrade, since an unmigrated legacy config lands here.
+- **An invalid `policy.json` mostly announces itself.** Rejected sections fall back to *protective*
+  defaults: both protections forced on, allow paths dropped, disabling overrides dropped. The result
+  is more denials than you configured, so you find it through friction — something you deliberately
+  allowed starts getting blocked.
+
+Stated precisely, an invalid `policy.json` loudly imposes the defaults you had relaxed and quietly
+loses the protections you had added above them. The quiet half is small and worth knowing:
+
+- An invalid `safety.level` falls back to `standard`, so a typo in `paranoid` silently lowers the
+  preset. With the statusline configured this is visible twice, since the level emoji changes as well
+  as gaining `⚠️`.
+- Invalid entries in `secret_protection.deny_paths`, and per-rule overrides you had set to `on` above
+  their default, are dropped rather than repaired.
+
+`cc-safety-net doctor` reports every case above, including both quiet ones.

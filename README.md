@@ -358,7 +358,7 @@ Nothing is special-cased in return: there is no allowlisted repair command and n
 ## Upgrading from an older version
 
 > [!WARNING]
-> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime**. Commands now **fail closed** (stay blocked) until you migrate. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migration-from-legacy-config).
+> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime** and **their rules are not enforcing anything**. Nothing is blocked, so you will not notice this from normal use — the commands those rules used to block now run. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout, then `npx -y cc-safety-net doctor` to confirm the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migration-from-legacy-config).
 
 ## Full documentation
 
