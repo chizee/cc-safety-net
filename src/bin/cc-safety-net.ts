@@ -17,6 +17,7 @@ import {
   type HookIntegration,
 } from '@/bin/hook/integrations';
 import { runRuleCommand } from '@/bin/rule';
+import { printStatus } from '@/bin/status';
 import { printStatusline } from '@/bin/statusline';
 
 type ParsedCommand =
@@ -24,6 +25,7 @@ type ParsedCommand =
   | { mode: 'install'; args: string[] }
   | { mode: 'uninstall'; args: string[] }
   | { mode: 'rule'; args: string[] }
+  | { mode: 'status' }
   | { mode: 'statusline' }
   | { mode: 'gui'; args: string[] }
   | { mode: 'doctor'; args: string[] }
@@ -94,6 +96,7 @@ function handleCommandHelp(args: readonly string[]): boolean {
 const commandParsers = {
   explain: (args: string[]): ParsedCommand => ({ mode: 'explain', args }),
   rule: (args: string[]): ParsedCommand => ({ mode: 'rule', args }),
+  status: (): ParsedCommand => ({ mode: 'status' }),
   statusline: (args: string[]): ParsedCommand => {
     if (args.includes('--claude-code') || args.includes('-cc')) return { mode: 'statusline' };
     console.error('statusline requires --claude-code (-cc)');
@@ -168,6 +171,9 @@ const commandHandlers = {
   },
   rule: async (command) => {
     process.exit(await runRuleCommand(command.args));
+  },
+  status: async (_command) => {
+    printStatus();
   },
   statusline: async (_command) => {
     await printStatusline();

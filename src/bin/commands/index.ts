@@ -5,6 +5,7 @@ import { hookCommand } from './hook';
 import { installCommand, uninstallCommand } from './install';
 import { logsCommand } from './logs';
 import { ruleCommand } from './rule';
+import { statusCommand } from './status';
 import { statuslineCommand } from './statusline';
 import type { Command } from './types';
 
@@ -17,6 +18,7 @@ export type { Command, CommandOption, CommandSubcommand } from './types';
  * @internal Exported for testing
  */
 export const commands = [
+  statusCommand,
   doctorCommand,
   logsCommand,
   explainCommand,

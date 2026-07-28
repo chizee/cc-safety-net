@@ -92,7 +92,9 @@ export function wrapReason(reason: string, indent: string, maxWidth = 70): strin
   let current = '';
 
   for (const word of words) {
-    if (current.length + word.length + 1 > maxWidth) {
+    // A word wider than the budget still starts the line it belongs to, rather
+    // than pushing an empty line ahead of itself.
+    if (current && current.length + word.length + 1 > maxWidth) {
       lines.push(current);
       current = word;
     } else {

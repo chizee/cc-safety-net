@@ -319,6 +319,8 @@ Legacy `SAFETY_NET_*` names are accepted as fallbacks. See [Modes](https://ccsaf
 ## Diagnostics and tracing
 
 ```bash
+# Summarize what is being enforced right now
+npx cc-safety-net status
 # Verify your installation and run a self-test
 npx cc-safety-net doctor
 # Trace how a command is analyzed step-by-step

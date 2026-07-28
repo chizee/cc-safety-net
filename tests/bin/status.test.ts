@@ -1,0 +1,223 @@
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { printStatus } from '@/bin/status';
+import { loadPolicySnapshot } from '@/config/policy-snapshot';
+import { runCCSafetyNetCli, withEnv, withStdoutColor } from '../helpers.ts';
+
+/**
+ * `status` renders one snapshot on two surfaces. The subprocess runs cover the
+ * non-TTY surface (piped stdout, so `columns` is unset and the width cap is 80);
+ * the one in-process run covers the TTY surface, where the glyphs and colour
+ * that the ASCII fallbacks replace are the thing under test.
+ */
+
+const WIDTH = 80;
+const MIGRATE_DIAGNOSTIC =
+  'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`';
+const PLUGIN_DIAGNOSTIC =
+  'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced until it is re-enabled';
+
+function clearEnv(): void {
+  delete process.env.CC_SAFETY_NET_HOME;
+  delete process.env.CC_SAFETY_NET_LEVEL;
+  delete process.env.CC_SAFETY_NET_STRICT;
+  delete process.env.CC_SAFETY_NET_PARANOID;
+  delete process.env.CC_SAFETY_NET_WORKTREE;
+  delete process.env.SAFETY_NET_STRICT;
+  delete process.env.SAFETY_NET_PARANOID;
+  delete process.env.SAFETY_NET_WORKTREE;
+  delete process.env.CLAUDE_SETTINGS_PATH;
+  delete process.env.NO_COLOR;
+}
+
+/** Rebuilds each issue bullet from the lines its hanging indent spans. */
+function issueBullets(output: string): string[] {
+  return output
+    .replace(/\n {6}/g, ' ')
+    .split('\n')
+    .filter((line) => line.startsWith('    - '))
+    .map((line) => line.slice(6));
+}
+
+function factValue(output: string, label: string): string {
+  return (output.split('\n').find((line) => line.startsWith(`  ${label} `)) ?? '')
+    .slice(2 + label.length)
+    .trim();
+}
+
+describe('status command', () => {
+  let root: string;
+  let home: string;
+  let project: string;
+  let settingsPath: string;
+
+  beforeEach(async () => {
+    clearEnv();
+    root = await mkdtemp(join(tmpdir(), 'safety-net-status-'));
+    home = join(root, 'safety-net-home');
+    project = join(root, 'project');
+    settingsPath = join(root, 'settings.json');
+    await mkdir(home);
+    await mkdir(project);
+    await writePluginSettings(settingsPath, true);
+  });
+
+  afterEach(async () => {
+    clearEnv();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const runStatus = (env: Record<string, string> = {}) =>
+    runCCSafetyNetCli(
+      ['status'],
+      { CLAUDE_SETTINGS_PATH: settingsPath, CC_SAFETY_NET_HOME: home, ...env },
+      project,
+    );
+
+  /** The one TTY rendering: glyphs and colour instead of the ASCII fallbacks. */
+  const renderOnTTY = () => {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    const originalCwd = process.cwd();
+    console.log = (line: string) => {
+      lines.push(line);
+    };
+    process.chdir(project);
+    try {
+      withEnv({ CLAUDE_SETTINGS_PATH: settingsPath, CC_SAFETY_NET_HOME: home }, () =>
+        withStdoutColor(true, printStatus),
+      );
+    } finally {
+      console.log = originalLog;
+      process.chdir(originalCwd);
+    }
+    return lines.join('\n');
+  };
+
+  const writeUserPolicy = (policy: Record<string, unknown>) =>
+    writeFile(join(home, 'policy.json'), JSON.stringify(policy));
+
+  test('prints the facts block and no issues block when ready', async () => {
+    const result = await runStatus();
+
+    expect(result.output).toContain('CC Safety Net — ready');
+    expect(result.output).toMatch(/^ {2}Protection\s+destructive ok\s+secrets ok$/m);
+    expect(result.output).toMatch(/^ {2}Level\s+standard$/m);
+    expect(result.output).toMatch(/^ {2}Rules\s+none active$/m);
+    // Rows never fold: the policy path is printed as a prefix cut with `…`.
+    expect(join(home, 'policy.json')).toStartWith(factValue(result.output, 'Policy').slice(0, -1));
+    expect(result.output).toContain('Everything configured is active.');
+    expect(result.output).not.toContain('Not active');
+    expect(issueBullets(result.output)).toEqual([]);
+  });
+
+  test('prints one bullet per diagnostic and never the combined reason', async () => {
+    await writeUserPolicy({ version: 1, safety: { level: 'nope' }, not_a_real_field: true });
+    const snapshot = loadPolicySnapshot({ cwd: project, userConfigDir: join(home, 'rules') });
+    const reason = snapshot.state === 'degraded' ? snapshot.reason : '';
+    expect(snapshot.diagnostics.length).toBeGreaterThan(1);
+    expect(reason).not.toBe('');
+
+    const result = await runStatus();
+
+    expect(result.output).toContain('CC Safety Net — degraded');
+    expect(issueBullets(result.output)).toEqual([...snapshot.diagnostics]);
+    expect(result.output).not.toContain(reason);
+    expect(result.output).toContain('Full report: cc-safety-net doctor');
+  });
+
+  test('prints the migrate diagnostic verbatim for a legacy rules config', async () => {
+    await writeFile(join(project, '.safety-net.json'), '{not json');
+
+    const result = await runStatus();
+
+    expect(issueBullets(result.output)).toEqual([MIGRATE_DIAGNOSTIC]);
+  });
+
+  test('leads with the plugin bullet and still prints the facts when the plugin is off', async () => {
+    await writePluginSettings(settingsPath, false);
+
+    const result = await runStatus();
+
+    expect(result.output).toContain('CC Safety Net — not enforcing');
+    expect(issueBullets(result.output)).toEqual([PLUGIN_DIAGNOSTIC]);
+    expect(result.output).toMatch(/^ {2}Protection\s+destructive ok\s+secrets ok$/m);
+    expect(result.output).toMatch(/^ {2}Level\s+standard$/m);
+    expect(result.output).toMatch(/^ {2}Rules\s+none active$/m);
+  });
+
+  test('exits 0 whether ready, degraded, or not enforcing', async () => {
+    expect((await runStatus()).exitCode).toBe(0);
+
+    await writeUserPolicy({ version: 1, not_a_real_field: true });
+    const degraded = await runStatus();
+    expect(degraded.output).toContain('degraded');
+    expect(degraded.exitCode).toBe(0);
+
+    await writePluginSettings(settingsPath, false);
+    const notEnforcing = await runStatus();
+    expect(notEnforcing.output).toContain('not enforcing');
+    expect(notEnforcing.exitCode).toBe(0);
+  });
+
+  test('falls back to ASCII glyphs without escapes under NO_COLOR', async () => {
+    await writeUserPolicy({
+      version: 1,
+      destructive_command_protection: { enabled: false },
+      not_a_real_field: true,
+    });
+
+    const result = await runStatus({ NO_COLOR: '1' });
+
+    expect(result.output).not.toContain('\x1b');
+    expect(result.output).toMatch(/^ {2}Protection\s+destructive OFF\s+secrets ok$/m);
+    expect(issueBullets(result.output)).toHaveLength(1);
+    expect(result.output).not.toContain('🛡');
+    expect(result.output).not.toContain('✔');
+    expect(result.output).not.toContain('✘');
+    expect(result.output).not.toContain('·');
+  });
+
+  test('inverts a disabled protection to a red ✘ on a TTY', async () => {
+    await writeUserPolicy({
+      version: 1,
+      destructive_command_protection: { enabled: false },
+      not_a_real_field: true,
+    });
+
+    const output = renderOnTTY();
+
+    expect(output).toContain(`destructive \x1b[31m✘\x1b[0m`);
+    expect(output).toContain('secrets ✔');
+    expect(output).toContain('🛡️');
+    expect(output).toContain('    · ');
+  });
+
+  test('prints the worktree row only when worktree mode is on', async () => {
+    expect((await runStatus()).output).not.toContain('Worktree');
+
+    const worktree = await runStatus({ CC_SAFETY_NET_WORKTREE: '1' });
+
+    expect(worktree.output).toMatch(/^ {2}Worktree\s+relaxations active$/m);
+  });
+
+  test('wraps a long diagnostic with a hanging indent instead of overflowing the width', async () => {
+    await writeFile(join(project, '.safety-net.json'), '{not json');
+
+    const lines = (await runStatus()).output.trimEnd().split('\n');
+
+    const bullet = lines.findIndex((line) => line.startsWith('    - '));
+    expect(lines[bullet]?.length).toBeGreaterThan('    - '.length);
+    expect(lines[bullet + 1]).toMatch(/^ {6}\S/);
+    expect(lines.filter((line) => line.length > WIDTH)).toEqual([]);
+  });
+});
+
+function writePluginSettings(path: string, enabled: boolean) {
+  return writeFile(
+    path,
+    JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': enabled } }),
+  );
+}

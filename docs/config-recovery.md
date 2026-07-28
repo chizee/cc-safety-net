@@ -122,13 +122,16 @@ source, the rejected condition, what is no longer active, and the repair. How li
   the warning line nor the audit flag.
 - `cc-safety-net doctor` reports the state as a `config.runtime-degraded` warning finding with the
   full reason as its detail.
+- `cc-safety-net status` prints the verdict — `ready`, `degraded`, or `not enforcing` when the plugin
+  is disabled in Claude Code — with each diagnostic on its own line. It is informational and always
+  exits 0; `doctor` stays the deep diagnostic.
 - The statusline appends `⚠️`.
 - The GUI reports the state in the protection banner it already shows across views.
 - `rule list` prints a `Warnings` section and exits non-zero when either errors or warnings remain.
   It covers rule configuration only, not `policy.json`. `doctor` is the one command that reports both.
 
-Because nothing is blocked, an agent can also run `doctor`, `rule verify`, and `rule list` itself to
-see the same diagnostics.
+Because nothing is blocked, an agent can also run `status`, `doctor`, `rule verify`, and `rule list`
+itself to see the same diagnostics.
 
 ## Which failures you will feel
 
@@ -139,8 +142,9 @@ moved:
 
 - **Dropped rule sources are silent.** They remove denials, so nothing rubs. A command a rulebook
   used to block simply runs, and a clean session produces no signal at all. This is the accepted cost
-  of not blocking, and it is the case worth running `doctor` for after any change to rule
-  configuration — or after an upgrade, since an unmigrated legacy config lands here.
+  of not blocking, and it is the case worth checking after any change to rule configuration — or
+  after an upgrade, since an unmigrated legacy config lands here. `cc-safety-net status` is the cheap
+  habitual check for it; reach for `doctor` when you want the full report.
 - **An invalid `policy.json` mostly announces itself.** Rejected sections fall back to *protective*
   defaults: both protections forced on, allow paths dropped, disabling overrides dropped. The result
   is more denials than you configured, so you find it through friction — something you deliberately

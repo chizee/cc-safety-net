@@ -42,7 +42,11 @@ interface ClaudeSettings {
   enabledPlugins?: Record<string, boolean>;
 }
 
-function isPluginEnabled(): boolean {
+/**
+ * Whether the plugin is enabled in Claude Code. Nothing is enforced while it is
+ * off, however valid the configuration is.
+ */
+export function isPluginEnabled(): boolean {
   const settingsPath = getSettingsPath();
 
   if (!existsSync(settingsPath)) {

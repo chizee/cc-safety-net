@@ -60,6 +60,7 @@ describe('help output', () => {
 Blocks destructive git and filesystem commands before execution.
 
 COMMANDS:
+  cc-safety-net status                       Show what the runtime is enforcing right now
   cc-safety-net doctor [options]             Run diagnostic checks to verify installation and configuration
   cc-safety-net logs [options]               Browse audit log entries recorded by hooks
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
