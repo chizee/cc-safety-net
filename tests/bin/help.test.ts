@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { findCommand } from '@/bin/commands';
 import { printCommandHelp, printHelp, printVersion, showCommandHelp } from '@/bin/help';
+import { installIntegrationMetadata } from '@/integrations/catalog';
 import { runCCSafetyNetCli } from '../helpers';
 
 /**
@@ -205,6 +206,24 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('uninstall --kimi-code');
       expect(output).toContain('uninstall --opencode');
       expect(output).toContain('uninstall --pi');
+    });
+
+    test('install and uninstall help stay aligned with the integration catalog', () => {
+      for (const action of ['install', 'uninstall'] as const) {
+        const cmd = findCommand(action);
+        if (!cmd) throw new Error(`${action} command not found`);
+
+        expect(cmd.options.map((option) => option.flags)).toEqual([
+          ...installIntegrationMetadata.map((integration) => integration.flag),
+          '-h, --help',
+        ]);
+        expect(cmd.examples).toEqual([
+          `cc-safety-net ${action}`,
+          ...installIntegrationMetadata.map(
+            (integration) => `cc-safety-net ${action} ${integration.flag}`,
+          ),
+        ]);
+      }
     });
 
     test('statusline command prints Claude Code platform flag', () => {

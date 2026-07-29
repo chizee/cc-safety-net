@@ -141,7 +141,7 @@ describe('command routing', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      'hook requires an integration flag. Try: cc-safety-net hook --kimi-code',
+      'hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code',
     );
     expect(result.output).toContain('USAGE:\n  cc-safety-net hook');
   });

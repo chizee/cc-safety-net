@@ -105,6 +105,7 @@ describe('integration metadata', () => {
       id: 'copilot-cli',
       flag: '--copilot-cli',
       installLabel: 'GitHub Copilot CLI',
+      helpTarget: 'GitHub Copilot CLI plugin',
       probeCommand: ['copilot', '--binary-version'],
     });
     expect(getIntegrationDisplayName('copilot-cli')).toBe('GitHub Copilot CLI');

@@ -11,6 +11,7 @@ type InstallMetadata = {
   order: number;
   flag: string;
   installLabel: string;
+  helpTarget: string;
   probeCommand: readonly [string, ...string[]];
 };
 
@@ -37,6 +38,7 @@ const catalog = [
       order: 2,
       flag: '--agy-cli',
       installLabel: 'Antigravity CLI',
+      helpTarget: 'Antigravity CLI hook config',
       probeCommand: ['agy', '--version'],
     },
   },
@@ -56,6 +58,7 @@ const catalog = [
       order: 3,
       flag: '--claude-code',
       installLabel: 'Claude Code',
+      helpTarget: 'Claude Code plugin',
       probeCommand: ['claude', '--version'],
     },
   },
@@ -67,6 +70,7 @@ const catalog = [
       order: 4,
       flag: '--codex',
       installLabel: 'Codex',
+      helpTarget: 'Codex plugin',
       probeCommand: ['codex', '--version'],
     },
   },
@@ -84,6 +88,7 @@ const catalog = [
       order: 7,
       flag: '--copilot-cli',
       installLabel: 'GitHub Copilot CLI',
+      helpTarget: 'GitHub Copilot CLI plugin',
       probeCommand: ['copilot', '--binary-version'],
     },
   },
@@ -101,6 +106,7 @@ const catalog = [
       order: 6,
       flag: '--gemini-cli',
       installLabel: 'Gemini CLI',
+      helpTarget: 'Gemini CLI extension',
       probeCommand: ['gemini', '--version'],
     },
   },
@@ -118,6 +124,7 @@ const catalog = [
       order: 8,
       flag: '--kimi-code',
       installLabel: 'Kimi Code',
+      helpTarget: 'Kimi Code hook config',
       probeCommand: ['kimi', '--version'],
     },
   },
@@ -129,6 +136,7 @@ const catalog = [
       order: 9,
       flag: '--opencode',
       installLabel: 'OpenCode',
+      helpTarget: 'OpenCode plugin',
       probeCommand: ['opencode', '--version'],
     },
   },
@@ -140,6 +148,7 @@ const catalog = [
       order: 10,
       flag: '--pi',
       installLabel: 'Pi',
+      helpTarget: 'Pi package',
       probeCommand: ['pi', '--version'],
     },
   },
@@ -157,6 +166,7 @@ const catalog = [
       order: 5,
       flag: '--cursor',
       installLabel: 'Cursor',
+      helpTarget: 'Cursor hook config',
       probeCommand: ['cursor', '--version'],
     },
   },
@@ -168,6 +178,7 @@ const catalog = [
       order: 1,
       flag: '--amp',
       installLabel: 'Amp Code',
+      helpTarget: 'Amp Code plugin',
       probeCommand: ['amp', '--version'],
     },
   },

@@ -406,6 +406,18 @@ describe('hook command routing', () => {
     expect(stdout).toContain('-kc, --kimi-code');
   });
 
+  test('removed hook install syntax fails instead of running the integration', async () => {
+    const { stdout, stderr, exitCode } = await runCli(
+      ['hook', 'install', '--kimi-code'],
+      JSON.stringify(kimiShellInput('git status')),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('hook requires exactly one integration flag');
+    expect(stdout).toContain('cc-safety-net hook');
+    expect(stdout).not.toContain('permissionDecision');
+  });
+
   test('top-level Kimi Code flags are not legacy compatibility aliases', async () => {
     const longFlag = await runCli(['--kimi-code']);
     const shortFlag = await runCli(['-kc']);

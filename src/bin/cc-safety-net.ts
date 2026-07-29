@@ -104,10 +104,12 @@ const commandParsers = {
     process.exit(1);
   },
   hook: (args: string[]): ParsedCommand => {
-    const integration = findHookIntegrationByFlag(args);
+    const integration = args.length === 1 ? findHookIntegrationByFlag(args) : undefined;
     if (integration) return { mode: 'hook', integration };
 
-    console.error('hook requires an integration flag. Try: cc-safety-net hook --kimi-code');
+    console.error(
+      'hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code',
+    );
     showCommandHelp('hook');
     process.exit(1);
   },
