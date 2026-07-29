@@ -27,6 +27,29 @@ describe('heredoc command analysis', () => {
     expect(analyzeTestCommand(command)).toBeNull();
   });
 
+  // Field false positive: a commit message describing destructive-command behavior
+  // is data on the message sink's stdin, never a program.
+  const messageSinkCases = [
+    ['git commit', "git commit -q -F - <<'EOF'\nrm -rf targets stay blocked in strict\nEOF"],
+    ['git commit --file=-', "git commit --file=- <<'EOF'\ngit reset --hard is inert prose\nEOF"],
+    ['gh pr create', "gh pr create --body-file - <<'EOF'\nrm -rf ~ is inert prose\nEOF"],
+    ['gh issue create', "gh issue create -F - <<'EOF'\nfind . -delete is inert prose\nEOF"],
+  ] as const;
+
+  test.each(messageSinkCases)('allows a quoted data heredoc on %s stdin', (_name, command) => {
+    expect(analyzeTestCommand(command)).toBeNull();
+  });
+
+  test.each(messageSinkCases)('allows the %s data heredoc in strict mode', (_name, command) => {
+    expect(analyzeTestCommand(command, { strict: true })).toBeNull();
+  });
+
+  test.each(messageSinkCases)('does not let the %s heredoc hide outer danger', (_name, command) => {
+    expect(analyzeTestCommand(`${command}\nrm -rf ~`)).toMatchObject({
+      ruleId: 'rm.recursive-force-root-or-home',
+    });
+  });
+
   test('allows a supported quoted data heredoc in strict mode', () => {
     expect(
       analyzeTestCommand("cat <<'EOF'\nrm -rf ~ remains inert prose\nEOF", { strict: true }),

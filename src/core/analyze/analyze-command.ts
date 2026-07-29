@@ -84,7 +84,7 @@ type ActiveInternalOptions = InternalOptions & {
 const REASON_UNQUOTED_HEREDOC =
   'Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.';
 const REASON_UNSUPPORTED_HEREDOC =
-  'This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with bare cat, tee, or git apply, or ask the user to verify.';
+  'This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.';
 const MAX_CONTROL_FLOW_STATES = 64;
 
 export function analyzeCommandInternal(
@@ -943,9 +943,20 @@ function getHeredocReason(commandView: CommandView): string | undefined {
       ? REASON_UNSUPPORTED_HEREDOC
       : undefined;
   }
+  // Message sinks read stdin as data they store or publish, never as a program, so a
+  // commit message or PR body that describes a destructive command stays inert.
+  const head = commandView.words[0];
+  const sub = commandView.words[1];
   if (
-    isBareCommandWord(commandView.words[0], 'git') &&
-    isBareCommandWord(commandView.words[1], 'apply')
+    isBareCommandWord(head, 'git') &&
+    (isBareCommandWord(sub, 'apply') || isBareCommandWord(sub, 'commit'))
+  ) {
+    return undefined;
+  }
+  if (
+    isBareCommandWord(head, 'gh') &&
+    (isBareCommandWord(sub, 'pr') || isBareCommandWord(sub, 'issue')) &&
+    isBareCommandWord(commandView.words[2], 'create')
   ) {
     return undefined;
   }
