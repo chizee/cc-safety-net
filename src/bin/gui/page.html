@@ -25,6 +25,7 @@
         <a href="#overview" data-nav="overview" title="Overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="sr-only-collapse">Overview</span></a>
         <a href="#activity" data-nav="activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg><span class="sr-only-collapse">Activity</span></a>
         <a href="#policy" data-nav="policy" title="Policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 10 4-1.6 7-5.6 7-10V6l-7-3Z"></path></svg><span class="sr-only-collapse">Policy</span></a>
+        <a href="#rules" data-nav="rules" title="Rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M15 3v4h4"></path><path d="M9 12h6M9 16h4"></path></svg><span class="sr-only-collapse">Rules</span></a>
         <a href="#integrations" data-nav="integrations" title="Integrations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v5"></path></svg><span class="sr-only-collapse">Integrations</span></a>
         <a href="#settings" data-nav="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"></path><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle></svg><span class="sr-only-collapse">Settings</span></a>
       </nav>
@@ -127,7 +128,7 @@
             <div class="panel-head">
               <div class="panel-title">
                 <h2 id="tester-label">Test a command</h2>
-                <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits.</p>
+                <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits. Custom rulebook rules are enforced here too.</p>
               </div>
             </div>
             <div class="tester-row">
@@ -178,6 +179,70 @@
               <button type="button" id="reset-secret-customizations" class="panel-head-action">Restore defaults</button>
             </header>
             <div id="secret"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view="rules" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Custom rulebook rules enforced on this machine, and a prompt to hand rule authoring to your coding agent.</p>
+          </div>
+          <section class="panel" id="rules-composer-panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Create a rule</h2>
+                <p class="panel-sub muted">CC Safety Net never writes rulebooks from here. Copy the prompt and paste it into your coding agent.</p>
+              </div>
+            </div>
+            <div class="field">
+              <span>Scope</span>
+              <div class="chip-row" role="group" aria-label="Rule scope">
+                <button type="button" class="chip" data-rules-scope="project" aria-pressed="true">Project</button>
+                <button type="button" class="chip" data-rules-scope="user" aria-pressed="false">All projects</button>
+              </div>
+            </div>
+            <div class="field" id="rules-project-path-field">
+              <span id="rules-project-path-label">Project path</span>
+              <div class="rules-path-row">
+                <input type="text" id="rules-project-path" spellcheck="false" autocomplete="off" aria-labelledby="rules-project-path-label" aria-describedby="rules-project-path-hint">
+                <button type="button" id="rules-choose-directory" hidden>Choose…</button>
+              </div>
+              <small id="rules-project-path-hint">Where the rulebook is written. Defaults to the directory this GUI was launched from.</small>
+            </div>
+            <div class="field">
+              <span id="rules-composer-label">Request</span>
+              <textarea id="rules-composer-input" spellcheck="false" placeholder="Describe the custom rules you want..." aria-labelledby="rules-composer-label" aria-describedby="rules-composer-hint"></textarea>
+              <small id="rules-composer-hint">Rules match a command, an optional subcommand, and exact arguments - not file paths or patterns.</small>
+            </div>
+            <div class="field">
+              <span>Examples</span>
+              <div class="chip-row">
+                <button type="button" class="chip" data-rules-example="read my package.json and suggest blocking rules">Suggest rules</button>
+                <button type="button" class="chip" data-rules-example="set up rules to block all terraform destroy commands">Block a command</button>
+                <button type="button" class="chip" data-rules-example="verify my rules and fix any errors">Verify rules</button>
+              </div>
+            </div>
+            <div class="rules-composer-actions">
+              <button type="button" class="primary" id="rules-copy-prompt">Copy prompt</button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Rulebooks</h2>
+                <p class="panel-sub muted">Read-only. Rules are shown as enforced, after overrides.</p>
+              </div>
+              <button type="button" class="icon-button rules-refresh" id="rules-refresh" aria-label="Refresh rules" title="Refresh rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
+            </div>
+            <div id="rules-list"><p class="empty">Loading rules…</p></div>
+          </section>
+          <section class="panel" id="rules-diagnostics-panel" hidden>
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Diagnostics</h2>
+                <p class="panel-sub muted">Errors mean a rulebook was dropped and its rules are not enforced.</p>
+              </div>
+            </div>
+            <div id="rules-diagnostics"></div>
           </section>
         </section>
 

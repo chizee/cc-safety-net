@@ -68,6 +68,13 @@ let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
 let integrations = null;
 let integrationsRequested = false;
 const integrationBusy = new Set();
+let rulesData = null;
+let rulesRequested = false;
+let rulesScope = 'project';
+let pendingRuleFocus = null;
+// Set once a dialog that detection said was available failed to open, so a
+// later refresh cannot re-lock the field behind a button that does not work.
+let directoryPickerFailed = false;
 const api = (path, init = {}) =>
   fetch(`${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`, {
     ...init,
@@ -187,11 +194,12 @@ const collectFormPolicy = () => ({
   },
   audit: draftPolicy.audit,
 });
-const viewNames = ['overview', 'activity', 'policy', 'integrations', 'settings'];
+const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'];
 const viewTitles = {
   overview: 'Overview',
   activity: 'Activity',
   policy: 'Policy',
+  rules: 'Rules',
   integrations: 'Integrations',
   settings: 'Settings',
 };
@@ -225,6 +233,13 @@ const applyView = () => {
     integrationsRequested = true;
     void loadIntegrations();
   }
+  if (view === 'rules' && !rulesRequested) {
+    rulesRequested = true;
+    void loadRules();
+  }
+  // The section is unhidden above, so this is the earliest point a jumped-to
+  // rule can be scrolled into view.
+  if (view === 'rules' && rulesData && pendingRuleFocus) renderRules();
 };
 const relativeTime = (ts) => {
   const diff = Date.now() - new Date(ts).getTime();
@@ -243,14 +258,7 @@ const isActivityFeed = (value) =>
   Array.isArray(value.entries) &&
   !!value.counts &&
   typeof value.counts === 'object';
-const agentLabels = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  pi: 'Pi',
-};
+const agentLabels = __CC_SAFETY_NET_AGENT_LABELS__;
 const tierCountHtml = (segments) => {
   const parts = segments
     .filter(([count]) => count > 0)
@@ -270,7 +278,7 @@ const feedItemHtml = (entry, index) => {
       ${entry.ruleId ? (knownRuleIds.has(entry.ruleId) ? `<button type="button" class="rule-id" data-jump-rule="${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">${escapeHtml(entry.ruleId)}</button>` : `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>`) : ''}
       <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
-      ${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}" aria-label="Report false positive" title="Report false positive">${reportIcon}</button>` : ''}
+      ${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}" aria-label="Report false positive" title="Report false positive">${reportIcon}</button>` : `<button type="button" class="feed-toggle feed-block" data-block-future="${index}">Block this in future</button>`}
     </div>
     <code class="feed-command">${escapeHtml(entry.segment || entry.command || '(no command recorded)')}</code>
     ${entry.reason && entry.reason !== 'allowed' ? `<p class="feed-reason muted">${escapeHtml(entry.reason)}</p>` : ''}
@@ -669,6 +677,167 @@ const refreshIntegrations = async () => {
   await Promise.all([loadIntegrations(), new Promise((resolve) => setTimeout(resolve, 600))]);
   button.classList.remove('spinning');
   button.disabled = false;
+};
+const renderRules = () => {
+  // Prefill only while untouched, so a refresh cannot discard a path already
+  // chosen for a project other than the launch directory.
+  if (!qs('rules-project-path').value) qs('rules-project-path').value = rulesData.projectPath;
+  // Typing an absolute path by hand is the error-prone half of this field, so
+  // it stays read-only wherever a real dialog can replace it.
+  const canPick = rulesData.canPickDirectory && !directoryPickerFailed;
+  qs('rules-project-path').readOnly = canPick;
+  qs('rules-choose-directory').hidden = !canPick;
+  qs('rules-list').innerHTML =
+    rulesData.rulebooks.length === 0
+      ? // A dropped source is the failure users are least likely to notice, so
+        // it owns the empty state instead of the first-run copy below it.
+        rulesData.errors.length > 0
+        ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>'
+        : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>'
+      : rulesData.rulebooks
+          .map(
+            (rulebook) => `<div class="rulebook-card">
+    <div class="rulebook-head">
+      <strong>${escapeHtml(rulebook.name)}</strong>
+      <span class="agent-badge">v${escapeHtml(rulebook.version)}</span>
+      ${rulebook.spec === rulebook.name ? '' : `<code>${escapeHtml(rulebook.spec)}</code>`}
+      <span>${rulebook.source === 'user' ? 'All projects' : 'This project'}</span>
+      <span>${rulebook.rules.length} rule${rulebook.rules.length === 1 ? '' : 's'}</span>
+    </div>
+    ${rulebook.rules
+      .map(
+        // block_args is an OR set, not a command line: any one of these tokens
+        // anywhere in the command matches, so they cannot be joined onto it.
+        (
+          rule,
+        ) => `<div class="rulebook-rule${pendingRuleFocus === rule.name ? ' rules-focus' : ''}">
+      <code class="rule-id">custom.${escapeHtml(rule.name)}</code>
+      <code>${escapeHtml([rule.command, rule.subcommand].filter(Boolean).join(' '))}</code>
+      <p>Blocked arguments (any one matches): ${rule.block_args.map((arg) => `<code>${escapeHtml(arg)}</code>`).join(' ')}</p>
+      <p>${escapeHtml(rule.reason)}</p>
+    </div>`,
+      )
+      .join('')}
+  </div>`,
+          )
+          .join('');
+  const diagnostics = [
+    ...rulesData.errors.map((text) => `<div class="status error">${escapeHtml(text)}</div>`),
+    ...rulesData.warnings.map((text) => `<div class="status">${escapeHtml(text)}</div>`),
+  ];
+  qs('rules-diagnostics').innerHTML = diagnostics.join('');
+  qs('rules-diagnostics-panel').hidden = diagnostics.length === 0;
+  if (!pendingRuleFocus) return;
+  const focused = qs('rules-list').querySelector('.rules-focus');
+  if (focused) focused.scrollIntoView({ block: 'center' });
+  // Top blocked rules names rules from audit history that a rulebook may no
+  // longer contain, and landing on an unchanged tab reads as a dead link.
+  if (!focused) setAppStatus(`custom.${pendingRuleFocus} is not in any rulebook`, 'error');
+  pendingRuleFocus = null;
+};
+const loadRules = async () => {
+  const result = await requestJson('/api/rules');
+  if (!result.ok || !Array.isArray(result.data?.rulebooks)) {
+    qs('rules-list').innerHTML =
+      `<p class="empty">Could not load rules: ${escapeHtml(errorText(result))}</p>`;
+    // Dropping the previous payload keeps a stale rulebook list from being
+    // repainted over this message by a later render.
+    rulesData = null;
+    qs('rules-diagnostics-panel').hidden = true;
+    rulesRequested = false;
+    return;
+  }
+  rulesData = result.data;
+  renderRules();
+};
+const refreshRules = async () => {
+  const button = qs('rules-refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add('spinning');
+  rulesRequested = true;
+  await Promise.all([loadRules(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove('spinning');
+  button.disabled = false;
+};
+const jumpToRulesRule = (ruleId) => {
+  pendingRuleFocus = ruleId.replace(/^custom\./, '');
+  location.hash = 'rules';
+};
+const openRuleComposer = (command) => {
+  qs('rules-composer-input').value = command;
+  location.hash = 'rules';
+};
+const setRulesScope = (scope) => {
+  rulesScope = scope;
+  document.querySelectorAll('[data-rules-scope]').forEach((chip) => {
+    chip.setAttribute('aria-pressed', String(chip.dataset.rulesScope === scope));
+  });
+  qs('rules-project-path-field').hidden = scope !== 'project';
+};
+const rulePromptText = () => {
+  // Rulebook names are claimed globally across both scopes: a project rulebook
+  // reusing a user-scope name is dropped whole and enforces nothing, so the
+  // agent has to see every existing name, not just this scope's.
+  const names = rulesData.rulebooks.map((rulebook) => rulebook.name);
+  return [
+    'Use the cc-safety-net skill for this request.',
+    'If that skill is not available, run `npx -y cc-safety-net rule doc` first and treat its output as the source of truth for schema, paths, and validation.',
+    '',
+    rulesScope === 'project'
+      ? `Scope: this project - ${qs('rules-project-path').value.trim()}`
+      : 'Scope: all projects (user scope)',
+    `Existing rulebooks (names must stay unique across both scopes): ${names.length > 0 ? names.join(', ') : 'none'}`,
+    '',
+    qs('rules-composer-input').value.trim(),
+  ].join('\n');
+};
+const chooseProjectDirectory = async () => {
+  const button = qs('rules-choose-directory');
+  if (button.disabled) return;
+  button.disabled = true;
+  const result = await requestJson('/api/rules/choose-directory', { method: 'POST' });
+  button.disabled = false;
+  if (result.ok && result.data.path) {
+    qs('rules-project-path').value = result.data.path;
+    return;
+  }
+  if (result.ok && result.data.cancelled) return;
+  // Detection cannot prove the dialog will actually open, so a failure has to
+  // hand the field back rather than leave a read-only box and a dead button.
+  directoryPickerFailed = true;
+  qs('rules-project-path').readOnly = false;
+  button.hidden = true;
+  setAppStatus(
+    `${result.ok ? result.data.error : errorText(result)} - type the project path instead`,
+    'error',
+  );
+};
+const copyRulePrompt = async () => {
+  if (!rulesData) {
+    setAppStatus('Rules have not loaded yet - refresh the Rulebooks panel', 'error');
+    return;
+  }
+  if (!qs('rules-composer-input').value.trim()) {
+    setAppStatus('Describe what you want first', 'error');
+    return;
+  }
+  // An empty path would hand the agent "Scope: this project - " and let it pick
+  // a directory itself, which is the guess this field exists to remove.
+  if (rulesScope === 'project' && !qs('rules-project-path').value.trim()) {
+    setAppStatus('Enter the project path the rule belongs to', 'error');
+    return;
+  }
+  qs('rules-copy-prompt').disabled = true;
+  try {
+    await navigator.clipboard.writeText(rulePromptText());
+    qs('rules-composer-input').value = '';
+    setAppStatus('Prompt copied - paste it into your coding CLI', 'ok');
+  } catch {
+    setAppStatus('Copy failed', 'error');
+  } finally {
+    qs('rules-copy-prompt').disabled = false;
+  }
 };
 const runIntegrationAction = async (button) => {
   const target = button.dataset.integrationTarget;
@@ -1403,16 +1572,21 @@ const runCommandTest = async () => {
   }
   if (result.data.result === 'allowed') {
     el.className = 'status ok';
-    el.textContent = 'Allowed — no rule blocks this command under the current draft policy.';
+    // Carries the command that was actually evaluated: the input is editable
+    // after the result renders, so reading it back would prefill a different one.
+    el.innerHTML = `Allowed — no rule blocks this command under the current draft policy. <button type="button" class="feed-toggle" data-create-rule="${escapeHtml(command)}">Create a rule for this</button>`;
     return;
   }
   const ruleId = result.data.customRule?.id ?? result.data.ruleId;
+  const ruleIdHtml = result.data.customRule
+    ? `<button type="button" class="rule-id" data-jump-custom-rule="${escapeHtml(ruleId)}" title="Show this rule in Rules">${escapeHtml(ruleId)}</button>`
+    : `<code class="rule-id">${escapeHtml(ruleId)}</code>`;
   const segment =
     result.data.segment && result.data.segment !== command
       ? `<div class="tester-segment">Segment: <code>${escapeHtml(result.data.segment)}</code></div>`
       : '';
   el.className = 'status error';
-  el.innerHTML = `Blocked${ruleId ? ` by <code class="rule-id">${escapeHtml(ruleId)}</code>` : ''} — ${escapeHtml(result.data.reason || '')}${segment}`;
+  el.innerHTML = `Blocked${ruleId ? ` by ${ruleIdHtml}` : ''} — ${escapeHtml(result.data.reason || '')}${segment}`;
 };
 function render() {
   draftPolicy = clonePolicy(state.policy);
@@ -1730,6 +1904,11 @@ document.addEventListener('click', (event) => {
     void runCommandTest();
     return;
   }
+  const createRule = event.target.closest?.('[data-create-rule]');
+  if (createRule) {
+    openRuleComposer(createRule.dataset.createRule);
+    return;
+  }
   const feedToggle = event.target.closest?.('[data-feed-toggle]');
   if (feedToggle) {
     const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
@@ -1747,9 +1926,18 @@ document.addEventListener('click', (event) => {
     openReportDialog(feedReport);
     return;
   }
+  const blockFuture = event.target.closest?.('[data-block-future]');
+  if (blockFuture) {
+    const entry = renderedFeedEntries[Number(blockFuture.dataset.blockFuture)];
+    // With no recorded command there is nothing to prefill, and opening anyway
+    // would clear whatever the user had already typed into the composer.
+    if (entry?.segment || entry?.command) openRuleComposer(entry.segment || entry.command);
+    return;
+  }
   const topRule = event.target.closest?.('.top-rule');
   if (topRule) {
-    jumpToActivityRule(topRule.dataset.ruleId);
+    const ruleId = topRule.dataset.ruleId;
+    (ruleId.startsWith('custom.') ? jumpToRulesRule : jumpToActivityRule)(ruleId);
     return;
   }
   const ruleActivity = event.target.closest?.('[data-rule-activity]');
@@ -1764,6 +1952,11 @@ document.addEventListener('click', (event) => {
     renderDestructiveCommands();
     renderSecretPatterns();
     location.hash = 'policy';
+    return;
+  }
+  const jumpCustom = event.target.closest?.('[data-jump-custom-rule]');
+  if (jumpCustom) {
+    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule);
     return;
   }
   const topCommand = event.target.closest?.('.top-command');
@@ -1812,6 +2005,28 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest?.('#integrations-refresh')) {
     void refreshIntegrations();
+    return;
+  }
+  if (event.target.closest?.('#rules-refresh')) {
+    void refreshRules();
+    return;
+  }
+  const scopeChip = event.target.closest?.('[data-rules-scope]');
+  if (scopeChip) {
+    setRulesScope(scopeChip.dataset.rulesScope);
+    return;
+  }
+  const exampleChip = event.target.closest?.('[data-rules-example]');
+  if (exampleChip) {
+    qs('rules-composer-input').value = exampleChip.dataset.rulesExample;
+    return;
+  }
+  if (event.target.closest?.('#rules-choose-directory')) {
+    void chooseProjectDirectory();
+    return;
+  }
+  if (event.target.closest?.('#rules-copy-prompt')) {
+    void copyRulePrompt();
     return;
   }
   const integrationButton = event.target.closest?.('[data-integration-action]');

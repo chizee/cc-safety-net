@@ -24,6 +24,7 @@ import {
 import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
 import { getUserPolicyPath } from '@/core/policy';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
+import { doctorIntegrationOrder, getIntegrationDisplayName } from '@/integrations/catalog';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
 import { syncInitialGitRulebook } from '../helpers/rulebook';
 
@@ -84,6 +85,26 @@ interface IntegrationsApiResponse {
 interface IntegrationActionApiResponse {
   ok: boolean;
   output: string;
+}
+
+interface RulesApiResponse {
+  projectPath: string;
+  canPickDirectory: boolean;
+  rulebooks: {
+    source: 'user' | 'project';
+    spec: string;
+    name: string;
+    version: string;
+    rules: {
+      name: string;
+      command: string;
+      subcommand?: string;
+      block_args: string[];
+      reason: string;
+    }[];
+  }[];
+  errors: string[];
+  warnings: string[];
 }
 
 const DEFAULT_POLICY_BODY = {
@@ -153,12 +174,14 @@ describe('policy GUI server', () => {
       expect(html).toContain('data-nav="overview"');
       expect(html).toContain('data-nav="activity"');
       expect(html).toContain('data-nav="policy"');
+      expect(html).toContain('data-nav="rules"');
       expect(html).toContain('data-nav="integrations"');
       expect(html).toContain('data-nav="settings"');
       expect(html).toContain('<link rel="icon" href="data:image/svg+xml,');
       expect(html).toContain('title="Overview"');
       expect(html).toContain('title="Activity"');
       expect(html).toContain('title="Policy"');
+      expect(html).toContain('title="Rules"');
       expect(html).toContain('title="Settings"');
       expect(html).toContain('.sr-only-collapse');
       expect(html).toContain('@media (max-width: 900px)');
@@ -166,10 +189,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('<section class="view" data-view="overview">');
       expect(html).toContain('<section class="view" data-view="activity" hidden>');
       expect(html).toContain('<section class="view" data-view="policy" hidden>');
+      expect(html).toContain('<section class="view" data-view="rules" hidden>');
       expect(html).toContain('<section class="view" data-view="integrations" hidden>');
       expect(html).toContain('<section class="view" data-view="settings" hidden>');
       expect(html).toContain(
-        "const viewNames = ['overview', 'activity', 'policy', 'integrations', 'settings'];",
+        "const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'];",
       );
       expect(html).toContain("requestJson('/api/integrations')");
       expect(html).toContain("window.addEventListener('hashchange', applyView);");
@@ -285,7 +309,13 @@ describe('policy GUI server', () => {
         "const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';",
       );
       // Agent display names; the badge renders only for identified agents.
-      expect(html).toContain('const agentLabels = {');
+      // Every audit `agent` value is an integration id, so a hand-kept subset
+      // would silently render raw ids for whatever it missed.
+      for (const id of doctorIntegrationOrder) {
+        expect(html).toContain(
+          `${JSON.stringify(id)}:${JSON.stringify(getIntegrationDisplayName(id))}`,
+        );
+      }
       expect(html).toContain("entry.agent && entry.agent !== 'unknown'");
       // Unattributed logs get no chip; they fall under the "All agents" view.
       expect(html).toContain(".filter((name) => name !== 'unknown')");
@@ -973,6 +1003,108 @@ describe('policy GUI server', () => {
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
+  });
+
+  // The Rules tab reads this route and nothing else, so it is the only thing
+  // standing between a rulebook on disk and what the tab claims is enforced.
+  const fetchRules = async (cwd: string) => {
+    const server = await createPolicyGuiServer({
+      cwd,
+      userConfigDir: join(cwd, 'home', '.cc-safety-net', 'rules'),
+    });
+    try {
+      // Behind the shared token guard, not routed ahead of it.
+      expect((await fetch(`${server.origin}/api/rules`)).status).toBe(403);
+      return await getJson<RulesApiResponse>(`${server.origin}/api/rules?token=${server.token}`);
+    } finally {
+      await server.close();
+    }
+  };
+
+  const rewriteProjectRulesConfig = (cwd: string, patch: Record<string, unknown>) => {
+    const configPath = join(cwd, '.cc-safety-net', 'rules', 'rule.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({ ...JSON.parse(readFileSync(configPath, 'utf-8')), ...patch }),
+      'utf-8',
+    );
+    return configPath;
+  };
+
+  test('GET api rules groups the enforced rule definitions under their rulebook', async () => {
+    await syncInitialGitRulebook(tempDir);
+
+    // Exact equality: the tab reports what is enforced, so a rule appearing
+    // here that policy.rules dropped, or a field silently going missing, both
+    // have to fail.
+    expect(await fetchRules(tempDir)).toEqual({
+      projectPath: tempDir,
+      // Whether a native folder dialog exists is a property of the host running
+      // the suite, so only the shape is asserted here; the decision itself is
+      // covered in tests/bin/gui/choose-directory.test.ts.
+      canPickDirectory: expect.any(Boolean),
+      rulebooks: [
+        {
+          source: 'project',
+          spec: 'project-rules',
+          name: 'project-rules',
+          version: '1.0.0',
+          rules: [
+            {
+              name: 'project-rules/block-git-add-all',
+              command: 'git',
+              subcommand: 'add',
+              block_args: ['-A'],
+              reason: 'Stage specific files.',
+            },
+          ],
+        },
+      ],
+      errors: [],
+      warnings: [],
+    });
+  });
+
+  test('GET api rules reports no rulebooks before any rulebook is synced', async () => {
+    // The state most users are in; the tab keys its empty state off this.
+    expect(await fetchRules(tempDir)).toEqual({
+      projectPath: tempDir,
+      canPickDirectory: expect.any(Boolean),
+      rulebooks: [],
+      errors: [],
+      warnings: [],
+    });
+  });
+
+  test('GET api rules surfaces a dropped source alongside the rulebooks still enforced', async () => {
+    await syncInitialGitRulebook(tempDir);
+    rewriteProjectRulesConfig(tempDir, { rules: ['project-rules', 'unsynced-rules'] });
+
+    const payload = await fetchRules(tempDir);
+
+    // A dropped source stops enforcing without any other signal, so the tab has
+    // to be told; without this the user sees a shorter list and nothing else.
+    expect(payload.errors).toEqual([
+      'missing lock entry for unsynced-rules; run `cc-safety-net rule sync`',
+    ]);
+    expect(payload.rulebooks.map((rulebook) => rulebook.name)).toEqual(['project-rules']);
+  });
+
+  test('GET api rules omits a rule switched off by an override and warns on an unknown key', async () => {
+    await syncInitialGitRulebook(tempDir);
+    const configPath = rewriteProjectRulesConfig(tempDir, {
+      overrides: { 'project-rules/block-git-add-all': 'off', 'project-rules/typo': 'off' },
+    });
+
+    const payload = await fetchRules(tempDir);
+
+    // The rulebook still lists the disabled rule, but it is no longer enforced;
+    // listing it would tell the user a command is blocked when it is not.
+    expect(payload.rulebooks[0]?.rules).toEqual([]);
+    // The route forwards policy.warnings verbatim; core owns the wording.
+    expect(payload.warnings).toHaveLength(1);
+    expect(payload.warnings[0]).toContain(`"project-rules/typo" in ${configPath}`);
+    expect(payload.errors).toEqual([]);
   });
 
   test('POST api policy writes canonical JSON and reset writes defaults', async () => {

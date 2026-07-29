@@ -34,10 +34,12 @@ import {
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
+import { loadRulesPolicy } from '@/core/rules/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
 import type { ExplainResult } from '@/types';
 import { getActivityFeed } from './activity';
+import { chooseDirectory, isDirectoryPickerAvailable } from './choose-directory';
 import { renderPolicyGuiHtml } from './page';
 
 const REPO = 'kenryu42/cc-safety-net';
@@ -260,6 +262,45 @@ async function handleRequest(
       return;
     }
     sendJson(response, 200, getActivityFeed(days, options.activityLogsDir));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/rules/choose-directory') {
+    // Takes no path from the client: the dialog is the only input, so there is
+    // nothing here to point at a directory of the caller's choosing.
+    sendJson(response, 200, await chooseDirectory());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/rules') {
+    const policy = loadRulesPolicy(options);
+    const enforcedByName = new Map(policy.rules.map((rule) => [rule.name, rule]));
+    sendJson(response, 200, {
+      projectPath: options.cwd ?? process.cwd(),
+      canPickDirectory: isDirectoryPickerAvailable(process.platform, process.env),
+      rulebooks: policy.rulebooks.map((rulebook) => ({
+        source: rulebook.source,
+        spec: rulebook.spec,
+        name: rulebook.name,
+        version: rulebook.version,
+        // A rule disabled by an override stays listed here but leaves policy.rules.
+        rules: rulebook.rules.flatMap((ruleName) => {
+          const rule = enforcedByName.get(ruleName);
+          if (!rule) return [];
+          return [
+            {
+              name: rule.name,
+              command: rule.command,
+              subcommand: rule.subcommand,
+              block_args: rule.block_args,
+              reason: rule.reason,
+            },
+          ];
+        }),
+      })),
+      errors: policy.errors,
+      warnings: policy.warnings,
+    });
     return;
   }
 
