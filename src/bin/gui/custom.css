@@ -1378,7 +1378,7 @@ button.rule-id:hover {
 }
 
 .panel-toggle[aria-expanded="false"] .panel-chevron,
-.rule-tier-head[aria-expanded="false"] .panel-chevron {
+:is(.rule-tier-head, .tier-collapse)[aria-expanded="false"] .panel-chevron {
   transform: rotate(-45deg);
 }
 
@@ -1600,6 +1600,73 @@ label.row.safety-override-row select {
   background: var(--surface-2);
 }
 
+/* The secret group head carries a bulk action, so the collapse control is a
+   button inside the head rather than the head itself. */
+.tier-collapse {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+/* A thin track with a knob that overhangs it. The rule switches are a filled
+   pill, so the group control does not read as one more rule. */
+.tier-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.tier-switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--switch-track);
+  transition: background-color 0.18s ease;
+}
+
+/* Above the track, which paints later in the pseudo-element order. */
+.tier-switch::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.18s ease;
+}
+
+.tier-switch:checked::after {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.tier-switch:checked::before {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
 /* The tiers that can be switched off carried the only hues, leaving the tier
    that can never be switched off as the quietest thing on the panel. */
 .rule-tier-enforced .rule-tier-head,
@@ -1641,10 +1708,6 @@ label.row.safety-override-row select {
 
 .tier-counts .count-off {
   color: var(--warn-fg);
-}
-
-.tier-counts .count-customized {
-  color: var(--master-fg);
 }
 
 .tier-content {

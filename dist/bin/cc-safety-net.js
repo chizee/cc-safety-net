@@ -1452,7 +1452,7 @@ button.rule-id:hover {
 }
 
 .panel-toggle[aria-expanded="false"] .panel-chevron,
-.rule-tier-head[aria-expanded="false"] .panel-chevron {
+:is(.rule-tier-head, .tier-collapse)[aria-expanded="false"] .panel-chevron {
   transform: rotate(-45deg);
 }
 
@@ -1674,6 +1674,73 @@ label.row.safety-override-row select {
   background: var(--surface-2);
 }
 
+/* The secret group head carries a bulk action, so the collapse control is a
+   button inside the head rather than the head itself. */
+.tier-collapse {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+/* A thin track with a knob that overhangs it. The rule switches are a filled
+   pill, so the group control does not read as one more rule. */
+.tier-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.tier-switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--switch-track);
+  transition: background-color 0.18s ease;
+}
+
+/* Above the track, which paints later in the pseudo-element order. */
+.tier-switch::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.18s ease;
+}
+
+.tier-switch:checked::after {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.tier-switch:checked::before {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
 /* The tiers that can be switched off carried the only hues, leaving the tier
    that can never be switched off as the quietest thing on the panel. */
 .rule-tier-enforced .rule-tier-head,
@@ -1715,10 +1782,6 @@ label.row.safety-override-row select {
 
 .tier-counts .count-off {
   color: var(--warn-fg);
-}
-
-.tier-counts .count-customized {
-  color: var(--master-fg);
 }
 
 .tier-content {
@@ -4083,14 +4146,17 @@ const renderSecretPatterns = () => {
               : allGroupRules.filter((rule) => overrides[rule.id] !== 'off').length;
             return \`
       <section class="rule-tier">
-        <button type="button" class="rule-tier-head" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
-          <span class="panel-chevron" aria-hidden="true"></span>
-          <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
-          <span class="tier-counts">\${tierCountHtml([
-            [onCount, 'on'],
-            [allGroupRules.length - onCount, 'off', 'off'],
-          ])}</span>
-        </button>
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
+            <span class="tier-counts">\${tierCountHtml([
+              [onCount, 'on'],
+              [allGroupRules.length - onCount, 'off', 'off'],
+            ])}</span>
+          </button>
+          <input type="checkbox" class="tier-switch" data-secret-group-active="\${escapeHtml(group.category)}" \${checkbox(!allGroupRules.every((rule) => overrides[rule.id] === 'off'))} \${disabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`All \${group.category} protections\`)}">
+        </div>
         <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
         <div class="grid">\${group.rules
           .map((rule) => {
@@ -4252,11 +4318,13 @@ const renderDestructiveCommands = () => {
     enforcedRules.length === 0
       ? ''
       : \`<section class="rule-tier rule-tier-enforced">
-        <button type="button" class="rule-tier-head" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
-          <span class="panel-chevron" aria-hidden="true"></span>
-          <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
-          <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
-        </button>
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
+            <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
+          </button>
+        </div>
         <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? '' : 'hidden'}>
           \${groupRules(enforcedRules)
             .map(
@@ -4297,15 +4365,17 @@ const renderDestructiveCommands = () => {
               tierExpanded.get(tier) || (searchActive && !searchCollapsedTiers.has(tier));
             const contentId = \`destructive-tier-\${tier}\`;
             return \`<section class="rule-tier rule-tier-\${tier}">
-        <button type="button" class="rule-tier-head" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
-          <span class="panel-chevron" aria-hidden="true"></span>
-          <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
-          <span class="tier-counts">\${tierCountHtml([
-            [tierStates.filter((item) => item.enabled).length, 'on'],
-            [tierStates.filter((item) => !item.enabled).length, 'off', 'off'],
-            [tierStates.filter((item) => item.changesInherited).length, 'customized', 'customized'],
-          ])}</span>
-        </button>
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
+            <span class="tier-counts">\${tierCountHtml([
+              [tierStates.filter((item) => item.enabled).length, 'on'],
+              [tierStates.filter((item) => !item.enabled).length, 'off', 'off'],
+            ])}</span>
+          </button>
+          <input type="checkbox" class="tier-switch" data-destructive-tier-active="\${tier}" \${checkbox(tierStates.some((item) => item.enabled))} \${!draftPolicy.destructive_command_protection.enabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`All \${tierMeta[tier][0]} protections\`)}">
+        </div>
         <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
           \${groupRules(rules)
             .map(
@@ -4667,6 +4737,27 @@ document.addEventListener('change', (event) => {
     })();
     return;
   }
+  if (input.dataset?.destructiveTierActive) {
+    // A bulk write over the same per-rule overrides the individual switches
+    // use, so a rule that already matches what it inherits keeps no override.
+    state.destructiveCommandRules
+      .filter(
+        (rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive,
+      )
+      .forEach((rule) => {
+        if (input.checked === preview.rules[rule.id].inheritedEnabled) {
+          delete draftPolicy.destructive_command_protection.overrides[rule.id];
+          return;
+        }
+        draftPolicy.destructive_command_protection.overrides[rule.id] = input.checked
+          ? 'on'
+          : 'off';
+      });
+    syncRawFromForm();
+    updateDirtyStatus();
+    void refreshPolicyPreview();
+    return;
+  }
   if (input.dataset?.destructiveCommandActive) {
     const ruleId = input.dataset.destructiveCommandActive;
     if (input.checked === preview.rules[ruleId].inheritedEnabled)
@@ -4676,6 +4767,23 @@ document.addEventListener('change', (event) => {
     syncRawFromForm();
     updateDirtyStatus();
     void refreshPolicyPreview();
+    return;
+  }
+  if (input.dataset?.secretGroupActive) {
+    // A bulk write over the same per-rule overrides the individual switches
+    // use, not a stored group setting.
+    state.secretPatterns
+      .filter((rule) => rule.category === input.dataset.secretGroupActive)
+      .forEach((rule) => {
+        if (input.checked) {
+          delete draftPolicy.secret_protection.overrides[rule.id];
+          return;
+        }
+        draftPolicy.secret_protection.overrides[rule.id] = 'off';
+      });
+    renderSecretPatterns();
+    syncRawFromForm();
+    updateDirtyStatus();
     return;
   }
   if (input.dataset?.secretActive) {
@@ -4872,6 +4980,9 @@ document.addEventListener('click', (event) => {
     renderSecretPatterns();
     return;
   }
+  // The group switches sit inside .rule-tier-head, which is no longer the
+  // collapse control there; togglePanel would read an aria-controls it lacks.
+  if (event.target.closest?.('[data-secret-group-active], [data-destructive-tier-active]')) return;
   const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
   if (button) {
     togglePanel(button);

@@ -479,15 +479,31 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('.foldable > .panel-head {');
       expect(html).toContain('data-secret-group-toggle=');
       expect(html).not.toContain('tier-toggle"');
-      expect(html).toContain('class="rule-tier-head" data-tier-toggle=');
-      expect(html).toContain('class="rule-tier-head" data-secret-group-toggle=');
-      expect(html).toContain('.rule-tier-head[aria-expanded="false"] .panel-chevron');
+      expect(html).toContain('class="tier-collapse" data-tier-toggle=');
+      expect(html).toContain('class="tier-collapse" data-secret-group-toggle=');
+      // The group switch uses a thin track and an oversized knob, so it does not
+      // read as a peer of the rule switches it governs.
+      expect(html).toContain('class="tier-switch" data-secret-group-active=');
+      expect(html).toContain('if (input.dataset?.secretGroupActive) {');
+      // The configurable destructive tiers carry the same switch; the enforced
+      // tier cannot, because no override can turn its rules off.
+      expect(html).toContain('class="tier-switch" data-destructive-tier-active=');
+      expect(html).toContain('if (input.dataset?.destructiveTierActive) {');
+      expect(html).not.toContain('data-destructive-tier-active="enforced"');
+      expect(html).not.toContain('Turn all off');
+      expect(html).toContain('.tier-switch::before {');
+      expect(html).toContain('.tier-switch::after {');
+      expect(html).toContain('.tier-collapse {');
+      expect(html).toContain(':is(.rule-tier-head, .tier-collapse)[aria-expanded="false"]');
       expect(html).toContain('.rule-tier-head:hover:not(:disabled)');
-      // Tier counts trim zero segments and color off/customized.
+      // Tier counts trim zero segments and color off. A customized count is not
+      // among them: it overlays on/off rather than partitioning with them, so it
+      // reads as a third state. The panel head and each rule row still say it.
       expect(html).toContain('const tierCountHtml = (segments) => {');
       expect(html).toContain('[allGroupRules.length - onCount, ');
       expect(html).toContain('.tier-counts .count-off {');
-      expect(html).toContain('.tier-counts .count-customized {');
+      expect(html).not.toContain('count-customized');
+      expect(html).not.toContain("'customized', 'customized'");
       expect(html).toContain('const secretGroupExpanded = new Map();');
       expect(html).toContain('const searchCollapsedSecretGroups = new Set();');
       expect(html).toContain('Active');
