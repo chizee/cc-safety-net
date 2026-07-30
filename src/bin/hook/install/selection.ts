@@ -23,12 +23,12 @@ export type InstallSelectionState = {
 };
 
 /** @internal */
-export type InstallSelectionKey = 'up' | 'down' | 'toggle' | 'confirm' | 'abort';
+export type InstallSelectionKey = 'up' | 'down' | 'toggle' | 'confirm' | 'abort' | 'interrupt';
 
 /** @internal */
 export type InstallSelectionResult = {
   state: InstallSelectionState;
-  done?: 'confirm' | 'abort';
+  done?: 'confirm' | 'abort' | 'interrupt';
 };
 
 export type InstallTargetProbe = (command: NativeCommand) => boolean;
@@ -43,6 +43,8 @@ export type BuildInstallTargetChoicesOptions = {
 export type InstallSelectionPromptOptions = {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
+  /** Test seam for Ctrl-C, which otherwise raises SIGINT on this process. */
+  onInterrupt?: () => void;
 };
 
 type KeyPress = {
@@ -93,7 +95,7 @@ function nextSelectableCursor(
 }
 
 function mapKeyPress(input: string, key: KeyPress): InstallSelectionKey | null {
-  if (key.ctrl && key.name === 'c') return 'abort';
+  if (key.ctrl && key.name === 'c') return 'interrupt';
   if (key.name === 'escape' || input === 'q') return 'abort';
   if (key.name === 'up' || input === 'k') return 'up';
   if (key.name === 'down' || input === 'j') return 'down';
@@ -207,11 +209,15 @@ function getChoiceAvailability(
   cliAvailable: boolean,
   configured: boolean,
 ): Pick<InstallTargetChoice, 'available' | 'unavailableReason'> {
-  if (!cliAvailable) return { available: false, unavailableReason: 'CLI not installed' };
+  // `configured` decides uninstall on its own so a stale config-based integration stays
+  // removable: its detection is filesystem-only, and removing it needs no binary.
+  if (action === 'uninstall')
+    return configured
+      ? { available: true }
+      : { available: false, unavailableReason: 'not installed' };
   if (action === 'install' && configured)
     return { available: false, unavailableReason: 'already installed' };
-  if (action === 'uninstall' && !configured)
-    return { available: false, unavailableReason: 'not installed' };
+  if (!cliAvailable) return { available: false, unavailableReason: 'CLI not installed' };
   return { available: true };
 }
 
@@ -231,7 +237,7 @@ export function reduceInstallSelectionState(
   choices: readonly InstallTargetChoice[],
   key: InstallSelectionKey,
 ): InstallSelectionResult {
-  if (key === 'confirm' || key === 'abort') return { state, done: key };
+  if (key === 'confirm' || key === 'abort' || key === 'interrupt') return { state, done: key };
 
   if (key === 'up') {
     return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, -1) } };
@@ -354,6 +360,13 @@ export function promptInstallTargets(
 
       const next = reduceInstallSelectionState(state, choices, mappedKey);
       state = next.state;
+
+      if (next.done === 'interrupt') {
+        // Ctrl-C keeps the signal convention, matching the startup banner.
+        finish(null);
+        (options.onInterrupt ?? (() => process.kill(process.pid, 'SIGINT')))();
+        return;
+      }
 
       if (next.done === 'abort') {
         finish(null);

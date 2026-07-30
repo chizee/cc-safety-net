@@ -36,6 +36,36 @@ const KIMI_INLINE_HOOK =
   '{ event = "PreToolUse", command = "npx -y cc-safety-net hook --kimi-code" }';
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
 
+function writeClaudePluginRecords(
+  homeDir: string,
+  pluginIds: readonly string[],
+  enabled: Record<string, boolean> = {},
+) {
+  mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
+  writeFileSync(
+    join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({
+      version: 2,
+      plugins: Object.fromEntries(pluginIds.map((id) => [id, [{ scope: 'user' }]])),
+    }),
+  );
+  writeFileSync(
+    join(homeDir, '.claude', 'settings.json'),
+    JSON.stringify({ enabledPlugins: enabled }),
+  );
+}
+
+function writeGeminiExtension(homeDir: string, options: { disabled?: boolean } = {}) {
+  const extensionsDir = join(homeDir, '.gemini', 'extensions');
+  mkdirSync(join(extensionsDir, 'gemini-safety-net'), { recursive: true });
+  writeFileSync(
+    join(extensionsDir, 'extension-enablement.json'),
+    JSON.stringify({
+      'gemini-safety-net': { overrides: [`${options.disabled ? '!' : ''}${homeDir}/*`] },
+    }),
+  );
+}
+
 function writeKimiConfig(homeDir: string, content: string) {
   const shareDir = join(homeDir, '.kimi-code');
   const configPath = join(shareDir, 'config.toml');
@@ -251,7 +281,6 @@ describe('install command', () => {
       '--claude-code',
       ['claude'],
       [
-        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
       ],
@@ -264,7 +293,6 @@ describe('install command', () => {
       '--claude-code',
       ['claude'],
       [
-        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin uninstall safety-net@cc-marketplace',
@@ -272,15 +300,9 @@ describe('install command', () => {
       'Installed Claude Code integration',
       {
         setup: (fake) => {
-          writeFileSync(
-            join(fake.homeDir, 'bin', 'claude'),
-            `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "plugin list" ]; then
-  printf 'Installed plugins:\\n\\n  safety-net@cc-marketplace\\n    Version: 1.0.0\\n    Status: enabled\\n'
-fi
-`,
-          );
+          writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace'], {
+            'safety-net@cc-marketplace': true,
+          });
         },
       },
     );
@@ -291,22 +313,15 @@ fi
       '--claude-code',
       ['claude'],
       [
-        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed Claude Code integration',
       {
         setup: (fake) => {
-          writeFileSync(
-            join(fake.homeDir, 'bin', 'claude'),
-            `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "plugin list" ]; then
-  printf 'Installed plugins:\\n\\n  cc-safety-net@cc-marketplace\\n    Version: 1.0.0\\n    Status: enabled\\n'
-fi
-`,
-          );
+          writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
+            'cc-safety-net@cc-marketplace': true,
+          });
         },
       },
     );
@@ -317,7 +332,6 @@ fi
       '--claude-code',
       ['claude'],
       [
-        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin enable cc-safety-net@cc-marketplace',
@@ -325,15 +339,9 @@ fi
       'Installed Claude Code integration',
       {
         setup: (fake) => {
-          writeFileSync(
-            join(fake.homeDir, 'bin', 'claude'),
-            `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "plugin list" ]; then
-  printf 'Installed plugins:\\n\\n  cc-safety-net@cc-marketplace\\n    Version: 0.8.2\\n    Scope: user\\n    Status: ✘ disabled\\n'
-fi
-`,
-          );
+          writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
+            'cc-safety-net@cc-marketplace': false,
+          });
         },
       },
     );
@@ -501,16 +509,15 @@ fi
       join(fake.homeDir, 'bin', 'claude'),
       `#!/usr/bin/env sh
 printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "plugin list" ]; then
-  printf 'Installed plugins:\\n\\n  safety-net@cc-marketplace\\n'
-  exit 0
-fi
 if [ "$*" = "plugin uninstall safety-net@cc-marketplace" ]; then
   echo "uninstall failed" >&2
   exit 42
 fi
 `,
     );
+    writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace'], {
+      'safety-net@cc-marketplace': true,
+    });
     chmodSync(join(fake.homeDir, 'bin', 'claude'), 0o755);
 
     try {
@@ -522,7 +529,6 @@ fi
 
       expect(result.exitCode).toBe(1);
       expect(normalizedCommandLog(fake.logPath)).toEqual([
-        'claude plugin list',
         'claude plugin marketplace add kenryu42/cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin uninstall safety-net@cc-marketplace',
@@ -537,10 +543,7 @@ fi
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      [
-        'gemini extensions list',
-        'gemini extensions install https://github.com/kenryu42/gemini-safety-net --consent',
-      ],
+      ['gemini extensions install https://github.com/kenryu42/gemini-safety-net --consent'],
       'Installed Gemini CLI integration',
     );
   });
@@ -549,19 +552,11 @@ fi
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      ['gemini extensions list', 'gemini extensions enable gemini-safety-net'],
+      ['gemini extensions enable gemini-safety-net'],
       'Installed Gemini CLI integration',
       {
         setup: (fake) => {
-          writeFileSync(
-            join(fake.homeDir, 'bin', 'gemini'),
-            `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "extensions list" ]; then
-  printf 'gemini-safety-net\\n  Source: https://github.com/kenryu42/gemini-safety-net\\n  Enabled (User): false\\n'
-fi
-`,
-          );
+          writeGeminiExtension(fake.homeDir, { disabled: true });
         },
       },
     );
@@ -571,19 +566,11 @@ fi
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      ['gemini extensions list'],
+      [],
       'Gemini CLI integration already installed',
       {
         setup: (fake) => {
-          writeFileSync(
-            join(fake.homeDir, 'bin', 'gemini'),
-            `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ "$*" = "extensions list" ]; then
-  printf 'gemini-safety-net\\n  Source: https://github.com/kenryu42/gemini-safety-net\\n  Enabled (User): true\\n'
-fi
-`,
-          );
+          writeGeminiExtension(fake.homeDir);
         },
       },
     );

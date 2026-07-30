@@ -41,11 +41,11 @@ function maxSafetyLevel(policyLevel: PolicySafetyLevel, envLevel: PolicySafetyLe
 
 function parseEnvLevel(): PolicySafetyLevel | undefined {
   const value = getEnvFlagValue(ENV_FLAGS.level);
-  if (value === undefined) return undefined;
+  if (value === undefined || value === '') return undefined;
   if (SAFETY_LEVELS.includes(value as PolicySafetyLevel)) return value as PolicySafetyLevel;
-  if (envTruthy(ENV_FLAGS.debug)) {
-    console.error(`CC Safety Net debug: invalid CC_SAFETY_NET_LEVEL=${JSON.stringify(value)}`);
-  }
+  console.error(
+    `CC Safety Net: ignored invalid ${ENV_FLAGS.level.name}=${JSON.stringify(value.slice(0, 40))}. Use ${SAFETY_LEVELS.join(', ')}.`,
+  );
   return undefined;
 }
 

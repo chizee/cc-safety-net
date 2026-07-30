@@ -37,10 +37,19 @@ type ParsedCommandHandler<T extends ParsedCommand['mode']> = (
 ) => Promise<void>;
 
 /**
+ * Everything after the first `--` is command input, never a CLI option.
+ */
+function optionArgs(args: readonly string[]): readonly string[] {
+  const separator = args.indexOf('--');
+  return separator === -1 ? args : args.slice(0, separator);
+}
+
+/**
  * Check if --help or -h is present in args (but not as a quoted command argument).
  */
 function hasHelpFlag(args: readonly string[]): boolean {
-  return args.includes('--help') || args.includes('-h');
+  const options = optionArgs(args);
+  return options.includes('--help') || options.includes('-h');
 }
 
 /**
@@ -83,9 +92,10 @@ function handleCommandHelp(args: readonly string[]): boolean {
     return false;
   }
 
-  // Check if this is a known command
+  // Check if this is a known command. `rule` parses its own help so the request
+  // reaches the leaf handler for the named subcommand.
   const command = findCommand(commandName);
-  if (command) {
+  if (command && command.name !== 'rule') {
     showCommandHelp(commandName);
     process.exit(0);
   }
@@ -96,11 +106,16 @@ function handleCommandHelp(args: readonly string[]): boolean {
 const commandParsers = {
   explain: (args: string[]): ParsedCommand => ({ mode: 'explain', args }),
   rule: (args: string[]): ParsedCommand => ({ mode: 'rule', args }),
-  status: (): ParsedCommand => ({ mode: 'status' }),
+  status: (args: string[]): ParsedCommand => {
+    const unexpected = args[0];
+    if (!unexpected) return { mode: 'status' };
+    console.error(`Unexpected argument for status: ${unexpected}`);
+    process.exit(1);
+  },
   statusline: (args: string[]): ParsedCommand => {
     if (args.includes('--claude-code') || args.includes('-cc')) return { mode: 'statusline' };
     console.error('statusline requires --claude-code (-cc)');
-    showCommandHelp('statusline');
+    showCommandHelp('statusline', console.error);
     process.exit(1);
   },
   hook: (args: string[]): ParsedCommand => {
@@ -110,7 +125,7 @@ const commandParsers = {
     console.error(
       'hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code',
     );
-    showCommandHelp('hook');
+    showCommandHelp('hook', console.error);
     process.exit(1);
   },
   install: (args: string[]): ParsedCommand => ({ mode: 'install', args }),
@@ -131,19 +146,17 @@ function parseCliArgs(args: string[]): ParsedCommand | null {
     return null;
   }
 
-  if (args.length === 0 || hasHelpFlag(args)) {
-    printHelp();
-    process.exit(0);
-  }
-
-  if (args.includes('--version') || args.includes('-V')) {
-    printVersion();
-    process.exit(0);
-  }
-
   const commandName = args[0];
-  if (!commandName) {
+  // A known command name keeps its own help; `rule` is the one command that
+  // parses `--help` itself, so the global help must not swallow it.
+  if (!commandName || (hasHelpFlag(args) && !findCommand(commandName))) {
     printHelp();
+    process.exit(0);
+  }
+
+  const options = optionArgs(args);
+  if (options.includes('--version') || options.includes('-V')) {
+    printVersion();
     process.exit(0);
   }
 
@@ -156,7 +169,11 @@ function parseCliArgs(args: string[]): ParsedCommand | null {
   if (legacyIntegration) return { mode: 'hook', integration: legacyIntegration };
   if (commandName === '--statusline') return { mode: 'statusline' };
 
-  console.error(`Unknown option: ${commandName}`);
+  console.error(
+    commandName.startsWith('-')
+      ? `Unknown option: ${commandName}`
+      : `Unknown command: ${commandName}`,
+  );
   console.error("Run 'cc-safety-net --help' for usage.");
   process.exit(1);
 }
@@ -182,6 +199,7 @@ const commandHandlers = {
   },
   doctor: async (command) => {
     const flags = parseDoctorFlags(command.args);
+    if (!flags) process.exit(1);
     const exitCode = await runDoctor({
       json: flags.json,
       skipUpdateCheck: flags.skipUpdateCheck,
@@ -195,12 +213,6 @@ const commandHandlers = {
     process.exit(await runGuiCommand(command.args));
   },
   explain: async (command) => {
-    // Check for --help in explain args
-    if (hasHelpFlag(command.args) || command.args.length === 0) {
-      showCommandHelp('explain');
-      process.exit(0);
-    }
-
     const flags = parseExplainFlags(command.args);
     if (!flags) {
       process.exit(1);

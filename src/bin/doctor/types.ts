@@ -15,8 +15,12 @@ import type { EffectiveSafetyLevel } from '@/types';
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;
 
-/** Hook configuration inspection status */
-export type HookInspectionStatus = 'verified' | 'failed' | 'not-applicable';
+/**
+ * Hook configuration inspection status.
+ * `not-inspected` means the runtime's own state file exists but could not be read, so its
+ * configuration is unknown rather than absent.
+ */
+export type HookInspectionStatus = 'verified' | 'failed' | 'not-applicable' | 'not-inspected';
 
 /** Hook discovery and configuration inspection result */
 export interface HookStatus {
@@ -118,6 +122,8 @@ export interface ActivitySummary {
   }>;
   oldestEntry?: string;
   newestEntry?: string;
+  /** Audit sources this summary had to drop: unreadable files, malformed records. */
+  unreadable: number;
 }
 
 /** Update check result */
@@ -128,30 +134,12 @@ export interface UpdateInfo {
   error?: string;
 }
 
-export type PiProbeStatus = 'configured' | 'not-found' | 'unavailable' | 'error';
-
-export interface PiProbeResource {
-  kind: 'command' | 'tool';
-  name: string;
-  path?: string;
-  source?: string;
-}
-
-export interface PiProbeInfo {
-  status: PiProbeStatus;
-  installedAndEnabled: boolean;
-  matched: PiProbeResource[];
-  error?: string;
-}
-
-/** System information */
+/** System information. */
 export interface SystemInfo {
   /** cc-safety-net version */
   version: string;
   /** Claude Code version (from `claude --version`) */
   claudeCodeVersion: string | null;
-  /** Claude Code plugin list output (from `claude plugin list`) */
-  claudePluginListOutput: string | null;
   /** OpenCode version (from `opencode --version`) */
   openCodeVersion: string | null;
   /** Antigravity CLI version (from `agy --version`) */
@@ -162,9 +150,8 @@ export interface SystemInfo {
   codexPluginListOutput: string | null;
   /** Gemini CLI version (from `gemini --version`) */
   geminiCliVersion: string | null;
-  /** Gemini CLI extension list output (from `gemini extensions list`) */
-  geminiExtensionsListOutput: string | null;
-  /** GitHub Copilot CLI version (from `copilot --binary-version`, falling back to `copilot --version`) */
+  /** GitHub Copilot CLI version (from `copilot --binary-version`; `copilot --version` is never
+   * run because it downloads a ~160 MB package cache) */
   copilotCliVersion: string | null;
   /** Kimi Code version (from `kimi --version`) */
   kimiCodeVersion: string | null;
@@ -180,10 +167,6 @@ export interface SystemInfo {
   npmVersion: string | null;
   /** Bun version (from `bun --version`) */
   bunVersion: string | null;
-  /** Whether the cc-safety-net Copilot plugin is installed (from `copilot plugin list`) */
-  copilotPluginInstalled: boolean;
-  /** Whether the Pi extension sentinel is runtime-visible */
-  piSafetyNetProbe: PiProbeInfo;
   /** Platform (e.g., "darwin arm64") */
   platform: string;
 }

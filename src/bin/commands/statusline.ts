@@ -3,7 +3,7 @@ import type { Command } from './types';
 export const statuslineCommand = {
   name: 'statusline' as const,
   description: 'Print status line with mode indicators for shell integration',
-  usage: 'statusline <coding cli>',
+  usage: 'statusline --claude-code',
   options: [
     {
       flags: '-cc, --claude-code',

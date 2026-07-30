@@ -9,7 +9,7 @@ export const logsCommand = {
       flags: '--id',
       argument: '<id>',
       description:
-        'Show one entry from retained history by its 16-character id (not guaranteed after 90 days)',
+        'Show one entry from retained history by its 16-character id (not guaranteed once it is older than the configured retention)',
     },
     {
       flags: '--limit',
@@ -20,7 +20,8 @@ export const logsCommand = {
     {
       flags: '--since',
       argument: '<days>',
-      description: 'Only include entries newer than this many days (max 90)',
+      description:
+        'Only include entries newer than this many days (max: the configured audit retention, 1-365)',
       default: '30',
     },
     {
@@ -56,6 +57,10 @@ export const logsCommand = {
       description: 'Permanently delete all legacy root-level logs; nested logs are untouched',
     },
     {
+      flags: '--dry-run',
+      description: 'With --prune-legacy, report what would be deleted and delete nothing',
+    },
+    {
       flags: '--json',
       description: 'Output entries as JSON',
     },
@@ -70,6 +75,7 @@ export const logsCommand = {
     'cc-safety-net logs --project . --since 7',
     'cc-safety-net logs --suspect --since 7',
     'cc-safety-net logs --json',
+    'cc-safety-net logs --prune-legacy --dry-run',
     'cc-safety-net logs --prune-legacy',
   ],
 } satisfies Command;

@@ -4,30 +4,18 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { delimiter, extname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
-import type { PiProbeInfo, PiProbeResource, SystemInfo } from '@/bin/doctor/types';
-import { hasCopilotSafetyNetPlugin } from '@/integrations/copilot-cli';
+import type { SystemInfo } from '@/bin/doctor/types';
 
 declare const __PKG_VERSION__: string | undefined;
 
 const CURRENT_VERSION = typeof __PKG_VERSION__ !== 'undefined' ? __PKG_VERSION__ : 'dev';
-// Matches PI_PROBE_TIMEOUT_MS so it does not widen the worst case: these probes all race in one
-// Promise.all, and Electron-backed CLIs (Cursor) can exceed 2s while 18 probes contend.
+// These probes all race in one Promise.all, and Electron-backed CLIs (Cursor) can exceed 2s
+// while every probe contends.
 const VERSION_FETCH_TIMEOUT_MS = 5000;
-const PI_PROBE_TIMEOUT_MS = 5000;
-const PI_SENTINEL_COMMAND = 'cc-safety-net';
-const PI_PROBE_COMMAND = '__cc_safety_net_probe';
 const TEST_SPAWN_PLATFORM_ENV = '_CC_SAFETY_NET_TEST_SPAWN_PLATFORM';
-
-const PI_PROBE_UNAVAILABLE: PiProbeInfo = {
-  status: 'unavailable',
-  installedAndEnabled: false,
-  matched: [],
-};
 
 /**
  * Get the package version synchronously.
@@ -42,7 +30,6 @@ export function getPackageVersion(): string {
  * Takes command args and returns the version string or null.
  */
 export type VersionFetcher = (args: string[]) => Promise<string | null>;
-export type PiProbeRunner = (cwd: string) => Promise<PiProbeInfo>;
 
 function getEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const direct = env[name];
@@ -121,77 +108,22 @@ export const defaultVersionFetcher = async (
   );
 };
 
-const PI_PROBE_EXTENSION = `
-import { writeFileSync } from "node:fs";
-
-export default function (pi) {
-  pi.registerCommand("${PI_PROBE_COMMAND}", {
-    description: "Probe loaded CC Safety Net Pi resources",
-    handler: async (args, ctx) => {
-      const needle = args.trim();
-      const commands = typeof pi.getCommands === "function"
-        ? pi.getCommands().map((command) => ({
-            kind: "command",
-            name: command.name,
-            path: command.sourceInfo?.path,
-            source: command.sourceInfo?.source,
-          }))
-        : [];
-      const tools = typeof pi.getAllTools === "function"
-        ? pi.getAllTools().map((tool) => ({
-            kind: "tool",
-            name: tool.name,
-            path: tool.sourceInfo?.path,
-            source: tool.sourceInfo?.source,
-          }))
-        : [];
-      const resources = [...commands, ...tools];
-      const npmSpec = "npm:" + needle;
-      const matched = resources.filter(
-        (resource) =>
-          resource.name === needle ||
-          resource.source === npmSpec ||
-          (resource.source || "").startsWith(npmSpec + "@"),
-      );
-
-      writeFileSync(
-        process.env.PI_PROBE_OUT,
-        JSON.stringify({
-          installedAndEnabled: matched.length > 0,
-          matched,
-        }),
-      );
-
-      ctx.shutdown?.();
-    },
-  });
-}
-`.trimStart();
-
 interface CommandResult {
   code: number | null;
   stdout: string;
   stderr: string;
-  timedOut: boolean;
-  error?: string;
 }
 
-function runCommand(
-  args: string[],
-  options: { cwd?: string; env?: Record<string, string>; timeoutMs: number },
-): Promise<CommandResult> {
+function runCommand(args: string[], options: { timeoutMs: number }): Promise<CommandResult> {
   const [cmd, ...rest] = args;
   if (!cmd) {
-    return Promise.resolve({ code: null, stdout: '', stderr: '', timedOut: false });
+    return Promise.resolve({ code: null, stdout: '', stderr: '' });
   }
 
   return new Promise((resolve) => {
     try {
-      const env = { ...process.env, ...(options.env ?? {}) };
-      const spawnCommand = getSpawnCommand([cmd, ...rest], env);
+      const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
       const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
-        cwd: options.cwd,
-        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let isSettled = false;
@@ -214,161 +146,20 @@ function runCommand(
 
       const timeoutId = setTimeout(() => {
         proc.kill();
-        finish({ code: null, stdout, stderr, timedOut: true });
+        finish({ code: null, stdout, stderr });
       }, options.timeoutMs);
 
       proc.on('close', (code) => {
-        finish({ code, stdout, stderr, timedOut: false });
+        finish({ code, stdout, stderr });
       });
 
-      proc.on('error', (error) => {
-        finish({ code: null, stdout, stderr, timedOut: false, error: error.message });
+      proc.on('error', () => {
+        finish({ code: null, stdout, stderr });
       });
-    } catch (error) {
-      resolve({
-        code: null,
-        stdout: '',
-        stderr: '',
-        timedOut: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      resolve({ code: null, stdout: '', stderr: '' });
     }
   });
-}
-
-/**
- * Run Pi with a temporary probe extension to verify the CC Safety Net extension
- * is runtime-visible under Pi's normal package and extension resolver.
- */
-export const defaultPiProbeRunner = async (
-  cwd: string,
-  timeoutMs = PI_PROBE_TIMEOUT_MS,
-): Promise<PiProbeInfo> => {
-  const tempDir = await mkdtemp(join(tmpdir(), 'cc-safety-net-pi-probe-'));
-  const probePath = join(tempDir, 'pi-extension-probe.ts');
-  const resultPath = join(tempDir, 'result.json');
-  const stdoutPath = join(tempDir, 'stdout.jsonl');
-
-  try {
-    await writeFile(probePath, PI_PROBE_EXTENSION);
-
-    const result = await runCommand(
-      ['pi', '-e', probePath, '--mode', 'json', `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`],
-      {
-        cwd,
-        env: { PI_PROBE_OUT: resultPath },
-        timeoutMs,
-      },
-    );
-
-    await writeFile(stdoutPath, result.stdout);
-
-    if (result.timedOut) {
-      // Pi exits by event-loop drain in json mode, so a dangling handle elsewhere can
-      // hang the process after the probe already wrote its result — salvage it.
-      const salvaged = existsSync(resultPath)
-        ? parsePiProbeResult(await readFile(resultPath, 'utf-8'))
-        : null;
-      if (salvaged && salvaged.status !== 'error') return salvaged;
-      return {
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: 'Pi probe timed out',
-      };
-    }
-
-    if (result.error) {
-      return {
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: `Pi probe failed: ${result.error}`,
-      };
-    }
-
-    if (result.code !== 0) {
-      // Pi refuses to dispatch commands in json mode without a configured model
-      // provider, even though the probe itself makes no LLM call.
-      if (stripVTControlCharacters(result.stderr).includes('No models available')) {
-        return {
-          status: 'error',
-          installedAndEnabled: false,
-          matched: [],
-          error:
-            'Pi has no configured model provider, so the extension probe cannot run. Log in to a provider in Pi and re-run.',
-        };
-      }
-      return {
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: `Pi probe exited with code ${result.code ?? 'unknown'}${result.stderr.trim() ? `: ${result.stderr.trim()}` : ''}`,
-      };
-    }
-
-    return parsePiProbeResult(await readFile(resultPath, 'utf-8'));
-  } catch (error) {
-    return {
-      status: 'error',
-      installedAndEnabled: false,
-      matched: [],
-      error: `Pi probe failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
-};
-
-function parsePiProbeResult(content: string): PiProbeInfo {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (!isObject(parsed)) {
-      return {
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: 'Pi probe result was not an object',
-      };
-    }
-
-    const matched = Array.isArray(parsed.matched)
-      ? parsed.matched
-          .map(parsePiProbeResource)
-          .filter((resource): resource is PiProbeResource => resource !== null)
-      : [];
-    const installedAndEnabled = parsed.installedAndEnabled === true;
-
-    return {
-      status: installedAndEnabled ? 'configured' : 'not-found',
-      installedAndEnabled,
-      matched,
-    };
-  } catch (error) {
-    return {
-      status: 'error',
-      installedAndEnabled: false,
-      matched: [],
-      error: `Failed to parse Pi probe result: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
-function parsePiProbeResource(value: unknown): PiProbeResource | null {
-  if (!isObject(value)) return null;
-  if (value.kind !== 'command' && value.kind !== 'tool') return null;
-  if (typeof value.name !== 'string') return null;
-
-  return {
-    kind: value.kind,
-    name: value.name,
-    ...(typeof value.path === 'string' ? { path: value.path } : {}),
-    ...(typeof value.source === 'string' ? { source: value.source } : {}),
-  };
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
@@ -394,39 +185,22 @@ function parseVersion(output: string | null): string | null {
 /**
  * Fetch system info with tool versions.
  * Runs all version checks in parallel for performance.
+ *
+ * Only probes that leave the inspected runtime untouched are run. `claude plugin list`,
+ * `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into
+ * the user's real config directories, so those runtimes are reported as not inspected instead.
  */
 export async function getSystemInfo(
   fetcher: VersionFetcher = defaultVersionFetcher,
-  options: { cwd?: string; piProbeRunner?: PiProbeRunner } = {},
 ): Promise<SystemInfo> {
-  const piRawPromise = fetcher(['pi', '--version']);
-  const piProbeRunner = options.piProbeRunner ?? defaultPiProbeRunner;
-  const shouldRunPiProbe = !!options.piProbeRunner || fetcher === defaultVersionFetcher;
-  const piProbePromise = piRawPromise.then((piRaw) => {
-    if (!piRaw) return PI_PROBE_UNAVAILABLE;
-    if (!shouldRunPiProbe) return PI_PROBE_UNAVAILABLE;
-    return piProbeRunner(options.cwd ?? process.cwd());
-  });
-  const fetchCopilotVersion = async (): Promise<string | null> => {
-    const binaryVersionPromise = fetcher(['copilot', '--binary-version']);
-    const fallbackVersionPromise = fetcher(['copilot', '--version']);
-    const binaryVersion = await binaryVersionPromise;
-    if (binaryVersion) {
-      return binaryVersion;
-    }
-    return fallbackVersionPromise;
-  };
-
   // Run all version fetches in parallel
   const [
     claudeRaw,
-    claudePluginListOutput,
     antigravityRaw,
     openCodeRaw,
     codexRaw,
     codexPluginListOutput,
     geminiRaw,
-    geminiExtensionsListOutput,
     copilotRaw,
     kimiRaw,
     piRaw,
@@ -435,39 +209,31 @@ export async function getSystemInfo(
     nodeRaw,
     npmRaw,
     bunRaw,
-    pluginListRaw,
-    piSafetyNetProbe,
   ] = await Promise.all([
     fetcher(['claude', '--version']),
-    fetcher(['claude', 'plugin', 'list']),
     fetcher(['agy', '--version']),
     fetcher(['opencode', '--version']),
     fetcher(['codex', '--version']),
     fetcher(['codex', 'plugin', 'list']),
     fetcher(['gemini', '--version']),
-    fetcher(['gemini', 'extensions', 'list']),
-    fetchCopilotVersion(),
+    fetcher(['copilot', '--binary-version']),
     fetcher(['kimi', '--version']),
-    piRawPromise,
+    fetcher(['pi', '--version']),
     fetcher(['cursor', '--version']),
     fetcher(['amp', '--version']),
     fetcher(['node', '--version']),
     fetcher(['npm', '--version']),
     fetcher(['bun', '--version']),
-    fetcher(['copilot', 'plugin', 'list']),
-    piProbePromise,
   ]);
 
   return {
     version: CURRENT_VERSION,
     claudeCodeVersion: parseVersion(claudeRaw),
-    claudePluginListOutput,
     antigravityCliVersion: parseVersion(antigravityRaw),
     openCodeVersion: parseVersion(openCodeRaw),
     codexCliVersion: parseVersion(codexRaw),
     codexPluginListOutput,
     geminiCliVersion: parseVersion(geminiRaw),
-    geminiExtensionsListOutput,
     copilotCliVersion: parseVersion(copilotRaw),
     kimiCodeVersion: parseVersion(kimiRaw),
     piCliVersion: parseVersion(piRaw),
@@ -476,8 +242,6 @@ export async function getSystemInfo(
     nodeVersion: parseVersion(nodeRaw),
     npmVersion: parseVersion(npmRaw),
     bunVersion: parseVersion(bunRaw),
-    copilotPluginInstalled: hasCopilotSafetyNetPlugin(pluginListRaw),
-    piSafetyNetProbe,
     platform: `${process.platform} ${process.arch}`,
   };
 }

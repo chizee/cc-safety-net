@@ -36,7 +36,7 @@ describe('hook test helpers', () => {
 
   test('withHookTestContext binds hook runners to the isolated cwd', async () => {
     await withHookTestContext(async (context) => {
-      expect((await context.runCli(['hook'])).stdout).toContain('cc-safety-net hook');
+      expect((await context.runCli(['hook'])).stderr).toContain('cc-safety-net hook');
       expect(
         (await context.runClaudeCodeHook(context.claudeCodeBashInput('git status'))).stdout,
       ).toBe('');

@@ -122,12 +122,13 @@ source, the rejected condition, what is no longer active, and the repair. How li
   the warning line nor the audit flag.
 - `cc-safety-net doctor` reports the state as a `config.runtime-degraded` warning finding with the
   full reason as its detail.
-- `cc-safety-net status` prints the verdict — `ready`, `degraded`, or `not enforcing` when the plugin
-  is disabled in Claude Code — with each diagnostic on its own line. It is informational and always
-  exits 0; `doctor` stays the deep diagnostic.
+- `cc-safety-net status` prints the verdict — `ready` or `degraded` — with each diagnostic on its own
+  line. A plugin that is disabled in Claude Code appears as one of those diagnostics, scoped to
+  Claude Code. It is informational and always exits 0; `doctor` stays the deep diagnostic.
 - The statusline appends `⚠️`.
 - The GUI reports the state in the protection banner it already shows across views.
-- `rule list` prints a `Warnings` section and exits non-zero when either errors or warnings remain.
+- `rule list` prints a `Warnings` section and exits non-zero only when errors remain; warnings alone
+  exit 0.
   It covers rule configuration only, not `policy.json`. `doctor` is the one command that reports both.
 
 Because nothing is blocked, an agent can also run `status`, `doctor`, `rule verify`, and `rule list`

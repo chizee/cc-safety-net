@@ -637,9 +637,11 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         "CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? ",
       );
-      // The star count comes from a 90-day filtered summary, so its copy must
-      // name that window instead of implying a lifetime total.
-      expect(html).toContain("'s'} on this machine in its retained 90-day history.");
+      // The star count is filtered by the configured retention, so its copy must
+      // name that same window instead of a fixed one or a lifetime total.
+      expect(html).toContain(
+        "'s'} on this machine in its retained ${escapeHtml(dayCount(retentionDays()))} history.",
+      );
       expect(html).toContain("qs('star-mechanism').hidden = context.starred !== false;");
       expect(html).toContain('if (context.starred === null) {');
       expect(html).toContain('renderStarLink(context);');
@@ -1946,25 +1948,29 @@ describe('policy GUI server', () => {
     }
   });
 
-  test('fetchIntegrations maps a detected-but-disabled hook to disabled', async () => {
-    const status = await fetchIntegrations({
-      fetcher: async (args) => {
-        if (args[0] === 'claude' && args[1] === 'plugin') {
-          return `Installed plugins:
-
-  ❯ cc-safety-net@cc-marketplace
-    Version: 0.8.2
-    Scope: user
-    Status: ✘ disabled`;
-        }
-        return mockVersionFetcher(args);
-      },
+  test('fetchIntegrations reads plugin state from disk instead of spawning the runtime', async () => {
+    const homeDir = join(tempDir, 'integrations-home');
+    mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
+    writeFileSync(
+      join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
+      JSON.stringify({ plugins: { 'cc-safety-net@cc-marketplace': [{ scope: 'user' }] } }),
+    );
+    writeFileSync(
+      join(homeDir, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': true } }),
+    );
+    mkdirSync(join(homeDir, '.copilot', 'installed-plugins', 'cc-marketplace', 'cc-safety-net'), {
+      recursive: true,
     });
+
+    const status = await fetchIntegrations({ fetcher: mockVersionFetcher, homeDir });
 
     const statuses = Object.fromEntries(
       status.targets.map((target) => [target.target, target.status]),
     );
-    expect(statuses['claude-code']).toBe('disabled');
+    expect(statuses['claude-code']).toBe('active');
+    expect(statuses['copilot-cli']).toBe('active');
+    expect(statuses['gemini-cli']).toBe('not-installed');
   });
 
   test('GET /api/health rejects missing and wrong tokens', async () => {
@@ -1998,7 +2004,7 @@ describe('policy GUI server', () => {
     }
   });
 
-  test('fetchHealth runs the full probe and reports all detected hooks without spawning', async () => {
+  test('fetchHealth reports only the hooks it can inspect without mutating them', async () => {
     const status = await fetchHealth({
       fetcher: mockVersionFetcher,
       homeDir: join(tempDir, 'home'),
@@ -2010,19 +2016,15 @@ describe('policy GUI server', () => {
     });
 
     const platforms = status.hooks.map((hook) => hook.platform);
-    expect(platforms).toContain('claude-code');
     expect(platforms).toContain('codex');
-    // Full-probe wiring: the Gemini extensions list reaches hook detection.
-    expect(platforms).toContain('gemini-cli');
-    // The Pi probe is skipped when a fetcher is injected, so no process spawns in tests.
+    // Claude Code, Gemini CLI, Copilot CLI and Pi are inspectable only through probes that
+    // write into the user's config directories, so they are never reported from here.
+    expect(platforms).not.toContain('claude-code');
+    expect(platforms).not.toContain('gemini-cli');
     expect(platforms).not.toContain('pi');
-    const configured = Object.fromEntries(
-      status.hooks.map((hook) => [hook.platform, hook.configured]),
-    );
-    expect(configured['claude-code']).toBe(true);
-    expect(configured.codex).toBe(true);
-    expect(configured['gemini-cli']).toBe(true);
-    expect(status.hooks.find((hook) => hook.platform === 'claude-code')?.label).toBe('Claude Code');
+    expect(
+      Object.fromEntries(status.hooks.map((hook) => [hook.platform, hook.configured])).codex,
+    ).toBe(true);
     expect(status.update).toEqual({
       currentVersion: '1.0.0',
       latestVersion: '2.0.0',
@@ -2041,6 +2043,8 @@ describe('policy GUI server', () => {
       },
     });
 
+    // An empty selection installs nothing, which is the same ordinary outcome as quitting
+    // the selector; the console must still be captured and restored.
     expect(result.ok).toBe(true);
     expect(result.output).toContain('marker-line');
     expect(console.log).toBe(originalLog);

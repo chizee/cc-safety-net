@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import {
@@ -131,18 +131,25 @@ async function runInstallDispatchProbe(
     events.push("select:" + choices.length);
     return ${JSON.stringify(options.selectedTargets)};
   }`;
-  return spawnInstallEval<{ choices: CapturedChoice[]; exitCode: number; events: string[] }>(
+  return spawnInstallEval<{
+    choices: CapturedChoice[];
+    exitCode: number;
+    events: string[];
+    output: string;
+  }>(
     `
 import { Writable } from "node:stream";
 import { runInstallCommand } from "./src/bin/hook/install.ts";
 
 const events = [];
+const outputChunks = [];
 let capturedChoices = [];
 console.log = () => {};
 const exitCode = await runInstallCommand("install", ${JSON.stringify(options.args ?? [])}, {
   detectConfiguredTargets: async () => ${JSON.stringify(options.configuredTargets ?? [])},
   output: new Writable({
-    write(_chunk, _encoding, callback) {
+    write(chunk, _encoding, callback) {
+      outputChunks.push(String(chunk));
       callback();
     },
   }),
@@ -152,10 +159,53 @@ const exitCode = await runInstallCommand("install", ${JSON.stringify(options.arg
   }${selectTargets}
 });
 
-process.stdout.write(JSON.stringify({ choices: capturedChoices, exitCode, events }));
+process.stdout.write(
+  JSON.stringify({ choices: capturedChoices, exitCode, events, output: outputChunks.join("") }),
+);
 `,
     { HOME: homeDir },
   );
+}
+
+/** Records the exact argv every runtime CLI receives during a bare `install`. */
+async function recordBareInstallProbeArgv(homeDir: string): Promise<string> {
+  const binDir = join(homeDir, 'bin');
+  const logPath = join(homeDir, 'argv.log');
+  mkdirSync(binDir);
+  for (const command of ['amp', 'agy', 'claude', 'codex', 'copilot', 'gemini', 'pi']) {
+    const commandPath = join(binDir, command);
+    writeFileSync(
+      commandPath,
+      `#!/usr/bin/env sh
+printf '%s %s\\n' '${command}' "$*" >> '${logPath}'
+printf '1.0.0\\n'
+`,
+    );
+    chmodSync(commandPath, 0o755);
+  }
+
+  await spawnInstallEval<{ exitCode: number }>(
+    `
+import { Writable } from "node:stream";
+import { runInstallCommand } from "./src/bin/hook/install.ts";
+
+console.log = () => {};
+const exitCode = await runInstallCommand("install", [], {
+  output: new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  }),
+  probeTargets: () => true,
+  selectTargets: async () => null,
+});
+
+process.stdout.write(JSON.stringify({ exitCode }));
+`,
+    { HOME: homeDir, PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}` },
+  );
+
+  return readFileSync(logPath, 'utf-8');
 }
 
 async function runInstallGateProbe(
@@ -302,13 +352,19 @@ describe('install target availability', () => {
       configuredTargets: ['codex', 'kimi-code', 'opencode'],
     });
 
-    expectAvailableTargets(choices, ['codex', 'kimi-code']);
+    expectAvailableTargets(choices, ['codex', 'kimi-code', 'opencode']);
     expect(choices.find((choice) => choice.target === 'claude-code')?.unavailableReason).toBe(
       'not installed',
     );
-    expect(choices.find((choice) => choice.target === 'opencode')?.unavailableReason).toBe(
-      'CLI not installed',
-    );
+  });
+
+  test('keeps configured integrations selectable for uninstall without their CLI', () => {
+    const choices = buildInstallTargetChoices(() => false, {
+      action: 'uninstall',
+      configuredTargets: ['amp', 'antigravity-cli', 'cursor', 'kimi-code', 'opencode'],
+    });
+
+    expectAvailableTargets(choices, ['amp', 'antigravity-cli', 'cursor', 'kimi-code', 'opencode']);
   });
 });
 
@@ -377,9 +433,11 @@ describe('install selection prompt', () => {
     qStreams.input.emit('keypress', 'q', { name: 'q' });
 
     const ctrlStreams = createPromptStreams();
+    const interrupts: string[] = [];
     const ctrlResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
       input: ctrlStreams.input,
       output: ctrlStreams.output,
+      onInterrupt: () => interrupts.push('ctrl-c'),
     });
     ctrlStreams.input.emit('keypress', '', { ctrl: true, name: 'c' });
 
@@ -387,12 +445,15 @@ describe('install selection prompt', () => {
     const escapeResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
       input: escapeStreams.input,
       output: escapeStreams.output,
+      onInterrupt: () => interrupts.push('escape'),
     });
     escapeStreams.input.emit('keypress', '', { name: 'escape' });
 
     expect(await qResult).toBeNull();
     expect(await ctrlResult).toBeNull();
     expect(await escapeResult).toBeNull();
+    // Ctrl-C is an interrupt and is raised as the signal; q and Esc are ordinary quits.
+    expect(interrupts).toEqual(['ctrl-c']);
   });
 });
 
@@ -484,6 +545,29 @@ describe('interactive install dispatch', () => {
     });
   });
 
+  test('reports a cancelled install selector as a normal outcome', async () => {
+    await withTempDir('safety-net-install-cancel-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, { selectedTargets: null });
+
+      // Quitting the selector is a decision, not a failure — but it must still say
+      // that nothing was written.
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('Cancelled');
+    });
+  });
+
+  test('runs no state-mutating runtime probe during a bare install', async () => {
+    await withTempDir('safety-net-install-argv-', async (homeDir) => {
+      const argv = await recordBareInstallProbeArgv(homeDir);
+
+      expect(argv).not.toContain('claude plugin list');
+      expect(argv).not.toContain('gemini extensions list');
+      expect(argv).not.toContain('copilot plugin list');
+      expect(argv).not.toContain('pi -e');
+      expect(argv).toContain('codex plugin list');
+    });
+  });
+
   test('runs a selected target after resolving install choices', async () => {
     await withTempDir('safety-net-install-selected-probe-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: ['kimi-code'] });
@@ -514,12 +598,6 @@ describe('interactive install dispatch', () => {
     });
   }
 
-  const DISABLED_CLAUDE_PLUGIN_LIST = `Installed plugins:
-
-  cc-safety-net@cc-marketplace
-    Version: 0.8.2
-    Scope: user
-    Status: disabled`;
   const ENABLED_CLAUDE_PLUGIN_LIST = `Installed plugins:
 
   cc-safety-net@cc-marketplace
@@ -527,24 +605,14 @@ describe('interactive install dispatch', () => {
     Scope: user
     Status: enabled`;
 
-  test('interactive install keeps a disabled Claude Code plugin selectable', async () => {
-    await withTempDir('safety-net-install-claude-disabled-', async (homeDir) => {
-      const result = await runInstallGateProbe(homeDir, { claude: DISABLED_CLAUDE_PLUGIN_LIST });
+  test('interactive install keeps Claude Code selectable, never inspected', async () => {
+    await withTempDir('safety-net-install-claude-enabled-', async (homeDir) => {
+      const result = await runInstallGateProbe(homeDir, { claude: ENABLED_CLAUDE_PLUGIN_LIST });
       const claude = result.choices.find((choice) => choice.target === 'claude-code');
 
       expect(result.exitCode).toBe(0);
       expect(claude?.available).toBe(true);
       expect(claude?.unavailableReason).toBeUndefined();
-    });
-  });
-
-  test('interactive install gates an enabled Claude Code plugin', async () => {
-    await withTempDir('safety-net-install-claude-enabled-', async (homeDir) => {
-      const result = await runInstallGateProbe(homeDir, { claude: ENABLED_CLAUDE_PLUGIN_LIST });
-      const claude = result.choices.find((choice) => choice.target === 'claude-code');
-
-      expect(claude?.available).toBe(false);
-      expect(claude?.unavailableReason).toBe('already installed');
     });
   });
 

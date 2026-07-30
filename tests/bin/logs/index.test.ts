@@ -13,35 +13,16 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runLogsCommand } from '@/bin/audit-log';
 import { writeAuditLog } from '@/core/audit';
 import type { AuditLogEntry } from '@/types';
 import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
+import { captureLogsCommand } from '../../helpers/logs';
 
 type LogsFixture = {
   cleanup: () => void;
   logsDir: string;
   projectA: string;
 };
-
-async function captureLogsCommand(args: string[], logsDir?: string, timeZone?: string) {
-  const originalLog = console.log;
-  const originalError = console.error;
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  console.log = (...parts: unknown[]) => stdout.push(parts.map(String).join(' '));
-  console.error = (...parts: unknown[]) => stderr.push(parts.map(String).join(' '));
-  try {
-    const exitCode =
-      logsDir === undefined
-        ? await runLogsCommand(args)
-        : await runLogsCommand(args, { logsDir, timeZone });
-    return { exitCode, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
-  } finally {
-    console.log = originalLog;
-    console.error = originalError;
-  }
-}
 
 function createLogsFixture(): LogsFixture {
   const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-'));
@@ -1081,7 +1062,7 @@ describe('runLogsCommand retained history window', () => {
     try {
       mkdirSync(logsDir, { recursive: true });
       // Freshly written, so opportunistic pruning keeps it, while its only
-      // entry is far outside the 90-day retention window.
+      // entry is far outside the configured retention window.
       writeJsonlFixture(join(logsDir, 'expired-sess.jsonl'), [
         {
           ts: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(),

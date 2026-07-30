@@ -54,6 +54,33 @@ describe('getActivitySummary', () => {
     expect(activity.totalBlocked).toBe(0);
     expect(activity.sessionCount).toBe(0);
     expect(activity.recentEntries).toEqual([]);
+    // A history that was never written is empty, not incomplete.
+    expect(activity.unreadable).toBe(0);
+  });
+
+  test('counts audit sources it could not read', () => {
+    const logsDir = createLogsDir();
+    const unreadable = join(logsDir, 'unreadable.jsonl');
+    writeFileSync(
+      unreadable,
+      `${JSON.stringify({
+        ts: new Date().toISOString(),
+        command: 'git reset --hard',
+        reason: 'Blocked by safety net',
+      })}\n`,
+    );
+    writeFileSync(join(logsDir, 'malformed.jsonl'), '{"broken\n');
+    chmodSync(unreadable, 0o000);
+
+    try {
+      const activity = getActivitySummary(7, logsDir);
+
+      expect(activity.totalBlocked).toBe(0);
+      expect(activity.unreadable).toBe(2);
+    } finally {
+      chmodSync(unreadable, 0o600);
+      rmSync(logsDir, { recursive: true, force: true });
+    }
   });
 
   test('reads and parses log files from directory', () => {

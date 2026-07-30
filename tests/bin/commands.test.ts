@@ -113,12 +113,6 @@ describe('command routing', () => {
       },
       { args: ['hook', '--help'], output: 'USAGE:\n  cc-safety-net hook', exitCode: 0 },
       { args: ['gui', '--help'], output: 'USAGE:\n  cc-safety-net gui', exitCode: 0 },
-      {
-        args: ['statusline'],
-        output: 'USAGE:\n  cc-safety-net statusline',
-        stderr: 'statusline requires --claude-code (-cc)',
-        exitCode: 1,
-      },
     ];
 
     for (const command of cases) {
@@ -136,13 +130,22 @@ describe('command routing', () => {
     }
   });
 
-  test('bare hook command explains the missing integration flag', async () => {
+  test('bare hook keeps the protocol channel clean and explains on stderr', async () => {
     const result = await runCCSafetyNetCli(['hook']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
       'hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code',
     );
-    expect(result.output).toContain('USAGE:\n  cc-safety-net hook');
+    expect(result.stderr).toContain('USAGE:\n  cc-safety-net hook');
+    expect(result.output).toBe('');
+  });
+
+  test('an unknown hook flag keeps the protocol channel clean', async () => {
+    const result = await runCCSafetyNetCli(['hook', '--nope']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('USAGE:\n  cc-safety-net hook');
+    expect(result.output).toBe('');
   });
 });

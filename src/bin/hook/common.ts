@@ -76,7 +76,7 @@ async function readHookInput<T>(outputDeny: HookDenyOutput): Promise<T | undefin
   return parseHookJson<T>(inputText, outputDeny, 'Failed to parse hook input JSON.');
 }
 
-/** @internal Reads hook input without buffering more than HOOK_INPUT_MAX_BYTES raw bytes. */
+/** Reads hook input without buffering more than HOOK_INPUT_MAX_BYTES raw bytes. */
 export async function readBoundedHookInput(
   input: (AsyncIterable<Buffer | Uint8Array | string> | Iterable<Buffer | Uint8Array | string>) & {
     destroy?: () => unknown;

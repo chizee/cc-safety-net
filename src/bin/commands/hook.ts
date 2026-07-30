@@ -13,7 +13,7 @@ const platformExamples = hookIntegrations.flatMap((integration) =>
 export const hookCommand = {
   name: 'hook' as const,
   description: 'Run as an agent CLI hook (reads JSON from stdin)',
-  usage: 'hook <coding cli>',
+  usage: 'hook INTEGRATION_FLAG',
   options: [
     ...platformOptions,
     {

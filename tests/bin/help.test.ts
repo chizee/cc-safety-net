@@ -28,9 +28,9 @@ describe('help output', () => {
       const nestedAlias = await runCCSafetyNetCli(['xxx', '--doctor']);
 
       expect(nestedCommand.exitCode).toBe(1);
-      expect(nestedCommand.stderr).toContain('Unknown option: xxx');
+      expect(nestedCommand.stderr).toContain('Unknown command: xxx');
       expect(nestedAlias.exitCode).toBe(1);
-      expect(nestedAlias.stderr).toContain('Unknown option: xxx');
+      expect(nestedAlias.stderr).toContain('Unknown command: xxx');
     });
 
     test('supports doctor command alias only as the first argument', async () => {
@@ -66,11 +66,11 @@ COMMANDS:
   cc-safety-net logs [options]               Browse audit log entries recorded by hooks
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
-  cc-safety-net install [coding cli]         Install CC Safety Net into a coding agent CLI
-  cc-safety-net uninstall [coding cli]       Uninstall CC Safety Net from a coding agent CLI
-  cc-safety-net hook <coding cli>            Run as an agent CLI hook (reads JSON from stdin)
+  cc-safety-net install [TARGET_FLAG]        Install CC Safety Net into a coding agent CLI
+  cc-safety-net uninstall [TARGET_FLAG]      Uninstall CC Safety Net from a coding agent CLI
+  cc-safety-net hook INTEGRATION_FLAG        Run as an agent CLI hook (reads JSON from stdin)
   cc-safety-net gui [options]                Open the local policy editor GUI
-  cc-safety-net statusline <coding cli>      Print status line with mode indicators for shell integration
+  cc-safety-net statusline --claude-code     Print status line with mode indicators for shell integration
 
 GLOBAL OPTIONS:
   -h, --help       Show help (use with command for command-specific help)
@@ -142,6 +142,27 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       const { output } = captureOutput(() => printCommandHelp(cmd));
       expect(output).toContain('EXAMPLES:');
       expect(output).toContain('cc-safety-net doctor');
+    });
+
+    test('renders the default value an option carries', () => {
+      const { output } = captureOutput(() =>
+        printCommandHelp({
+          name: 'demo',
+          description: 'Demo command',
+          usage: 'demo [options]',
+          options: [
+            {
+              flags: '--limit',
+              argument: '<n>',
+              description: 'Maximum entries to print',
+              default: '20',
+            },
+            { flags: '-h, --help', description: 'Show this help' },
+          ],
+        }),
+      );
+
+      expect(output).toContain('Maximum entries to print (default: 20)');
     });
 
     test('explain command shows --cwd option with argument', () => {
@@ -231,7 +252,7 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       if (!cmd) throw new Error('statusline command not found');
       const { output } = captureOutput(() => printCommandHelp(cmd));
       expect(output).toContain('cc-safety-net statusline');
-      expect(output).toContain('statusline <coding cli>');
+      expect(output).toContain('statusline --claude-code');
       expect(output).toContain('-cc, --claude-code');
       expect(output).toContain('cc-safety-net statusline --claude-code');
     });

@@ -13,11 +13,10 @@ import { getUserPolicyPath } from '@/core/policy';
  * active. Purely informational, so it always leaves the exit code at 0.
  *
  * The verdict is read from `snapshot.state`; it is never re-derived from the
- * configuration. The plugin check is the one addition, because the snapshot has
- * no notion of Claude-side enablement.
+ * configuration and never from one integration. The plugin check covers Claude
+ * Code alone, so it is reported as a bullet scoped to that integration.
  */
 export function printStatus(): void {
-  const enabled = isPluginEnabled();
   const snapshot = loadPolicySnapshot({ cwd: process.cwd() });
   const policy = snapshot.policy;
   const modes = getCCSafetyNetEnvModes(policy);
@@ -39,19 +38,14 @@ export function printStatus(): void {
     resolveEffectiveDestructiveCommandRules(policy, modes.capabilities),
   ).some((rule) => rule.changesInherited);
   const policyPath = getUserPolicyPath();
-  const verdict = enabled ? snapshot.state : 'not enforcing';
-  const paintVerdict = {
-    ready: colors.green,
-    degraded: colors.yellow,
-    'not enforcing': colors.red,
-  }[verdict];
+  const paintVerdict = { ready: colors.green, degraded: colors.yellow }[snapshot.state];
 
-  // Ordinary snapshot diagnostics, led by the plugin bullet when nothing is enforced.
+  // Ordinary snapshot diagnostics, led by the Claude Code bullet when the plugin is off.
   const issues = [
-    ...(enabled
+    ...(isPluginEnabled()
       ? []
       : [
-          'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced until it is re-enabled',
+          'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.',
         ]),
     ...snapshot.diagnostics,
   ];
@@ -59,7 +53,7 @@ export function printStatus(): void {
 
   console.log(
     [
-      `${asciiOnly ? '' : '🛡️  '}CC Safety Net — ${paintVerdict(verdict)}`,
+      `${asciiOnly ? '' : '🛡️  '}CC Safety Net — ${paintVerdict(snapshot.state)}`,
       '',
       row(
         'Protection',

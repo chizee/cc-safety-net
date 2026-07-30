@@ -58,11 +58,16 @@ describe('parseExplainFlags', () => {
     expect(flags.command).toBe('--debug --verbose');
   });
 
-  test('treats unknown flag as command start', () => {
-    const flags = parseExplainFlags(['--json', '--unknown-flag', 'foo']);
+  test('rejects an unknown flag instead of analyzing different text', () => {
+    const flags = parseExplainFlags(['--jsoon', 'rm -rf /']);
+    expect(flags).toBeNull();
+    expect(getStderr()).toContain('unknown option "--jsoon"');
+  });
+
+  test('keeps an unknown flag as command input after the -- separator', () => {
+    const flags = parseExplainFlags(['--json', '--', '--unknown-flag', 'foo']);
     expect(flags).not.toBeNull();
     if (!flags) return;
-    expect(flags.json).toBe(true);
     expect(flags.command).toBe('--unknown-flag foo');
   });
 
@@ -91,5 +96,11 @@ describe('parseExplainFlags', () => {
     const flags = parseExplainFlags(['--cwd', '--json', 'echo']);
     expect(flags).toBeNull();
     expect(getStderr()).toContain('--cwd requires a path');
+  });
+
+  test('errors when --cwd path does not exist', () => {
+    const flags = parseExplainFlags(['--cwd', '/definitely/not/here', 'rm -rf /tmp/x']);
+    expect(flags).toBeNull();
+    expect(getStderr()).toContain('--cwd path does not exist: /definitely/not/here');
   });
 });

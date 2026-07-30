@@ -57,8 +57,10 @@ async function probeInstallChoices(
   action: 'install' | 'uninstall',
   name: string,
   fixtures: Readonly<Record<string, string>>,
+  setup: (homeDir: string) => void = () => {},
 ) {
   const homeDir = makeTempHome(name);
+  setup(homeDir);
   const path = makeFakeBin(
     homeDir,
     Object.fromEntries(PROBED_CLIS.map((command) => [command, fixtures[command] ?? 'exit 0'])),
@@ -80,6 +82,7 @@ async function probeInstallChoices(
     }),
   );
 
+  // This helper always cancels the selector, which is an ordinary outcome.
   expect(exitCode).toBe(0);
   return (target: InstallTarget) => choices.find((choice) => choice.target === target);
 }
@@ -127,42 +130,44 @@ describe('install settings rewrites', () => {
 });
 
 describe('interactive uninstall detection', () => {
-  const DISABLED_CLAUDE_PLUGIN_LIST = `if [ "$*" = "plugin list" ]; then
-  printf '%s\\n' 'Installed plugins:
-
-  cc-safety-net@cc-marketplace
-    Version: 0.8.2
-    Scope: user
-    Status: disabled'
-fi`;
-  const INSTALLED_COPILOT_PLUGIN_LIST = `case "$*" in
-  "plugin list") printf 'Installed plugins:\\n  • cc-safety-net@cc-marketplace (v1.0.6)\\n' ;;
-  "--binary-version") printf '1.0.6\\n' ;;
-esac`;
-
   test('offers a detected-but-disabled Claude Code plugin for uninstall', async () => {
-    const choice = await probeInstallChoices('uninstall', 'safety-net-uninstall-claude-disabled', {
-      claude: DISABLED_CLAUDE_PLUGIN_LIST,
-    });
+    const choice = await probeInstallChoices(
+      'uninstall',
+      'safety-net-uninstall-claude-disabled',
+      {},
+      (homeDir) => {
+        mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
+        writeFileSync(
+          join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
+          JSON.stringify({ plugins: { 'cc-safety-net@cc-marketplace': [{ scope: 'user' }] } }),
+        );
+        writeFileSync(
+          join(homeDir, '.claude', 'settings.json'),
+          JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': false } }),
+        );
+      },
+    );
 
     expect(choice('claude-code')?.available).toBe(true);
     expect(choice('claude-code')?.unavailableReason).toBeUndefined();
   });
 
-  test('offers a plugin-installed Copilot CLI for uninstall and gates it for install', async () => {
+  test('offers an installed Copilot CLI plugin for uninstall', async () => {
     const uninstallChoice = await probeInstallChoices(
       'uninstall',
       'safety-net-uninstall-copilot-plugin',
-      { copilot: INSTALLED_COPILOT_PLUGIN_LIST },
-    );
-    const installChoice = await probeInstallChoices(
-      'install',
-      'safety-net-install-copilot-plugin',
-      { copilot: INSTALLED_COPILOT_PLUGIN_LIST },
+      {},
+      (homeDir) => {
+        mkdirSync(
+          join(homeDir, '.copilot', 'installed-plugins', 'cc-marketplace', 'cc-safety-net'),
+          {
+            recursive: true,
+          },
+        );
+      },
     );
 
     expect(uninstallChoice('copilot-cli')?.available).toBe(true);
     expect(uninstallChoice('copilot-cli')?.unavailableReason).toBeUndefined();
-    expect(installChoice('copilot-cli')?.unavailableReason).toBe('already installed');
   });
 });

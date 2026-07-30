@@ -4,7 +4,7 @@ import type { Command } from './types';
 export const installCommand = {
   name: 'install' as const,
   description: 'Install CC Safety Net into a coding agent CLI',
-  usage: 'install [coding cli]',
+  usage: 'install [TARGET_FLAG]',
   options: [
     ...installIntegrationMetadata.map((integration) => ({
       flags: integration.flag,
@@ -21,7 +21,7 @@ export const installCommand = {
 export const uninstallCommand = {
   name: 'uninstall' as const,
   description: 'Uninstall CC Safety Net from a coding agent CLI',
-  usage: 'uninstall [coding cli]',
+  usage: 'uninstall [TARGET_FLAG]',
   options: [
     ...installIntegrationMetadata.map((integration) => ({
       flags: integration.flag,

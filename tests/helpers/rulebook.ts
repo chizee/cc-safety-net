@@ -24,6 +24,17 @@ export function writeLocalRulebook(path: string, name: string): void {
   );
 }
 
+export function writeProjectRuleConfig(
+  rulesDir: string,
+  overrides: Record<string, string> = {},
+): void {
+  writeLocalRulebook(join(rulesDir, 'project-rules', 'rulebook.json'), 'project-rules');
+  writeFileSync(
+    join(rulesDir, 'rule.json'),
+    JSON.stringify({ version: 1, rules: ['project-rules'], overrides, transparent_wrappers: [] }),
+  );
+}
+
 export const initialGitRule = {
   name: 'block-git-add-all',
   subcommand: 'add',

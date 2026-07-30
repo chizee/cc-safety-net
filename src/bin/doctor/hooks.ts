@@ -8,14 +8,15 @@ import { join } from 'node:path';
 import { AMP_MANAGED_HEADER } from '@/amp/index';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import { getPackageVersion } from '@/bin/doctor/system-info';
-import type { HookPlatform, HookStatus, PiProbeInfo } from '@/bin/doctor/types';
+import type { HookPlatform, HookStatus } from '@/bin/doctor/types';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import { getAmpPluginPath } from '@/bin/hook/install/amp';
 import { CURSOR_HOOK_COMMAND, getCursorHooksPath } from '@/bin/hook/install/cursor';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { doctorIntegrationOrder } from '@/integrations/catalog';
+import { COPILOT_PLUGIN_ID } from '@/integrations/copilot-cli';
 
-type HookDetectionStatus = 'configured' | 'n/a' | 'disabled';
+type HookDetectionStatus = 'configured' | 'n/a' | 'disabled' | 'not-inspected';
 
 interface HookDetection {
   platform: HookPlatform;
@@ -26,14 +27,14 @@ interface HookDetection {
   errors?: string[];
 }
 
+/**
+ * Every integration is detected from the files its runtime writes, except Codex, whose
+ * `codex plugin list` output the caller passes in because that command touches nothing.
+ */
 interface HookDetectOptions extends PolicySnapshotOptions {
   homeDir?: string;
-  claudePluginListOutput?: string | null;
   codexPluginListOutput?: string | null;
-  geminiExtensionsListOutput?: string | null;
   copilotCliVersion?: string | null;
-  copilotPluginInstalled?: boolean;
-  piSafetyNetProbe?: PiProbeInfo;
 }
 
 interface CopilotHookEntry {
@@ -60,75 +61,91 @@ interface CopilotDetectionState {
   disabledBy?: string;
 }
 
-const COPILOT_PLUGIN_CONFIG_PATH = 'copilot-plugin';
-const CLAUDE_PLUGIN_LIST_CONFIG_PATH = 'claude plugin list';
 const CLAUDE_SAFETY_NET_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 const CODEX_PLUGIN_LIST_CONFIG_PATH = 'codex plugin list';
 const CODEX_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/cc-safety-net.git';
-const GEMINI_EXTENSIONS_LIST_CONFIG_PATH = 'gemini extensions list';
-const GEMINI_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/gemini-safety-net';
+const GEMINI_SAFETY_NET_EXTENSION = 'gemini-safety-net';
+const COPILOT_SAFETY_NET_PLUGIN_DIR = ['cc-marketplace', 'cc-safety-net'];
 const ANTIGRAVITY_HOOK_COMMAND_PATTERN =
   /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
 const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
 
 /**
- * Detect Claude Code hook configuration.
+ * Read a runtime's own state file. Missing is an answer ("not installed"); unparseable is not,
+ * so the caller can report it as uninspected instead of guessing.
  */
-export function detectClaudeCode(pluginListOutput: string | null | undefined): HookDetection {
-  if (!pluginListOutput) {
+function readStateFile(
+  path: string,
+  preprocess: (raw: string) => string = (raw) => raw,
+): { kind: 'missing' } | { kind: 'unreadable' } | { kind: 'ok'; value: unknown } {
+  if (!existsSync(path)) return { kind: 'missing' };
+
+  try {
+    return { kind: 'ok', value: JSON.parse(preprocess(readFileSync(path, 'utf-8'))) };
+  } catch {
+    return { kind: 'unreadable' };
+  }
+}
+
+function readRecord(value: unknown, key: string): unknown {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function getClaudeInstalledPluginsPath(homeDir: string): string {
+  return join(homeDir, '.claude', 'plugins', 'installed_plugins.json');
+}
+
+function isInstalledPluginRecord(value: unknown, pluginId: string): boolean {
+  const record = readRecord(readRecord(value, 'plugins'), pluginId);
+  return Array.isArray(record) && record.length > 0;
+}
+
+/** Whether Claude Code records the given plugin id as installed. @internal */
+export function hasClaudeInstalledPlugin(homeDir: string, pluginId: string): boolean {
+  const installed = readStateFile(getClaudeInstalledPluginsPath(homeDir));
+  return installed.kind === 'ok' && isInstalledPluginRecord(installed.value, pluginId);
+}
+
+/**
+ * Detect Claude Code hook configuration from the plugin records Claude Code writes:
+ * `installed_plugins.json` says what is installed, `settings.json` says what is on. Reading
+ * them avoids `claude plugin list`, which rewrites `~/.claude.json` in a possibly running session.
+ */
+export function detectClaudeCode(homeDir: string): HookDetection {
+  const installedPath = getClaudeInstalledPluginsPath(homeDir);
+  const installed = readStateFile(installedPath);
+  if (installed.kind === 'unreadable') return { platform: 'claude-code', status: 'not-inspected' };
+  if (installed.kind === 'missing') return { platform: 'claude-code', status: 'n/a' };
+  if (!isInstalledPluginRecord(installed.value, CLAUDE_SAFETY_NET_PLUGIN_ID)) {
     return { platform: 'claude-code', status: 'n/a' };
   }
 
-  const pluginBlock = _findClaudeSafetyNetPluginBlock(pluginListOutput);
-  if (!pluginBlock) {
-    return { platform: 'claude-code', status: 'n/a' };
-  }
+  const settingsPath = join(homeDir, '.claude', 'settings.json');
+  const settings = readStateFile(settingsPath);
+  if (settings.kind === 'unreadable') return { platform: 'claude-code', status: 'not-inspected' };
 
-  if (/^\s*Status:\s*.*\bdisabled\b\s*$/im.test(pluginBlock)) {
+  const enabled =
+    settings.kind === 'ok' &&
+    readRecord(readRecord(settings.value, 'enabledPlugins'), CLAUDE_SAFETY_NET_PLUGIN_ID) === true;
+
+  if (!enabled) {
     return {
       platform: 'claude-code',
       status: 'disabled',
-      method: 'plugin list',
-      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-    };
-  }
-
-  if (/^\s*Status:\s*.*\benabled\b\s*$/im.test(pluginBlock)) {
-    return {
-      platform: 'claude-code',
-      status: 'configured',
-      method: 'plugin list',
-      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
+      method: 'plugin config',
+      configPath: settingsPath,
+      errors: [`${CLAUDE_SAFETY_NET_PLUGIN_ID} is installed but not enabled in Claude Code`],
     };
   }
 
   return {
     platform: 'claude-code',
-    status: 'disabled',
-    method: 'plugin list',
-    configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-    errors: ['Status is not enabled'],
+    status: 'configured',
+    method: 'plugin config',
+    configPath: installedPath,
   };
-}
-
-function _findClaudeSafetyNetPluginBlock(output: string): string | undefined {
-  const pluginLinePattern = new RegExp(
-    `^\\s*(?:[^\\w\\s@]+\\s+)?${_escapeRegExp(CLAUDE_SAFETY_NET_PLUGIN_ID)}\\s*$`,
-  );
-  const pluginStartPattern = /^\s*(?:[^\w\s@]+\s+)?\S+@\S+\s*$/;
-  const lines = output.split('\n');
-  const startIndex = lines.findIndex((line) => pluginLinePattern.test(line));
-
-  if (startIndex === -1) return undefined;
-
-  const endIndex = lines.findIndex(
-    (line, index) => index > startIndex && pluginStartPattern.test(line),
-  );
-  return lines.slice(startIndex, endIndex === -1 ? undefined : endIndex).join('\n');
-}
-
-function _escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -175,54 +192,41 @@ function detectOpenCode(homeDir: string): HookDetection {
 }
 
 /**
- * Detect Gemini CLI hook configuration.
- *
- * Checks:
- * 1. `gemini extensions list` output for the safety-net source URL
- * 2. Effective enabled state using workspace over user scope, defaulting to enabled
- *
- * Status meanings:
- * - 'configured': Extension source is installed and effectively enabled
- * - 'disabled': Extension source is installed but effectively disabled
- * - 'n/a': Extension source is not installed, or list output is unavailable
+ * Detect the Gemini extension from its installed directory and the enablement file Gemini CLI
+ * keeps beside it. A `!`-prefixed override is how Gemini records "disabled for this scope".
  */
-export function detectGeminiCLI(extensionsListOutput: string | null | undefined): HookDetection {
-  if (!extensionsListOutput) {
-    return { platform: 'gemini-cli', status: 'n/a' };
-  }
+export function detectGeminiCLI(homeDir: string): HookDetection {
+  const extensionsDir = join(homeDir, '.gemini', 'extensions');
+  const extensionDir = join(extensionsDir, GEMINI_SAFETY_NET_EXTENSION);
+  if (!existsSync(extensionDir)) return { platform: 'gemini-cli', status: 'n/a' };
 
-  const extension = _parseGeminiExtensionsList(extensionsListOutput).find((item) =>
-    item.source?.includes(GEMINI_SAFETY_NET_SOURCE),
-  );
+  const enablementPath = join(extensionsDir, 'extension-enablement.json');
+  const enablement = readStateFile(enablementPath);
+  if (enablement.kind === 'unreadable') return { platform: 'gemini-cli', status: 'not-inspected' };
 
-  if (!extension) {
-    return { platform: 'gemini-cli', status: 'n/a' };
-  }
+  const overrides =
+    enablement.kind === 'ok'
+      ? readRecord(readRecord(enablement.value, GEMINI_SAFETY_NET_EXTENSION), 'overrides')
+      : undefined;
+  const disabled =
+    Array.isArray(overrides) &&
+    overrides.some((entry) => typeof entry === 'string' && entry.startsWith('!'));
 
-  const effectiveEnabled = extension.enabledWorkspace ?? extension.enabledUser ?? true;
-  const errors = effectiveEnabled
-    ? []
-    : [
-        extension.enabledWorkspace === false
-          ? 'Enabled (Workspace) is false'
-          : 'Enabled (User) is false',
-      ];
-
-  if (errors.length > 0) {
+  if (disabled) {
     return {
       platform: 'gemini-cli',
       status: 'disabled',
-      method: 'extension list',
-      configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-      errors,
+      method: 'extension config',
+      configPath: enablementPath,
+      errors: [`${GEMINI_SAFETY_NET_EXTENSION} is disabled in Gemini CLI`],
     };
   }
 
   return {
     platform: 'gemini-cli',
     status: 'configured',
-    method: 'extension list',
-    configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
+    method: 'extension config',
+    configPath: extensionDir,
   };
 }
 
@@ -338,92 +342,47 @@ export function isPiSafetyNetPackageSource(source: unknown): source is string {
   return source === 'npm:cc-safety-net' || source.startsWith('npm:cc-safety-net@');
 }
 
-function _hasPiSafetyNetPackage(settingsPath: string): boolean {
-  if (!existsSync(settingsPath)) return false;
+/**
+ * Detect the Pi package from `settings.json`, where Pi records both the installed package and,
+ * through a `-` prefix on a resource entry, which of its extensions the user switched off.
+ */
+function detectPi(homeDir: string): HookDetection {
+  const settingsPath = getPiSettingsPath(homeDir);
+  const settings = readStateFile(settingsPath);
+  if (settings.kind === 'unreadable') return { platform: 'pi', status: 'not-inspected' };
+  if (settings.kind === 'missing') return { platform: 'pi', status: 'n/a' };
 
-  const settings = (() => {
-    try {
-      return JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    } catch {
-      return undefined;
-    }
-  })();
+  const packages = readRecord(settings.value, 'packages');
+  if (!Array.isArray(packages)) return { platform: 'pi', status: 'n/a' };
 
-  if (!Array.isArray(settings?.packages)) return false;
-
-  return settings.packages.some((entry: unknown) =>
+  const entry = packages.find((candidate) =>
     isPiSafetyNetPackageSource(
-      typeof entry === 'string' ? entry : (entry as { source?: unknown } | null)?.source,
+      typeof candidate === 'string' ? candidate : readRecord(candidate, 'source'),
     ),
   );
-}
+  if (entry === undefined) return { platform: 'pi', status: 'n/a' };
 
-function detectPi(probe: PiProbeInfo | undefined, homeDir: string): HookDetection {
-  if (!probe || probe.status === 'unavailable') {
-    return { platform: 'pi', status: 'n/a' };
-  }
+  const extensions = readRecord(entry, 'extensions');
+  const disabled =
+    Array.isArray(extensions) &&
+    extensions.some((resource) => typeof resource === 'string' && resource.startsWith('-'));
 
-  if (probe.status === 'error') {
+  if (disabled) {
     return {
       platform: 'pi',
-      status: 'n/a',
-      method: 'pi probe',
-      errors: [probe.error ?? 'Pi probe failed'],
+      status: 'disabled',
+      method: 'package config',
+      configPath: settingsPath,
+      errors: ['npm:cc-safety-net is installed but its extension is disabled in Pi settings'],
     };
   }
-
-  if (!probe.installedAndEnabled) {
-    const settingsPath = getPiSettingsPath(homeDir);
-    if (_hasPiSafetyNetPackage(settingsPath)) {
-      return {
-        platform: 'pi',
-        status: 'disabled',
-        method: 'pi probe',
-        configPath: settingsPath,
-        errors: ['npm:cc-safety-net is installed but its extension is disabled in Pi settings'],
-      };
-    }
-    return { platform: 'pi', status: 'n/a', method: 'pi probe' };
-  }
-
-  const configPaths = probe.matched
-    .map((resource) => resource.path)
-    .filter((path): path is string => typeof path === 'string');
 
   return {
     platform: 'pi',
     status: 'configured',
-    method: 'pi probe',
-    configPath: configPaths[0],
-    configPaths: configPaths.length > 0 ? configPaths : undefined,
+    method: 'package config',
+    configPath: settingsPath,
   };
-}
-
-function _parseGeminiExtensionsList(
-  output: string,
-): Array<{ source?: string; enabledUser?: boolean; enabledWorkspace?: boolean }> {
-  const blocks = output.split('\n').reduce<string[]>((result, line) => {
-    if (/^\S/.test(line) || result.length === 0) {
-      result.push(line);
-      return result;
-    }
-
-    const index = result.length - 1;
-    result[index] = `${result[index]}\n${line}`;
-    return result;
-  }, []);
-
-  return blocks.map((block) => ({
-    source: /^\s*Source:\s*(.+)$/m.exec(block)?.[1],
-    enabledUser: _parseGeminiEnabledValue(block, 'User'),
-    enabledWorkspace: _parseGeminiEnabledValue(block, 'Workspace'),
-  }));
-}
-
-function _parseGeminiEnabledValue(block: string, scope: 'User' | 'Workspace'): boolean | undefined {
-  const match = new RegExp(`^\\s*Enabled \\(${scope}\\):\\s*(true|false)\\s*$`, 'im').exec(block);
-  if (!match) return undefined;
-  return match[1] === 'true';
 }
 
 /**
@@ -838,14 +797,42 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
       };
     }
 
-    if (options?.copilotPluginInstalled === true || hooksCheck.activeConfigPaths.length > 0) {
-      const viaPlugin = options?.copilotPluginInstalled === true;
+    // The plugin is a checkout under the Copilot config directory, named for its marketplace
+    // entry, and `settings.json` records whether it is switched on. Copilot writes that file as
+    // JSONC, so its comments come out before parsing.
+    const configHome = _getCopilotConfigHome(homeDir);
+    const pluginDir = join(configHome, 'installed-plugins', ...COPILOT_SAFETY_NET_PLUGIN_DIR);
+    const pluginInstalled = existsSync(pluginDir);
+    const settingsPath = join(configHome, 'settings.json');
+    const settings = readStateFile(settingsPath, stripJsonComments);
+
+    if (pluginInstalled && settings.kind === 'unreadable') {
+      return { platform: 'copilot-cli', status: 'not-inspected' };
+    }
+
+    // Absent means enabled: Copilot records the key only to turn a plugin off.
+    if (
+      pluginInstalled &&
+      settings.kind === 'ok' &&
+      readRecord(readRecord(settings.value, 'enabledPlugins'), COPILOT_PLUGIN_ID) === false
+    ) {
+      return {
+        platform: 'copilot-cli',
+        status: 'disabled',
+        method: 'plugin config',
+        configPath: settingsPath,
+        errors: [`${COPILOT_PLUGIN_ID} is installed but not enabled in Copilot CLI`],
+      };
+    }
+
+    if (pluginInstalled || hooksCheck.activeConfigPaths.length > 0) {
+      const viaPlugin = pluginInstalled;
       const primaryConfigPath = hooksCheck.activeConfigPaths[0];
       return {
         platform: 'copilot-cli',
         status: 'configured',
-        method: viaPlugin ? 'plugin list' : 'hook config',
-        configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : undefined),
+        method: viaPlugin ? 'plugin config' : 'hook config',
+        configPath: primaryConfigPath ?? (viaPlugin ? pluginDir : undefined),
         configPaths:
           hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : undefined,
         errors: errors.length > 0 ? errors : undefined,
@@ -863,19 +850,19 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
     const detection = (() => {
       switch (platform) {
         case 'claude-code':
-          return detectClaudeCode(options?.claudePluginListOutput);
+          return detectClaudeCode(homeDir);
         case 'antigravity-cli':
           return detectAntigravityCli(homeDir);
         case 'opencode':
           return detectOpenCode(homeDir);
         case 'gemini-cli':
-          return detectGeminiCLI(options?.geminiExtensionsListOutput);
+          return detectGeminiCLI(homeDir);
         case 'copilot-cli':
           return detectCopilotCLI();
         case 'kimi-code':
           return detectKimiCode(homeDir);
         case 'pi':
-          return detectPi(options?.piSafetyNetProbe, homeDir);
+          return detectPi(homeDir);
         case 'codex':
           return detectCodex(options?.codexPluginListOutput);
         case 'cursor':
@@ -890,6 +877,15 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
 }
 
 function _toHookStatus(detection: HookDetection): HookStatus {
+  if (detection.status === 'not-inspected') {
+    return {
+      platform: detection.platform,
+      detected: false,
+      configured: false,
+      inspectionStatus: 'not-inspected',
+    };
+  }
+
   return {
     platform: detection.platform,
     detected: detection.status !== 'n/a',

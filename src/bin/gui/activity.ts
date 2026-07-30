@@ -41,8 +41,11 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
   windowStart.setDate(windowStart.getDate() - (days - 1));
   const cutoff = windowStart.getTime();
   const windowEntries: AuditLogEntry[] = [];
-  for (const file of logsDir ? listAuditLogFiles(logsDir) : []) {
-    for (const entry of readAuditLogEntries(file)) {
+  // Counted rather than printed: this runs on a request path, so the client
+  // captions the shortfall instead of the server logging one line per fetch.
+  const skips = { count: 0 };
+  for (const file of logsDir ? listAuditLogFiles(logsDir, skips) : []) {
+    for (const entry of readAuditLogEntries(file, skips)) {
       if (!entry || typeof entry.ts !== 'string' || typeof entry.command !== 'string') continue;
       const ts = new Date(entry.ts).getTime();
       if (!Number.isFinite(ts)) continue;
@@ -83,6 +86,7 @@ export function getActivityFeed(days: number, logsDir: string | null = getAuditL
     homeDir: homedir(),
     totalInWindow: windowEntries.length,
     truncated: windowEntries.length > ENTRY_CAP,
+    unreadable: skips.count,
     counts: {
       blocked,
       allowed: windowEntries.length - blocked,

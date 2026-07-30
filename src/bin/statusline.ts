@@ -1,33 +1,24 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { readBoundedHookInput } from '@/bin/hook/common';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
 import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
 
 /**
- * Read piped stdin content asynchronously.
- * Returns null if stdin is a TTY (no piped input) or empty.
+ * Read piped stdin content asynchronously, bounded by the hook input limit.
+ * Returns null if stdin is a TTY (no piped input), empty, unreadable, or over the limit.
  */
 async function readStdinAsync(): Promise<string | null> {
   if (process.stdin.isTTY) {
     return null;
   }
 
-  return new Promise((resolve) => {
-    let data = '';
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on('end', () => {
-      const trimmed = data.trim();
-      resolve(trimmed || null);
-    });
-    process.stdin.on('error', () => {
-      resolve(null);
-    });
-  });
+  // A statusline is decoration: oversized or unreadable input drops the prefix instead of
+  // denying, unlike the fail-closed hook path that shares this reader.
+  const input = await readBoundedHookInput(process.stdin).catch(() => null);
+  return input?.trim() || null;
 }
 
 function getSettingsPath(): string {

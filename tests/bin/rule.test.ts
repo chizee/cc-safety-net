@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { RULE_DOC } from '@/bin/rule/doc';
 import { runRulesVerify } from '@/bin/rule/verify';
 import { runCCSafetyNetCli, withTempDir } from '../helpers';
-import { writeLocalRulebook } from '../helpers/rulebook';
+import { writeLocalRulebook, writeProjectRuleConfig } from '../helpers/rulebook';
 
 describe('rule command docs', () => {
   test('documents current rulebook configuration', () => {
@@ -37,14 +37,14 @@ describe('rule command docs', () => {
     expect(result.output).toBe(`${RULE_DOC}\n`);
   });
 
-  test('prints help error when rule subcommand is missing', async () => {
+  test('prints help error on stderr when rule subcommand is missing', async () => {
     for (const args of [['rule'], ['rule', '--check']]) {
       const result = await runCCSafetyNetCli(args);
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe('');
-      expect(result.output).toContain('cc-safety-net rule');
-      expect(result.output).toContain('SUBCOMMANDS:');
+      expect(result.output).toBe('');
+      expect(result.stderr).toContain('cc-safety-net rule');
+      expect(result.stderr).toContain('SUBCOMMANDS:');
     }
   });
 
@@ -204,16 +204,7 @@ describe('rule sync', () => {
     await withTempDir('safety-net-rule-sync-truth-', async (tempDir) => {
       const env = projectRuleEnv(tempDir);
       const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
-      writeLocalRulebook(join(rulesDir, 'project-rules', 'rulebook.json'), 'project-rules');
-      writeFileSync(
-        join(rulesDir, 'rule.json'),
-        JSON.stringify({
-          version: 1,
-          rules: ['project-rules'],
-          overrides: { 'project-rules/typo': 'off' },
-          transparent_wrappers: [],
-        }),
-      );
+      writeProjectRuleConfig(rulesDir, { 'project-rules/typo': 'off' });
 
       const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
 

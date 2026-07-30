@@ -44,7 +44,7 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 - **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
 - **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
 - **Universal installer** — interactive `install`/`uninstall` across all ten supported agent CLIs.
-- **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 90 days, browsable via `cc-safety-net logs`.
+- **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
 - **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
 
 ## Supported agents
@@ -270,7 +270,7 @@ plugin rewrites an already-approved input after CC Safety Net has allowed it.
 | **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config never blocks: an unverifiable rule source is dropped and an unreadable `policy.json` falls back to protective defaults, both with a warning on every reporting surface. |
 | **Sensitive-path protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
-| **Audit logging** | Allowed and blocked command decisions written to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted, retained for 90 days. Set `CC_SAFETY_NET_AUDIT_SCOPE=blocked` to record denials only. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** tab of `npx cc-safety-net gui`. |
+| **Audit logging** | Allowed and blocked command decisions written to per-project, per-month JSONL files under `~/.cc-safety-net/logs/` with secrets auto-redacted, retained for 30 days by default. Set `CC_SAFETY_NET_AUDIT_SCOPE=blocked` to record denials only. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** tab of `npx cc-safety-net gui`. |
 
 Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands).
 
@@ -331,7 +331,7 @@ npx cc-safety-net logs
 npx cc-safety-net gui
 ```
 
-Reach for `gui` when an unattended agent comes back with a batch of blocks: its **Activity** tab lists recorded command decisions newest first for the window you pick (7, 30, or 90 days), and every blocked entry shows the matched command segment, the reason it was blocked, the agent that ran it, a copy-as-JSON button, and the rule ID as a button that jumps straight to that rule in **Policy**. If a block was wrong, report it as a false positive from the same entry.
+Reach for `gui` when an unattended agent comes back with a batch of blocks: its **Activity** tab lists recorded command decisions newest first for the window you pick (7 and 30 days at the default retention; raise `audit.retention_days` and the wider windows appear), and every blocked entry shows the matched command segment, the reason it was blocked, the agent that ran it, a copy-as-JSON button, and the rule ID as a button that jumps straight to that rule in **Policy**. If a block was wrong, report it as a false positive from the same entry.
 
 `doctor`, `explain`, and `logs` support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
 
@@ -340,9 +340,9 @@ Reach for `gui` when an unattended agent comes back with a batch of blocks: its 
 CC Safety Net keeps a **command-decision audit trail**: one record per allowed or blocked command decision. It is not a session transcript — command output, model prompts, and allowed non-command tool calls are never recorded. Records stay on your machine under `~/.cc-safety-net/logs/` (directories `0700`, files `0600`) and go through the existing secret redaction and field caps before they are written.
 
 - **Scope** — recording both allowed and blocked decisions is the default (`CC_SAFETY_NET_AUDIT_SCOPE=all`). Set `CC_SAFETY_NET_AUDIT_SCOPE=blocked` to record denials only; denials are recorded under every scope. An unrecognized value falls back to denials only and is reported by `npx cc-safety-net doctor`.
-- **Retention** — records are kept for 90 days. Pruning is opportunistic rather than scheduled: expired files are removed during the next audit write or audit read, so expired records can sit on disk while CC Safety Net is idle. CLI and GUI counts exclude expired entries either way, and each one names its window — they report records retained in that window, never a lifetime total.
-- **`logs --id`** — a retained-history lookup. It returns any matching record still physically present, including an expired one that pruning has not reached yet, so availability is not guaranteed once a record is older than 90 days.
-- **Legacy logs** — root-level `<session-id>.jsonl` files from older versions stay readable by default, and expire automatically only once every entry in them is valid and expired. `npx cc-safety-net logs --prune-legacy` deletes every one of them immediately and irreversibly, with no confirmation or dry run; it never touches nested per-project logs.
+- **Retention** — records are kept for 30 days. Set `audit.retention_days` in `policy.json` to keep them for anything from 1 to 365 days; `logs --since` and the GUI Activity windows can never reach past that value. Pruning is opportunistic rather than scheduled: expired files are removed during the next audit write or audit read, so expired records can sit on disk while CC Safety Net is idle. CLI and GUI counts exclude expired entries either way, and each one names its window — they report records retained in that window, never a lifetime total.
+- **`logs --id`** — a retained-history lookup. It returns any matching record still physically present, including an expired one that pruning has not reached yet, so availability is not guaranteed once a record is older than the configured retention.
+- **Legacy logs** — root-level `<session-id>.jsonl` files from older versions stay readable by default, and expire automatically only once every entry in them is valid and expired. `npx cc-safety-net logs --prune-legacy` deletes every one of them immediately and irreversibly, with no confirmation; add `--dry-run` to see how many files and bytes it would delete first. It never touches nested per-project logs.
 
 Untrusted hook and tool payloads, plus remote rulebook responses, have generous fixed resource limits. Inputs that exceed them fail closed; the exact limits and security rationale are documented in [SECURITY.md](SECURITY.md).
 

@@ -9,9 +9,25 @@ describe('doctor flags', () => {
       json: false,
       skipUpdateCheck: true,
     });
-    expect(parseDoctorFlags(['--skip-update-check', '--json', 'ignored'])).toEqual({
+    expect(parseDoctorFlags(['--skip-update-check', '--json'])).toEqual({
       json: true,
       skipUpdateCheck: true,
     });
+  });
+
+  test('rejects an unknown option instead of running the report', () => {
+    const messages: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      messages.push(args.map(String).join(' '));
+    };
+    try {
+      expect(parseDoctorFlags(['--jsoon'])).toBeNull();
+      expect(parseDoctorFlags(['extra'])).toBeNull();
+    } finally {
+      console.error = originalError;
+    }
+    expect(messages[0]).toContain('Unknown option for doctor: --jsoon');
+    expect(messages[1]).toContain('Unexpected argument for doctor: extra');
   });
 });

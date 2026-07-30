@@ -99,6 +99,10 @@ function formatHooksTable(hooks: HookStatus[]): string {
 
   const rowData = hooks.map((h) => {
     const platformName = getIntegrationDisplayName(h.platform);
+    if (h.inspectionStatus === 'not-inspected') {
+      const notInspected = colors.dim('Not inspected');
+      return [platformName, notInspected, notInspected, notInspected];
+    }
     const discovery = h.detected
       ? colors.green('Detected')
       : h.inspectionStatus === 'failed'
@@ -306,6 +310,12 @@ export function formatActivitySection(activity: ActivitySummary): string {
       `Recent Activity · last 7 days (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`,
     );
     lines.push(formatActivityTable(activity.recentEntries));
+  }
+
+  if (activity.unreadable > 0) {
+    lines.push(
+      `   Warning: ${activity.unreadable} audit log ${activity.unreadable === 1 ? 'source' : 'sources'} could not be read; this summary is incomplete`,
+    );
   }
 
   return lines.join('\n');

@@ -15,6 +15,7 @@ type LogsFlags = {
   json: boolean;
   suspect: boolean;
   pruneLegacy: boolean;
+  dryRun: boolean;
   id?: string;
   agent?: string;
   rule?: string;
@@ -28,15 +29,19 @@ type SourcedAuditLogEntry = {
 };
 
 function parseLogsFlags(args: string[]): LogsFlags | null {
+  // Retained history is the only history, so neither the `--since` ceiling nor
+  // the default window can reach past it.
+  const retentionDays = resolveAuditRetentionDays();
   const flags: LogsFlags = {
     limit: 20,
     limitExplicit: false,
-    since: 30,
+    since: Math.min(30, retentionDays),
     sinceExplicit: false,
     all: false,
     json: false,
     suspect: false,
     pruneLegacy: false,
+    dryRun: false,
   };
 
   for (let index = 0; index < args.length; index++) {
@@ -55,6 +60,10 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     }
     if (arg === '--prune-legacy') {
       flags.pruneLegacy = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      flags.dryRun = true;
       continue;
     }
     if (arg === '--id') {
@@ -81,9 +90,6 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     }
     if (arg === '--since') {
       const since = parsePositiveNumber(args[index + 1]);
-      // Retained history is the only history, so a wider window would imply a
-      // completeness the log cannot back up.
-      const retentionDays = resolveAuditRetentionDays();
       if (since === null || since > retentionDays) {
         console.error(`--since must be a positive number of days no greater than ${retentionDays}`);
         return null;
@@ -159,6 +165,11 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
     return null;
   }
 
+  if (flags.dryRun && !flags.pruneLegacy) {
+    console.error('--dry-run requires --prune-legacy');
+    return null;
+  }
+
   return flags;
 }
 
@@ -170,7 +181,7 @@ export async function runLogsCommand(
   if (!flags) return 1;
 
   const logsDir = options.logsDir ?? getAuditLogsDir();
-  if (flags.pruneLegacy) return pruneLegacyAuditLogs(logsDir, flags.json);
+  if (flags.pruneLegacy) return pruneLegacyAuditLogs(logsDir, flags.json, flags.dryRun);
   if (!logsDir) {
     console.log(
       flags.json
@@ -182,9 +193,18 @@ export async function runLogsCommand(
     return 0;
   }
   pruneExpiredAuditLogs(logsDir);
-  const allEntries = listAuditLogFiles(logsDir).flatMap((file) =>
-    readAuditLogEntries(file).map((entry) => ({ entry, file })),
+  // An unreadable file or a malformed record makes every answer below a partial
+  // one, including "nothing found". Say so once on stderr, name no paths, and
+  // leave stdout and the exit code untouched.
+  const skips = { count: 0 };
+  const allEntries = listAuditLogFiles(logsDir, skips).flatMap((file) =>
+    readAuditLogEntries(file, skips).map((entry) => ({ entry, file })),
   );
+  if (skips.count > 0) {
+    console.error(
+      `warning: ${skips.count} audit log ${skips.count === 1 ? 'source' : 'sources'} could not be read; these results are incomplete`,
+    );
+  }
   if (flags.id) return outputIdLookup(allEntries, flags, options.timeZone);
 
   const cutoff = Date.now() - flags.since * 24 * 60 * 60 * 1000;
@@ -224,9 +244,12 @@ export async function runLogsCommand(
  * by position alone: entry age, schema, and malformed lines are irrelevant
  * because the user asked for all of it to go. Nested project directories are
  * never entered, and symlinks are not regular files, so neither can be a target.
+ *
+ * `dryRun` reports exactly that set and deletes nothing.
  */
-function pruneLegacyAuditLogs(logsDir: string | null, json: boolean): number {
+function pruneLegacyAuditLogs(logsDir: string | null, json: boolean, dryRun: boolean): number {
   const files = logsDir ? listLegacyLogFiles(logsDir).map((name) => join(logsDir, name)) : [];
+  if (dryRun) return previewLegacyAuditLogs(files, json);
   const failures: string[] = [];
   let removedFiles = 0;
   let removedBytes = 0;
@@ -258,6 +281,25 @@ function pruneLegacyAuditLogs(logsDir: string | null, json: boolean): number {
   console.log('Nested v2 audit logs were not changed.');
   if (removedFiles > 0) console.log('This deletion cannot be undone.');
   return failures.length === 0 ? 0 : 1;
+}
+
+function previewLegacyAuditLogs(files: string[], json: boolean): number {
+  const bytes = files.reduce(
+    (total, file) => total + (statSync(file, { throwIfNoEntry: false })?.size ?? 0),
+    0,
+  );
+  if (json) {
+    console.log(JSON.stringify({ dryRun: true, files: files.length, bytes }));
+    return 0;
+  }
+  console.log(
+    files.length === 0
+      ? 'No legacy audit log files found.'
+      : `Would remove ${files.length} legacy audit log ${files.length === 1 ? 'file' : 'files'} (${formatBytes(bytes)}).`,
+  );
+  console.log('Nested v2 audit logs are not included.');
+  if (files.length > 0) console.log('Run the same command without --dry-run to delete them.');
+  return 0;
 }
 
 function listLegacyLogFiles(logsDir: string): string[] {

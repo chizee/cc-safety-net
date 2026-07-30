@@ -4,14 +4,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
-import {
-  defaultPiProbeRunner,
-  defaultVersionFetcher,
-  getPackageVersion,
-  getSystemInfo,
-  type PiProbeRunner,
-} from '@/bin/doctor/system-info';
+import { join } from 'node:path';
+import { defaultVersionFetcher, getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
 import { mockVersionFetcher, withEnv, withTempDir } from '../../helpers.ts';
 
 function createDeferred<T>(): {
@@ -45,119 +39,6 @@ function createCopilotDeferredFetcher() {
   return { binaryVersion, calls, fallbackVersion, fetcher };
 }
 
-function expectCopilotVersionProbesStarted(calls: string[][]): void {
-  expect(calls.some((args) => args[0] === 'copilot' && args[1] === '--binary-version')).toBe(true);
-  expect(calls.some((args) => args[0] === 'copilot' && args[1] === '--version')).toBe(true);
-}
-
-async function withFakePi<T>(
-  mode:
-    | 'configured'
-    | 'not-found'
-    | 'nonzero'
-    | 'missing-result'
-    | 'invalid-json'
-    | 'non-object'
-    | 'no-model'
-    | 'timeout-after-write'
-    | 'timeout-no-write',
-  fn: (cwd: string) => Promise<T>,
-): Promise<T> {
-  return withTempDir('doctor-fake-pi-', async (tmpDir) => {
-    writeFileSync(
-      join(tmpDir, 'pi.js'),
-      `import { writeFileSync } from "node:fs";
-
-if (process.argv[2] === "--version") {
-  console.log("pi 0.4.0");
-  process.exit(0);
-}
-
-if (process.env.FAKE_PI_MODE === "nonzero") {
-  console.error("extension failed");
-  process.exit(7);
-}
-
-if (process.env.FAKE_PI_MODE === "missing-result") {
-  process.exit(0);
-}
-
-if (process.env.FAKE_PI_MODE === "invalid-json") {
-  writeFileSync(process.env.PI_PROBE_OUT, "{");
-  process.exit(0);
-}
-
-if (process.env.FAKE_PI_MODE === "non-object") {
-  writeFileSync(process.env.PI_PROBE_OUT, "[]");
-  process.exit(0);
-}
-
-if (process.env.FAKE_PI_MODE === "no-model") {
-  console.error("\\u001b[31mNo models available. Run /login or set an API key.\\u001b[0m");
-  process.exit(1);
-}
-
-if (String(process.env.FAKE_PI_MODE).startsWith("timeout-")) {
-  setTimeout(() => process.exit(0), 60000);
-}
-
-if (process.env.FAKE_PI_MODE !== "timeout-no-write") {
-
-writeFileSync(
-  process.env.PI_PROBE_OUT,
-  JSON.stringify(
-    process.env.FAKE_PI_MODE === "not-found"
-      ? { installedAndEnabled: false, matched: [] }
-      : {
-          installedAndEnabled: true,
-          matched: [
-            {
-              kind: "command",
-              name: "cc-safety-net",
-              path: "/tmp/safety-net.js",
-              source: "local",
-            },
-            { kind: "event", name: "ignored" },
-            { kind: "tool", name: 42 },
-          ],
-        },
-  ),
-);
-}
-`,
-    );
-    writeFileSync(join(tmpDir, 'pi'), '#!/bin/sh\nexec bun "$0.js" "$@"\n');
-    writeFileSync(join(tmpDir, 'pi.cmd'), '@echo off\r\nbun "%~dp0pi.js" %*\r\n');
-    chmodSync(join(tmpDir, 'pi'), 0o755);
-
-    const originalPath = process.env.PATH;
-    const originalPathAlt = process.env.Path;
-    const originalMode = process.env.FAKE_PI_MODE;
-    process.env.PATH = `${tmpDir}${delimiter}${originalPath ?? originalPathAlt ?? ''}`;
-    if (process.platform === 'win32') process.env.Path = process.env.PATH;
-    process.env.FAKE_PI_MODE = mode;
-    try {
-      return await fn(tmpDir);
-    } finally {
-      if (originalPath === undefined) {
-        delete process.env.PATH;
-      } else {
-        process.env.PATH = originalPath;
-      }
-      if (originalPathAlt === undefined) {
-        delete process.env.Path;
-      } else {
-        process.env.Path = originalPathAlt;
-      }
-      if (originalMode === undefined) {
-        delete process.env.FAKE_PI_MODE;
-      } else {
-        process.env.FAKE_PI_MODE = originalMode;
-      }
-    }
-  });
-}
-
 describe('getSystemInfo', () => {
   test('detects Bun version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
@@ -172,13 +53,6 @@ describe('getSystemInfo', () => {
   test('includes Antigravity CLI version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.antigravityCliVersion).toBe('2.0.0');
-  });
-
-  test('includes Gemini extensions list output with mock fetcher', async () => {
-    const sysInfo = await getSystemInfo(mockVersionFetcher);
-    expect(sysInfo.geminiExtensionsListOutput).toContain(
-      'https://github.com/kenryu42/gemini-safety-net',
-    );
   });
 
   test('includes Kimi Code version with mock fetcher', async () => {
@@ -201,157 +75,6 @@ describe('getSystemInfo', () => {
     expect(sysInfo.codexPluginListOutput).toContain(
       'https://github.com/kenryu42/cc-safety-net.git',
     );
-  });
-
-  test('includes successful Pi safety-net probe result', async () => {
-    const piProbeRunner: PiProbeRunner = async () => ({
-      status: 'configured',
-      installedAndEnabled: true,
-      matched: [{ kind: 'command', name: 'cc-safety-net', path: '/tmp/safety-net.js' }],
-    });
-
-    const sysInfo = await getSystemInfo(mockVersionFetcher, { piProbeRunner });
-
-    expect(sysInfo.piSafetyNetProbe).toEqual({
-      status: 'configured',
-      installedAndEnabled: true,
-      matched: [{ kind: 'command', name: 'cc-safety-net', path: '/tmp/safety-net.js' }],
-    });
-  });
-
-  test('reports Pi probe unavailable when Pi CLI is missing', async () => {
-    const sysInfo = await getSystemInfo(async (args) => {
-      if (args[0] === 'pi') return null;
-      return mockVersionFetcher(args);
-    });
-
-    expect(sysInfo.piCliVersion).toBeNull();
-    expect(sysInfo.piSafetyNetProbe).toEqual({
-      status: 'unavailable',
-      installedAndEnabled: false,
-      matched: [],
-    });
-  });
-
-  test('surfaces Pi probe errors without throwing', async () => {
-    const piProbeRunner: PiProbeRunner = async () => ({
-      status: 'error',
-      installedAndEnabled: false,
-      matched: [],
-      error: 'probe failed',
-    });
-
-    const sysInfo = await getSystemInfo(mockVersionFetcher, { piProbeRunner });
-
-    expect(sysInfo.piSafetyNetProbe).toEqual({
-      status: 'error',
-      installedAndEnabled: false,
-      matched: [],
-      error: 'probe failed',
-    });
-  });
-
-  test('runs the default Pi probe through the Pi CLI', async () => {
-    await withFakePi('configured', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe).toEqual({
-        status: 'configured',
-        installedAndEnabled: true,
-        matched: [
-          {
-            kind: 'command',
-            name: 'cc-safety-net',
-            path: '/tmp/safety-net.js',
-            source: 'local',
-          },
-        ],
-      });
-    });
-  });
-
-  test('reports not-found from the default Pi probe when the sentinel is absent', async () => {
-    await withFakePi('not-found', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe).toEqual({
-        status: 'not-found',
-        installedAndEnabled: false,
-        matched: [],
-      });
-    });
-  });
-
-  test('reports non-zero default Pi probe exits', async () => {
-    await withFakePi('nonzero', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe.status).toBe('error');
-      expect(probe.error).toContain('code 7');
-      expect(probe.error).toContain('extension failed');
-    });
-  });
-
-  test('salvages the default Pi probe result when the process hangs after writing', async () => {
-    await withFakePi('timeout-after-write', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd, 300);
-
-      expect(probe.status).toBe('configured');
-      expect(probe.installedAndEnabled).toBe(true);
-    });
-  });
-
-  test('reports a plain timeout when the default Pi probe hangs without writing a result', async () => {
-    await withFakePi('timeout-no-write', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd, 300);
-
-      expect(probe).toEqual({
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: 'Pi probe timed out',
-      });
-    });
-  });
-
-  test('reports a missing Pi model provider distinctly when the probe cannot run', async () => {
-    await withFakePi('no-model', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe.status).toBe('error');
-      expect(probe.error).toContain('no configured model provider');
-    });
-  });
-
-  test('reports missing default Pi probe result files', async () => {
-    await withFakePi('missing-result', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe.status).toBe('error');
-      expect(probe.error).toContain('Pi probe failed');
-    });
-  });
-
-  test('reports invalid default Pi probe JSON', async () => {
-    await withFakePi('invalid-json', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe.status).toBe('error');
-      expect(probe.error).toContain('Failed to parse Pi probe result');
-    });
-  });
-
-  test('reports non-object default Pi probe JSON', async () => {
-    await withFakePi('non-object', async (cwd) => {
-      const probe = await defaultPiProbeRunner(cwd);
-
-      expect(probe).toEqual({
-        status: 'error',
-        installedAndEnabled: false,
-        matched: [],
-        error: 'Pi probe result was not an object',
-      });
-    });
   });
 
   test('parses Kimi Code version output through existing parser', async () => {
@@ -381,73 +104,64 @@ describe('getSystemInfo', () => {
     expect(sysInfo.codexCliVersion).toBe('1.2.3');
   });
 
-  test('includes Claude plugin list output with mock fetcher', async () => {
-    const sysInfo = await getSystemInfo(mockVersionFetcher);
-    expect(sysInfo.claudePluginListOutput).toContain('cc-safety-net@cc-marketplace');
-  });
-
-  test('starts both copilot version probes immediately and prefers --binary-version', async () => {
+  test('never starts copilot --version when --binary-version answers', async () => {
     const probes = createCopilotDeferredFetcher();
     const sysInfoPromise = getSystemInfo(probes.fetcher);
     await Promise.resolve();
 
-    expectCopilotVersionProbesStarted(probes.calls);
-
-    probes.fallbackVersion.resolve('copilot 1.0.8');
     probes.binaryVersion.resolve('Copilot binary version: 1.0.9');
-
     const sysInfo = await sysInfoPromise;
 
     expect(sysInfo.copilotCliVersion).toBe('1.0.9');
+    // The fallback downloads a ~160 MB package cache, so it must never be spawned in vain.
+    expect(probes.calls.map((args) => args.join(' '))).not.toContain('copilot --version');
   });
 
-  test('falls back to copilot --version when --binary-version is unavailable', async () => {
+  test('reports no Copilot version rather than running the probe that downloads 160 MB', async () => {
     const calls: string[][] = [];
     const fetcher = async (args: string[]) => {
       calls.push(args);
       if (args[0] !== 'copilot') return null;
-      if (args[1] === '--binary-version') return null;
       if (args[1] === '--version') return 'copilot 1.0.8';
       return null;
     };
 
     const sysInfo = await getSystemInfo(fetcher);
 
-    expect(sysInfo.copilotCliVersion).toBe('1.0.8');
-    expectCopilotVersionProbesStarted(calls);
+    expect(sysInfo.copilotCliVersion).toBeNull();
+    expect(calls.map((args) => args.join(' '))).not.toContain('copilot --version');
   });
-
-  test('does not wait for copilot --version when --binary-version succeeds', async () => {
-    const probes = createCopilotDeferredFetcher();
-    const sysInfoPromise = getSystemInfo(probes.fetcher);
-    await Promise.resolve();
-
-    expectCopilotVersionProbesStarted(probes.calls);
-
-    probes.binaryVersion.resolve('Copilot binary version: 1.0.9');
-
-    const sysInfo = await sysInfoPromise;
-
-    expect(sysInfo.copilotCliVersion).toBe('1.0.9');
-
-    probes.fallbackVersion.resolve('copilot 1.0.8');
-  }, 100);
 
   test('handles commands that exit with non-zero code', async () => {
     const failingFetcher = async (_args: string[]) => null;
     const result = await getSystemInfo(failingFetcher);
     expect(result.claudeCodeVersion).toBeNull();
-    expect(result.claudePluginListOutput).toBeNull();
     expect(result.copilotCliVersion).toBeNull();
     expect(result.codexCliVersion).toBeNull();
     expect(result.codexPluginListOutput).toBeNull();
     expect(result.kimiCodeVersion).toBeNull();
     expect(result.piCliVersion).toBeNull();
-    expect(result.geminiExtensionsListOutput).toBeNull();
-    expect(result.copilotPluginInstalled).toBe(false);
-    expect(result.piSafetyNetProbe.status).toBe('unavailable');
     expect(result.bunVersion).toBeNull();
     expect(result.nodeVersion).toBeNull();
+  });
+
+  test('never runs the probes that write into the user config directories', async () => {
+    const calls: string[][] = [];
+    const sysInfo = await getSystemInfo(async (args) => {
+      calls.push(args);
+      return mockVersionFetcher(args);
+    });
+    const argv = calls.map((args) => args.join(' '));
+
+    expect(argv).not.toContain('claude plugin list');
+    expect(argv).not.toContain('gemini extensions list');
+    expect(argv).not.toContain('copilot plugin list');
+    expect(argv).toContain('codex plugin list');
+    // `copilot --version` bootstraps a ~160 MB cache, so it must not run once the cheap
+    // probe has answered.
+    expect(argv).toContain('copilot --binary-version');
+    expect(argv).not.toContain('copilot --version');
+    expect(sysInfo.copilotCliVersion).not.toBeNull();
   });
 
   test('handles empty version output', async () => {
@@ -457,55 +171,6 @@ describe('getSystemInfo', () => {
     expect(result.copilotCliVersion).toBeNull();
     expect(result.codexCliVersion).toBeNull();
     expect(result.bunVersion).toBeNull();
-  });
-});
-
-describe('copilotPluginInstalled', () => {
-  test('returns true when copilot plugin list includes cc-safety-net@cc-marketplace', async () => {
-    const fetcher = async (args: string[]) => {
-      if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • cc-safety-net@cc-marketplace (v1.0.6)';
-      }
-      return null;
-    };
-
-    const sysInfo = await getSystemInfo(fetcher);
-
-    expect(sysInfo.copilotPluginInstalled).toBe(true);
-  });
-
-  test('returns false when plugin list does not include cc-safety-net@cc-marketplace', async () => {
-    const fetcher = async (args: string[]) => {
-      if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • other-plugin (v1.0.0)';
-      }
-      return null;
-    };
-
-    const sysInfo = await getSystemInfo(fetcher);
-
-    expect(sysInfo.copilotPluginInstalled).toBe(false);
-  });
-
-  test('returns false for partial plugin id matches', async () => {
-    const fetcher = async (args: string[]) => {
-      if (args[0] === 'copilot' && args[1] === 'plugin') {
-        return 'Installed plugins:\n  • other-cc-safety-net@cc-marketplace (v1.0.0)';
-      }
-      return null;
-    };
-
-    const sysInfo = await getSystemInfo(fetcher);
-
-    expect(sysInfo.copilotPluginInstalled).toBe(false);
-  });
-
-  test('returns false when copilot plugin list is unavailable', async () => {
-    const fetcher = async (_args: string[]) => null;
-
-    const sysInfo = await getSystemInfo(fetcher);
-
-    expect(sysInfo.copilotPluginInstalled).toBe(false);
   });
 });
 

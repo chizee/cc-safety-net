@@ -1,16 +1,23 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AuditLogEntry } from '@/types';
 
-export function listAuditLogFiles(logsDir: string): string[] {
+/**
+ * `skips` counts what the scan had to drop — an unreadable directory or file, a
+ * malformed record — so a caller can say its answer is incomplete instead of
+ * presenting the survivors as the whole log. A directory that does not exist is
+ * an empty history, not a dropped one, so it is not counted.
+ */
+export function listAuditLogFiles(logsDir: string, skips?: { count: number }): string[] {
   try {
     return readdirSync(logsDir, { withFileTypes: true, encoding: 'utf8' }).flatMap((entry) => {
       const filePath = join(logsDir, entry.name);
-      if (entry.isDirectory()) return listAuditLogFiles(filePath);
+      if (entry.isDirectory()) return listAuditLogFiles(filePath, skips);
       if (entry.name.endsWith('.jsonl')) return [filePath];
       return [];
     });
   } catch {
+    if (skips && existsSync(logsDir)) skips.count++;
     return [];
   }
 }
@@ -55,7 +62,8 @@ export function findSuspectEntries(entries: readonly AuditLogEntry[]): Set<Audit
   );
 }
 
-export function readAuditLogEntries(filePath: string): AuditLogEntry[] {
+/** See `listAuditLogFiles` for `skips`. */
+export function readAuditLogEntries(filePath: string, skips?: { count: number }): AuditLogEntry[] {
   try {
     return readFileSync(filePath, 'utf-8')
       .split('\n')
@@ -64,10 +72,12 @@ export function readAuditLogEntries(filePath: string): AuditLogEntry[] {
         try {
           return [JSON.parse(line) as AuditLogEntry];
         } catch {
+          if (skips) skips.count++;
           return [];
         }
       });
   } catch {
+    if (skips) skips.count++;
     return [];
   }
 }

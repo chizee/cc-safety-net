@@ -25,6 +25,18 @@ async function runStatusline(env: Record<string, string>) {
   return { output: result.output.trim(), exitCode: result.exitCode };
 }
 
+async function runStatuslineWithStdin(stdin: string, env: Record<string, string>) {
+  const cli = join(process.cwd(), 'src/bin/cc-safety-net.ts');
+  const proc = Bun.spawn([process.execPath, cli, 'statusline', '--claude-code'], {
+    stdin: Buffer.from(stdin),
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, ...env },
+  });
+  const output = await new Response(proc.stdout).text();
+  return { output: output.trim(), exitCode: await proc.exited };
+}
+
 async function expectStatusline(env: Record<string, string>, output: string) {
   const result = await runStatusline(env);
   expect(result.output).toBe(output);
@@ -162,6 +174,24 @@ describe('statusline command', () => {
     );
   });
 
+  test('prefixes piped text', async () => {
+    const result = await runStatuslineWithStdin('upstream context', {
+      CLAUDE_SETTINGS_PATH: enabledSettingsPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('upstream context | 🛡️ CC Safety Net ✅');
+  });
+
+  test('drops piped input larger than the bounded stdin limit', async () => {
+    const result = await runStatuslineWithStdin('a'.repeat(9 * 1024 * 1024), {
+      CLAUDE_SETTINGS_PATH: enabledSettingsPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('🛡️ CC Safety Net ✅');
+  });
+
   test('keeps the preset emoji for a redundant rule override', async () => {
     await writeFile(
       join(tempDir, 'policy.json'),
@@ -217,13 +247,14 @@ describe('statusline command routing', () => {
     }
   });
 
-  test('statusline without platform flag prints help and exits nonzero', async () => {
+  test('statusline without platform flag prints help on stderr and exits nonzero', async () => {
     const result = await runCCSafetyNetCli(['statusline']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('statusline requires --claude-code (-cc)');
-    expect(result.output).toContain('cc-safety-net statusline');
-    expect(result.output).toContain('-cc, --claude-code');
+    expect(result.stderr).toContain('USAGE:\n  cc-safety-net statusline');
+    expect(result.stderr).toContain('-cc, --claude-code');
+    expect(result.output).toBe('');
   });
 });
 

@@ -2,6 +2,7 @@
  * CLI flag parsing for the explain command.
  */
 
+import { existsSync } from 'node:fs';
 import { quote } from 'shell-quote';
 
 export interface ExplainFlags {
@@ -42,16 +43,22 @@ export function parseExplainFlags(args: string[]): ExplainFlags | null {
       i++;
     } else if (arg === '--cwd') {
       i++;
-      if (i >= args.length || args[i]?.startsWith('--')) {
+      const value = args[i];
+      if (!value || value.startsWith('--')) {
         console.error('Error: --cwd requires a path');
         return null;
       }
-      cwd = args[i];
+      if (!existsSync(value)) {
+        console.error(`Error: --cwd path does not exist: ${value}`);
+        return null;
+      }
+      cwd = value;
       i++;
     } else {
-      // Unknown flag - treat as start of command
-      remaining.push(...args.slice(i));
-      break;
+      console.error(`Error: unknown option "${arg}"`);
+      console.error('Usage: cc-safety-net explain [--json] [--cwd <path>] <command>');
+      console.error('Pass -- before a command that starts with dashes.');
+      return null;
     }
   }
 

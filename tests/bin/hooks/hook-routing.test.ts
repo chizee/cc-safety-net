@@ -399,11 +399,12 @@ describe('hook command routing', () => {
   });
 
   test('hook kimi-code is not a platform subcommand', async () => {
-    const { stdout, exitCode } = await runCli(['hook', 'kimi-code']);
+    const { stdout, stderr, exitCode } = await runCli(['hook', 'kimi-code']);
 
     expect(exitCode).toBe(1);
-    expect(stdout).toContain('cc-safety-net hook');
-    expect(stdout).toContain('-kc, --kimi-code');
+    expect(stderr).toContain('cc-safety-net hook');
+    expect(stderr).toContain('-kc, --kimi-code');
+    expect(stdout).toBe('');
   });
 
   test('removed hook install syntax fails instead of running the integration', async () => {
@@ -414,8 +415,8 @@ describe('hook command routing', () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain('hook requires exactly one integration flag');
-    expect(stdout).toContain('cc-safety-net hook');
-    expect(stdout).not.toContain('permissionDecision');
+    expect(stderr).toContain('cc-safety-net hook');
+    expect(stdout).toBe('');
   });
 
   test('top-level Kimi Code flags are not legacy compatibility aliases', async () => {
@@ -445,19 +446,20 @@ describe('hook command routing', () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('Unknown option: xxx');
+    expect(stderr).toContain('Unknown command: xxx');
   });
 
-  test('hook without platform flag prints hook help and exits nonzero', async () => {
-    const { stdout, exitCode } = await runCli(['hook']);
+  test('hook without platform flag prints hook help on stderr and exits nonzero', async () => {
+    const { stdout, stderr, exitCode } = await runCli(['hook']);
 
     expect(exitCode).toBe(1);
-    expect(stdout).toContain('cc-safety-net hook');
-    expect(stdout).toContain('-ac, --agy-cli');
-    expect(stdout).toContain('-cc, --coding-cli');
-    expect(stdout).toContain('-cp, --copilot-cli');
-    expect(stdout).toContain('-gc, --gemini-cli');
-    expect(stdout).toContain('-kc, --kimi-code');
+    expect(stderr).toContain('cc-safety-net hook');
+    expect(stderr).toContain('-ac, --agy-cli');
+    expect(stderr).toContain('-cc, --coding-cli');
+    expect(stderr).toContain('-cp, --copilot-cli');
+    expect(stderr).toContain('-gc, --gemini-cli');
+    expect(stderr).toContain('-kc, --kimi-code');
+    expect(stdout).toBe('');
   });
 });
 

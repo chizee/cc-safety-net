@@ -8,10 +8,10 @@ import {
   detectClaudeCode,
   detectGeminiCLI,
   getPiSettingsPath,
+  hasClaudeInstalledPlugin,
   isPiSafetyNetPackageSource,
 } from '@/bin/doctor/hooks';
-import { defaultPiProbeRunner, defaultVersionFetcher } from '@/bin/doctor/system-info';
-import type { PiProbeInfo } from '@/bin/doctor/types';
+import { defaultVersionFetcher } from '@/bin/doctor/system-info';
 import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
@@ -61,7 +61,7 @@ export type RunInstallCommandOptions = {
 };
 
 type NativeInstallDefinition = {
-  installCommands: readonly NativeCommand[] | (() => readonly NativeCommand[]);
+  installCommands: readonly NativeCommand[] | ((homeDir: string) => readonly NativeCommand[]);
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
@@ -70,10 +70,8 @@ type InstallTargetResolution = {
   ready?: Promise<unknown>;
   finish: () => Promise<readonly InstallTarget[] | null>;
 };
-// `claude plugin list` shows installed plugins only, so matching the identifier suffices.
-function hasClaudeLegacyPlugin(output: string | null): boolean {
-  return /(^|[^a-z0-9-])safety-net@cc-marketplace([^a-z0-9-]|$)/m.test(output ?? '');
-}
+// Removed on install when Claude Code still records the pre-rename plugin id.
+const CLAUDE_LEGACY_PLUGIN_ID = 'safety-net@cc-marketplace';
 
 // Codex matchers are line-anchored because the legacy row's source URL also contains
 // "cc-safety-net", and status-checked because `codex plugin list` includes marketplace rows
@@ -89,19 +87,16 @@ function hasCodexReplacementPlugin(output: string | null): boolean {
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
-    installCommands: () => {
-      const pluginList = runNativeCommand(['claude', 'plugin', 'list']);
-      return [
-        ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-        ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
-        ...(detectClaudeCode(pluginList).status === 'disabled'
-          ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
-          : []),
-        ...(hasClaudeLegacyPlugin(pluginList)
-          ? ([['claude', 'plugin', 'uninstall', 'safety-net@cc-marketplace']] as const)
-          : []),
-      ];
-    },
+    installCommands: (homeDir) => [
+      ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
+      ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
+      ...(detectClaudeCode(homeDir).status === 'disabled'
+        ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
+        : []),
+      ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
+        ? ([['claude', 'plugin', 'uninstall', CLAUDE_LEGACY_PLUGIN_ID]] as const)
+        : []),
+    ],
     uninstallCommands: [
       ['claude', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
       ['claude', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
@@ -144,8 +139,8 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   'gemini-cli': {
-    installCommands: () => {
-      const detection = detectGeminiCLI(runNativeCommand(['gemini', 'extensions', 'list']));
+    installCommands: (homeDir) => {
+      const detection = detectGeminiCLI(homeDir);
       if (detection.status === 'configured') return [];
       if (detection.status === 'disabled')
         return [['gemini', 'extensions', 'enable', 'gemini-safety-net']];
@@ -253,49 +248,36 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
   return targets[0] as InstallTarget;
 }
 
+// Only probes that leave the inspected runtime untouched run here: `claude plugin list`,
+// `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into the
+// user's real config directories, and this runs on every bare install/uninstall in a TTY.
 async function detectConfiguredInstallTargets(action: InstallAction): Promise<InstallTarget[]> {
-  const piRawPromise = defaultVersionFetcher(['pi', '--version']);
-  const copilotBinaryVersionPromise = defaultVersionFetcher(['copilot', '--binary-version']);
-  const copilotFallbackVersionPromise = defaultVersionFetcher(['copilot', '--version']);
-  const piProbePromise = piRawPromise.then((piRaw): Promise<PiProbeInfo> | PiProbeInfo => {
-    if (!piRaw) return { status: 'unavailable', installedAndEnabled: false, matched: [] };
-    return defaultPiProbeRunner(process.cwd());
-  });
-
-  const [
-    claudePluginListOutput,
-    codexPluginListOutput,
-    geminiExtensionsListOutput,
-    copilotBinaryVersion,
-    copilotFallbackVersion,
-    copilotPluginListOutput,
-    piSafetyNetProbe,
-  ] = await Promise.all([
-    defaultVersionFetcher(['claude', 'plugin', 'list']),
+  const [codexPluginListOutput, copilotCliVersion] = await Promise.all([
     defaultVersionFetcher(['codex', 'plugin', 'list']),
-    defaultVersionFetcher(['gemini', 'extensions', 'list']),
-    copilotBinaryVersionPromise,
-    copilotFallbackVersionPromise,
-    defaultVersionFetcher(['copilot', 'plugin', 'list']),
-    piProbePromise,
+    defaultVersionFetcher(['copilot', '--binary-version']),
   ]);
 
-  return detectAllHooks(process.cwd(), {
-    claudePluginListOutput,
-    codexPluginListOutput,
-    geminiExtensionsListOutput,
-    copilotCliVersion: copilotBinaryVersion ?? copilotFallbackVersion,
-    copilotPluginInstalled: hasCopilotSafetyNetPlugin(copilotPluginListOutput),
-    piSafetyNetProbe,
-  })
-    .filter((hook) => (action === 'install' ? hook.configured : hook.detected))
-    .filter(
-      (hook) =>
-        hook.platform !== 'codex' ||
-        !hasCodexLegacyPlugin(codexPluginListOutput) ||
-        hasCodexReplacementPlugin(codexPluginListOutput),
-    )
-    .map((hook) => hook.platform as InstallTarget);
+  return (
+    detectAllHooks(process.cwd(), {
+      homeDir: getHomeDir(),
+      codexPluginListOutput,
+      copilotCliVersion,
+    })
+      // Uninstall also keeps a runtime whose state could not be read: hiding it would make the
+      // interactive path unable to remove it at all.
+      .filter((hook) =>
+        action === 'install'
+          ? hook.configured
+          : hook.detected || hook.inspectionStatus === 'not-inspected',
+      )
+      .filter(
+        (hook) =>
+          hook.platform !== 'codex' ||
+          !hasCodexLegacyPlugin(codexPluginListOutput) ||
+          hasCodexReplacementPlugin(codexPluginListOutput),
+      )
+      .map((hook) => hook.platform as InstallTarget)
+  );
 }
 
 function startResolveInstallTargets(
@@ -346,7 +328,7 @@ function installNativeTarget(target: NativeInstallTarget, homeDir: string): void
   definition.beforeInstall?.(homeDir);
   const installCommands =
     typeof definition.installCommands === 'function'
-      ? definition.installCommands()
+      ? definition.installCommands(homeDir)
       : definition.installCommands;
   if (installCommands.length === 0) {
     console.log(`${getIntegrationInstallLabel(target)} integration already installed`);
@@ -496,7 +478,13 @@ export async function runInstallCommand(
         output: options.output ?? process.stdout,
       },
     );
-    if (!targets) return 0;
+    // Quitting the selector is a decision, not a failure, so the exit code stays 0 — but say
+    // that nothing was written, or silence reads as a completed install. Ctrl-C is different:
+    // the selector raises SIGINT and the process never reaches here.
+    if (!targets) {
+      (options.output ?? process.stdout).write(`Cancelled: nothing was ${action}ed.\n`);
+      return 0;
+    }
 
     const homeDir = getHomeDir();
     runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));

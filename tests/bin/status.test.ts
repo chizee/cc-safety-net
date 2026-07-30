@@ -17,7 +17,7 @@ const WIDTH = 80;
 const MIGRATE_DIAGNOSTIC =
   'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`';
 const PLUGIN_DIAGNOSTIC =
-  'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced until it is re-enabled';
+  'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.';
 
 function clearEnv(): void {
   delete process.env.CC_SAFETY_NET_HOME;
@@ -141,14 +141,46 @@ describe('status command', () => {
 
     const result = await runStatus();
 
-    expect(result.output).toContain('CC Safety Net — not enforcing');
     expect(issueBullets(result.output)).toEqual([PLUGIN_DIAGNOSTIC]);
     expect(result.output).toMatch(/^ {2}Protection\s+destructive ok\s+secrets ok$/m);
     expect(result.output).toMatch(/^ {2}Level\s+standard$/m);
     expect(result.output).toMatch(/^ {2}Rules\s+none active$/m);
   });
 
-  test('exits 0 whether ready, degraded, or not enforcing', async () => {
+  // The verdict answers for the whole snapshot; the Claude Code plugin key answers
+  // for one integration, so it must never set the verdict in either direction.
+  test('keeps the snapshot verdict when the Claude Code plugin key is absent', async () => {
+    await writeFile(settingsPath, JSON.stringify({}));
+
+    const result = await runStatus();
+
+    expect(result.output).toContain('CC Safety Net — ready');
+    expect(result.output).not.toContain('not enforcing');
+    expect(issueBullets(result.output)).toEqual([PLUGIN_DIAGNOSTIC]);
+  });
+
+  test('keeps the degraded verdict when the plugin is off', async () => {
+    await writeUserPolicy({ version: 1, not_a_real_field: true });
+    await writePluginSettings(settingsPath, false);
+    const snapshot = loadPolicySnapshot({ cwd: project, userConfigDir: join(home, 'rules') });
+
+    const result = await runStatus();
+
+    expect(result.output).toContain('CC Safety Net — degraded');
+    expect(result.output).not.toContain('not enforcing');
+    expect(issueBullets(result.output)).toEqual([PLUGIN_DIAGNOSTIC, ...snapshot.diagnostics]);
+  });
+
+  test('never claims everything is active while the plugin is off', async () => {
+    await writePluginSettings(settingsPath, false);
+
+    const result = await runStatus();
+
+    expect(result.output).not.toContain('Everything configured is active.');
+    expect(result.output).toContain('Not active');
+  });
+
+  test('exits 0 whether ready or degraded, and with the plugin off', async () => {
     expect((await runStatus()).exitCode).toBe(0);
 
     await writeUserPolicy({ version: 1, not_a_real_field: true });
@@ -157,9 +189,7 @@ describe('status command', () => {
     expect(degraded.exitCode).toBe(0);
 
     await writePluginSettings(settingsPath, false);
-    const notEnforcing = await runStatus();
-    expect(notEnforcing.output).toContain('not enforcing');
-    expect(notEnforcing.exitCode).toBe(0);
+    expect((await runStatus()).exitCode).toBe(0);
   });
 
   test('falls back to ASCII glyphs without escapes under NO_COLOR', async () => {

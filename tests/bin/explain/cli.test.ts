@@ -76,11 +76,35 @@ describe('explain CLI flag parsing', () => {
     expect(exitCode).toBe(0);
   });
 
-  test('explain unknown flag is treated as start of command', async () => {
-    const { parsed, exitCode } = await explainJson(['--unknown-flag', 'foo']);
-    const parseStep = parsed.trace.steps.find((s: { type: string }) => s.type === 'parse');
-    expect(parseStep.input).toBe('--unknown-flag foo');
-    expect(exitCode).toBe(0);
+  test('explain unknown flag is rejected on stderr', async () => {
+    const result = await runCCSafetyNetCli(['explain', '--jsoon', 'rm -rf /']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('unknown option "--jsoon"');
+    expect(result.output).toBe('');
+  });
+
+  test('explain --cwd rejects a path that does not exist', async () => {
+    const result = await runCCSafetyNetCli([
+      'explain',
+      '--cwd',
+      '/definitely/not/here',
+      '--json',
+      'rm -rf /tmp/x',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('--cwd path does not exist: /definitely/not/here');
+    expect(result.output).toBe('');
+  });
+
+  test('bare explain exits nonzero with usage on stderr', async () => {
+    const result = await runCCSafetyNetCli(['explain']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('No command provided');
+    expect(result.stderr).toContain('Usage: cc-safety-net explain');
+    expect(result.output).toBe('');
   });
 
   test('explain single-arg command with pipe preserves shell operators', async () => {

@@ -60,7 +60,7 @@ interface IntegrationsStatus {
     target: InstallTarget;
     label: string;
     version: string | null;
-    status: 'active' | 'disabled' | 'not-installed';
+    status: 'active' | 'disabled' | 'not-installed' | 'not-inspected';
   }[];
   system: { version: string; nodeVersion: string | null; platform: string };
 }
@@ -510,7 +510,13 @@ export async function fetchIntegrations(
         target: meta.id,
         label: getIntegrationDisplayName(meta.id),
         version: systemInfo[VERSION_FIELDS[meta.id]],
-        status: hook?.configured ? 'active' : hook?.detected ? 'disabled' : 'not-installed',
+        status: hook?.configured
+          ? 'active'
+          : hook?.detected
+            ? 'disabled'
+            : hook?.inspectionStatus === 'not-inspected'
+              ? 'not-inspected'
+              : 'not-installed',
       } as const;
     }),
     system: {
@@ -524,20 +530,16 @@ export async function fetchIntegrations(
 function detectHooksFromSystemInfo(systemInfo: SystemInfo, homeDir?: string) {
   return detectAllHooks(process.cwd(), {
     homeDir,
-    claudePluginListOutput: systemInfo.claudePluginListOutput,
     codexPluginListOutput: systemInfo.codexPluginListOutput,
-    geminiExtensionsListOutput: systemInfo.geminiExtensionsListOutput,
     copilotCliVersion: systemInfo.copilotCliVersion,
-    copilotPluginInstalled: systemInfo.copilotPluginInstalled,
-    piSafetyNetProbe: systemInfo.piSafetyNetProbe,
   });
 }
 
 /**
- * Full-probe health for the Overview strip. The strip loads asynchronously after first
- * paint, so it can afford the same getSystemInfo batch the Integrations tab uses (Pi
- * probe up to 5s); a cheaper subset would silently omit runtime-probed agents (Pi,
- * Gemini) and misreport machines where only those hooks are active.
+ * Health for the Overview strip, from the same getSystemInfo batch the Integrations tab
+ * uses. Runtimes whose hook state can only be read by writing into their config directory
+ * are reported as not inspected, so they are absent from this list rather than listed as
+ * inactive; the Integrations tab shows that state per runtime.
  * @internal
  */
 export async function fetchHealth(

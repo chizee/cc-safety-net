@@ -546,7 +546,7 @@ const renderActivityFeed = () => {
           .join('')}</div>`;
   applyFeedClamps(qs('activity-feed'));
   qs('activity-count').textContent =
-    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${dayCount(activity.days)}${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.`;
+    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${dayCount(activity.days)}${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.${activity.unreadable > 0 ? ` ${activity.unreadable.toLocaleString('en-US')} audit log source${activity.unreadable === 1 ? '' : 's'} could not be read, so this list is incomplete.` : ''}`;
 };
 const loadOverview = async () => {
   const result = await requestJson(`/api/activity?days=${overviewDays()}`);
@@ -613,7 +613,9 @@ const renderIntegrations = () => {
           ? '<span class="state-active">Installed</span>'
           : row.status === 'disabled'
             ? '<span class="state-disabled">Disabled</span>'
-            : '<span class="muted">Not installed</span>';
+            : row.status === 'not-inspected'
+              ? '<span class="muted" title="This runtime\'s state file could not be read, so its status is unknown.">Not inspected</span>'
+              : '<span class="muted">Not installed</span>';
       const uninstall = row.status === 'active';
       const busyLabel = uninstall ? 'Uninstalling…' : 'Installing…';
       const action =
@@ -1066,7 +1068,7 @@ const hideStarCta = () => {
 const renderStarPitch = (context, starred = false) => {
   const evidence =
     context.blockedTotal > 0
-      ? `CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? '' : 's'} on this machine in its retained 90-day history.`
+      ? `CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? '' : 's'} on this machine in its retained ${escapeHtml(dayCount(retentionDays()))} history.`
       : '';
   if (starred) {
     qs('star-pitch-text').innerHTML = evidence;

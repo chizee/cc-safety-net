@@ -25,13 +25,11 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
   return {
     version: '0.6.0',
     claudeCodeVersion: null,
-    claudePluginListOutput: null,
     antigravityCliVersion: null,
     openCodeVersion: null,
     codexCliVersion: null,
     codexPluginListOutput: null,
     geminiCliVersion: null,
-    geminiExtensionsListOutput: null,
     copilotCliVersion: null,
     kimiCodeVersion: null,
     piCliVersion: null,
@@ -40,12 +38,6 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
     nodeVersion: '22.0.0',
     npmVersion: '10.0.0',
     bunVersion: '1.0.0',
-    copilotPluginInstalled: false,
-    piSafetyNetProbe: {
-      status: 'unavailable',
-      installedAndEnabled: false,
-      matched: [],
-    },
     platform: 'darwin',
     ...overrides,
   };
@@ -92,7 +84,7 @@ function createDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport
     },
     posture: { directories: [] },
     findings: [],
-    activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [] },
+    activity: { totalBlocked: 0, sessionCount: 0, recentEntries: [], unreadable: 0 },
     update: { currentVersion: '0.6.0', latestVersion: '0.6.0', updateAvailable: false },
     system: createSystemInfo(),
     ...overrides,
@@ -187,6 +179,22 @@ describe('formatHooksSection', () => {
     expect(output).toContain('Gemini CLI');
     expect(output).toContain('Not detected');
     expect(output).toContain('Not applicable');
+  });
+
+  test('formats not-inspected integrations without claiming they are absent', () => {
+    const output = formatHooksSection([
+      {
+        platform: 'claude-code',
+        detected: false,
+        configured: false,
+        inspectionStatus: 'not-inspected',
+      },
+    ]);
+
+    expect(output).toContain('Claude Code');
+    expect(output).toContain('Not inspected');
+    expect(output).not.toContain('Not detected');
+    expect(output).not.toContain('Not applicable');
   });
 
   test('formats GitHub Copilot CLI hooks', () => {
@@ -430,16 +438,30 @@ describe('formatEffectiveSafetySection', () => {
 
 describe('formatActivitySection', () => {
   test('formats empty activity', () => {
-    const activity = { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
+    const activity = { totalBlocked: 0, sessionCount: 0, recentEntries: [], unreadable: 0 };
     const output = formatActivitySection(activity);
     expect(output).toContain('Recent Activity');
     expect(output).toContain('No blocked commands');
+    expect(output).not.toContain('incomplete');
+  });
+
+  test('says an empty summary is incomplete when sources could not be read', () => {
+    // Otherwise "no blocked commands" reads as evidence of safety it does not have.
+    const output = formatActivitySection({
+      totalBlocked: 0,
+      sessionCount: 0,
+      recentEntries: [],
+      unreadable: 2,
+    });
+    expect(output).toContain('2 audit log sources could not be read');
+    expect(output).toContain('incomplete');
   });
 
   test('formats activity with entries', () => {
     const activity = {
       totalBlocked: 3,
       sessionCount: 2,
+      unreadable: 0,
       recentEntries: [
         {
           timestamp: '2025-01-01T00:00:00Z',
@@ -467,6 +489,7 @@ describe('formatActivitySection', () => {
     const output = formatActivitySection({
       totalBlocked: 1,
       sessionCount: 1,
+      unreadable: 0,
       recentEntries: [
         {
           timestamp: '2025-01-01T00:00:00Z',
@@ -485,6 +508,7 @@ describe('formatActivitySection', () => {
     const output = formatActivitySection({
       totalBlocked: 1,
       sessionCount: 1,
+      unreadable: 0,
       recentEntries: [
         {
           timestamp: '2025-01-01T00:00:00Z',
@@ -703,7 +727,7 @@ describe('formatSummary', () => {
           inspectionStatus: 'verified',
         },
       ],
-      activity: { totalBlocked: 1, sessionCount: 1, recentEntries: [] },
+      activity: { totalBlocked: 1, sessionCount: 1, recentEntries: [], unreadable: 0 },
     });
     const output = formatSummary(report);
     expect(output).toContain('No findings from inspected doctor facts');

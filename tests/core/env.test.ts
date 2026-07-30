@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
   ENV_FLAGS,
   envFlagIsSet,
@@ -301,5 +301,39 @@ describe('getCCSafetyNetEnvModes', () => {
     });
 
     delete process.env.CC_SAFETY_NET_LEVEL;
+  });
+});
+
+describe('invalid CC_SAFETY_NET_LEVEL reporting', () => {
+  function collectStderr(value: string | undefined) {
+    if (value === undefined) delete process.env.CC_SAFETY_NET_LEVEL;
+    if (value !== undefined) process.env.CC_SAFETY_NET_LEVEL = value;
+    const messages: unknown[] = [];
+    const spy = spyOn(console, 'error').mockImplementation((message: unknown) => {
+      messages.push(message);
+    });
+    getCCSafetyNetEnvModes();
+    spy.mockRestore();
+    delete process.env.CC_SAFETY_NET_LEVEL;
+    return messages;
+  }
+
+  test('warns without CC_SAFETY_NET_DEBUG when the value is invalid', () => {
+    const messages = collectStderr('bananas');
+
+    expect(messages).toHaveLength(1);
+    expect(String(messages[0])).toContain('CC_SAFETY_NET_LEVEL');
+    expect(String(messages[0])).toContain('bananas');
+  });
+
+  test('bounds the reported value', () => {
+    const messages = collectStderr('x'.repeat(4000));
+
+    expect(messages).toHaveLength(1);
+    expect(String(messages[0]).length).toBeLessThan(200);
+  });
+
+  test.each([['strict'], [''], [undefined]])('stays silent for %p', (value) => {
+    expect(collectStderr(value)).toHaveLength(0);
   });
 });

@@ -49,9 +49,10 @@ function formatEnvironmentVariable(name: string, description: string): string {
 
 /**
  * Print help for a specific command.
+ * Failure paths pass `console.error` so stdout stays free for machine output.
  * @internal Exported for testing
  */
-export function printCommandHelp(command: Command): void {
+export function printCommandHelp(command: Command, write: (text: string) => void = console.log) {
   const lines: string[] = [];
 
   // Header
@@ -83,7 +84,10 @@ export function printCommandHelp(command: Command): void {
     const optWidth = getOptionsColumnWidth(command.options);
     for (const opt of command.options) {
       const flags = formatOptionFlags(opt);
-      lines.push(`${INDENT}${flags.padEnd(optWidth + 2)}${opt.description}`);
+      const description = opt.default
+        ? `${opt.description} (default: ${opt.default})`
+        : opt.description;
+      lines.push(`${INDENT}${flags.padEnd(optWidth + 2)}${description}`);
     }
     lines.push('');
   }
@@ -96,7 +100,7 @@ export function printCommandHelp(command: Command): void {
     }
   }
 
-  console.log(lines.join('\n'));
+  write(lines.join('\n'));
 }
 
 /**
@@ -202,7 +206,10 @@ export function printVersion(): void {
  * Handle help for a specific command name.
  * Returns true if help was printed, false if command not found.
  */
-export function showCommandHelp(commandName: string): boolean {
+export function showCommandHelp(
+  commandName: string,
+  write: (text: string) => void = console.log,
+): boolean {
   const command = findCommand(commandName);
   if (!command) {
     return false;
@@ -210,6 +217,6 @@ export function showCommandHelp(commandName: string): boolean {
   if (command.hidden || command.name.toLowerCase() !== commandName.toLowerCase()) {
     return false;
   }
-  printCommandHelp(command);
+  printCommandHelp(command, write);
   return true;
 }

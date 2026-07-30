@@ -72,18 +72,22 @@ export async function runRuleCommand(args: readonly string[]): Promise<number> {
 
 async function runRuleCommandInternal(args: readonly string[]): Promise<number> {
   const flags = parseRuleFlags(args);
+  // An incomplete invocation such as `rule wrapper --help` is a help request, not the
+  // mistake the parser reports. A name that resolves to nothing — `rule bogus --help` —
+  // is still a typo, so it falls through to the error below.
+  const helpCommand = flags.help ? getRuleHelpCommand(flags.positionals) : null;
+  if (helpCommand) {
+    printCommandHelp(helpCommand);
+    return 0;
+  }
   if (flags.errors.length > 0) {
     for (const error of flags.errors) console.error(error);
     return 1;
   }
 
   const subcommand = flags.positionals[0];
-  if (flags.help) {
-    printCommandHelp(ruleCommand);
-    return 0;
-  }
   if (!subcommand) {
-    printCommandHelp(ruleCommand);
+    printCommandHelp(ruleCommand, console.error);
     return 1;
   }
   const value = flags.positionals[1];
@@ -147,7 +151,7 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
       user: getRulesConfigSourceDisplayMap(policy.userConfigPath, paths.userScope),
       project: getRulesConfigSourceDisplayMap(policy.projectConfigPath, paths.projectScope),
     });
-    return policy.errors.length > 0 || policy.warnings.length > 0 ? 1 : 0;
+    return policy.errors.length > 0 ? 1 : 0;
   }
 
   if (subcommand === 'wrapper') {
@@ -175,6 +179,39 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
   }
 
   return 1;
+}
+
+/**
+ * Reuses the existing per-leaf entries so `rule <leaf> --help` describes that leaf, not the
+ * tree. Returns null when the positionals name nothing the help can answer for.
+ */
+function getRuleHelpCommand(positionals: string[]) {
+  if (positionals.length === 0) return ruleCommand;
+  const leaves = ruleCommand.subcommands.filter(
+    (leaf) => leaf.usage.split(' ')[0] === positionals[0],
+  );
+  if (leaves.length === 0) return null;
+  // `rule wrapper` covers three actions; showing one of them would hide the other two.
+  if (positionals.length === 1 && leaves.length > 1) {
+    return {
+      name: `rule ${positionals[0]}`,
+      description: `Subcommands of rule ${positionals[0]}`,
+      usage: `rule ${positionals[0]} <subcommand>`,
+      subcommands: leaves,
+      options: [],
+    };
+  }
+  const leaf =
+    positionals.length === 1
+      ? leaves[0]
+      : leaves.find((entry) => entry.usage.split(' ')[1] === positionals[1]);
+  if (!leaf) return null;
+  return {
+    name: `rule ${positionals[0]}`,
+    description: leaf.description,
+    usage: `rule ${leaf.usage}`,
+    options: [],
+  };
 }
 
 function parseRuleFlags(args: readonly string[]): RuleFlags {

@@ -35,7 +35,10 @@ export function getActivitySummary(
   let newestEntry: string | undefined;
   let newestEntryTs: number | undefined;
   if (logsDir) pruneExpiredAuditLogs(logsDir);
-  const files = logsDir ? listAuditLogFiles(logsDir) : [];
+  // Counted so the report can say the summary is partial; silence here reads as
+  // "nothing was ever blocked" when the truth is "the trail could not be read".
+  const skips = { count: 0 };
+  const files = logsDir ? listAuditLogFiles(logsDir, skips) : [];
 
   for (const file of files) {
     try {
@@ -63,11 +66,11 @@ export function getActivitySummary(
             insertRecentEntry(recentEntries, entry, ts);
           }
         } catch {
-          // Skip malformed lines
+          skips.count++;
         }
       }
     } catch {
-      // Skip unreadable files
+      skips.count++;
     }
   }
 
@@ -84,6 +87,7 @@ export function getActivitySummary(
     recentEntries: displayEntries,
     oldestEntry,
     newestEntry,
+    unreadable: skips.count,
   };
 }
 
