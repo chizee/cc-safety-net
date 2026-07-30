@@ -1266,7 +1266,10 @@ const groupRules = (rules) =>
 const renderSecretPatterns = () => {
   const query = qs('policy-search').value.trim().toLowerCase();
   const rules = state.secretPatterns.filter((rule) =>
-    [rule.category, rule.label, rule.id, rule.description].join(' ').toLowerCase().includes(query),
+    [rule.category, rule.label, rule.id, rule.description, ...(rule.paths ?? [])]
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
   );
   const overrides = draftPolicy.secret_protection.overrides;
   const disabled = !draftPolicy.secret_protection.enabled;
@@ -1307,14 +1310,19 @@ const renderSecretPatterns = () => {
               active && !disabled
                 ? { label: 'Active', className: 'state-active' }
                 : { label: 'Disabled', className: 'state-disabled' };
-            return `<label class="row ${disabled ? 'row-disabled' : ''}">
-            <input type="checkbox" data-secret-active="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled ? 'disabled' : ''}>
+            const control = `<input type="checkbox" data-secret-active="${escapeHtml(rule.id)}" ${checkbox(active)} ${disabled ? 'disabled' : ''}>
             <span>
               <strong>${escapeHtml(rule.label)}</strong>
               <button type="button" class="rule-id" data-rule-activity="${escapeHtml(rule.id)}" title="Show recent blocks in Activity">${escapeHtml(rule.id)}</button>
-              <small><span class="${ruleState.className}">${ruleState.label}</span> ${escapeHtml(rule.description)}</small>
-            </span>
-          </label>`;
+              <small><span class="${ruleState.className}">${ruleState.label}</span> ${escapeHtml(rule.description ?? '')}</small>
+            </span>`;
+            if (!rule.paths) {
+              return `<label class="row ${disabled ? 'row-disabled' : ''}">${control}</label>`;
+            }
+            return `<div class="row rule-row ${disabled ? 'row-disabled' : ''}">
+            <label class="rule-control">${control}</label>
+            <button type="button" class="rule-example-button" data-secret-paths="${escapeHtml(rule.id)}" aria-label="${escapeHtml(`Show protected paths for ${rule.label}`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+          </div>`;
           })
           .join('')}</div>
         </div>
@@ -1403,12 +1411,11 @@ const ruleStateText = (rule, effective) => {
   if (effective.enabled) return `On — ${presetName()} preset`;
   return `Off — ${presetName()} preset; requires ${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}`;
 };
-const openRuleExample = (button) => {
-  const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
-  if (!rule) return;
+const showRulePopover = (button, label, title, body) => {
   const popover = qs('rule-example-popover');
-  qs('rule-example-title').textContent = rule.label;
-  qs('rule-example-command').textContent = rule.example;
+  qs('rule-example-label').textContent = label;
+  qs('rule-example-title').textContent = title;
+  qs('rule-example-command').textContent = body;
   if (!popover.matches(':popover-open')) popover.showPopover();
   const buttonRect = button.getBoundingClientRect();
   const popoverRect = popover.getBoundingClientRect();
@@ -1425,6 +1432,16 @@ const openRuleExample = (button) => {
   );
   popover.style.top = `${top}px`;
   popover.style.left = `${left}px`;
+};
+const openRuleExample = (button) => {
+  const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+  if (!rule) return;
+  showRulePopover(button, 'Blocked command example', rule.label, rule.example);
+};
+const openSecretPaths = (button) => {
+  const rule = state.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
+  if (!rule) return;
+  showRulePopover(button, 'Protected paths', rule.label, rule.paths.join('\n'));
 };
 const renderDestructiveCommands = () => {
   if (!preview) return;
@@ -1458,7 +1475,7 @@ const renderDestructiveCommands = () => {
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules
               .map(
-                (rule) => `<div class="row rule-row rule-row-enforced">
+                (rule) => `<div class="row rule-row">
                 <span class="rule-control">
                   <span>
                     <strong>${escapeHtml(rule.label)}</strong>
@@ -2039,6 +2056,11 @@ document.addEventListener('click', (event) => {
   const ruleExampleButton = event.target.closest?.('[data-rule-example]');
   if (ruleExampleButton) {
     openRuleExample(ruleExampleButton);
+    return;
+  }
+  const secretPathsButton = event.target.closest?.('[data-secret-paths]');
+  if (secretPathsButton) {
+    openSecretPaths(secretPathsButton);
     return;
   }
   const tierButton = event.target.closest?.('[data-tier-toggle]');

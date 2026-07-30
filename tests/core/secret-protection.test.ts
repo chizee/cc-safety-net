@@ -14,6 +14,7 @@ import {
   getCommandFromToolInput,
 } from '@/core/secret-protection';
 import {
+  SECRET_CODING_CLI_RULES,
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
 } from '@/core/secret-protection-rules';
@@ -69,7 +70,7 @@ describe('secret protection rule metadata', () => {
     for (const entry of SECRET_PROTECTION_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
-      expect(entry.description).not.toBe('');
+      expect('paths' in entry ? entry.paths.length > 0 : entry.description !== '').toBe(true);
     }
   });
 });
@@ -1521,6 +1522,19 @@ describe('secret protection coding CLI credential locations', () => {
     OPENCODE_CONFIG: '',
     PI_CODING_AGENT_DIR: '',
   };
+
+  test('blocks every path the coding CLI rule metadata advertises', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const rule of SECRET_CODING_CLI_RULES) {
+        for (const path of rule.paths) {
+          const target = path.replace('<project>', cwd);
+          expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(rule.id);
+        }
+      }
+    });
+  });
 
   test('blocks default supported coding CLI credential paths under home', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');

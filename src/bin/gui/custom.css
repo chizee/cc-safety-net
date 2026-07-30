@@ -147,10 +147,11 @@ h1 {
   color: var(--ink);
 }
 
+/* One step above the hover fill, so the selected item stays readable while a
+   sibling is hovered. */
 .sidenav a[aria-current="page"] {
-  background: var(--surface-2);
+  background: var(--btn-hover-fill);
   color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .sidenav svg {
@@ -300,6 +301,16 @@ h1 {
   white-space: nowrap;
 }
 
+/* Only links that leave the app get the pointer cursor; in-app controls keep
+   the default arrow. */
+a {
+  cursor: default;
+}
+
+a[target="_blank"] {
+  cursor: pointer;
+}
+
 button {
   font: inherit;
   font-size: 13px;
@@ -309,7 +320,6 @@ button {
   padding: 8px 14px;
   background: var(--surface);
   color: var(--ink);
-  cursor: pointer;
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
@@ -328,7 +338,8 @@ button:hover:not(:disabled) {
 #rules-refresh,
 #tester-run,
 #reset-rule-customizations,
-#reset-secret-customizations {
+#reset-secret-customizations,
+.rule-example-button {
   border-color: transparent;
 }
 
@@ -339,7 +350,8 @@ button:hover:not(:disabled) {
 #rules-refresh:hover:not(:disabled),
 #tester-run:hover:not(:disabled),
 #reset-rule-customizations:hover:not(:disabled),
-#reset-secret-customizations:hover:not(:disabled) {
+#reset-secret-customizations:hover:not(:disabled),
+.rule-example-button:hover:not(:disabled) {
   background: var(--btn-hover-fill);
   border-color: transparent;
 }
@@ -932,7 +944,6 @@ button.rule-id {
   background: none;
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
 button.rule-id:hover {
@@ -1397,7 +1408,6 @@ label.row {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  cursor: pointer;
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
@@ -1429,7 +1439,6 @@ label.row.row-disabled:hover {
   border: 1px solid var(--switch-track);
   border-radius: 999px;
   background: var(--switch-track);
-  cursor: pointer;
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease;
@@ -1672,16 +1681,11 @@ label.row.safety-override-row select {
   flex: 1;
   align-items: flex-start;
   gap: 12px;
-  cursor: pointer;
 }
 
 .rule-row.row-disabled .rule-control {
   cursor: not-allowed;
   opacity: 0.62;
-}
-
-.rule-row-enforced .rule-control {
-  cursor: default;
 }
 
 .rule-example-button {
@@ -1693,6 +1697,7 @@ label.row.safety-override-row select {
   justify-content: center;
   padding: 0;
   border-radius: 50%;
+  background: transparent;
   color: var(--muted);
   font-size: 12px;
   line-height: 1;

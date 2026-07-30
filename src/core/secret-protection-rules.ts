@@ -5,6 +5,10 @@ interface SecretProtectionRuleMetadata {
   description: string;
 }
 
+type SecretProtectionCodingCliRule = Omit<SecretProtectionRuleMetadata, 'description'> & {
+  paths: readonly string[];
+};
+
 type SecretProtectionMatcherRule = SecretProtectionRuleMetadata & {
   basename?: string;
   extension?: string;
@@ -179,53 +183,81 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.claude-code',
     category: 'Coding CLI',
     label: 'Claude Code credentials',
-    description:
-      'Blocks Claude Code settings and credential files, including CLAUDE_CONFIG_DIR relocations, project-level settings.local.json, and .mcp.json MCP configs.',
+    paths: [
+      '~/.claude/settings.json',
+      '~/.claude/settings.local.json',
+      '~/.claude/.credentials.json',
+      '~/.claude.json',
+      '<project>/.claude/settings.local.json',
+      '<project>/.mcp.json',
+    ],
   },
   {
     id: 'secret.cli.antigravity',
     category: 'Coding CLI',
     label: 'Antigravity CLI credentials',
-    description: 'Blocks Antigravity CLI hook config under the shared Gemini config directory.',
+    paths: ['~/.gemini/config/hooks.json'],
   },
   {
     id: 'secret.cli.codex',
     category: 'Coding CLI',
     label: 'Codex credentials',
-    description: 'Blocks Codex auth and config files, including CODEX_HOME relocations.',
+    paths: ['~/.codex/config.toml', '~/.codex/auth.json', '~/.codex/.credentials.json'],
   },
   {
     id: 'secret.cli.gemini',
     category: 'Coding CLI',
     label: 'Gemini CLI credentials',
-    description: 'Blocks Gemini CLI OAuth, account, settings, and keychain fallback files.',
+    paths: [
+      '~/.gemini/oauth_creds.json',
+      '~/.gemini/mcp-oauth-tokens.json',
+      '~/.gemini/a2a-oauth-tokens.json',
+      '~/.gemini/google_accounts.json',
+      '~/.gemini/settings.json',
+      '~/.gemini/gemini-credentials.json',
+    ],
   },
   {
     id: 'secret.cli.copilot-cli',
     category: 'Coding CLI',
     label: 'GitHub Copilot CLI credentials',
-    description: 'Blocks GitHub Copilot CLI auth config and MCP OAuth credential storage.',
+    paths: ['~/.copilot/config.json', '~/.copilot/mcp-oauth-config'],
   },
   {
     id: 'secret.cli.kimi-code',
     category: 'Coding CLI',
     label: 'Kimi Code credentials',
-    description: 'Blocks current and legacy Kimi Code config, OAuth, MCP, and server token files.',
+    paths: [
+      '~/.kimi-code/config.toml',
+      '~/.kimi-code/mcp.json',
+      '~/.kimi-code/server.token',
+      '~/.kimi-code/credentials',
+      '~/.kimi/config.toml',
+      '~/.kimi/mcp.json',
+      '~/.kimi/credentials',
+      '~/.kimi/mcp-oauth',
+    ],
   },
   {
     id: 'secret.cli.opencode',
     category: 'Coding CLI',
     label: 'OpenCode credentials',
-    description:
-      'Blocks OpenCode auth stores and credential-bearing global or managed config files.',
+    paths: [
+      '~/.local/share/opencode/auth.json',
+      '~/.local/share/opencode/mcp-auth.json',
+      '~/.config/opencode/opencode.json',
+      '~/.config/opencode/opencode.jsonc',
+      '/Library/Application Support/opencode/opencode.json',
+      '/etc/opencode/opencode.json',
+    ],
   },
   {
     id: 'secret.cli.pi',
     category: 'Coding CLI',
     label: 'Pi credentials',
-    description: 'Blocks Pi coding agent auth files, including PI_CODING_AGENT_DIR relocations.',
+    paths: ['~/.pi/agent/auth.json'],
   },
-] as const satisfies readonly SecretProtectionRuleMetadata[];
+] as const satisfies readonly SecretProtectionCodingCliRule[];
 
 const SECRET_VARIANT_PREFIXES = [
   { prefix: 'id_rsa', slug: 'id-rsa', label: 'id_rsa' },
@@ -341,18 +373,18 @@ export const SECRET_PROTECTION_RULE_METADATA = [
   ...SECRET_BASENAME_RULES,
   SECRET_ENV_VARIANT_RULE,
   ...SECRET_HOME_PATH_RULES,
-  ...SECRET_CODING_CLI_RULES,
   ...SECRET_VARIANT_SEPARATOR_RULES,
   ...SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
   ...SECRET_EXTENSION_RULES,
   ...SECRET_EXTENSION_PATTERN_RULES,
+  ...SECRET_CODING_CLI_RULES,
 ].map((rule) => ({
   id: rule.id,
   category: rule.category,
   label: rule.label,
-  description: rule.description,
-})) satisfies readonly SecretProtectionRuleMetadata[];
+  ...('paths' in rule ? { paths: rule.paths } : { description: rule.description }),
+}));
 
 /** @internal */
 export const SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);

@@ -403,8 +403,14 @@ describe('policy GUI server', () => {
       expect(html).toContain('data-rule-example=');
       expect(html).toContain('Show blocked example for');
       expect(html).toContain('const openRuleExample = ');
-      expect(html).toContain("qs('rule-example-title').textContent = rule.label;");
-      expect(html).toContain("qs('rule-example-command').textContent = rule.example;");
+      expect(html).toContain(
+        "showRulePopover(button, 'Blocked command example', rule.label, rule.example);",
+      );
+      expect(html).toContain('data-secret-paths=');
+      expect(html).toContain('Show protected paths for');
+      expect(html).toContain(
+        "showRulePopover(button, 'Protected paths', rule.label, rule.paths.join('\\n'));",
+      );
       expect(html).toContain('popover.showPopover();');
       expect(html).toContain('.rule-example-button {');
       expect(html).toContain('.rule-example-popover {');
