@@ -96,6 +96,14 @@ function getOpenCodeCachePath(homeDir: string) {
   return join(homeDir, '.cache', 'opencode', 'packages', 'cc-safety-net@latest');
 }
 
+function writeNpxCacheEntry(homeDir: string, entry: string, packageName: string) {
+  const entryPath = join(homeDir, '.npm', '_npx', entry);
+  const packagePath = join(entryPath, 'node_modules', packageName);
+  mkdirSync(packagePath, { recursive: true });
+  writeFileSync(join(packagePath, 'x.js'), '');
+  return entryPath;
+}
+
 function makeFakeBinHome(name: string, commands: readonly string[]) {
   const homeDir = makeTempHome(name);
   const binDir = join(homeDir, 'bin');
@@ -308,15 +316,15 @@ describe('install command', () => {
     );
   });
 
-  test('Claude Code: does not treat the new plugin id as legacy', async () => {
+  test('Claude Code: updates the installed replacement plugin', async () => {
     await expectNativeInstall(
       '--claude-code',
       ['claude'],
       [
-        'claude plugin marketplace add kenryu42/cc-marketplace',
-        'claude plugin install cc-safety-net@cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
+        'claude plugin update cc-safety-net@cc-marketplace',
       ],
-      'Installed Claude Code integration',
+      'Updated Claude Code integration',
       {
         setup: (fake) => {
           writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
@@ -327,16 +335,41 @@ describe('install command', () => {
     );
   });
 
-  test('Claude Code: enables a disabled plugin during install', async () => {
+  test('Claude Code: removes the legacy plugin after updating the replacement', async () => {
     await expectNativeInstall(
       '--claude-code',
       ['claude'],
       [
-        'claude plugin marketplace add kenryu42/cc-marketplace',
-        'claude plugin install cc-safety-net@cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
+        'claude plugin update cc-safety-net@cc-marketplace',
+        'claude plugin uninstall safety-net@cc-marketplace',
+      ],
+      'Updated Claude Code integration',
+      {
+        setup: (fake) => {
+          writeClaudePluginRecords(
+            fake.homeDir,
+            ['cc-safety-net@cc-marketplace', 'safety-net@cc-marketplace'],
+            {
+              'cc-safety-net@cc-marketplace': true,
+              'safety-net@cc-marketplace': true,
+            },
+          );
+        },
+      },
+    );
+  });
+
+  test('Claude Code: enables a disabled plugin during update', async () => {
+    await expectNativeInstall(
+      '--claude-code',
+      ['claude'],
+      [
+        'claude plugin marketplace update cc-marketplace',
+        'claude plugin update cc-safety-net@cc-marketplace',
         'claude plugin enable cc-safety-net@cc-marketplace',
       ],
-      'Installed Claude Code integration',
+      'Updated Claude Code integration',
       {
         setup: (fake) => {
           writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
@@ -374,16 +407,16 @@ fi
     );
   });
 
-  test('Codex: does not treat the new plugin id as legacy', async () => {
+  test('Codex: updates the installed replacement plugin and prints trust reminder', async () => {
     await expectNativeInstall(
       '--codex',
       ['codex'],
       [
         'codex plugin list',
-        'codex plugin marketplace add kenryu42/cc-marketplace',
+        'codex plugin marketplace upgrade cc-marketplace',
         'codex plugin add cc-safety-net@cc-marketplace',
       ],
-      'Installed Codex integration',
+      'Updated Codex integration',
       {
         setup: (fake) => {
           writeFileSync(
@@ -392,6 +425,38 @@ fi
 printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
 if [ "$*" = "plugin list" ]; then
   printf 'cc-safety-net@cc-marketplace installed, enabled\\n'
+fi
+`,
+          );
+        },
+        assert: (_fake, result) => {
+          expect(result.stdout).toContain('Start Codex');
+          expect(result.stdout).toContain('/hooks');
+          expect(result.stdout).toContain('press `t`');
+        },
+      },
+    );
+  });
+
+  test('Codex: removes the legacy plugin after updating the replacement', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace upgrade cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+        'codex plugin remove safety-net@cc-marketplace',
+      ],
+      'Updated Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'cc-safety-net@cc-marketplace installed, enabled\\nsafety-net@cc-marketplace installed, enabled\\n'
 fi
 `,
           );
@@ -481,12 +546,17 @@ fi
     );
   });
 
-  test('GitHub Copilot CLI: removes the legacy plugin when the new plugin is already installed', async () => {
+  test('GitHub Copilot CLI: updates the new plugin and removes the legacy plugin', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
-      ['copilot plugin list', 'copilot plugin uninstall copilot-safety-net'],
-      'Installed GitHub Copilot CLI integration',
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace update cc-marketplace',
+        'copilot plugin update cc-safety-net@cc-marketplace',
+        'copilot plugin uninstall copilot-safety-net',
+      ],
+      'Updated GitHub Copilot CLI integration',
       {
         setup: (fake) => {
           writeFileSync(
@@ -548,12 +618,12 @@ fi
     );
   });
 
-  test('Gemini CLI: enables a disabled extension instead of reinstalling', async () => {
+  test('Gemini CLI: updates and enables a disabled extension', async () => {
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      ['gemini extensions enable gemini-safety-net'],
-      'Installed Gemini CLI integration',
+      ['gemini extensions update gemini-safety-net', 'gemini extensions enable gemini-safety-net'],
+      'Updated Gemini CLI integration',
       {
         setup: (fake) => {
           writeGeminiExtension(fake.homeDir, { disabled: true });
@@ -562,12 +632,12 @@ fi
     );
   });
 
-  test('Gemini CLI: install is idempotent when the extension is already enabled', async () => {
+  test('Gemini CLI: updates the extension when it is already enabled', async () => {
     await expectNativeInstall(
       '--gemini-cli',
       ['gemini'],
-      [],
-      'Gemini CLI integration already installed',
+      ['gemini extensions update gemini-safety-net'],
+      'Updated Gemini CLI integration',
       {
         setup: (fake) => {
           writeGeminiExtension(fake.homeDir);
@@ -616,12 +686,16 @@ fi
     );
   });
 
-  test('GitHub Copilot CLI: install is idempotent when the plugin is already installed', async () => {
+  test('GitHub Copilot CLI: updates the plugin when it is already installed', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
-      ['copilot plugin list'],
-      'GitHub Copilot CLI integration already installed',
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace update cc-marketplace',
+        'copilot plugin update cc-safety-net@cc-marketplace',
+      ],
+      'Updated GitHub Copilot CLI integration',
       {
         setup: (fake) => {
           writeFileSync(
@@ -879,6 +953,7 @@ exit 42
 
   test('Antigravity CLI: creates hooks.json when missing', async () => {
     const homeDir = makeTempHome('safety-net-antigravity-install');
+    const npxCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
 
     try {
       const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
@@ -895,6 +970,7 @@ exit 42
         },
       ]);
       expect(config['cc-safety-net'].PreToolUse[0]).not.toHaveProperty('matcher');
+      expect(existsSync(npxCacheEntry)).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -1004,6 +1080,7 @@ exit 42
 
   test('Kimi Code: creates default config when missing', async () => {
     const homeDir = makeTempHome('safety-net-kimi-install');
+    const npxCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
 
     try {
       const result = await runCli(['install', '--kimi-code'], '', { HOME: homeDir });
@@ -1013,6 +1090,7 @@ exit 42
       expect(result.stdout).toContain(`Installed Kimi Code hook in ${configPath}`);
       expect(readFileSync(configPath, 'utf-8').trim()).toBe(KIMI_HOOK_BLOCK);
       expect(readFileSync(configPath, 'utf-8')).not.toContain('matcher');
+      expect(existsSync(npxCacheEntry)).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -1691,6 +1769,8 @@ describe('Cursor install', () => {
 
   test('routes through the install command dispatch', async () => {
     const homeDir = makeTempHome('safety-net-cursor-install');
+    const safetyNetCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
+    const otherCacheEntry = writeNpxCacheEntry(homeDir, 'hashB', 'other-pkg');
 
     try {
       const result = await runCli(['install', '--cursor'], '', { HOME: homeDir });
@@ -1699,6 +1779,8 @@ describe('Cursor install', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`Installed Cursor hook in ${configPath}`);
       expect(readCursorConfig(configPath).hooks?.preToolUse).toEqual([CURSOR_CANONICAL_ENTRY]);
+      expect(existsSync(safetyNetCacheEntry)).toBe(false);
+      expect(existsSync(otherCacheEntry)).toBe(true);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -1706,6 +1788,24 @@ describe('Cursor install', () => {
 });
 
 describe('Cursor uninstall', () => {
+  test('leaves the npx cache unchanged through command dispatch', async () => {
+    const homeDir = makeTempHome('safety-net-cursor-uninstall');
+    writeCursorConfig(homeDir, {
+      version: 1,
+      hooks: { preToolUse: [CURSOR_CANONICAL_ENTRY] },
+    });
+    const npxCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
+
+    try {
+      const result = await runCli(['uninstall', '--cursor'], '', { HOME: homeDir });
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(npxCacheEntry)).toBe(true);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('removes only exact-command entries and retains unrelated structure', () => {
     const homeDir = makeTempHome('safety-net-cursor-uninstall');
     const configPath = writeCursorConfig(homeDir, {

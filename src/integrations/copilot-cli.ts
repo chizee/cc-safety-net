@@ -1,4 +1,6 @@
 export const COPILOT_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
+export const COPILOT_PLUGIN_DIR = ['cc-marketplace', 'cc-safety-net'] as const;
+export const COPILOT_LEGACY_PLUGIN_DIR = ['_direct', 'copilot-safety-net'] as const;
 const COPILOT_MARKETPLACE_ID = 'cc-marketplace';
 const COPILOT_LEGACY_PLUGIN_ID = 'copilot-safety-net';
 

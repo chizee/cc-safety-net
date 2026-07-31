@@ -2,7 +2,7 @@ import { doctorCommand } from './doctor';
 import { explainCommand } from './explain';
 import { guiCommand } from './gui';
 import { hookCommand } from './hook';
-import { installCommand, uninstallCommand } from './install';
+import { installCommand, uninstallCommand, updateCommand } from './install';
 import { logsCommand } from './logs';
 import { ruleCommand } from './rule';
 import { statusCommand } from './status';
@@ -24,6 +24,7 @@ export const commands = [
   explainCommand,
   ruleCommand,
   installCommand,
+  updateCommand,
   uninstallCommand,
   hookCommand,
   guiCommand,

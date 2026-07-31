@@ -23,12 +23,19 @@ export type InstallSelectionState = {
 };
 
 /** @internal */
-export type InstallSelectionKey = 'up' | 'down' | 'toggle' | 'confirm' | 'abort' | 'interrupt';
+export type InstallSelectionKey =
+  | 'up'
+  | 'down'
+  | 'toggle'
+  | 'confirm'
+  | 'update'
+  | 'abort'
+  | 'interrupt';
 
 /** @internal */
 export type InstallSelectionResult = {
   state: InstallSelectionState;
-  done?: 'confirm' | 'abort' | 'interrupt';
+  done?: 'confirm' | 'update' | 'abort' | 'interrupt';
 };
 
 export type InstallTargetProbe = (command: NativeCommand) => boolean;
@@ -94,9 +101,15 @@ function nextSelectableCursor(
     .find((index) => isAvailable(choices[index])) as number;
 }
 
-function mapKeyPress(input: string, key: KeyPress): InstallSelectionKey | null {
+/** @internal */
+export function mapKeyPress(
+  action: InstallAction,
+  input: string,
+  key: KeyPress,
+): InstallSelectionKey | null {
   if (key.ctrl && key.name === 'c') return 'interrupt';
   if (key.name === 'escape' || input === 'q') return 'abort';
+  if (action === 'install' && (input === 'u' || input === 'U')) return 'update';
   if (key.name === 'up' || input === 'k') return 'up';
   if (key.name === 'down' || input === 'j') return 'down';
   if (key.name === 'space' || input === ' ') return 'toggle';
@@ -114,7 +127,7 @@ function defaultInstallTargetProbe(command: NativeCommand): boolean {
   return !result.error && result.status === 0;
 }
 
-function defaultAsyncInstallTargetProbe(command: NativeCommand): Promise<boolean> {
+export function probeInstallTarget(command: NativeCommand): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn(command[0], command.slice(1), {
       env: process.env,
@@ -182,7 +195,7 @@ export function buildInstallTargetChoices(
 }
 
 export function buildInstallTargetChoicesAsync(
-  probe: AsyncInstallTargetProbe = defaultAsyncInstallTargetProbe,
+  probe: AsyncInstallTargetProbe = probeInstallTarget,
   options: Omit<BuildInstallTargetChoicesOptions, 'async'> = {},
 ): Promise<InstallTargetChoice[]> {
   return buildInstallTargetChoices(probe, { ...options, async: true });
@@ -237,7 +250,8 @@ export function reduceInstallSelectionState(
   choices: readonly InstallTargetChoice[],
   key: InstallSelectionKey,
 ): InstallSelectionResult {
-  if (key === 'confirm' || key === 'abort' || key === 'interrupt') return { state, done: key };
+  if (key === 'confirm' || key === 'update' || key === 'abort' || key === 'interrupt')
+    return { state, done: key };
 
   if (key === 'up') {
     return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, -1) } };
@@ -295,9 +309,11 @@ export function renderInstallSelection(
       return `${cursor} ${formatted}`;
     }),
     '',
-    choices.some((choice) => choice.available)
-      ? 'Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel'
-      : `No selectable integrations found for ${action}. q/Esc: close`,
+    action === 'install'
+      ? 'Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel'
+      : choices.some((choice) => choice.available)
+        ? 'Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel'
+        : `No selectable integrations found for ${action}. q/Esc: close`,
   ].join('\n');
 }
 
@@ -312,7 +328,7 @@ export function promptInstallTargets(
   action: InstallAction,
   choices: readonly InstallTargetChoice[],
   options: InstallSelectionPromptOptions = {},
-): Promise<InstallTarget[] | null> {
+): Promise<InstallTarget[] | null | 'update'> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   let state = createInstallSelectionState(choices);
@@ -346,16 +362,16 @@ export function promptInstallTargets(
       clearFrame();
     };
 
-    const finish = (targets: InstallTarget[] | null) => {
+    const finish = (targets: InstallTarget[] | null | 'update') => {
       cleanup();
-      if (targets && targets.length > 0) {
+      if (targets !== 'update' && targets && targets.length > 0) {
         output.write(`${activeVerb(action)} selected integrations...\n`);
       }
       resolve(targets);
     };
 
     function onKeyPress(inputValue: string, key: KeyPress) {
-      const mappedKey = mapKeyPress(inputValue, key);
+      const mappedKey = mapKeyPress(action, inputValue, key);
       if (!mappedKey) return;
 
       const next = reduceInstallSelectionState(state, choices, mappedKey);
@@ -370,6 +386,11 @@ export function promptInstallTargets(
 
       if (next.done === 'abort') {
         finish(null);
+        return;
+      }
+
+      if (next.done === 'update') {
+        finish('update');
         return;
       }
 

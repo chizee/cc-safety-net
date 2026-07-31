@@ -19,6 +19,7 @@ import { printInstallBanner } from '@/bin/hook/install/banner';
 import { installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
 import { type NativeCommand, runNativeCommand, runNativeCommands } from '@/bin/hook/install/native';
+import { clearNpxSafetyNetCache } from '@/bin/hook/install/npx-cache';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
 import {
   applyInstallTargetState,
@@ -26,9 +27,11 @@ import {
   canPromptInstallTargets,
   type InstallTargetChoice,
   type InstallTargetProbe,
+  probeInstallTarget,
   promptInstallTargets,
 } from '@/bin/hook/install/selection';
 import {
+  INSTALL_TARGETS,
   type InstallAction,
   type InstallTarget,
   orderInstallTargets,
@@ -39,6 +42,8 @@ import type { InstallResult } from '@/bin/hook/install/types';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { getIntegrationInstallLabel } from '@/integrations/catalog';
 import {
+  COPILOT_LEGACY_PLUGIN_DIR,
+  COPILOT_PLUGIN_DIR,
   COPILOT_PLUGIN_ID,
   hasCopilotLegacyPlugin,
   hasCopilotMarketplace,
@@ -47,6 +52,8 @@ import {
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | 'amp'>;
+type NativeInstallPlan = { commands: readonly NativeCommand[]; update?: boolean };
+type InstallTargetSelection = readonly InstallTarget[] | null | 'update';
 
 const AMP_RESTART_NOTE = 'Restart Amp or run "plugins: reload" to apply the change.';
 export type RunInstallCommandOptions = {
@@ -57,21 +64,30 @@ export type RunInstallCommandOptions = {
   selectTargets?: (
     action: InstallAction,
     choices: readonly InstallTargetChoice[],
-  ) => Promise<readonly InstallTarget[] | null>;
+  ) => Promise<InstallTargetSelection>;
+  runUpdate?: () => Promise<number>;
 };
 
 type NativeInstallDefinition = {
-  installCommands: readonly NativeCommand[] | ((homeDir: string) => readonly NativeCommand[]);
+  installCommands: readonly NativeCommand[] | ((homeDir: string) => NativeInstallPlan);
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
 };
 type InstallTargetResolution = {
   ready?: Promise<unknown>;
-  finish: () => Promise<readonly InstallTarget[] | null>;
+  finish: () => Promise<InstallTargetSelection>;
 };
 // Removed on install when Claude Code still records the pre-rename plugin id.
 const CLAUDE_LEGACY_PLUGIN_ID = 'safety-net@cc-marketplace';
+const NATIVE_UPDATE_TARGETS = new Set<InstallTarget>([
+  'claude-code',
+  'codex',
+  'copilot-cli',
+  'gemini-cli',
+  'opencode',
+  'pi',
+]);
 
 // Codex matchers are line-anchored because the legacy row's source URL also contains
 // "cc-safety-net", and status-checked because `codex plugin list` includes marketplace rows
@@ -87,29 +103,56 @@ function hasCodexReplacementPlugin(output: string | null): boolean {
 
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
-    installCommands: (homeDir) => [
-      ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
-      ...(detectClaudeCode(homeDir).status === 'disabled'
-        ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
-        : []),
-      ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
-        ? ([['claude', 'plugin', 'uninstall', CLAUDE_LEGACY_PLUGIN_ID]] as const)
-        : []),
-    ],
+    installCommands: (homeDir) => {
+      const update = hasClaudeInstalledPlugin(homeDir, 'cc-safety-net@cc-marketplace');
+      return {
+        commands: [
+          ...(update
+            ? ([
+                ['claude', 'plugin', 'marketplace', 'update', 'cc-marketplace'],
+                ['claude', 'plugin', 'update', 'cc-safety-net@cc-marketplace'],
+              ] as const)
+            : ([
+                ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
+                ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
+              ] as const)),
+          ...(detectClaudeCode(homeDir).status === 'disabled'
+            ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
+            : []),
+          ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
+            ? ([['claude', 'plugin', 'uninstall', CLAUDE_LEGACY_PLUGIN_ID]] as const)
+            : []),
+        ],
+        update,
+      };
+    },
     uninstallCommands: [
       ['claude', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
       ['claude', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
   },
   codex: {
-    installCommands: () => [
-      ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-      ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
-      ...(hasCodexLegacyPlugin(runNativeCommand(['codex', 'plugin', 'list']))
-        ? ([['codex', 'plugin', 'remove', 'safety-net@cc-marketplace']] as const)
-        : []),
-    ],
+    installCommands: () => {
+      const pluginList = runNativeCommand(['codex', 'plugin', 'list']);
+      const update = hasCodexReplacementPlugin(pluginList);
+      return {
+        commands: [
+          ...(update
+            ? ([
+                ['codex', 'plugin', 'marketplace', 'upgrade', 'cc-marketplace'],
+                ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
+              ] as const)
+            : ([
+                ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
+                ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
+              ] as const)),
+          ...(hasCodexLegacyPlugin(pluginList)
+            ? ([['codex', 'plugin', 'remove', 'safety-net@cc-marketplace']] as const)
+            : []),
+        ],
+        update,
+      };
+    },
     uninstallCommands: [
       ['codex', 'plugin', 'remove', 'cc-safety-net@cc-marketplace'],
       ['codex', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
@@ -123,15 +166,25 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       const legacyUninstall = hasCopilotLegacyPlugin(pluginList)
         ? ([['copilot', 'plugin', 'uninstall', 'copilot-safety-net']] as const)
         : [];
-      if (hasCopilotSafetyNetPlugin(pluginList)) return legacyUninstall;
+      if (hasCopilotSafetyNetPlugin(pluginList))
+        return {
+          commands: [
+            ['copilot', 'plugin', 'marketplace', 'update', 'cc-marketplace'],
+            ['copilot', 'plugin', 'update', COPILOT_PLUGIN_ID],
+            ...legacyUninstall,
+          ],
+          update: true,
+        };
 
-      return [
-        ...(hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
-          ? []
-          : ([['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace']] as const)),
-        ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
-        ...legacyUninstall,
-      ];
+      return {
+        commands: [
+          ...(hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
+            ? []
+            : ([['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace']] as const)),
+          ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
+          ...legacyUninstall,
+        ],
+      };
     },
     uninstallCommands: [
       ['copilot', 'plugin', 'uninstall', 'cc-safety-net@cc-marketplace'],
@@ -141,18 +194,30 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'gemini-cli': {
     installCommands: (homeDir) => {
       const detection = detectGeminiCLI(homeDir);
-      if (detection.status === 'configured') return [];
+      if (detection.status === 'configured')
+        return {
+          commands: [['gemini', 'extensions', 'update', 'gemini-safety-net']],
+          update: true,
+        };
       if (detection.status === 'disabled')
-        return [['gemini', 'extensions', 'enable', 'gemini-safety-net']];
-      return [
-        [
-          'gemini',
-          'extensions',
-          'install',
-          'https://github.com/kenryu42/gemini-safety-net',
-          '--consent',
+        return {
+          commands: [
+            ['gemini', 'extensions', 'update', 'gemini-safety-net'],
+            ['gemini', 'extensions', 'enable', 'gemini-safety-net'],
+          ],
+          update: true,
+        };
+      return {
+        commands: [
+          [
+            'gemini',
+            'extensions',
+            'install',
+            'https://github.com/kenryu42/gemini-safety-net',
+            '--consent',
+          ],
         ],
-      ];
+      };
     },
     uninstallCommands: [['gemini', 'extensions', 'uninstall', 'gemini-safety-net']],
   },
@@ -251,18 +316,26 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
 // Only probes that leave the inspected runtime untouched run here: `claude plugin list`,
 // `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into the
 // user's real config directories, and this runs on every bare install/uninstall in a TTY.
-async function detectConfiguredInstallTargets(action: InstallAction): Promise<InstallTarget[]> {
+async function detectInstallHookState(homeDir = getHomeDir()) {
   const [codexPluginListOutput, copilotCliVersion] = await Promise.all([
     defaultVersionFetcher(['codex', 'plugin', 'list']),
     defaultVersionFetcher(['copilot', '--binary-version']),
   ]);
 
-  return (
-    detectAllHooks(process.cwd(), {
-      homeDir: getHomeDir(),
+  return {
+    codexPluginListOutput,
+    hooks: detectAllHooks(process.cwd(), {
+      homeDir,
       codexPluginListOutput,
       copilotCliVersion,
-    })
+    }),
+  };
+}
+
+async function detectConfiguredInstallTargets(action: InstallAction): Promise<InstallTarget[]> {
+  const state = await detectInstallHookState();
+  return (
+    state.hooks
       // Uninstall also keeps a runtime whose state could not be read: hiding it would make the
       // interactive path unable to remove it at all.
       .filter((hook) =>
@@ -273,8 +346,8 @@ async function detectConfiguredInstallTargets(action: InstallAction): Promise<In
       .filter(
         (hook) =>
           hook.platform !== 'codex' ||
-          !hasCodexLegacyPlugin(codexPluginListOutput) ||
-          hasCodexReplacementPlugin(codexPluginListOutput),
+          !hasCodexLegacyPlugin(state.codexPluginListOutput) ||
+          hasCodexReplacementPlugin(state.codexPluginListOutput),
       )
       .map((hook) => hook.platform as InstallTarget)
   );
@@ -316,6 +389,7 @@ function startResolveInstallTargets(
             input: options.input,
             output: options.output,
           });
+      if (selected === 'update') return selected;
       if (!selected || selected.length === 0) return null;
 
       return orderInstallTargets(selected);
@@ -323,20 +397,19 @@ function startResolveInstallTargets(
   };
 }
 
-function installNativeTarget(target: NativeInstallTarget, homeDir: string): void {
+function installNativeTarget(target: NativeInstallTarget, homeDir: string, updating = false): void {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
-  const installCommands =
+  const plan =
     typeof definition.installCommands === 'function'
       ? definition.installCommands(homeDir)
-      : definition.installCommands;
-  if (installCommands.length === 0) {
-    console.log(`${getIntegrationInstallLabel(target)} integration already installed`);
-    return;
-  }
-  runNativeCommands(installCommands);
+      : { commands: definition.installCommands };
+  runNativeCommands(plan.commands);
   console.log(
-    [`Installed ${getIntegrationInstallLabel(target)} integration`, definition.postInstallMessage]
+    [
+      `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationInstallLabel(target)} integration`,
+      definition.postInstallMessage,
+    ]
       .filter(Boolean)
       .join('\n'),
   );
@@ -370,90 +443,175 @@ function runConfigInstallTarget(
   action: InstallAction,
   target: ConfigInstallTarget,
   homeDir: string,
+  updating = false,
 ): void {
+  if (action === 'install') clearNpxSafetyNetCache(homeDir);
   const result = CONFIG_INSTALLS[target][action](homeDir);
   const name = getIntegrationInstallLabel(target);
-  const pastTense = action === 'install' ? 'Installed' : 'Uninstalled';
+  const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
 
   console.log(
     action === 'install' && result.alreadyInstalled
-      ? `${name} hook already installed in ${result.path}`
+      ? updating
+        ? `${name} hook up to date in ${result.path}`
+        : `${name} hook already installed in ${result.path}`
       : action === 'uninstall' && !result.alreadyInstalled
         ? `${name} hook not installed in ${result.path}`
         : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`,
   );
 }
 
-function runAmpInstallTarget(action: InstallAction, homeDir: string): void {
+function runAmpInstallTarget(action: InstallAction, homeDir: string, updating = false): void {
   const result = action === 'install' ? installAmp(homeDir) : uninstallAmp(homeDir);
   const name = getIntegrationInstallLabel('amp');
   const noChange =
     (action === 'install' && result.alreadyInstalled) ||
     (action === 'uninstall' && !result.alreadyInstalled);
+  const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
   const message = noChange
     ? action === 'install'
-      ? `${name} plugin already installed at ${result.path}`
+      ? `${name} plugin ${updating ? 'up to date' : 'already installed'} at ${result.path}`
       : `${name} plugin not installed at ${result.path}`
-    : `${action === 'install' ? 'Installed' : 'Uninstalled'} ${name} plugin ${action === 'install' ? 'at' : 'from'} ${result.path}`;
+    : `${pastTense} ${name} plugin ${action === 'install' ? 'at' : 'from'} ${result.path}`;
 
   console.log([message, noChange ? undefined : AMP_RESTART_NOTE].filter(Boolean).join('\n'));
 }
 
 const INSTALL_OPERATIONS = {
   amp: {
-    install: (homeDir: string) => runAmpInstallTarget('install', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      runAmpInstallTarget('install', homeDir, updating),
     uninstall: (homeDir: string) => runAmpInstallTarget('uninstall', homeDir),
   },
   'antigravity-cli': {
-    install: (homeDir: string) => runConfigInstallTarget('install', 'antigravity-cli', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      runConfigInstallTarget('install', 'antigravity-cli', homeDir, updating),
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'antigravity-cli', homeDir),
   },
   'claude-code': {
-    install: (homeDir: string) => installNativeTarget('claude-code', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      installNativeTarget('claude-code', homeDir, updating),
     uninstall: () => uninstallNativeTarget('claude-code'),
   },
   codex: {
-    install: (homeDir: string) => installNativeTarget('codex', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      installNativeTarget('codex', homeDir, updating),
     uninstall: () => uninstallNativeTarget('codex'),
   },
   'copilot-cli': {
-    install: (homeDir: string) => {
-      installNativeTarget('copilot-cli', homeDir);
+    install: (homeDir: string, updating?: boolean) => {
+      installNativeTarget('copilot-cli', homeDir, updating);
       enableCopilotPlugin(homeDir);
     },
     uninstall: () => uninstallNativeTarget('copilot-cli'),
   },
   cursor: {
-    install: (homeDir: string) => runConfigInstallTarget('install', 'cursor', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      runConfigInstallTarget('install', 'cursor', homeDir, updating),
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'cursor', homeDir),
   },
   'gemini-cli': {
-    install: (homeDir: string) => installNativeTarget('gemini-cli', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      installNativeTarget('gemini-cli', homeDir, updating),
     uninstall: () => uninstallNativeTarget('gemini-cli'),
   },
   'kimi-code': {
-    install: (homeDir: string) => runConfigInstallTarget('install', 'kimi-code', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      runConfigInstallTarget('install', 'kimi-code', homeDir, updating),
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'kimi-code', homeDir),
   },
   opencode: {
-    install: (homeDir: string) => installNativeTarget('opencode', homeDir),
+    install: (homeDir: string, updating?: boolean) =>
+      installNativeTarget('opencode', homeDir, updating),
     uninstall: (homeDir: string) => uninstallOpenCodeTarget(homeDir),
   },
   pi: {
-    install: (homeDir: string) => {
-      installNativeTarget('pi', homeDir);
+    install: (homeDir: string, updating?: boolean) => {
+      installNativeTarget('pi', homeDir, updating);
       removePiExtensionsFilter(homeDir);
     },
     uninstall: () => uninstallNativeTarget('pi'),
   },
-} satisfies Record<InstallTarget, Record<InstallAction, (homeDir: string) => void>>;
+} satisfies Record<
+  InstallTarget,
+  Record<InstallAction, (homeDir: string, updating?: boolean) => void>
+>;
 
 function runSingleInstallTarget(
   action: InstallAction,
   target: InstallTarget,
   homeDir: string,
+  updating = false,
 ): void {
-  INSTALL_OPERATIONS[target][action](homeDir);
+  INSTALL_OPERATIONS[target][action](homeDir, updating);
+}
+
+function parseUpdateArgs(args: readonly string[]): void {
+  const unknownOption = args.find((arg) => arg.startsWith('-'));
+  if (unknownOption) throw new Error(`Unknown update option: ${unknownOption}`);
+
+  const unexpectedArg = args[0];
+  if (unexpectedArg) throw new Error(`Unexpected argument for update: ${unexpectedArg}`);
+}
+
+async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {
+  const state = await detectInstallHookState(homeDir);
+  const copilotPluginsDir = join(_getCopilotConfigHome(homeDir), 'installed-plugins');
+  return orderInstallTargets([
+    // `detected` (not `configured`) so installed-but-disabled integrations update too.
+    // Copilot is decided by its plugin checkouts on disk instead: its 'disabled' status
+    // also fires on a bare disableAllHooks kill-switch with nothing installed, and
+    // update must never install something new.
+    ...state.hooks
+      .filter((hook) => hook.platform !== 'copilot-cli' && hook.detected)
+      .map((hook) => hook.platform as InstallTarget),
+    ...([COPILOT_PLUGIN_DIR, COPILOT_LEGACY_PLUGIN_DIR] as const).flatMap((dir) =>
+      existsSync(join(copilotPluginsDir, ...dir)) ? (['copilot-cli'] as const) : [],
+    ),
+    ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
+      ? (['claude-code'] as const)
+      : []),
+    ...(hasCodexLegacyPlugin(state.codexPluginListOutput) ? (['codex'] as const) : []),
+  ]);
+}
+
+async function updateInstalledIntegrations(): Promise<void> {
+  const homeDir = getHomeDir();
+  const targets = await detectUpdateTargets(homeDir);
+  if (targets.length === 0) {
+    console.log('No installed integrations found. Run `cc-safety-net install` to set one up.');
+    return;
+  }
+
+  const targetSet = new Set(targets);
+  const available = new Map(
+    await Promise.all(
+      INSTALL_TARGETS.filter(
+        (target) => targetSet.has(target.target) && NATIVE_UPDATE_TARGETS.has(target.target),
+      ).map(
+        async (target) => [target.target, await probeInstallTarget(target.probeCommand)] as const,
+      ),
+    ),
+  );
+
+  runInstallTargetsInOrder(targets, (target) => {
+    if (NATIVE_UPDATE_TARGETS.has(target) && !available.get(target)) {
+      console.log(`${getIntegrationInstallLabel(target)} not found; skipped`);
+      return;
+    }
+    runSingleInstallTarget('install', target, homeDir, true);
+  });
+}
+
+export function runUpdateCommand(args: readonly string[]): Promise<number> {
+  return Promise.resolve()
+    .then(() => parseUpdateArgs(args))
+    .then(updateInstalledIntegrations)
+    .then(() => 0)
+    .catch((error: unknown) => {
+      console.error(formatInstallError(error));
+      return 1;
+    });
 }
 
 export async function runInstallCommand(
@@ -484,6 +642,9 @@ export async function runInstallCommand(
     if (!targets) {
       (options.output ?? process.stdout).write(`Cancelled: nothing was ${action}ed.\n`);
       return 0;
+    }
+    if (targets === 'update') {
+      return (options.runUpdate ?? (() => runUpdateCommand([])))();
     }
 
     const homeDir = getHomeDir();

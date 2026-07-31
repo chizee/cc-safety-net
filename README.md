@@ -43,7 +43,7 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 - **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
 - **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
 - **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
-- **Universal installer** — interactive `install`/`uninstall` across all ten supported agent CLIs.
+- **Universal installer** — interactive `install`/`uninstall` across all ten supported agent CLIs, with an `update` command for installed integrations.
 - **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
 - **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
 
@@ -101,8 +101,17 @@ are deliberately not duplicated in the npm tarball.
 Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
 
 ```bash
-npx -y cc-safety-net install
+npx -y cc-safety-net@latest install
 ```
+
+To update every installed integration:
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+The `@latest` qualifier matters: a bare `cc-safety-net` spec can re-run an older
+cached copy from the npx cache instead of the current release.
 
 Use the target flags below for scripted, non-interactive installs.
 

@@ -36,3 +36,11 @@ export const uninstallCommand = {
     ),
   ],
 } satisfies Command;
+
+export const updateCommand = {
+  name: 'update' as const,
+  description: 'Update every installed CC Safety Net integration to the latest version',
+  usage: 'update',
+  options: [{ flags: '-h, --help', description: 'Show this help' }],
+  examples: ['cc-safety-net update'],
+} satisfies Command;

@@ -14,7 +14,7 @@ import { getAmpPluginPath } from '@/bin/hook/install/amp';
 import { CURSOR_HOOK_COMMAND, getCursorHooksPath } from '@/bin/hook/install/cursor';
 import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { doctorIntegrationOrder } from '@/integrations/catalog';
-import { COPILOT_PLUGIN_ID } from '@/integrations/copilot-cli';
+import { COPILOT_PLUGIN_DIR, COPILOT_PLUGIN_ID } from '@/integrations/copilot-cli';
 
 type HookDetectionStatus = 'configured' | 'n/a' | 'disabled' | 'not-inspected';
 
@@ -65,7 +65,6 @@ const CLAUDE_SAFETY_NET_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 const CODEX_PLUGIN_LIST_CONFIG_PATH = 'codex plugin list';
 const CODEX_SAFETY_NET_SOURCE = 'https://github.com/kenryu42/cc-safety-net.git';
 const GEMINI_SAFETY_NET_EXTENSION = 'gemini-safety-net';
-const COPILOT_SAFETY_NET_PLUGIN_DIR = ['cc-marketplace', 'cc-safety-net'];
 const ANTIGRAVITY_HOOK_COMMAND_PATTERN =
   /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;
 const KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
@@ -801,7 +800,7 @@ export function detectAllHooks(cwd: string, options?: HookDetectOptions): HookSt
     // entry, and `settings.json` records whether it is switched on. Copilot writes that file as
     // JSONC, so its comments come out before parsing.
     const configHome = _getCopilotConfigHome(homeDir);
-    const pluginDir = join(configHome, 'installed-plugins', ...COPILOT_SAFETY_NET_PLUGIN_DIR);
+    const pluginDir = join(configHome, 'installed-plugins', ...COPILOT_PLUGIN_DIR);
     const pluginInstalled = existsSync(pluginDir);
     const settingsPath = join(configHome, 'settings.json');
     const settings = readStateFile(settingsPath, stripJsonComments);

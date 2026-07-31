@@ -16,5 +16,8 @@ process.env.CC_SAFETY_NET_HOME ??= join(testHome, 'safety-net-home');
 // Code session would otherwise flip 'unknown' expectations to 'claude-code'.
 delete process.env.CLAUDECODE;
 delete process.env.CLAUDE_CODE_ENTRYPOINT;
+// The npx-cache helper honors npm_config_cache; under an npm-driven test run it
+// would point spawned CLIs at the developer's real npx cache.
+delete process.env.npm_config_cache;
 
 afterAll(() => rmSync(testHome, { recursive: true, force: true }));

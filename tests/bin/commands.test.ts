@@ -45,6 +45,7 @@ describe('command registry', () => {
         'explain',
         'rule',
         'install',
+        'update',
         'uninstall',
         'hook',
         'gui',
@@ -106,6 +107,7 @@ describe('command routing', () => {
       { args: ['explain', '--help'], output: 'USAGE:\n  cc-safety-net explain', exitCode: 0 },
       { args: ['rule', '--help'], output: 'USAGE:\n  cc-safety-net rule', exitCode: 0 },
       { args: ['install', '--help'], output: 'USAGE:\n  cc-safety-net install', exitCode: 0 },
+      { args: ['update', '--help'], output: 'USAGE:\n  cc-safety-net update', exitCode: 0 },
       {
         args: ['uninstall', '--help'],
         output: 'USAGE:\n  cc-safety-net uninstall',

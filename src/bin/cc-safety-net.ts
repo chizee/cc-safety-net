@@ -10,7 +10,7 @@ import {
 } from '@/bin/explain/index';
 import { runGuiCommand } from '@/bin/gui';
 import { printHelp, printVersion, showCommandHelp } from '@/bin/help';
-import { runInstallCommand } from '@/bin/hook/install';
+import { runInstallCommand, runUpdateCommand } from '@/bin/hook/install';
 import {
   findHookIntegrationByFlag,
   findLegacyTopLevelHookIntegration,
@@ -23,6 +23,7 @@ import { printStatusline } from '@/bin/statusline';
 type ParsedCommand =
   | { mode: 'hook'; integration: HookIntegration }
   | { mode: 'install'; args: string[] }
+  | { mode: 'update'; args: string[] }
   | { mode: 'uninstall'; args: string[] }
   | { mode: 'rule'; args: string[] }
   | { mode: 'status' }
@@ -129,6 +130,7 @@ const commandParsers = {
     process.exit(1);
   },
   install: (args: string[]): ParsedCommand => ({ mode: 'install', args }),
+  update: (args: string[]): ParsedCommand => ({ mode: 'update', args }),
   uninstall: (args: string[]): ParsedCommand => ({ mode: 'uninstall', args }),
   doctor: (args: string[]): ParsedCommand => ({ mode: 'doctor', args }),
   logs: (args: string[]): ParsedCommand => ({ mode: 'logs', args }),
@@ -184,6 +186,9 @@ const commandHandlers = {
   },
   install: async (command) => {
     process.exit(await runInstallCommand('install', command.args));
+  },
+  update: async (command) => {
+    process.exit(await runUpdateCommand(command.args));
   },
   uninstall: async (command) => {
     process.exit(await runInstallCommand('uninstall', command.args));

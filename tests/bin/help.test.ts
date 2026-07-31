@@ -67,6 +67,7 @@ COMMANDS:
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
   cc-safety-net install [TARGET_FLAG]        Install CC Safety Net into a coding agent CLI
+  cc-safety-net update                       Update every installed CC Safety Net integration to the latest version
   cc-safety-net uninstall [TARGET_FLAG]      Uninstall CC Safety Net from a coding agent CLI
   cc-safety-net hook INTEGRATION_FLAG        Run as an agent CLI hook (reads JSON from stdin)
   cc-safety-net gui [options]                Open the local policy editor GUI
@@ -227,6 +228,15 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
       expect(output).toContain('uninstall --kimi-code');
       expect(output).toContain('uninstall --opencode');
       expect(output).toContain('uninstall --pi');
+    });
+
+    test('update command has no target options', () => {
+      const cmd = findCommand('update');
+      if (!cmd) throw new Error('update command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+
+      expect(output).toContain('USAGE:\n  cc-safety-net update');
+      expect(output).not.toContain('--codex');
     });
 
     test('install and uninstall help stay aligned with the integration catalog', () => {

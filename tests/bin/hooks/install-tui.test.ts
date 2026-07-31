@@ -9,6 +9,7 @@ import {
   canPromptInstallTargets,
   createInstallSelectionState,
   type InstallTargetChoice,
+  mapKeyPress,
   promptInstallTargets,
   reduceInstallSelectionState,
   renderInstallSelection,
@@ -91,7 +92,11 @@ async function withFakeInstallProbePath<T>(prefix: string, fn: () => T | Promise
   });
 }
 
-type CapturedChoice = { target: InstallTarget; available: boolean; unavailableReason?: string };
+type CapturedChoice = {
+  target: InstallTarget;
+  available: boolean;
+  unavailableReason?: string;
+};
 
 async function spawnInstallEval<T>(script: string, env: Record<string, string | undefined>) {
   const proc = Bun.spawn(['bun', '--eval', script], {
@@ -115,7 +120,8 @@ async function runInstallDispatchProbe(
   options: {
     args?: readonly string[];
     configuredTargets?: readonly InstallTarget[];
-    selectedTargets?: readonly InstallTarget[] | null;
+    selectedTargets?: readonly InstallTarget[] | null | 'update';
+    updateExitCode?: number;
   },
 ) {
   const selectTargets =
@@ -156,6 +162,10 @@ const exitCode = await runInstallCommand("install", ${JSON.stringify(options.arg
   probeTargets: (command) => {
     events.push("probe:" + command[0]);
     return command[0] === "kimi";
+  },
+  runUpdate: async () => {
+    events.push("update");
+    return ${options.updateExitCode ?? 0};
   }${selectTargets}
 });
 
@@ -424,6 +434,27 @@ describe('install selection prompt', () => {
     expect(streams.chunks.join('')).toContain('Installing selected integrations...');
   });
 
+  test('resolves the update sentinel for u only while installing', async () => {
+    const installStreams = createPromptStreams();
+    const installResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', false)], {
+      input: installStreams.input,
+      output: installStreams.output,
+    });
+    installStreams.input.emit('keypress', 'u', { name: 'u' });
+
+    const uninstallStreams = createPromptStreams();
+    const uninstallResult = promptInstallTargets(
+      'uninstall',
+      [makeChoice('codex', 'Codex', false)],
+      { input: uninstallStreams.input, output: uninstallStreams.output },
+    );
+    uninstallStreams.input.emit('keypress', 'u', { name: 'u' });
+    uninstallStreams.input.emit('keypress', 'q', { name: 'q' });
+
+    expect(await installResult).toBe('update');
+    expect(await uninstallResult).toBeNull();
+  });
+
   test('aborts through keyboard shortcuts without selecting targets', async () => {
     const qStreams = createPromptStreams();
     const qResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
@@ -475,6 +506,20 @@ describe('install selection state', () => {
     expect(third.cursor).toBe(1);
   });
 
+  test('maps and reduces the install-only update key', () => {
+    const state = createInstallSelectionState(choices);
+
+    expect(mapKeyPress('install', 'u', { name: 'u' })).toBe('update');
+    expect(mapKeyPress('install', 'U', { name: 'u' })).toBe('update');
+    expect(mapKeyPress('uninstall', 'u', { name: 'u' })).toBeNull();
+    // readline passes undefined input for special keys (F1, some sequences).
+    expect(mapKeyPress('install', undefined as unknown as string, { name: 'f1' })).toBeNull();
+    expect(reduceInstallSelectionState(state, choices, 'update')).toEqual({
+      state,
+      done: 'update',
+    });
+  });
+
   test('toggles only selectable rows and reports confirm or abort', () => {
     const disabledToggle = reduceInstallSelectionState(
       { cursor: 0, selected: [] },
@@ -493,9 +538,15 @@ describe('install selection state', () => {
     expect(reduceInstallSelectionState(selected, choices, 'abort').done).toBe('abort');
   });
 
-  test('renders unavailable rows as not installed', () => {
+  test('renders unavailable rows and action-specific footers', () => {
     const output = renderInstallSelection(
       'install',
+      choices,
+      { cursor: 1, selected: ['claude-code'] },
+      { color: false },
+    );
+    const uninstallOutput = renderInstallSelection(
+      'uninstall',
       choices,
       { cursor: 1, selected: ['claude-code'] },
       { color: false },
@@ -504,7 +555,9 @@ describe('install selection state', () => {
     expect(output).toContain('Install CC Safety Net into:');
     expect(output).toContain('◉ Claude Code');
     expect(output).toContain('◯ Codex (not installed)');
-    expect(output).toContain('Space: select');
+    expect(output).toContain('◯ Antigravity CLI (not installed)');
+    expect(output).toContain('u: update installed');
+    expect(uninstallOutput).not.toContain('u: update installed');
   });
 });
 
@@ -521,6 +574,18 @@ describe('interactive install dispatch', () => {
         available: false,
         unavailableReason: 'already installed',
       });
+    });
+  });
+
+  test('runs the shared update routine when u returns the update sentinel', async () => {
+    await withTempDir('safety-net-install-update-', async (homeDir) => {
+      const result = await runInstallDispatchProbe(homeDir, {
+        selectedTargets: 'update',
+        updateExitCode: 7,
+      });
+
+      expect(result.exitCode).toBe(7);
+      expect(result.events.at(-1)).toBe('update');
     });
   });
 
@@ -633,7 +698,7 @@ describe('interactive install dispatch', () => {
     expect(codex?.unavailableReason).toBeUndefined();
   });
 
-  test('Codex: interactive install still gates when both plugin generations are installed', async () => {
+  test('Codex: interactive install gates when both plugin generations are installed', async () => {
     const codex = await probeCodexGateChoice(
       'safety-net-install-codex-both-',
       `${LEGACY_CODEX_ROW}\n${NEW_CODEX_ROW}`,
@@ -642,7 +707,7 @@ describe('interactive install dispatch', () => {
     expect(codex?.unavailableReason).toBe('already installed');
   });
 
-  test('Codex: interactive install still gates when the new plugin is installed', async () => {
+  test('Codex: interactive install gates when the new plugin is installed', async () => {
     const codex = await probeCodexGateChoice('safety-net-install-codex-new-', NEW_CODEX_ROW);
 
     expect(codex?.unavailableReason).toBe('already installed');
