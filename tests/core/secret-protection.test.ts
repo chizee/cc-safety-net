@@ -959,6 +959,24 @@ describe('treats quoted heredoc bodies as literal data', () => {
     }
   });
 
+  test('does not block sensitive filenames in a message sink body', () => {
+    // A commit message or a PR body is stored or published, never resolved as a path,
+    // so prose naming a credential file is inert. git apply is excluded on purpose:
+    // its body names the files the patch writes.
+    for (const command of [
+      "git commit -q -F - <<'EOF'\nthe files carry credentials inline\nEOF",
+      "git commit -F - <<'EOF'\nsee ~/.aws/credentials for the shape\nEOF",
+      "gh pr create --body-file - <<'EOF'\nthis renames .env handling\nEOF",
+      "gh issue create --body-file - <<'EOF'\nreading .env fails here\nEOF",
+    ]) {
+      expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
+        command,
+      ).toBeNull();
+    }
+  });
+
   test('applies heredoc body masking in strict mode too', () => {
     expect(
       findSensitiveTargetInCommand(

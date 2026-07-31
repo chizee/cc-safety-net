@@ -243,14 +243,29 @@ function collectDataSinkHeredocSpans(program: CommandProgram): CommandSpan[] {
   });
 }
 
+function isBareWord(word: CommandWord | undefined, text: string): boolean {
+  return (
+    word !== undefined &&
+    word.provenance === 'literal' &&
+    !word.quoted &&
+    word.raw === word.text &&
+    word.text === text
+  );
+}
+
+// A message sink stores or publishes its body; it never resolves a word in it as a path.
+// git apply is not one: its body names the files the patch writes, so it stays scannable.
+function isMessageSinkConsumer(view: CommandView): boolean {
+  if (isBareWord(view.words[0], 'git')) return isBareWord(view.words[1], 'commit');
+  if (!isBareWord(view.words[0], 'gh') || !isBareWord(view.words[2], 'create')) return false;
+  return isBareWord(view.words[1], 'pr') || isBareWord(view.words[1], 'issue');
+}
+
 function isDataSinkHeredocConsumer(view: CommandView): boolean {
-  const head = view.words[0];
   const isDataSink =
-    head !== undefined &&
-    head.provenance === 'literal' &&
-    !head.quoted &&
-    head.raw === head.text &&
-    (head.text === 'cat' || head.text === 'tee');
+    isBareWord(view.words[0], 'cat') ||
+    isBareWord(view.words[0], 'tee') ||
+    isMessageSinkConsumer(view);
   return (
     isDataSink &&
     !view.words.some(hasOutputProcessSubstitution) &&
