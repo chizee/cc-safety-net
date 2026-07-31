@@ -8,6 +8,7 @@ import {
   printRulesTestResult,
 } from '@/bin/rule/format';
 import { runRulesMigrate } from '@/bin/rule/migrate';
+import { getUpdateNotice } from '@/bin/rule/update-notice';
 import { runRulesVerify } from '@/bin/rule/verify';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import {
@@ -159,7 +160,16 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
   }
 
   if (subcommand === 'test') {
-    const sources = value ? [value] : [];
+    const loaded = value ? null : readRulesConfig(getScopePaths(options).configTarget);
+    if (loaded && loaded.errors.length > 0) {
+      printRulesTestResult({ ok: false, errors: loaded.errors, warnings: [], entries: [] });
+      return 1;
+    }
+    const sources = value ? [value] : (loaded?.config?.rules ?? []);
+    if (sources.length === 0) {
+      console.log('No rulebooks configured; nothing to test.');
+      return 0;
+    }
     const result = await testRulebookSources(sources, options);
     printRulesTestResult(result);
     return result.ok ? 0 : 1;
@@ -171,6 +181,8 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
 
   if (subcommand === 'doc') {
     console.log(RULE_DOC);
+    const notice = await getUpdateNotice();
+    if (notice) console.error(notice);
     return 0;
   }
 

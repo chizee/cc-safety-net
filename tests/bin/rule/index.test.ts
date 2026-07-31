@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import * as systemInfo from '@/bin/doctor/system-info';
 import { runRuleCommand } from '@/bin/rule';
-import { runCCSafetyNetCli, withTempDir } from '../../helpers';
+import { runCCSafetyNetCli, withEnv, withTempDir } from '../../helpers';
 import { writeProjectRuleConfig } from '../../helpers/rulebook';
 
 describe('rule list exit code', () => {
@@ -20,6 +21,39 @@ describe('rule list exit code', () => {
       expect(result.output).toContain('Warnings (1):');
       expect(result.output).toContain('Issues: (none)');
       expect(result.exitCode).toBe(0);
+    });
+  });
+});
+
+describe('rule update notice', () => {
+  test('prints the directive to stderr for doc only', async () => {
+    await withTempDir('safety-net-rule-update-notice-', async (tempDir) => {
+      await withEnv(
+        {
+          CC_SAFETY_NET_AUDIT_HOME: join(tempDir, 'home'),
+          CC_SAFETY_NET_NO_UPDATE_CHECK: undefined,
+        },
+        async () => {
+          const version = spyOn(systemInfo, 'getPackageVersion').mockReturnValue('1.0.0');
+          const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(
+            new Response(JSON.stringify({ version: '2.0.0' })),
+          );
+
+          const list = await captureRuleCommand(['list']);
+          expect(list.stderr).not.toContain('UPDATE_AVAILABLE:');
+          expect(fetch).not.toHaveBeenCalled();
+
+          const doc = await captureRuleCommand(['doc']);
+          expect(doc.exitCode).toBe(0);
+          expect(doc.stdout).toContain('# Custom Rules Reference');
+          expect(doc.stderr).toBe(
+            'UPDATE_AVAILABLE: cc-safety-net v2.0.0 is available (running v1.0.0). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.',
+          );
+
+          fetch.mockRestore();
+          version.mockRestore();
+        },
+      );
     });
   });
 });
@@ -84,14 +118,22 @@ describe('rule leaf help', () => {
 });
 
 async function captureRuleCommand(args: string[]) {
-  const originalLog = console.log;
-  const originalError = console.error;
-  const output: string[] = [];
-  console.log = (...parts: unknown[]) => output.push(parts.map(String).join(' '));
-  console.error = (...parts: unknown[]) => output.push(parts.map(String).join(' '));
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const log = spyOn(console, 'log').mockImplementation((...parts: unknown[]) =>
+    stdout.push(parts.map(String).join(' ')),
+  );
+  const error = spyOn(console, 'error').mockImplementation((...parts: unknown[]) =>
+    stderr.push(parts.map(String).join(' ')),
+  );
   const exitCode = await runRuleCommand(args).finally(() => {
-    console.log = originalLog;
-    console.error = originalError;
+    log.mockRestore();
+    error.mockRestore();
   });
-  return { exitCode, output: output.join('\n') };
+  return {
+    exitCode,
+    output: [...stdout, ...stderr].join('\n'),
+    stdout: stdout.join('\n'),
+    stderr: stderr.join('\n'),
+  };
 }

@@ -12,6 +12,7 @@ const testHome = mkdtempSync(
 // land in the developer's real ~/.cc-safety-net/logs.
 process.env.CC_SAFETY_NET_AUDIT_HOME = join(testHome, 'audit-home');
 process.env.CC_SAFETY_NET_HOME ??= join(testHome, 'safety-net-home');
+process.env.CC_SAFETY_NET_NO_UPDATE_CHECK = '1';
 // Agent detection reads these as evidence; running the suite inside a Claude
 // Code session would otherwise flip 'unknown' expectations to 'claude-code'.
 delete process.env.CLAUDECODE;

@@ -31,6 +31,7 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 
 ## Rules
 
+- If a command prints an \`UPDATE_AVAILABLE:\` line, ask the user once whether to run \`npx -y cc-safety-net@latest update\`, continue the workflow without waiting either way, and do not raise it again.
 - Custom rules can only add restrictions; they cannot bypass built-in CC Safety Net protections.
 - Config files list rulebook sources. Rule definitions live in \`rulebook.json\`, not directly in \`rule.json\`.
 - Do not use legacy inline \`.safety-net.json\` or \`~/.cc-safety-net/config.json\` rules. Convert existing legacy files with \`npx -y cc-safety-net rule migrate\`.
@@ -38,7 +39,7 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 - Blocked fixtures must specify the expected \`rule\`; include allowed fixtures for close-but-safe commands.
 - Local source names are bare names such as \`project-rules\`; do not put filesystem paths in \`rules\`.
 - An edited or invalid local rulebook keeps its last synced, digest-verified version enforced and the edit stays pending until \`npx -y cc-safety-net rule sync\` validates it.
-- A missing lock entry or cache, a digest mismatch, an invalid cached rulebook, or an unreadable \`rule.json\` drops that source: its rules stop applying until \`npx -y cc-safety-net rule sync\` succeeds. Nothing is blocked, so a rule you just added silently does nothing until it is synced — run \`npx -y cc-safety-net status\` if a rule does not fire; unlike \`rule list\` it also reports a degraded \`policy.json\`.
+- A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive, and a missing lockfile or an unreadable \`rule.json\` makes every source in its scope inactive: those rules stop applying while other custom rules and built-in protections stay active. Repair the condition, then run \`npx -y cc-safety-net rule sync\` — a rule you just added silently does nothing until it is synced. Run \`npx -y cc-safety-net status\` if a rule does not fire; unlike \`rule list\` it also reports a degraded \`policy.json\`.
 - A duplicate rulebook name keeps the first claim, user scope before project scope, and ignores the later rulebook.
 - \`rule sync\` reports failure with the remaining diagnostic instead of success when the synchronized scope still does not load cleanly.
 `;
