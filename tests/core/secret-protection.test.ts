@@ -88,7 +88,9 @@ describe('secret protection rule metadata', () => {
     for (const rule of SECRET_CODING_CLI_RULES) {
       // Antigravity has no file credential store, so its only tier is config.
       const configTier = rule.id.endsWith('.config') || rule.id === 'secret.cli.antigravity';
-      expect(rule.category, rule.id).toBe(configTier ? 'Coding CLI config' : 'Coding CLI');
+      expect(rule.category, rule.id).toBe(
+        configTier ? 'Coding CLI config' : 'Coding CLI credential',
+      );
     }
     expect(
       SECRET_CODING_CLI_RULES.find((rule) => rule.id === 'secret.cli.antigravity')?.label,

@@ -1624,6 +1624,7 @@ function render() {
   qs('policy-savebar').hidden = true;
   qs('dirty-chip').hidden = true;
   qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
+  qs('app-version').textContent = state.version;
   renderSafety();
   qs('destructive-command').innerHTML =
     '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' +

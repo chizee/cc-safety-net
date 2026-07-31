@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getPackageVersion } from '@/bin/doctor/system-info';
 import {
   createPolicyGuiServer,
   fetchHealth,
@@ -38,6 +39,7 @@ interface PolicyApiResponse {
   };
   destructiveCommandRules: unknown[];
   secretPatterns: unknown[];
+  version: string;
   preview: {
     selectedPreset: string;
     counts: { enabled: number; inheritedRequiresStrict: number; inheritedRequiresParanoid: number };
@@ -406,6 +408,11 @@ describe('policy GUI server', () => {
       expect(html).toContain(
         "showRulePopover(button, 'Blocked command example', rule.label, rule.example);",
       );
+      // The brand logo is a link home, so it uses the same hash routing as the sidenav.
+      expect(html).toContain('<h1 class="brand-logo"><a class="brand-home" href="#overview"');
+      // The Settings tab states which cc-safety-net version is serving the page.
+      expect(html).toContain('id="app-version"');
+      expect(html).toContain("qs('app-version').textContent = state.version");
       expect(html).toContain('data-secret-paths=');
       expect(html).toContain('Show protected paths for');
       expect(html).toContain(
@@ -748,6 +755,7 @@ describe('policy GUI server', () => {
       expect(missing.policy.version).toBe(1);
       expect(missing.destructiveCommandRules.length).toBeGreaterThan(0);
       expect(missing.secretPatterns.length).toBeGreaterThan(0);
+      expect(missing.version).toBe(getPackageVersion());
       expect(missing.preview).toMatchObject({
         selectedPreset: 'standard',
         counts: { enabled: 45, inheritedRequiresStrict: 5, inheritedRequiresParanoid: 3 },

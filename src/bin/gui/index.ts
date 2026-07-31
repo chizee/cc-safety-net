@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { getActivitySummary } from '@/bin/doctor/activity';
 import { detectAllHooks } from '@/bin/doctor/hooks';
-import { getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
+import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
 import type { SystemInfo, UpdateInfo } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
 import { explainCommand } from '@/bin/explain';
@@ -195,6 +195,7 @@ async function handleRequest(
       configState: describeConfigState(loadPolicySnapshot(options)),
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
+      version: getPackageVersion(),
       preview: result.errors.length > 0 ? null : createPolicyPreview(result.policy),
     });
     return;

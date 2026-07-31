@@ -181,7 +181,7 @@ export const SECRET_HOME_PATH_RULES = [
 export const SECRET_CODING_CLI_RULES = [
   {
     id: 'secret.cli.claude-code',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Claude Code credentials',
     paths: ['~/.claude/.credentials.json'],
   },
@@ -205,7 +205,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.codex',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Codex credentials',
     paths: [
       '~/.codex/auth.json',
@@ -222,7 +222,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.gemini',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Gemini CLI credentials',
     paths: [
       '~/.gemini/oauth_creds.json',
@@ -245,7 +245,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.copilot-cli',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'GitHub Copilot CLI credentials',
     paths: ['~/.copilot/config.json', '~/.copilot/mcp-oauth-config', '~/.copilot/mcp-secrets'],
   },
@@ -257,7 +257,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.kimi-code',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Kimi Code credentials',
     paths: [
       '~/.kimi-code/server.token',
@@ -282,7 +282,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.opencode',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'OpenCode credentials',
     paths: [
       '~/.local/share/opencode/auth.json',
@@ -305,7 +305,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.pi',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Pi credentials',
     paths: ['~/.pi/agent/auth.json'],
   },
@@ -317,7 +317,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.amp',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Amp Code credentials',
     paths: ['~/.local/share/amp/secrets.json', '~/.amp/oauth'],
   },
@@ -334,7 +334,7 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.cursor',
-    category: 'Coding CLI',
+    category: 'Coding CLI credential',
     label: 'Cursor CLI credentials',
     paths: [
       '~/.cursor/auth.json',
