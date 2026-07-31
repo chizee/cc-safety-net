@@ -1265,7 +1265,13 @@ function matchesCodingCliPath(
     SECRET_CODING_CLI_RULES.find((rule) => {
       if (!isSecretRuleEnabled(rule.id, config)) return false;
       switch (rule.id) {
-        case 'secret.cli.claude-code': {
+        case 'secret.cli.claude-code':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
+            ['.credentials.json'],
+          );
+        case 'secret.cli.claude-code.config': {
           // Project-level configs live at unbounded repo roots, so match by name: a
           // settings.local.json inside a .claude dir (the gitignored personal override;
           // team-shared settings.json is deliberately excluded), or any .mcp.json.
@@ -1274,7 +1280,7 @@ function matchesCodingCliPath(
             matchesFileInRoot(
               normalized,
               codingCliRoot(process.env.CLAUDE_CONFIG_DIR, '~/.claude', cwd, budget),
-              ['settings.json', 'settings.local.json', '.credentials.json'],
+              ['settings.json', 'settings.local.json'],
             ) ||
             matchesExactPath(normalized, '~/.claude.json', cwd, budget) ||
             (segments.at(-1) === 'settings.local.json' && segments.at(-2) === '.claude') ||
@@ -1286,13 +1292,16 @@ function matchesCodingCliPath(
         case 'secret.cli.codex': {
           const root = codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget);
           return (
-            matchesFileInRoot(normalized, root, [
-              'config.toml',
-              'auth.json',
-              '.credentials.json',
-            ]) || matchesDirInRoot(normalized, root, ['secrets', '.sandbox-secrets'])
+            matchesFileInRoot(normalized, root, ['auth.json', '.credentials.json']) ||
+            matchesDirInRoot(normalized, root, ['secrets', '.sandbox-secrets'])
           );
         }
+        case 'secret.cli.codex.config':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
+            ['config.toml'],
+          );
         case 'secret.cli.gemini':
           return matchesFileInRoot(
             normalized,
@@ -1301,10 +1310,14 @@ function matchesCodingCliPath(
               'oauth_creds.json',
               'mcp-oauth-tokens.json',
               'a2a-oauth-tokens.json',
-              'google_accounts.json',
-              'settings.json',
               'gemini-credentials.json',
             ],
+          );
+        case 'secret.cli.gemini.config':
+          return matchesFileInRoot(
+            normalized,
+            appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
+            ['settings.json', 'google_accounts.json'],
           );
         case 'secret.cli.copilot-cli': {
           const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
@@ -1322,19 +1335,26 @@ function matchesCodingCliPath(
           );
           const legacyRoot = codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd, budget);
           return (
-            matchesFileInRoot(normalized, currentRoot, [
-              'config.toml',
-              'mcp.json',
-              'server.token',
-            ]) ||
+            matchesFileInRoot(normalized, currentRoot, ['server.token']) ||
             matchesDirInRoot(normalized, currentRoot, ['credentials']) ||
-            matchesFileInRoot(normalized, legacyRoot, [
-              'config.toml',
-              'config.json',
-              'config.json.bak',
-              'mcp.json',
-            ]) ||
             matchesDirInRoot(normalized, legacyRoot, ['credentials', 'mcp-oauth'])
+          );
+        }
+        case 'secret.cli.kimi-code.config': {
+          const configFiles = ['config.toml', 'mcp.json'];
+          return (
+            matchesFileInRoot(
+              normalized,
+              codingCliRoot(process.env.KIMI_CODE_HOME, '~/.kimi-code', cwd, budget),
+              configFiles,
+            ) ||
+            matchesFileInRoot(
+              normalized,
+              codingCliRoot(process.env.KIMI_SHARE_DIR, '~/.kimi', cwd, budget),
+              // The legacy JSON config holds the same provider keys as config.toml, and
+              // the migration leaves the old file behind as config.json.bak.
+              [...configFiles, 'config.json', 'config.json.bak'],
+            )
           );
         }
         case 'secret.cli.opencode': {
@@ -1342,15 +1362,6 @@ function matchesCodingCliPath(
             codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd, budget),
             'opencode',
           );
-          const configRoot = process.env.OPENCODE_CONFIG_DIR
-            ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd, budget)
-            : appendPath(
-                codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget),
-                'opencode',
-              );
-          const programDataConfig = process.env.ProgramData
-            ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
-            : [];
           // The credential database runs in WAL mode, so the -wal and -shm files hold
           // the newest rows. A release channel renames the file to opencode-<channel>.db.
           const databaseName = comparable(normalized).split('/').at(-1) ?? '';
@@ -1363,7 +1374,20 @@ function matchesCodingCliPath(
             matchesFileInRoot(normalized, dataRoot, ['auth.json', 'mcp-auth.json']) ||
             (/^opencode(-.+)?\.db(-wal|-shm)?$/.test(databaseName) &&
               matchesFileInRoot(normalized, dataRoot, [databaseName])) ||
-            databaseEnvPaths.some((path) => matchesExactPath(normalized, path, cwd, budget)) ||
+            databaseEnvPaths.some((path) => matchesExactPath(normalized, path, cwd, budget))
+          );
+        }
+        case 'secret.cli.opencode.config': {
+          const configRoot = process.env.OPENCODE_CONFIG_DIR
+            ? codingCliRoot(process.env.OPENCODE_CONFIG_DIR, '~/.config/opencode', cwd, budget)
+            : appendPath(
+                codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget),
+                'opencode',
+              );
+          const programDataConfig = process.env.ProgramData
+            ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
+            : [];
+          return (
             matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
             (process.env.OPENCODE_CONFIG?.trim()
               ? matchesExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget)

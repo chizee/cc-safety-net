@@ -183,10 +183,15 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.claude-code',
     category: 'Coding CLI',
     label: 'Claude Code credentials',
+    paths: ['~/.claude/.credentials.json'],
+  },
+  {
+    id: 'secret.cli.claude-code.config',
+    category: 'Coding CLI config',
+    label: 'Claude Code config',
     paths: [
       '~/.claude/settings.json',
       '~/.claude/settings.local.json',
-      '~/.claude/.credentials.json',
       '~/.claude.json',
       '<project>/.claude/settings.local.json',
       '<project>/.mcp.json',
@@ -194,8 +199,8 @@ export const SECRET_CODING_CLI_RULES = [
   },
   {
     id: 'secret.cli.antigravity',
-    category: 'Coding CLI',
-    label: 'Antigravity CLI credentials',
+    category: 'Coding CLI config',
+    label: 'Antigravity CLI hook config',
     paths: ['~/.gemini/config/hooks.json'],
   },
   {
@@ -203,12 +208,17 @@ export const SECRET_CODING_CLI_RULES = [
     category: 'Coding CLI',
     label: 'Codex credentials',
     paths: [
-      '~/.codex/config.toml',
       '~/.codex/auth.json',
       '~/.codex/.credentials.json',
       '~/.codex/secrets',
       '~/.codex/.sandbox-secrets',
     ],
+  },
+  {
+    id: 'secret.cli.codex.config',
+    category: 'Coding CLI config',
+    label: 'Codex config',
+    paths: ['~/.codex/config.toml'],
   },
   {
     id: 'secret.cli.gemini',
@@ -218,10 +228,14 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.gemini/oauth_creds.json',
       '~/.gemini/mcp-oauth-tokens.json',
       '~/.gemini/a2a-oauth-tokens.json',
-      '~/.gemini/google_accounts.json',
-      '~/.gemini/settings.json',
       '~/.gemini/gemini-credentials.json',
     ],
+  },
+  {
+    id: 'secret.cli.gemini.config',
+    category: 'Coding CLI config',
+    label: 'Gemini CLI config',
+    paths: ['~/.gemini/settings.json', '~/.gemini/google_accounts.json'],
   },
   {
     id: 'secret.cli.copilot-cli',
@@ -234,16 +248,23 @@ export const SECRET_CODING_CLI_RULES = [
     category: 'Coding CLI',
     label: 'Kimi Code credentials',
     paths: [
-      '~/.kimi-code/config.toml',
-      '~/.kimi-code/mcp.json',
       '~/.kimi-code/server.token',
       '~/.kimi-code/credentials',
+      '~/.kimi/credentials',
+      '~/.kimi/mcp-oauth',
+    ],
+  },
+  {
+    id: 'secret.cli.kimi-code.config',
+    category: 'Coding CLI config',
+    label: 'Kimi Code config',
+    paths: [
+      '~/.kimi-code/config.toml',
+      '~/.kimi-code/mcp.json',
       '~/.kimi/config.toml',
       '~/.kimi/config.json',
       '~/.kimi/config.json.bak',
       '~/.kimi/mcp.json',
-      '~/.kimi/credentials',
-      '~/.kimi/mcp-oauth',
     ],
   },
   {
@@ -254,6 +275,13 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.local/share/opencode/auth.json',
       '~/.local/share/opencode/mcp-auth.json',
       '~/.local/share/opencode/opencode.db',
+    ],
+  },
+  {
+    id: 'secret.cli.opencode.config',
+    category: 'Coding CLI config',
+    label: 'OpenCode config',
+    paths: [
       '~/.config/opencode/opencode.json',
       '~/.config/opencode/opencode.jsonc',
       '/Library/Application Support/opencode/opencode.json',

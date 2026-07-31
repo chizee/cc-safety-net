@@ -60,12 +60,17 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext.pem');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext-pattern.sql');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.claude-code');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.claude-code.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.antigravity');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.codex');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.codex.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.gemini');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.gemini.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.copilot-cli');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.kimi-code');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.kimi-code.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.opencode');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.opencode.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.pi');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.amp');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor');
@@ -74,6 +79,17 @@ describe('secret protection rule metadata', () => {
       expect(entry.label).not.toBe('');
       expect('paths' in entry ? entry.paths.length > 0 : entry.description !== '').toBe(true);
     }
+  });
+
+  test('separates coding CLI credential rules from coding CLI config rules', () => {
+    for (const rule of SECRET_CODING_CLI_RULES) {
+      // Antigravity has no file credential store, so its only tier is config.
+      const configTier = rule.id.endsWith('.config') || rule.id === 'secret.cli.antigravity';
+      expect(rule.category, rule.id).toBe(configTier ? 'Coding CLI config' : 'Coding CLI');
+    }
+    expect(
+      SECRET_CODING_CLI_RULES.find((rule) => rule.id === 'secret.cli.antigravity')?.label,
+    ).toBe('Antigravity CLI hook config');
   });
 });
 
@@ -1589,8 +1605,8 @@ describe('secret protection coding CLI credential locations', () => {
         ['~/.codex/secrets/codex_auth.age', 'secret.cli.codex'],
         ['~/.codex/.sandbox-secrets/sandbox_users.json', 'secret.cli.codex'],
         ['~/.copilot/mcp-secrets/server.json', 'secret.cli.copilot-cli'],
-        ['~/.kimi/config.json', 'secret.cli.kimi-code'],
-        ['~/.kimi/config.json.bak', 'secret.cli.kimi-code'],
+        ['~/.kimi/config.json', 'secret.cli.kimi-code.config'],
+        ['~/.kimi/config.json.bak', 'secret.cli.kimi-code.config'],
       ] as const) {
         expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
       }
@@ -1689,7 +1705,7 @@ describe('secret protection coding CLI credential locations', () => {
         '/opt/work/repo/.mcp.json',
       ]) {
         expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
-          'secret.cli.claude-code',
+          'secret.cli.claude-code.config',
         );
       }
     });
