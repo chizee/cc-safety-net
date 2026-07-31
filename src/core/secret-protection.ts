@@ -1288,7 +1288,11 @@ function matchesCodingCliPath(
           );
         }
         case 'secret.cli.antigravity':
-          return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
+          return matchesFileInRoot(
+            normalized,
+            normalizeCandidatePath('~/.gemini/config', cwd, budget),
+            ['hooks.json', 'mcp_config.json'],
+          );
         case 'secret.cli.codex': {
           const root = codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget);
           return (
@@ -1296,12 +1300,16 @@ function matchesCodingCliPath(
             matchesDirInRoot(normalized, root, ['secrets', '.sandbox-secrets'])
           );
         }
-        case 'secret.cli.codex.config':
-          return matchesFileInRoot(
-            normalized,
-            codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
-            ['config.toml'],
+        case 'secret.cli.codex.config': {
+          // A named profile lives beside config.toml as <name>.config.toml. Anchor
+          // it to the Codex root, so a project file with that suffix stays allowed.
+          const root = codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget);
+          const name = comparable(normalized).split('/').at(-1) ?? '';
+          return (
+            matchesFileInRoot(normalized, root, ['config.toml']) ||
+            (name.endsWith('.config.toml') && matchesFileInRoot(normalized, root, [name]))
           );
+        }
         case 'secret.cli.gemini':
           return matchesFileInRoot(
             normalized,
@@ -1313,12 +1321,39 @@ function matchesCodingCliPath(
               'gemini-credentials.json',
             ],
           );
-        case 'secret.cli.gemini.config':
-          return matchesFileInRoot(
-            normalized,
-            appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
-            ['settings.json', 'google_accounts.json'],
+        case 'secret.cli.gemini.config': {
+          // Workspace settings sit in a .gemini directory at any repository root, and
+          // system settings come from an override or one of three managed roots.
+          const segments = comparable(normalized).split('/');
+          const programDataConfig = process.env.ProgramData
+            ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'gemini-cli')]
+            : [];
+          return (
+            matchesFileInRoot(
+              normalized,
+              appendPath(codingCliRoot(process.env.GEMINI_CLI_HOME, '~', cwd, budget), '.gemini'),
+              ['settings.json', 'google_accounts.json'],
+            ) ||
+            (segments.at(-1) === 'settings.json' && segments.at(-2) === '.gemini') ||
+            (process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH?.trim()
+              ? matchesExactPath(
+                  normalized,
+                  process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH,
+                  cwd,
+                  budget,
+                )
+              : false) ||
+            [
+              '/Library/Application Support/GeminiCli',
+              '/etc/gemini-cli',
+              ...programDataConfig,
+            ].some((root) =>
+              matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
+                'settings.json',
+              ]),
+            )
           );
+        }
         case 'secret.cli.copilot-cli': {
           const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
           return (
@@ -1326,6 +1361,12 @@ function matchesCodingCliPath(
             matchesDirInRoot(normalized, root, ['mcp-oauth-config', 'mcp-secrets'])
           );
         }
+        case 'secret.cli.copilot-cli.config':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget),
+            ['mcp-config.json'],
+          );
         case 'secret.cli.kimi-code': {
           const currentRoot = codingCliRoot(
             process.env.KIMI_CODE_HOME,
@@ -1342,7 +1383,9 @@ function matchesCodingCliPath(
         }
         case 'secret.cli.kimi-code.config': {
           const configFiles = ['config.toml', 'mcp.json'];
+          const segments = comparable(normalized).split('/');
           return (
+            (segments.at(-1) === 'mcp.json' && segments.at(-2) === '.kimi-code') ||
             matchesFileInRoot(
               normalized,
               codingCliRoot(process.env.KIMI_CODE_HOME, '~/.kimi-code', cwd, budget),
@@ -1387,17 +1430,21 @@ function matchesCodingCliPath(
           const programDataConfig = process.env.ProgramData
             ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
             : [];
+          // A project config sits at any repository root, so match the basename alone.
+          const configNames = ['opencode.json', 'opencode.jsonc'];
           return (
-            matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
+            configNames.includes(comparable(normalized).split('/').at(-1) ?? '') ||
+            matchesFileInRoot(normalized, configRoot, configNames) ||
             (process.env.OPENCODE_CONFIG?.trim()
               ? matchesExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget)
               : false) ||
             ['/Library/Application Support/opencode', '/etc/opencode', ...programDataConfig].some(
               (root) =>
-                matchesFileInRoot(normalized, normalizeCandidatePath(root, cwd, budget), [
-                  'opencode.json',
-                  'opencode.jsonc',
-                ]),
+                matchesFileInRoot(
+                  normalized,
+                  normalizeCandidatePath(root, cwd, budget),
+                  configNames,
+                ),
             )
           );
         }
@@ -1406,6 +1453,12 @@ function matchesCodingCliPath(
             normalized,
             codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
             ['auth.json'],
+          );
+        case 'secret.cli.pi.config':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
+            ['models.json'],
           );
         case 'secret.cli.amp': {
           // Amp ships two resolvers for the same data directory: one reads
@@ -1422,6 +1475,25 @@ function matchesCodingCliPath(
           return (
             dataRoots.some((root) => matchesFileInRoot(normalized, root, ['secrets.json'])) ||
             matchesDirInRoot(normalized, appendPath(home, '.amp'), ['oauth'])
+          );
+        }
+        case 'secret.cli.amp.config': {
+          // Amp resolves the config directory with the same two resolvers as the
+          // data directory, and it falls back to settings.jsonc when settings.json
+          // is absent. The workspace file is found by an upward search, so it can
+          // sit in any ancestor directory and needs a segment test.
+          const settingsNames = ['settings.json', 'settings.jsonc'];
+          const configRoots = [
+            appendPath(codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget), 'amp'),
+            appendPath(normalizeCandidatePath('~', cwd, budget), '.config', 'amp'),
+          ];
+          const segments = comparable(normalized).split('/');
+          return (
+            configRoots.some((root) => matchesFileInRoot(normalized, root, settingsNames)) ||
+            (segments.at(-2) === '.amp' && settingsNames.includes(segments.at(-1) ?? '')) ||
+            (process.env.AMP_SETTINGS_FILE?.trim()
+              ? matchesExactPath(normalized, process.env.AMP_SETTINGS_FILE, cwd, budget)
+              : false)
           );
         }
         case 'secret.cli.cursor': {
@@ -1445,6 +1517,12 @@ function matchesCodingCliPath(
             (comparable(normalized).split('/').at(-1) === 'mcp-auth.json' &&
               isSameOrChildPath(comparable(normalized), comparable(projectsRoot)))
           );
+        }
+        case 'secret.cli.cursor.config': {
+          // The user file and the project file both sit directly in a .cursor
+          // directory, so one segment test covers both.
+          const segments = comparable(normalized).split('/');
+          return segments.at(-1) === 'mcp.json' && segments.at(-2) === '.cursor';
         }
         default:
           return false;

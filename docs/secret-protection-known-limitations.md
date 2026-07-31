@@ -141,3 +141,27 @@ The deny-path matcher itself stays fail-safe and unvalidated:
 `denyPaths: ['/']` matches everything at the matcher level, so a
 home-covering value that reaches the matcher from outside a validated config
 still blocks rather than being silently ignored.
+
+## Known Limitation: Operating-System Keyrings
+
+Some coding CLI tools keep the primary login token in the operating-system
+keyring. A keyring entry has no file path. Thus no path rule can protect it.
+This applies to the primary login of Antigravity CLI, Claude Code on macOS,
+Copilot CLI, Cursor on macOS, and Gemini CLI. For these products, the path
+rules protect the related credential and configuration files only.
+
+## Known Limitation: Windows Path Forms
+
+The path matcher does no `%VAR%` expansion. It does not read `%APPDATA%` or
+`%USERPROFILE%`. A rule anchored to `~` thus covers a Windows host only when
+the process resolves `~` to the same directory. No failure from a Windows host
+is reported. Examine this limit again after the first report from a Windows
+host.
+
+## Known Limitation: `.envrc` Files
+
+An `.envrc` file can export credentials into the environment. CC Safety Net
+does not block it. This is a decision, not a gap. Most `.envrc` files hold
+`use flake`, `layout python`, or `PATH` edits. A block on this name thus stops
+routine shell work. The `.env` files that hold the values are already
+protected.

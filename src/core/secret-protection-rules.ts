@@ -201,7 +201,7 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.antigravity',
     category: 'Coding CLI config',
     label: 'Antigravity CLI hook config',
-    paths: ['~/.gemini/config/hooks.json'],
+    paths: ['~/.gemini/config/hooks.json', '~/.gemini/config/mcp_config.json'],
   },
   {
     id: 'secret.cli.codex',
@@ -218,7 +218,7 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.codex.config',
     category: 'Coding CLI config',
     label: 'Codex config',
-    paths: ['~/.codex/config.toml'],
+    paths: ['~/.codex/config.toml', '~/.codex/<name>.config.toml'],
   },
   {
     id: 'secret.cli.gemini',
@@ -235,13 +235,25 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.gemini.config',
     category: 'Coding CLI config',
     label: 'Gemini CLI config',
-    paths: ['~/.gemini/settings.json', '~/.gemini/google_accounts.json'],
+    paths: [
+      '~/.gemini/settings.json',
+      '~/.gemini/google_accounts.json',
+      '<project>/.gemini/settings.json',
+      '/Library/Application Support/GeminiCli/settings.json',
+      '/etc/gemini-cli/settings.json',
+    ],
   },
   {
     id: 'secret.cli.copilot-cli',
     category: 'Coding CLI',
     label: 'GitHub Copilot CLI credentials',
     paths: ['~/.copilot/config.json', '~/.copilot/mcp-oauth-config', '~/.copilot/mcp-secrets'],
+  },
+  {
+    id: 'secret.cli.copilot-cli.config',
+    category: 'Coding CLI config',
+    label: 'GitHub Copilot CLI config',
+    paths: ['~/.copilot/mcp-config.json'],
   },
   {
     id: 'secret.cli.kimi-code',
@@ -265,6 +277,7 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.kimi/config.json',
       '~/.kimi/config.json.bak',
       '~/.kimi/mcp.json',
+      '<project>/.kimi-code/mcp.json',
     ],
   },
   {
@@ -286,6 +299,8 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.config/opencode/opencode.jsonc',
       '/Library/Application Support/opencode/opencode.json',
       '/etc/opencode/opencode.json',
+      '<project>/opencode.json',
+      '<project>/opencode.jsonc',
     ],
   },
   {
@@ -295,10 +310,27 @@ export const SECRET_CODING_CLI_RULES = [
     paths: ['~/.pi/agent/auth.json'],
   },
   {
+    id: 'secret.cli.pi.config',
+    category: 'Coding CLI config',
+    label: 'Pi config',
+    paths: ['~/.pi/agent/models.json'],
+  },
+  {
     id: 'secret.cli.amp',
     category: 'Coding CLI',
     label: 'Amp Code credentials',
     paths: ['~/.local/share/amp/secrets.json', '~/.amp/oauth'],
+  },
+  {
+    id: 'secret.cli.amp.config',
+    category: 'Coding CLI config',
+    label: 'Amp Code config',
+    paths: [
+      '~/.config/amp/settings.json',
+      '~/.config/amp/settings.jsonc',
+      '<project>/.amp/settings.json',
+      '<project>/.amp/settings.jsonc',
+    ],
   },
   {
     id: 'secret.cli.cursor',
@@ -309,6 +341,12 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.config/cursor/auth.json',
       '~/.cursor/projects/<name>/mcp-auth.json',
     ],
+  },
+  {
+    id: 'secret.cli.cursor.config',
+    category: 'Coding CLI config',
+    label: 'Cursor CLI config',
+    paths: ['~/.cursor/mcp.json', '<project>/.cursor/mcp.json'],
   },
 ] as const satisfies readonly SecretProtectionCodingCliRule[];
 

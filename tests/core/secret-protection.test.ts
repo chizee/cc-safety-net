@@ -67,13 +67,17 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.gemini');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.gemini.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.copilot-cli');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.copilot-cli.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.kimi-code');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.kimi-code.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.opencode');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.opencode.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.pi');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.pi.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.amp');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.amp.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor.config');
     for (const entry of SECRET_PROTECTION_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
@@ -1541,6 +1545,8 @@ describe('secret protection coding CLI credential locations', () => {
     OPENCODE_DB: '',
     PI_CODING_AGENT_DIR: '',
     CURSOR_DATA_DIR: '',
+    AMP_SETTINGS_FILE: '',
+    GEMINI_CLI_SYSTEM_SETTINGS_PATH: '',
   };
 
   test('blocks every path the coding CLI rule metadata advertises', () => {
@@ -1637,6 +1643,139 @@ describe('secret protection coding CLI credential locations', () => {
     });
   });
 
+  test('blocks Amp Code user settings under both config roots', () => {
+    const home = join(tmpdir(), 'secret-protection-amp-home');
+    const cwd = join(home, 'project');
+    const xdgConfig = join(home, 'xdg-config');
+
+    withEnv({ ...defaultCodingCliEnv, HOME: home }, () => {
+      for (const target of ['~/.config/amp/settings.json', '~/.config/amp/settings.jsonc']) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
+          'secret.cli.amp.config',
+        );
+      }
+    });
+
+    withEnv({ ...defaultCodingCliEnv, HOME: home, XDG_CONFIG_HOME: xdgConfig }, () => {
+      for (const target of [
+        join(xdgConfig, 'amp', 'settings.json'),
+        join(home, '.config', 'amp', 'settings.jsonc'),
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
+          'secret.cli.amp.config',
+        );
+      }
+    });
+  });
+
+  test('blocks Amp Code workspace settings at any ancestor directory', () => {
+    const root = join(tmpdir(), 'secret-protection-amp-workspace');
+    const cwd = join(root, 'packages', 'app');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        join(cwd, '.amp', 'settings.json'),
+        join(cwd, '.amp', 'settings.jsonc'),
+        join(root, '.amp', 'settings.json'),
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
+          'secret.cli.amp.config',
+        );
+      }
+    });
+  });
+
+  test('blocks the AMP_SETTINGS_FILE path only when the variable has a value', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const settings = join(tmpdir(), 'secret-protection-amp-settings', 'amp.json');
+
+    withEnv({ ...defaultCodingCliEnv, AMP_SETTINGS_FILE: settings }, () => {
+      expect(findSensitivePathTarget([settings], cwd)?.ruleId).toBe('secret.cli.amp.config');
+    });
+
+    withEnv(defaultCodingCliEnv, () => {
+      expect(findSensitivePathTarget([settings], cwd)).toBeNull();
+    });
+  });
+
+  test('blocks Cursor MCP config in the user and project roots', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        '~/.cursor/mcp.json',
+        join(cwd, '.cursor', 'mcp.json'),
+        join(cwd, 'nested', 'repo', '.cursor', 'mcp.json'),
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(
+          'secret.cli.cursor.config',
+        );
+      }
+    });
+  });
+
+  test('blocks mixed config files for the remaining coding CLI products', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const [target, ruleId] of [
+        ['~/.gemini/config/mcp_config.json', 'secret.cli.antigravity'],
+        ['~/.copilot/mcp-config.json', 'secret.cli.copilot-cli.config'],
+        ['~/.pi/agent/models.json', 'secret.cli.pi.config'],
+        [join(cwd, '.kimi-code', 'mcp.json'), 'secret.cli.kimi-code.config'],
+        ['~/.codex/work.config.toml', 'secret.cli.codex.config'],
+        [join(cwd, 'opencode.json'), 'secret.cli.opencode.config'],
+        [join(cwd, 'opencode.jsonc'), 'secret.cli.opencode.config'],
+        // The basename alone decides, so a nested repository config blocks too.
+        [join(cwd, 'nested', 'repo', 'opencode.json'), 'secret.cli.opencode.config'],
+        [join(cwd, '.gemini', 'settings.json'), 'secret.cli.gemini.config'],
+        ['/Library/Application Support/GeminiCli/settings.json', 'secret.cli.gemini.config'],
+        ['/etc/gemini-cli/settings.json', 'secret.cli.gemini.config'],
+      ] as const) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
+      }
+    });
+  });
+
+  test('blocks Windows ProgramData Gemini CLI system settings when available', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const programData = join(tmpdir(), 'secret-protection-program-data');
+
+    withEnv({ ...defaultCodingCliEnv, ProgramData: programData }, () => {
+      expect(
+        findSensitivePathTarget([join(programData, 'gemini-cli', 'settings.json')], cwd)?.ruleId,
+      ).toBe('secret.cli.gemini.config');
+    });
+  });
+
+  test('honors relocation overrides for the coding CLI config files', () => {
+    const home = join(tmpdir(), 'secret-protection-cli-config-home');
+    const cwd = join(home, 'project');
+    const env = {
+      ...defaultCodingCliEnv,
+      HOME: home,
+      CODEX_HOME: join(home, 'state', 'codex'),
+      COPILOT_HOME: join(home, 'state', 'copilot'),
+      KIMI_CODE_HOME: join(home, 'state', 'kimi-code'),
+      PI_CODING_AGENT_DIR: join(home, 'state', 'pi-agent'),
+      GEMINI_CLI_SYSTEM_SETTINGS_PATH: join(home, 'managed', 'gemini-settings.json'),
+    };
+
+    withEnv(env, () => {
+      for (const [target, ruleId] of [
+        [join(env.CODEX_HOME, 'work.config.toml'), 'secret.cli.codex.config'],
+        [join(env.COPILOT_HOME, 'mcp-config.json'), 'secret.cli.copilot-cli.config'],
+        // The renamed root proves the user-root match survives when the directory
+        // name no longer matches the .kimi-code segment test.
+        [join(env.KIMI_CODE_HOME, 'mcp.json'), 'secret.cli.kimi-code.config'],
+        [join(env.PI_CODING_AGENT_DIR, 'models.json'), 'secret.cli.pi.config'],
+        [env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, 'secret.cli.gemini.config'],
+      ] as const) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
+      }
+    });
+  });
+
   test('blocks the OpenCode credential database and its support files', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -1684,10 +1823,15 @@ describe('secret protection coding CLI credential locations', () => {
         '~/.copilot/mcp-secrets-old/x.json',
         '~/.amp/threads/thread.json',
         '~/.amp/oauth-backup/x.json',
+        '~/.config/amp/mcp.log',
+        join(tmpdir(), 'secret-protection-project', '.amp', 'threads', 'x.json'),
+        '~/.cursor/mcp.json.bak',
         '~/.cursor/projects/my-repo/state.json',
         '~/.cursor/rules/team.md',
         '~/.cursor/extensions/x/package.json',
         '~/.local/share/opencode/sessions/x.db',
+        join(tmpdir(), 'secret-protection-project', '.gemini', 'config.yaml'),
+        join(tmpdir(), 'secret-protection-project', 'opencode.log'),
       ]) {
         expect(findSensitivePathTarget([target], cwd), target).toBeNull();
       }
@@ -1813,14 +1957,10 @@ describe('secret protection coding CLI credential locations', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     for (const target of [
-      'opencode.json',
-      'opencode.jsonc',
       'auth.json',
       'config.toml',
       'settings.json',
       'mcp.json',
-      'src/opencode.json',
-      '/tmp/opencode.json',
       '/tmp/auth.json',
       '/tmp/config.toml',
       '/tmp/settings.json',
