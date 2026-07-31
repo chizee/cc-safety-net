@@ -85,10 +85,13 @@ describe('rule leaf help', () => {
 
 async function captureRuleCommand(args: string[]) {
   const originalLog = console.log;
+  const originalError = console.error;
   const output: string[] = [];
   console.log = (...parts: unknown[]) => output.push(parts.map(String).join(' '));
+  console.error = (...parts: unknown[]) => output.push(parts.map(String).join(' '));
   const exitCode = await runRuleCommand(args).finally(() => {
     console.log = originalLog;
+    console.error = originalError;
   });
   return { exitCode, output: output.join('\n') };
 }

@@ -292,6 +292,7 @@ describe('getCCSafetyNetEnvModes', () => {
 
   test('invalid env level is ignored', () => {
     process.env.CC_SAFETY_NET_LEVEL = 'bananas';
+    const spy = spyOn(console, 'error').mockImplementation(() => {});
 
     expect(getCCSafetyNetEnvModes()).toMatchObject({
       strict: false,
@@ -300,6 +301,7 @@ describe('getCCSafetyNetEnvModes', () => {
       effectiveLevel: 'standard',
     });
 
+    spy.mockRestore();
     delete process.env.CC_SAFETY_NET_LEVEL;
   });
 });
