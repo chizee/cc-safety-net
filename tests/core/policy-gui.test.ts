@@ -10,6 +10,7 @@ import { getCCSafetyNetEnvModes } from '@/core/env';
 import {
   DEFAULT_GUI_POLICY,
   DESTRUCTIVE_COMMAND_RULE_METADATA,
+  loadPolicyConfig,
   previewUserPolicyForGui,
   readUserPolicyForGui,
   repairUserPolicyForGui,
@@ -100,7 +101,7 @@ describe('policy GUI helpers', () => {
     );
     expect(invalidOverrides.errors).toContain('unknown secret protection rule id "secret.unknown"');
     expect(invalidOverrides.errors).toContain(
-      'secret_protection.overrides.secret.ext.pem must be "off"',
+      'secret_protection.overrides.secret.ext.pem must be "on" or "off"',
     );
   });
 
@@ -376,6 +377,62 @@ describe('policy GUI helpers', () => {
     expect(SECRET_PROTECTION_RULE_METADATA[0]).toMatchObject({
       id: 'secret.basename.env',
       category: 'Basename',
+    });
+  });
+
+  describe('coding CLI config rules are off by default', () => {
+    const idsInCategory = (category: string) =>
+      SECRET_PROTECTION_RULE_METADATA.filter((rule) => rule.category === category).map(
+        (rule) => rule.id,
+      );
+    const writePolicy = (overrides: Record<string, string>) => {
+      mkdirSync(safetyNetHome, { recursive: true });
+      writeFileSync(
+        join(safetyNetHome, 'policy.json'),
+        JSON.stringify({ version: 1, secret_protection: { enabled: true, overrides } }),
+        'utf-8',
+      );
+    };
+    const disabled = () =>
+      loadPolicyConfig({ userConfigDir: join(safetyNetHome, 'rules') }).secretProtection
+        .disabledRules ?? new Set<string>();
+
+    test('a missing policy file disables every coding CLI config rule', () => {
+      const configIds = idsInCategory('Coding CLI config');
+      const resolved = disabled();
+
+      expect(configIds.length).toBeGreaterThan(0);
+      for (const id of configIds) expect(resolved.has(id), id).toBe(true);
+    });
+
+    test('a missing policy file leaves every other rule enabled', () => {
+      const resolved = disabled();
+
+      for (const id of idsInCategory('Coding CLI credential')) {
+        expect(resolved.has(id), id).toBe(false);
+      }
+      expect(resolved.has('secret.basename.env')).toBe(false);
+    });
+
+    test('an on override re-enables a single coding CLI config rule', () => {
+      writePolicy({ 'secret.cli.gemini.config': 'on' });
+      const resolved = disabled();
+
+      expect(resolved.has('secret.cli.gemini.config')).toBe(false);
+      expect(resolved.has('secret.cli.codex.config')).toBe(true);
+    });
+
+    test('an off override still disables a credential rule', () => {
+      writePolicy({ 'secret.cli.codex': 'off' });
+
+      expect(disabled().has('secret.cli.codex')).toBe(true);
+    });
+
+    test('reset restores the default, so config rules go back off', () => {
+      writePolicy({ 'secret.cli.gemini.config': 'on' });
+      writeUserPolicyFromGui(DEFAULT_GUI_POLICY, { userConfigDir: join(safetyNetHome, 'rules') });
+
+      expect(disabled().has('secret.cli.gemini.config')).toBe(true);
     });
   });
 });

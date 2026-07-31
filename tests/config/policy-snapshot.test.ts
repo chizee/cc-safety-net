@@ -228,7 +228,9 @@ describe('policy snapshots', () => {
       expect(salvaged.policy.destructiveCommandRuleOverrides).toEqual({});
       expect(salvaged.policy.destructiveCommandAllowPaths).toEqual([]);
       expect(salvaged.policy.secretProtection.enabled).toBeTrue();
-      expect(salvaged.policy.secretProtection.disabledRules).toEqual([]);
+      // The salvaged policy still applies the built-in default-off tier.
+      expect(salvaged.policy.secretProtection.disabledRules).toContain('secret.cli.codex.config');
+      expect(salvaged.policy.secretProtection.disabledRules).not.toContain('secret.cli.codex');
       expect(salvaged.reason).toContain('Enforcing the salvaged policy with protective defaults');
 
       writeFileSync(policyPath, '{"version":1,');

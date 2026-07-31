@@ -11,6 +11,7 @@ import {
 } from '@/core/config';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { validateRulesConfig } from '@/core/rules/policy/config-file';
+import { SECRET_DEFAULT_OFF_RULE_ID_SET } from '@/core/secret-protection-rules';
 import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
 import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers.ts';
 
@@ -376,7 +377,8 @@ describe('runtime config loading', () => {
 
     expect(config.configFallbackReason).toBeUndefined();
     expect(config.destructiveCommandRuleOverrides).toEqual({});
-    expect(config.secretProtection?.disabledRules).toEqual(new Set());
+    // The project override is ignored, so only the built-in default-off tier remains.
+    expect(config.secretProtection?.disabledRules).toEqual(SECRET_DEFAULT_OFF_RULE_ID_SET);
     expect(config.safety).toEqual({});
     expect(config.worktreeMode).toBe(false);
   });
@@ -402,7 +404,7 @@ describe('runtime config loading', () => {
       'destructive_command_protection.overrides.git.reset-hard must be "on" or "off"',
     );
     expect(reason).toContain('unknown secret protection rule id "secret.unknown"');
-    expect(reason).toContain('secret_protection.overrides.secret.ext.pem must be "off"');
+    expect(reason).toContain('secret_protection.overrides.secret.ext.pem must be "on" or "off"');
   });
 
   test('malformed policy JSON degrades without exposing policy bytes', () => {
@@ -434,7 +436,9 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.secretProtection?.enabled).toBe(false);
-    expect([...(config.secretProtection?.disabledRules ?? [])]).toEqual(['secret.ext.pem']);
+    expect(config.secretProtection?.disabledRules).toEqual(
+      new Set([...SECRET_DEFAULT_OFF_RULE_ID_SET, 'secret.ext.pem']),
+    );
     expect(config.secretProtection?.denyPaths).toEqual(['user.key']);
   });
 

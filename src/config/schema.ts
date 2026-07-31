@@ -118,7 +118,7 @@ function createSchemas() {
     paranoid_interpreters: z.boolean().optional(),
   });
   const DestructiveCommandOverridesSchema = z.record(z.string(), z.enum(['on', 'off']));
-  const OffOverridesSchema = z.record(z.string(), z.literal('off'));
+  const SecretOverridesSchema = z.record(z.string(), z.enum(['on', 'off']));
   const UserPolicySchema = z
     .strictObject({
       version: z.literal(1),
@@ -139,7 +139,7 @@ function createSchemas() {
       secret_protection: z
         .strictObject({
           enabled: z.boolean().optional(),
-          overrides: OffOverridesSchema.optional(),
+          overrides: SecretOverridesSchema.optional(),
           deny_paths: z.array(z.string()).optional(),
         })
         .optional(),
@@ -461,7 +461,7 @@ function validateUserSecretPolicy(value: unknown, errors: string[]): void {
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
     errors.push('secret_protection.enabled must be a boolean');
   }
-  validateOffOverrides(
+  validateSecretOverrides(
     value.overrides,
     'secret_protection',
     SECRET_PROTECTION_RULE_ID_SET,
@@ -479,7 +479,7 @@ function validateUserSecretPolicy(value: unknown, errors: string[]): void {
   }
 }
 
-function validateOffOverrides(
+function validateSecretOverrides(
   value: unknown,
   field: string,
   knownIds: ReadonlySet<string>,
@@ -487,7 +487,7 @@ function validateOffOverrides(
   errors: string[],
 ): void {
   validateKnownOverrides(value, field, knownIds, label, errors, (override) =>
-    override === 'off' ? undefined : 'must be "off"',
+    override === 'on' || override === 'off' ? undefined : 'must be "on" or "off"',
   );
 }
 

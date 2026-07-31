@@ -1253,6 +1253,19 @@ const pathLists = {
     },
   }),
 };
+// A default-off rule needs an explicit 'on' override to become active, so the switch state
+// cannot be read from the presence of an override alone.
+const secretRuleIsActive = (rule, overrides) =>
+  overrides[rule.id] ? overrides[rule.id] === 'on' : !rule.defaultOff;
+// A rule that already matches its default keeps no override, so the saved file stays small
+// and a later default change still reaches the user.
+const setSecretOverride = (rule, active) => {
+  if (active === !rule.defaultOff) {
+    delete draftPolicy.secret_protection.overrides[rule.id];
+    return;
+  }
+  draftPolicy.secret_protection.overrides[rule.id] = active ? 'on' : 'off';
+};
 const groupRules = (rules) =>
   rules.reduce((groups, rule) => {
     const group = groups.find((item) => item.category === rule.category);
@@ -1273,7 +1286,9 @@ const renderSecretPatterns = () => {
   );
   const overrides = draftPolicy.secret_protection.overrides;
   const disabled = !draftPolicy.secret_protection.enabled;
-  const disabledCount = Object.keys(overrides).length;
+  const disabledCount = state.secretPatterns.filter(
+    (rule) => !secretRuleIsActive(rule, overrides),
+  ).length;
   qs('secret-summary').textContent = disabled
     ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
     : `${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`;
@@ -1291,7 +1306,7 @@ const renderSecretPatterns = () => {
             );
             const onCount = disabled
               ? 0
-              : allGroupRules.filter((rule) => overrides[rule.id] !== 'off').length;
+              : allGroupRules.filter((rule) => secretRuleIsActive(rule, overrides)).length;
             return `
       <section class="rule-tier">
         <div class="rule-tier-head">
@@ -1303,12 +1318,12 @@ const renderSecretPatterns = () => {
               [allGroupRules.length - onCount, 'off', 'off'],
             ])}</span>
           </button>
-          <input type="checkbox" class="tier-switch" data-secret-group-active="${escapeHtml(group.category)}" ${checkbox(!allGroupRules.every((rule) => overrides[rule.id] === 'off'))} ${disabled ? 'disabled' : ''} aria-label="${escapeHtml(`All ${group.category} protections`)}">
+          <input type="checkbox" class="tier-switch" data-secret-group-active="${escapeHtml(group.category)}" ${checkbox(allGroupRules.some((rule) => secretRuleIsActive(rule, overrides)))} ${disabled ? 'disabled' : ''} aria-label="${escapeHtml(`All ${group.category} protections`)}">
         </div>
         <div id="${contentId}" class="tier-content" ${expanded ? '' : 'hidden'}>
         <div class="grid">${group.rules
           .map((rule) => {
-            const active = overrides[rule.id] !== 'off';
+            const active = secretRuleIsActive(rule, overrides);
             const ruleState =
               active && !disabled
                 ? { label: 'Active', className: 'state-active' }
@@ -1924,11 +1939,7 @@ document.addEventListener('change', (event) => {
     state.secretPatterns
       .filter((rule) => rule.category === input.dataset.secretGroupActive)
       .forEach((rule) => {
-        if (input.checked) {
-          delete draftPolicy.secret_protection.overrides[rule.id];
-          return;
-        }
-        draftPolicy.secret_protection.overrides[rule.id] = 'off';
+        setSecretOverride(rule, input.checked);
       });
     renderSecretPatterns();
     syncRawFromForm();
@@ -1936,8 +1947,10 @@ document.addEventListener('change', (event) => {
     return;
   }
   if (input.dataset?.secretActive) {
-    if (input.checked) delete draftPolicy.secret_protection.overrides[input.dataset.secretActive];
-    else draftPolicy.secret_protection.overrides[input.dataset.secretActive] = 'off';
+    setSecretOverride(
+      state.secretPatterns.find((rule) => rule.id === input.dataset.secretActive),
+      input.checked,
+    );
     renderSecretPatterns();
     syncRawFromForm();
     updateDirtyStatus();

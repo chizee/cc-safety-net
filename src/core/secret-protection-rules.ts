@@ -178,6 +178,8 @@ export const SECRET_HOME_PATH_RULES = [
   },
 ] as const satisfies readonly SecretProtectionMatcherRule[];
 
+const SECRET_CODING_CLI_CONFIG_CATEGORY = 'Coding CLI config';
+
 export const SECRET_CODING_CLI_RULES = [
   {
     id: 'secret.cli.claude-code',
@@ -466,8 +468,17 @@ export const SECRET_PROTECTION_RULE_METADATA = [
   id: rule.id,
   category: rule.category,
   label: rule.label,
+  ...(rule.category === SECRET_CODING_CLI_CONFIG_CATEGORY ? { defaultOff: true } : {}),
   ...('paths' in rule ? { paths: rule.paths } : { description: rule.description }),
 }));
+
+// Mixed settings and MCP config files carry credentials inline, but agents edit them as
+// routine work, so this tier ships off and the user opts in.
+export const SECRET_DEFAULT_OFF_RULE_ID_SET = new Set<string>(
+  SECRET_CODING_CLI_RULES.flatMap((rule) =>
+    rule.category === SECRET_CODING_CLI_CONFIG_CATEGORY ? [rule.id] : [],
+  ),
+);
 
 /** @internal */
 export const SECRET_PROTECTION_RULE_IDS = SECRET_PROTECTION_RULE_METADATA.map((rule) => rule.id);

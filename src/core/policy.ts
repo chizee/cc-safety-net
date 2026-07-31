@@ -7,7 +7,10 @@ import {
   resolveEffectiveDestructiveCommandRules,
 } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
-import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
+import {
+  SECRET_DEFAULT_OFF_RULE_ID_SET,
+  SECRET_PROTECTION_RULE_ID_SET,
+} from '@/core/secret-protection-rules';
 
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/core/secret-protection-rules';
@@ -466,6 +469,16 @@ function readPolicyConfig(path: string): {
   }
 }
 
+// A rule in the default-off tier stays off until an explicit 'on' override opts into it.
+function resolveSecretDisabledRules(overrides: Record<string, unknown>): Set<string> {
+  const entries = Object.entries(overrides);
+  const optedIn = new Set(entries.flatMap(([id, value]) => (value === 'on' ? [id] : [])));
+  return new Set([
+    ...[...SECRET_DEFAULT_OFF_RULE_ID_SET].filter((id) => !optedIn.has(id)),
+    ...entries.flatMap(([id, value]) => (value === 'off' ? [id] : [])),
+  ]);
+}
+
 function createEmptyPolicy(): PartialPolicy {
   return {
     safety: {},
@@ -473,7 +486,11 @@ function createEmptyPolicy(): PartialPolicy {
     destructiveCommandProtectionEnabled: true,
     destructiveCommandRuleOverrides: {},
     destructiveCommandAllowPaths: [],
-    secretProtection: { enabled: true, disabledRules: new Set(), denyPaths: [] },
+    secretProtection: {
+      enabled: true,
+      disabledRules: resolveSecretDisabledRules({}),
+      denyPaths: [],
+    },
   };
 }
 
@@ -499,10 +516,8 @@ function normalizePolicyConfig(config: UserPolicy | GuiPolicy): PartialPolicy {
     ],
     secretProtection: {
       enabled: (secret?.enabled as boolean | undefined) ?? true,
-      disabledRules: new Set(
-        Object.entries((secret?.overrides as Record<string, unknown> | undefined) ?? {}).flatMap(
-          ([id, value]) => (value === 'off' ? [id] : []),
-        ),
+      disabledRules: resolveSecretDisabledRules(
+        (secret?.overrides as Record<string, unknown> | undefined) ?? {},
       ),
       denyPaths: [...((secret?.deny_paths as string[] | undefined) ?? [])],
     },
