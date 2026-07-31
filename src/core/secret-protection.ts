@@ -1283,12 +1283,16 @@ function matchesCodingCliPath(
         }
         case 'secret.cli.antigravity':
           return matchesExactPath(normalized, '~/.gemini/config/hooks.json', cwd, budget);
-        case 'secret.cli.codex':
-          return matchesFileInRoot(
-            normalized,
-            codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget),
-            ['config.toml', 'auth.json', '.credentials.json'],
+        case 'secret.cli.codex': {
+          const root = codingCliRoot(process.env.CODEX_HOME, '~/.codex', cwd, budget);
+          return (
+            matchesFileInRoot(normalized, root, [
+              'config.toml',
+              'auth.json',
+              '.credentials.json',
+            ]) || matchesDirInRoot(normalized, root, ['secrets', '.sandbox-secrets'])
           );
+        }
         case 'secret.cli.gemini':
           return matchesFileInRoot(
             normalized,
@@ -1306,7 +1310,7 @@ function matchesCodingCliPath(
           const root = codingCliRoot(process.env.COPILOT_HOME, '~/.copilot', cwd, budget);
           return (
             matchesFileInRoot(normalized, root, ['config.json']) ||
-            matchesDirInRoot(normalized, root, ['mcp-oauth-config'])
+            matchesDirInRoot(normalized, root, ['mcp-oauth-config', 'mcp-secrets'])
           );
         }
         case 'secret.cli.kimi-code': {
@@ -1324,7 +1328,12 @@ function matchesCodingCliPath(
               'server.token',
             ]) ||
             matchesDirInRoot(normalized, currentRoot, ['credentials']) ||
-            matchesFileInRoot(normalized, legacyRoot, ['config.toml', 'mcp.json']) ||
+            matchesFileInRoot(normalized, legacyRoot, [
+              'config.toml',
+              'config.json',
+              'config.json.bak',
+              'mcp.json',
+            ]) ||
             matchesDirInRoot(normalized, legacyRoot, ['credentials', 'mcp-oauth'])
           );
         }
@@ -1342,8 +1351,19 @@ function matchesCodingCliPath(
           const programDataConfig = process.env.ProgramData
             ? [appendPath(codingCliRoot(process.env.ProgramData, '', cwd, budget), 'opencode')]
             : [];
+          // The credential database runs in WAL mode, so the -wal and -shm files hold
+          // the newest rows. A release channel renames the file to opencode-<channel>.db.
+          const databaseName = comparable(normalized).split('/').at(-1) ?? '';
+          const databaseEnv = process.env.OPENCODE_DB?.trim();
+          const databaseEnvPaths =
+            databaseEnv && databaseEnv !== ':memory:'
+              ? [databaseEnv, `${databaseEnv}-wal`, `${databaseEnv}-shm`]
+              : [];
           return (
             matchesFileInRoot(normalized, dataRoot, ['auth.json', 'mcp-auth.json']) ||
+            (/^opencode(-.+)?\.db(-wal|-shm)?$/.test(databaseName) &&
+              matchesFileInRoot(normalized, dataRoot, [databaseName])) ||
+            databaseEnvPaths.some((path) => matchesExactPath(normalized, path, cwd, budget)) ||
             matchesFileInRoot(normalized, configRoot, ['opencode.json', 'opencode.jsonc']) ||
             (process.env.OPENCODE_CONFIG?.trim()
               ? matchesExactPath(normalized, process.env.OPENCODE_CONFIG, cwd, budget)
@@ -1363,6 +1383,45 @@ function matchesCodingCliPath(
             codingCliRoot(process.env.PI_CODING_AGENT_DIR, '~/.pi/agent', cwd, budget),
             ['auth.json'],
           );
+        case 'secret.cli.amp': {
+          // Amp ships two resolvers for the same data directory: one reads
+          // XDG_DATA_HOME everywhere, the other ignores it on macOS and Windows.
+          // Match both roots, so neither platform gives a false negative.
+          const home = normalizeCandidatePath('~', cwd, budget);
+          const dataRoots = [
+            appendPath(
+              codingCliRoot(process.env.XDG_DATA_HOME, '~/.local/share', cwd, budget),
+              'amp',
+            ),
+            appendPath(home, '.local', 'share', 'amp'),
+          ];
+          return (
+            dataRoots.some((root) => matchesFileInRoot(normalized, root, ['secrets.json'])) ||
+            matchesDirInRoot(normalized, appendPath(home, '.amp'), ['oauth'])
+          );
+        }
+        case 'secret.cli.cursor': {
+          // auth.json follows the platform, not CURSOR_DATA_DIR: the macOS path stays
+          // under ~/.cursor while other platforms use the XDG config root. Only the
+          // project tree, which holds one mcp-auth.json per project, follows the
+          // data directory.
+          const configRoot = appendPath(
+            codingCliRoot(process.env.XDG_CONFIG_HOME, '~/.config', cwd, budget),
+            'cursor',
+          );
+          const projectsRoot = appendPath(
+            codingCliRoot(process.env.CURSOR_DATA_DIR, '~/.cursor', cwd, budget),
+            'projects',
+          );
+          return (
+            matchesFileInRoot(normalized, normalizeCandidatePath('~/.cursor', cwd, budget), [
+              'auth.json',
+            ]) ||
+            matchesFileInRoot(normalized, configRoot, ['auth.json']) ||
+            (comparable(normalized).split('/').at(-1) === 'mcp-auth.json' &&
+              isSameOrChildPath(comparable(normalized), comparable(projectsRoot)))
+          );
+        }
         default:
           return false;
       }

@@ -67,6 +67,8 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.kimi-code');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.opencode');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.pi');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.amp');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor');
     for (const entry of SECRET_PROTECTION_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
@@ -1520,7 +1522,9 @@ describe('secret protection coding CLI credential locations', () => {
     XDG_CONFIG_HOME: '',
     OPENCODE_CONFIG_DIR: '',
     OPENCODE_CONFIG: '',
+    OPENCODE_DB: '',
     PI_CODING_AGENT_DIR: '',
+    CURSOR_DATA_DIR: '',
   };
 
   test('blocks every path the coding CLI rule metadata advertises', () => {
@@ -1564,7 +1568,7 @@ describe('secret protection coding CLI credential locations', () => {
         '~/.kimi-code/credentials/mcp/context7.json',
         '~/.kimi/config.toml',
         '~/.kimi/mcp.json',
-        '~/.kimi/credentials/kimi.json',
+        '~/.kimi/credentials/kimi-code.json',
         '~/.kimi/mcp-oauth/context7.json',
         '~/.local/share/opencode/auth.json',
         '~/.local/share/opencode/mcp-auth.json',
@@ -1573,6 +1577,103 @@ describe('secret protection coding CLI credential locations', () => {
         '~/.pi/agent/auth.json',
       ]) {
         expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
+      }
+    });
+  });
+
+  test('blocks coding CLI secret directories and the legacy Kimi JSON config', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const [target, ruleId] of [
+        ['~/.codex/secrets/codex_auth.age', 'secret.cli.codex'],
+        ['~/.codex/.sandbox-secrets/sandbox_users.json', 'secret.cli.codex'],
+        ['~/.copilot/mcp-secrets/server.json', 'secret.cli.copilot-cli'],
+        ['~/.kimi/config.json', 'secret.cli.kimi-code'],
+        ['~/.kimi/config.json.bak', 'secret.cli.kimi-code'],
+      ] as const) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
+      }
+    });
+  });
+
+  test('blocks Amp Code credential stores', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of ['~/.local/share/amp/secrets.json', '~/.amp/oauth/server.json']) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe('secret.cli.amp');
+      }
+    });
+  });
+
+  test('blocks Cursor credential stores', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        '~/.cursor/auth.json',
+        '~/.config/cursor/auth.json',
+        '~/.cursor/projects/my-repo/mcp-auth.json',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe('secret.cli.cursor');
+      }
+    });
+  });
+
+  test('blocks the OpenCode credential database and its support files', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        '~/.local/share/opencode/opencode.db',
+        '~/.local/share/opencode/opencode.db-wal',
+        '~/.local/share/opencode/opencode.db-shm',
+        '~/.local/share/opencode/opencode-nightly.db',
+        '~/.local/share/opencode/opencode-nightly.db-wal',
+        '~/.local/share/opencode/opencode-nightly.db-shm',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe('secret.cli.opencode');
+      }
+    });
+  });
+
+  test('blocks the OPENCODE_DB database path and its support files', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const database = join(tmpdir(), 'secret-protection-opencode-db', 'state.db');
+
+    withEnv({ ...defaultCodingCliEnv, OPENCODE_DB: database }, () => {
+      for (const target of [database, `${database}-wal`, `${database}-shm`]) {
+        expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe('secret.cli.opencode');
+      }
+    });
+  });
+
+  test('ignores an in-memory OPENCODE_DB value', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv({ ...defaultCodingCliEnv, OPENCODE_DB: ':memory:' }, () => {
+      for (const target of [':memory:', ':memory:-wal']) {
+        expect(findSensitivePathTarget([target], cwd), target).toBeNull();
+      }
+    });
+  });
+
+  test('does not block siblings that only share a prefix with a secret directory', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    withEnv(defaultCodingCliEnv, () => {
+      for (const target of [
+        '~/.codex/secrets-backup/note.txt',
+        '~/.copilot/mcp-secrets-old/x.json',
+        '~/.amp/threads/thread.json',
+        '~/.amp/oauth-backup/x.json',
+        '~/.cursor/projects/my-repo/state.json',
+        '~/.cursor/rules/team.md',
+        '~/.cursor/extensions/x/package.json',
+        '~/.local/share/opencode/sessions/x.db',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd), target).toBeNull();
       }
     });
   });
@@ -1629,6 +1730,7 @@ describe('secret protection coding CLI credential locations', () => {
       OPENCODE_CONFIG_DIR: join(home, 'state', 'opencode-config'),
       OPENCODE_CONFIG: join(home, 'managed', 'opencode.jsonc'),
       PI_CODING_AGENT_DIR: join(home, 'state', 'pi-agent'),
+      CURSOR_DATA_DIR: join(home, 'state', 'cursor'),
     };
 
     withEnv(env, () => {
@@ -1637,16 +1739,30 @@ describe('secret protection coding CLI credential locations', () => {
         join(env.CLAUDE_CONFIG_DIR, 'settings.local.json'),
         join(home, '.claude.json'),
         join(env.CODEX_HOME, 'auth.json'),
+        join(env.CODEX_HOME, 'secrets', 'codex_auth.age'),
+        join(env.CODEX_HOME, '.sandbox-secrets', 'sandbox_users.json'),
         join(env.GEMINI_CLI_HOME, '.gemini', 'oauth_creds.json'),
         join(env.COPILOT_HOME, 'config.json'),
         join(env.COPILOT_HOME, 'mcp-oauth-config', 'server.json'),
+        join(env.COPILOT_HOME, 'mcp-secrets', 'server.json'),
+        join(env.KIMI_SHARE_DIR, 'config.json'),
+        join(env.KIMI_SHARE_DIR, 'config.json.bak'),
         join(env.KIMI_CODE_HOME, 'server.token'),
         join(env.KIMI_CODE_HOME, 'credentials', 'kimi-code.json'),
         join(env.KIMI_SHARE_DIR, 'mcp-oauth', 'context7.json'),
         join(env.XDG_DATA_HOME, 'opencode', 'mcp-auth.json'),
+        join(env.XDG_DATA_HOME, 'opencode', 'opencode.db'),
+        join(env.XDG_DATA_HOME, 'opencode', 'opencode.db-wal'),
+        join(env.XDG_DATA_HOME, 'opencode', 'opencode.db-shm'),
+        join(env.XDG_DATA_HOME, 'opencode', 'opencode-nightly.db'),
+        join(env.XDG_DATA_HOME, 'amp', 'secrets.json'),
+        join(home, '.local', 'share', 'amp', 'secrets.json'),
+        join(home, '.amp', 'oauth', 'server.json'),
         join(env.OPENCODE_CONFIG_DIR, 'opencode.json'),
         env.OPENCODE_CONFIG,
         join(env.PI_CODING_AGENT_DIR, 'auth.json'),
+        join(env.XDG_CONFIG_HOME, 'cursor', 'auth.json'),
+        join(env.CURSOR_DATA_DIR, 'projects', 'my-repo', 'mcp-auth.json'),
       ]) {
         expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
       }

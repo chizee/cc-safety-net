@@ -202,7 +202,13 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.codex',
     category: 'Coding CLI',
     label: 'Codex credentials',
-    paths: ['~/.codex/config.toml', '~/.codex/auth.json', '~/.codex/.credentials.json'],
+    paths: [
+      '~/.codex/config.toml',
+      '~/.codex/auth.json',
+      '~/.codex/.credentials.json',
+      '~/.codex/secrets',
+      '~/.codex/.sandbox-secrets',
+    ],
   },
   {
     id: 'secret.cli.gemini',
@@ -221,7 +227,7 @@ export const SECRET_CODING_CLI_RULES = [
     id: 'secret.cli.copilot-cli',
     category: 'Coding CLI',
     label: 'GitHub Copilot CLI credentials',
-    paths: ['~/.copilot/config.json', '~/.copilot/mcp-oauth-config'],
+    paths: ['~/.copilot/config.json', '~/.copilot/mcp-oauth-config', '~/.copilot/mcp-secrets'],
   },
   {
     id: 'secret.cli.kimi-code',
@@ -233,6 +239,8 @@ export const SECRET_CODING_CLI_RULES = [
       '~/.kimi-code/server.token',
       '~/.kimi-code/credentials',
       '~/.kimi/config.toml',
+      '~/.kimi/config.json',
+      '~/.kimi/config.json.bak',
       '~/.kimi/mcp.json',
       '~/.kimi/credentials',
       '~/.kimi/mcp-oauth',
@@ -245,6 +253,7 @@ export const SECRET_CODING_CLI_RULES = [
     paths: [
       '~/.local/share/opencode/auth.json',
       '~/.local/share/opencode/mcp-auth.json',
+      '~/.local/share/opencode/opencode.db',
       '~/.config/opencode/opencode.json',
       '~/.config/opencode/opencode.jsonc',
       '/Library/Application Support/opencode/opencode.json',
@@ -256,6 +265,22 @@ export const SECRET_CODING_CLI_RULES = [
     category: 'Coding CLI',
     label: 'Pi credentials',
     paths: ['~/.pi/agent/auth.json'],
+  },
+  {
+    id: 'secret.cli.amp',
+    category: 'Coding CLI',
+    label: 'Amp Code credentials',
+    paths: ['~/.local/share/amp/secrets.json', '~/.amp/oauth'],
+  },
+  {
+    id: 'secret.cli.cursor',
+    category: 'Coding CLI',
+    label: 'Cursor CLI credentials',
+    paths: [
+      '~/.cursor/auth.json',
+      '~/.config/cursor/auth.json',
+      '~/.cursor/projects/<name>/mcp-auth.json',
+    ],
   },
 ] as const satisfies readonly SecretProtectionCodingCliRule[];
 
