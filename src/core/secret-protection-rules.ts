@@ -418,7 +418,6 @@ export const SECRET_EXTENSION_RULES = [
   'psafe3',
   'rdp',
   'sdf',
-  'sqlite',
   'tblk',
   'tpm',
 ].map((extension) => ({
@@ -450,13 +449,6 @@ export const SECRET_EXTENSION_PATTERN_RULES = [
     label: '.kdb / .kdbx',
     description: 'Blocks KeePass database extension patterns.',
     pattern: /^kdbx?$/,
-  },
-  {
-    id: 'secret.ext-pattern.sql',
-    category: 'Extension pattern',
-    label: '.sql / .sqldump',
-    description: 'Blocks SQL dump extension patterns.',
-    pattern: /^sql(dump)?$/,
   },
 ] as const satisfies readonly SecretProtectionMatcherRule[];
 

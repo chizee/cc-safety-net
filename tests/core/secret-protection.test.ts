@@ -58,7 +58,6 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.kube-config.bak');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.home.docker-config.bak');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext.pem');
-    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.ext-pattern.sql');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.claude-code');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.claude-code.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.antigravity');
@@ -580,7 +579,7 @@ describe('secret protection command target extraction', () => {
     ).not.toBeNull();
     expect(
       findSensitiveTargetInCommand(
-        `node -e "console.log(require('fs').readFileSync('private.sqlite'))"`,
+        `node -e "console.log(require('fs').readFileSync('private.pem'))"`,
         cwd,
       ),
     ).not.toBeNull();
@@ -2043,7 +2042,6 @@ describe('secret protection broad path signatures', () => {
       'server.pem',
       'vault.kdbx',
       'prod.ovpn',
-      'backup.sql',
       'wallet.keychain',
       'CERT.P12',
       '/tmp/archive.PKCS12',
@@ -2062,11 +2060,19 @@ describe('secret protection broad path signatures', () => {
       'gnome.keyring',
       'keepass.kdb',
       'keepass.kdbx',
-      'database.sql',
-      'database.sqldump',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
+  });
+
+  test('does not flag sql and sqlite database files', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+
+    for (const target of ['db/schema.sql', 'db/dump.sqldump', 'tmp/dev.sqlite']) {
+      expect(findSensitivePathTarget([target], cwd), target).toBeNull();
+    }
+
+    expect(findSensitivePathTarget(['capture.pcap'], cwd)).not.toBeNull();
   });
 
   test('does not flag log files by default', () => {
@@ -2104,13 +2110,16 @@ describe('secret protection broad path signatures', () => {
       'node_modules/pkg/server.pem',
       'vendor/cache/vault.kdbx',
       'vendor/bundle/prod.ovpn',
-      '.git/hooks/deploy_key_rsa',
-      'src/__pycache__/database.sql',
+      'src/__pycache__/server.pem',
     ]) {
       expect(findSensitivePathTarget([target], cwd), target).toBeNull();
     }
 
-    for (const target of ['node_modules/pkg/.env', 'vendor/cache/id_rsa']) {
+    for (const target of [
+      'node_modules/pkg/.env',
+      'vendor/cache/id_rsa',
+      '.git/hooks/deploy_key_rsa',
+    ]) {
       expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
     }
   });

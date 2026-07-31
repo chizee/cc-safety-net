@@ -1166,7 +1166,7 @@ const ENV_EXEMPTION_BASENAMES = new Set([
 
 const ENV_EXEMPTION_PREFIXES = ['.env.example.', '.env.sample.'];
 
-const SKIPPABLE_PATH_SEGMENTS = new Set(['node_modules', '.git', '__pycache__']);
+const SKIPPABLE_PATH_SEGMENTS = new Set(['node_modules', '__pycache__']);
 
 const SKIPPABLE_PATH_SEGMENT_PAIRS = [
   ['vendor', 'bundle'],
