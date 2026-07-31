@@ -434,5 +434,46 @@ describe('policy GUI helpers', () => {
 
       expect(disabled().has('secret.cli.gemini.config')).toBe(true);
     });
+
+    test('the GUI read keeps an on override', () => {
+      writePolicy({ 'secret.cli.gemini.config': 'on' });
+
+      expect(
+        readUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') }).policy
+          .secret_protection.overrides,
+      ).toEqual({ 'secret.cli.gemini.config': 'on' });
+    });
+
+    test('a GUI save keeps an on override active', () => {
+      writeUserPolicyFromGui(
+        {
+          ...DEFAULT_GUI_POLICY,
+          secret_protection: {
+            ...DEFAULT_GUI_POLICY.secret_protection,
+            overrides: { 'secret.cli.gemini.config': 'on' },
+          },
+        },
+        { userConfigDir: join(safetyNetHome, 'rules') },
+      );
+
+      expect(disabled().has('secret.cli.gemini.config')).toBe(false);
+    });
+
+    test('repair keeps an on override active', () => {
+      mkdirSync(safetyNetHome, { recursive: true });
+      writeFileSync(
+        join(safetyNetHome, 'policy.json'),
+        JSON.stringify({
+          version: 1,
+          workflow: { worktree_mode: 'yes' },
+          secret_protection: { enabled: true, overrides: { 'secret.cli.gemini.config': 'on' } },
+        }),
+        'utf-8',
+      );
+
+      repairUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
+
+      expect(disabled().has('secret.cli.gemini.config')).toBe(false);
+    });
   });
 });

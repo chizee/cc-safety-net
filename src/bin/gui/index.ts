@@ -31,6 +31,7 @@ import {
   previewUserPolicyForGui,
   readUserPolicyForGui,
   repairUserPolicyForGui,
+  resolveSecretDisabledRules,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
@@ -375,7 +376,7 @@ function explainDraftCommand(
     destructiveCommandAllowPaths: draft.destructive_command_protection.allow_paths,
     secretProtection: {
       enabled: draft.secret_protection.enabled,
-      disabledRules: Object.keys(draft.secret_protection.overrides),
+      disabledRules: [...resolveSecretDisabledRules(draft.secret_protection.overrides)],
       denyPaths: draft.secret_protection.deny_paths,
     },
   });

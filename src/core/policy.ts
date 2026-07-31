@@ -76,7 +76,7 @@ export type GuiPolicy = {
   };
   secret_protection: {
     enabled: boolean;
-    overrides: Record<string, 'off'>;
+    overrides: Record<string, 'on' | 'off'>;
     deny_paths: string[];
   };
   audit: {
@@ -317,12 +317,12 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
     },
     destructive_command_protection: {
       enabled: typeof destructiveCommand.enabled === 'boolean' ? destructiveCommand.enabled : true,
-      overrides: repairDestructiveCommandOverrides(destructiveCommand.overrides),
+      overrides: repairRuleOverrides(destructiveCommand.overrides, DESTRUCTIVE_COMMAND_RULE_ID_SET),
       allow_paths: repairAllowPaths(destructiveCommand.allow_paths),
     },
     secret_protection: {
       enabled: typeof secret.enabled === 'boolean' ? secret.enabled : true,
-      overrides: repairOffOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
+      overrides: repairRuleOverrides(secret.overrides, SECRET_PROTECTION_RULE_ID_SET),
       deny_paths: repairDenyPaths(secret.deny_paths),
     },
     audit: {
@@ -333,29 +333,13 @@ function repairPolicyConfig(value: unknown): GuiPolicy {
   };
 }
 
-function repairDestructiveCommandOverrides(
-  value: unknown,
-): Record<string, DestructiveCommandRuleOverride> {
+function repairRuleOverrides(value: unknown, knownRuleIds: ReadonlySet<string>) {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
     Object.entries(value).flatMap(([id, override]) =>
-      DESTRUCTIVE_COMMAND_RULE_ID_SET.has(id) && (override === 'on' || override === 'off')
-        ? [[id, override]]
-        : [],
+      knownRuleIds.has(id) && (override === 'on' || override === 'off') ? [[id, override]] : [],
     ),
-  );
-}
-
-function repairOffOverrides(
-  value: unknown,
-  knownRuleIds: ReadonlySet<string>,
-): Record<string, 'off'> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([id, override]) =>
-      knownRuleIds.has(id) && override === 'off' ? [[id, 'off']] : [],
-    ),
-  ) as Record<string, 'off'>;
+  ) as Record<string, 'on' | 'off'>;
 }
 
 function repairDenyPaths(value: unknown): string[] {
@@ -422,9 +406,9 @@ export function normalizeGuiPolicy(policy: unknown): GuiPolicy {
       enabled: (secret.enabled as boolean | undefined) ?? true,
       overrides: Object.fromEntries(
         Object.entries(secretOverrides).flatMap(([id, value]) =>
-          value === 'off' ? [[id, 'off']] : [],
+          value === 'on' || value === 'off' ? [[id, value]] : [],
         ),
-      ) as Record<string, 'off'>,
+      ) as Record<string, 'on' | 'off'>,
       deny_paths: [...((secret.deny_paths as string[] | undefined) ?? [])],
     },
     audit: {
@@ -470,7 +454,7 @@ function readPolicyConfig(path: string): {
 }
 
 // A rule in the default-off tier stays off until an explicit 'on' override opts into it.
-function resolveSecretDisabledRules(overrides: Record<string, unknown>): Set<string> {
+export function resolveSecretDisabledRules(overrides: Record<string, unknown>): Set<string> {
   const entries = Object.entries(overrides);
   const optedIn = new Set(entries.flatMap(([id, value]) => (value === 'on' ? [id] : [])));
   return new Set([
