@@ -307,6 +307,7 @@ describe('Git metadata guard protection', () => {
       for (const [toolName, input, route] of [
         ['Write', { path: '.git/hooks/new-hook' }, { kind: 'path' as const }],
         ['Edit', { file_path: '.git/hooks/pre-commit' }, { kind: 'path' as const }],
+        ['unknown_writer', { path: '.git/hooks/pre-commit' }, { kind: 'unknown' as const }],
         [
           'apply_patch',
           { patch: '*** Begin Patch\n*** Delete File: .git/hooks/pre-commit\n*** End Patch' },

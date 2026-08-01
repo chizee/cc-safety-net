@@ -17,7 +17,8 @@
     "ccsn": "dist/bin/cc-safety-net.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_LICENSES.txt"
   ],
   "scripts": {
     "audit:dependencies": "bun audit",
@@ -58,7 +59,7 @@
   "bugs": {
     "url": "https://github.com/kenryu42/cc-safety-net/issues"
   },
-  "homepage": "https://github.com/kenryu42/cc-safety-net#readme",
+  "homepage": "https://ccsafetynet.com",
   "devDependencies": {
     "@ampcode/plugin": "0.0.0-20260724002649-ga3413e7",
     "@ast-grep/cli": "^0.40.4",

@@ -26,7 +26,9 @@ describe('CI and release workflows', () => {
     expect(workflow).not.toContain('paths:');
     expect(workflow).not.toContain('contents: write');
     expect(workflow).not.toContain('Auto-commit');
-    expect(workflow).toContain('git diff --exit-code -- dist assets/cc-safety-net.schema.json');
+    expect(workflow).toContain(
+      'git diff --exit-code -- dist assets/cc-safety-net.schema.json THIRD_PARTY_LICENSES.txt',
+    );
   });
 
   test('stress-checks E2E stability and preserves failure evidence', () => {

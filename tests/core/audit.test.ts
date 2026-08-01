@@ -137,6 +137,25 @@ describe('redactSecrets', () => {
     expect(result).toContain('<redacted>');
   });
 
+  test('redacts signature values in assignments and URL queries', () => {
+    expect(
+      redactSecrets(
+        'X-Amz-Signature=bare-aws X-Goog-Signature=bare-google sig=bare-short signature=bare-long https://example.com/object?X-Amz-Signature=url-aws&X-Goog-Signature=url-google&sig=url-short&signature=url-long&name=report.pdf',
+      ),
+    ).toBe(
+      'X-Amz-Signature=<redacted> X-Goog-Signature=<redacted> sig=<redacted> signature=<redacted> https://example.com/object?X-Amz-Signature=<redacted>&X-Goog-Signature=<redacted>&sig=<redacted>&signature=<redacted>&name=report.pdf',
+    );
+    expect(
+      redactSecrets("curl 'https://example.com/object?sig=url-secret'; sig=bare-secret;next"),
+    ).toBe("curl 'https://example.com/object?sig=<redacted>'; sig=<redacted>;next");
+    expect(redactSecrets('echo ok;sig=secret producer|signature=secret')).toBe(
+      'echo ok;sig=<redacted> producer|signature=<redacted>',
+    );
+    expect(redactSecrets(`sig="double secret" signature='single secret'`)).toBe(
+      'sig=<redacted> signature=<redacted>',
+    );
+  });
+
   test('preserves non-secret content', () => {
     const result = redactSecrets('git reset --hard');
     expect(result).toBe('git reset --hard');

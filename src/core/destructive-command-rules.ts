@@ -10,7 +10,6 @@ import type { BlockIntent, DestructiveCommandRuleMatch } from '@/types';
 export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.ssh-env',
   'git.alias-config',
-  'git.executable-config',
   'git.checkout-force',
   'git.checkout-double-dash',
   'git.checkout-ref-path',
@@ -101,14 +100,6 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     label: 'Git command-line alias',
     description: 'Blocks command-line Git aliases that cannot be safely resolved.',
     example: "git -c alias.wipe='!rm -rf /' wipe",
-    intent: 'manual_only',
-  },
-  {
-    id: 'git.executable-config',
-    category: 'Git',
-    label: 'Git executable config',
-    description: 'Blocks Git operations that may invoke an executable configured by Git.',
-    example: 'git -c core.editor=/tmp/editor commit',
     intent: 'manual_only',
   },
   {

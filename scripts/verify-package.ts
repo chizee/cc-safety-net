@@ -19,6 +19,7 @@ import { verifyBuildArtifacts } from './verify-build';
 const PACKAGE_ROOT_FILES = [
   'package/LICENSE',
   'package/README.md',
+  'package/THIRD_PARTY_LICENSES.txt',
   'package/package.json',
 ] as const;
 // The standalone Amp plugin bundles its own zod copy (~183 KB gzipped), so the
@@ -539,6 +540,7 @@ export async function buildPackageTarball(options: BuildPackageTarballOptions) {
   try {
     cpSync('README.md', join(stagingDirectory, 'README.md'));
     cpSync('LICENSE', join(stagingDirectory, 'LICENSE'));
+    cpSync('THIRD_PARTY_LICENSES.txt', join(stagingDirectory, 'THIRD_PARTY_LICENSES.txt'));
     cpSync('dist', join(stagingDirectory, 'dist'), { recursive: true });
     chmodSync(join(stagingDirectory, 'dist', 'bin', 'cc-safety-net.js'), 0o755);
     const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as Record<string, unknown>;

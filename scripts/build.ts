@@ -7,9 +7,11 @@
 import { statSync } from 'node:fs';
 import { getBundledOutputs, isRootDeclarationOutput } from './build-output';
 import { buildAmpBundle, buildRuntimeBundles } from './build-runtime';
+import { generateThirdPartyLicenses } from './generate-third-party-licenses';
 import { formatSubprocessFailure } from './subprocess-output';
 import { verifyBuildArtifacts } from './verify-build';
 
+generateThirdPartyLicenses();
 const result = await buildRuntimeBundles('dist');
 
 if (!result.success) {

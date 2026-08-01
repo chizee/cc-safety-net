@@ -33,7 +33,7 @@ jobs:
           AGENT: "1"
           CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e
       - run: bun run build
-      - run: git diff --exit-code -- dist assets/cc-safety-net.schema.json
+      - run: git diff --exit-code -- dist assets/cc-safety-net.schema.json THIRD_PARTY_LICENSES.txt
       - name: Verify Windows command behavior
         shell: pwsh
         run: |

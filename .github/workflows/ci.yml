@@ -39,7 +39,7 @@ jobs:
       - name: Rebuild owned artifacts
         run: bun run build
       - name: Reject stale generated artifacts
-        run: git diff --exit-code -- dist assets/cc-safety-net.schema.json
+        run: git diff --exit-code -- dist assets/cc-safety-net.schema.json THIRD_PARTY_LICENSES.txt
       - name: Verify package surfaces
         run: |
           bun run verify:repository-plugin

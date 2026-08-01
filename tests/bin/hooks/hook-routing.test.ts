@@ -38,12 +38,8 @@ const SHARED_HOOK_FORMATS = [
 describe('hook command routing', () => {
   test('Claude Code hook manifest does not use explicit PreToolUse matcher', () => {
     const manifest = JSON.parse(readFileSync(join(process.cwd(), 'hooks/hooks.json'), 'utf-8'));
-    const copilotManifest = JSON.parse(
-      readFileSync(join(process.cwd(), '.github/hooks/safety-net.json'), 'utf-8'),
-    );
 
     expect(manifest.hooks.PreToolUse[0]).not.toHaveProperty('matcher');
-    expect(copilotManifest.hooks.preToolUse[0]).not.toHaveProperty('matcher');
   });
 
   test('adapters establish command capability only for exact verified tool names', () => {

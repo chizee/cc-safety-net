@@ -57,6 +57,10 @@ export function redactNonAssignmentSecrets(text: string): string {
     )
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, '$1<redacted>:<redacted>@')
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, '$1<redacted>@')
+    .replace(
+      /(^|[\s?&;|])((?:x-amz-signature|x-goog-signature|sig|signature)=)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^&#\s'"`;|<>()]*)/gi,
+      '$1$2<redacted>',
+    )
     .replace(/(^|\s)((?:-u|--user)(?:\s+|=))([^\s:]+):([^\s]+)/g, '$1$2<redacted>:<redacted>');
 
   for (const pattern of PROVIDER_TOKENS) result = result.replace(pattern, '<redacted>');
