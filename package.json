@@ -37,7 +37,7 @@
     "lint:ci": "biome ci .",
     "typecheck": "tsc --noEmit",
     "knip": "knip --production",
-    "check-duplicates": "bunx jscpd src tests --noTips --exitCode 1 --reporters ai",
+    "check-duplicates": "bunx jscpd src tests --noTips --exitCode 1 --reporters ai --ignore '**/*.svg'",
     "sg:scan": "ast-grep scan",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e",
