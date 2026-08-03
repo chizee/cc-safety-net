@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 const bundledPackages = ['shell-quote', 'zod'] as const;
 
+/** @internal */
 export function renderThirdPartyLicenses(directory = process.cwd()) {
   return `${bundledPackages
     .map((name) => {

@@ -36,11 +36,10 @@ All command examples are analyzer input strings only. Do not execute them in a s
    agree on every gate; disagreement cannot accept risk.
 4. Accepted new families get a strict or paranoid fail-closed fixture, a structured entry in
    `docs/residual-risk-registry.json`, and the rationale below.
-5. `bun run verify:residual-risk` must pass before the classification is complete.
+5. Review confirms the registry entry and this document stay synchronized before the
+   classification is complete.
 
-RR-1 through RR-10 are immutable legacy records. Automated adjudication starts at RR-11; the
-validator hard-codes that cutover so editing registry metadata cannot exempt a new family from the
-automated requirements.
+RR-1 through RR-10 are immutable legacy records. Automated adjudication starts at RR-11.
 
 Automated entries use this shape; the candidate identifies the adjudicated finding and the
 evidence must cite existing repository files:

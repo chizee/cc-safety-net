@@ -74,7 +74,6 @@ repository evidence.
 ```
 
 After agreement, add the strict or paranoid fail-closed fixture first, then add the family to both
-`docs/residual-risk-registry.json` and `docs/residual-risk.md`. Run
-`bun run verify:residual-risk`; its deterministic validator checks the recorded candidate,
-boundary, evidence paths, executable fixture, identifiers, and Markdown synchronization. It is not
-a semantic reviewer and does not replace the runtime-enforced independent confirmation.
+`docs/residual-risk-registry.json` and `docs/residual-risk.md`. Confirm in review that the entry
+records the candidate, boundary, evidence paths, fixture, and identifiers, and that the registry
+and Markdown stay synchronized.

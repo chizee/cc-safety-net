@@ -44,8 +44,6 @@ jobs:
           test "$GITHUB_SHA" = "$(git rev-parse "refs/tags/${TAG}^{commit}")"
           test "$TAG" = "v$(node -p "require('./package.json').version")"
       - name: Build and verify the release tarball
-        env:
-          BUN_INSTALL_ALLOW_SCRIPTS: "@ast-grep/cli"
         run: |
           npm install --global npm@11.5.1
           test "$(npm --version)" = "11.5.1"

@@ -4,6 +4,7 @@ function runGit(cwd: string, args: string[]) {
   throw new Error(result.stderr.toString().trim() || `git ${args[0]} failed`);
 }
 
+/** @internal */
 export async function assertRemoteMain(cwd: string): Promise<void> {
   runGit(cwd, ['fetch', 'origin', 'main']);
   const remoteMain = runGit(cwd, ['rev-parse', 'refs/remotes/origin/main']);

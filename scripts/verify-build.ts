@@ -4,9 +4,9 @@ import { posix, relative, resolve } from 'node:path';
 import pkg from '../package.json';
 import { AMP_MANAGED_HEADER } from '../src/amp/index';
 
-export const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
+const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
 
-export const BUILD_ENTRY_ARTIFACTS = [
+const BUILD_ENTRY_ARTIFACTS = [
   AMP_ARTIFACT,
   'dist/bin/cc-safety-net.js',
   'dist/index.d.ts',
@@ -14,14 +14,16 @@ export const BUILD_ENTRY_ARTIFACTS = [
   'dist/pi/index.js',
 ] as const;
 
-export function isBuildChunkArtifact(path: string): boolean {
+function isBuildChunkArtifact(path: string): boolean {
   return /^dist\/chunks\/[A-Za-z0-9_-]+\.js$/.test(path);
 }
 
+/** @internal */
 export function requiresRepositoryExecutableMode(platform: NodeJS.Platform): boolean {
   return platform !== 'win32';
 }
 
+/** @internal */
 export function hasUnresolvedShellQuoteImport(source: string): boolean {
   return /(?:\bfrom\s+|\bimport\s*(?:\(\s*)?|\brequire\w*\(\s*)['"]shell-quote(?:\/[^'"]*)?['"]/.test(
     source,
@@ -31,6 +33,7 @@ export function hasUnresolvedShellQuoteImport(source: string): boolean {
 // Every module specifier the source actually imports or requires at runtime.
 // Only import (`from "x"`), dynamic import (`import("x")`), and require (`require("x")`)
 // positions are matched, so the word "import" appearing inside a string literal is ignored.
+/** @internal */
 export function getRuntimeImportSpecifiers(source: string): string[] {
   return [
     ...source.matchAll(/(?:\bfrom\s*["']|\bimport\s*\(\s*["']|\brequire\w*\(\s*["'])([^"']+)["']/g),
@@ -42,6 +45,7 @@ export function getRuntimeImportSpecifiers(source: string): string[] {
 // A self-contained artifact may only import Node built-ins; any other specifier
 // (zod, a repository `@/` alias, a shared `./chunks/` file, `@ampcode/plugin`) means
 // a runtime dependency leaked into the bundle.
+/** @internal */
 export function unbundledRuntimeImports(source: string): string[] {
   return [
     ...new Set(getRuntimeImportSpecifiers(source).filter((specifier) => !isBuiltin(specifier))),
@@ -141,6 +145,7 @@ export async function verifyBuildArtifacts(): Promise<string[]> {
   return files;
 }
 
+/** @internal */
 export function verifyAmpArtifact(source: string): void {
   if (!source.startsWith(AMP_MANAGED_HEADER)) {
     throw new Error('Amp artifact is missing the managed-file header');

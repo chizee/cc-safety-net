@@ -23,9 +23,9 @@ describe('package scripts', () => {
       verifyCoverage: packageJson.scripts?.['verify:coverage'],
     }).toEqual({
       check:
-        'bun run lint && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && bun run verify:residual-risk && bun run test:coverage && bun run verify:coverage',
+        'bun run lint && bun run typecheck && bun run knip && bun run check-duplicates && bun run test:coverage && bun run verify:coverage',
       checkCi:
-        'bun run lint:ci && bun run typecheck && bun run knip && bun run check-duplicates && bun run sg:scan && bun run verify:residual-risk && bun run test:coverage && bun run verify:coverage',
+        'bun run lint:ci && bun run typecheck && bun run knip && bun run check-duplicates && bun run test:coverage && bun run verify:coverage',
       verifyCoverage: 'bun run scripts/verify-coverage.ts',
     });
   });

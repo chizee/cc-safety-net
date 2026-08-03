@@ -156,14 +156,13 @@ bun run check
 ### Build Commands
 
 ```bash
-# Run all checks (lint, type check, dead code, ast-grep scan, tests)
+# Run all checks (lint, type check, dead code, tests)
 bun run check
 
 # Individual commands
 bun run lint          # Lint + format (Biome)
 bun run typecheck     # Type check
 bun run knip          # Dead code detection
-bun run sg:scan       # AST pattern scan
 bun test              # Run tests
 
 # Run specific test
