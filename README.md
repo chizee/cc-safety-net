@@ -23,7 +23,7 @@
 
 <div align="center">
 
-[![CC Safety Net](./.github/assets/cc-safety-net.png)](./.github/assets/cc-safety-net.png)
+[![CC Safety Net](./.github/assets/cc-safety-net-v2.png)](./.github/assets/cc-safety-net-v2.png)
 
 </div>
 
