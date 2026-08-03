@@ -21,7 +21,8 @@ export function printStatus(): void {
   const policy = snapshot.policy;
   const modes = getCCSafetyNetEnvModes(policy);
   const asciiOnly = !!process.env.NO_COLOR || !process.stdout.isTTY;
-  const width = Math.min(process.stdout.columns ?? 80, 100);
+  // `||`, not `??`: lefthook-style ptys report a 0-column TTY, which must fall back too.
+  const width = Math.min(process.stdout.columns || 80, 100);
   const on = asciiOnly ? 'ok' : '✔';
   const off = asciiOnly ? 'OFF' : '✘';
 

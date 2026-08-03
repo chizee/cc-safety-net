@@ -78,14 +78,25 @@ describe('status command', () => {
       project,
     );
 
-  /** The one TTY rendering: glyphs and colour instead of the ASCII fallbacks. */
-  const renderOnTTY = () => {
+  /**
+   * The one TTY rendering: glyphs and colour instead of the ASCII fallbacks.
+   * `columns` is pinned because the render width must not depend on the
+   * terminal that happens to run the suite (lefthook gives its jobs a 0-width
+   * pty, which once truncated every row and failed the ✘ test on pre-push).
+   */
+  const renderOnTTY = (columns = 80) => {
     const lines: string[] = [];
     const originalLog = console.log;
     const originalCwd = process.cwd();
+    const originalColumns = process.stdout.columns;
     console.log = (line: string) => {
       lines.push(line);
     };
+    Object.defineProperty(process.stdout, 'columns', {
+      value: columns,
+      writable: true,
+      configurable: true,
+    });
     process.chdir(project);
     try {
       withEnv({ CLAUDE_SETTINGS_PATH: settingsPath, CC_SAFETY_NET_HOME: home }, () =>
@@ -93,6 +104,11 @@ describe('status command', () => {
       );
     } finally {
       console.log = originalLog;
+      Object.defineProperty(process.stdout, 'columns', {
+        value: originalColumns,
+        writable: true,
+        configurable: true,
+      });
       process.chdir(originalCwd);
     }
     return lines.join('\n');
@@ -225,6 +241,19 @@ describe('status command', () => {
     expect(output).toContain('secrets ✔');
     expect(output).toContain('🛡️');
     expect(output).toContain('    · ');
+  });
+
+  test('falls back to width 80 when the terminal reports zero columns', async () => {
+    await writeUserPolicy({
+      version: 1,
+      destructive_command_protection: { enabled: false },
+      not_a_real_field: true,
+    });
+
+    const output = renderOnTTY(0);
+
+    expect(output).toContain('secrets ✔');
+    expect(output).toMatch(/^ {2}Level {8}standard$/m);
   });
 
   test('prints the worktree row only when worktree mode is on', async () => {
