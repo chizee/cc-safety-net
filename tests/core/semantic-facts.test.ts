@@ -11,6 +11,7 @@ import {
 import { projectShellSyntax } from '@/core/shell/entry-projection';
 import type { ShellKind } from '@/domain/command';
 import { parseCommand } from '@/parser/command';
+import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot } from '../helpers/policy';
 
 function commandFacts(
@@ -474,7 +475,12 @@ describe('semantic facts', () => {
     expect(
       analyzeCommandWithProgram(
         source,
-        { cwd: '/project', shell: 'posix', policySnapshot: policySnapshot() },
+        {
+          cwd: '/project',
+          shell: 'posix',
+          policySnapshot: policySnapshot(),
+          environment: TEST_ENVIRONMENT,
+        },
         command?.program,
         facts.store,
       ),

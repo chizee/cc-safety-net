@@ -14,6 +14,7 @@ import type { AuditLogEntry } from '@/domain/audit';
 import type { TraceStep } from '@/domain/command-trace';
 import type { Decision } from '@/domain/decision';
 import type { ExplainResult } from '@/domain/explain';
+import { TEST_ENVIRONMENT } from './helpers/environment';
 import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 
 // Default empty config for tests that don't specify a cwd.
@@ -31,6 +32,7 @@ function getOptionsFromEnv(cwd?: string, policy?: TestPolicyInput): AnalyzeOptio
   return {
     cwd,
     policySnapshot: snapshot,
+    environment: TEST_ENVIRONMENT,
     strict: envTruthy('SAFETY_NET_STRICT'),
     paranoidRm: envTruthy('SAFETY_NET_PARANOID') || envTruthy('SAFETY_NET_PARANOID_RM'),
     paranoidInterpreters:

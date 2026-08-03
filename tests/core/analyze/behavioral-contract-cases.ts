@@ -1,6 +1,7 @@
 import type { AnalyzeOptions } from '@/domain/analysis';
 import type { ShellKind } from '@/domain/command';
 import type { BlockIntent } from '@/domain/decision';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { policySnapshot, type TestPolicyInput } from '../../helpers/policy';
 
 export interface BehavioralContractCase {
@@ -41,6 +42,7 @@ function options(values: OptionValues): BehavioralContractCase['options'] {
           block_args: [...rule.block_args],
         })) ?? [],
     }),
+    environment: TEST_ENVIRONMENT,
     cwd: values.cwd,
     shell: values.shell ?? 'posix',
     strict: values.strict ?? false,

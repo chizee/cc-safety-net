@@ -21,10 +21,28 @@ export interface AnalyzeResult {
   intent?: BlockIntent;
 }
 
+/** Filesystem lookups the analyzer needs, so path facts are injected instead of read ambiently. */
+export type PathResolver = Readonly<{
+  /** Fully resolved path, or null when it cannot be resolved. */
+  realpath: (path: string) => string | null;
+  /** What sits at the path: a symlink, some other existing entry, or nothing. */
+  entryKind: (path: string) => 'symlink' | 'present' | 'missing';
+}>;
+
+/** Ambient process state the analyzer reads, captured once at the entry point. */
+export type EnvironmentContext = Readonly<{
+  env: ReadonlyMap<string, string>;
+  home: string;
+  tmpdir: string;
+  paths: PathResolver;
+}>;
+
 /** Options for command analysis */
 export interface AnalyzeOptions {
   /** Immutable policy snapshot to evaluate. */
   policySnapshot: PolicySnapshot;
+  /** Process state the analysis reads instead of touching env, home, tmpdir or the filesystem. */
+  environment: EnvironmentContext;
   /** Capability values and provenance already resolved at the caller boundary. */
   effectiveCapabilities?: EffectiveSafetyCapabilities;
   /** Current working directory */

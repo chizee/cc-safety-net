@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { validateRulesConfigFile } from '@/core/config';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { createProcessEnvironment } from '@/core/environment';
 import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
 import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
@@ -82,6 +83,7 @@ export function buildAnalyzeOptions(explainOptions?: ExplainOptions): AnalyzeOpt
     cwd,
     effectiveCwd: cwd,
     policySnapshot,
+    environment: createProcessEnvironment(),
     strict: explainOptions?.strict ?? modes.strict,
     paranoidRm: modes.paranoidRm,
     paranoidInterpreters: modes.paranoidInterpreters,

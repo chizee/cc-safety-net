@@ -5,6 +5,7 @@ import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import type { TraceStep } from '@/domain/command-trace';
 import type { ExplainResult } from '@/domain/explain';
 import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { policySnapshot } from '../../helpers/policy';
 
 const OPTIONS = {
@@ -167,7 +168,12 @@ describe('explain output', () => {
             fixture.disabled.map((id) => [id, 'off'] as const),
           ),
         });
-        expect(analyzeCommand(fixture.command, { policySnapshot: snapshot })).toBeNull();
+        expect(
+          analyzeCommand(fixture.command, {
+            policySnapshot: snapshot,
+            environment: TEST_ENVIRONMENT,
+          }),
+        ).toBeNull();
         expect(
           explainCommand(fixture.command, { ...OPTIONS, policySnapshot: snapshot }),
         ).toMatchObject(fixture.expected);
@@ -327,7 +333,12 @@ describe('explain output', () => {
       expect(
         explainCommand(fixture.command, { ...OPTIONS, policySnapshot: disabled }),
       ).toMatchObject(fixture.allowed);
-      expect(analyzeCommand(fixture.command, { policySnapshot: disabled })).toBeNull();
+      expect(
+        analyzeCommand(fixture.command, {
+          policySnapshot: disabled,
+          environment: TEST_ENVIRONMENT,
+        }),
+      ).toBeNull();
     }
 
     const paranoidReason =
@@ -369,6 +380,7 @@ describe('explain output', () => {
           destructiveCommandRuleOverrides: { 'interpreter.one-liner-paranoid': 'off' },
           safety: { overrides: { paranoidInterpreters: true } },
         }),
+        environment: TEST_ENVIRONMENT,
       }),
     ).toBeNull();
   });
@@ -464,9 +476,12 @@ describe('explain output', () => {
     withEnv({ TMPDIR: '/tmp/explain-output-tmpdir' }, () => {
       for (const wrappers of [9, 10, 11]) {
         const command = `${'busybox '.repeat(wrappers)}rm -rf /`;
-        expect(analyzeCommand(command, { policySnapshot: policySnapshot() })?.reason).toBe(
-          RM_REASON,
-        );
+        expect(
+          analyzeCommand(command, {
+            policySnapshot: policySnapshot(),
+            environment: TEST_ENVIRONMENT,
+          })?.reason,
+        ).toBe(RM_REASON);
         const explained = explainCommand(command, {
           ...OPTIONS,
           policySnapshot: policySnapshot(),

@@ -16,6 +16,7 @@ import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import {
   analyzeTestCommand,
   commandAnalysisPolicy,
@@ -1227,6 +1228,7 @@ describe('explainSegment direct depth limit', () => {
     const result = analyzeCommandInternal('rm -rf /', MAX_RECURSION_DEPTH, {
       cwd: '/tmp',
       policySnapshot: snapshot,
+      environment: TEST_ENVIRONMENT,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });
@@ -1245,6 +1247,7 @@ describe('explainSegment direct depth limit', () => {
     const result = analyzeCommandInternal('git status', MAX_RECURSION_DEPTH + 5, {
       cwd: '/tmp',
       policySnapshot: snapshot,
+      environment: TEST_ENVIRONMENT,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });

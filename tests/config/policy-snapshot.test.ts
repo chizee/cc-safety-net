@@ -24,6 +24,7 @@ import {
 import { getRulebookCachePath } from '@/core/rules/policy/paths';
 import { sha256Digest } from '@/core/rules/policy/resolver';
 import { withTempDir, writeLockedGitHubRulebookPolicy } from '../helpers';
+import { TEST_ENVIRONMENT } from '../helpers/environment';
 
 const originalFetch = globalThis.fetch;
 
@@ -301,7 +302,11 @@ describe('policy snapshots', () => {
       const snapshot = loadPolicySnapshot({ cwd, userConfigDir: join(cwd, 'user', 'rules') });
       writeFileSync(getProjectRulesConfigPath(cwd), JSON.stringify({ version: 1, rules: [] }));
 
-      const result = analyzeCommand('docker prune', { cwd, policySnapshot: snapshot });
+      const result = analyzeCommand('docker prune', {
+        cwd,
+        policySnapshot: snapshot,
+        environment: TEST_ENVIRONMENT,
+      });
 
       expect(result?.reason).toBe('[policy/block-prune] Use targeted cleanup.');
       expect(result?.intent).toBe('scope_down');

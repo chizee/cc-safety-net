@@ -9,6 +9,7 @@ import type { CommandTraceTerminal } from '@/domain/command-trace';
 import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
 import { parseCommand } from '@/parser/command';
+import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot } from '../helpers/policy';
 
 describe('command trace recorder', () => {
@@ -257,7 +258,7 @@ describe('command trace recorder', () => {
 
     const evaluation = evaluateCommandWithTrace(
       'bash -c "echo ok" && bash -c "echo ok"',
-      { policySnapshot: policySnapshot() },
+      { policySnapshot: policySnapshot(), environment: TEST_ENVIRONMENT },
       undefined,
       store,
     );
@@ -277,7 +278,7 @@ describe('command trace recorder', () => {
 
     const evaluation = evaluateCommandWithTrace(
       String.raw`Remove-Item C:\Windows -Recurse -Force`,
-      { policySnapshot: policySnapshot() },
+      { policySnapshot: policySnapshot(), environment: TEST_ENVIRONMENT },
       undefined,
       store,
     );
@@ -292,6 +293,7 @@ describe('command trace recorder', () => {
     )} ::: ${Array.from({ length: 129 }, () => 'y').join(' ')}`;
     const evaluation = evaluateCommandWithTrace(command, {
       policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
+      environment: TEST_ENVIRONMENT,
     });
 
     expect(evaluation.decision).toEqual({
@@ -325,7 +327,10 @@ describe('command trace recorder', () => {
   test('ordinary enforcement does not compute trace-only Git detail', () => {
     const detailed = spyOn(gitAnalysis, 'analyzeGitDetailed');
     try {
-      analyzeCommand('git status', { policySnapshot: policySnapshot() });
+      analyzeCommand('git status', {
+        policySnapshot: policySnapshot(),
+        environment: TEST_ENVIRONMENT,
+      });
       expect(detailed).not.toHaveBeenCalled();
 
       explainCommand('git status', { policySnapshot: policySnapshot() });
@@ -346,6 +351,7 @@ describe('command trace recorder', () => {
     const command = tokens.join(' ');
     const evaluation = evaluateCommandWithTrace(command, {
       policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
+      environment: TEST_ENVIRONMENT,
     });
 
     expect(evaluation.decision).toEqual({

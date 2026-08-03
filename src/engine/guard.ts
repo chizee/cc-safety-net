@@ -1,6 +1,7 @@
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { createProcessEnvironment } from '@/core/environment';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
   REASON_GIT_METADATA_PROTECTION,
@@ -237,6 +238,7 @@ export function evaluateGuard(
         cwd: invocation.context.executionCwd,
         shell: invocation.route.shell,
         policySnapshot: snapshot,
+        environment: createProcessEnvironment(),
         effectiveCapabilities: modes.capabilities,
         strict: modes.strict,
         paranoidRm: modes.paranoidRm,

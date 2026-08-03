@@ -12,6 +12,7 @@ import {
   REASON_PARALLEL_ANALYSIS_LIMIT,
 } from '@/core/analyze/parallel-budget';
 import type { CommandTraceContext, CommandTraceEvent } from '@/domain/command-trace';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { analyzeTestCommand, commandAnalysisPolicy, policySnapshot } from '../../helpers/policy';
 
 const limitedResult = (command: string) => ({
@@ -372,6 +373,7 @@ describe('parallel analysis budgets', () => {
     expect(
       analyzeCommandInternal(command, 0, {
         policySnapshot: snapshot,
+        environment: TEST_ENVIRONMENT,
         policy: commandAnalysisPolicy(snapshot),
         strict: false,
         paranoidRm: false,

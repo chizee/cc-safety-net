@@ -6,7 +6,7 @@ import {
 import { analyzeCommand } from '@/core/analyze';
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeOptions, EnvironmentContext } from '@/domain/analysis';
 import type { ExplainOptions } from '@/domain/explain';
 import type {
   CustomRule,
@@ -17,6 +17,7 @@ import type {
   PolicySnapshot,
   SecretProtectionConfig,
 } from '@/domain/policy';
+import { TEST_ENVIRONMENT } from './environment';
 
 export type TestExplainOptions = Omit<ExplainOptions, 'policySnapshot'> & {
   config?: TestPolicyInput;
@@ -92,10 +93,14 @@ export function commandAnalysisPolicy(snapshot: PolicySnapshot = policySnapshot(
 
 export function analyzeTestCommand(
   command: string,
-  options: Omit<AnalyzeOptions, 'policySnapshot'> & { config?: TestPolicyInput } = {},
+  options: Omit<AnalyzeOptions, 'policySnapshot' | 'environment'> & {
+    config?: TestPolicyInput;
+    environment?: EnvironmentContext;
+  } = {},
 ) {
   const { config, ...analyzeOptions } = options;
   return analyzeCommand(command, {
+    environment: TEST_ENVIRONMENT,
     ...analyzeOptions,
     policySnapshot: policySnapshot(config),
   });
