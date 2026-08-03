@@ -45,7 +45,7 @@ PowerShell support is partial. Its parser preserves native quoting, path separat
 
 Policy-file protection is deliberately a minimal exact-path guard, not command emulation or an operating-system security boundary. It tracks only simple assignment-only shell variables and explicit `cd` changes needed to resolve direct paths. It does not infer computed interpreter paths, inspect interpreter bodies, expand shell globs or braces, infer archive members, simulate `find` actions, infer remote filenames, or infer a transfer's final filename from its destination directory. Malformed shell input is blocked by this guard only when the canonical policy path remains directly extractable; parser resource exhaustion still fails closed. The hard-stop message, `This path contains the protected policy config and you must not modify or delete it.`, is guidance to the agent, not a claim of complete filesystem enforcement. Use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
 
-The structural command IR is produced by the bounded internal POSIX and PowerShell parsers. Published JavaScript artifacts also embed `shell-quote` for legacy POSIX token and display compatibility. Although `shell-quote` is a build-time dependency in `package.json`, its bundled code is treated as production code for vulnerability monitoring, dependency audits, updates, SBOM generation, and security review.
+The structural command IR is produced by the bounded internal POSIX and PowerShell parsers. No third-party shell parser is embedded in the published JavaScript artifacts.
 
 ## Reporting a Vulnerability
 
