@@ -1,4 +1,4 @@
-import { analysisWordText } from '@/core/analyze/command-words';
+import { analysisWordText, isLiteralExecutionSourceWord } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { parseShellArgv } from '@/core/analyze/shell-wrappers';
 import { parseEnvAssignment } from '@/core/analyze/wrapper-prelude';
@@ -175,11 +175,7 @@ export function extractShellScriptOperandSource(
   if (scriptIndex === null) return NO_SOURCE;
   const word = words[scriptIndex];
   const source = wordText(word);
-  const literal =
-    word && word.provenance !== 'unknown'
-      ? word.provenance === 'literal'
-      : !/[$`*?[\]]/.test(source);
-  return literal ? { kind: 'literal', source } : DYNAMIC_SOURCE;
+  return isLiteralExecutionSourceWord(word, source) ? { kind: 'literal', source } : DYNAMIC_SOURCE;
 }
 
 function findShellScriptIndex(words: readonly CommandWord[]): number {

@@ -8,8 +8,7 @@ import {
 import { type NormalizedChildCommand, normalizeChildCommands } from '@/core/analyze/child-command';
 import {
   analysisWordText,
-  hasCommandSubstitutionPart,
-  hasOptionLiteralPart,
+  analyzedViewWords,
   textCommandWords,
 } from '@/core/analyze/command-words';
 import {
@@ -23,8 +22,11 @@ import {
   EnvSplitStringExpansionError,
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
+import {
+  analyzeDynamicCommandStructure,
+  hasDynamicExecutableSource,
+} from '@/core/analyze/derived-input';
 import { analyzeDeviceCommandMatch } from '@/core/analyze/device';
-import { hasDynamicFindStructure } from '@/core/analyze/find';
 import { resolveTrackedHeredocPath } from '@/core/analyze/heredoc-files';
 import {
   containsDangerousCode,
@@ -35,11 +37,6 @@ import {
   REASON_INTERPRETER_BLOCKED,
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
-import {
-  extractParallelChildStart,
-  REASON_PARALLEL_RM,
-  REASON_PARALLEL_SHELL,
-} from '@/core/analyze/parallel';
 import {
   ANALYZER_RULES,
   type AnalyzerRuleContext,
@@ -67,50 +64,25 @@ import {
 } from '@/core/analyze/transparent-wrappers';
 import { stripEnvAssignmentWords, stripWrapperWords } from '@/core/analyze/wrapper-prelude';
 import {
-  extractXargsChildCommandWithInfo,
-  REASON_XARGS_RM,
-  REASON_XARGS_SHELL,
-} from '@/core/analyze/xargs';
-import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
-import { analyzeGitDetailed, analyzeGitMatch } from '@/core/git';
-import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
+import { analyzeGitDetailed } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { getBasename, normalizeCommandToken, stripWrappers } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
-import { type CommandView, type CommandWord, isDynamicExecutable } from '@/domain/command';
+import type { CommandView, CommandWord } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 
-const REASON_DYNAMIC_EXECUTABLE =
-  'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';
-const REASON_DYNAMIC_STRUCTURE =
-  'shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.';
 const REASON_DYNAMIC_SHELL_SOURCE =
   'shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.';
-const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
-  'branch',
-  'checkout',
-  'clean',
-  'merge',
-  'push',
-  'rebase',
-  'reflog',
-  'reset',
-  'restore',
-  'stash',
-  'switch',
-  'tag',
-  'worktree',
-]);
 function findCommandAnalyzer(head: string) {
   return ANALYZER_RULES.find((rule) => rule.heads.has(head))?.analyze;
 }
@@ -658,25 +630,6 @@ function analyzeTrackedHeredocScript(
   return options.analyzeNested(body, { effectiveCwd, envAssignments });
 }
 
-/**
- * Whether an executable source the head reads is not a literal. Parsed words answer from
- * provenance; text-only stand-ins carry none, so they keep the text test the token path used.
- */
-function hasDynamicExecutableSource(
-  sources: readonly { tokenIndex: number; kind: string; value: string }[],
-  words: readonly CommandWord[],
-): boolean {
-  return sources.some((source) => {
-    if (source.value === '-' && (source.kind === 'main-script' || source.kind === 'program-file')) {
-      return true;
-    }
-    const word = words[source.tokenIndex];
-    return word && word.provenance !== 'unknown'
-      ? word.provenance !== 'literal'
-      : /[$`*?[\]]/.test(source.value);
-  });
-}
-
 function unwrapTraceQuotes(command: string): string {
   const first = command[0];
   return command.length >= 2 && (first === '"' || first === "'") && command.at(-1) === first
@@ -731,165 +684,6 @@ function dynamicShellSourceResult(trace: CommandTraceContext | undefined): Analy
 
 function dynamicShellSourceMatch(): DestructiveCommandRuleMatch {
   return { id: '', reason: REASON_DYNAMIC_SHELL_SOURCE, intent: 'stop_and_explain' };
-}
-
-function analyzeDynamicCommandStructure(
-  dialect: CommandView['dialect'],
-  words: readonly CommandWord[],
-  strict = false,
-  policy?: EffectivePolicy,
-): DestructiveCommandRuleMatch | null {
-  const dynamicExecutableMatch =
-    isDynamicExecutable(dialect, words) &&
-    destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-executable', strict)
-      ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
-      : null;
-  return (
-    filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ??
-    analyzeDynamicStructure(dialect, words, strict, policy)
-  );
-}
-
-function analyzeDynamicStructure(
-  dialect: CommandView['dialect'],
-  words: readonly CommandWord[],
-  strict: boolean,
-  policy?: EffectivePolicy,
-): DestructiveCommandRuleMatch | null {
-  if (words.length < 2) return null;
-  const dynamicIndexes = words.flatMap((word, index) =>
-    hasCommandSubstitutionPart(word) ? [index] : [],
-  );
-  if (dynamicIndexes.length === 0) return null;
-
-  const head = normalizeCommandToken(words[0]?.text ?? '');
-  if (head === 'git') {
-    const gitWords = analyzedViewWords(dialect, words);
-    const subcommandIndex = findGitSubcommandIndex(gitWords);
-    if (
-      destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
-      dynamicIndexes.some((index) => index <= subcommandIndex)
-    ) {
-      return filterDestructiveCommandMatch(
-        destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
-        policy,
-      );
-    }
-    if (filterDestructiveCommandMatch(analyzeGitMatch(gitWords), policy)) return null;
-    const subcommand = words[subcommandIndex]?.text.toLowerCase();
-    const dataBoundary = gitWords.findIndex(
-      (word, index) => index > subcommandIndex && analysisWordText(word) === '--',
-    );
-    if (
-      destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
-      subcommand &&
-      STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) &&
-      dynamicIndexes.some(
-        (index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary),
-      )
-    ) {
-      return filterDestructiveCommandMatch(
-        destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
-        policy,
-      );
-    }
-    return null;
-  }
-
-  if (head === 'find') {
-    return destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
-      hasDynamicFindStructure(words)
-      ? filterDestructiveCommandMatch(
-          destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
-          policy,
-        )
-      : null;
-  }
-
-  if (head === 'xargs') {
-    return analyzeDynamicChildStructure(
-      dialect,
-      words.slice(extractXargsChildCommandWithInfo(words.map(analysisWordText)).childStart),
-      'xargs',
-      strict,
-      policy,
-    );
-  }
-  if (head === 'parallel') {
-    return analyzeDynamicChildStructure(
-      dialect,
-      words.slice(extractParallelChildStart(words.map(analysisWordText))),
-      'parallel',
-      strict,
-      policy,
-    );
-  }
-  return null;
-}
-
-function analyzeDynamicChildStructure(
-  dialect: CommandView['dialect'],
-  childWords: readonly CommandWord[],
-  kind: 'xargs' | 'parallel',
-  strict: boolean,
-  policy?: EffectivePolicy,
-): DestructiveCommandRuleMatch | null {
-  if (childWords.length === 0) return null;
-  const child = normalizeChildCommandWords(childWords);
-  if (isDynamicExecutable(dialect, child)) {
-    const match = filterDestructiveCommandMatch(
-      destructiveCommandMatch(
-        `${kind}.shell-dynamic`,
-        kind === 'xargs' ? REASON_XARGS_SHELL : REASON_PARALLEL_SHELL,
-      ),
-      policy,
-    );
-    if (match) return match;
-  }
-  const nestedStructure = analyzeDynamicStructure(dialect, child, strict, policy);
-  if (nestedStructure) return nestedStructure;
-  if (
-    child[0]?.text === 'rm' &&
-    child.slice(1).some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word))
-  ) {
-    return filterDestructiveCommandMatch(
-      destructiveCommandMatch(
-        `${kind}.rm-recursive-force-dynamic`,
-        kind === 'xargs' ? REASON_XARGS_RM : REASON_PARALLEL_RM,
-      ),
-      policy,
-    );
-  }
-  return null;
-}
-
-function normalizeChildCommandWords(words: readonly CommandWord[]): readonly CommandWord[] {
-  const stripped = stripWrapperWords(words);
-  const normalized = stripped.rewritten
-    ? textCommandWords(wordTexts(stripped.words))
-    : stripped.words;
-  const normalizedHead = normalized[0];
-  return normalizedHead && analysisWordText(normalizedHead) === 'busybox'
-    ? normalized.slice(1)
-    : normalized;
-}
-
-function findGitSubcommandIndex(words: readonly CommandWord[]): number {
-  let i = 1;
-  while (i < words.length) {
-    const word = words[i];
-    const token = word ? analysisWordText(word) : '';
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
-      i += 2;
-      continue;
-    }
-    if (token.startsWith('-')) {
-      i++;
-      continue;
-    }
-    return i;
-  }
-  return i;
 }
 
 function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
@@ -992,23 +786,6 @@ function matchEmbeddedCustomRule(
   return childCommand.wrappedByTransparent
     ? checkPolicyRuleMatch(childCommand.tokens, context.options.policy.rules)
     : null;
-}
-
-/**
- * Words a parsed command view is analyzed with. POSIX words keep a command substitution's
- * source in `raw`, so they analyze as parsed; PowerShell words already carry it in `text`
- * and analyze as text-only stand-ins, exactly as the token projection did.
- */
-function analyzedViewWords(
-  dialect: CommandView['dialect'],
-  words: readonly CommandWord[],
-): readonly CommandWord[] {
-  return dialect === 'posix' ? words : textCommandWords(words.map((word) => word.text));
-}
-
-/** Text the words contribute to the token-shaped scans and trace records. */
-function wordTexts(words: readonly CommandWord[]): string[] {
-  return words.map(analysisWordText);
 }
 
 function filterBuiltInCommandMatch(

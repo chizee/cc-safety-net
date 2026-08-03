@@ -1,9 +1,4 @@
-import {
-  analysisWordText,
-  hasCommandSubstitutionPart,
-  hasOptionLiteralPart,
-  textCommandWords,
-} from '@/core/analyze/command-words';
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import {
   createDerivedCommandWorkBudget,
   type DerivedCommandWorkBudget,
@@ -404,56 +399,4 @@ export function getFindPrimaryArity(token: string): number {
 /** @internal */
 export function isFindExecPrimary(token: string | undefined): boolean {
   return token !== undefined && FIND_EXEC_PRIMARIES.has(token);
-}
-
-/**
- * Whether substitution output can reach a position that changes what find traverses,
- * deletes or executes, rather than only a value the expression matches against.
- */
-export function hasDynamicFindStructure(words: readonly CommandWord[]): boolean {
-  let expressionStarted = false;
-  let valuesRemaining = 0;
-  let childStart = false;
-  let inChild = false;
-
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
-    if (!word) continue;
-    const dynamic = hasCommandSubstitutionPart(word);
-
-    if (valuesRemaining > 0) {
-      valuesRemaining--;
-      continue;
-    }
-
-    if (inChild) {
-      if (word.text === ';' || word.text === '+') {
-        inChild = false;
-        expressionStarted = true;
-        childStart = false;
-        continue;
-      }
-      if (dynamic && (childStart || hasOptionLiteralPart(word))) return true;
-      childStart = false;
-      continue;
-    }
-
-    if (!expressionStarted && !word.text.startsWith('-')) {
-      if (dynamic && (i > 1 || hasOptionLiteralPart(word))) return true;
-      continue;
-    }
-
-    expressionStarted = true;
-    if (dynamic) return true;
-    const arity = getFindPrimaryArity(word.text);
-    if (arity > 0) {
-      valuesRemaining = arity;
-      continue;
-    }
-    if (isFindExecPrimary(word.text)) {
-      inChild = true;
-      childStart = true;
-    }
-  }
-  return false;
 }

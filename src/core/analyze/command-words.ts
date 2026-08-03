@@ -1,4 +1,4 @@
-import type { CommandWord } from '@/domain/command';
+import type { CommandView, CommandWord } from '@/domain/command';
 
 /**
  * Text a word contributes to command analysis. Command substitutions expand to unknown
@@ -8,18 +8,26 @@ export function analysisWordText(word: CommandWord): string {
   return word.provenance === 'command-substitution' ? word.raw : word.text;
 }
 
-/** Whether any part of the word is substitution output, so its text is unknown. */
-export function hasCommandSubstitutionPart(word: CommandWord | undefined): boolean {
-  return word?.parts.some((part) => part.provenance === 'command-substitution') ?? false;
+/**
+ * Words a parsed command view is analyzed with. POSIX words keep a command substitution's
+ * source in `raw`, so they analyze as parsed; PowerShell words already carry it in `text`
+ * and analyze as text-only stand-ins, exactly as the token projection did.
+ */
+export function analyzedViewWords(
+  dialect: CommandView['dialect'],
+  words: readonly CommandWord[],
+): readonly CommandWord[] {
+  return dialect === 'posix' ? words : textCommandWords(words.map((word) => word.text));
 }
 
-/** Whether the word starts a literal option, so substitution output can extend it. */
-export function hasOptionLiteralPart(word: CommandWord | undefined): boolean {
-  return (
-    word?.parts.some(
-      (part) => part.provenance === 'literal' && part.raw.replace(/^["']/, '').startsWith('-'),
-    ) ?? false
-  );
+/**
+ * Whether the word an execution source came from is a literal. Parsed words answer from
+ * provenance; text-only stand-ins carry none, so they keep the text test the token path used.
+ */
+export function isLiteralExecutionSourceWord(word: CommandWord | undefined, text: string): boolean {
+  return word && word.provenance !== 'unknown'
+    ? word.provenance === 'literal'
+    : !/[$`*?[\]]/.test(text);
 }
 
 /**
