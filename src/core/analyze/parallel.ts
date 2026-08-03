@@ -7,7 +7,7 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
-import { textCommandWords } from '@/core/analyze/command-words';
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
@@ -40,8 +40,9 @@ import { resolveChdirTarget } from '@/core/path';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CommandWord } from '@/domain/command';
 import type { PolicyRule } from '@/domain/policy';
-import { parseSimpleWords } from '@/parser/projection';
+import { parseCommand } from '@/parser/command';
 
 /** @internal */
 export const REASON_PARALLEL_RM =
@@ -142,9 +143,11 @@ function firstMatch<T>(
 }
 
 export function analyzeParallel(
-  tokens: readonly string[],
+  words: readonly CommandWord[],
   context: ParallelAnalyzeContext,
 ): DestructiveCommandRuleMatch | null {
+  // parallel options, replacement strings and the command template all match on text only.
+  const tokens = words.map(analysisWordText);
   const ambientOptions = context.envAssignments?.has('PARALLEL')
     ? context.envAssignments.get('PARALLEL')
     : process.env.PARALLEL;
@@ -304,7 +307,7 @@ function analyzeParallelChildCommand(
         // Stdin mode with placeholder - analyze the script template
         // Check if the script pattern is dangerous (e.g., rm -rf {})
         reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
-        const scriptTokens = parseSimpleWords(dashCArg);
+        const scriptTokens = parsePlainCommandTokens(dashCArg);
         if (
           scriptTokens?.[0] &&
           normalizeCommandToken(scriptTokens[0]) === 'rm' &&
@@ -1281,7 +1284,8 @@ function buildNestedOverrides(
 interface ParallelParseResult {
   template: string[];
   jobs: ParallelJob[];
-  childCommandTokens: string[];
+  /** Index the child command starts at, so word-based callers can slice the same position. */
+  childStart: number;
   templateHasPlaceholder: boolean;
   runsRemotely: boolean;
   usesStdin: boolean;
@@ -1342,10 +1346,26 @@ function isOnlyParallelPlaceholder(token: string): boolean {
   return /^\{[^{}\s]*\}$/.test(token);
 }
 
+/**
+ * Argument list of a shell source that is one plain command. A source the parse cannot pin
+ * down — incomplete, more than one command, redirections, nesting, or substitution output —
+ * has no known argument list and gives null.
+ */
+function parsePlainCommandTokens(source: string): string[] | null {
+  const program = parseCommand(source, 'posix');
+  if (program.status !== 'complete' || program.nodes.length !== 1) return null;
+  const command = program.nodes[0];
+  if (command?.kind !== 'command') return null;
+  if (command.redirections.length > 0 || command.nested.length > 0) return null;
+  if (command.words.some((word) => word.provenance === 'command-substitution')) return null;
+  return command.words.map((word) => word.text);
+}
+
 function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
   let i = 1;
   const templateTokens: string[] = [];
-  let childCommandTokens: string[] = [];
+  // No child command until the scan finds one; the empty slice then starts past the last token.
+  let childStart = tokens.length;
   let markerIndex = -1;
   let runsRemotely = false;
   let usesPipe = false;
@@ -1370,7 +1390,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
       // Everything after -- until ::: is the template
       const template = collectCommandTemplate(tokens, i + 1);
       templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i + 1)];
+      childStart = i + 1;
       markerIndex = template.markerIndex;
       break;
     }
@@ -1378,7 +1398,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
     if (!token.startsWith('-')) {
       const template = collectCommandTemplate(tokens, i);
       templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i)];
+      childStart = i;
       markerIndex = template.markerIndex;
       break;
     }
@@ -1490,7 +1510,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
   return {
     template: templateTokens,
     jobs,
-    childCommandTokens,
+    childStart,
     templateHasPlaceholder,
     runsRemotely,
     usesStdin: usesPipe || markerIndex === -1,
@@ -1555,7 +1575,7 @@ function splitParallelEnvNames(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** @internal - exported for test coverage */
-export function extractParallelChildCommand(tokens: readonly string[]): string[] {
-  return parseParallelCommand(tokens).childCommandTokens;
+/** Index the child command starts at, so the dynamic-structure scan can slice the words there. */
+export function extractParallelChildStart(tokens: readonly string[]): number {
+  return parseParallelCommand(tokens).childStart;
 }

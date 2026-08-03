@@ -36,8 +36,7 @@ import {
   REASON_INTERPRETER_DANGEROUS,
 } from '@/core/analyze/interpreters';
 import {
-  analyzeParallel,
-  extractParallelChildCommand,
+  extractParallelChildStart,
   REASON_PARALLEL_RM,
   REASON_PARALLEL_SHELL,
 } from '@/core/analyze/parallel';
@@ -47,7 +46,6 @@ import {
   gitAnalyzeOptions,
   type InternalOptions,
   matchFromBlockResult,
-  nestedCommandAnalyzeContext,
 } from '@/core/analyze/rule';
 import {
   extractEvalSource,
@@ -98,10 +96,8 @@ import { sliceCommandView } from '@/parser/projection';
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 
-/** Analyzer-rule context plus the legacy tokens the not-yet-ported families still read. */
+/** Analyzer-rule context plus the tokens the wrapper prelude and the fallback scan still read. */
 type CommandAnalysisContext = AnalyzerRuleContext & { readonly tokens: string[] };
-
-type CommandAnalyzer = (context: CommandAnalysisContext) => DestructiveCommandRuleMatch | null;
 
 const REASON_DYNAMIC_EXECUTABLE =
   'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';
@@ -124,14 +120,8 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'tag',
   'worktree',
 ]);
-const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
-  ['parallel', analyzeParallelCommand],
-]);
-
-function findCommandAnalyzer(head: string): CommandAnalyzer | undefined {
-  return (
-    ANALYZER_RULES.find((rule) => rule.heads.has(head))?.analyze ?? COMMAND_ANALYZERS.get(head)
-  );
+function findCommandAnalyzer(head: string) {
+  return ANALYZER_RULES.find((rule) => rule.heads.has(head))?.analyze;
 }
 
 export function analyzeSegment(
@@ -843,11 +833,9 @@ function analyzeDynamicStructure(
     );
   }
   if (head === 'parallel') {
-    // parallel joins the registry in its own slice; its child command is still a token suffix.
-    const childTokens = extractParallelChildCommand(words.map(analysisWordText));
     return analyzeDynamicChildStructure(
       dialect,
-      words.slice(words.length - childTokens.length),
+      words.slice(extractParallelChildStart(words.map(analysisWordText))),
       'parallel',
       strict,
       policy,
@@ -1053,17 +1041,6 @@ function analyzedWords(
     })
     ? view.words
     : textCommandWords(tokens);
-}
-
-function analyzeParallelCommand(
-  context: CommandAnalysisContext,
-): DestructiveCommandRuleMatch | null {
-  return analyzeParallel(context.tokens, {
-    ...nestedCommandAnalyzeContext(context),
-    budget: context.options.parallelBudget,
-    analyzeNested: (command, overrides) =>
-      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
-  });
 }
 
 function filterBuiltInCommandMatch(

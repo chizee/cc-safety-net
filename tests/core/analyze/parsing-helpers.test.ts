@@ -12,7 +12,7 @@ import { toNamespacedPath } from 'node:path';
 import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
-import { extractParallelChildCommand } from '@/core/analyze/parallel';
+import { extractParallelChildStart } from '@/core/analyze/parallel';
 import {
   extractDashCArg,
   extractShellStartupLoaderMetadata,
@@ -866,25 +866,28 @@ describe('extractInterpreterCodeArg', () => {
 });
 
 describe('parallel parsing helpers', () => {
-  describe('extractParallelChildCommand', () => {
+  describe('extractParallelChildStart', () => {
+    const childCommand = (tokens: readonly string[]) =>
+      tokens.slice(extractParallelChildStart(tokens));
+
     test('returns empty when ::: is first token after parallel', () => {
       // When ::: is the first token after parallel (and options),
       // it returns empty because args follow :::
-      expect(extractParallelChildCommand(['parallel', ':::'])).toEqual([]);
+      expect(childCommand(['parallel', ':::'])).toEqual([]);
     });
 
     test('extracts command with -- separator', () => {
-      expect(extractParallelChildCommand(['parallel', '--', 'rm', '-rf'])).toEqual(['rm', '-rf']);
+      expect(childCommand(['parallel', '--', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('returns command and all following tokens', () => {
       // The function returns all tokens starting from the first non-option
-      expect(extractParallelChildCommand(['parallel', 'rm', '-rf'])).toEqual(['rm', '-rf']);
+      expect(childCommand(['parallel', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('returns command including ::: marker when command comes first', () => {
       // If command tokens appear before :::, all of them are returned
-      expect(extractParallelChildCommand(['parallel', 'rm', '-rf', ':::', '/'])).toEqual([
+      expect(childCommand(['parallel', 'rm', '-rf', ':::', '/'])).toEqual([
         'rm',
         '-rf',
         ':::',
@@ -893,39 +896,27 @@ describe('parallel parsing helpers', () => {
     });
 
     test('consumes options', () => {
-      expect(extractParallelChildCommand(['parallel', '-j4', '--', 'rm', '-rf'])).toEqual([
-        'rm',
-        '-rf',
-      ]);
+      expect(childCommand(['parallel', '-j4', '--', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('consumes --option=value', () => {
-      expect(extractParallelChildCommand(['parallel', '--foo=bar', 'rm', '-rf'])).toEqual([
-        'rm',
-        '-rf',
-      ]);
+      expect(childCommand(['parallel', '--foo=bar', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('consumes options that take a value', () => {
-      expect(extractParallelChildCommand(['parallel', '-S', 'sshlogin', 'rm', '-rf'])).toEqual([
-        'rm',
-        '-rf',
-      ]);
+      expect(childCommand(['parallel', '-S', 'sshlogin', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('consumes -j value form', () => {
-      expect(extractParallelChildCommand(['parallel', '-j', '4', 'rm', '-rf'])).toEqual([
-        'rm',
-        '-rf',
-      ]);
+      expect(childCommand(['parallel', '-j', '4', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('skips unknown short option', () => {
-      expect(extractParallelChildCommand(['parallel', '-X', 'rm', '-rf'])).toEqual(['rm', '-rf']);
+      expect(childCommand(['parallel', '-X', 'rm', '-rf'])).toEqual(['rm', '-rf']);
     });
 
     test('empty for just parallel', () => {
-      expect(extractParallelChildCommand(['parallel'])).toEqual([]);
+      expect(childCommand(['parallel'])).toEqual([]);
     });
   });
 });

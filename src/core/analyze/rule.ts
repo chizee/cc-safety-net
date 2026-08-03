@@ -1,6 +1,7 @@
 import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
+import { analyzeParallel } from '@/core/analyze/parallel';
 import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
@@ -118,12 +119,19 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
           matchFromBlockResult(context.options.analyzeNested(command, overrides)),
       }),
   },
+  {
+    heads: new Set(['parallel']),
+    analyze: (context) =>
+      analyzeParallel(context.words, {
+        ...nestedCommandAnalyzeContext(context),
+        budget: context.options.parallelBudget,
+        analyzeNested: (command, overrides) =>
+          matchFromBlockResult(context.options.analyzeNested(command, overrides)),
+      }),
+  },
 ];
 
-/** Shared with the parallel family, which analyzes child commands the same way. */
-export function nestedCommandAnalyzeContext(
-  context: AnalyzerRuleContext,
-): NestedCommandAnalyzeContext {
+function nestedCommandAnalyzeContext(context: AnalyzerRuleContext): NestedCommandAnalyzeContext {
   return {
     cwd: context.cwd,
     originalCwd: context.originalCwd,
