@@ -195,6 +195,7 @@ export function analyzeSegment(
   }
 
   const normalizedHead = normalizeCommandToken(head);
+  const words = analyzedWords(stripped, normalizedCommandView);
   const cwdForRm = wrapperCwd === null ? undefined : (wrapperCwd ?? baseCwdForRm);
   const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = wrapperCwd === undefined ? options.effectiveCwd : wrapperCwd;
@@ -247,9 +248,9 @@ export function analyzeSegment(
 
   const shellBuiltinSource =
     normalizedHead === 'eval'
-      ? extractEvalSource(stripped, normalizedCommandView)
+      ? extractEvalSource(words)
       : normalizedHead === 'trap'
-        ? extractTrapSource(stripped, normalizedCommandView)
+        ? extractTrapSource(words)
         : undefined;
   if (shellBuiltinSource?.kind === 'dynamic') return dynamicShellSourceResult(trace);
   if (shellBuiltinSource?.kind === 'literal') {
@@ -279,11 +280,7 @@ export function analyzeSegment(
     if (startupResult) return startupResult;
     const dashCArg = extractDashCArg(stripped);
     if (dashCArg) {
-      const positionalSource = extractPositionalShellSource(
-        stripped,
-        normalizedCommandView,
-        dashCArg,
-      );
+      const positionalSource = extractPositionalShellSource(words, dashCArg);
       if (positionalSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
       const source = positionalSource.kind === 'literal' ? positionalSource.source : dashCArg;
       const traceInnerCommand = unwrapTraceQuotes(source);
@@ -308,7 +305,7 @@ export function analyzeSegment(
         : null;
     }
 
-    const scriptSource = extractShellScriptOperandSource(stripped, normalizedCommandView);
+    const scriptSource = extractShellScriptOperandSource(words);
     if (scriptSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
     if (scriptSource.kind === 'literal') {
       return analyzeTrackedHeredocScript(
@@ -322,8 +319,8 @@ export function analyzeSegment(
     }
 
     const stdinSource = extractShellStdinSource(
-      stripped,
-      normalizedCommandView,
+      words,
+      normalizedCommandView?.redirections ?? [],
       options.hasPipelineInput ?? false,
       options.literalShellInput,
     );
@@ -368,7 +365,7 @@ export function analyzeSegment(
   if (AWK_INTERPRETERS.has(normalizedHead)) {
     if (
       options.strict &&
-      hasDynamicExecutableSource(extractAwkExecutableSources(stripped), normalizedCommandView)
+      hasDynamicExecutableSource(extractAwkExecutableSources(stripped), words)
     ) {
       return dynamicShellSourceResult(trace);
     }
@@ -399,10 +396,7 @@ export function analyzeSegment(
   if (isInterpreterCommand(normalizedHead)) {
     if (
       options.strict &&
-      hasDynamicExecutableSource(
-        extractInterpreterExecutableSources(stripped),
-        normalizedCommandView,
-      )
+      hasDynamicExecutableSource(extractInterpreterExecutableSources(stripped), words)
     ) {
       return dynamicShellSourceResult(trace);
     }
@@ -515,7 +509,7 @@ export function analyzeSegment(
     trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace };
   const commandContext: CommandAnalysisContext = {
     tokens: stripped,
-    words: analyzedWords(stripped, normalizedCommandView),
+    words,
     head: normalizedHead,
     cwd: cwdForRm,
     originalCwd: originalCwdForRm,
@@ -681,16 +675,22 @@ function analyzeTrackedHeredocScript(
   return options.analyzeNested(body, { effectiveCwd, envAssignments });
 }
 
+/**
+ * Whether an executable source the head reads is not a literal. Parsed words answer from
+ * provenance; text-only stand-ins carry none, so they keep the text test the token path used.
+ */
 function hasDynamicExecutableSource(
   sources: readonly { tokenIndex: number; kind: string; value: string }[],
-  command: CommandView | undefined,
+  words: readonly CommandWord[],
 ): boolean {
   return sources.some((source) => {
     if (source.value === '-' && (source.kind === 'main-script' || source.kind === 'program-file')) {
       return true;
     }
-    const word = command?.words[source.tokenIndex];
-    return word ? word.provenance !== 'literal' : /[$`*?[\]]/.test(source.value);
+    const word = words[source.tokenIndex];
+    return word && word.provenance !== 'unknown'
+      ? word.provenance !== 'literal'
+      : /[$`*?[\]]/.test(source.value);
   });
 }
 
@@ -957,7 +957,7 @@ function analyzeNormalizedEmbeddedCommand(
     if (isShellSyntaxCheck(shellTokens)) return null;
     const dashCArg = extractDashCArg(shellTokens);
     if (!dashCArg) {
-      if (extractShellScriptOperandSource(shellTokens, undefined).kind === 'dynamic') {
+      if (extractShellScriptOperandSource(textCommandWords(shellTokens)).kind === 'dynamic') {
         return dynamicShellSourceMatch();
       }
       return matchEmbeddedCustomRule(context, childCommand);

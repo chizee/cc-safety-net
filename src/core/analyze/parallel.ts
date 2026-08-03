@@ -341,12 +341,13 @@ function analyzeParallelChildCommand(
         !envHasPlaceholder && (!templateHasPlaceholder || jobs.length > 0)
           ? (jobs.length > 0 ? jobs : [undefined]).map((job) =>
               extractPositionalShellSource(
-                job === undefined
-                  ? childTokens
-                  : templateHasPlaceholder
-                    ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job))
-                    : [...childTokens, ...job],
-                undefined,
+                textCommandWords(
+                  job === undefined
+                    ? childTokens
+                    : templateHasPlaceholder
+                      ? childTokens.map((token) => replaceParallelJobPlaceholder(token, job))
+                      : [...childTokens, ...job],
+                ),
                 dashCArg,
               ),
             )
@@ -406,7 +407,7 @@ function analyzeParallelChildCommand(
       return null;
     }
 
-    const scriptSource = extractShellScriptOperandSource(childTokens, undefined);
+    const scriptSource = extractShellScriptOperandSource(textCommandWords(childTokens));
     if (
       scriptSource.kind === 'dynamic' ||
       (scriptSource.kind === 'literal' && hasParallelPlaceholder(scriptSource.source))
@@ -617,7 +618,7 @@ function shellArgvHasParallelSource(tokens: readonly string[]): boolean {
   if (isShellSyntaxCheck(tokens)) return false;
   const dashCArg = extractDashCArg(tokens);
   if (dashCArg !== null) return hasParallelPlaceholder(dashCArg);
-  const scriptSource = extractShellScriptOperandSource(tokens, undefined);
+  const scriptSource = extractShellScriptOperandSource(textCommandWords(tokens));
   if (scriptSource.kind === 'literal') return hasParallelPlaceholder(scriptSource.source);
   if (scriptSource.kind === 'dynamic') return true;
   return !tokens.some(hasParallelPlaceholder);

@@ -1,7 +1,13 @@
+import { analysisWordText } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { parseShellArgv } from '@/core/analyze/shell-wrappers';
 import { getBasename, normalizeCommandToken, parseEnvAssignment } from '@/core/shell';
-import type { CommandProgram, CommandView, CommandWord } from '@/domain/command';
+import type {
+  CommandProgram,
+  CommandRedirection,
+  CommandView,
+  CommandWord,
+} from '@/domain/command';
 import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/parser/command';
 
 type ShellExecutionSource =
@@ -63,62 +69,55 @@ export function extractLiteralPrintfOutput(command: CommandView | undefined): st
 }
 
 /** @internal */
-export function extractEvalSource(
-  tokens: readonly string[],
-  command: CommandView | undefined,
-): ShellExecutionSource {
-  const start = tokens[1] === '--' ? 2 : 1;
-  if (tokens.length <= start) return NO_SOURCE;
-  if (!tokens.slice(start).every((value, index) => isLiteralWord(command, start + index, value))) {
-    return DYNAMIC_SOURCE;
-  }
-  return { kind: 'literal', source: tokens.slice(start).join(' ') };
+export function extractEvalSource(words: readonly CommandWord[]): ShellExecutionSource {
+  const start = wordText(words[1]) === '--' ? 2 : 1;
+  if (words.length <= start) return NO_SOURCE;
+  const args = words.slice(start);
+  if (!args.every(isLiteralWord)) return DYNAMIC_SOURCE;
+  return { kind: 'literal', source: args.map(analysisWordText).join(' ') };
 }
 
 /** @internal */
-export function extractTrapSource(
-  tokens: readonly string[],
-  command: CommandView | undefined,
-): ShellExecutionSource {
-  const actionIndex = tokens[1] === '--' ? 2 : 1;
-  const action = tokens[actionIndex];
+export function extractTrapSource(words: readonly CommandWord[]): ShellExecutionSource {
+  const actionIndex = wordText(words[1]) === '--' ? 2 : 1;
+  const action = words[actionIndex];
+  const source = wordText(action);
   if (
     action === undefined ||
-    tokens.length <= actionIndex + 1 ||
-    action === '-' ||
-    action === '' ||
-    action === '-l' ||
-    action === '-p'
+    words.length <= actionIndex + 1 ||
+    source === '-' ||
+    source === '' ||
+    source === '-l' ||
+    source === '-p'
   ) {
     return NO_SOURCE;
   }
-  if (!isLiteralWord(command, actionIndex, action)) return DYNAMIC_SOURCE;
-  return { kind: 'literal', source: action };
+  if (!isLiteralWord(action)) return DYNAMIC_SOURCE;
+  return { kind: 'literal', source };
 }
 
 /** @internal */
 export function extractPositionalShellSource(
-  tokens: readonly string[],
-  command: CommandView | undefined,
+  words: readonly CommandWord[],
   script: string,
 ): ShellExecutionSource {
-  const scriptIndex = findShellScriptIndex(tokens);
+  const scriptIndex = findShellScriptIndex(words);
   if (scriptIndex === -1) return NO_SOURCE;
   const carrier = parsePositionalCarrier(script);
   if (!carrier) return NO_SOURCE;
   const expanded: string[] = [];
   let expandedCharacters = carrier.command?.length ?? 0;
   for (const reference of carrier.references) {
-    const words = expandPositionalReference(reference, tokens, command, scriptIndex, carrier.ifs);
-    if (!words) return DYNAMIC_SOURCE;
-    expandedCharacters += words.reduce((total, word) => total + word.length + 3, 0);
+    const values = expandPositionalReference(reference, words, scriptIndex, carrier.ifs);
+    if (!values) return DYNAMIC_SOURCE;
+    expandedCharacters += values.reduce((total, value) => total + value.length + 3, 0);
     if (
-      expanded.length + words.length > MAX_POSITIONAL_EXPANSION_WORDS ||
+      expanded.length + values.length > MAX_POSITIONAL_EXPANSION_WORDS ||
       expandedCharacters > MAX_POSITIONAL_EXPANSION_CHARACTERS
     ) {
       return DYNAMIC_SOURCE;
     }
-    expanded.push(...words);
+    expanded.push(...values);
   }
   if (carrier.command === 'eval') {
     return { kind: 'literal', source: expanded.join(' ') };
@@ -140,14 +139,14 @@ export function extractPositionalShellSource(
 
 /** @internal */
 export function extractShellStdinSource(
-  tokens: readonly string[],
-  command: CommandView | undefined,
+  words: readonly CommandWord[],
+  redirections: readonly CommandRedirection[],
   hasPipelineInput: boolean,
   literalPipelineInput: string | undefined,
 ): ShellExecutionSource {
-  if (!shellReadsStdinAsCommands(tokens)) return NO_SOURCE;
+  if (!parseShellArgv(words.map(analysisWordText)).readsStdinAsCommands) return NO_SOURCE;
 
-  const input = command?.redirections
+  const input = redirections
     .filter(
       (redirection) =>
         (redirection.fd === undefined || redirection.fd === 0) &&
@@ -169,23 +168,21 @@ export function extractShellStdinSource(
 
 /** @internal */
 export function extractShellScriptOperandSource(
-  tokens: readonly string[],
-  command: CommandView | undefined,
+  words: readonly CommandWord[],
 ): ShellExecutionSource {
-  const scriptIndex = parseShellArgv(tokens).scriptIndex;
+  const scriptIndex = parseShellArgv(words.map(analysisWordText)).scriptIndex;
   if (scriptIndex === null) return NO_SOURCE;
-  const source = tokens[scriptIndex] ?? '';
-  const word = command?.words[scriptIndex];
-  const literal = word ? word.provenance === 'literal' : !/[$`*?[\]]/.test(source);
+  const word = words[scriptIndex];
+  const source = wordText(word);
+  const literal =
+    word && word.provenance !== 'unknown'
+      ? word.provenance === 'literal'
+      : !/[$`*?[\]]/.test(source);
   return literal ? { kind: 'literal', source } : DYNAMIC_SOURCE;
 }
 
-function shellReadsStdinAsCommands(tokens: readonly string[]): boolean {
-  return parseShellArgv(tokens).readsStdinAsCommands;
-}
-
-function findShellScriptIndex(tokens: readonly string[]): number {
-  return parseShellArgv(tokens).commandIndex ?? -1;
+function findShellScriptIndex(words: readonly CommandWord[]): number {
+  return parseShellArgv(words.map(analysisWordText)).commandIndex ?? -1;
 }
 
 function parsePositionalCarrier(script: string): PositionalCarrier | null {
@@ -218,47 +215,38 @@ function parsePositionalReference(value: string): PositionalReference | null {
 
 function expandPositionalReference(
   reference: PositionalReference,
-  tokens: readonly string[],
-  command: CommandView | undefined,
+  words: readonly CommandWord[],
   scriptIndex: number,
   ifs: string,
 ): string[] | undefined {
-  const positional = tokens.slice(scriptIndex + 2);
+  const positional = words.slice(scriptIndex + 2);
   if (reference.parameter === '@') {
     return reference.quoted
-      ? literalPositionalValues(positional, command, scriptIndex + 2)
-      : splitLiteralPositionalValues(positional, command, scriptIndex + 2, ifs);
+      ? literalPositionalValues(positional)
+      : splitLiteralPositionalValues(positional, ifs);
   }
   if (reference.parameter === '*') {
-    const values = literalPositionalValues(positional, command, scriptIndex + 2);
+    const values = literalPositionalValues(positional);
     if (!values) return undefined;
     const joined = values.join(ifs[0] ?? '');
     return reference.quoted ? [joined] : splitLiteralShellFields(joined, ifs);
   }
 
-  const index = scriptIndex + 1 + reference.parameter;
-  const value = tokens[index] ?? '';
-  if (tokens[index] !== undefined && !isLiteralWord(command, index, value)) return undefined;
+  const word = words[scriptIndex + 1 + reference.parameter];
+  if (word && !isLiteralWord(word)) return undefined;
+  const value = wordText(word);
   return reference.quoted ? [value] : splitLiteralShellFields(value, ifs);
 }
 
-function literalPositionalValues(
-  values: readonly string[],
-  command: CommandView | undefined,
-  start: number,
-): string[] | undefined {
-  return values.every((value, index) => isLiteralWord(command, start + index, value))
-    ? [...values]
-    : undefined;
+function literalPositionalValues(words: readonly CommandWord[]): string[] | undefined {
+  return words.every(isLiteralWord) ? words.map(analysisWordText) : undefined;
 }
 
 function splitLiteralPositionalValues(
-  values: readonly string[],
-  command: CommandView | undefined,
-  start: number,
+  words: readonly CommandWord[],
   ifs: string,
 ): string[] | undefined {
-  const literal = literalPositionalValues(values, command, start);
+  const literal = literalPositionalValues(words);
   if (!literal) return undefined;
   const fields = literal.map((value) => splitLiteralShellFields(value, ifs));
   return fields.some((value) => value === undefined)
@@ -276,10 +264,19 @@ function splitLiteralShellFields(value: string, ifs: string): string[] | undefin
     : value.split(ifs).filter(Boolean);
 }
 
-function isLiteralWord(command: CommandView | undefined, index: number, value = ''): boolean {
-  const word = command?.words[index];
-  if (word) return word.provenance === 'literal';
-  return !/[$`]/.test(value);
+/**
+ * Whether the word is a literal execution source. Parsed words answer from provenance;
+ * text-only stand-ins carry none, so they keep the text test the token path used.
+ */
+function isLiteralWord(word: CommandWord | undefined): boolean {
+  if (!word) return true;
+  return word.provenance === 'unknown'
+    ? !/[$`]/.test(analysisWordText(word))
+    : word.provenance === 'literal';
+}
+
+function wordText(word: CommandWord | undefined): string {
+  return word ? analysisWordText(word) : '';
 }
 
 function quoteShellWord(value: string): string {

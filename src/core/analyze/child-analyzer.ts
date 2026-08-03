@@ -92,7 +92,7 @@ export function analyzeChildCommandMatch(
   const normalizedHead = normalizeCommandToken(head);
 
   if (normalizedHead === 'eval') {
-    const source = extractEvalSource(tokens, undefined);
+    const source = extractEvalSource(textCommandWords(tokens));
     if (source.kind === 'dynamic') return getShellDynamicReason(options, context);
     if (source.kind === 'literal' && context.analyzeNested) {
       const result = context.analyzeNested(source.source, {
@@ -125,7 +125,7 @@ export function analyzeChildCommandMatch(
       return null;
     }
 
-    const scriptSource = extractShellScriptOperandSource(tokens, undefined);
+    const scriptSource = extractShellScriptOperandSource(textCommandWords(tokens));
     if (scriptSource.kind === 'dynamic') return getShellDynamicReason(options, context);
     if (scriptSource.kind === 'literal') {
       if (options.dynamicSourceInput) return getShellDynamicReason(options, context);

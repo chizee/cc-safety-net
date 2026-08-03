@@ -8,7 +8,7 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
-import { analysisWordText } from '@/core/analyze/command-words';
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { getFindExecCommand, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
@@ -235,7 +235,7 @@ function xargsInputCanChangeExecutedSource(
     }
     const source = extractDashCArg(childTokens);
     if (!source) {
-      const scriptSource = extractShellScriptOperandSource(childTokens, undefined);
+      const scriptSource = extractShellScriptOperandSource(textCommandWords(childTokens));
       if (scriptSource.kind === 'literal') {
         return replacementToken !== null && scriptSource.source.includes(replacementToken);
       }
@@ -265,7 +265,7 @@ function xargsInputCanChangeExecutedSource(
   }
 
   if (childHead === 'eval') {
-    const source = extractEvalSource(childTokens, undefined);
+    const source = extractEvalSource(textCommandWords(childTokens));
     if (source.kind === 'dynamic') return true;
     if (replacementToken !== null) {
       return source.kind === 'literal' && source.source.includes(replacementToken);
