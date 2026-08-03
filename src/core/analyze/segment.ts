@@ -10,7 +10,12 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
-import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
+import {
+  analysisWordText,
+  hasCommandSubstitutionPart,
+  hasOptionLiteralPart,
+  textCommandWords,
+} from '@/core/analyze/command-words';
 import {
   DISPLAY_COMMANDS,
   MAX_RECURSION_DEPTH,
@@ -23,7 +28,7 @@ import {
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
 import { analyzeDeviceCommandMatch } from '@/core/analyze/device';
-import { analyzeFindMatch, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
+import { hasDynamicFindStructure } from '@/core/analyze/find';
 import { resolveTrackedHeredocPath } from '@/core/analyze/heredoc-files';
 import {
   containsDangerousCode,
@@ -40,12 +45,12 @@ import {
   REASON_PARALLEL_RM,
   REASON_PARALLEL_SHELL,
 } from '@/core/analyze/parallel';
-import { deleteTargetWordFacts } from '@/core/analyze/recursive-delete-targets';
 import {
   ANALYZER_RULES,
   type AnalyzerRuleContext,
   gitAnalyzeOptions,
   type InternalOptions,
+  matchFromBlockResult,
 } from '@/core/analyze/rule';
 import {
   extractEvalSource,
@@ -60,11 +65,7 @@ import {
   extractShellStartupLoaderMetadata,
   isShellSyntaxCheck,
 } from '@/core/analyze/shell-wrappers';
-import {
-  hasUnsafeTmpdirWordSplitting,
-  isTmpdirOverriddenToNonTemp,
-  isTmpdirValueTrusted,
-} from '@/core/analyze/tmpdir';
+import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
 import {
   isStandardCommandWrapper,
   unwrapTransparentWrapper,
@@ -128,7 +129,6 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'worktree',
 ]);
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
-  ['find', analyzeFindCommand],
   ['xargs', analyzeXargsCommand],
   ['parallel', analyzeParallelCommand],
 ]);
@@ -526,6 +526,8 @@ export function analyzeSegment(
     return blockResultFromMatch(filteredDeviceMatch);
   }
 
+  const analyzerOptions =
+    trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace };
   const commandContext: CommandAnalysisContext = {
     tokens: stripped,
     words: analyzedWords(stripped, normalizedCommandView),
@@ -536,8 +538,16 @@ export function analyzeSegment(
     allowTmpdirVar,
     depth,
     effectiveCwd: nestedEffectiveCwd,
-    options:
-      trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace },
+    options: analyzerOptions,
+    analyzeChildTokens: (childTokens, childCwd) =>
+      matchFromBlockResult(
+        analyzeSegment([...childTokens], depth + 1, {
+          ...analyzerOptions,
+          commandView: undefined,
+          effectiveCwd: childCwd,
+          envAssignments,
+        }),
+      ) ?? checkPolicyRuleMatch(childTokens, analyzerOptions.policy.rules),
   };
   const commandAnalyzer = findCommandAnalyzer(normalizedHead);
   if (normalizedHead === 'rm' || normalizedHead === 'xargs' || normalizedHead === 'parallel') {
@@ -819,7 +829,7 @@ function analyzeDynamicStructure(
 
   if (head === 'find') {
     return destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
-      hasDynamicFindStructure(command)
+      hasDynamicFindStructure(command.words)
       ? filterDestructiveCommandMatch(
           destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
           policy,
@@ -846,54 +856,6 @@ function analyzeDynamicStructure(
     );
   }
   return null;
-}
-
-function hasDynamicFindStructure(command: CommandView): boolean {
-  let expressionStarted = false;
-  let valuesRemaining = 0;
-  let childStart = false;
-  let inChild = false;
-
-  for (let i = 1; i < command.words.length; i++) {
-    const word = command.words[i];
-    if (!word) continue;
-    const dynamic = hasCommandSubstitutionPart(word);
-
-    if (valuesRemaining > 0) {
-      valuesRemaining--;
-      continue;
-    }
-
-    if (inChild) {
-      if (word.text === ';' || word.text === '+') {
-        inChild = false;
-        expressionStarted = true;
-        childStart = false;
-        continue;
-      }
-      if (dynamic && (childStart || hasOptionLiteralPart(word))) return true;
-      childStart = false;
-      continue;
-    }
-
-    if (!expressionStarted && !word.text.startsWith('-')) {
-      if (dynamic && (i > 1 || hasOptionLiteralPart(word))) return true;
-      continue;
-    }
-
-    expressionStarted = true;
-    if (dynamic) return true;
-    const arity = getFindPrimaryArity(word.text);
-    if (arity > 0) {
-      valuesRemaining = arity;
-      continue;
-    }
-    if (isFindExecPrimary(word.text)) {
-      inChild = true;
-      childStart = true;
-    }
-  }
-  return false;
 }
 
 function analyzeDynamicChildStructure(
@@ -944,18 +906,6 @@ function normalizeChildCommandView(view: CommandView): CommandView {
     withoutLeading.analysisTokens.length - wrapped.tokens.length,
   );
   return normalized.analysisTokens[0] === 'busybox' ? sliceCommandView(normalized, 1) : normalized;
-}
-
-function hasCommandSubstitutionPart(word: CommandView['words'][number] | undefined): boolean {
-  return word?.parts.some((part) => part.provenance === 'command-substitution') ?? false;
-}
-
-function hasOptionLiteralPart(word: CommandView['words'][number] | undefined): boolean {
-  return (
-    word?.parts.some(
-      (part) => part.provenance === 'literal' && part.raw.replace(/^["']/, '').startsWith('-'),
-    ) ?? false
-  );
 }
 
 function findGitSubcommandIndex(words: readonly CommandWord[]): number {
@@ -1109,58 +1059,6 @@ function analyzedWords(
     : textCommandWords(tokens);
 }
 
-function getDeleteTargetTokenMetadata(words: readonly CommandWord[]) {
-  const facts = words.map(deleteTargetWordFacts);
-  return {
-    literal: new Set(facts.flatMap((fact, index) => (fact.targetIsLiteral ? [index] : []))),
-    wordSplittingProtected: new Set(
-      facts.flatMap((fact, index) => (fact.tmpdirWordSplittingProtected ? [index] : [])),
-    ),
-    expanded: new Map<number, readonly string[]>(
-      facts.flatMap((fact, index) =>
-        fact.expandedTargets ? [[index, fact.expandedTargets] as const] : [],
-      ),
-    ),
-    unsafeBraceExpansion: new Set(
-      facts.flatMap((fact, index) => (fact.unsafeBraceExpansion ? [index] : [])),
-    ),
-  };
-}
-
-function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  const targetMetadata = getDeleteTargetTokenMetadata(context.words);
-  return analyzeFindMatch(context.tokens, {
-    cwd: context.cwd,
-    originalCwd: context.originalCwd,
-    strict: context.options.strict,
-    allowTmpdirVar: context.allowTmpdirVar,
-    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
-    protectedGitMetadata: context.options.protectedGitMetadata,
-    literalTargetTokenIndexes: targetMetadata.literal,
-    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata.wordSplittingProtected,
-    expandedTargetTokens: targetMetadata.expanded,
-    unsafeBraceExpansionTargetTokenIndexes: targetMetadata.unsafeBraceExpansion,
-    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
-    envAssignments: context.envAssignments,
-    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
-    analyzeTokens: (tokens, cwd) => {
-      const nestedMatch = matchFromBlockResult(
-        analyzeSegment([...tokens], context.depth + 1, {
-          ...context.options,
-          commandView: undefined,
-          derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
-          effectiveCwd: cwd,
-          envAssignments: context.envAssignments,
-        }),
-      );
-      return nestedMatch ?? checkPolicyRuleMatch(tokens, context.options.policy.rules);
-    },
-    analyzeNested: (command, overrides) =>
-      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
-  });
-}
-
 function analyzeXargsCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
   return analyzeXargs(context.tokens, {
     ...getNestedCommandAnalyzeContext(context),
@@ -1178,18 +1076,6 @@ function analyzeParallelCommand(
     analyzeNested: (command, overrides) =>
       matchFromBlockResult(context.options.analyzeNested(command, overrides)),
   });
-}
-
-function matchFromBlockResult(
-  result: AnalyzeBlockResult | null,
-): DestructiveCommandRuleMatch | null {
-  return result
-    ? {
-        id: result.ruleId ?? '',
-        reason: result.reason,
-        intent: result.intent ?? 'manual_only',
-      }
-    : null;
 }
 
 function filterBuiltInCommandMatch(

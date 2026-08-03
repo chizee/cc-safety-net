@@ -1,4 +1,5 @@
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
+import { analyzeFindMatch } from '@/core/analyze/find';
 import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
@@ -49,6 +50,15 @@ export type AnalyzerRuleContext = {
   readonly allowTmpdirVar: boolean;
   readonly depth: number;
   readonly options: InternalOptions;
+  /**
+   * Analyzes a command this one derives from its own arguments (a find -exec child) with
+   * the parent's budget, policy and env. Only analyzeSegment can do that, and rules cannot
+   * call it directly without an import cycle.
+   */
+  readonly analyzeChildTokens: (
+    tokens: readonly string[],
+    cwd: string | null | undefined,
+  ) => DestructiveCommandRuleMatch | null;
 };
 
 type AnalyzerRule = {
@@ -77,7 +87,36 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
     heads: new Set(['git']),
     analyze: (context) => analyzeGitMatch(context.words, gitAnalyzeOptions(context)),
   },
+  {
+    heads: new Set(['find']),
+    analyze: (context) =>
+      analyzeFindMatch(context.words, {
+        cwd: context.cwd,
+        originalCwd: context.originalCwd,
+        strict: context.options.strict,
+        allowTmpdirVar: context.allowTmpdirVar,
+        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
+        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+        protectedGitMetadata: context.options.protectedGitMetadata,
+        derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
+        envAssignments: context.envAssignments,
+        policy:
+          context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+        analyzeTokens: context.analyzeChildTokens,
+        analyzeNested: (command, overrides) =>
+          matchFromBlockResult(context.options.analyzeNested(command, overrides)),
+      }),
+  },
 ];
+
+/** Reads a nested analysis result back as the match shape the rules return. */
+export function matchFromBlockResult(
+  result: Omit<AnalyzeResult, 'segment'> | null,
+): DestructiveCommandRuleMatch | null {
+  return result
+    ? { id: result.ruleId ?? '', reason: result.reason, intent: result.intent ?? 'manual_only' }
+    : null;
+}
 
 /** Shared with the trace path, which calls analyzeGitDetailed for the worktree relaxation. */
 export function gitAnalyzeOptions(context: AnalyzerRuleContext) {

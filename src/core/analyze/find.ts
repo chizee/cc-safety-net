@@ -1,4 +1,10 @@
 import {
+  analysisWordText,
+  hasCommandSubstitutionPart,
+  hasOptionLiteralPart,
+  textCommandWords,
+} from '@/core/analyze/command-words';
+import {
   createDerivedCommandWorkBudget,
   type DerivedCommandWorkBudget,
   reserveDerivedCommandTokens,
@@ -6,6 +12,7 @@ import {
 import {
   classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
+  deleteTargetWordFacts,
   isTrustedTempDescendantTarget,
   type RecursiveDeleteTargetTrustOptions,
 } from '@/core/analyze/recursive-delete-targets';
@@ -26,6 +33,7 @@ import {
 } from '@/core/git-metadata-protection';
 import { getBasename, stripWrappers } from '@/core/shell';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CommandWord } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
@@ -86,10 +94,6 @@ const FIND_PRIMARY_ARITY = new Map<string, number>([
 ]);
 
 export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
-  literalTargetTokenIndexes?: ReadonlySet<number>;
-  tmpdirWordSplittingProtectedTargetTokenIndexes?: ReadonlySet<number>;
-  expandedTargetTokens?: ReadonlyMap<number, readonly string[]>;
-  unsafeBraceExpansionTargetTokenIndexes?: ReadonlySet<number>;
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   envAssignments?: ReadonlyMap<string, string>;
   policy?: Pick<
@@ -112,17 +116,19 @@ export function analyzeFind(
   tokens: readonly string[],
   context: AnalyzeFindContext = {},
 ): string | null {
-  return analyzeFindMatch(tokens, context)?.reason ?? null;
+  return analyzeFindMatch(textCommandWords(tokens), context)?.reason ?? null;
 }
 
 export function analyzeFindMatch(
-  tokens: readonly string[],
+  words: readonly CommandWord[],
   context: AnalyzeFindContext = {},
 ): DestructiveCommandRuleMatch | null {
-  const catastrophicMatch = findCatastrophicDeleteMatch(tokens, context);
+  // The primary/arity walk is textual; only the starting points read word facts.
+  const tokens = words.map(analysisWordText);
+  const catastrophicMatch = findCatastrophicDeleteMatch(words, tokens, context);
   if (catastrophicMatch) return catastrophicMatch;
   // Check for -delete outside of -exec/-execdir blocks
-  if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(tokens, context)) {
+  if (findHasDelete(tokens, 1) && !hasOnlyTrustedTempDeleteTargets(words, tokens, context)) {
     const match = filterDestructiveCommandMatch(
       destructiveCommandMatch('find.delete', REASON_FIND_DELETE),
       context.policy,
@@ -174,27 +180,25 @@ export function analyzeFindMatch(
 }
 
 function findCatastrophicDeleteMatch(
+  words: readonly CommandWord[],
   tokens: readonly string[],
   context: AnalyzeFindContext,
 ): DestructiveCommandRuleMatch | null {
   const deletesDirectly = findHasDelete(tokens, 1);
   if (!deletesDirectly && !findExecRmDeletesFoundPaths(tokens)) return null;
   // An omitted starting point means find searches `.` implicitly.
-  const targets = getFindStartingPoints(tokens) ?? [{ text: '.', index: -1 }];
+  const targets = getFindStartingPoints(words) ?? textCommandWords(['.']);
   const targetContext = createRecursiveDeleteTargetContext({
     ...context,
     allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: true,
   });
   for (const target of targets) {
-    const expandedTargets = context.expandedTargetTokens?.get(target.index);
-    for (const expandedTarget of expandedTargets ?? [target.text]) {
+    const facts = deleteTargetWordFacts(target);
+    for (const expandedTarget of facts.expandedTargets ?? [analysisWordText(target)]) {
       const classification = classifyRecursiveDeleteTarget(expandedTarget, targetContext, {
-        targetIsLiteral:
-          expandedTargets !== undefined || context.literalTargetTokenIndexes?.has(target.index),
-        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
-          target.index,
-        ),
+        targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
+        tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
       });
       // A find traversal that deletes found paths erases the starting tree's
       // contents even when each individual removal is non-recursive.
@@ -213,7 +217,7 @@ function findCatastrophicDeleteMatch(
     findSelectsHooksByName(tokens) &&
     targetContext.resolvedCwd &&
     isProtectedGitHookNameSelection(
-      targets.map((target) => target.text),
+      targets.map(analysisWordText),
       targetContext.resolvedCwd,
       targetContext.protectedGitMetadata,
       targetContext.pathCanonicalizationBudget,
@@ -250,11 +254,12 @@ function findSelectsHooksByName(tokens: readonly string[]): boolean {
 }
 
 function hasOnlyTrustedTempDeleteTargets(
+  words: readonly CommandWord[],
   tokens: readonly string[],
   context: AnalyzeFindContext,
 ): boolean {
   if (tokens.includes('-L') || tokens.includes('-f') || tokens.includes('-follow')) return false;
-  const targets = getFindStartingPoints(tokens);
+  const targets = getFindStartingPoints(words);
   if (!targets) return false;
   const envAssignments = context.envAssignments ?? new Map();
   const effectiveTmpdirValue = getEffectiveTmpdirValue(envAssignments);
@@ -273,16 +278,13 @@ function hasOnlyTrustedTempDeleteTargets(
   });
 
   return targets.every((target) => {
-    if (context.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) return false;
-    const expandedTargets = context.expandedTargetTokens?.get(target.index);
-    return (expandedTargets ?? [target.text]).every((expandedTarget) =>
+    const facts = deleteTargetWordFacts(target);
+    if (facts.unsafeBraceExpansion) return false;
+    return (facts.expandedTargets ?? [analysisWordText(target)]).every((expandedTarget) =>
       isTrustedTempDescendantTarget(expandedTarget, targetContext, {
         containmentTarget: expandTmpdirTarget(expandedTarget, effectiveTmpdirValue),
-        targetIsLiteral:
-          expandedTargets !== undefined || context.literalTargetTokenIndexes?.has(target.index),
-        tmpdirWordSplittingProtected: context.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
-          target.index,
-        ),
+        targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
+        tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
       }),
     );
   });
@@ -294,18 +296,21 @@ function expandTmpdirTarget(target: string, tmpdirValue: string | undefined): st
 }
 
 /** @internal */
-export function getFindStartingPoints(
-  tokens: readonly string[],
-): { text: string; index: number }[] | null {
+export function getFindStartingPoints(words: readonly CommandWord[]): CommandWord[] | null {
+  const tokenAt = (index: number) => {
+    const word = words[index];
+    return word ? analysisWordText(word) : undefined;
+  };
   let index = 1;
-  while (tokens[index] === '-H' || tokens[index] === '-P') index++;
-  if (tokens[index] === '--') index++;
+  while (tokenAt(index) === '-H' || tokenAt(index) === '-P') index++;
+  if (tokenAt(index) === '--') index++;
 
-  const targets: { text: string; index: number }[] = [];
-  while (index < tokens.length) {
-    const token = tokens[index];
-    if (!token || token.startsWith('-') || token === '!' || token === '(' || token === ')') break;
-    targets.push({ text: token, index });
+  const targets: CommandWord[] = [];
+  while (index < words.length) {
+    const token = tokenAt(index);
+    const word = words[index];
+    if (!token || !word || token.startsWith('-') || ['!', '(', ')'].includes(token)) break;
+    targets.push(word);
     index++;
   }
   return targets.length > 0 ? targets : null;
@@ -399,4 +404,56 @@ export function getFindPrimaryArity(token: string): number {
 /** @internal */
 export function isFindExecPrimary(token: string | undefined): boolean {
   return token !== undefined && FIND_EXEC_PRIMARIES.has(token);
+}
+
+/**
+ * Whether substitution output can reach a position that changes what find traverses,
+ * deletes or executes, rather than only a value the expression matches against.
+ */
+export function hasDynamicFindStructure(words: readonly CommandWord[]): boolean {
+  let expressionStarted = false;
+  let valuesRemaining = 0;
+  let childStart = false;
+  let inChild = false;
+
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    if (!word) continue;
+    const dynamic = hasCommandSubstitutionPart(word);
+
+    if (valuesRemaining > 0) {
+      valuesRemaining--;
+      continue;
+    }
+
+    if (inChild) {
+      if (word.text === ';' || word.text === '+') {
+        inChild = false;
+        expressionStarted = true;
+        childStart = false;
+        continue;
+      }
+      if (dynamic && (childStart || hasOptionLiteralPart(word))) return true;
+      childStart = false;
+      continue;
+    }
+
+    if (!expressionStarted && !word.text.startsWith('-')) {
+      if (dynamic && (i > 1 || hasOptionLiteralPart(word))) return true;
+      continue;
+    }
+
+    expressionStarted = true;
+    if (dynamic) return true;
+    const arity = getFindPrimaryArity(word.text);
+    if (arity > 0) {
+      valuesRemaining = arity;
+      continue;
+    }
+    if (isFindExecPrimary(word.text)) {
+      inChild = true;
+      childStart = true;
+    }
+  }
+  return false;
 }

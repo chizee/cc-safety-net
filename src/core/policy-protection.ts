@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { textCommandWords } from '@/core/analyze/command-words';
 import {
   findExecRmDeletesFoundPaths,
   findHasDelete,
@@ -168,15 +169,15 @@ function findPolicyConfigMutationTargetInSegment(
   if (command === 'find') {
     const deletesDirectly = findHasDelete(stripped, 1);
     if (deletesDirectly || findExecRmDeletesFoundPaths(stripped)) {
-      const target = (getFindStartingPoints(stripped) ?? [{ text: '.', index: -1 }]).find(
-        (startingPoint) => {
-          const expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
-          return (
-            isPolicyFile(expanded, state.cwd, identity, budget) ||
-            isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget)
-          );
-        },
-      )?.text;
+      const target = (
+        getFindStartingPoints(textCommandWords(stripped)) ?? textCommandWords(['.'])
+      ).find((startingPoint) => {
+        const expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
+        return (
+          isPolicyFile(expanded, state.cwd, identity, budget) ||
+          isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget)
+        );
+      })?.text;
       if (target) return { target };
     }
   }

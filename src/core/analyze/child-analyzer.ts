@@ -230,7 +230,7 @@ export function analyzeChildCommandMatch(
 
   if (normalizedHead === 'find') {
     return (
-      analyzeFindMatch(tokens, {
+      analyzeFindMatch(textCommandWords(tokens), {
         ...context,
         derivedCommandWorkBudget: context.derivedCommandWorkBudget,
         analyzeTokens: (nestedTokens, cwd) =>
