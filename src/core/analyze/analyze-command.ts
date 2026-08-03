@@ -739,7 +739,6 @@ function analyzeCommandView(
             reason: nestedResult.reason,
             ruleId: nestedResult.ruleId,
             intent: nestedResult.intent,
-            manualPermissionAdvice: nestedResult.manualPermissionAdvice,
           }
         : null;
     },

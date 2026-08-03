@@ -49,9 +49,10 @@ const repeatedFindExec = (count: number) =>
   Array.from({ length: count }, () => String.raw`-exec echo \;`).join(' ');
 
 const limitedResult = (command: string) => ({
+  kind: 'deny' as const,
   reason: REASON_DERIVED_COMMAND_WORK_LIMIT,
-  segment: command,
   intent: 'stop_and_explain' as const,
+  evidence: [{ kind: 'command' as const, command, segment: command }],
 });
 
 describe('derived command work budget', () => {

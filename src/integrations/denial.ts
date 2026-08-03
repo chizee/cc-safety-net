@@ -16,7 +16,6 @@ export type IntegrationDenial = {
   command?: string;
   segment?: string;
   toolName?: string;
-  manualPermissionAdvice?: boolean;
   /** Degraded-config diagnostics riding along with an unrelated denial. */
   configWarning?: string;
 };

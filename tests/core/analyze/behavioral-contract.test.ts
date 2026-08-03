@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
-import { withEnv } from '../../helpers';
+import { blockedSegment, withEnv } from '../../helpers';
 import { behavioralContractCases } from './behavioral-contract-cases';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-contract-'));
@@ -44,7 +44,7 @@ describe('analyzeCommand behavioral contract', () => {
       expect(result?.intent).toBe(contractCase.expected.intent);
       expect(result?.reason).toContain(contractCase.expected.reasonIncludes);
       if (contractCase.expected.segment !== undefined) {
-        expect(result?.segment).toBe(contractCase.expected.segment);
+        expect(blockedSegment(result)).toBe(contractCase.expected.segment);
       }
     });
   }

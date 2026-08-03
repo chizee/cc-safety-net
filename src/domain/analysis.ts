@@ -18,8 +18,6 @@ export interface AnalyzeResult {
   ruleId?: string;
   /** Intended agent behavior after the block */
   intent?: BlockIntent;
-  /** Whether the caller should ask for manual permission instead of auto-denying. */
-  manualPermissionAdvice?: boolean;
 }
 
 /** Options for command analysis */

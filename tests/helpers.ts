@@ -12,6 +12,7 @@ import { envTruthy } from '@/core/env';
 import type { AnalyzeOptions } from '@/domain/analysis';
 import type { AuditLogEntry } from '@/domain/audit';
 import type { TraceStep } from '@/domain/command-trace';
+import type { Decision } from '@/domain/decision';
 import type { ExplainResult } from '@/domain/explain';
 import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 
@@ -55,6 +56,10 @@ export function assertAllowed(command: string, cwd?: string): void {
   const options = getOptionsFromEnv(cwd);
   const result = analyzeCommand(command, options);
   expect(result).toBeNull();
+}
+
+export function blockedSegment(decision: Extract<Decision, { kind: 'deny' }> | null) {
+  return decision?.evidence.find((item) => item.kind === 'command')?.segment;
 }
 
 export function runGuard(command: string, cwd?: string, policy?: TestPolicyInput): string | null {

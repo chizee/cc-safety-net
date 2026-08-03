@@ -15,9 +15,10 @@ import type { CommandTraceContext, CommandTraceEvent } from '@/domain/command-tr
 import { analyzeTestCommand, commandAnalysisPolicy, policySnapshot } from '../../helpers/policy';
 
 const limitedResult = (command: string) => ({
+  kind: 'deny' as const,
   reason: REASON_PARALLEL_ANALYSIS_LIMIT,
-  segment: command,
   intent: 'stop_and_explain' as const,
+  evidence: [{ kind: 'command' as const, command, segment: command }],
 });
 
 const repeatedArgs = (value: string, count: number) =>
@@ -378,7 +379,11 @@ describe('parallel analysis budgets', () => {
         worktreeMode: false,
         trace,
       }),
-    ).toEqual(limitedResult(command));
+    ).toEqual({
+      reason: REASON_PARALLEL_ANALYSIS_LIMIT,
+      segment: command,
+      intent: 'stop_and_explain',
+    });
     expect(allocations).toBe(0);
     expect(events.filter((event) => event.step.type === 'error')).toEqual([
       {

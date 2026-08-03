@@ -13,6 +13,7 @@ import {
   type TestPolicyInput as Config,
 } from '../../helpers/policy';
 import {
+  blockedSegment,
   createLinkedWorktreeFixture,
   toShellPath,
   withEnv,
@@ -303,7 +304,7 @@ describe('analyzeCommand (coverage)', () => {
       config: TRANSPARENT_RTK_GIT_COMMIT_CONFIG,
     });
     expect(result?.reason).toContain('[block-git-commit] Commit creation must be explicit.');
-    expect(result?.segment).toBe('rtk git commit -m msg');
+    expect(blockedSegment(result)).toBe('rtk git commit -m msg');
   });
 
   test('transparent wrapper lets built-in git analyzer inspect child command', () => {
@@ -312,7 +313,7 @@ describe('analyzeCommand (coverage)', () => {
       config: TRANSPARENT_RTK_CONFIG,
     });
     expect(result?.reason).toContain('git reset --hard');
-    expect(result?.segment).toBe('rtk git reset --hard');
+    expect(blockedSegment(result)).toBe('rtk git reset --hard');
   });
 
   test('transparent wrapper finds custom-rule child command after wrapper arguments', () => {
@@ -321,7 +322,7 @@ describe('analyzeCommand (coverage)', () => {
       config: TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG,
     });
     expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
-    expect(result?.segment).toBe('rtk -x arg docker system prune');
+    expect(blockedSegment(result)).toBe('rtk -x arg docker system prune');
   });
 
   test('transparent wrapper finds custom-rule child command after wrapper env assignment', () => {
@@ -330,7 +331,7 @@ describe('analyzeCommand (coverage)', () => {
       config: TRANSPARENT_RTK_DOCKER_PRUNE_CONFIG,
     });
     expect(result?.reason).toContain('[block-docker-prune] Use targeted Docker cleanup.');
-    expect(result?.segment).toBe('rtk VAR=val docker system prune');
+    expect(blockedSegment(result)).toBe('rtk VAR=val docker system prune');
   });
 
   test('transparent wrapper lets custom rules protect non-built-in child command', () => {
@@ -356,7 +357,7 @@ describe('analyzeCommand (coverage)', () => {
       config: TRANSPARENT_RTK_CONFIG,
     });
     expect(result?.reason).toContain('git reset --hard');
-    expect(result?.segment).toBe('rtk -- git reset --hard');
+    expect(blockedSegment(result)).toBe('rtk -- git reset --hard');
   });
 
   test('fallback scan catches embedded find', () => {

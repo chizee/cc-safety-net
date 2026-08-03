@@ -666,10 +666,13 @@ describe('guard evaluation', () => {
       const blocked = evaluateGuard(commandInvocation(cwd, 'git reset --hard'), {
         dependencies: dependencies({
           analyzeCommand: () => ({
+            kind: 'deny',
             reason: 'reset blocked',
-            segment: 'git reset --hard',
             ruleId: 'git.reset-hard',
             intent: 'use_alternative',
+            evidence: [
+              { kind: 'command', command: 'git reset --hard', segment: 'git reset --hard' },
+            ],
           }),
         }),
       });
@@ -688,24 +691,19 @@ describe('guard evaluation', () => {
     });
   });
 
-  test.each([
-    [{ manualPermissionAdvice: false }, 'hard_stop'],
-    [{ intent: 'scope_down' as const }, 'scope_down'],
-    [{}, 'manual_only'],
-  ] as const)('maps legacy analysis intent %#', async (legacy, intent) => {
-    await withTempDir('cc-safety-net-guard-intent-', (cwd) => {
+  test('reports the analyzer decision unchanged', async () => {
+    await withTempDir('cc-safety-net-guard-decision-', (cwd) => {
+      const decision = {
+        kind: 'deny' as const,
+        reason: 'blocked',
+        intent: 'scope_down' as const,
+        evidence: [{ kind: 'command' as const, command: 'danger', segment: 'danger' }],
+      };
       const result = evaluateGuard(commandInvocation(cwd, 'danger'), {
-        dependencies: dependencies({
-          analyzeCommand: () => ({ reason: 'blocked', segment: 'danger', ...legacy }),
-        }),
+        dependencies: dependencies({ analyzeCommand: () => decision }),
       });
 
-      expect(result.decision).toEqual({
-        kind: 'deny',
-        reason: 'blocked',
-        intent,
-        evidence: [{ kind: 'command', command: 'danger', segment: 'danger' }],
-      });
+      expect(result.decision).toEqual(decision);
     });
   });
 

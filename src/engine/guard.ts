@@ -26,13 +26,12 @@ import {
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
-import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import type { AuditFailureStage } from '@/domain/audit';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
 import type { EffectiveSafetyLevel, PolicySnapshot } from '@/domain/policy';
 import type { SemanticFacts } from '@/domain/semantic-facts';
-import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
 
 /** @internal */
 export type GuardStage = AuditFailureStage;
@@ -67,7 +66,7 @@ export type GuardDependencies = {
     program?: ReturnType<typeof getDeclaredCommandProgram>,
     factStore?: SemanticFacts['store'],
     protectedGitMetadata?: ReturnType<typeof resolveProtectedGitMetadata>,
-  ) => AnalyzeResult | null;
+  ) => Extract<Decision, { kind: 'deny' }> | null;
   resolveGitMetadata: typeof resolveProtectedGitMetadata;
   getModes: typeof getCCSafetyNetEnvModes;
 };
@@ -231,7 +230,7 @@ export function evaluateGuard(
     };
   }
 
-  const result = callDependency('command-analysis', command, () => {
+  const decision = callDependency('command-analysis', command, () => {
     return dependencies.analyzeCommand(
       invocation.command as string,
       {
@@ -249,7 +248,7 @@ export function evaluateGuard(
       protectedGitMetadata,
     );
   });
-  if (result) return { ...blockedCommandEvaluation(invocation, result), ...reported };
+  if (decision) return { stage: 'command-analysis', ...reported, decision };
   return { stage: 'command-analysis', ...reported, decision: { kind: 'allow' } };
 }
 
@@ -306,17 +305,6 @@ function failedClosedEvaluation(
       intent: 'stop_and_explain',
       evidence: command ? [{ kind: 'command', command, segment: command }] : [],
     },
-  };
-}
-
-function blockedCommandEvaluation(
-  invocation: Extract<ToolInvocation, { route: { kind: 'command' } }>,
-  result: AnalyzeResult,
-): GuardEvaluation {
-  const command = invocation.command as string;
-  return {
-    stage: 'command-analysis',
-    ...mapLegacyCommandBlock(command, result),
   };
 }
 

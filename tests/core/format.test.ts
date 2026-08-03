@@ -125,15 +125,6 @@ describe('formatBlockedMessage', () => {
     expect(result).toContain(expected);
   });
 
-  test('maps disabled manual permission advice to hard stop footer', () => {
-    const result = formatBlockedMessage({
-      reason: 'test reason',
-      manualPermissionAdvice: false,
-    });
-    expect(result).not.toContain('ask the user');
-    expect(result).toContain('Do not retry this operation');
-  });
-
   test('applies redact function to command', () => {
     const redactFn = (text: string) => text.replace(/secret/g, '***');
     const result = formatBlockedMessage({

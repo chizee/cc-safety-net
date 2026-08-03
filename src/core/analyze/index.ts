@@ -4,12 +4,13 @@ import {
   type ProtectedGitMetadata,
   resolveProtectedGitMetadata,
 } from '@/core/git-metadata-protection';
-import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
+import type { Decision } from '@/domain/decision';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 
 /** @internal */
-export function analyzeCommand(command: string, options: AnalyzeOptions): AnalyzeResult | null {
+export function analyzeCommand(command: string, options: AnalyzeOptions) {
   return analyzeCommandWithProgram(command, options);
 }
 
@@ -20,8 +21,8 @@ export function analyzeCommandWithProgram(
   program?: CommandProgram,
   factStore?: SemanticFactStore,
   protectedGitMetadata: ProtectedGitMetadata | null = resolveProtectedGitMetadata(options.cwd),
-): AnalyzeResult | null {
-  return analyzeCommandInternal(
+): Extract<Decision, { kind: 'deny' }> | null {
+  const result = analyzeCommandInternal(
     command,
     0,
     {
@@ -32,4 +33,12 @@ export function analyzeCommandWithProgram(
     },
     program,
   );
+  if (!result) return null;
+  return {
+    kind: 'deny',
+    reason: result.reason,
+    intent: result.intent ?? 'manual_only',
+    ...(result.ruleId ? { ruleId: result.ruleId } : {}),
+    evidence: [{ kind: 'command', command, segment: result.segment }],
+  };
 }

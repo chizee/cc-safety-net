@@ -11,7 +11,6 @@ export interface FormatBlockedMessageInput {
   toolName?: string;
   maxLen?: number;
   redact?: RedactFn;
-  manualPermissionAdvice?: boolean;
   configWarning?: string;
 }
 
@@ -44,14 +43,12 @@ export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
     message += `\n\nConfig warning: ${redact(input.configWarning)}`;
   }
 
-  message += `\n\n${getFooter(input)}`;
+  message += `\n\n${getFooter(input.intent ?? 'manual_only')}`;
 
   return message;
 }
 
-function getFooter(input: Pick<FormatBlockedMessageInput, 'intent' | 'manualPermissionAdvice'>) {
-  const intent =
-    input.manualPermissionAdvice === false ? 'hard_stop' : (input.intent ?? 'manual_only');
+function getFooter(intent: BlockIntent) {
   switch (intent) {
     case 'hard_stop':
       return 'Do not retry this operation or attempt any workaround (other tools, flags, or paths). Report the block to the user and continue with the rest of the task.';
