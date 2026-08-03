@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCCSafetyNetCli } from '../helpers.ts';
+import { hermeticSafetyNetHome, runCCSafetyNetCli } from '../helpers.ts';
+
+const hermeticHome = hermeticSafetyNetHome('cc-safety-net-statusline-home-');
 
 function clearEnv(): void {
   delete process.env.CC_SAFETY_NET_STRICT;
@@ -11,7 +13,7 @@ function clearEnv(): void {
   delete process.env.CC_SAFETY_NET_PARANOID_RM;
   delete process.env.CC_SAFETY_NET_PARANOID_INTERPRETERS;
   delete process.env.CC_SAFETY_NET_WORKTREE;
-  delete process.env.CC_SAFETY_NET_HOME;
+  process.env.CC_SAFETY_NET_HOME = hermeticHome;
   delete process.env.SAFETY_NET_STRICT;
   delete process.env.SAFETY_NET_PARANOID;
   delete process.env.SAFETY_NET_PARANOID_RM;

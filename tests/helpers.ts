@@ -1,4 +1,4 @@
-import { expect } from 'bun:test';
+import { afterAll, expect } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -182,6 +182,25 @@ export function withEnv<T>(env: Record<string, string | undefined>, fn: () => T)
     restore();
     throw error;
   }
+}
+
+/**
+ * Points CC_SAFETY_NET_HOME at an empty hermetic home for the calling test file.
+ * Spawned CLIs resolve it from the inherited environment; deleting it instead would
+ * fall back to the developer's real ~/.cc-safety-net, whose contents default-output
+ * assertions cannot depend on. Restores the original value after the file finishes.
+ * Call at module scope and assign the result to process.env.CC_SAFETY_NET_HOME in
+ * the file's env reset.
+ */
+export function hermeticSafetyNetHome(prefix: string): string {
+  const home = mkdtempSync(join(tmpdir(), prefix));
+  const original = process.env.CC_SAFETY_NET_HOME;
+  afterAll(() => {
+    if (original === undefined) delete process.env.CC_SAFETY_NET_HOME;
+    if (original !== undefined) process.env.CC_SAFETY_NET_HOME = original;
+    rmSync(home, { recursive: true, force: true });
+  });
+  return home;
 }
 
 export async function withTempDir<T>(prefix: string, fn: (dir: string) => T | Promise<T>) {

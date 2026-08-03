@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { printStatus } from '@/bin/status';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
-import { runCCSafetyNetCli, withEnv, withStdoutColor } from '../helpers.ts';
+import { hermeticSafetyNetHome, runCCSafetyNetCli, withEnv, withStdoutColor } from '../helpers.ts';
 
 /**
  * `status` renders one snapshot on two surfaces. The subprocess runs cover the
@@ -19,8 +19,10 @@ const MIGRATE_DIAGNOSTIC =
 const PLUGIN_DIAGNOSTIC =
   'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.';
 
+const hermeticHome = hermeticSafetyNetHome('cc-safety-net-status-home-');
+
 function clearEnv(): void {
-  delete process.env.CC_SAFETY_NET_HOME;
+  process.env.CC_SAFETY_NET_HOME = hermeticHome;
   delete process.env.CC_SAFETY_NET_LEVEL;
   delete process.env.CC_SAFETY_NET_STRICT;
   delete process.env.CC_SAFETY_NET_PARANOID;

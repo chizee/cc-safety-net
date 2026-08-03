@@ -464,22 +464,30 @@ describe('explainCommand edge cases', () => {
 
 describe('explainCommand rm with home directory', () => {
   test('rm in home directory cwd is blocked', () => {
-    const homeDir = process.env.HOME;
-    if (!homeDir) return;
-    // `rm -rf .` in the home directory deletes the user policy directory, so it short-circuits at
-    // policy-config protection before command analysis, mirroring the runtime guard.
-    const result = explainCommand('rm -rf .', { cwd: homeDir });
-    expect(result.result).toBe('blocked');
-    expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
-    expect(result.ruleId).toBe('policy-protection');
-    const allSteps = getTraceSteps(result);
-    const ruleStep = allSteps.find(
-      (s) =>
-        s.type === 'rule-check' &&
-        s.ruleModule === 'policy-protection' &&
-        s.ruleFunction === 'findPolicyConfigMutationTarget',
-    );
-    expect(ruleStep).toBeDefined();
+    // A hermetic home: the policy directory lives under the cwd regardless of the
+    // machine's real HOME or leaked CC_SAFETY_NET_HOME state from other test files.
+    const homeDir = mkdtempSync(join(tmpdir(), 'explain-policy-home-'));
+    try {
+      withEnv({ CC_SAFETY_NET_HOME: join(homeDir, '.cc-safety-net') }, () => {
+        // `rm -rf .` in the home directory deletes the user policy directory, so it
+        // short-circuits at policy-config protection before command analysis,
+        // mirroring the runtime guard.
+        const result = explainCommand('rm -rf .', { cwd: homeDir });
+        expect(result.result).toBe('blocked');
+        expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
+        expect(result.ruleId).toBe('policy-protection');
+        const allSteps = getTraceSteps(result);
+        const ruleStep = allSteps.find(
+          (s) =>
+            s.type === 'rule-check' &&
+            s.ruleModule === 'policy-protection' &&
+            s.ruleFunction === 'findPolicyConfigMutationTarget',
+        );
+        expect(ruleStep).toBeDefined();
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   test('temp-target rm in home directory cwd is allowed', () => {
