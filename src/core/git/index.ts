@@ -1,3 +1,4 @@
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { hasGitSshEnvAssignment } from '@/core/git/env';
 import {
@@ -13,6 +14,7 @@ import {
   getGitWorktreeRelaxationForMatch,
 } from '@/core/git/worktree-relaxation';
 import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CommandWord } from '@/domain/command';
 
 const REASON_GIT_SSH_ENV =
   'Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.';
@@ -30,14 +32,14 @@ export function analyzeGit(
   tokens: readonly string[],
   options: GitAnalyzeOptions = {},
 ): string | null {
-  return analyzeGitMatch(tokens, options)?.reason ?? null;
+  return analyzeGitMatch(textCommandWords(tokens), options)?.reason ?? null;
 }
 
 export function analyzeGitMatch(
-  tokens: readonly string[],
+  words: readonly CommandWord[],
   options: GitAnalyzeOptions = {},
 ): DestructiveCommandRuleMatch | null {
-  return evaluateGit(tokens, options);
+  return evaluateGit(words.map(analysisWordText), options);
 }
 
 function evaluateGit(
@@ -79,14 +81,14 @@ function evaluateGit(
 
 /** @internal One-pass Git decision detail used by intrinsic command traces. */
 export function analyzeGitDetailed(
-  tokens: readonly string[],
+  words: readonly CommandWord[],
   options: GitAnalyzeOptions = {},
 ): Readonly<{
   match: DestructiveCommandRuleMatch | null;
   relaxation: GitWorktreeRelaxation | null;
 }> {
   let relaxation: GitWorktreeRelaxation | null = null;
-  const match = evaluateGit(tokens, options, (value) => {
+  const match = evaluateGit(words.map(analysisWordText), options, (value) => {
     relaxation = value;
   });
   return { match, relaxation };

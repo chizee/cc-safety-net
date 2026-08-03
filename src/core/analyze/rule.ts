@@ -2,6 +2,7 @@ import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-bu
 import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
+import { analyzeGitMatch } from '@/core/git';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import type {
   AnalyzeNestedOverrides,
@@ -72,4 +73,21 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
           context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
       }),
   },
+  {
+    heads: new Set(['git']),
+    analyze: (context) => analyzeGitMatch(context.words, gitAnalyzeOptions(context)),
+  },
 ];
+
+/** Shared with the trace path, which calls analyzeGitDetailed for the worktree relaxation. */
+export function gitAnalyzeOptions(context: AnalyzerRuleContext) {
+  return {
+    cwd: context.cwd,
+    dynamicArguments: context.options.commandView?.words.some(
+      (word) => word.provenance === 'command-substitution',
+    ),
+    envAssignments: context.envAssignments,
+    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+    worktreeMode: context.options.worktreeMode,
+  };
+}

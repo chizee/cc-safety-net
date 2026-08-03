@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { textCommandWords } from '@/core/analyze/command-words';
 import { analyzeGitMatch } from '@/core/git';
 import { withLinkedWorktreeFixture } from '../../helpers';
 
@@ -6,7 +7,10 @@ describe('command-line Git config precedence', () => {
   test('unrelated -c options never clear an earlier submodule.recurse=true', async () => {
     await withLinkedWorktreeFixture((fixture) => {
       const analyze = (tokens: readonly string[]) =>
-        analyzeGitMatch(tokens, { cwd: fixture.linkedWorktree, worktreeMode: true });
+        analyzeGitMatch(textCommandWords(tokens), {
+          cwd: fixture.linkedWorktree,
+          worktreeMode: true,
+        });
 
       expect(
         analyze([

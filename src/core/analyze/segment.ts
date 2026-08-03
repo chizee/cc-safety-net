@@ -44,6 +44,7 @@ import { deleteTargetWordFacts } from '@/core/analyze/recursive-delete-targets';
 import {
   ANALYZER_RULES,
   type AnalyzerRuleContext,
+  gitAnalyzeOptions,
   type InternalOptions,
 } from '@/core/analyze/rule';
 import {
@@ -127,7 +128,6 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'worktree',
 ]);
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
-  ['git', analyzeGitCommand],
   ['find', analyzeFindCommand],
   ['xargs', analyzeXargsCommand],
   ['parallel', analyzeParallelCommand],
@@ -551,14 +551,11 @@ export function analyzeSegment(
   }
   const gitDetail =
     trace && normalizedHead === 'git'
-      ? analyzeGitDetailed(commandContext.tokens, getGitAnalyzeOptions(commandContext))
+      ? analyzeGitDetailed(commandContext.words, gitAnalyzeOptions(commandContext))
       : undefined;
-  const unfilteredCommandResult =
-    normalizedHead === 'git'
-      ? trace
-        ? (gitDetail?.match ?? null)
-        : analyzeGitCommand(commandContext)
-      : (commandAnalyzer?.(commandContext) ?? null);
+  const unfilteredCommandResult = gitDetail
+    ? gitDetail.match
+    : (commandAnalyzer?.(commandContext) ?? null);
   const commandResult =
     options.compatibility === 'explain-legacy' &&
     unfilteredCommandResult?.id !== 'rm.recursive-force-dynamic-target'
@@ -788,7 +785,8 @@ function analyzeDynamicStructure(
 
   const head = normalizeCommandToken(command.words[0]?.text ?? '');
   if (head === 'git') {
-    const subcommandIndex = findGitSubcommandIndex(command.analysisTokens);
+    const gitWords = analyzedViewWords(command);
+    const subcommandIndex = findGitSubcommandIndex(gitWords);
     if (
       destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
       dynamicIndexes.some((index) => index <= subcommandIndex)
@@ -798,9 +796,11 @@ function analyzeDynamicStructure(
         policy,
       );
     }
-    if (filterDestructiveCommandMatch(analyzeGitMatch(command.analysisTokens), policy)) return null;
+    if (filterDestructiveCommandMatch(analyzeGitMatch(gitWords), policy)) return null;
     const subcommand = command.words[subcommandIndex]?.text.toLowerCase();
-    const dataBoundary = command.analysisTokens.indexOf('--', subcommandIndex + 1);
+    const dataBoundary = gitWords.findIndex(
+      (word, index) => index > subcommandIndex && analysisWordText(word) === '--',
+    );
     if (
       destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
       subcommand &&
@@ -958,10 +958,11 @@ function hasOptionLiteralPart(word: CommandView['words'][number] | undefined): b
   );
 }
 
-function findGitSubcommandIndex(tokens: readonly string[]): number {
+function findGitSubcommandIndex(words: readonly CommandWord[]): number {
   let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i] ?? '';
+  while (i < words.length) {
+    const word = words[i];
+    const token = word ? analysisWordText(word) : '';
     if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
       i += 2;
       continue;
@@ -1077,20 +1078,15 @@ function matchEmbeddedCustomRule(
     : null;
 }
 
-function analyzeGitCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  return analyzeGitMatch(context.tokens, getGitAnalyzeOptions(context));
-}
-
-function getGitAnalyzeOptions(context: CommandAnalysisContext) {
-  return {
-    cwd: context.cwd,
-    dynamicArguments: context.options.commandView?.words.some(
-      (word) => word.provenance === 'command-substitution',
-    ),
-    envAssignments: context.envAssignments,
-    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
-    worktreeMode: context.options.worktreeMode,
-  };
+/**
+ * Words a parsed command view is analyzed with. POSIX words keep a command substitution's
+ * source in `raw`, so they analyze as parsed; PowerShell words already carry it in `text`
+ * and analyze as text-only stand-ins, exactly as the token projection did.
+ */
+function analyzedViewWords(view: CommandView): readonly CommandWord[] {
+  return view.dialect === 'posix'
+    ? view.words
+    : textCommandWords(view.words.map((word) => word.text));
 }
 
 /**

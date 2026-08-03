@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { analyzeGitMatch } from '@/core/git';
+import { textCommandWords } from '@/core/analyze/command-words';
+import { analyzeGitMatch as analyzeGitWords } from '@/core/git';
 import { getGitEnvValue, resolveGitConfigCount } from '@/core/git/env';
 import { createLinkedWorktreeFixture, withEnv } from '../../helpers';
 import { analyzeTestCommand } from '../../helpers/policy';
+
+const analyzeGitMatch = (
+  tokens: readonly string[],
+  options?: Parameters<typeof analyzeGitWords>[1],
+) => analyzeGitWords(textCommandWords(tokens), options);
 
 const aliasConfigReason =
   'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';

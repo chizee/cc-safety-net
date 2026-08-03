@@ -252,7 +252,7 @@ export function analyzeChildCommandMatch(
   if (normalizedHead === 'git') {
     return (
       filterDestructiveCommandMatch(
-        analyzeGitMatch(tokens, {
+        analyzeGitMatch(textCommandWords(tokens), {
           cwd: context.cwd,
           envAssignments: context.envAssignments,
           policy: context.policy,
