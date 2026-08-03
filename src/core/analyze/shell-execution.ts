@@ -1,7 +1,8 @@
 import { analysisWordText } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { parseShellArgv } from '@/core/analyze/shell-wrappers';
-import { getBasename, normalizeCommandToken, parseEnvAssignment } from '@/core/shell';
+import { parseEnvAssignment } from '@/core/analyze/wrapper-prelude';
+import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type {
   CommandProgram,
   CommandRedirection,

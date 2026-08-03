@@ -1,3 +1,4 @@
+import { analysisWordText } from '@/core/analyze/command-words';
 import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { isDataOnlyQuotedAssignment } from '@/core/analyze/deferred-assignment';
@@ -38,6 +39,7 @@ import {
   type ShellGitContextEnvState,
 } from '@/core/analyze/shell-git-env';
 import { isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
+import { stripWrapperWords } from '@/core/analyze/wrapper-prelude';
 import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
@@ -45,7 +47,7 @@ import {
 } from '@/core/destructive-command-rules';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { getBasename, normalizeCommandToken, stripWrappersWithInfo } from '@/core/shell';
+import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type {
   AnalyzeNestedOverrides,
   AnalyzeOptions,
@@ -704,7 +706,7 @@ function analyzeCommandView(
     return null;
   }
 
-  const result = analyzeSegment(segment, depth, {
+  const result = analyzeSegment(commandView.words, depth, {
     ...options,
     commandView,
     cwd: originalCwd,
@@ -1082,19 +1084,16 @@ function isInertShellHeredoc(
     return false;
   }
 
-  const stripped = stripWrappersWithInfo(
-    [...commandView.analysisTokens],
-    state.effectiveCwd,
-    envAssignments,
-  );
-  const head = normalizeCommandToken(stripped.tokens[0] ?? '');
+  const stripped = stripWrapperWords(commandView.words, state.effectiveCwd, envAssignments);
+  const tokens = stripped.words.map(analysisWordText);
+  const head = normalizeCommandToken(tokens[0] ?? '');
   if (
     stripped.unverifiableEnvSplit ||
     (!SHELL_WRAPPERS.has(head) && !SHELL_WRAPPERS.has(getBasename(head)))
   ) {
     return false;
   }
-  return isShellSyntaxCheck(stripped.tokens);
+  return isShellSyntaxCheck(tokens);
 }
 
 function updateCwdAfterCommandView(

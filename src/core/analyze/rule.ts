@@ -51,6 +51,8 @@ export type AnalyzerRuleContext = {
   readonly effectiveCwd: string | null | undefined;
   readonly envAssignments: ReadonlyMap<string, string>;
   readonly allowTmpdirVar: boolean;
+  /** Whether any word of this command is substitution output, so its text is unknown. */
+  readonly dynamicArguments: boolean;
   readonly depth: number;
   readonly options: InternalOptions;
   /**
@@ -161,9 +163,7 @@ export function matchFromBlockResult(
 export function gitAnalyzeOptions(context: AnalyzerRuleContext) {
   return {
     cwd: context.cwd,
-    dynamicArguments: context.options.commandView?.words.some(
-      (word) => word.provenance === 'command-substitution',
-    ),
+    dynamicArguments: context.dynamicArguments,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
     worktreeMode: context.options.worktreeMode,

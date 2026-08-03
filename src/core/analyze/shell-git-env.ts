@@ -1,3 +1,4 @@
+import { parseEnvAssignment } from '@/core/analyze/wrapper-prelude';
 import { getOwnEnvValue } from '@/core/env';
 import {
   GIT_SSH_ENV_NAMES,
@@ -5,7 +6,6 @@ import {
   isTrackedGitEnvName,
   parseGitContextAppendEnvAssignment,
 } from '@/core/git/env';
-import { parseEnvAssignment } from '@/core/shell';
 
 export interface ShellGitContextEnvState {
   effectiveEnvAssignments?: ReadonlyMap<string, string>;

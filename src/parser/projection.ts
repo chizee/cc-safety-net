@@ -1,38 +1,10 @@
-import {
-  type CommandProgram,
-  type CommandView,
-  isDynamicExecutable,
-  type ShellKind,
-} from '@/domain/command';
+import type { CommandProgram, CommandView, ShellKind } from '@/domain/command';
 import { parseCommand } from './command';
 import { walkCommandViews } from './traversal';
 
 /** @internal */
 export function projectCommandViews(program: CommandProgram): readonly CommandView[] {
   return Object.freeze([...walkCommandViews(program)]);
-}
-
-/** @internal */
-export function sliceCommandView(
-  view: CommandView,
-  start: number,
-  end = view.words.length,
-): CommandView {
-  const words = view.words.slice(start, end);
-  const span = {
-    start: words[0]?.span.start ?? view.span.end,
-    end: words.at(-1)?.span.end ?? view.span.end,
-  };
-  return Object.freeze({
-    ...view,
-    source: view.source.slice(span.start - view.span.start, span.end - view.span.start),
-    span: Object.freeze(span),
-    words: Object.freeze(words),
-    tokens: Object.freeze(view.tokens.slice(start, end)),
-    analysisTokens: Object.freeze(view.analysisTokens.slice(start, end)),
-    dynamicExecutable: isDynamicExecutable(view.dialect, words),
-    legacyNormalized: words.map((word) => word.text).join(' '),
-  });
 }
 
 /** @internal */

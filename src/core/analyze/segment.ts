@@ -65,6 +65,7 @@ import {
   isStandardCommandWrapper,
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
+import { stripEnvAssignmentWords, stripWrapperWords } from '@/core/analyze/wrapper-prelude';
 import {
   extractXargsChildCommandWithInfo,
   REASON_XARGS_RM,
@@ -80,24 +81,14 @@ import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import {
-  getBasename,
-  normalizeCommandToken,
-  stripEnvAssignmentsWithInfo,
-  stripWrappers,
-  stripWrappersWithInfo,
-} from '@/core/shell';
+import { getBasename, normalizeCommandToken, stripWrappers } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import { type CommandView, type CommandWord, isDynamicExecutable } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
-import { sliceCommandView } from '@/parser/projection';
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
-
-/** Analyzer-rule context plus the tokens the wrapper prelude and the fallback scan still read. */
-type CommandAnalysisContext = AnalyzerRuleContext & { readonly tokens: string[] };
 
 const REASON_DYNAMIC_EXECUTABLE =
   'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';
@@ -125,7 +116,7 @@ function findCommandAnalyzer(head: string) {
 }
 
 export function analyzeSegment(
-  tokens: string[],
+  commandWords: readonly CommandWord[],
   depth: number,
   options: InternalOptions,
 ): AnalyzeBlockResult | null {
@@ -134,58 +125,56 @@ export function analyzeSegment(
     trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
     return { reason: REASON_RECURSION_LIMIT, intent: 'stop_and_explain' };
   }
-  if (tokens.length === 0) {
+  if (commandWords.length === 0) {
     return null;
   }
 
+  const dialect = options.commandView?.dialect ?? 'posix';
+  const texts = (candidates: readonly CommandWord[]) =>
+    candidates.map((word) => (dialect === 'posix' ? analysisWordText(word) : word.text));
   const cwdUnknown = options.effectiveCwd === null;
   const baseCwdForRm = cwdUnknown ? undefined : (options.effectiveCwd ?? options.cwd);
   const originalCwd = cwdUnknown ? undefined : options.cwd;
-  const { tokens: strippedEnv, envAssignments: leadingEnvAssignments } =
-    stripEnvAssignmentsWithInfo(tokens);
-  if (leadingEnvAssignments.size > 0) {
+  const leading = stripEnvAssignmentWords(commandWords);
+  if (leading.envAssignments.size > 0) {
     trace?.recordSegment({
       type: 'env-strip',
-      input: tokens,
+      input: texts(commandWords),
       envVars: Object.fromEntries(
-        [...leadingEnvAssignments.keys()].map((key) => [key, '<redacted>' as const]),
+        [...leading.envAssignments.keys()].map((key) => [key, '<redacted>' as const]),
       ),
-      output: strippedEnv,
+      output: texts(leading.words),
     });
   }
-  const {
-    tokens: stripped,
-    envAssignments: wrapperEnvAssignments,
-    cwd: wrapperCwd,
-    unverifiableEnvSplit,
-  } = stripWrappersWithInfo(
-    strippedEnv,
+  const prelude = stripWrapperWords(
+    leading.words,
     baseCwdForRm,
-    new Map([...(options.envAssignments ?? []), ...leadingEnvAssignments]),
+    new Map([...(options.envAssignments ?? []), ...leading.envAssignments]),
   );
-  if (unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
-  const normalizedCommandView = options.commandView
-    ? sliceCommandView(options.commandView, tokens.length - stripped.length)
-    : undefined;
+  if (prelude.unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
+  // Words the prelude rewrote carry no parser facts, so the whole command analyzes as text.
+  const words = prelude.rewritten
+    ? textCommandWords(texts(prelude.words))
+    : analyzedViewWords(dialect, prelude.words);
+  const stripped = texts(words);
   const normalizedOptions = {
     ...options,
-    commandView: normalizedCommandView,
     wrapperNormalizationBudget: options.wrapperNormalizationBudget ?? { iterations: 0 },
   };
-  if (trace && strippedEnv.length > stripped.length) {
-    const removed = strippedEnv.slice(0, strippedEnv.length - stripped.length);
+  if (trace && leading.words.length > words.length) {
+    const strippedEnv = texts(leading.words);
     trace.recordSegment({
       type: 'leading-tokens-stripped',
       input: strippedEnv,
-      removed,
+      removed: strippedEnv.slice(0, strippedEnv.length - words.length),
       output: stripped,
     });
   }
 
   const envAssignments = new Map([
     ...(options.envAssignments ?? []),
-    ...leadingEnvAssignments,
-    ...wrapperEnvAssignments,
+    ...leading.envAssignments,
+    ...prelude.envAssignments,
   ]);
   const head = stripped[0];
   if (!head) return null;
@@ -195,14 +184,15 @@ export function analyzeSegment(
   }
 
   const normalizedHead = normalizeCommandToken(head);
-  const words = analyzedWords(stripped, normalizedCommandView);
-  const cwdForRm = wrapperCwd === null ? undefined : (wrapperCwd ?? baseCwdForRm);
-  const originalCwdForRm = wrapperCwd === null ? undefined : originalCwd;
-  const nestedEffectiveCwd = wrapperCwd === undefined ? options.effectiveCwd : wrapperCwd;
+  const cwdForRm = prelude.cwd === null ? undefined : (prelude.cwd ?? baseCwdForRm);
+  const originalCwdForRm = prelude.cwd === null ? undefined : originalCwd;
+  const nestedEffectiveCwd = prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd;
   const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
 
+  // Reads the parsed words: PowerShell stand-ins would report every head as dynamic.
   const dynamicCommandMatch = analyzeDynamicCommandStructure(
-    normalizedCommandView,
+    dialect,
+    prelude.words,
     options.strict,
     options.policy,
   );
@@ -224,20 +214,14 @@ export function analyzeSegment(
       ...transparentWrapper.alternativeChildIndices,
     ]) {
       reserveWrapperNormalization(normalizedOptions.wrapperNormalizationBudget);
-      const candidateTokens =
-        childIndex === transparentWrapper.childIndex
-          ? transparentWrapper.tokens
-          : [...stripped.slice(childIndex)];
+      const candidateWords = words.slice(childIndex);
       trace?.recordSegment({
         type: 'transparent-wrapper',
         wrapper: transparentWrapper.wrapper,
-        output: candidateTokens,
+        output: texts(candidateWords),
       });
-      const result = analyzeSegment(candidateTokens, depth, {
+      const result = analyzeSegment(candidateWords, depth, {
         ...normalizedOptions,
-        commandView: normalizedCommandView
-          ? sliceCommandView(normalizedCommandView, childIndex)
-          : undefined,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments,
       });
@@ -320,7 +304,7 @@ export function analyzeSegment(
 
     const stdinSource = extractShellStdinSource(
       words,
-      normalizedCommandView?.redirections ?? [],
+      options.commandView?.redirections ?? [],
       options.hasPipelineInput ?? false,
       options.literalShellInput,
     );
@@ -342,14 +326,14 @@ export function analyzeSegment(
   if (normalizedHead === 'source' || normalizedHead === '.') {
     const sourceSearchPathIndex = stripped[1] === '-p' ? 2 : null;
     if (sourceSearchPathIndex !== null) {
-      const sourceSearchPath = normalizedCommandView?.words[sourceSearchPathIndex];
+      const sourceSearchPath = options.commandView ? words[sourceSearchPathIndex] : undefined;
       if (!sourceSearchPath) return null;
       if (sourceSearchPath.provenance !== 'literal') return dynamicShellSourceResult(trace);
     }
     const sourceCandidateIndex = sourceSearchPathIndex === null ? 1 : 3;
     const sourceOperandIndex =
       stripped[sourceCandidateIndex] === '--' ? sourceCandidateIndex + 1 : sourceCandidateIndex;
-    const source = normalizedCommandView?.words[sourceOperandIndex];
+    const source = options.commandView ? words[sourceOperandIndex] : undefined;
     if (!source) return null;
     if (source.provenance !== 'literal') return dynamicShellSourceResult(trace);
     return analyzeTrackedHeredocScript(
@@ -478,11 +462,10 @@ export function analyzeSegment(
       depth: depth + 1,
     });
     return analyzeSegment(
-      stripped.slice(1),
+      words.slice(1),
       depth + (options.compatibility === 'explain-legacy' ? 1 : 0),
       {
         ...normalizedOptions,
-        commandView: normalizedCommandView ? sliceCommandView(normalizedCommandView, 1) : undefined,
         effectiveCwd: nestedEffectiveCwd,
         envAssignments,
       },
@@ -507,20 +490,20 @@ export function analyzeSegment(
 
   const analyzerOptions =
     trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace };
-  const commandContext: CommandAnalysisContext = {
-    tokens: stripped,
+  const commandContext: AnalyzerRuleContext = {
     words,
     head: normalizedHead,
     cwd: cwdForRm,
     originalCwd: originalCwdForRm,
     envAssignments,
     allowTmpdirVar,
+    dynamicArguments: prelude.words.some((word) => word.provenance === 'command-substitution'),
     depth,
     effectiveCwd: nestedEffectiveCwd,
     options: analyzerOptions,
     analyzeChildTokens: (childTokens, childCwd) =>
       matchFromBlockResult(
-        analyzeSegment([...childTokens], depth + 1, {
+        analyzeSegment(textCommandWords(childTokens), depth + 1, {
           ...analyzerOptions,
           commandView: undefined,
           effectiveCwd: childCwd,
@@ -570,7 +553,7 @@ export function analyzeSegment(
         if (!token) continue;
         tokensScanned?.push(token);
 
-        const embeddedMatch = analyzeEmbeddedCommand(commandContext, i);
+        const embeddedMatch = analyzeEmbeddedCommand(commandContext, stripped, i);
         const match =
           options.compatibility === 'explain-legacy'
             ? embeddedMatch
@@ -702,7 +685,7 @@ function unwrapTraceQuotes(command: string): string {
 }
 
 function recordCommandAnalyzerTrace(
-  context: CommandAnalysisContext,
+  context: AnalyzerRuleContext,
   match: DestructiveCommandRuleMatch | null,
   relaxation: ReturnType<typeof analyzeGitDetailed>['relaxation'],
 ): void {
@@ -750,20 +733,20 @@ function dynamicShellSourceMatch(): DestructiveCommandRuleMatch {
   return { id: '', reason: REASON_DYNAMIC_SHELL_SOURCE, intent: 'stop_and_explain' };
 }
 
-/** @internal */
-export function analyzeDynamicCommandStructure(
-  command: CommandView | undefined,
+function analyzeDynamicCommandStructure(
+  dialect: CommandView['dialect'],
+  words: readonly CommandWord[],
   strict = false,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
   const dynamicExecutableMatch =
-    command?.dynamicExecutable &&
+    isDynamicExecutable(dialect, words) &&
     destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-executable', strict)
       ? destructiveCommandMatch('shell.dynamic-executable', REASON_DYNAMIC_EXECUTABLE)
       : null;
   return (
     filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ??
-    (command ? analyzeDynamicStructure(command.dialect, command.words, strict, policy) : null)
+    analyzeDynamicStructure(dialect, words, strict, policy)
   );
 }
 
@@ -881,10 +864,10 @@ function analyzeDynamicChildStructure(
 }
 
 function normalizeChildCommandWords(words: readonly CommandWord[]): readonly CommandWord[] {
-  const leading = stripEnvAssignmentsWithInfo(words.map(analysisWordText));
-  const withoutLeading = words.slice(words.length - leading.tokens.length);
-  const wrapped = stripWrappersWithInfo(withoutLeading.map(analysisWordText));
-  const normalized = withoutLeading.slice(withoutLeading.length - wrapped.tokens.length);
+  const stripped = stripWrapperWords(words);
+  const normalized = stripped.rewritten
+    ? textCommandWords(wordTexts(stripped.words))
+    : stripped.words;
   const normalizedHead = normalized[0];
   return normalizedHead && analysisWordText(normalizedHead) === 'busybox'
     ? normalized.slice(1)
@@ -920,10 +903,11 @@ function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
 }
 
 function analyzeEmbeddedCommand(
-  context: CommandAnalysisContext,
+  context: AnalyzerRuleContext,
+  tokens: readonly string[],
   index: number,
 ): DestructiveCommandRuleMatch | null {
-  const childCommands = normalizeChildCommands(context.tokens.slice(index), {
+  const childCommands = normalizeChildCommands(tokens.slice(index), {
     cwd: context.cwd,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
@@ -938,7 +922,7 @@ function analyzeEmbeddedCommand(
 }
 
 function analyzeNormalizedEmbeddedCommand(
-  context: CommandAnalysisContext,
+  context: AnalyzerRuleContext,
   index: number,
   childCommand: NormalizedChildCommand,
 ): DestructiveCommandRuleMatch | null {
@@ -951,7 +935,7 @@ function analyzeNormalizedEmbeddedCommand(
   if (isShellWrapperCommand(token, cmd)) {
     reserveDerivedCommandTokens(
       context.options.derivedCommandWorkBudget,
-      context.tokens.length - index,
+      context.words.length - index,
     );
     const shellTokens = childCommand.tokens;
     if (isShellSyntaxCheck(shellTokens)) return null;
@@ -975,7 +959,7 @@ function analyzeNormalizedEmbeddedCommand(
     if (childCommand.wrappedByTransparent && context.options.policy.rules.length > 0) {
       reserveDerivedCommandTokens(
         context.options.derivedCommandWorkBudget,
-        context.tokens.length - index,
+        context.words.length - index,
       );
     }
     return matchEmbeddedCustomRule(context, childCommand);
@@ -983,12 +967,11 @@ function analyzeNormalizedEmbeddedCommand(
 
   reserveDerivedCommandTokens(
     context.options.derivedCommandWorkBudget,
-    context.tokens.length - index,
+    context.words.length - index,
   );
   const embeddedTokens = [cmd, ...childCommand.tokens.slice(1)];
-  const embeddedContext: CommandAnalysisContext = {
+  const embeddedContext: AnalyzerRuleContext = {
     ...context,
-    tokens: embeddedTokens,
     words: textCommandWords(embeddedTokens),
     head: cmd,
     cwd: childCommand.cwd,
@@ -1003,7 +986,7 @@ function analyzeNormalizedEmbeddedCommand(
 }
 
 function matchEmbeddedCustomRule(
-  context: CommandAnalysisContext,
+  context: AnalyzerRuleContext,
   childCommand: NormalizedChildCommand,
 ): DestructiveCommandRuleMatch | null {
   return childCommand.wrappedByTransparent
@@ -1023,24 +1006,9 @@ function analyzedViewWords(
   return dialect === 'posix' ? words : textCommandWords(words.map((word) => word.text));
 }
 
-/**
- * Words the rules analyze: the parsed words when they still describe the analyzed tokens,
- * and text-only stand-ins when wrapper stripping rewrote them (`env -S`) or no parsed
- * command is available (derived child commands).
- */
-function analyzedWords(
-  tokens: readonly string[],
-  view: CommandView | undefined,
-): readonly CommandWord[] {
-  return view &&
-    view.dialect === 'posix' &&
-    view.words.length === tokens.length &&
-    tokens.every((token, index) => {
-      const word = view.words[index];
-      return word !== undefined && analysisWordText(word) === token;
-    })
-    ? view.words
-    : textCommandWords(tokens);
+/** Text the words contribute to the token-shaped scans and trace records. */
+function wordTexts(words: readonly CommandWord[]): string[] {
+  return words.map(analysisWordText);
 }
 
 function filterBuiltInCommandMatch(
