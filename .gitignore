@@ -11,6 +11,7 @@ artifacts
 coverage
 .codex
 .playwright
+.playwright-cli
 codex-security-scans
 
 # --- Node.js ---

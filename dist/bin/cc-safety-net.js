@@ -2430,7 +2430,11 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .rule-tier-head {
+  /* The counts wrap to their own line below the label. The destructive tiers
+     and secret groups nest the label and counts inside .tier-collapse, so the
+     wrap must be enabled there as well, not only on the head. */
+  .rule-tier-head,
+  .tier-collapse {
     flex-wrap: wrap;
   }
 
