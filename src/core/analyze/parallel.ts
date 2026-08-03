@@ -42,7 +42,7 @@ import { normalizeCommandToken } from '@/core/shell';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import type { PolicyRule } from '@/domain/policy';
-import { parseCommand } from '@/parser/command';
+import { parseSimpleWords } from '@/parser/traversal';
 
 /** @internal */
 export const REASON_PARALLEL_RM =
@@ -307,7 +307,7 @@ function analyzeParallelChildCommand(
         // Stdin mode with placeholder - analyze the script template
         // Check if the script pattern is dangerous (e.g., rm -rf {})
         reserveParallelAnalysis(context.budget, staticStringWork(dashCArg));
-        const scriptTokens = parsePlainCommandTokens(dashCArg);
+        const scriptTokens = parseSimpleWords(dashCArg);
         if (
           scriptTokens?.[0] &&
           normalizeCommandToken(scriptTokens[0]) === 'rm' &&
@@ -1345,21 +1345,6 @@ function hasExecutableParallelPlaceholder(token: string): boolean {
 
 function isOnlyParallelPlaceholder(token: string): boolean {
   return /^\{[^{}\s]*\}$/.test(token);
-}
-
-/**
- * Argument list of a shell source that is one plain command. A source the parse cannot pin
- * down — incomplete, more than one command, redirections, nesting, or substitution output —
- * has no known argument list and gives null.
- */
-function parsePlainCommandTokens(source: string): string[] | null {
-  const program = parseCommand(source, 'posix');
-  if (program.status !== 'complete' || program.nodes.length !== 1) return null;
-  const command = program.nodes[0];
-  if (command?.kind !== 'command') return null;
-  if (command.redirections.length > 0 || command.nested.length > 0) return null;
-  if (command.words.some((word) => word.provenance === 'command-substitution')) return null;
-  return command.words.map((word) => word.text);
 }
 
 function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {

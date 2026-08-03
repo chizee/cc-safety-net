@@ -1,4 +1,5 @@
 import type { CommandNode, CommandProgram, CommandView } from '@/domain/command';
+import { parseCommand } from './command';
 
 /** @internal */
 export function* walkCommandViews(program: CommandProgram): Generator<CommandView> {
@@ -17,6 +18,21 @@ export function projectSegmentWords(program: CommandProgram): readonly (readonly
   return Object.freeze(
     projectCommandViews(program).map((view) => Object.freeze(view.words.map((word) => word.text))),
   );
+}
+
+/**
+ * Argument list of argv-like text — git alias bodies, `parallel -c` script templates — that is
+ * one plain command. A source the parse cannot pin down — incomplete, more than one command,
+ * redirections, nesting, or substitution output — has no known argument list and gives null.
+ */
+export function parseSimpleWords(source: string): string[] | null {
+  const program = parseCommand(source, 'posix');
+  if (program.status !== 'complete' || program.nodes.length !== 1) return null;
+  const command = program.nodes[0];
+  if (command?.kind !== 'command') return null;
+  if (command.redirections.length > 0 || command.nested.length > 0) return null;
+  if (command.words.some((word) => word.provenance === 'command-substitution')) return null;
+  return command.words.map((word) => word.text);
 }
 
 function* walkNode(node: CommandNode): Generator<CommandView> {
