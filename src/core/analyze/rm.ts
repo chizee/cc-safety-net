@@ -1,6 +1,8 @@
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import {
   classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
+  deleteTargetWordFacts,
   type RecursiveDeleteTargetClassification,
   type RecursiveDeleteTargetClassificationOptions,
   type RecursiveDeleteTargetContext,
@@ -17,6 +19,7 @@ import {
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CommandWord } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
 const REASON_RM_RF =
@@ -31,10 +34,6 @@ const REASON_RM_HOME_CWD =
   'rm -rf in home directory is dangerous. Change to a project directory first.';
 
 export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
-  literalTargetTokenIndexes?: ReadonlySet<number>;
-  tmpdirWordSplittingProtectedTargetTokenIndexes?: ReadonlySet<number>;
-  expandedTargetTokens?: ReadonlyMap<number, readonly string[]>;
-  unsafeBraceExpansionTargetTokenIndexes?: ReadonlySet<number>;
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
@@ -44,11 +43,11 @@ export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
 
 /** @internal */
 export function analyzeRm(tokens: string[], options: AnalyzeRmOptions = {}): string | null {
-  return analyzeRmMatch(tokens, options)?.reason ?? null;
+  return analyzeRmMatch(textCommandWords(tokens), options)?.reason ?? null;
 }
 
 export function analyzeRmMatch(
-  tokens: string[],
+  words: readonly CommandWord[],
   options: AnalyzeRmOptions = {},
 ): DestructiveCommandRuleMatch | null {
   const ctx = createRecursiveDeleteTargetContext({
@@ -56,12 +55,14 @@ export function analyzeRmMatch(
     allowPaths: options.policy?.destructiveCommandAllowPaths,
     posixShell: true,
   });
-  const recursiveForce = hasRecursiveForceFlags(tokens);
-  const recursive = hasRecursiveOption(tokens);
-  const targets = extractTargets(tokens);
+  const flagTexts = words.map(analysisWordText);
+  const recursiveForce = hasRecursiveForceFlags(flagTexts);
+  const recursive = hasRecursiveOption(flagTexts);
+  const targets = extractTargets(words);
 
   for (const target of targets) {
-    if (recursiveForce && options.unsafeBraceExpansionTargetTokenIndexes?.has(target.index)) {
+    const facts = deleteTargetWordFacts(target.word);
+    if (recursiveForce && facts.unsafeBraceExpansion) {
       const match = filterDestructiveCommandMatch(
         reasonForClassification({ kind: 'outside_anchored_cwd' }, ctx, options.policy),
         options.policy,
@@ -70,14 +71,10 @@ export function analyzeRmMatch(
       continue;
     }
 
-    const expandedTargets = options.expandedTargetTokens?.get(target.index);
-    for (const expandedTarget of expandedTargets ?? [target.text]) {
+    for (const expandedTarget of facts.expandedTargets ?? [target.text]) {
       const classificationOptions = {
-        targetIsLiteral:
-          expandedTargets !== undefined || options.literalTargetTokenIndexes?.has(target.index),
-        tmpdirWordSplittingProtected: options.tmpdirWordSplittingProtectedTargetTokenIndexes?.has(
-          target.index,
-        ),
+        targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
+        tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
       };
       if (
         !recursive &&
@@ -149,26 +146,26 @@ function orderedTargetClassifications(
   ];
 }
 
-function extractTargets(tokens: readonly string[]): { text: string; index: number }[] {
-  const targets: { text: string; index: number }[] = [];
+function extractTargets(words: readonly CommandWord[]): { text: string; word: CommandWord }[] {
+  const targets: { text: string; word: CommandWord }[] = [];
   let pastDoubleDash = false;
 
-  for (let i = 1; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token) continue;
+  for (const word of words.slice(1)) {
+    const text = analysisWordText(word);
+    if (!text) continue;
 
-    if (token === '--') {
+    if (text === '--') {
       pastDoubleDash = true;
       continue;
     }
 
     if (pastDoubleDash) {
-      targets.push({ text: token, index: i });
+      targets.push({ text, word });
       continue;
     }
 
-    if (!token.startsWith('-')) {
-      targets.push({ text: token, index: i });
+    if (!text.startsWith('-')) {
+      targets.push({ text, word });
     }
   }
 

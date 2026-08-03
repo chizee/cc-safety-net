@@ -14,8 +14,12 @@ import {
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
+import type { CommandWord } from '@/domain/command';
+import { expandPosixLiteralBraceWord } from '@/parser/posix';
 
 const IS_WINDOWS = process.platform === 'win32';
+const BRACE_EXPANSION_LIMIT = 64;
+const BRACE_EXPANDED_LENGTH_LIMIT = 16_384;
 
 export interface RecursiveDeleteTargetTrustOptions {
   cwd?: string;
@@ -69,6 +73,70 @@ export type RecursiveDeleteTargetClassification =
   | { kind: 'cwd_self_target' }
   | { kind: 'within_anchored_cwd' }
   | { kind: 'outside_anchored_cwd' };
+
+export interface DeleteTargetWordFacts {
+  /** Literal brace alternatives to classify instead of the word itself. */
+  readonly expandedTargets: readonly string[] | undefined;
+  /** Brace expansion hit a limit, so the deleted set is unknown. */
+  readonly unsafeBraceExpansion: boolean;
+  readonly targetIsLiteral: boolean;
+  readonly tmpdirWordSplittingProtected: boolean;
+}
+
+export function deleteTargetWordFacts(word: CommandWord): DeleteTargetWordFacts {
+  const expansion = expandPosixLiteralBraceWord(
+    word,
+    BRACE_EXPANSION_LIMIT,
+    BRACE_EXPANSION_LIMIT,
+    BRACE_EXPANDED_LENGTH_LIMIT,
+  );
+  return {
+    expandedTargets: expansion && 'words' in expansion ? expansion.words : undefined,
+    unsafeBraceExpansion: expansion !== undefined && 'limited' in expansion,
+    targetIsLiteral:
+      expansion === undefined &&
+      word.provenance === 'literal' &&
+      (word.quoted || word.raw !== word.text),
+    tmpdirWordSplittingProtected: isTmpdirExpansionWordSplittingProtected(word),
+  };
+}
+
+// A $TMPDIR reference inside double quotes cannot word-split, so a hostile TMPDIR value
+// cannot turn one target into several.
+function isTmpdirExpansionWordSplittingProtected(word: CommandWord): boolean {
+  const tmpdirParts = word.parts.filter(
+    (part) =>
+      part.provenance === 'variable' && /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(part.raw),
+  );
+  return (
+    tmpdirParts.length > 0 &&
+    tmpdirParts.every((part) =>
+      isRawOffsetDoubleQuoted(word.raw, part.span.start - word.span.start),
+    )
+  );
+}
+
+function isRawOffsetDoubleQuoted(raw: string, offset: number): boolean {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let index = 0; index < offset; index++) {
+    const char = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote === char) {
+      quote = null;
+      continue;
+    }
+    if (quote === null && (char === "'" || char === '"')) quote = char;
+  }
+  return quote === '"';
+}
 
 export function createRecursiveDeleteTargetContext(
   options: RecursiveDeleteTargetOptions = {},

@@ -7,6 +7,7 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
+import { textCommandWords } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
@@ -829,7 +830,7 @@ function analyzeParallelRmExpansion(
   context: ParallelAnalyzeContext,
 ): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
-    analyzeRmMatch(tokens, {
+    analyzeRmMatch(textCommandWords(tokens), {
       cwd,
       originalCwd: context.originalCwd,
       strict: context.strict,

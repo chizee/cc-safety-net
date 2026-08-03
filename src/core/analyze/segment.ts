@@ -10,6 +10,7 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
+import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import {
   DISPLAY_COMMANDS,
   MAX_RECURSION_DEPTH,
@@ -17,7 +18,6 @@ import {
   SHELL_WRAPPERS,
 } from '@/core/analyze/constants';
 import {
-  type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
   EnvSplitStringExpansionError,
   reserveDerivedCommandTokens,
@@ -40,8 +40,12 @@ import {
   REASON_PARALLEL_RM,
   REASON_PARALLEL_SHELL,
 } from '@/core/analyze/parallel';
-import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
-import { analyzeRmMatch } from '@/core/analyze/rm';
+import { deleteTargetWordFacts } from '@/core/analyze/recursive-delete-targets';
+import {
+  ANALYZER_RULES,
+  type AnalyzerRuleContext,
+  type InternalOptions,
+} from '@/core/analyze/rule';
 import {
   extractEvalSource,
   extractPositionalShellSource,
@@ -77,7 +81,6 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitDetailed, analyzeGitMatch } from '@/core/git';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
@@ -89,48 +92,16 @@ import {
   stripWrappersWithInfo,
 } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
-import type {
-  AnalyzeNestedOverrides,
-  AnalyzeOptions,
-  AnalyzeResult,
-  DestructiveCommandRuleMatch,
-} from '@/domain/analysis';
+import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
-import { expandPosixLiteralBraceWord } from '@/parser/posix';
 import { sliceCommandView } from '@/parser/projection';
-
-export type InternalOptions = AnalyzeOptions & {
-  policy: EffectivePolicy;
-  effectiveCwd: string | null | undefined;
-  analyzeNested: (command: string, overrides?: AnalyzeNestedOverrides) => AnalyzeBlockResult | null;
-  commandView?: CommandView;
-  trace?: CommandTraceContext;
-  compatibility?: 'explain-legacy';
-  derivedCommandWorkBudget: DerivedCommandWorkBudget;
-  parallelBudget: ParallelAnalysisBudget;
-  scanWork?: { units: number };
-  hasPipelineInput?: boolean;
-  literalShellInput?: string;
-  literalHeredocFiles?: ReadonlyMap<string, string>;
-  wrapperNormalizationBudget?: { iterations: number };
-  protectedGitMetadata?: ProtectedGitMetadata | null;
-};
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 
-interface CommandAnalysisContext {
-  tokens: string[];
-  normalizedHead: string;
-  cwdForRm: string | undefined;
-  originalCwd: string | undefined;
-  envAssignments: ReadonlyMap<string, string>;
-  allowTmpdirVar: boolean;
-  depth: number;
-  effectiveCwd: string | null | undefined;
-  options: InternalOptions;
-}
+/** Analyzer-rule context plus the legacy tokens the not-yet-ported families still read. */
+type CommandAnalysisContext = AnalyzerRuleContext & { readonly tokens: string[] };
 
 type CommandAnalyzer = (context: CommandAnalysisContext) => DestructiveCommandRuleMatch | null;
 
@@ -140,8 +111,6 @@ const REASON_DYNAMIC_STRUCTURE =
   'shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.';
 const REASON_DYNAMIC_SHELL_SOURCE =
   'shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.';
-const DELETE_TARGET_BRACE_EXPANSION_LIMIT = 64;
-const DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT = 16_384;
 const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'branch',
   'checkout',
@@ -159,12 +128,16 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
 ]);
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
   ['git', analyzeGitCommand],
-  ['rm', analyzeRmCommand],
-  ['rmdir', analyzeRmCommand],
   ['find', analyzeFindCommand],
   ['xargs', analyzeXargsCommand],
   ['parallel', analyzeParallelCommand],
 ]);
+
+function findCommandAnalyzer(head: string): CommandAnalyzer | undefined {
+  return (
+    ANALYZER_RULES.find((rule) => rule.heads.has(head))?.analyze ?? COMMAND_ANALYZERS.get(head)
+  );
+}
 
 export function analyzeSegment(
   tokens: string[],
@@ -555,8 +528,9 @@ export function analyzeSegment(
 
   const commandContext: CommandAnalysisContext = {
     tokens: stripped,
-    normalizedHead,
-    cwdForRm,
+    words: analyzedWords(stripped, normalizedCommandView),
+    head: normalizedHead,
+    cwd: cwdForRm,
     originalCwd: originalCwdForRm,
     envAssignments,
     allowTmpdirVar,
@@ -565,7 +539,7 @@ export function analyzeSegment(
     options:
       trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace },
   };
-  const commandAnalyzer = COMMAND_ANALYZERS.get(normalizedHead);
+  const commandAnalyzer = findCommandAnalyzer(normalizedHead);
   if (normalizedHead === 'rm' || normalizedHead === 'xargs' || normalizedHead === 'parallel') {
     trace?.recordSegment({
       type: 'tmpdir-check',
@@ -746,7 +720,7 @@ function recordCommandAnalyzerTrace(
     find: ['analyze/find.ts', 'analyzeFind'],
     xargs: ['analyze/xargs.ts', 'analyzeXargs'],
     parallel: ['analyze/parallel.ts', 'analyzeParallel'],
-  }[context.normalizedHead];
+  }[context.head];
   if (!details) return;
   context.options.trace?.recordSegment({
     type: 'rule-check',
@@ -1016,7 +990,7 @@ function analyzeEmbeddedCommand(
   index: number,
 ): DestructiveCommandRuleMatch | null {
   const childCommands = normalizeChildCommands(context.tokens.slice(index), {
-    cwd: context.cwdForRm,
+    cwd: context.cwd,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
   });
@@ -1062,7 +1036,7 @@ function analyzeNormalizedEmbeddedCommand(
     return result ? matchFromBlockResult(result) : matchEmbeddedCustomRule(context, childCommand);
   }
 
-  const analyzer = COMMAND_ANALYZERS.get(cmd);
+  const analyzer = findCommandAnalyzer(cmd);
   if (!analyzer || cmd === 'xargs' || cmd === 'parallel') {
     if (childCommand.wrappedByTransparent && context.options.policy.rules.length > 0) {
       reserveDerivedCommandTokens(
@@ -1077,11 +1051,13 @@ function analyzeNormalizedEmbeddedCommand(
     context.options.derivedCommandWorkBudget,
     context.tokens.length - index,
   );
+  const embeddedTokens = [cmd, ...childCommand.tokens.slice(1)];
   const embeddedContext: CommandAnalysisContext = {
     ...context,
-    tokens: [cmd, ...childCommand.tokens.slice(1)],
-    normalizedHead: cmd,
-    cwdForRm: childCommand.cwd,
+    tokens: embeddedTokens,
+    words: textCommandWords(embeddedTokens),
+    head: cmd,
+    cwd: childCommand.cwd,
     originalCwd: childCommand.wrapperCwd === null ? undefined : context.originalCwd,
     envAssignments: childCommand.envAssignments,
     allowTmpdirVar: !isTmpdirOverriddenToNonTemp(childCommand.envAssignments),
@@ -1107,7 +1083,7 @@ function analyzeGitCommand(context: CommandAnalysisContext): DestructiveCommandR
 
 function getGitAnalyzeOptions(context: CommandAnalysisContext) {
   return {
-    cwd: context.cwdForRm,
+    cwd: context.cwd,
     dynamicArguments: context.options.commandView?.words.some(
       (word) => word.provenance === 'command-substitution',
     ),
@@ -1117,132 +1093,58 @@ function getGitAnalyzeOptions(context: CommandAnalysisContext) {
   };
 }
 
-function analyzeRmCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  const targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
-  return analyzeRmMatch(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    strict: context.options.strict,
-    paranoid: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-    trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
-    protectedGitMetadata: context.options.protectedGitMetadata,
-    literalTargetTokenIndexes: targetMetadata?.literal,
-    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
-    expandedTargetTokens: targetMetadata?.expanded,
-    unsafeBraceExpansionTargetTokenIndexes: targetMetadata?.unsafeBraceExpansion,
-    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
-  });
-}
-
-function getDeleteTargetTokenMetadata(
+/**
+ * Words the rules analyze: the parsed words when they still describe the analyzed tokens,
+ * and text-only stand-ins when wrapper stripping rewrote them (`env -S`) or no parsed
+ * command is available (derived child commands).
+ */
+function analyzedWords(
   tokens: readonly string[],
   view: CommandView | undefined,
-):
-  | {
-      literal: ReadonlySet<number>;
-      wordSplittingProtected: ReadonlySet<number>;
-      expanded: ReadonlyMap<number, readonly string[]>;
-      unsafeBraceExpansion: ReadonlySet<number>;
-    }
-  | undefined {
-  if (
-    !view ||
-    view.dialect !== 'posix' ||
-    view.words.length !== tokens.length ||
-    view.analysisTokens.length !== tokens.length ||
-    !tokens.every((token, index) => view.analysisTokens[index] === token)
-  ) {
-    return undefined;
-  }
+): readonly CommandWord[] {
+  return view &&
+    view.dialect === 'posix' &&
+    view.words.length === tokens.length &&
+    tokens.every((token, index) => {
+      const word = view.words[index];
+      return word !== undefined && analysisWordText(word) === token;
+    })
+    ? view.words
+    : textCommandWords(tokens);
+}
 
-  const braceExpansions = view.words.map((word) =>
-    expandPosixLiteralBraceWord(
-      word,
-      DELETE_TARGET_BRACE_EXPANSION_LIMIT,
-      DELETE_TARGET_BRACE_EXPANSION_LIMIT,
-      DELETE_TARGET_BRACE_EXPANDED_LENGTH_LIMIT,
-    ),
-  );
+function getDeleteTargetTokenMetadata(words: readonly CommandWord[]) {
+  const facts = words.map(deleteTargetWordFacts);
   return {
-    literal: new Set(
-      view.words.flatMap((word, index) =>
-        braceExpansions[index] === undefined &&
-        word.provenance === 'literal' &&
-        (word.quoted || word.raw !== word.text)
-          ? [index]
-          : [],
-      ),
-    ),
+    literal: new Set(facts.flatMap((fact, index) => (fact.targetIsLiteral ? [index] : []))),
     wordSplittingProtected: new Set(
-      view.words.flatMap((word, index) =>
-        isTmpdirExpansionWordSplittingProtected(word) ? [index] : [],
-      ),
+      facts.flatMap((fact, index) => (fact.tmpdirWordSplittingProtected ? [index] : [])),
     ),
     expanded: new Map<number, readonly string[]>(
-      braceExpansions.flatMap((expansion, index) => {
-        if (!expansion || !('words' in expansion) || expansion.words === undefined) return [];
-        return [[index, expansion.words] as const];
-      }),
+      facts.flatMap((fact, index) =>
+        fact.expandedTargets ? [[index, fact.expandedTargets] as const] : [],
+      ),
     ),
     unsafeBraceExpansion: new Set(
-      braceExpansions.flatMap((expansion, index) =>
-        expansion && 'limited' in expansion ? [index] : [],
-      ),
+      facts.flatMap((fact, index) => (fact.unsafeBraceExpansion ? [index] : [])),
     ),
   };
 }
 
-function isTmpdirExpansionWordSplittingProtected(word: CommandWord): boolean {
-  const tmpdirParts = word.parts.filter(
-    (part) =>
-      part.provenance === 'variable' && /\$(?:TMPDIR(?![A-Za-z0-9_])|\{TMPDIR\})/.test(part.raw),
-  );
-  return (
-    tmpdirParts.length > 0 &&
-    tmpdirParts.every((part) =>
-      isRawOffsetDoubleQuoted(word.raw, part.span.start - word.span.start),
-    )
-  );
-}
-
-function isRawOffsetDoubleQuoted(raw: string, offset: number): boolean {
-  let quote: "'" | '"' | null = null;
-  let escaped = false;
-  for (let index = 0; index < offset; index++) {
-    const char = raw[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === '\\' && quote !== "'") {
-      escaped = true;
-      continue;
-    }
-    if (quote === char) {
-      quote = null;
-      continue;
-    }
-    if (quote === null && (char === "'" || char === '"')) quote = char;
-  }
-  return quote === '"';
-}
-
 function analyzeFindCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  const targetMetadata = getDeleteTargetTokenMetadata(context.tokens, context.options.commandView);
+  const targetMetadata = getDeleteTargetTokenMetadata(context.words);
   return analyzeFindMatch(context.tokens, {
-    cwd: context.cwdForRm,
+    cwd: context.cwd,
     originalCwd: context.originalCwd,
     strict: context.options.strict,
     allowTmpdirVar: context.allowTmpdirVar,
     tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
     trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
     protectedGitMetadata: context.options.protectedGitMetadata,
-    literalTargetTokenIndexes: targetMetadata?.literal,
-    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata?.wordSplittingProtected,
-    expandedTargetTokens: targetMetadata?.expanded,
-    unsafeBraceExpansionTargetTokenIndexes: targetMetadata?.unsafeBraceExpansion,
+    literalTargetTokenIndexes: targetMetadata.literal,
+    tmpdirWordSplittingProtectedTargetTokenIndexes: targetMetadata.wordSplittingProtected,
+    expandedTargetTokens: targetMetadata.expanded,
+    unsafeBraceExpansionTargetTokenIndexes: targetMetadata.unsafeBraceExpansion,
     derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
     envAssignments: context.envAssignments,
     policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
@@ -1305,7 +1207,7 @@ function getNestedCommandAnalyzeContext(
   context: CommandAnalysisContext,
 ): NestedCommandAnalyzeContext {
   return {
-    cwd: context.cwdForRm,
+    cwd: context.cwd,
     originalCwd: context.originalCwd,
     strict: context.options.strict,
     paranoidRm: context.options.paranoidRm,

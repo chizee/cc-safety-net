@@ -1,4 +1,5 @@
 import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
+import { textCommandWords } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
@@ -205,7 +206,7 @@ export function analyzeChildCommandMatch(
     const dynamicRmPolicyApplies =
       normalizedHead === 'rm' && (hasRecursiveForceFlags(tokens) || options.dynamicRmInput);
     const rmMatch = filterDestructiveCommandMatch(
-      analyzeRmMatch([...tokens], {
+      analyzeRmMatch(textCommandWords(tokens), {
         cwd: context.cwd,
         originalCwd: context.originalCwd,
         strict: context.strict,

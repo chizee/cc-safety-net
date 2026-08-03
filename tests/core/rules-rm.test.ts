@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
+import { textCommandWords } from '@/core/analyze/command-words';
 import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
 import { analyzeTestCommand, type TestPolicyInput } from '../helpers/policy.ts';
 import {
@@ -889,7 +890,7 @@ describe('analyzeRm (unit)', () => {
 
   test('rm -rf . falls back from home-cwd to cwd-self when the home-cwd rule is off', () => {
     const home = homedir();
-    const match = analyzeRmMatch(['rm', '-rf', '.'], {
+    const match = analyzeRmMatch(textCommandWords(['rm', '-rf', '.']), {
       originalCwd: home,
       policy: {
         destructiveCommandProtectionEnabled: true,
@@ -919,21 +920,26 @@ describe('analyzeRm (unit)', () => {
           String.raw`/\server\share`,
           String.raw`\/server/share`,
         ]) {
-          const match = analyzeRmMatch(['rm', '-rf', target], { cwd, originalCwd: cwd });
+          const match = analyzeRmMatch(textCommandWords(['rm', '-rf', target]), {
+            cwd,
+            originalCwd: cwd,
+          });
           expect(match?.id).toBe('rm.recursive-force-outside-cwd');
           expect(match?.reason).toContain('outside cwd is blocked');
         }
 
-        expect(analyzeRmMatch(['rm', '-rf', child], { cwd, originalCwd: cwd })).toBeNull();
         expect(
-          analyzeRmMatch(['rm', '-rf', child, localNamespace], {
+          analyzeRmMatch(textCommandWords(['rm', '-rf', child]), { cwd, originalCwd: cwd }),
+        ).toBeNull();
+        expect(
+          analyzeRmMatch(textCommandWords(['rm', '-rf', child, localNamespace]), {
             cwd,
             originalCwd: cwd,
           })?.id,
         ).toBe('rm.recursive-force-outside-cwd');
 
         withEnv({ HOME: localNamespace, TEMP: localNamespace, TMP: localNamespace }, () => {
-          const match = analyzeRmMatch(['rm', '-rf', localNamespace], {
+          const match = analyzeRmMatch(textCommandWords(['rm', '-rf', localNamespace]), {
             cwd: localNamespace,
             originalCwd: localNamespace,
           });
