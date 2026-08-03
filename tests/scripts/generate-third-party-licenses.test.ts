@@ -14,24 +14,22 @@ function writePackage(directory: string, name: string, version: string, license 
 describe('third-party license generation', () => {
   test('uses installed package versions and license text', async () => {
     await withTempDir('cc-safety-net-licenses-', (directory) => {
-      writePackage(directory, 'shell-quote', '2.0.0');
       writePackage(directory, 'zod', '5.0.0');
 
       generateThirdPartyLicenses(directory);
 
       expect(readFileSync(join(directory, 'THIRD_PARTY_LICENSES.txt'), 'utf8')).toBe(
-        'shell-quote 2.0.0\n\nshell-quote license\n\nzod 5.0.0\n\nzod license\n',
+        'zod 5.0.0\n\nzod license\n',
       );
     });
   });
 
   test('fails when a bundled package no longer uses the MIT license', async () => {
     await withTempDir('cc-safety-net-licenses-', (directory) => {
-      writePackage(directory, 'shell-quote', '2.0.0', 'Apache-2.0');
-      writePackage(directory, 'zod', '5.0.0');
+      writePackage(directory, 'zod', '5.0.0', 'Apache-2.0');
 
       expect(() => generateThirdPartyLicenses(directory)).toThrow(
-        'shell-quote license changed from MIT to Apache-2.0; review required',
+        'zod license changed from MIT to Apache-2.0; review required',
       );
     });
   });

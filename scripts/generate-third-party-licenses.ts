@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const bundledPackages = ['shell-quote', 'zod'] as const;
+const bundledPackages = ['zod'] as const;
 
 /** @internal */
 export function renderThirdPartyLicenses(directory = process.cwd()) {

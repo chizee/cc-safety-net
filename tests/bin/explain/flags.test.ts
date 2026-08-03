@@ -3,6 +3,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { parseExplainFlags } from '@/bin/explain/flags';
+import { parseCommand } from '@/parser/command';
 
 describe('parseExplainFlags', () => {
   let capturedStderr: string[];
@@ -76,6 +77,26 @@ describe('parseExplainFlags', () => {
     expect(flags).not.toBeNull();
     if (!flags) return;
     expect(flags.command).toBe('git status | rm -rf /');
+  });
+
+  // The joined command is re-parsed downstream, so quoting must return the exact argv it was
+  // given; a plain space join would silently explain a different command.
+  test.each([
+    ['spaces', ['echo', 'hello world']],
+    ['a single quote', ['echo', "it's"]],
+    ['shell metacharacters', ['grep', '-e', 'a|b', 'file.txt']],
+    ['an expansion', ['echo', '$HOME']],
+    ['a double quote', ['echo', 'a"b']],
+    ['an empty argument', ['echo', '']],
+  ])('quotes multiple arguments so %s survives a reparse', (_label, args) => {
+    const flags = parseExplainFlags([...args]);
+    expect(flags).not.toBeNull();
+    if (!flags) return;
+    expect(
+      parseCommand(flags.command, 'posix').nodes.flatMap((node) =>
+        node.kind === 'command' ? node.words.map((word) => word.text) : [],
+      ),
+    ).toEqual(args);
   });
 
   test('errors when command is missing', () => {

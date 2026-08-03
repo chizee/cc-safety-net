@@ -5,7 +5,6 @@ import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/amp/index';
 import pkg from '../../package.json';
 import {
   getRuntimeImportSpecifiers,
-  hasUnresolvedShellQuoteImport,
   requiresRepositoryExecutableMode,
   unbundledRuntimeImports,
   verifyAmpArtifact,
@@ -49,12 +48,6 @@ describe('generated artifact contract', () => {
     expect(declaration).toContain('CCSafetyNetPlugin');
     expect(declaration).not.toContain('resolveOpenCodeShellRoute');
     expect(declaration).not.toContain('normalizeOpenCodeWindowsWorkdir');
-  });
-
-  test('detects unresolved shell-quote runtime imports without rejecting bundled source markers', () => {
-    expect(hasUnresolvedShellQuoteImport('import { parse } from "shell-quote";')).toBeTrue();
-    expect(hasUnresolvedShellQuoteImport('const parser = require("shell-quote/parse")')).toBeTrue();
-    expect(hasUnresolvedShellQuoteImport('// node_modules/shell-quote/parse.js')).toBeFalse();
   });
 
   test('skips repository filesystem mode enforcement only on Windows', () => {
@@ -137,9 +130,6 @@ describe('generated artifact contract', () => {
 
         writeFileSync('dist/bin/cc-safety-net.js', 'export {};\n');
         await expect(verifyBuildArtifacts()).rejects.toThrow('wrong shebang');
-
-        writeFileSync('dist/bin/cc-safety-net.js', '#!/usr/bin/env node\nimport "shell-quote";\n');
-        await expect(verifyBuildArtifacts()).rejects.toThrow('unresolved shell-quote imports');
       } finally {
         process.chdir(originalCwd);
       }

@@ -1,5 +1,3 @@
-import type { ParseEntry } from 'shell-quote';
-
 export interface QuoteScanState {
   inSingle: boolean;
   inDouble: boolean;
@@ -73,22 +71,4 @@ function stripShellComments(command: string): string {
   }
 
   return result;
-}
-
-/** @internal */
-export function getCommandTokenText(token: ParseEntry | undefined): string | null {
-  if (typeof token === 'string') {
-    return token;
-  }
-
-  if (
-    token &&
-    typeof token === 'object' &&
-    'pattern' in token &&
-    typeof token.pattern === 'string'
-  ) {
-    return token.pattern;
-  }
-
-  return null;
 }

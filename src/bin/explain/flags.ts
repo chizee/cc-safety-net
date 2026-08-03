@@ -3,7 +3,8 @@
  */
 
 import { existsSync } from 'node:fs';
-import { quote } from 'shell-quote';
+
+const SHELL_SAFE_ARGUMENT = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
 export interface ExplainFlags {
   json: boolean;
@@ -63,9 +64,18 @@ export function parseExplainFlags(args: string[]): ExplainFlags | null {
   }
 
   // When the user passes a full command as a single argument (e.g., explain "git status | rm -rf /"),
-  // use it directly to preserve shell operators. Otherwise, use quote() to properly escape
-  // multiple arguments containing spaces.
-  const command = remaining.length === 1 ? remaining[0] : quote(remaining);
+  // use it directly to preserve shell operators. Otherwise, single-quote every argument that is
+  // not already inert so multiple arguments survive the reparse as themselves.
+  const command =
+    remaining.length === 1
+      ? remaining[0]
+      : remaining
+          .map((argument) =>
+            SHELL_SAFE_ARGUMENT.test(argument)
+              ? argument
+              : `'${argument.replaceAll("'", `'\\''`)}'`,
+          )
+          .join(' ');
   if (!command) {
     console.error('Error: No command provided');
     console.error('Usage: cc-safety-net explain [--json] [--cwd <path>] <command>');

@@ -31,7 +31,6 @@ describe('published runtime contract', () => {
     expect(pkg.devDependencies).toMatchObject({
       '@ampcode/plugin': '0.0.0-20260724002649-ga3413e7',
       '@opencode-ai/plugin': '^1.18.3',
-      'shell-quote': '^1.10.0',
     });
     expect(pkg.peerDependencies).toEqual({ '@opencode-ai/plugin': '^1.18.3' });
     expect(pkg.peerDependenciesMeta).toEqual({

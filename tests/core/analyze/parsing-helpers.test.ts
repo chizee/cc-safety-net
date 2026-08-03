@@ -22,7 +22,7 @@ import { isTrustedTempPath } from '@/core/analyze/tmpdir';
 import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
 import { extractShortOpts, getShellCommandString } from '@/core/shell';
-import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
+import { hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
 import { projectCommandViews, projectSegmentWords } from '@/parser/traversal';
 import { assertBlocked, createLinkedWorktreeFixture } from '../../helpers.ts';
@@ -46,13 +46,6 @@ describe('shell parsing helpers', () => {
 
     test('dangerous command wrapped in an interpreter -c string with an apostrophe inside a double-quoted argument is still blocked', () => {
       assertBlocked(`bash -c 'echo "it'"'"'s fine" && rm -rf /'`, 'rm -rf');
-    });
-
-    test('projects string and glob entries without inventing unknown token text', () => {
-      expect(getCommandTokenText('literal')).toBe('literal');
-      expect(getCommandTokenText({ op: 'glob', pattern: '*.ts' })).toBe('*.ts');
-      expect(getCommandTokenText({ op: ';' })).toBeNull();
-      expect(getCommandTokenText(undefined)).toBeNull();
     });
   });
 

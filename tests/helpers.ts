@@ -325,7 +325,7 @@ export const mockVersionFetcher: VersionFetcher = async (args: string[]) => {
 
 /**
  * Convert Windows backslashes to forward slashes for shell command embedding.
- * shell-quote interprets backslashes as escape characters, which corrupts
+ * The POSIX parser reads backslashes as escape characters, which corrupts
  * Windows paths like C:\Users\... into C:Users...
  */
 export function toShellPath(p: string): string {

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { parse as parseShellQuote } from 'shell-quote';
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { findPolicyConfigMutationTargetInSemanticFacts } from '@/core/policy-protection';
 import { findSensitiveTargetInSemanticFacts } from '@/core/secret-protection';
@@ -9,6 +8,7 @@ import {
   type FactParserDependencies,
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
+import { projectShellSyntax } from '@/core/shell/entry-projection';
 import type { ShellKind } from '@/domain/command';
 import { parseCommand } from '@/parser/command';
 import { policySnapshot } from '../helpers/policy';
@@ -30,10 +30,10 @@ function commandFacts(
   );
 }
 
-function observedShellParser(record: () => void): FactParserDependencies['parseShell'] {
-  return (source, environment) => {
+function observedProjection(record: () => void): FactParserDependencies['projectShellSyntax'] {
+  return (source, program) => {
     record();
-    return parseShellQuote(source, environment);
+    return projectShellSyntax(source, program);
   };
 }
 
@@ -58,13 +58,13 @@ describe('semantic facts', () => {
     ['words', 'posix', 'a b c', { maxInputLength: 10, maxWords: 2, maxDepth: 10 }],
     ['depth', 'posix', '((echo ok))', { maxInputLength: 20, maxWords: 10, maxDepth: 1 }],
     ['PowerShell words', 'powershell', 'a b c', { maxInputLength: 10, maxWords: 2, maxDepth: 10 }],
-  ] as const)('skips legacy shell parsing after structural %s exhaustion', (_label, shell, source, limits) => {
-    let shellParses = 0;
+  ] as const)('skips entry projection after structural %s exhaustion', (_label, shell, source, limits) => {
+    let projections = 0;
     const facts = commandFacts(
       source,
       {
         parseCommand: (value, dialect) => parseCommand(value, dialect, limits),
-        parseShell: observedShellParser(() => shellParses++),
+        projectShellSyntax: observedProjection(() => projections++),
       },
       shell,
     );
@@ -78,23 +78,23 @@ describe('semantic facts', () => {
       entries: [],
     });
     expect(facts.store.getShellSyntax(source, command.program)).toBe(command.shell);
-    expect(shellParses).toBe(0);
+    expect(projections).toBe(0);
   });
 
   test.each([
     ['input', 'abcd', { maxInputLength: 4, maxWords: 10, maxDepth: 10 }],
     ['words', 'a b', { maxInputLength: 10, maxWords: 2, maxDepth: 10 }],
     ['depth', '((echo ok))', { maxInputLength: 20, maxWords: 10, maxDepth: 2 }],
-  ] as const)('preserves shell parsing at the exact structural %s limit', (_label, source, limits) => {
-    let shellParses = 0;
+  ] as const)('preserves entry projection at the exact structural %s limit', (_label, source, limits) => {
+    let projections = 0;
     const facts = commandFacts(source, {
       parseCommand: (value, dialect) => parseCommand(value, dialect, limits),
-      parseShell: observedShellParser(() => shellParses++),
+      projectShellSyntax: observedProjection(() => projections++),
     });
 
     expect(facts.commands[0]?.program.status).not.toBe('limited');
     expect(facts.commands[0]?.shell.status).not.toBe('structural-limit');
-    expect(shellParses).toBe(1);
+    expect(projections).toBe(1);
   });
 
   test('keeps ordinary and structural-limit shell facts independent in both cache orders', () => {
@@ -178,7 +178,7 @@ describe('semantic facts', () => {
   test('policy protection does not emulate nested shell bodies', () => {
     const body = 'a a a';
     const command = `bash -c '${body}'`;
-    let bodyShellParses = 0;
+    let bodyProjections = 0;
     const facts = commandFacts(command, {
       parseCommand: (source, dialect) =>
         parseCommand(
@@ -188,9 +188,9 @@ describe('semantic facts', () => {
             ? { maxInputLength: 20, maxWords: 2, maxDepth: 10 }
             : { maxInputLength: 100, maxWords: 20, maxDepth: 10 },
         ),
-      parseShell: (source, environment) => {
-        if (source === body) bodyShellParses++;
-        return parseShellQuote(source, environment);
+      projectShellSyntax: (source, program) => {
+        if (source === body) bodyProjections++;
+        return projectShellSyntax(source, program);
       },
     });
 
@@ -199,7 +199,7 @@ describe('semantic facts', () => {
     expect(() => findSensitiveTargetInSemanticFacts(facts, { denyPaths: [] })).toThrow(
       'Structural command analysis limit exceeded.',
     );
-    expect(bodyShellParses).toBe(0);
+    expect(bodyProjections).toBe(0);
   });
 
   test.each([
@@ -272,17 +272,17 @@ describe('semantic facts', () => {
     }
   });
 
-  test('skips shell parsing for the exact one-MiB structural payload', () => {
+  test('skips entry projection for the exact one-MiB structural payload', () => {
     const source = 'a '.repeat(524_288);
-    let shellParses = 0;
+    let projections = 0;
     const facts = commandFacts(source, {
-      parseShell: observedShellParser(() => shellParses++),
+      projectShellSyntax: observedProjection(() => projections++),
     });
 
     expect(Buffer.byteLength(source)).toBe(1_048_576);
     expect(facts.commands[0]?.program.status).toBe('limited');
     expect(facts.commands[0]?.shell.status).toBe('structural-limit');
-    expect(shellParses).toBe(0);
+    expect(projections).toBe(0);
   });
 
   test('preserves declared and input command provenance without conflating them', () => {
@@ -440,7 +440,7 @@ describe('semantic facts', () => {
 
   test('parses equal roots and repeated nested bodies once per evaluation', () => {
     const canonicalCalls = new Map<string, number>();
-    const shellCalls = new Map<string, number>();
+    const projectionCalls = new Map<string, number>();
     const source = "bash -c 'echo ok'; bash -c 'echo ok'; echo $(printf safe); echo $(printf safe)";
     const facts = createSemanticFacts(
       {
@@ -455,9 +455,9 @@ describe('semantic facts', () => {
           canonicalCalls.set(command, (canonicalCalls.get(command) ?? 0) + 1);
           return parseCommand(command, dialect);
         },
-        parseShell: (command, environment) => {
-          shellCalls.set(command, (shellCalls.get(command) ?? 0) + 1);
-          return parseShellQuote(command.replace(/\n/g, ' ; '), environment);
+        projectShellSyntax: (command, program) => {
+          projectionCalls.set(command, (projectionCalls.get(command) ?? 0) + 1);
+          return projectShellSyntax(command, program);
         },
       },
     );
@@ -480,7 +480,7 @@ describe('semantic facts', () => {
       ),
     ).toBeNull();
 
-    expect(Object.fromEntries(shellCalls)).toEqual({
+    expect(Object.fromEntries(projectionCalls)).toEqual({
       [source]: 1,
       'echo ok': 1,
       'printf safe': 1,
@@ -493,6 +493,85 @@ describe('semantic facts', () => {
   });
 
   // Commands below are analyzer input strings only; they are never executed in a shell.
+  test.each([
+    [
+      'keeps an explicit fd prefix as a word of its own',
+      'cmd 2>&1',
+      [
+        { kind: 'word', text: 'cmd' },
+        { kind: 'word', text: '2' },
+        {
+          kind: 'redirection',
+          operator: '>&',
+          role: 'file-write',
+          targetOrder: 'immediate',
+          target: '1',
+        },
+      ],
+    ],
+    [
+      'reports a glob word as an operator instead of a path token',
+      'rm *.env',
+      [
+        { kind: 'word', text: 'rm' },
+        { kind: 'operator', operator: 'glob', boundary: false },
+      ],
+    ],
+    [
+      'keeps the glob pattern text when it names a redirection target',
+      'echo a > *.log',
+      [
+        { kind: 'word', text: 'echo' },
+        { kind: 'word', text: 'a' },
+        {
+          kind: 'redirection',
+          operator: '>',
+          role: 'file-write',
+          targetOrder: 'immediate',
+          target: '*.log',
+        },
+      ],
+    ],
+    [
+      'normalizes a bare variable reference to its braced spelling',
+      '$FOO/.env',
+      [{ kind: 'word', text: '${FOO}/.env' }],
+    ],
+    [
+      'inlines command-substitution words and keeps the residual literal',
+      'cat $(pwd)/.env',
+      [
+        { kind: 'word', text: 'cat' },
+        { kind: 'word', text: '${}' },
+        { kind: 'operator', operator: '(', boundary: false },
+        { kind: 'word', text: 'pwd' },
+        { kind: 'operator', operator: ')', boundary: false },
+        { kind: 'word', text: '/.env' },
+      ],
+    ],
+    [
+      'splits an unquoted heredoc body into boundary-separated lines',
+      'cat <<EOF\ncat .env\nEOF',
+      [
+        { kind: 'word', text: 'cat' },
+        {
+          kind: 'redirection',
+          operator: '<<',
+          role: 'here-data',
+          targetOrder: 'legacy-segment',
+          target: 'EOF',
+        },
+        { kind: 'operator', operator: ';', boundary: true },
+        { kind: 'word', text: 'cat' },
+        { kind: 'word', text: '.env' },
+        { kind: 'operator', operator: ';', boundary: true },
+        { kind: 'word', text: 'EOF' },
+      ],
+    ],
+  ] as const)('%s', (_label, source, entries) => {
+    expect(createCommandFacts(source).commands[0]?.shell.entries).toEqual([...entries]);
+  });
+
   describe('quoted-heredoc body masking', () => {
     function bodyWordTexts(source: string) {
       const facts = createCommandFacts(source);
