@@ -4,9 +4,9 @@ import {
   type ProtectedGitMetadata,
   resolveProtectedGitMetadata,
 } from '@/core/git-metadata-protection';
+import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
-import type { AnalyzeOptions, AnalyzeResult } from '@/types';
 
 /** @internal */
 export function analyzeCommand(command: string, options: AnalyzeOptions): AnalyzeResult | null {

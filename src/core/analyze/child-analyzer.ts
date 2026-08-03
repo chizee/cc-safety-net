@@ -1,4 +1,5 @@
 import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
+import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
 import {
@@ -29,12 +30,8 @@ import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
-import {
-  type AnalyzeNestedOverrides,
-  type DestructiveCommandRuleMatch,
-  SHELL_WRAPPERS,
-} from '@/types';
 
 export interface ChildCommandAnalysisContext {
   cwd: string | undefined;

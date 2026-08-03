@@ -3,7 +3,8 @@ import { explainCommand, formatTraceHuman } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
-import type { ExplainResult, TraceStep } from '@/types';
+import type { TraceStep } from '@/domain/command-trace';
+import type { ExplainResult } from '@/domain/explain';
 import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
 import { policySnapshot } from '../../helpers/policy';
 

@@ -8,7 +8,7 @@ import type { ActivitySummary } from '@/bin/doctor/types';
 import { getAuditLogsDir } from '@/core/audit';
 import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { listAuditLogFiles } from '@/core/audit-scan';
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry } from '@/domain/audit';
 
 function formatRelativeTime(date: Date): string {
   const diff = Date.now() - date.getTime();

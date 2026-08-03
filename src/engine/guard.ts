@@ -26,17 +26,13 @@ import {
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
+import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
+import type { AuditFailureStage } from '@/domain/audit';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
-import type { PolicySnapshot } from '@/domain/policy';
+import type { EffectiveSafetyLevel, PolicySnapshot } from '@/domain/policy';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 import { mapLegacyCommandBlock } from '@/engine/decision-compatibility';
-import type {
-  AnalyzeOptions,
-  AnalyzeResult,
-  AuditFailureStage,
-  EffectiveSafetyLevel,
-} from '@/types';
 
 /** @internal */
 export type GuardStage = AuditFailureStage;

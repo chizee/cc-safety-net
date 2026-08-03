@@ -25,8 +25,8 @@ import {
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import { getBasename, stripWrappers } from '@/core/shell';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
 const REASON_FIND_EXEC_RM_RF = 'find -exec rm -rf is dangerous. Use explicit file list instead.';

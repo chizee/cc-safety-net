@@ -6,16 +6,17 @@ import {
 import { analyzeCommand } from '@/core/analyze';
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
-import type { DestructiveCommandRuleOverride, PolicySnapshot } from '@/domain/policy';
+import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
+import type { ExplainOptions } from '@/domain/explain';
 import type {
-  AnalyzeOptions,
-  AnalyzeResult,
   CustomRule,
-  ExplainOptions,
+  CustomRuleMetadata,
+  DestructiveCommandRuleOverride,
   PolicySafety,
   PolicySafetyLevel,
+  PolicySnapshot,
   SecretProtectionConfig,
-} from '@/types';
+} from '@/domain/policy';
 
 export type TestExplainOptions = Omit<ExplainOptions, 'policySnapshot'> & {
   config?: TestPolicyInput;
@@ -32,6 +33,7 @@ export interface TestPolicyInput {
   destructiveCommandAllowPaths?: readonly string[];
   secretProtection?: SecretProtectionConfig;
   configFallbackReason?: string;
+  ruleMetadata?: Readonly<Record<string, CustomRuleMetadata>>;
 }
 
 export function testModes(level: PolicySafetyLevel = 'standard') {
@@ -77,6 +79,7 @@ export function policySnapshot(input: TestPolicyInput = {}): PolicySnapshot {
     input.configFallbackReason
       ? { diagnostics: [input.configFallbackReason], reason: input.configFallbackReason }
       : undefined,
+    input.ruleMetadata,
   );
 }
 

@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
+import { MAX_RECURSION_DEPTH } from '@/core/analyze/constants';
 import { REASON_GIT_METADATA_PROTECTION } from '@/core/git-metadata-protection';
 import { getUserPolicyPath } from '@/core/policy';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
@@ -15,7 +16,6 @@ import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
-import { MAX_RECURSION_DEPTH } from '@/types';
 import {
   analyzeTestCommand,
   commandAnalysisPolicy,

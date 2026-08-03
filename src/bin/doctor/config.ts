@@ -20,7 +20,7 @@ import {
   readPolicyFile,
 } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 
 export interface ConfigInfo {
   userConfig: ConfigSourceInfo;

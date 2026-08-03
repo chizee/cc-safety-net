@@ -8,13 +8,9 @@ export { redactSecrets } from '@/core/sanitize';
 import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { redactSecrets } from '@/core/sanitize';
 
-import type {
-  AuditErrorCode,
-  AuditFailureStage,
-  AuditLogEntry,
-  BlockIntent,
-  EffectiveSafetyLevel,
-} from '@/types';
+import type { AuditErrorCode, AuditFailureStage, AuditLogEntry } from '@/domain/audit';
+import type { BlockIntent } from '@/domain/decision';
+import type { EffectiveSafetyLevel } from '@/domain/policy';
 
 type AuditLogDecision = 'allow' | 'deny';
 

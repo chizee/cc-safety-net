@@ -1,7 +1,7 @@
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
 import { deriveEffectiveSafetyLevel, getCCSafetyNetEnvModes } from '@/core/env';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import type { EffectiveCapabilityState } from '@/domain/policy';
-import type { AnalyzeOptions } from '@/types';
 
 type PolicyContextOptions = Pick<
   AnalyzeOptions,

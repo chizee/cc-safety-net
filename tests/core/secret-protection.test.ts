@@ -20,7 +20,7 @@ import {
 } from '@/core/secret-protection-rules';
 import { getNonCommandToolInputKind, normalizeToolName } from '@/core/tool-input';
 import type { ToolRoute } from '@/domain/invocation';
-import type { SecretProtectionConfig } from '@/types';
+import type { SecretProtectionConfig } from '@/domain/policy';
 import { withEnv } from '../helpers.ts';
 
 const COMMAND_TOOL_NAMES = new Set([

@@ -26,8 +26,8 @@ import {
   writePolicyFileAtomic,
 } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
+import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
 import { assertValidRulebook } from '@/core/rules/rulebook';
-import { NAME_PATTERN } from '@/types';
 
 const VERIFY_HEADER = 'CC Safety Net Config';
 const VERIFY_SEPARATOR = '═'.repeat(VERIFY_HEADER.length);

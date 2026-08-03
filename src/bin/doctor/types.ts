@@ -6,11 +6,10 @@ import type {
   ConfigStateInfo,
   DestructiveCommandRuleOverride,
   EffectiveSafetyCapabilities,
+  EffectiveSafetyLevel,
 } from '@/domain/policy';
 import type { IntegrationId } from '@/integrations/catalog';
-
 import type { SelfTestSummary } from '@/integrations/self-test';
-import type { EffectiveSafetyLevel } from '@/types';
 
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;

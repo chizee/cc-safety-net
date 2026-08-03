@@ -9,7 +9,10 @@ import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
 import { envTruthy } from '@/core/env';
-import type { AnalyzeOptions, AuditLogEntry, ExplainResult, TraceStep } from '@/types';
+import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AuditLogEntry } from '@/domain/audit';
+import type { TraceStep } from '@/domain/command-trace';
+import type { ExplainResult } from '@/domain/explain';
 import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 
 // Default empty config for tests that don't specify a cwd.

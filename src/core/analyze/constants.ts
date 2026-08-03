@@ -1,3 +1,16 @@
+export const MAX_RECURSION_DEPTH = 10;
+export const MAX_STRIP_ITERATIONS = 20;
+
+export const COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export const MAX_REASON_LENGTH = 256;
+
+/** Shell wrappers that need recursive analysis */
+export const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'ksh', 'dash', 'fish', 'csh', 'tcsh']);
+
+/** Interpreters that can execute code */
+export const INTERPRETERS = new Set(['python', 'python3', 'python2', 'node', 'ruby', 'perl']);
+export const PYTHON_INTERPRETER_PATTERN = /^python(?:[23](?:\.\d+)*)?$/;
+
 export const DISPLAY_COMMANDS: ReadonlySet<string> = new Set([
   'echo',
   'printf',

@@ -9,7 +9,7 @@ import {
   sanitizeSessionIdForFilename,
   writeAuditLog,
 } from '@/core/audit';
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry } from '@/domain/audit';
 import { withEnv } from '../helpers';
 
 describe('sanitizeSessionIdForFilename', () => {

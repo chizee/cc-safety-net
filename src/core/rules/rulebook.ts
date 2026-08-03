@@ -1,4 +1,7 @@
+import { COMMAND_PATTERN } from '@/core/analyze/constants';
+import type { ValidationResult } from '@/core/config';
 import { iterateCustomRuleErrors } from '@/core/rules/custom-rule-validation';
+import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
 import { evaluateRulebookFixtures } from '@/core/rules/rulebook-fixtures';
 import {
   isRulebookWithinAcceptanceLimits,
@@ -7,7 +10,6 @@ import {
   RULEBOOK_VALIDATION_TRUNCATED,
 } from '@/core/rules/rulebook-limits';
 import type { Rulebook, RulebookFixtureResult } from '@/core/rules/rulebook-types';
-import { COMMAND_PATTERN, NAME_PATTERN, type ValidationResult } from '@/types';
 
 export type { Rulebook } from '@/core/rules/rulebook-types';
 

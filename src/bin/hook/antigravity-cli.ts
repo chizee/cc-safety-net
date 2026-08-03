@@ -13,7 +13,25 @@ import {
 } from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
-import type { AntigravityCliHookInput, AntigravityCliHookOutput } from '@/types';
+
+/** Antigravity CLI PreToolUse hook input format */
+interface AntigravityCliHookInput {
+  toolCall?: {
+    name?: string;
+    args?: Record<string, unknown>;
+  };
+  stepIdx?: number;
+  conversationId?: string;
+  workspacePaths?: string[];
+  transcriptPath?: string;
+  artifactDirectoryPath?: string;
+}
+
+/** Antigravity CLI PreToolUse hook output format */
+interface AntigravityCliHookOutput {
+  decision: 'deny';
+  reason: string;
+}
 
 const ANTIGRAVITY_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([['run_command', 'auto']]);
 const ANTIGRAVITY_PATH_KEYS = new Set([

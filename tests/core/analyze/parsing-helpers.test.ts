@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { toNamespacedPath } from 'node:path';
+import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildCommand } from '@/core/analyze/parallel';
@@ -23,7 +24,6 @@ import { extractShortOpts, getShellCommandString, stripWrappersWithInfo } from '
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
 import { projectCommandViews, projectLegacySegments } from '@/parser/projection';
-import { MAX_STRIP_ITERATIONS } from '@/types';
 import { assertBlocked, createLinkedWorktreeFixture } from '../../helpers.ts';
 
 const RM_COMMAND = ['r', 'm'].join('');

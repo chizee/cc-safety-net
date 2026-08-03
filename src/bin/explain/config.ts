@@ -10,7 +10,8 @@ import { getCCSafetyNetEnvModes } from '@/core/env';
 import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
 import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
-import type { AnalyzeOptions, ExplainOptions } from '@/types';
+import type { AnalyzeOptions } from '@/domain/analysis';
+import type { ExplainOptions } from '@/domain/explain';
 
 export interface GetConfigSourceOptions {
   cwd?: string;

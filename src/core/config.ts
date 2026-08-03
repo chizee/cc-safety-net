@@ -1,5 +1,4 @@
 import { resolve } from 'node:path';
-import type { ValidationResult } from '@/types';
 import { iterateCustomRuleErrors } from './rules/custom-rule-validation';
 import { validateRulesConfig } from './rules/policy/config-file';
 import {
@@ -8,6 +7,14 @@ import {
   type PolicyFilesystemTarget,
   readPolicyFile,
 } from './rules/policy/filesystem';
+
+/** Result of config validation */
+export interface ValidationResult {
+  /** List of validation error messages */
+  errors: string[];
+  /** Set of rule names found (for duplicate detection) */
+  ruleNames: Set<string>;
+}
 
 /** @internal Exported for testing */
 export function validateConfig(config: unknown): ValidationResult {
@@ -79,5 +86,3 @@ export function validateRulesConfigFile(path: string | PolicyFilesystemTarget): 
   const result = validateRulesConfig(loaded.parsed);
   return { errors: result.errors, ruleNames: result.sources };
 }
-
-export type { ValidationResult };

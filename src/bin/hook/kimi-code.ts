@@ -1,3 +1,4 @@
+import type { HookOutput } from '@/bin/hook/claude-code';
 import {
   getToolRoute,
   resolveStandardHookContext,
@@ -5,7 +6,19 @@ import {
 } from '@/bin/hook/common';
 import { KIMI_CODE_HOOK_EVENT } from '@/bin/hook/constants';
 import type { CommandToolKind } from '@/domain/invocation';
-import type { HookOutput, KimiCodeHookInput } from '@/types';
+
+/** Kimi Code hook input format */
+interface KimiCodeHookInput {
+  session_id?: string;
+  cwd?: string;
+  hook_event_name: string;
+  tool_name?: string;
+  tool_input?: {
+    command?: string;
+    [key: string]: unknown;
+  };
+  tool_call_id?: string;
+}
 
 const KIMI_CODE_COMMAND_TOOLS = new Map<string, CommandToolKind>([['Bash', 'posix']]);
 

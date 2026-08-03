@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { getAuditLogsDir } from '@/core/audit';
 import { pruneExpiredAuditLogs } from '@/core/audit-retention';
 import { commandSignature, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry } from '@/domain/audit';
 
 const ENTRY_CAP = 500;
 

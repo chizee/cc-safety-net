@@ -1,6 +1,7 @@
 import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
 import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
+import type { AuditErrorCode, AuditFailureStage } from '@/domain/audit';
 import type { ToolInvocation } from '@/domain/invocation';
 import {
   evaluateGuard,
@@ -9,7 +10,6 @@ import {
   type GuardOptions,
 } from '@/engine/guard';
 import { projectGuardAudit, writeGuardAudit } from '@/integrations/audit';
-import type { AuditErrorCode, AuditFailureStage } from '@/types';
 
 export type {
   GuardDependencies,

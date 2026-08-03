@@ -1,5 +1,5 @@
+import type { AnalyzeResult } from '@/domain/analysis';
 import type { Decision } from '@/domain/decision';
-import type { AnalyzeResult } from '@/types';
 
 type LegacyCommandBlock = {
   decision: Extract<Decision, { kind: 'deny' }>;

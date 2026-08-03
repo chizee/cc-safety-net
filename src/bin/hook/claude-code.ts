@@ -6,7 +6,31 @@ import {
 } from '@/bin/hook/common';
 import { CLAUDE_CODE_HOOK_EVENT } from '@/bin/hook/constants';
 import type { CommandToolKind } from '@/domain/invocation';
-import type { HookInput, HookOutput } from '@/types';
+
+/** Claude Code hook input format */
+interface HookInput {
+  session_id?: string;
+  transcript_path?: string | null;
+  cwd?: string;
+  permission_mode?: string;
+  hook_event_name: string;
+  tool_name: string;
+  tool_input?: {
+    command?: string;
+    description?: string;
+    [key: string]: unknown;
+  };
+  tool_use_id?: string;
+}
+
+/** Claude Code hook output format */
+export interface HookOutput {
+  hookSpecificOutput: {
+    hookEventName: string;
+    permissionDecision: 'allow' | 'deny';
+    permissionDecisionReason?: string;
+  };
+}
 
 const CLAUDE_CODE_COMMAND_TOOLS = new Map<string, CommandToolKind>([
   ['Bash', 'posix'],

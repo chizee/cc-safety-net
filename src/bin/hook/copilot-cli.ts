@@ -5,7 +5,21 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import type { CommandToolKind } from '@/domain/invocation';
-import type { CopilotCliHookInput, CopilotCliHookOutput } from '@/types';
+
+/** GitHub Copilot CLI preToolUse hook input format */
+interface CopilotCliHookInput {
+  sessionId: string;
+  timestamp: number;
+  cwd: string;
+  toolName: string;
+  toolArgs: string;
+}
+
+/** GitHub Copilot CLI preToolUse hook output format */
+interface CopilotCliHookOutput {
+  permissionDecision: 'allow' | 'deny' | 'ask';
+  permissionDecisionReason?: string;
+}
 
 const COPILOT_CLI_COMMAND_TOOLS = new Map<string, CommandToolKind>([
   ['bash', 'auto'],

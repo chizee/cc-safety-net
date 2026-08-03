@@ -1,5 +1,5 @@
 import type { RuleOverride, RulesConfig } from '@/config/schema';
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 
 export type { RuleOverride, RulesConfig };
 

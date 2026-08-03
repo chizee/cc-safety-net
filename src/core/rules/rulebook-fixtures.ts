@@ -5,8 +5,9 @@ import {
 } from '@/core/rules/rulebook-limits';
 import type { Rulebook, RulebookFixtureResult } from '@/core/rules/rulebook-types';
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
+import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CustomRule } from '@/domain/policy';
 import { projectLegacySegments } from '@/parser/projection';
-import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
 import { matchesCustomRuleBlockArgs, matchesCustomRuleSubcommand } from './custom';
 
 interface CompiledRule {

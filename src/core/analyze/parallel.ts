@@ -7,6 +7,7 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
+import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
   extractInterpreterExecutableSources,
@@ -37,13 +38,9 @@ import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { resolveChdirTarget } from '@/core/path';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { PolicyRule } from '@/domain/policy';
 import { parseSimpleWords } from '@/parser/projection';
-import {
-  type AnalyzeNestedOverrides,
-  type DestructiveCommandRuleMatch,
-  SHELL_WRAPPERS,
-} from '@/types';
 
 /** @internal */
 export const REASON_PARALLEL_RM =

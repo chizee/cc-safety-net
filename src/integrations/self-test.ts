@@ -36,6 +36,7 @@ const CASES: readonly SelfTestCase[] = Object.freeze([
 const SNAPSHOT: PolicySnapshot = Object.freeze({
   state: 'ready',
   diagnostics: Object.freeze([]),
+  ruleMetadata: Object.freeze({}),
   policy: Object.freeze({
     rules: Object.freeze([]),
     transparentWrappers: Object.freeze([]),

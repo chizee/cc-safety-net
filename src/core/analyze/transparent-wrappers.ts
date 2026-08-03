@@ -1,9 +1,8 @@
 import { AWK_INTERPRETERS } from '@/core/analyze/awk';
-import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
+import { DISPLAY_COMMANDS, INTERPRETERS, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { isInterpreterCommand } from '@/core/analyze/interpreters';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
-import { INTERPRETERS, SHELL_WRAPPERS } from '@/types';
 
 const BUILTIN_ANALYZED_COMMANDS = new Set(['rm', 'find', 'xargs', 'parallel']);
 const STANDARD_COMMAND_WRAPPERS = new Set(['sudo', 'env', 'command', 'builtin']);

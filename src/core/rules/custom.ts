@@ -1,6 +1,6 @@
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
-import type { PolicyRule } from '@/domain/policy';
-import type { CustomRule, DestructiveCommandRuleMatch } from '@/types';
+import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CustomRule, PolicyRule } from '@/domain/policy';
 import { getCustomRuleOptionsWithValues } from './custom-subcommand';
 
 /** @internal */

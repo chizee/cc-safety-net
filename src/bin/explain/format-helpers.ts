@@ -4,7 +4,7 @@
 
 import { colorizeToken } from '@/bin/utils/colors';
 import { ENV_FLAGS } from '@/core/env';
-import type { TraceStep } from '@/types';
+import type { TraceStep } from '@/domain/command-trace';
 
 /**
  * Box drawing characters for formatting

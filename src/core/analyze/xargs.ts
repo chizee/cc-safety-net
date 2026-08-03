@@ -8,6 +8,7 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
+import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { getFindExecCommand, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
@@ -27,12 +28,8 @@ import {
 } from '@/core/destructive-command-rules';
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
+import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { PolicyRule } from '@/domain/policy';
-import {
-  type AnalyzeNestedOverrides,
-  type DestructiveCommandRuleMatch,
-  SHELL_WRAPPERS,
-} from '@/types';
 
 /** @internal */
 export const REASON_XARGS_RM =

@@ -1,3 +1,5 @@
+import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { BlockIntent } from '@/domain/decision';
 import type {
   CommandAnalysisPolicy,
   EffectiveDestructiveCommandRuleState,
@@ -5,7 +7,6 @@ import type {
   EffectiveSafetyCapabilities,
   RuleActivationCapability,
 } from '@/domain/policy';
-import type { BlockIntent, DestructiveCommandRuleMatch } from '@/types';
 
 export const DESTRUCTIVE_COMMAND_RULE_IDS = [
   'git.ssh-env',

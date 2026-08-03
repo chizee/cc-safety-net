@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeAuditLog } from '@/core/audit';
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry } from '@/domain/audit';
 import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
 import { captureLogsCommand } from '../../helpers/logs';
 

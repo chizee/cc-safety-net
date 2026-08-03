@@ -1,8 +1,9 @@
 import { writeAuditLog } from '@/core/audit';
+import type { AuditErrorCode, AuditFailureStage } from '@/domain/audit';
 import type { BlockIntent, Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
+import type { EffectiveSafetyLevel } from '@/domain/policy';
 import type { IntegrationDenial } from '@/integrations/denial';
-import type { AuditErrorCode, AuditFailureStage, EffectiveSafetyLevel } from '@/types';
 
 type GuardEvaluation = {
   stage: string;

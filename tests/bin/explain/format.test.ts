@@ -4,7 +4,8 @@
 import { describe, expect, test } from 'bun:test';
 import { formatTraceHuman, formatTraceJson } from '@/bin/explain/index';
 import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
-import type { ExplainResult, TraceStep } from '@/types';
+import type { TraceStep } from '@/domain/command-trace';
+import type { ExplainResult } from '@/domain/explain';
 import { testModes } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
 import { explainTestCommand as explainCommand } from './test-helpers';

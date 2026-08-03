@@ -1,5 +1,39 @@
 import type { BlockIntent } from './decision.js';
 
+/** Custom blocking rule definition. */
+export interface CustomRule {
+  /** Unique identifier for the rule */
+  name: string;
+  /** Base command to match (e.g., "git", "npm") */
+  command: string;
+  /** Optional subcommand to match (e.g., "add", "install") */
+  subcommand?: string;
+  /** Arguments that trigger the block */
+  block_args: string[];
+  /** Message shown when blocked */
+  reason: string;
+  /** Optional agent behavior intent for the block message footer */
+  intent?: BlockIntent;
+}
+
+export type PolicySafetyLevel = 'standard' | 'strict' | 'paranoid';
+export type EffectiveSafetyLevel = PolicySafetyLevel | 'custom';
+
+export interface PolicySafety {
+  level?: PolicySafetyLevel;
+  overrides?: {
+    failClosed?: boolean;
+    paranoidRm?: boolean;
+    paranoidInterpreters?: boolean;
+  };
+}
+
+export interface SecretProtectionConfig {
+  enabled?: boolean;
+  disabledRules?: ReadonlySet<string>;
+  denyPaths: string[];
+}
+
 /** @internal */
 export type DestructiveCommandRuleOverride = 'on' | 'off';
 
@@ -84,17 +118,33 @@ export type CommandAnalysisPolicy = EffectivePolicy & {
 };
 
 /** @internal */
+/** Provenance for a custom rule: its rulebook, public source, and reason override. */
+export type CustomRuleMetadata = {
+  id: string;
+  rulebook?: {
+    name: string;
+    version: string;
+  };
+  source?: string;
+  override?: {
+    type: 'reason';
+    reason: string;
+  };
+};
+
 export type PolicySnapshot =
   | {
       readonly state: 'ready';
       readonly policy: EffectivePolicy;
       readonly diagnostics: readonly string[];
+      readonly ruleMetadata: Readonly<Record<string, CustomRuleMetadata>>;
     }
   | {
       readonly state: 'degraded';
       readonly policy: EffectivePolicy;
       readonly diagnostics: readonly string[];
       readonly reason: string;
+      readonly ruleMetadata: Readonly<Record<string, CustomRuleMetadata>>;
     };
 
 /** @internal The runtime configuration state as diagnostic surfaces report it. */

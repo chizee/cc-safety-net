@@ -1,4 +1,4 @@
-import type { BlockIntent } from '@/types';
+import type { BlockIntent } from '@/domain/decision';
 
 type RedactFn = (text: string) => string;
 

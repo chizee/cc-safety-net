@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getUserPolicyDiagnostics, getUserPolicySchema, type UserPolicy } from '@/config/schema';
+import { getUserPolicyDiagnostics } from '@/config/schema';
 import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/core/analyze/allow-paths';
 import {
   DESTRUCTIVE_COMMAND_RULE_ID_SET,
@@ -23,8 +23,10 @@ import type {
   DestructiveCommandRuleOverride,
   EffectiveDestructiveCommandRuleState,
   EffectiveSafetyCapabilities,
+  PolicySafety,
+  PolicySafetyLevel,
+  SecretProtectionConfig,
 } from '@/domain/policy';
-import type { PolicySafety, PolicySafetyLevel, SecretProtectionConfig } from '@/types';
 
 const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
 
@@ -264,7 +266,7 @@ export function repairUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPol
   if (!raw.trim()) return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
 
   try {
-    return writeUserPolicyFromGui(repairPolicyConfig(JSON.parse(raw) as unknown), options);
+    return writeUserPolicyFromGui(normalizeGuiPolicy(JSON.parse(raw) as unknown), options);
   } catch {
     return writeUserPolicyFromGui(DEFAULT_GUI_POLICY, options);
   }
@@ -284,7 +286,13 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
   };
 }
 
-function repairPolicyConfig(value: unknown): GuiPolicy {
+/**
+ * The single normalizer from untrusted JSON to the canonical policy-file shape.
+ * Schema-valid input passes through unchanged (every field satisfies the per-field
+ * checks); invalid input keeps each recognized valid field and substitutes a
+ * protective default for the rest.
+ */
+export function normalizeGuiPolicy(value: unknown): GuiPolicy {
   if (!isRecord(value)) return createDefaultGuiPolicy();
 
   const safety = isRecord(value.safety) ? value.safety : {};
@@ -362,63 +370,6 @@ function createDefaultGuiPolicy(): GuiPolicy {
   return structuredClone(DEFAULT_GUI_POLICY);
 }
 
-export function normalizeGuiPolicy(policy: unknown): GuiPolicy {
-  const config = policy as Record<string, unknown>;
-  const safety = (config.safety as Record<string, unknown> | undefined) ?? {};
-  const safetyOverrides =
-    (safety.overrides as Record<string, boolean | undefined> | undefined) ?? {};
-  const workflow = (config.workflow as Record<string, boolean | undefined> | undefined) ?? {};
-  const destructiveCommandPolicy =
-    (config.destructive_command_protection as Record<string, unknown> | undefined) ?? {};
-  const destructiveCommandOverrides =
-    (destructiveCommandPolicy.overrides as Record<string, unknown> | undefined) ?? {};
-  const secret = (config.secret_protection as Record<string, unknown> | undefined) ?? {};
-  const secretOverrides = (secret.overrides as Record<string, unknown> | undefined) ?? {};
-  return {
-    version: 1,
-    safety: {
-      level: (safety.level as PolicySafetyLevel | undefined) ?? 'standard',
-      overrides: {
-        ...(safetyOverrides.fail_closed !== undefined
-          ? { fail_closed: safetyOverrides.fail_closed }
-          : {}),
-        ...(safetyOverrides.paranoid_rm !== undefined
-          ? { paranoid_rm: safetyOverrides.paranoid_rm }
-          : {}),
-        ...(safetyOverrides.paranoid_interpreters !== undefined
-          ? { paranoid_interpreters: safetyOverrides.paranoid_interpreters }
-          : {}),
-      },
-    },
-    workflow: {
-      worktree_mode: workflow.worktree_mode ?? false,
-    },
-    destructive_command_protection: {
-      enabled: (destructiveCommandPolicy.enabled as boolean | undefined) ?? true,
-      overrides: Object.fromEntries(
-        Object.entries(destructiveCommandOverrides).flatMap(([id, value]) =>
-          value === 'on' || value === 'off' ? [[id, value]] : [],
-        ),
-      ) as Record<string, DestructiveCommandRuleOverride>,
-      allow_paths: [...((destructiveCommandPolicy.allow_paths as string[] | undefined) ?? [])],
-    },
-    secret_protection: {
-      enabled: (secret.enabled as boolean | undefined) ?? true,
-      overrides: Object.fromEntries(
-        Object.entries(secretOverrides).flatMap(([id, value]) =>
-          value === 'on' || value === 'off' ? [[id, value]] : [],
-        ),
-      ) as Record<string, 'on' | 'off'>,
-      deny_paths: [...((secret.deny_paths as string[] | undefined) ?? [])],
-    },
-    audit: {
-      retention_days: clampAuditRetentionDays(
-        (config.audit as Record<string, unknown> | undefined)?.retention_days,
-      ),
-    },
-  };
-}
-
 function readPolicyConfig(path: string): {
   policy: PartialPolicy;
   errors: string[];
@@ -434,16 +385,17 @@ function readPolicyConfig(path: string): {
     }
     const parsed = JSON.parse(content) as unknown;
     const errors = getUserPolicyDiagnostics(parsed);
+    // Field-level normalization keeps every recognized valid section active and
+    // substitutes protective defaults for the rest, so one bad field cannot
+    // drop protections the rest of the file still configures.
+    const policy = normalizePolicyConfig(normalizeGuiPolicy(parsed));
     if (errors.length > 0)
       return {
-        // Field-level repair keeps every recognized valid section active and
-        // substitutes protective defaults for the rest, so one bad field cannot
-        // drop protections the rest of the file still configures.
-        policy: normalizePolicyConfig(repairPolicyConfig(parsed)),
+        policy,
         errors: errors.map((error) => `${path}: ${error}`),
         fallback: isRecord(parsed) ? 'salvaged' : 'defaults',
       };
-    return { policy: normalizePolicyConfig(getUserPolicySchema().parse(parsed)), errors: [] };
+    return { policy, errors: [] };
   } catch {
     return {
       policy: empty,
@@ -478,32 +430,18 @@ function createEmptyPolicy(): PartialPolicy {
   };
 }
 
-function normalizePolicyConfig(config: UserPolicy | GuiPolicy): PartialPolicy {
-  const safety = normalizeSafety(config.safety);
-  const workflow = config.workflow as Record<string, boolean | undefined> | undefined;
-  const destructiveCommand = config.destructive_command_protection as
-    | Record<string, unknown>
-    | undefined;
-  const secret = config.secret_protection as Record<string, unknown> | undefined;
+// Projects the canonical policy-file shape onto the camelCase runtime policy.
+function normalizePolicyConfig(config: GuiPolicy): PartialPolicy {
   return {
-    safety,
-    worktreeMode: workflow?.worktree_mode ?? false,
-    destructiveCommandProtectionEnabled:
-      (destructiveCommand?.enabled as boolean | undefined) ?? true,
-    destructiveCommandRuleOverrides: Object.fromEntries(
-      Object.entries(
-        (destructiveCommand?.overrides as Record<string, unknown> | undefined) ?? {},
-      ).flatMap(([id, value]) => (value === 'on' || value === 'off' ? [[id, value]] : [])),
-    ) as Record<string, DestructiveCommandRuleOverride>,
-    destructiveCommandAllowPaths: [
-      ...((destructiveCommand?.allow_paths as string[] | undefined) ?? []),
-    ],
+    safety: normalizeSafety(config.safety),
+    worktreeMode: config.workflow.worktree_mode,
+    destructiveCommandProtectionEnabled: config.destructive_command_protection.enabled,
+    destructiveCommandRuleOverrides: { ...config.destructive_command_protection.overrides },
+    destructiveCommandAllowPaths: [...config.destructive_command_protection.allow_paths],
     secretProtection: {
-      enabled: (secret?.enabled as boolean | undefined) ?? true,
-      disabledRules: resolveSecretDisabledRules(
-        (secret?.overrides as Record<string, unknown> | undefined) ?? {},
-      ),
-      denyPaths: [...((secret?.deny_paths as string[] | undefined) ?? [])],
+      enabled: config.secret_protection.enabled,
+      disabledRules: resolveSecretDisabledRules(config.secret_protection.overrides),
+      denyPaths: [...config.secret_protection.deny_paths],
     },
   };
 }

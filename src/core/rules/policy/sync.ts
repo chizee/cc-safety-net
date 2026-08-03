@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
 import { runRulebookFixtures } from '@/core/rules/rulebook';
-import { NAME_PATTERN } from '@/types';
 import { readRulesConfig, readScopeRulesConfig, writeJsonAtomic } from './config-file';
 import {
   getPolicyFilesystemTargetForPath,

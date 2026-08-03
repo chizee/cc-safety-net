@@ -16,8 +16,8 @@ import {
   isProtectedGitDeleteTarget,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
+import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
-import type { DestructiveCommandRuleMatch } from '@/types';
 
 const REASON_RM_RF =
   'rm -rf outside cwd is blocked. Retry deleting only explicit paths inside the current directory; escalate for anything outside it.';

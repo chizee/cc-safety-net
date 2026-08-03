@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, toNamespacedPath } from 'node:path';
 import { getUserPolicyPath } from '@/core/policy';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
-import type { AnalyzeOptions } from '@/types';
 import {
   readAuditLogEntriesForSession,
   readLatestAuditLogEntry,

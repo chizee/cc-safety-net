@@ -17,7 +17,7 @@ import {
   getScopePaths,
   getUserRulesConfigPath,
 } from '@/core/rules/policy/paths';
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 
 const PROJECT_MIGRATED_FROM = '.safety-net.json';
 const USER_MIGRATED_FROM = '~/.cc-safety-net/config.json';

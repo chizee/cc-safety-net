@@ -1,8 +1,12 @@
-import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
 import { loadPolicyConfig } from '@/core/policy';
 import { loadRulesPolicy } from '@/core/rules/policy/scope-policy';
 import type { LoadedRulesPolicy, RulesPolicyOptions } from '@/core/rules/policy/types';
-import type { ConfigStateInfo, EffectivePolicy, PolicySnapshot } from '@/domain/policy';
+import type {
+  ConfigStateInfo,
+  CustomRuleMetadata,
+  EffectivePolicy,
+  PolicySnapshot,
+} from '@/domain/policy';
 
 /** @internal */
 export type PolicySnapshotOptions = RulesPolicyOptions;
@@ -32,15 +36,13 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
     },
   };
 
-  const snapshot = createPolicySnapshot(policy, getSnapshotFailure(rules, userPolicy));
   const overrides = {
     ...(rules.userConfig?.overrides ?? {}),
     ...(rules.projectConfig?.overrides ?? {}),
   };
-  return registerPolicyRuleMetadata(
-    snapshot,
-    new Map(
-      snapshot.policy.rules.map((rule) => {
+  const ruleMetadata = Object.freeze(
+    Object.fromEntries(
+      policy.rules.map((rule): [string, CustomRuleMetadata] => {
         const rulebook = rules.rulebooks.find((item) => item.rules.includes(rule.name));
         const override = overrides[rule.name];
         return [
@@ -61,6 +63,7 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
       }),
     ),
   );
+  return createPolicySnapshot(policy, getSnapshotFailure(rules, userPolicy), ruleMetadata);
 }
 
 /**
@@ -129,13 +132,15 @@ function isPublicRuleSource(source: string): boolean {
 export function createPolicySnapshot(
   policy: EffectivePolicy,
   failure?: { readonly diagnostics: readonly string[]; readonly reason: string },
+  ruleMetadata: Readonly<Record<string, CustomRuleMetadata>> = Object.freeze({}),
 ): PolicySnapshot {
-  const frozenPolicy = freezePolicy(policy);
+  const frozenPolicy = deepFreeze(structuredClone(policy));
   if (!failure) {
     return Object.freeze({
       state: 'ready',
       policy: frozenPolicy,
       diagnostics: Object.freeze([]),
+      ruleMetadata,
     });
   }
   return Object.freeze({
@@ -143,6 +148,7 @@ export function createPolicySnapshot(
     policy: frozenPolicy,
     diagnostics: Object.freeze([...failure.diagnostics]),
     reason: failure.reason,
+    ruleMetadata,
   });
 }
 
@@ -161,34 +167,11 @@ function normalizeSafety(safety: ReturnType<typeof loadPolicyConfig>['safety']) 
   };
 }
 
-function freezePolicy(policy: EffectivePolicy): EffectivePolicy {
-  return Object.freeze({
-    ...policy,
-    rules: Object.freeze(
-      policy.rules.map((rule) =>
-        Object.freeze({
-          ...rule,
-          block_args: Object.freeze([...rule.block_args]),
-        }),
-      ),
-    ),
-    transparentWrappers: Object.freeze([...policy.transparentWrappers]),
-    safety: Object.freeze({
-      ...policy.safety,
-      ...(policy.safety.overrides
-        ? { overrides: Object.freeze({ ...policy.safety.overrides }) }
-        : {}),
-    }),
-    destructiveCommandRuleOverrides: Object.freeze({
-      ...policy.destructiveCommandRuleOverrides,
-    }),
-    destructiveCommandAllowPaths: Object.freeze([...policy.destructiveCommandAllowPaths]),
-    secretProtection: Object.freeze({
-      ...policy.secretProtection,
-      disabledRules: Object.freeze([...policy.secretProtection.disabledRules]),
-      denyPaths: Object.freeze([...policy.secretProtection.denyPaths]),
-    }),
-  });
+// Freezes every reachable container so a new policy field can never ship mutable by omission.
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 function combineInvalidReasons(...reasons: Array<string | undefined>): string {

@@ -29,8 +29,8 @@ import {
 import { getShellCommandString } from '@/core/shell';
 import { advanceQuoteScanState } from '@/core/shell/shared';
 import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
+import type { SecretProtectionConfig } from '@/domain/policy';
 import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
-import type { SecretProtectionConfig } from '@/types';
 
 export { getCommandFromToolInput } from '@/core/tool-input';
 

@@ -15,9 +15,9 @@ import {
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
+import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
-import type { DestructiveCommandRuleMatch } from '@/types';
 
 type PowerShellToken = {
   kind: 'word';

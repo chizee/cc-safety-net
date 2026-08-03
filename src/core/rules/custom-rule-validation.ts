@@ -1,4 +1,6 @@
-import { BLOCK_INTENTS, COMMAND_PATTERN, MAX_REASON_LENGTH, NAME_PATTERN } from '@/types';
+import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/core/analyze/constants';
+import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
+import { BLOCK_INTENTS } from '@/domain/decision';
 
 interface ValidateCustomRuleOptions {
   messageStyle?: 'legacy' | 'rulebook';

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAmpToolCallHandler, handleAmpToolCall } from '@/amp/tool-call';
 import { getUserPolicyPath } from '@/core/policy';
-import type { AnalyzeOptions } from '@/types';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry, withEnv } from '../helpers';
 
 type AnalyzeCall = { command: string; cwd?: string; shell?: string };

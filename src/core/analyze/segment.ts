@@ -10,7 +10,12 @@ import {
   type NormalizedChildCommand,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
-import { DISPLAY_COMMANDS } from '@/core/analyze/constants';
+import {
+  DISPLAY_COMMANDS,
+  MAX_RECURSION_DEPTH,
+  MAX_STRIP_ITERATIONS,
+  SHELL_WRAPPERS,
+} from '@/core/analyze/constants';
 import {
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
@@ -84,20 +89,17 @@ import {
   stripWrappersWithInfo,
 } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
+import type {
+  AnalyzeNestedOverrides,
+  AnalyzeOptions,
+  AnalyzeResult,
+  DestructiveCommandRuleMatch,
+} from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
 import { sliceCommandView } from '@/parser/projection';
-import {
-  type AnalyzeNestedOverrides,
-  type AnalyzeOptions,
-  type AnalyzeResult,
-  type DestructiveCommandRuleMatch,
-  MAX_RECURSION_DEPTH,
-  MAX_STRIP_ITERATIONS,
-  SHELL_WRAPPERS,
-} from '@/types';
 
 export type InternalOptions = AnalyzeOptions & {
   policy: EffectivePolicy;

@@ -1,3 +1,4 @@
+import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { isDataOnlyQuotedAssignment } from '@/core/analyze/deferred-assignment';
 import {
@@ -46,6 +47,12 @@ import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, normalizeCommandToken, stripWrappersWithInfo } from '@/core/shell';
 import type {
+  AnalyzeNestedOverrides,
+  AnalyzeOptions,
+  AnalyzeResult,
+  DestructiveCommandRuleMatch,
+} from '@/domain/analysis';
+import type {
   CommandProgram,
   CommandRedirection,
   CommandView,
@@ -55,14 +62,6 @@ import type { CommandTraceContext } from '@/domain/command-trace';
 import type { CommandAnalysisPolicy } from '@/domain/policy';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
-import {
-  type AnalyzeNestedOverrides,
-  type AnalyzeOptions,
-  type AnalyzeResult,
-  type DestructiveCommandRuleMatch,
-  MAX_RECURSION_DEPTH,
-  SHELL_WRAPPERS,
-} from '@/types';
 
 export type InternalOptions = AnalyzeOptions & {
   policy: CommandAnalysisPolicy;

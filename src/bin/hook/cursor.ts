@@ -2,7 +2,25 @@ import { getToolRoute, outputFailedClosed, runConfiguredHookAdapter } from '@/bi
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import type { IntegrationDenial } from '@/integrations/denial';
-import type { CursorHookInput, CursorHookOutput } from '@/types';
+
+/** Cursor preToolUse hook input format */
+interface CursorHookInput {
+  conversation_id?: string;
+  hook_event_name?: string;
+  tool_name?: string;
+  tool_input?: {
+    command?: string;
+    working_directory?: string;
+    [key: string]: unknown;
+  };
+  cwd?: string;
+  workspace_roots?: string[];
+}
+
+/** Cursor preToolUse hook output format */
+type CursorHookOutput =
+  | { permission: 'allow' }
+  | { permission: 'deny'; user_message: string; agent_message: string };
 
 const CURSOR_COMMAND_TOOLS = new Map<string, CommandToolKind>([['Shell', 'auto']]);
 

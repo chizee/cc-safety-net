@@ -1,3 +1,4 @@
+import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import {
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
@@ -10,7 +11,6 @@ import {
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { getBasename, stripWrappersWithInfo } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
-import { MAX_STRIP_ITERATIONS } from '@/types';
 
 export interface ChildCommandContext {
   cwd: string | undefined;

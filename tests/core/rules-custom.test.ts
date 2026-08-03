@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { checkCustomRules } from '@/core/rules/custom';
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 
 const blockGitAddAllRule: CustomRule = {
   name: 'block-git-add-all',

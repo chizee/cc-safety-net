@@ -1,11 +1,11 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
 import { createSemanticFactStore } from '@/core/semantic-facts';
+import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { projectLegacyCommandEntriesFromProgram } from '@/parser/projection';
-import type { AnalyzeOptions, AnalyzeResult } from '@/types';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
 
 /** @internal */

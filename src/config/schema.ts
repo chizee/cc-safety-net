@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
 import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/core/analyze/allow-paths';
+import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/core/analyze/constants';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
@@ -8,7 +9,6 @@ import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/core/rules/policy/
 import { getRulebookSourceSyntaxError } from '@/core/rules/policy/source-syntax';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
 import { BLOCK_INTENTS } from '@/domain/decision';
-import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/types';
 
 const require = createRequire(import.meta.url);
 let schemas: ReturnType<typeof createSchemas> | undefined;
@@ -207,13 +207,13 @@ export function getRulesConfigSchema() {
   return getSchemas().RulesConfigSchema;
 }
 
+/** @internal */
 export function getUserPolicySchema() {
   return getSchemas().UserPolicySchema;
 }
 
 export type RulesConfig = Zod.output<ReturnType<typeof getRulesConfigSchema>>;
 export type RuleOverride = Zod.output<ReturnType<typeof createSchemas>['RuleOverrideSchema']>;
-export type UserPolicy = Zod.output<ReturnType<typeof getUserPolicySchema>>;
 
 /** @internal */
 export function getRulesConfigDiagnostics(config: unknown): string[] {

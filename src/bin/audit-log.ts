@@ -4,7 +4,7 @@ import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
 import { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/core/audit-retention';
 import { findSuspectEntries, listAuditLogFiles, readAuditLogEntries } from '@/core/audit-scan';
-import type { AuditLogEntry } from '@/types';
+import type { AuditLogEntry } from '@/domain/audit';
 
 type LogsFlags = {
   limit: number;

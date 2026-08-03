@@ -1,5 +1,9 @@
-import type { EffectiveCapabilitySource } from '@/domain/policy';
-import type { EffectiveSafetyLevel, PolicySafety, PolicySafetyLevel } from '@/types';
+import type {
+  EffectiveCapabilitySource,
+  EffectiveSafetyLevel,
+  PolicySafety,
+  PolicySafetyLevel,
+} from '@/domain/policy';
 
 export interface EnvFlag {
   name: string;

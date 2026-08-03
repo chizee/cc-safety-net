@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { AnalyzeOptions, BlockIntent, ShellKind } from '@/types';
+import type { AnalyzeOptions } from '@/domain/analysis';
+import type { ShellKind } from '@/domain/command';
+import type { BlockIntent } from '@/domain/decision';
 import { analyzeTestCommand } from '../../helpers/policy';
 
 const strictOnlyCases: {

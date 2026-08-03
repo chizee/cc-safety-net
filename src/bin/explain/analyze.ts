@@ -1,5 +1,4 @@
 import { buildAnalyzeOptions, getConfigSource } from '@/bin/explain/config';
-import { getPolicyRuleMetadata } from '@/config/policy-metadata';
 import { createPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
@@ -19,11 +18,12 @@ import {
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { createSemanticFacts } from '@/core/semantic-facts';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import type { CommandTrace } from '@/domain/command-trace';
+import type { ExplainOptions, ExplainResult, ExplainTrace } from '@/domain/explain';
 import { createToolInvocation } from '@/domain/invocation';
 import type { PolicySnapshot } from '@/domain/policy';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
-import type { AnalyzeOptions, ExplainOptions, ExplainResult, ExplainTrace } from '@/types';
 
 export function explainCommand(command: string, options?: ExplainOptions): ExplainResult {
   const analyzeOptions = buildAnalyzeOptions(options);
@@ -242,5 +242,5 @@ function getCustomRule(
 ): ExplainResult['customRule'] {
   const id = ruleId?.replace(/^custom\./, '');
   if (!id || !snapshot.policy.rules.some((rule) => rule.name === id)) return undefined;
-  return getPolicyRuleMetadata(snapshot, id) ?? Object.freeze({ id });
+  return snapshot.ruleMetadata[id] ?? Object.freeze({ id });
 }

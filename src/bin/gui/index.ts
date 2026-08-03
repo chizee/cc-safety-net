@@ -37,8 +37,8 @@ import {
 } from '@/core/policy';
 import { loadRulesPolicy } from '@/core/rules/policy';
 import type { RulesPolicyOptions } from '@/core/rules/policy/types';
+import type { ExplainResult } from '@/domain/explain';
 import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
-import type { ExplainResult } from '@/types';
 import { getActivityFeed } from './activity';
 import { chooseDirectory, isDirectoryPickerAvailable } from './choose-directory';
 import { renderPolicyGuiHtml } from './page';

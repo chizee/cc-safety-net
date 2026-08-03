@@ -7,8 +7,7 @@ import {
   formatTraceHuman,
   formatTraceJson,
 } from '@/bin/explain/index';
-import { registerPolicyRuleMetadata } from '@/config/policy-metadata';
-import type { ExplainResult } from '@/types';
+import type { ExplainResult } from '@/domain/explain';
 import { policySnapshot } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
 import { explainTestCommand as explainCommand } from './test-helpers';
@@ -146,22 +145,16 @@ describe('secret redaction in shell wrappers and interpreters', () => {
           reason: 'custom block',
         },
       ],
+      ruleMetadata: {
+        [secrets.id]: {
+          id: secrets.id,
+          rulebook: { name: secrets.name, version: secrets.version },
+          source: secrets.source,
+          override: { type: 'reason' as const, reason: secrets.reason },
+          future: secrets.future,
+        } as NonNullable<ExplainResult['customRule']>,
+      },
     });
-    registerPolicyRuleMetadata(
-      snapshot,
-      new Map([
-        [
-          secrets.id,
-          {
-            id: secrets.id,
-            rulebook: { name: secrets.name, version: secrets.version },
-            source: secrets.source,
-            override: { type: 'reason' as const, reason: secrets.reason },
-            future: secrets.future,
-          } as ExplainResult['customRule'],
-        ],
-      ]),
-    );
 
     const result = explainCommandBase('echo danger', { policySnapshot: snapshot });
     expect(result.customRule).toEqual({

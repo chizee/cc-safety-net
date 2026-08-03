@@ -1,8 +1,8 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute, parse as parsePath } from 'node:path';
+import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { parseGitContextAppendEnvAssignment } from '@/core/git/env';
 import { resolveChdirTarget } from '@/core/path';
-import { MAX_STRIP_ITERATIONS } from '@/types';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/;

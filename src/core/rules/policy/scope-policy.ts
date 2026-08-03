@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/core/rules/rulebook';
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 import { readRulesConfig } from './config-file';
 import {
   bindPolicyFilesystemScope,

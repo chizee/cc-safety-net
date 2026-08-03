@@ -1,10 +1,10 @@
+import { PYTHON_INTERPRETER_PATTERN } from '@/core/analyze/constants';
 import {
   hasLinearDangerousText,
   hasLinearInterpreterDanger,
 } from '@/core/analyze/linear-danger-scanner';
 import { chargeNativeLinearPass } from '@/core/analyze/text-scanner';
 import { getBasename } from '@/core/shell/command';
-import { PYTHON_INTERPRETER_PATTERN } from '@/types';
 
 export const REASON_INTERPRETER_DANGEROUS =
   'Interpreter code contains a dangerous command. Run the underlying command directly so it can be analyzed, or use the safer alternative for that command.';

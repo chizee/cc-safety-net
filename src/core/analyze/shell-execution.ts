@@ -1,8 +1,8 @@
+import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { parseShellArgv } from '@/core/analyze/shell-wrappers';
 import { getBasename, normalizeCommandToken, parseEnvAssignment } from '@/core/shell';
 import type { CommandProgram, CommandView, CommandWord } from '@/domain/command';
 import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/parser/command';
-import { SHELL_WRAPPERS } from '@/types';
 
 type ShellExecutionSource =
   | { kind: 'none' }

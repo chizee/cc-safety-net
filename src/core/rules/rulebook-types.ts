@@ -1,4 +1,4 @@
-import type { CustomRule } from '@/types';
+import type { CustomRule } from '@/domain/policy';
 
 export interface RulebookFixture {
   command: string;
