@@ -43,8 +43,7 @@
     "test:e2e:live": "CC_SAFETY_NET_E2E_LIVE=1 bun test tests/e2e-live",
     "test:coverage": "AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov",
     "cc-safety-net": "bun run src/bin/cc-safety-net.ts",
-    "prepare": "husky && bun run setup-hooks",
-    "setup-hooks": "chmod +x .husky/pre-commit .husky/pre-push"
+    "prepare": "lefthook install"
   },
   "author": {
     "name": "J Liew",
@@ -65,10 +64,9 @@
     "@opencode-ai/plugin": "^1.18.3",
     "@types/bun": "latest",
     "@types/shell-quote": "^1.7.5",
-    "husky": "^9.1.7",
     "jscpd": "^4.0.9",
     "knip": "^5.79.0",
-    "lint-staged": "^16.2.7",
+    "lefthook": "^2.1.10",
     "shell-quote": "^1.10.0"
   },
   "peerDependencies": {

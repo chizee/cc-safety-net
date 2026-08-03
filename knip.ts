@@ -22,7 +22,7 @@ const config: KnipConfig = {
   // re-claim them as dev-only entries and hide their imports from --production.
   'github-actions': false,
   ignoreBinaries: ['gh', 'tsc'],
-  ignoreDependencies: ['@opencode-ai/plugin', 'lint-staged'],
+  ignoreDependencies: ['@opencode-ai/plugin'],
 };
 
 export default config;

@@ -1,5 +1,5 @@
 - Use `bun run check` to verify when you finish all implementations at the end. This runs typecheck, knip, biome lint, and tests together; do not run these separately.
-- Ignore the dist folder; it gets auto-rebuilt by husky's precommit hook.
+- Ignore the dist folder; it gets auto-rebuilt by lefthook's pre-commit hook.
 - Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 - Files in `docs/` use lowercase kebab-case names.
 
