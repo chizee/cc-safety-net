@@ -1,4 +1,5 @@
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
+import { isDataOnlyQuotedAssignment } from '@/core/analyze/deferred-assignment';
 import {
   createDerivedCommandWorkBudget,
   type DerivedCommandWorkBudget,
@@ -74,6 +75,7 @@ export type InternalOptions = AnalyzeOptions & {
   scanWork?: { units: number };
   literalHeredocFiles?: ReadonlyMap<string, string>;
   protectedGitMetadata?: ProtectedGitMetadata | null;
+  rootProgram?: CommandProgram;
 };
 
 type ActiveInternalOptions = InternalOptions & {
@@ -180,7 +182,7 @@ function analyzeCommandWithBudget(
   // undefined = use cwd, null = unknown (after cd/pushd)
   const effectiveCwd = options.effectiveCwd !== undefined ? options.effectiveCwd : options.cwd;
   const shellGitContextState = createShellGitContextEnvState(options.envAssignments);
-  return analyzeProgram(program, depth, options, originalCwd, [
+  return analyzeProgram(program, depth, { ...options, rootProgram: program }, originalCwd, [
     {
       effectiveCwd,
       shellGitContextState,
@@ -669,7 +671,11 @@ function analyzeCommandView(
       options.compatibility === 'explain-legacy'
         ? dangerousTextMatch
         : filterDestructiveCommandMatch(dangerousTextMatch, options.policy);
-    if (textMatch) {
+    const deferredToUseTime =
+      textMatch !== null &&
+      !options.strict &&
+      isDataOnlyQuotedAssignment(commandView, options.rootProgram, options.scanWork);
+    if (textMatch && !deferredToUseTime) {
       options.trace?.recordSegment({
         type: 'dangerous-text',
         token: segment[0],
