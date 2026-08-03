@@ -5,7 +5,7 @@ import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
-import { projectLegacyCommandEntriesFromProgram } from '@/parser/projection';
+import { projectSegmentWords } from '@/parser/traversal';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
 
 /** @internal */
@@ -32,11 +32,11 @@ export function evaluateCommandWithTrace(
   const trace = createCommandTraceContext(recorder);
   const displayProgram =
     program.dialect === 'powershell' ? factStore.getCommandProgram(command, 'posix') : program;
-  const entries = projectLegacyCommandEntriesFromProgram(command, displayProgram);
+  const segments = projectSegmentWords(displayProgram);
   trace.recordGlobal({
     type: 'parse',
     input: command,
-    segments: entries.map((entry) => [...entry.tokens]),
+    segments: segments.map((words) => [...words]),
   });
   const analysis = analyzeCommandInternal(
     command,
@@ -52,7 +52,7 @@ export function evaluateCommandWithTrace(
     program,
   );
   const index = trace.getNextSegmentIndex();
-  if (analysis && index > 0 && index < entries.length) {
+  if (analysis && index > 0 && index < segments.length) {
     trace.recordSegment({ type: 'segment-skipped', index, reason: 'prior-segment-blocked' }, index);
   }
   return Object.freeze({

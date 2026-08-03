@@ -1,9 +1,21 @@
 import { getBasename } from '@/core/shell';
-import { parseSimpleWords } from '@/parser/projection';
+import { parseCommand } from '@/parser/command';
 import { getGitEnvValue, resolveGitConfigCount } from './env';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from './worktree';
 
 const MAX_GIT_ALIAS_EXPANSION_DEPTH = 5;
+
+// Git config values and alias bodies are argv-like text: one command, no redirection,
+// no substitution. Anything else is not something we can resolve without running it.
+function parseSimpleWords(source: string): string[] | null {
+  const program = parseCommand(source, 'posix');
+  if (program.status !== 'complete' || program.nodes.length !== 1) return null;
+  const command = program.nodes[0];
+  if (command?.kind !== 'command') return null;
+  if (command.redirections.length > 0 || command.nested.length > 0) return null;
+  if (command.words.some((word) => word.provenance === 'command-substitution')) return null;
+  return command.words.map((word) => word.text);
+}
 
 export interface GitAliasResolution {
   blockedReason: string | null;

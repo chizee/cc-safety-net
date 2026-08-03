@@ -383,7 +383,10 @@ describe('explainCommand edge cases', () => {
     expect(result.trace.steps).toContainEqual({
       type: 'parse',
       input: 'echo $(rm -rf /tmp/foo 2>/dev/null)',
-      segments: [['echo'], ['rm', '-rf', '/tmp/foo']],
+      segments: [
+        ['echo', ''],
+        ['rm', '-rf', '/tmp/foo'],
+      ],
     });
   });
 
@@ -430,7 +433,10 @@ describe('explainCommand edge cases', () => {
     expect(result.trace.steps).toContainEqual({
       type: 'parse',
       input: 'echo <(git reset --hard)',
-      segments: [['echo'], ['git', 'reset', '--hard']],
+      segments: [
+        ['echo', ''],
+        ['git', 'reset', '--hard'],
+      ],
     });
   });
 

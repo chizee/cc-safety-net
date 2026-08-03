@@ -1,5 +1,6 @@
 import { statSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
+import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import { findDotGitInAncestors, resolveDotGitFileTargets } from '@/core/git/worktree';
 import {
   createPathCanonicalizationBudget,
@@ -14,7 +15,7 @@ import {
   type ProtectedPathShellState,
 } from '@/core/protected-path-scanner';
 import { getCommandSyntaxFact } from '@/core/semantic-facts';
-import { getBasename, stripWrappers } from '@/core/shell';
+import { getBasename } from '@/core/shell';
 import { isReadOnlyTool } from '@/core/tool-input';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 

@@ -1,4 +1,4 @@
-import { analysisWordText } from '@/core/analyze/command-words';
+import { analysisWordText, analyzedViewWords } from '@/core/analyze/command-words';
 import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { isDataOnlyQuotedAssignment } from '@/core/analyze/deferred-assignment';
@@ -640,8 +640,8 @@ function analyzeCommandView(
     };
   }
   invalidateLiteralHeredocFiles(commandView, state, 'before-consumer');
-  const segment = [...commandView.analysisTokens];
-  const segmentStr = commandView.legacyNormalized;
+  const segment = analyzedViewWords(commandView.dialect, commandView.words).map(analysisWordText);
+  const segmentStr = commandView.displayText;
   const segmentEnvAssignments = getSegmentGitContextEnvAssignments(
     segment,
     state.shellGitContextState,
@@ -998,7 +998,7 @@ function analyzeUnsupportedHeredoc(
     return interpreterMatch
       ? {
           reason: interpreterMatch.reason,
-          segment: commandView.legacyNormalized,
+          segment: commandView.displayText,
           ruleId: interpreterMatch.id,
           intent: interpreterMatch.intent,
         }
@@ -1008,7 +1008,7 @@ function analyzeUnsupportedHeredoc(
     bodies.length === heredocs.length ? bodies.join('\n') : commandView.source,
     options,
   );
-  return result ? { ...result, segment: commandView.legacyNormalized } : null;
+  return result ? { ...result, segment: commandView.displayText } : null;
 }
 
 // A quoted heredoc feeding an interpreter's stdin is that interpreter's program, so
@@ -1106,7 +1106,7 @@ function updateCwdAfterCommandView(
   if (nextCwd === null) {
     trace?.recordSegment({
       type: 'cwd-change',
-      segment: commandView.analysisTokens.join(' '),
+      segment: commandView.words.map(analysisWordText).join(' '),
       effectiveCwdNowUnknown: true,
     });
   }

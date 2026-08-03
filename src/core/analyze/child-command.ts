@@ -8,8 +8,9 @@ import {
   isStandardCommandWrapper,
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
+import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
-import { getBasename, stripWrappersWithInfo } from '@/core/shell';
+import { getBasename } from '@/core/shell';
 import type { EffectivePolicy } from '@/domain/policy';
 
 export interface ChildCommandContext {

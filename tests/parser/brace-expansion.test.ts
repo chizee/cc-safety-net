@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { parseCommand } from '@/parser/command';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
-import { projectCommandViews } from '@/parser/projection';
+import { projectCommandViews } from '@/parser/traversal';
 
 function parseOperand(source: string) {
   const word = projectCommandViews(parseCommand(`echo ${source}`, 'posix'))[0]?.words[1];
@@ -12,7 +12,9 @@ function parseOperand(source: string) {
 describe('POSIX literal brace expansion', () => {
   test('expands literal executable words through standard wrappers', () => {
     expect(
-      projectCommandViews(parseCommand('env -- r{m,n} -rf /tmp/x', 'posix'))[0]?.tokens,
+      projectCommandViews(parseCommand('env -- r{m,n} -rf /tmp/x', 'posix'))[0]?.words.map(
+        (word) => word.text,
+      ),
     ).toEqual(['env', '--', 'rm', 'rn', '-rf', '/tmp/x']);
   });
 

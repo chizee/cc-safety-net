@@ -1,12 +1,13 @@
 import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
+import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
 import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
-import { getBasename, stripWrappers } from '@/core/shell';
+import { getBasename } from '@/core/shell';
 import type { ShellSyntaxFacts } from '@/domain/semantic-facts';
 
 export type ProtectedPathShellState = Readonly<{

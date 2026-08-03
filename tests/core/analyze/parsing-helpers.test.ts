@@ -19,18 +19,19 @@ import {
   isShellSyntaxCheck,
 } from '@/core/analyze/shell-wrappers';
 import { isTrustedTempPath } from '@/core/analyze/tmpdir';
+import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { extractShortOpts, getShellCommandString, stripWrappersWithInfo } from '@/core/shell';
+import { extractShortOpts, getShellCommandString } from '@/core/shell';
 import { getCommandTokenText, hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
-import { projectCommandViews, projectLegacySegments } from '@/parser/projection';
+import { projectCommandViews, projectSegmentWords } from '@/parser/traversal';
 import { assertBlocked, createLinkedWorktreeFixture } from '../../helpers.ts';
 
 const RM_COMMAND = ['r', 'm'].join('');
 const RM_RECURSIVE_FORCE = ['-', 'r', 'f'].join('');
 
 const splitShellCommands = (command: string) =>
-  projectLegacySegments(command).map((segment) => [...segment]);
+  projectSegmentWords(parseCommand(command)).map((segment) => [...segment]);
 
 describe('shell parsing helpers', () => {
   describe('shared quote and token helpers', () => {
@@ -187,8 +188,8 @@ describe('shell parsing helpers', () => {
   });
 
   describe('splitShellCommands', () => {
-    test('returns whole command when quotes are unclosed', () => {
-      expect(splitShellCommands('echo "unterminated')).toEqual([['echo "unterminated']]);
+    test('still enumerates words when quotes are unclosed', () => {
+      expect(splitShellCommands('echo "unterminated')).toEqual([['echo', 'unterminated']]);
     });
 
     test('ignores trailing shell comments without creating extra segments', () => {
@@ -209,23 +210,23 @@ describe('shell parsing helpers', () => {
       ]);
     });
 
-    test('extracts arithmetic substitution segments (nested parens)', () => {
-      expect(splitShellCommands('echo $((1+2))')).toEqual([['echo'], ['1+2']]);
+    test('keeps an arithmetic expansion as one word of its command', () => {
+      expect(splitShellCommands('echo $((1+2))')).toEqual([['echo', '']]);
     });
 
-    test('keeps arithmetic comparisons and shifts intact inside substitutions', () => {
-      expect(splitShellCommands('echo $((2>1))')).toEqual([['echo'], ['2>1']]);
-      expect(splitShellCommands('echo $((123>>1))')).toEqual([['echo'], ['123>>1']]);
-      expect(splitShellCommands('echo $((1*2))')).toEqual([['echo'], ['1*2']]);
+    test('does not split arithmetic comparisons, shifts or stars into shell syntax', () => {
+      expect(splitShellCommands('echo $((2>1))')).toEqual([['echo', '']]);
+      expect(splitShellCommands('echo $((123>>1))')).toEqual([['echo', '']]);
+      expect(splitShellCommands('echo $((1*2))')).toEqual([['echo', '']]);
     });
 
     test('extracts backtick substitution segments', () => {
-      expect(splitShellCommands('echo `date`')).toEqual([['echo'], ['date']]);
+      expect(splitShellCommands('echo `date`')).toEqual([['echo', ''], ['date']]);
     });
 
     test('extracts $() substitution segments split on operators', () => {
       expect(splitShellCommands('echo $(rm -rf /tmp/x && echo ok)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['rm', '-rf', '/tmp/x'],
         ['echo', 'ok'],
       ]);
@@ -245,10 +246,13 @@ describe('shell parsing helpers', () => {
 
     test('treats grouped subshells inside command substitutions as commands, not arithmetic', () => {
       expect(splitShellCommands('echo $( (git reset --hard) )')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['git', 'reset', '--hard'],
       ]);
-      expect(splitShellCommands('echo $( (rm -rf /) )')).toEqual([['echo'], ['rm', '-rf', '/']]);
+      expect(splitShellCommands('echo $( (rm -rf /) )')).toEqual([
+        ['echo', ''],
+        ['rm', '-rf', '/'],
+      ]);
     });
 
     test('handles deeply nested $(...) substitutions', () => {
@@ -258,7 +262,7 @@ describe('shell parsing helpers', () => {
 
     test('handles $(...) with semicolon operators', () => {
       expect(splitShellCommands('echo $(cd /tmp; rm -rf .)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['cd', '/tmp'],
         ['rm', '-rf', '.'],
       ]);
@@ -266,7 +270,7 @@ describe('shell parsing helpers', () => {
 
     test('handles $(...) with pipe operators', () => {
       expect(splitShellCommands('echo $(cat file | rm -rf /)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['cat', 'file'],
         ['rm', '-rf', '/'],
       ]);
@@ -274,7 +278,7 @@ describe('shell parsing helpers', () => {
 
     test('handles unterminated $() substitution (no hang, still extracts tokens)', () => {
       expect(splitShellCommands('echo $(rm -rf /tmp/x')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['rm', '-rf', '/tmp/x'],
       ]);
     });
@@ -320,7 +324,7 @@ describe('shell parsing helpers', () => {
         parseCommand([RM_COMMAND, RM_RECURSIVE_FORCE, substitution].join(' ')),
       );
 
-      expect(views.map((view) => view.tokens)).toEqual([
+      expect(views.map((view) => view.words.map((word) => word.text))).toEqual([
         [RM_COMMAND, RM_RECURSIVE_FORCE, ''],
         ['printf', '/'],
       ]);
@@ -331,7 +335,7 @@ describe('shell parsing helpers', () => {
       const substitution = [String.fromCharCode(36), '(printf m)'].join('');
       const views = projectCommandViews(parseCommand(`r${substitution} ${RM_RECURSIVE_FORCE} /`));
 
-      expect(views.map((view) => view.tokens)).toEqual([
+      expect(views.map((view) => view.words.map((word) => word.text))).toEqual([
         ['r', RM_RECURSIVE_FORCE, '/'],
         ['printf', 'm'],
       ]);
@@ -343,7 +347,7 @@ describe('shell parsing helpers', () => {
     });
 
     test('drops glob redirect targets inside command substitutions', () => {
-      expect(splitShellCommands('echo $(echo > *.log)')).toEqual([['echo'], ['echo']]);
+      expect(splitShellCommands('echo $(echo > *.log)')).toEqual([['echo', ''], ['echo']]);
     });
 
     test('keeps attached command substitutions in redirect targets analyzable', () => {
@@ -392,28 +396,26 @@ describe('shell parsing helpers', () => {
       ]);
     });
 
-    test('flushes arithmetic text before a spaced nested command substitution', () => {
+    test('keeps a spaced nested command substitution inside arithmetic analyzable', () => {
       expect(splitShellCommands('echo $((1 + $(git status)))')).toEqual([
-        ['echo'],
-        ['1+'],
+        ['echo', ''],
         ['git', 'status'],
       ]);
     });
 
-    test('keeps nested arithmetic parentheses intact', () => {
-      expect(splitShellCommands('echo $(((1+2)))')).toEqual([['echo'], ['(1+2)']]);
+    test('keeps nested arithmetic parentheses in one word', () => {
+      expect(splitShellCommands('echo $(((1+2)))')).toEqual([['echo', '']]);
     });
 
     test('handles malformed arithmetic substitutions without hanging', () => {
-      expect(splitShellCommands('echo $((1+(2))')).toEqual([['echo'], ['1+(2)']]);
-      expect(splitShellCommands('echo $((1+2)')).toEqual([['echo'], ['1+2']]);
+      expect(splitShellCommands('echo $((1+(2))')).toEqual([['echo', '']]);
+      expect(splitShellCommands('echo $((1+2)')).toEqual([['echo', '']]);
     });
 
     test('handles arithmetic substitutions that reach EOF without a closing parenthesis', () => {
-      expect(splitShellCommands('echo $((1+2')).toEqual([['echo'], ['1+2']]);
+      expect(splitShellCommands('echo $((1+2')).toEqual([['echo', '']]);
       expect(splitShellCommands('echo $((1+$(git status)')).toEqual([
-        ['echo'],
-        ['1+'],
+        ['echo', ''],
         ['git', 'status'],
       ]);
     });
@@ -436,7 +438,7 @@ describe('shell parsing helpers', () => {
         ['git', 'reset', '--hard'],
       ]);
       expect(splitShellCommands('echo $(rm -rf /tmp/foo >`git reset --hard`)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['rm', '-rf', '/tmp/foo'],
         ['git', 'reset', '--hard'],
       ]);
@@ -444,7 +446,7 @@ describe('shell parsing helpers', () => {
 
     test('drops redirect targets inside nested command substitutions', () => {
       expect(splitShellCommands('echo $(rm -rf /tmp/foo 2>/dev/null)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['rm', '-rf', '/tmp/foo'],
       ]);
     });
@@ -455,11 +457,11 @@ describe('shell parsing helpers', () => {
 
     test('keeps process substitutions analyzable as separate segments', () => {
       expect(splitShellCommands('echo <(git reset --hard)')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['git', 'reset', '--hard'],
       ]);
       expect(splitShellCommands('cat >(git reset --hard)')).toEqual([
-        ['cat'],
+        ['cat', ''],
         ['git', 'reset', '--hard'],
       ]);
       expect(splitShellCommands('echo x > >(git reset --hard)')).toEqual([
@@ -498,7 +500,7 @@ describe('shell parsing helpers', () => {
 
     test('does not treat an escaped inline substitution as executable', () => {
       expect(splitShellCommands('echo $(printf "x\\$(git status)y")')).toEqual([
-        ['echo'],
+        ['echo', ''],
         ['printf', 'x$(git status)y'],
       ]);
     });
@@ -518,14 +520,14 @@ describe('shell parsing helpers', () => {
       // Nested "(" inside $(...) is not a valid shell command-sub boundary; projection keeps
       // the partial inner tokens without inventing a trailing empty operand.
       expect(splitShellCommands('echo "x$(printf y(z))"')).toEqual([
-        ['echo', 'x$(printf y(z))'],
+        ['echo', 'x'],
         ['printf', 'y(z'],
       ]);
     });
 
     test('tracks quoted and escaped content while scanning inline command substitutions', () => {
       expect(splitShellCommands('echo "x$(printf \'y\')w"')).toEqual([
-        ['echo', "x$(printf 'y')w"],
+        ['echo', 'xw'],
         ['printf', 'y'],
       ]);
       expect(splitShellCommands('echo \'x$(printf "y")w\'')).toEqual([['echo', 'x$(printf "y")w']]);
@@ -540,7 +542,10 @@ describe('shell parsing helpers', () => {
     });
 
     test('preserves glob arguments inside command substitutions', () => {
-      expect(splitShellCommands('echo $(git *.ts)')).toEqual([['echo'], ['git', '*.ts']]);
+      expect(splitShellCommands('echo $(git *.ts)')).toEqual([
+        ['echo', ''],
+        ['git', '*.ts'],
+      ]);
     });
 
     test('preserves glob arguments while reconstructing redirect target substitutions', () => {
@@ -557,7 +562,7 @@ describe('shell parsing helpers', () => {
     test('extracts process substitution inside command substitution', () => {
       const result = splitShellCommands('echo $(diff <(cat file1) file2)');
       expect(result).toContainEqual(['cat', 'file1']);
-      expect(result).toContainEqual(['diff', 'file2']);
+      expect(result).toContainEqual(['diff', '', 'file2']);
     });
 
     test('keeps attached backtick suffix inside command substitution', () => {

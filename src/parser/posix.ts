@@ -120,21 +120,16 @@ function scanSequence(
     if (accumulator.words.length === 0 && accumulator.redirections.length === 0) return;
     const span = { start: accumulator.start, end: accumulator.end };
     const tokens = accumulator.words.map((word) => word.text);
-    const analysisTokens = accumulator.words.map((word) =>
-      word.provenance === 'command-substitution' ? word.raw : word.text,
-    );
     appendAccumulatedCommand(nodes, accumulator, {
       kind: 'command',
       dialect,
       source: source.slice(span.start, span.end),
       span,
       words: accumulator.words,
-      tokens,
-      analysisTokens,
       redirections: accumulator.redirections,
       nested: accumulator.nested,
       dynamicExecutable: accumulator.words[0]?.provenance === 'command-substitution',
-      legacyNormalized:
+      displayText:
         issues.length > 0 && nodes.length === 0 ? source.slice(start, end) : tokens.join(' '),
     } satisfies CommandView);
   };

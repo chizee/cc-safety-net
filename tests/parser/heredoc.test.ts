@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseCommand } from '@/parser/command';
-import { projectCommandViews } from '@/parser/projection';
+import { projectCommandViews } from '@/parser/traversal';
 
 describe('POSIX heredoc parsing', () => {
   test('attaches quoted body metadata without parsing body prose as shell', () => {
@@ -12,7 +12,7 @@ describe('POSIX heredoc parsing', () => {
     expect(program.status).toBe('complete');
     expect(program.issues).toEqual([]);
     expect(views).toHaveLength(1);
-    expect(views[0]?.tokens).toEqual(['cat']);
+    expect(views[0]?.words.map((word) => word.text)).toEqual(['cat']);
     expect(heredoc).toMatchObject({
       body: "it's never executed: rm -rf ~ and git reset --hard\n",
       delimiter: 'EOF',
@@ -99,7 +99,7 @@ describe('POSIX heredoc parsing', () => {
 
     expect(program.status).toBe('complete');
     expect(program.issues).toEqual([]);
-    expect(views.map((view) => view.tokens)).toEqual([
+    expect(views.map((view) => view.words.map((word) => word.text))).toEqual([
       ['gh', 'issue', 'create', '--body', ''],
       ['cat'],
     ]);
@@ -121,7 +121,9 @@ describe('POSIX heredoc parsing', () => {
 
     expect(program.status).toBe('invalid');
     expect(program.issues.map(({ code }) => code)).toContain('unsupported-heredoc-context');
-    expect(projectCommandViews(program).map((view) => view.tokens)).toEqual([['cat']]);
+    expect(projectCommandViews(program).map((view) => view.words.map((word) => word.text))).toEqual(
+      [['cat']],
+    );
   });
 
   test.each([

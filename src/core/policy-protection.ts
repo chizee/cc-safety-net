@@ -5,6 +5,7 @@ import {
   findHasDelete,
   getFindStartingPoints,
 } from '@/core/analyze/find';
+import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import {
   createPathCanonicalizationBudget,
   type PathCanonicalizationBudget,
@@ -19,7 +20,7 @@ import {
   type ProtectedPathShellState,
 } from '@/core/protected-path-scanner';
 import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
-import { getBasename, stripWrappers } from '@/core/shell';
+import { getBasename } from '@/core/shell';
 import { isReadOnlyTool } from '@/core/tool-input';
 import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';

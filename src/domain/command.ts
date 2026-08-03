@@ -73,12 +73,11 @@ export type CommandView = {
   readonly source: string;
   readonly span: CommandSpan;
   readonly words: readonly CommandWord[];
-  readonly tokens: readonly string[];
-  readonly analysisTokens: readonly string[];
   readonly redirections: readonly CommandRedirection[];
   readonly nested: readonly CommandProgram[];
   readonly dynamicExecutable: boolean;
-  readonly legacyNormalized: string;
+  /** Command text for block messages; the raw source when the parse could not tokenize it. */
+  readonly displayText: string;
 };
 
 /**

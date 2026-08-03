@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseCommand } from '@/parser/command';
-import { projectCommandViews } from '@/parser/projection';
+import { projectCommandViews } from '@/parser/traversal';
 
 describe('PowerShell command parser boundary', () => {
   test('preserves drive, UNC, backslash, and quoted literal argv', () => {
@@ -12,7 +12,7 @@ describe('PowerShell command parser boundary', () => {
     );
 
     expect(views[0]?.dialect).toBe('powershell');
-    expect(views[0]?.tokens).toEqual([
+    expect(views[0]?.words.map((word) => word.text)).toEqual([
       'Remove-Item',
       String.raw`C:\Program Files\cache`,
       String.raw`\\server\share\cache`,
@@ -27,11 +27,13 @@ describe('PowerShell command parser boundary', () => {
       'powershell',
     );
 
-    expect(projectCommandViews(program).map((view) => view.tokens)).toEqual([
-      ['Write-Output', 'safe;still-safe'],
-      ['Remove-Item', '.', '-Recurse', '-Force'],
-      ['git', 'reset', '--hard'],
-    ]);
+    expect(projectCommandViews(program).map((view) => view.words.map((word) => word.text))).toEqual(
+      [
+        ['Write-Output', 'safe;still-safe'],
+        ['Remove-Item', '.', '-Recurse', '-Force'],
+        ['git', 'reset', '--hard'],
+      ],
+    );
     expect(
       program.nodes.filter((node) => node.kind === 'connector').map((node) => node.operator),
     ).toEqual(['|', ';']);
@@ -57,7 +59,7 @@ describe('PowerShell command parser boundary', () => {
     );
     const views = projectCommandViews(program);
 
-    expect(views.map((view) => [view.dialect, ...view.tokens])).toEqual([
+    expect(views.map((view) => [view.dialect, ...view.words.map((word) => word.text)])).toEqual([
       ['powershell', 'Write-Output', '$(git reset --hard)'],
       ['powershell', 'git', 'reset', '--hard'],
       ['powershell', '&'],
@@ -109,10 +111,12 @@ describe('PowerShell command parser boundary', () => {
       'powershell',
     );
 
-    expect(projectCommandViews(program).map((view) => view.tokens)).toEqual([
-      ['Write-Output', 'ok'],
-      ['Remove-Item', '.', '-Recurse', '-Force'],
-    ]);
+    expect(projectCommandViews(program).map((view) => view.words.map((word) => word.text))).toEqual(
+      [
+        ['Write-Output', 'ok'],
+        ['Remove-Item', '.', '-Recurse', '-Force'],
+      ],
+    );
     expect(
       program.nodes.filter((node) => node.kind === 'connector').map((node) => node.operator),
     ).toEqual(['\n', '\n']);
@@ -145,13 +149,15 @@ describe('PowerShell command parser boundary', () => {
   });
 
   test('preserves cross-shell Git and rm argv and reports malformed quotes', () => {
-    expect(projectCommandViews(parseCommand('git reset --hard', 'powershell'))[0]?.tokens).toEqual([
-      'git',
-      'reset',
-      '--hard',
-    ]);
     expect(
-      projectCommandViews(parseCommand('rm -rf C:\\temp\\x', 'powershell'))[0]?.tokens,
+      projectCommandViews(parseCommand('git reset --hard', 'powershell'))[0]?.words.map(
+        (word) => word.text,
+      ),
+    ).toEqual(['git', 'reset', '--hard']);
+    expect(
+      projectCommandViews(parseCommand('rm -rf C:\\temp\\x', 'powershell'))[0]?.words.map(
+        (word) => word.text,
+      ),
     ).toEqual(['rm', '-rf', 'C:\\temp\\x']);
     expect(parseCommand('Remove-Item "unterminated', 'powershell')).toMatchObject({
       status: 'partial',
@@ -163,7 +169,7 @@ describe('PowerShell command parser boundary', () => {
     const source = 'Write-Output safe`;literal `"quoted`"';
     const first = parseCommand(source, 'powershell');
 
-    expect(projectCommandViews(first)[0]?.tokens).toEqual([
+    expect(projectCommandViews(first)[0]?.words.map((word) => word.text)).toEqual([
       'Write-Output',
       'safe;literal',
       '"quoted"',
@@ -194,11 +200,9 @@ describe('PowerShell command parser boundary', () => {
       'powershell',
     );
 
-    expect(projectCommandViews(program).map((view) => view.tokens)).toEqual([
-      ['Write-Output', 'one', ',', 'two'],
-      ['&'],
-      ['Write-Output', "it's"],
-    ]);
+    expect(projectCommandViews(program).map((view) => view.words.map((word) => word.text))).toEqual(
+      [['Write-Output', 'one', ',', 'two'], ['&'], ['Write-Output', "it's"]],
+    );
     expect(
       program.nodes.filter((node) => node.kind === 'connector').map((node) => node.operator),
     ).toEqual(['\r\n']);

@@ -123,19 +123,16 @@ function scanPowerShellSequence(
   const flush = () => {
     if (accumulator.words.length === 0 && accumulator.redirections.length === 0) return;
     const commandSpan = { start: accumulator.start, end: accumulator.end };
-    const tokens = accumulator.words.map((word) => word.text);
     appendAccumulatedCommand(nodes, accumulator, {
       kind: 'command',
       dialect: 'powershell',
       source: source.slice(commandSpan.start, commandSpan.end),
       span: commandSpan,
       words: accumulator.words,
-      tokens,
-      analysisTokens: [...tokens],
       redirections: accumulator.redirections,
       nested: accumulator.nested,
       dynamicExecutable: accumulator.words[0]?.provenance !== 'literal',
-      legacyNormalized: tokens.join(' '),
+      displayText: accumulator.words.map((word) => word.text).join(' '),
     } satisfies CommandView);
   };
 

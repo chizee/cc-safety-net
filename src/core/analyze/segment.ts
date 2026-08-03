@@ -62,7 +62,11 @@ import {
   isStandardCommandWrapper,
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
-import { stripEnvAssignmentWords, stripWrapperWords } from '@/core/analyze/wrapper-prelude';
+import {
+  stripEnvAssignmentWords,
+  stripWrappers,
+  stripWrapperWords,
+} from '@/core/analyze/wrapper-prelude';
 import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
@@ -72,7 +76,7 @@ import { analyzeGitDetailed } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import { getBasename, normalizeCommandToken, stripWrappers } from '@/core/shell';
+import { getBasename, normalizeCommandToken } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
@@ -821,7 +825,7 @@ function posixSegmentChangesCwd(segment: readonly string[]): boolean {
 }
 
 export function resolveCwdAfterCommandView(
-  commandView: Pick<CommandView, 'analysisTokens' | 'dialect' | 'words'>,
+  commandView: Pick<CommandView, 'dialect' | 'words'>,
   cwd: string | null | undefined,
   literalPipelineInput?: string,
 ): string | null | undefined {
@@ -832,7 +836,7 @@ export function resolveCwdAfterCommandView(
     return resolveKnownCwdTarget(normalizePowerShellLocationTarget(effect.target), cwd);
   }
 
-  const segment = commandView.analysisTokens;
+  const segment = commandView.words.map(analysisWordText);
   if (!posixSegmentChangesCwd(segment)) return undefined;
   if (!cwd) return null;
 

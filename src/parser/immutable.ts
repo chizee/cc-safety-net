@@ -43,8 +43,6 @@ export function freezeCommandView(command: CommandView): CommandView {
     ...command,
     span: Object.freeze(command.span),
     words: Object.freeze(command.words),
-    tokens: Object.freeze(command.tokens),
-    analysisTokens: Object.freeze(command.analysisTokens),
     redirections: Object.freeze(
       command.redirections.map((redirection) =>
         Object.freeze({

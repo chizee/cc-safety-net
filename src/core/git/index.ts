@@ -54,16 +54,16 @@ function evaluateGit(
     return destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason);
   }
 
-  const analysisTokens = aliasResolution.tokens;
+  const resolvedTokens = aliasResolution.tokens;
   if (
     (hasGitSshEnvAssignment(options.envAssignments) ||
       hasGitCommandLineSshCommandConfig(tokens, options.envAssignments)) &&
-    isGitNetworkOperation(analysisTokens)
+    isGitNetworkOperation(resolvedTokens)
   ) {
     return destructiveCommandMatch('git.ssh-env', REASON_GIT_SSH_ENV);
   }
 
-  const match = analyzeGitRule(analysisTokens);
+  const match = analyzeGitRule(resolvedTokens);
 
   if (!match) {
     return null;

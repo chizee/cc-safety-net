@@ -7,7 +7,8 @@ import type { Rulebook, RulebookFixtureResult } from '@/core/rules/rulebook-type
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
 import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CustomRule } from '@/domain/policy';
-import { projectLegacySegments } from '@/parser/projection';
+import { parseCommand } from '@/parser/command';
+import { projectSegmentWords } from '@/parser/traversal';
 import { matchesCustomRuleBlockArgs, matchesCustomRuleSubcommand } from './custom';
 
 interface CompiledRule {
@@ -58,7 +59,7 @@ function evaluateRulebookFixturesWithinLimits(
   let remainingSegments = RULEBOOK_LIMITS.maxFixtureSegments;
   const failures = rulebook.tests.flatMap((fixture) => {
     meter.spendString(fixture.command);
-    const projected = projectLegacySegments(fixture.command);
+    const projected = projectSegmentWords(parseCommand(fixture.command, 'posix'));
     if (projected.length > remainingSegments) throw new FixtureWorkLimitError();
     remainingSegments -= projected.length;
     const segments = projected.map((tokens) => {

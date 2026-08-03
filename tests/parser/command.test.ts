@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseCommand } from '@/parser/command';
-import { projectCommandViews } from '@/parser/projection';
-import { walkCommandViews } from '@/parser/traversal';
+import { projectCommandViews, walkCommandViews } from '@/parser/traversal';
 import { expectProgramSpans } from './assertions';
 
 describe('command parser boundary', () => {
@@ -12,7 +11,7 @@ describe('command parser boundary', () => {
 
     expect(first).toEqual(second);
     expect(first.status).toBe('complete');
-    expect(projectCommandViews(first).map((view) => view.tokens)).toEqual([
+    expect(projectCommandViews(first).map((view) => view.words.map((word) => word.text))).toEqual([
       ['echo', '😀'],
       ['git', 'reset', '--hard'],
       ['rm', '-rf', '/tmp/x'],
@@ -24,7 +23,7 @@ describe('command parser boundary', () => {
     const views = projectCommandViews(parseCommand("printf '' a\"\"b 'c'd", 'posix'));
 
     expect(views).toHaveLength(1);
-    expect(views[0]?.tokens).toEqual(['printf', '', 'ab', 'cd']);
+    expect(views[0]?.words.map((word) => word.text)).toEqual(['printf', '', 'ab', 'cd']);
     expect(views[0]?.words.map((word) => word.provenance)).toEqual([
       'literal',
       'literal',
@@ -38,7 +37,11 @@ describe('command parser boundary', () => {
       parseCommand('"C:\\Program Files\\Git\\bin\\git.exe" reset --hard', 'posix'),
     );
 
-    expect(views[0]?.tokens).toEqual(['C:\\Program Files\\Git\\bin\\git.exe', 'reset', '--hard']);
+    expect(views[0]?.words.map((word) => word.text)).toEqual([
+      'C:\\Program Files\\Git\\bin\\git.exe',
+      'reset',
+      '--hard',
+    ]);
   });
 
   test('models connectors, redirects, substitutions, and groups structurally', () => {
@@ -48,7 +51,7 @@ describe('command parser boundary', () => {
 
     expect(program.nodes.map((node) => node.kind)).toContain('connector');
     expect(program.nodes.map((node) => node.kind)).toContain('group');
-    expect(views.map((view) => view.tokens)).toEqual([
+    expect(views.map((view) => view.words.map((word) => word.text))).toEqual([
       ['echo', 'x'],
       ['git', 'reset', '--hard'],
       ['rm', '-rf', '/tmp/x'],
@@ -60,10 +63,10 @@ describe('command parser boundary', () => {
   test('marks executable substitution output without a sentinel token', () => {
     const view = projectCommandViews(parseCommand('$(printf r)m -rf /', 'posix'))[0];
 
-    expect(view?.tokens).toEqual(['m', '-rf', '/']);
+    expect(view?.words.map((word) => word.text)).toEqual(['m', '-rf', '/']);
     expect(view?.words[0]?.provenance).toBe('command-substitution');
     expect(view?.dynamicExecutable).toBeTrue();
-    expect(view?.tokens.join(' ')).not.toContain('CC_SAFETY_NET');
+    expect(view?.words.map((word) => word.text).join(' ')).not.toContain('CC_SAFETY_NET');
   });
 
   test('preserves literal and dynamic provenance for each assembled word part', () => {
@@ -96,7 +99,7 @@ describe('command parser boundary', () => {
         span: { start: 5, end: source.length },
       },
     ]);
-    expect(projectCommandViews(program)[0]?.legacyNormalized).toBe(source);
+    expect(projectCommandViews(program)[0]?.displayText).toBe(source);
   });
 
   test('rejects invalid ANSI-C Unicode code points without throwing', () => {
@@ -109,10 +112,11 @@ describe('command parser boundary', () => {
         issues: [{ code: 'invalid-ansi-c-code-point' }],
       });
     }
-    expect(projectCommandViews(parseCommand("printf $'\\U0010FFFF'", 'posix'))[0]?.tokens).toEqual([
-      'printf',
-      String.fromCodePoint(0x10ffff),
-    ]);
+    expect(
+      projectCommandViews(parseCommand("printf $'\\U0010FFFF'", 'posix'))[0]?.words.map(
+        (word) => word.text,
+      ),
+    ).toEqual(['printf', String.fromCodePoint(0x10ffff)]);
   });
 
   test('accepts 60k input and reports larger input as limited', () => {

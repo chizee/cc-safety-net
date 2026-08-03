@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { resolveCwdAfterCommandView } from '@/core/analyze/segment';
 import { parseCommand } from '@/parser/command';
-import { projectCommandViews } from '@/parser/projection';
+import { projectCommandViews } from '@/parser/traversal';
 
 function powerShellCommand(source: string) {
   const view = projectCommandViews(parseCommand(source, 'powershell'))[0];

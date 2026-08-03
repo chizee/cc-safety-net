@@ -192,7 +192,7 @@ describe('legacy explain compatibility', () => {
         command: "'rm -rf /tmp/cache",
         expected: exactBlocked(
           "'rm -rf /tmp/cache",
-          ["'rm -rf /tmp/cache"],
+          ['rm -rf /tmp/cache'],
           [
             {
               type: 'dangerous-text',
@@ -366,7 +366,7 @@ describe('legacy explain compatibility', () => {
     ).toMatchObject({
       trace: {
         steps: [
-          { type: 'parse', input: 'echo "unclosed', segments: [['echo "unclosed']] },
+          { type: 'parse', input: 'echo "unclosed', segments: [['echo', 'unclosed']] },
           { type: 'strict-unparseable', rawCommand: 'echo "unclosed', reason },
         ],
         segments: [],

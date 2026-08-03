@@ -18,6 +18,7 @@ import {
   isTmpdirOverriddenToNonTemp,
   isTmpdirValueTrusted,
 } from '@/core/analyze/tmpdir';
+import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import {
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
@@ -26,7 +27,7 @@ import {
   isProtectedGitHookNameSelection,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
-import { getBasename, stripWrappers } from '@/core/shell';
+import { getBasename } from '@/core/shell';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';

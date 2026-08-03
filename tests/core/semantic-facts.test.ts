@@ -328,11 +328,9 @@ describe('semantic facts', () => {
       context: { configCwd: '/project', executionCwd: '/project' },
     });
 
-    expect(facts.commands[0]?.views.map((view) => view.tokens.join(' '))).toEqual([
-      'git reset --hard',
-      'echo ',
-      'rm -rf /',
-    ]);
+    expect(
+      facts.commands[0]?.views.map((view) => view.words.map((word) => word.text).join(' ')),
+    ).toEqual(['git reset --hard', 'echo ', 'rm -rf /']);
   });
 
   test('freezes the complete fact graph and records bounded parser uncertainty', () => {
