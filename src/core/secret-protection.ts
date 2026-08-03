@@ -609,7 +609,8 @@ function xargsReadsPipeInputAsPath(
   }
 
   const xargs = extractXargsChildCommandWithInfo(stripped);
-  if (xargs.childTokens.length === 0) {
+  const xargsChildTokens = stripped.slice(xargs.childStart);
+  if (xargsChildTokens.length === 0) {
     return false;
   }
   if (xargs.replacementToken === '') {
@@ -619,10 +620,8 @@ function xargsReadsPipeInputAsPath(
   const replacementToken = xargs.replacementToken;
   const childTokens =
     replacementToken === null
-      ? [...xargs.childTokens, PIPE_INPUT_PATH_MARKER]
-      : xargs.childTokens.map((token) =>
-          token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER),
-        );
+      ? [...xargsChildTokens, PIPE_INPUT_PATH_MARKER]
+      : xargsChildTokens.map((token) => token.split(replacementToken).join(PIPE_INPUT_PATH_MARKER));
   return extractSegmentPathTargets(childTokens, store, options).some((target) =>
     target.includes(PIPE_INPUT_PATH_MARKER),
   );

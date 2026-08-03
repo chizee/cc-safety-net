@@ -5,11 +5,7 @@ import {
   analyzeAwkSystemCallMatch,
   extractAwkExecutableSources,
 } from '@/core/analyze/awk';
-import {
-  type NestedCommandAnalyzeContext,
-  type NormalizedChildCommand,
-  normalizeChildCommands,
-} from '@/core/analyze/child-command';
+import { type NormalizedChildCommand, normalizeChildCommands } from '@/core/analyze/child-command';
 import {
   analysisWordText,
   hasCommandSubstitutionPart,
@@ -51,6 +47,7 @@ import {
   gitAnalyzeOptions,
   type InternalOptions,
   matchFromBlockResult,
+  nestedCommandAnalyzeContext,
 } from '@/core/analyze/rule';
 import {
   extractEvalSource,
@@ -71,7 +68,6 @@ import {
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
 import {
-  analyzeXargs,
   extractXargsChildCommandWithInfo,
   REASON_XARGS_RM,
   REASON_XARGS_SHELL,
@@ -95,7 +91,7 @@ import {
 } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
-import type { CommandView, CommandWord } from '@/domain/command';
+import { type CommandView, type CommandWord, isDynamicExecutable } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 import { sliceCommandView } from '@/parser/projection';
@@ -129,7 +125,6 @@ const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
   'worktree',
 ]);
 const COMMAND_ANALYZERS: ReadonlyMap<string, CommandAnalyzer> = new Map([
-  ['xargs', analyzeXargsCommand],
   ['parallel', analyzeParallelCommand],
 ]);
 
@@ -778,24 +773,25 @@ export function analyzeDynamicCommandStructure(
       : null;
   return (
     filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ??
-    analyzeDynamicStructure(command, strict, policy)
+    (command ? analyzeDynamicStructure(command.dialect, command.words, strict, policy) : null)
   );
 }
 
 function analyzeDynamicStructure(
-  command: CommandView | undefined,
+  dialect: CommandView['dialect'],
+  words: readonly CommandWord[],
   strict: boolean,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
-  if (!command || command.words.length < 2) return null;
-  const dynamicIndexes = command.words.flatMap((word, index) =>
+  if (words.length < 2) return null;
+  const dynamicIndexes = words.flatMap((word, index) =>
     hasCommandSubstitutionPart(word) ? [index] : [],
   );
   if (dynamicIndexes.length === 0) return null;
 
-  const head = normalizeCommandToken(command.words[0]?.text ?? '');
+  const head = normalizeCommandToken(words[0]?.text ?? '');
   if (head === 'git') {
-    const gitWords = analyzedViewWords(command);
+    const gitWords = analyzedViewWords(dialect, words);
     const subcommandIndex = findGitSubcommandIndex(gitWords);
     if (
       destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
@@ -807,7 +803,7 @@ function analyzeDynamicStructure(
       );
     }
     if (filterDestructiveCommandMatch(analyzeGitMatch(gitWords), policy)) return null;
-    const subcommand = command.words[subcommandIndex]?.text.toLowerCase();
+    const subcommand = words[subcommandIndex]?.text.toLowerCase();
     const dataBoundary = gitWords.findIndex(
       (word, index) => index > subcommandIndex && analysisWordText(word) === '--',
     );
@@ -829,7 +825,7 @@ function analyzeDynamicStructure(
 
   if (head === 'find') {
     return destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
-      hasDynamicFindStructure(command.words)
+      hasDynamicFindStructure(words)
       ? filterDestructiveCommandMatch(
           destructiveCommandMatch('shell.dynamic-structure', REASON_DYNAMIC_STRUCTURE),
           policy,
@@ -839,17 +835,19 @@ function analyzeDynamicStructure(
 
   if (head === 'xargs') {
     return analyzeDynamicChildStructure(
-      command,
-      extractXargsChildCommandWithInfo(command.analysisTokens).childTokens,
+      dialect,
+      words.slice(extractXargsChildCommandWithInfo(words.map(analysisWordText)).childStart),
       'xargs',
       strict,
       policy,
     );
   }
   if (head === 'parallel') {
+    // parallel joins the registry in its own slice; its child command is still a token suffix.
+    const childTokens = extractParallelChildCommand(words.map(analysisWordText));
     return analyzeDynamicChildStructure(
-      command,
-      extractParallelChildCommand(command.analysisTokens),
+      dialect,
+      words.slice(words.length - childTokens.length),
       'parallel',
       strict,
       policy,
@@ -859,16 +857,15 @@ function analyzeDynamicStructure(
 }
 
 function analyzeDynamicChildStructure(
-  command: CommandView,
-  childTokens: readonly string[],
+  dialect: CommandView['dialect'],
+  childWords: readonly CommandWord[],
   kind: 'xargs' | 'parallel',
   strict: boolean,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
-  if (childTokens.length === 0) return null;
-  const childStart = command.analysisTokens.length - childTokens.length;
-  const childView = normalizeChildCommandView(sliceCommandView(command, childStart));
-  if (childView.dynamicExecutable) {
+  if (childWords.length === 0) return null;
+  const child = normalizeChildCommandWords(childWords);
+  if (isDynamicExecutable(dialect, child)) {
     const match = filterDestructiveCommandMatch(
       destructiveCommandMatch(
         `${kind}.shell-dynamic`,
@@ -878,13 +875,11 @@ function analyzeDynamicChildStructure(
     );
     if (match) return match;
   }
-  const nestedStructure = analyzeDynamicStructure(childView, strict, policy);
+  const nestedStructure = analyzeDynamicStructure(dialect, child, strict, policy);
   if (nestedStructure) return nestedStructure;
   if (
-    childView.words[0]?.text === 'rm' &&
-    childView.words
-      .slice(1)
-      .some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word))
+    child[0]?.text === 'rm' &&
+    child.slice(1).some((word) => hasCommandSubstitutionPart(word) && hasOptionLiteralPart(word))
   ) {
     return filterDestructiveCommandMatch(
       destructiveCommandMatch(
@@ -897,15 +892,15 @@ function analyzeDynamicChildStructure(
   return null;
 }
 
-function normalizeChildCommandView(view: CommandView): CommandView {
-  const leading = stripEnvAssignmentsWithInfo([...view.analysisTokens]);
-  const withoutLeading = sliceCommandView(view, view.analysisTokens.length - leading.tokens.length);
-  const wrapped = stripWrappersWithInfo([...withoutLeading.analysisTokens]);
-  const normalized = sliceCommandView(
-    withoutLeading,
-    withoutLeading.analysisTokens.length - wrapped.tokens.length,
-  );
-  return normalized.analysisTokens[0] === 'busybox' ? sliceCommandView(normalized, 1) : normalized;
+function normalizeChildCommandWords(words: readonly CommandWord[]): readonly CommandWord[] {
+  const leading = stripEnvAssignmentsWithInfo(words.map(analysisWordText));
+  const withoutLeading = words.slice(words.length - leading.tokens.length);
+  const wrapped = stripWrappersWithInfo(withoutLeading.map(analysisWordText));
+  const normalized = withoutLeading.slice(withoutLeading.length - wrapped.tokens.length);
+  const normalizedHead = normalized[0];
+  return normalizedHead && analysisWordText(normalizedHead) === 'busybox'
+    ? normalized.slice(1)
+    : normalized;
 }
 
 function findGitSubcommandIndex(words: readonly CommandWord[]): number {
@@ -1033,10 +1028,11 @@ function matchEmbeddedCustomRule(
  * source in `raw`, so they analyze as parsed; PowerShell words already carry it in `text`
  * and analyze as text-only stand-ins, exactly as the token projection did.
  */
-function analyzedViewWords(view: CommandView): readonly CommandWord[] {
-  return view.dialect === 'posix'
-    ? view.words
-    : textCommandWords(view.words.map((word) => word.text));
+function analyzedViewWords(
+  dialect: CommandView['dialect'],
+  words: readonly CommandWord[],
+): readonly CommandWord[] {
+  return dialect === 'posix' ? words : textCommandWords(words.map((word) => word.text));
 }
 
 /**
@@ -1059,19 +1055,11 @@ function analyzedWords(
     : textCommandWords(tokens);
 }
 
-function analyzeXargsCommand(context: CommandAnalysisContext): DestructiveCommandRuleMatch | null {
-  return analyzeXargs(context.tokens, {
-    ...getNestedCommandAnalyzeContext(context),
-    analyzeNested: (command, overrides) =>
-      matchFromBlockResult(context.options.analyzeNested(command, overrides)),
-  });
-}
-
 function analyzeParallelCommand(
   context: CommandAnalysisContext,
 ): DestructiveCommandRuleMatch | null {
   return analyzeParallel(context.tokens, {
-    ...getNestedCommandAnalyzeContext(context),
+    ...nestedCommandAnalyzeContext(context),
     budget: context.options.parallelBudget,
     analyzeNested: (command, overrides) =>
       matchFromBlockResult(context.options.analyzeNested(command, overrides)),
@@ -1083,25 +1071,6 @@ function filterBuiltInCommandMatch(
   policy: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
   return match?.id.startsWith('custom.') ? match : filterDestructiveCommandMatch(match, policy);
-}
-
-function getNestedCommandAnalyzeContext(
-  context: CommandAnalysisContext,
-): NestedCommandAnalyzeContext {
-  return {
-    cwd: context.cwd,
-    originalCwd: context.originalCwd,
-    strict: context.options.strict,
-    paranoidRm: context.options.paranoidRm,
-    paranoidInterpreters: context.options.paranoidInterpreters,
-    allowTmpdirVar: context.allowTmpdirVar,
-    protectedGitMetadata: context.options.protectedGitMetadata,
-    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode,
-    policy: context.options.policy,
-    scanWork: context.options.scanWork,
-  };
 }
 
 const CWD_CHANGE_REGEX =

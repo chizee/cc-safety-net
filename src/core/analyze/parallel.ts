@@ -798,7 +798,7 @@ function analyzeDynamicParallelFind(
 }
 
 function nestedRmInputCanChangeOptions(tokens: readonly string[]): boolean {
-  const childTokens = extractXargsChildCommandWithInfo(tokens).childTokens;
+  const childTokens = tokens.slice(extractXargsChildCommandWithInfo(tokens).childStart);
   return (
     normalizeCommandToken(childTokens[0] ?? '') === 'rm' &&
     parallelInputCanChangeRmOptions(childTokens)

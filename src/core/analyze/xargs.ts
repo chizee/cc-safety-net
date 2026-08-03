@@ -8,6 +8,7 @@ import {
   type NestedCommandAnalyzeContext,
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
+import { analysisWordText } from '@/core/analyze/command-words';
 import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { getFindExecCommand, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
@@ -29,6 +30,7 @@ import {
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { CommandWord } from '@/domain/command';
 import type { PolicyRule } from '@/domain/policy';
 
 /** @internal */
@@ -66,11 +68,13 @@ export interface XargsAnalyzeContext extends NestedCommandAnalyzeContext {
 }
 
 export function analyzeXargs(
-  tokens: readonly string[],
+  words: readonly CommandWord[],
   context: XargsAnalyzeContext,
 ): DestructiveCommandRuleMatch | null {
-  const { childTokens: rawChildTokens, replacementToken } =
-    extractXargsChildCommandWithInfo(tokens);
+  // xargs options, the replacement token and the child command all match on text only.
+  const tokens = words.map(analysisWordText);
+  const { childStart, replacementToken } = extractXargsChildCommandWithInfo(tokens);
+  const rawChildTokens = tokens.slice(childStart);
   const shellDynamicMatch = destructiveCommandMatch('xargs.shell-dynamic', REASON_XARGS_SHELL);
   if (
     xargsInputCanSupplyWrapperChild(rawChildTokens, replacementToken, context) &&
@@ -534,7 +538,8 @@ function findInputCanChangeExecutedSource(
 }
 
 interface XargsParseResult {
-  childTokens: string[];
+  /** Index the child command starts at, so word-based callers can slice the same position. */
+  childStart: number;
   replacementToken: string | null;
 }
 
@@ -571,7 +576,7 @@ export function extractXargsChildCommandWithInfo(tokens: readonly string[]): Xar
     if (!token) break;
 
     if (token === '--') {
-      return { childTokens: [...tokens.slice(i + 1)], replacementToken };
+      return { childStart: i + 1, replacementToken };
     }
 
     if (token.startsWith('-')) {
@@ -620,9 +625,10 @@ export function extractXargsChildCommandWithInfo(tokens: readonly string[]): Xar
         i++;
       }
     } else {
-      return { childTokens: [...tokens.slice(i)], replacementToken };
+      return { childStart: i, replacementToken };
     }
   }
 
-  return { childTokens: [], replacementToken };
+  // No child command: the scan ran out of tokens, or stopped on an empty one.
+  return { childStart: tokens.length, replacementToken };
 }

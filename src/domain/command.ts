@@ -81,6 +81,22 @@ export type CommandView = {
   readonly legacyNormalized: string;
 };
 
+/**
+ * @internal Whether the words start with an executable the parse cannot name: substitution
+ * output in POSIX, anything but a literal in PowerShell, where `&`/`.` invoke the next word.
+ */
+export function isDynamicExecutable(
+  dialect: CommandDialect,
+  words: readonly CommandWord[],
+): boolean {
+  if (dialect !== 'powershell') {
+    return words[0]?.provenance === 'command-substitution';
+  }
+  const executableIndex = words[0]?.text === '&' || words[0]?.text === '.' ? 1 : 0;
+  const provenance = words[executableIndex]?.provenance;
+  return provenance !== undefined && provenance !== 'literal';
+}
+
 /** @internal */
 export type CommandConnector = {
   readonly kind: 'connector';

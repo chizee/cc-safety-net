@@ -962,35 +962,36 @@ describe('xargs parsing helpers', () => {
   });
 
   test('BSD R option consumes following value', () => {
-    const result = extractXargsChildCommandWithInfo(['xargs', '-R', '2', 'rm', '-rf']);
-    expect(result.childTokens).toEqual(['rm', '-rf']);
+    const tokens = ['xargs', '-R', '2', 'rm', '-rf'];
+    expect(tokens.slice(extractXargsChildCommandWithInfo(tokens).childStart)).toEqual([
+      'rm',
+      '-rf',
+    ]);
   });
 
   test('BSD S option consumes following value', () => {
-    const result = extractXargsChildCommandWithInfo(['xargs', '-S', '4096', 'rm', '-rf']);
-    expect(result.childTokens).toEqual(['rm', '-rf']);
+    const tokens = ['xargs', '-S', '4096', 'rm', '-rf'];
+    expect(tokens.slice(extractXargsChildCommandWithInfo(tokens).childStart)).toEqual([
+      'rm',
+      '-rf',
+    ]);
   });
 
   test('process slot var option consumes following value', () => {
-    const result = extractXargsChildCommandWithInfo([
-      'xargs',
-      '--process-slot-var',
-      'SLOT',
+    const tokens = ['xargs', '--process-slot-var', 'SLOT', 'rm', '-rf', '/'];
+    expect(tokens.slice(extractXargsChildCommandWithInfo(tokens).childStart)).toEqual([
       'rm',
       '-rf',
       '/',
     ]);
-    expect(result.childTokens).toEqual(['rm', '-rf', '/']);
   });
 
   test('process slot var option consumes equals value', () => {
-    const result = extractXargsChildCommandWithInfo([
-      'xargs',
-      '--process-slot-var=SLOT',
+    const tokens = ['xargs', '--process-slot-var=SLOT', 'rm', '-rf', '/'];
+    expect(tokens.slice(extractXargsChildCommandWithInfo(tokens).childStart)).toEqual([
       'rm',
       '-rf',
       '/',
     ]);
-    expect(result.childTokens).toEqual(['rm', '-rf', '/']);
   });
 });

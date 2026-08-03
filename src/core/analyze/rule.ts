@@ -1,8 +1,10 @@
+import type { NestedCommandAnalyzeContext } from '@/core/analyze/child-command';
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
 import type { ParallelAnalysisBudget } from '@/core/analyze/parallel-budget';
 import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
+import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGitMatch } from '@/core/git';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import type {
@@ -107,7 +109,36 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
           matchFromBlockResult(context.options.analyzeNested(command, overrides)),
       }),
   },
+  {
+    heads: new Set(['xargs']),
+    analyze: (context) =>
+      analyzeXargs(context.words, {
+        ...nestedCommandAnalyzeContext(context),
+        analyzeNested: (command, overrides) =>
+          matchFromBlockResult(context.options.analyzeNested(command, overrides)),
+      }),
+  },
 ];
+
+/** Shared with the parallel family, which analyzes child commands the same way. */
+export function nestedCommandAnalyzeContext(
+  context: AnalyzerRuleContext,
+): NestedCommandAnalyzeContext {
+  return {
+    cwd: context.cwd,
+    originalCwd: context.originalCwd,
+    strict: context.options.strict,
+    paranoidRm: context.options.paranoidRm,
+    paranoidInterpreters: context.options.paranoidInterpreters,
+    allowTmpdirVar: context.allowTmpdirVar,
+    protectedGitMetadata: context.options.protectedGitMetadata,
+    derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
+    envAssignments: context.envAssignments,
+    worktreeMode: context.options.worktreeMode,
+    policy: context.options.policy,
+    scanWork: context.options.scanWork,
+  };
+}
 
 /** Reads a nested analysis result back as the match shape the rules return. */
 export function matchFromBlockResult(
