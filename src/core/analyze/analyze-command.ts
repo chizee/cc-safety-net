@@ -68,9 +68,6 @@ import { parseCommand } from '@/parser/command';
 export type InternalOptions = AnalyzeOptions & {
   policy: CommandAnalysisPolicy;
   factStore?: SemanticFactStore;
-  trace?: CommandTraceContext;
-  analyzePartialProgram?: boolean;
-  compatibility?: 'explain-legacy';
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   parallelBudget?: ParallelAnalysisBudget;
   scanWork?: { units: number };
@@ -667,11 +664,10 @@ function analyzeCommandView(
   }
 
   if (segment.length === 1 && segment[0]?.includes(' ') && !commandView.dynamicExecutable) {
-    const dangerousTextMatch = dangerousInTextMatch(segment[0], options.scanWork);
-    const textMatch =
-      options.compatibility === 'explain-legacy'
-        ? dangerousTextMatch
-        : filterDestructiveCommandMatch(dangerousTextMatch, options.policy);
+    const textMatch = filterDestructiveCommandMatch(
+      dangerousInTextMatch(segment[0], options.scanWork),
+      options.policy,
+    );
     const deferredToUseTime =
       textMatch !== null &&
       !options.strict &&
@@ -685,7 +681,7 @@ function analyzeCommandView(
       });
       return {
         reason: textMatch.reason,
-        segment: options.compatibility === 'explain-legacy' ? segment.join(' ') : segmentStr,
+        segment: segmentStr,
         ruleId: textMatch.id,
         intent: textMatch.intent,
       };
@@ -1043,25 +1039,17 @@ function analyzeInterpreterHeredocMatch(
     paranoidBlocked: paranoidEnabled,
   });
   if (paranoidEnabled) {
-    const paranoidMatch = destructiveCommandMatch(
-      'interpreter.one-liner-paranoid',
-      REASON_INTERPRETER_BLOCKED,
+    const filteredParanoidMatch = filterDestructiveCommandMatch(
+      destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
+      options.policy,
     );
-    const filteredParanoidMatch =
-      options.compatibility === 'explain-legacy'
-        ? paranoidMatch
-        : filterDestructiveCommandMatch(paranoidMatch, options.policy);
     if (filteredParanoidMatch) return filteredParanoidMatch;
   }
   if (!containsDangerousCode(body, options.scanWork)) return null;
-  const dangerousMatch = destructiveCommandMatch(
-    'interpreter.dangerous-command',
-    REASON_INTERPRETER_DANGEROUS,
+  const match = filterDestructiveCommandMatch(
+    destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+    options.policy,
   );
-  const match =
-    options.compatibility === 'explain-legacy'
-      ? dangerousMatch
-      : filterDestructiveCommandMatch(dangerousMatch, options.policy);
   if (!match) return null;
   options.trace?.recordSegment({
     type: 'dangerous-text',
@@ -1197,11 +1185,10 @@ function analyzeUnparseableCommand(
   command: string,
   options: ActiveInternalOptions,
 ): AnalyzeResult | null {
-  const dangerousTextMatch = dangerousInTextMatch(command, options.scanWork);
-  const textMatch =
-    options.compatibility === 'explain-legacy'
-      ? dangerousTextMatch
-      : filterDestructiveCommandMatch(dangerousTextMatch, options.policy);
+  const textMatch = filterDestructiveCommandMatch(
+    dangerousInTextMatch(command, options.scanWork),
+    options.policy,
+  );
   const segmentIndex = options.trace?.currentSegmentIndex ?? options.trace?.allocateSegment();
   const step = {
     type: 'dangerous-text' as const,

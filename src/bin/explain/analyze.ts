@@ -83,8 +83,8 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
   }
 
   const evaluation = evaluateCommandWithTrace(command, analyzeOptions);
-  const activationRuleId =
-    evaluation.analysis?.ruleId ?? identifyModeGatedCandidate(command, analyzeOptions);
+  const decision = evaluation.decision;
+  const activationRuleId = decision?.ruleId ?? identifyModeGatedCandidate(command, analyzeOptions);
   const activationMetadata = DESTRUCTIVE_COMMAND_RULE_METADATA.find(
     (rule) => rule.id === activationRuleId && rule.activationCapability,
   );
@@ -93,15 +93,15 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
     : undefined;
   return {
     trace: projectExplainTrace(evaluation.trace),
-    result: evaluation.analysis ? 'blocked' : 'allowed',
-    reason: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.reason) : undefined,
-    segment: evaluation.analysis ? sanitizeDiagnosticText(evaluation.analysis.segment) : undefined,
-    ruleId: evaluation.analysis?.ruleId
-      ? sanitizeDiagnosticText(evaluation.analysis.ruleId)
+    result: decision ? 'blocked' : 'allowed',
+    reason: decision ? sanitizeDiagnosticText(decision.reason) : undefined,
+    segment: decision
+      ? sanitizeDiagnosticText(
+          decision.evidence.find((item) => item.kind === 'command')?.segment ?? command,
+        )
       : undefined,
-    customRule: sanitizeCustomRule(
-      getCustomRule(evaluation.analysis?.ruleId, analyzeOptions.policySnapshot),
-    ),
+    ruleId: decision?.ruleId ? sanitizeDiagnosticText(decision.ruleId) : undefined,
+    customRule: sanitizeCustomRule(getCustomRule(decision?.ruleId, analyzeOptions.policySnapshot)),
     configSource,
     configValid,
     ...configuration,

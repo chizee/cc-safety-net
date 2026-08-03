@@ -15,7 +15,6 @@ import type {
   DestructiveCommandRuleMatch,
 } from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
-import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
 
 export type InternalOptions = AnalyzeOptions & {
@@ -26,8 +25,6 @@ export type InternalOptions = AnalyzeOptions & {
     overrides?: AnalyzeNestedOverrides,
   ) => Omit<AnalyzeResult, 'segment'> | null;
   commandView?: CommandView;
-  trace?: CommandTraceContext;
-  compatibility?: 'explain-legacy';
   derivedCommandWorkBudget: DerivedCommandWorkBudget;
   parallelBudget: ParallelAnalysisBudget;
   scanWork?: { units: number };
@@ -84,8 +81,7 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
         tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
         trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
         protectedGitMetadata: context.options.protectedGitMetadata,
-        policy:
-          context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+        policy: context.options.policy,
       }),
   },
   {
@@ -105,8 +101,7 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
         protectedGitMetadata: context.options.protectedGitMetadata,
         derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
         envAssignments: context.envAssignments,
-        policy:
-          context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+        policy: context.options.policy,
         analyzeTokens: context.analyzeChildTokens,
         analyzeNested: (command, overrides) =>
           matchFromBlockResult(context.options.analyzeNested(command, overrides)),
@@ -165,7 +160,7 @@ export function gitAnalyzeOptions(context: AnalyzerRuleContext) {
     cwd: context.cwd,
     dynamicArguments: context.dynamicArguments,
     envAssignments: context.envAssignments,
-    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+    policy: context.options.policy,
     worktreeMode: context.options.worktreeMode,
   };
 }

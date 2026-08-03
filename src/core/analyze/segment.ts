@@ -11,12 +11,7 @@ import {
   analyzedViewWords,
   textCommandWords,
 } from '@/core/analyze/command-words';
-import {
-  DISPLAY_COMMANDS,
-  MAX_RECURSION_DEPTH,
-  MAX_STRIP_ITERATIONS,
-  SHELL_WRAPPERS,
-} from '@/core/analyze/constants';
+import { DISPLAY_COMMANDS, MAX_STRIP_ITERATIONS, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import {
   DerivedCommandWorkLimitError,
   EnvSplitStringExpansionError,
@@ -74,7 +69,7 @@ import {
 } from '@/core/destructive-command-rules';
 import { analyzeGitDetailed } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
-import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
+import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
@@ -97,10 +92,6 @@ export function analyzeSegment(
   options: InternalOptions,
 ): AnalyzeBlockResult | null {
   let trace = options.trace;
-  if (options.compatibility === 'explain-legacy' && depth >= MAX_RECURSION_DEPTH) {
-    trace?.recordSegment({ type: 'error', message: REASON_RECURSION_LIMIT });
-    return { reason: REASON_RECURSION_LIMIT, intent: 'stop_and_explain' };
-  }
   if (commandWords.length === 0) {
     return null;
   }
@@ -337,10 +328,7 @@ export function analyzeSegment(
         }),
       ),
     );
-    const awkReason =
-      options.compatibility === 'explain-legacy'
-        ? awkMatch
-        : filterDestructiveCommandMatch(awkMatch, options.policy);
+    const awkReason = filterDestructiveCommandMatch(awkMatch, options.policy);
     if (awkReason) {
       trace?.recordSegment({
         type: 'rule-check',
@@ -374,14 +362,10 @@ export function analyzeSegment(
         paranoidBlocked: paranoidInterpreterRuleEnabled,
       });
       if (paranoidInterpreterRuleEnabled) {
-        const interpreterMatch = destructiveCommandMatch(
-          'interpreter.one-liner-paranoid',
-          REASON_INTERPRETER_BLOCKED,
+        const match = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
+          options.policy,
         );
-        const match =
-          options.compatibility === 'explain-legacy'
-            ? interpreterMatch
-            : filterDestructiveCommandMatch(interpreterMatch, options.policy);
         if (match) return blockResultFromMatch(match);
       }
 
@@ -406,14 +390,10 @@ export function analyzeSegment(
       }
 
       if (containsDangerousCode(codeArg, options.scanWork)) {
-        const interpreterMatch = destructiveCommandMatch(
-          'interpreter.dangerous-command',
-          REASON_INTERPRETER_DANGEROUS,
+        const match = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+          options.policy,
         );
-        const match =
-          options.compatibility === 'explain-legacy'
-            ? interpreterMatch
-            : filterDestructiveCommandMatch(interpreterMatch, options.policy);
         if (match) {
           trace?.recordSegment({
             type: 'dangerous-text',
@@ -437,22 +417,17 @@ export function analyzeSegment(
       innerCommand: stripped.slice(1).join(' '),
       depth: depth + 1,
     });
-    return analyzeSegment(
-      words.slice(1),
-      depth + (options.compatibility === 'explain-legacy' ? 1 : 0),
-      {
-        ...normalizedOptions,
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments,
-      },
-    );
+    return analyzeSegment(words.slice(1), depth, {
+      ...normalizedOptions,
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments,
+    });
   }
 
-  const deviceMatch = analyzeDeviceCommandMatch(normalizedHead, stripped);
-  const filteredDeviceMatch =
-    options.compatibility === 'explain-legacy'
-      ? deviceMatch
-      : filterDestructiveCommandMatch(deviceMatch, options.policy);
+  const filteredDeviceMatch = filterDestructiveCommandMatch(
+    analyzeDeviceCommandMatch(normalizedHead, stripped),
+    options.policy,
+  );
   if (filteredDeviceMatch) {
     trace?.recordSegment({
       type: 'rule-check',
@@ -501,14 +476,10 @@ export function analyzeSegment(
     trace && normalizedHead === 'git'
       ? analyzeGitDetailed(commandContext.words, gitAnalyzeOptions(commandContext))
       : undefined;
-  const unfilteredCommandResult = gitDetail
-    ? gitDetail.match
-    : (commandAnalyzer?.(commandContext) ?? null);
-  const commandResult =
-    options.compatibility === 'explain-legacy' &&
-    unfilteredCommandResult?.id !== 'rm.recursive-force-dynamic-target'
-      ? unfilteredCommandResult
-      : filterBuiltInCommandMatch(unfilteredCommandResult, options.policy);
+  const commandResult = filterBuiltInCommandMatch(
+    gitDetail ? gitDetail.match : (commandAnalyzer?.(commandContext) ?? null),
+    options.policy,
+  );
   if (trace)
     recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
   if (commandResult) {
@@ -529,11 +500,10 @@ export function analyzeSegment(
         if (!token) continue;
         tokensScanned?.push(token);
 
-        const embeddedMatch = analyzeEmbeddedCommand(commandContext, stripped, i);
-        const match =
-          options.compatibility === 'explain-legacy'
-            ? embeddedMatch
-            : filterBuiltInCommandMatch(embeddedMatch, options.policy);
+        const match = filterBuiltInCommandMatch(
+          analyzeEmbeddedCommand(commandContext, stripped, i),
+          options.policy,
+        );
         if (match) {
           trace?.recordSegment({
             type: 'fallback-scan',
@@ -708,7 +678,7 @@ function analyzeEmbeddedCommand(
   const childCommands = normalizeChildCommands(tokens.slice(index), {
     cwd: context.cwd,
     envAssignments: context.envAssignments,
-    policy: context.options.compatibility === 'explain-legacy' ? undefined : context.options.policy,
+    policy: context.options.policy,
   });
 
   for (const childCommand of childCommands) {

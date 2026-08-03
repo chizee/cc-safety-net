@@ -13,7 +13,7 @@ type GoldenCase = {
   segments: Array<[number, TraceStep['type'][]]>;
 };
 
-const LEGACY_TRACE_GOLDENS: GoldenCase[] = [
+const TRACE_GOLDENS: GoldenCase[] = [
   {
     name: 'parse, rule, fallback, and custom checks',
     command: 'git status',
@@ -131,8 +131,8 @@ const LEGACY_TRACE_GOLDENS: GoldenCase[] = [
   },
 ];
 
-describe('legacy explain trace goldens', () => {
-  for (const golden of LEGACY_TRACE_GOLDENS) {
+describe('explain trace goldens', () => {
+  for (const golden of TRACE_GOLDENS) {
     test(golden.name, () => {
       const explained = explainCommand(golden.command, {
         strict: golden.strict,

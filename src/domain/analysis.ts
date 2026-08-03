@@ -1,4 +1,5 @@
 import type { ShellKind } from './command.js';
+import type { CommandTraceContext } from './command-trace.js';
 import type { BlockIntent } from './decision.js';
 import type { EffectiveSafetyCapabilities, PolicySnapshot } from './policy.js';
 
@@ -44,6 +45,10 @@ export interface AnalyzeOptions {
   worktreeMode?: boolean;
   /** Allow $TMPDIR paths (false when TMPDIR is overridden to non-temp) */
   allowTmpdirVar?: boolean;
+  /** Recorder that captures the analysis steps for `explain` */
+  trace?: CommandTraceContext;
+  /** Analyze programs with unclosed quotes instead of falling back to raw-text scanning */
+  analyzePartialProgram?: boolean;
 }
 
 export interface AnalyzeNestedOverrides {

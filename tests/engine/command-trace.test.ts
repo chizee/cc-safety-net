@@ -262,7 +262,7 @@ describe('command trace recorder', () => {
       store,
     );
 
-    expect(evaluation.analysis).toBeNull();
+    expect(evaluation.decision).toBeNull();
     expect(parseCount).toBe(2);
   });
 
@@ -282,7 +282,7 @@ describe('command trace recorder', () => {
       store,
     );
 
-    expect(evaluation.analysis).not.toBeNull();
+    expect(evaluation.decision).not.toBeNull();
     expect(parsedDialects).toEqual(['auto', 'posix']);
   });
 
@@ -294,10 +294,11 @@ describe('command trace recorder', () => {
       policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
     });
 
-    expect(evaluation.analysis).toEqual({
+    expect(evaluation.decision).toEqual({
+      kind: 'deny',
       reason: REASON_PARALLEL_ANALYSIS_LIMIT,
-      segment: command,
       intent: 'stop_and_explain',
+      evidence: [{ kind: 'command', command, segment: command }],
     });
     expect(evaluation.trace.terminal).toEqual({
       result: 'blocked',
@@ -347,12 +348,13 @@ describe('command trace recorder', () => {
       policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
     });
 
-    expect(evaluation.analysis).toEqual({
+    expect(evaluation.decision).toEqual({
+      kind: 'deny',
       reason: REASON_DERIVED_COMMAND_WORK_LIMIT,
-      segment: command,
       intent: 'stop_and_explain',
+      evidence: [{ kind: 'command', command, segment: command }],
     });
-    expect(evaluation.analysis?.reason).not.toContain(attackerSuffix);
+    expect(evaluation.decision?.reason).not.toContain(attackerSuffix);
     expect(evaluation.trace.terminal.result).toBe('blocked');
     if (evaluation.trace.terminal.result !== 'blocked') {
       throw new Error('expected a blocked trace terminal');

@@ -1,16 +1,16 @@
-import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
-import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
+import { analyzeCommandWithProgram } from '@/core/analyze';
 import { createSemanticFactStore } from '@/core/semantic-facts';
-import type { AnalyzeOptions, AnalyzeResult } from '@/domain/analysis';
+import type { AnalyzeOptions } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
+import type { Decision } from '@/domain/decision';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { projectSegmentWords } from '@/parser/traversal';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
 
 /** @internal */
 export type TracedCommandEvaluation = Readonly<{
-  analysis: AnalyzeResult | null;
+  decision: Extract<Decision, { kind: 'deny' }> | null;
   trace: CommandTrace;
   program: CommandProgram;
 }>;
@@ -38,32 +38,25 @@ export function evaluateCommandWithTrace(
     input: command,
     segments: segments.map((words) => [...words]),
   });
-  const analysis = analyzeCommandInternal(
+  const decision = analyzeCommandWithProgram(
     command,
-    0,
-    {
-      ...options,
-      ...resolveCommandAnalysisContext(options),
-      analyzePartialProgram: true,
-      compatibility: 'explain-legacy',
-      factStore,
-      trace,
-    },
+    { ...options, analyzePartialProgram: true, trace },
     program,
+    factStore,
   );
   const index = trace.getNextSegmentIndex();
-  if (analysis && index > 0 && index < segments.length) {
+  if (decision && index > 0 && index < segments.length) {
     trace.recordSegment({ type: 'segment-skipped', index, reason: 'prior-segment-blocked' }, index);
   }
   return Object.freeze({
-    analysis,
+    decision,
     trace: recorder.finish(
-      analysis
+      decision
         ? {
             result: 'blocked',
-            reason: analysis.reason,
-            segment: analysis.segment,
-            ...(analysis.ruleId ? { ruleId: analysis.ruleId } : {}),
+            reason: decision.reason,
+            segment: decision.evidence.find((item) => item.kind === 'command')?.segment ?? command,
+            ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
           }
         : { result: 'allowed' },
     ),
