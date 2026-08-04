@@ -89,6 +89,9 @@ export async function promptInstallTargets(
   const output = options.output ?? process.stdout;
   // Esc and Ctrl-C cancel the prompt on their own; q and u need this seam to close it.
   const abort = new AbortController();
+  const available = new Set(
+    choices.filter((choice) => choice.available).map((choice) => choice.target),
+  );
   let lastKey = '';
 
   const prompt = new MultiSelectPrompt<{ value: InstallTarget; disabled: boolean }>({
@@ -103,7 +106,11 @@ export async function promptInstallTargets(
       });
     },
     // Confirming nothing keeps the prompt open; the bell below is the whole feedback.
-    validate: (selected) => (selected?.length ? undefined : 'Select at least one integration'),
+    // Disabled rows stay toggleable when every row is disabled, so they never count here.
+    validate: (selected) =>
+      selected?.some((target) => available.has(target))
+        ? undefined
+        : 'Select at least one integration',
   });
 
   prompt.on('key', (char, key) => {

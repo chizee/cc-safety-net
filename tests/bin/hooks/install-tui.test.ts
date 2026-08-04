@@ -366,6 +366,18 @@ describe('install selection prompt', () => {
     );
   });
 
+  test('never confirms a disabled row when no integration is selectable', async () => {
+    const prompt = startInstallPrompt('uninstall', [
+      makeChoice('codex', 'Codex', false),
+      makeChoice('claude-code', 'Claude Code', false),
+    ]);
+
+    // The cursor parks on the disabled row 0; space then enter must not submit it.
+    prompt.press(' ', 'enter', 'q');
+
+    expect(await prompt.result).toBeNull();
+  });
+
   test('handles keyboard selection, empty confirm, ignored keys, and abort', async () => {
     const prompt = startInstallPrompt('install', [
       makeChoice('codex', 'Codex', true),
