@@ -23,7 +23,7 @@ import {
   userHasStarredRepo,
 } from '@/bin/gui';
 import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
-import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import { doctorIntegrationOrder, getIntegrationDisplayName } from '@/integrations/catalog';
 import { getUserPolicyPath } from '@/policy/store';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';

@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { redactSecrets } from '@/core/audit';
+import { redactSecrets } from '@/engine/audit';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
 import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from '../../scripts/integration-host-scripts';
 import { readAuditLogEntriesForSession } from '../helpers';

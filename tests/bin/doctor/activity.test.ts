@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getActivitySummary } from '@/bin/doctor/activity';
-import { writeAuditLog } from '@/core/audit';
+import { writeAuditLog } from '@/engine/audit';
 import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
 
 function createLogsDir(): string {

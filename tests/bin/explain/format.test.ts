@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { formatTraceHuman, formatTraceJson } from '@/bin/explain/index';
-import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
+import { REASON_SECRET_PROTECTION } from '@/guards/secret-protection';
 import type { TraceStep } from '@/ir/command-trace';
 import type { ExplainResult } from '@/ir/explain';
 import { testModes } from '../../helpers/policy';

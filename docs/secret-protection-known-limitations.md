@@ -112,7 +112,7 @@ stop retrying and report the block to the user.
 Diagnosis from inside the session is unavailable in this state:
 
 - `cc-safety-net status` is blocked. The analyzer's carve-out for the CLI
-  (`extractSafetyNetExplainPathTargets` in `src/core/secret-protection.ts`)
+  (`extractSafetyNetExplainPathTargets` in `src/guards/secret-protection.ts`)
   recognizes only the `explain` subcommand, and `status` was added after it, so
   the literal word `status` stays an ordinary operand and resolves to
   `<cwd>/status`.

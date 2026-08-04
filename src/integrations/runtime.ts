@@ -1,22 +1,22 @@
-import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
-import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
+import { PathCanonicalizationLimitError } from '@/analyzer/path-canonicalization';
 import {
   evaluateGuard,
   type GuardEvaluation,
   GuardEvaluationError,
   type GuardOptions,
 } from '@/engine/guard';
+import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
 import { projectGuardAudit, writeGuardAudit } from '@/integrations/audit';
 import type { AuditErrorCode, AuditFailureStage } from '@/ir/audit';
 import type { ToolInvocation } from '@/ir/invocation';
 import { ToolInputLimitError } from '@/parser/tool-input';
 
-export { firstTrustedRoot, isSameOrInsidePath, resolveContainedCwd } from '@/core/cwd-containment';
 export {
   createPathCanonicalizationBudget,
   PathCanonicalizationLimitError,
   resolveExistingPath,
-} from '@/core/path-canonicalization';
+} from '@/analyzer/path-canonicalization';
+export { firstTrustedRoot, isSameOrInsidePath, resolveContainedCwd } from '@/core/cwd-containment';
 export type {
   GuardDependencies,
   GuardEvaluation,

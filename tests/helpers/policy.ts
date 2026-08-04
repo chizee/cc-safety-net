@@ -1,5 +1,5 @@
-import { analyzeCommand } from '@/core/analyze';
-import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
+import { analyzeCommand } from '@/analyzer';
+import { resolveProtectedGitMetadata } from '@/guards/git-metadata-protection';
 import type { AnalyzeOptions, EnvironmentContext, ProtectedGitMetadata } from '@/ir/analysis';
 import type { ExplainOptions } from '@/ir/explain';
 import type {

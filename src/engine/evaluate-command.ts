@@ -1,5 +1,5 @@
-import { analyzeCommandWithProgram } from '@/core/analyze';
-import { createSemanticFactStore } from '@/core/semantic-facts';
+import { analyzeCommandWithProgram } from '@/analyzer';
+import { createSemanticFactStore } from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
 import type { CommandProgram } from '@/ir/command';
 import type { CommandTrace } from '@/ir/command-trace';

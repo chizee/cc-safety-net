@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { REASON_RECURSION_LIMIT } from '@/core/reasons';
+import { REASON_RECURSION_LIMIT } from '@/analyzer/reasons';
 import type { CommandProgram } from '@/ir/command';
 import { parseCommand } from '@/parser/command';
 import { analyzeTestCommand } from '../helpers/policy';

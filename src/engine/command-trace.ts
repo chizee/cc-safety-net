@@ -3,7 +3,7 @@ import {
   mightContainEnvAssignment,
   redactEnvAssignmentValues,
   redactNonAssignmentSecrets,
-} from '@/core/sanitize';
+} from '@/engine/sanitize';
 import type {
   CommandTrace,
   CommandTraceContext,

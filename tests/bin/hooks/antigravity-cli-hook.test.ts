@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
+import { PATH_CANONICALIZATION_LIMITS } from '@/analyzer/path-canonicalization';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
-import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
 import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession } from '../../helpers';
 import {

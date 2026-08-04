@@ -18,7 +18,7 @@ CC Safety Net's built-in secret protection (which blocks access to `.env` and ot
 
 **Result**: Initially worked, then blocked.
 
-The `extractCommandPathTargets` function in `src/core/secret-protection.ts` only checks file arguments for commands in a hardcoded whitelist:
+The `extractCommandPathTargets` function in `src/guards/secret-protection.ts` only checks file arguments for commands in a hardcoded whitelist:
 
 ```js
 const COMMAND_PATH_OPERANDS = new Set([

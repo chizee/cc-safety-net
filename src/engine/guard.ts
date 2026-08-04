@@ -1,28 +1,28 @@
-import { analyzeCommandWithProgram } from '@/core/analyze';
-import {
-  findGitMetadataMutationTargetInSemanticFacts,
-  REASON_GIT_METADATA_PROTECTION,
-  resolveProtectedGitMetadata,
-} from '@/core/git-metadata-protection';
-import {
-  findPolicyConfigMutationTargetInSemanticFacts,
-  REASON_POLICY_CONFIG_PROTECTION,
-} from '@/core/policy-protection';
+import { analyzeCommandWithProgram } from '@/analyzer';
 import {
   REASON_RECURSION_LIMIT,
   REASON_SAFETY_NET_FAILED_CLOSED,
   REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
-} from '@/core/reasons';
+} from '@/analyzer/reasons';
+import {
+  findGitMetadataMutationTargetInSemanticFacts,
+  REASON_GIT_METADATA_PROTECTION,
+  resolveProtectedGitMetadata,
+} from '@/guards/git-metadata-protection';
+import {
+  findPolicyConfigMutationTargetInSemanticFacts,
+  REASON_POLICY_CONFIG_PROTECTION,
+} from '@/guards/policy-protection';
 import {
   findSensitiveTargetInSemanticFacts,
   getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
-} from '@/core/secret-protection';
+} from '@/guards/secret-protection';
 import {
   createSemanticFacts,
   type FactParserDependencies,
   getCommandSyntaxFact,
-} from '@/core/semantic-facts';
+} from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
 import type { AuditFailureStage } from '@/ir/audit';
 import type { Decision } from '@/ir/decision';

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { REASON_RECURSION_LIMIT } from '@/core/reasons';
+import { REASON_RECURSION_LIMIT } from '@/analyzer/reasons';
 import {
   evaluateGuard,
   type GuardDependencies,

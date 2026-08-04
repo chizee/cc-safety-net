@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { REASON_GIT_METADATA_PROTECTION } from '@/core/git-metadata-protection';
-import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
-import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import { evaluateGuard, type GuardEvaluation, type GuardStage } from '@/engine/guard';
+import { REASON_GIT_METADATA_PROTECTION } from '@/guards/git-metadata-protection';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
+import { REASON_SECRET_PROTECTION } from '@/guards/secret-protection';
 import { projectGuardAudit } from '@/integrations/audit';
 import { formatDenial, projectGuardDenial } from '@/integrations/denial';
 import type { ToolInvocation } from '@/ir/invocation';

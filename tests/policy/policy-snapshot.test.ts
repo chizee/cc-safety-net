@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
+import { analyzeCommand } from '@/analyzer';
 import { loadPolicySnapshot } from '@/policy/snapshot';
 import {
   getProjectRulesConfigPath,

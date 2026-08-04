@@ -16,7 +16,10 @@ import {
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/rules/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/rules/secret-protection-rules';
 
-import { clampAuditRetentionDays, DEFAULT_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
+import {
+  clampAuditRetentionDays,
+  DEFAULT_AUDIT_RETENTION_DAYS,
+} from '@/engine/audit-retention-days';
 import type {
   DestructiveCommandRuleOverride,
   EffectiveDestructiveCommandRuleState,

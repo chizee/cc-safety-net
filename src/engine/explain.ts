@@ -5,24 +5,24 @@
  */
 
 import { resolve } from 'node:path';
-import { analyzeCommand } from '@/core/analyze';
-import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
+import { analyzeCommand } from '@/analyzer';
+import { resolveCommandAnalysisContext } from '@/analyzer/policy-context';
+import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
+import { sanitizeDiagnosticText } from '@/engine/sanitize';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
   REASON_GIT_METADATA_PROTECTION,
   resolveProtectedGitMetadata,
-} from '@/core/git-metadata-protection';
+} from '@/guards/git-metadata-protection';
 import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
-} from '@/core/policy-protection';
-import { sanitizeDiagnosticText } from '@/core/sanitize';
+} from '@/guards/policy-protection';
 import {
   findSensitiveTargetInSemanticFacts,
   REASON_SECRET_PROTECTION,
-} from '@/core/secret-protection';
-import { createSemanticFacts } from '@/core/semantic-facts';
-import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
+} from '@/guards/secret-protection';
+import { createSemanticFacts } from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
 import type { CommandTrace } from '@/ir/command-trace';
 import { createProcessEnvironment } from '@/ir/environment';

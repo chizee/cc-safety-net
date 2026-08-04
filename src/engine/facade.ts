@@ -9,15 +9,15 @@
  * named exceptions in that test.
  */
 
-export { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
-export { getAuditLogHomeDir, getAuditLogsDir } from '@/core/audit';
-export { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/core/audit-retention';
+export { isReservedTransparentWrapper } from '@/analyzer/transparent-wrappers';
+export { getAuditLogHomeDir, getAuditLogsDir } from '@/engine/audit';
+export { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/engine/audit-retention';
 export {
   commandSignature,
   findSuspectEntries,
   listAuditLogFiles,
   readAuditLogEntries,
-} from '@/core/audit-scan';
+} from '@/engine/audit-scan';
 export { explainCommand } from '@/engine/explain';
 export {
   ENV_FLAGS,

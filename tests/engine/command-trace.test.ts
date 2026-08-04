@@ -1,12 +1,12 @@
 import { describe, expect, spyOn, test } from 'bun:test';
+import { analyzeCommand } from '@/analyzer';
+import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/analyzer/derived-command-budget';
+import * as gitAnalysis from '@/analyzer/git';
+import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/analyzer/parallel-budget';
 import { explainCommand } from '@/bin/explain';
-import { analyzeCommand } from '@/core/analyze';
-import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/analyze/derived-command-budget';
-import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/core/analyze/parallel-budget';
-import * as gitAnalysis from '@/core/git';
-import { createSemanticFactStore } from '@/core/semantic-facts';
 import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
+import { createSemanticFactStore } from '@/guards/semantic-facts';
 import type { CommandTraceTerminal } from '@/ir/command-trace';
 import { parseCommand } from '@/parser/command';
 import { TEST_ENVIRONMENT } from '../helpers/environment';

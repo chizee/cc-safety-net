@@ -1,4 +1,4 @@
-import { writeAuditLog } from '@/core/audit';
+import { writeAuditLog } from '@/engine/audit';
 import type { IntegrationDenial } from '@/integrations/denial';
 import type { AuditErrorCode, AuditFailureStage } from '@/ir/audit';
 import type { BlockIntent, Decision } from '@/ir/decision';

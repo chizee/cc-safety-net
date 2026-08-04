@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
+import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/analyzer/reasons';
 import type { GuardEvaluation } from '@/engine/guard';
 import { createFailedClosedDenial, formatDenial, projectGuardDenial } from '@/integrations/denial';
 

@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeAuditLog } from '@/core/audit';
+import { writeAuditLog } from '@/engine/audit';
 import type { AuditLogEntry } from '@/ir/audit';
 import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
 import { captureLogsCommand } from '../../helpers/logs';

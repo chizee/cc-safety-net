@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import {
   PATH_CANONICALIZATION_LIMITS,
   PathCanonicalizationLimitError,
-} from '@/core/path-canonicalization';
+} from '@/analyzer/path-canonicalization';
 import type { GuardDependencies } from '@/engine/guard';
 import { CCSafetyNetPlugin } from '@/index';
 import {

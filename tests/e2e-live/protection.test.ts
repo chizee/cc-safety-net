@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listAuditLogFiles } from '@/core/audit-scan';
+import { listAuditLogFiles } from '@/engine/audit-scan';
 import type { AuditLogEntry } from '@/ir/audit';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
 

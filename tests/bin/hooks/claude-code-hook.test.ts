@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { listAuditLogFiles } from '@/core/audit-scan';
-import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
+import { PATH_CANONICALIZATION_LIMITS } from '@/analyzer/path-canonicalization';
+import { listAuditLogFiles } from '@/engine/audit-scan';
 import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry } from '../../helpers';
 import {

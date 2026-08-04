@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
-import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
-import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
+import { isReservedTransparentWrapper } from '@/analyzer/transparent-wrappers';
+import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/engine/audit-retention-days';
 import { BLOCK_INTENTS } from '@/ir/decision';
 import { processHomeDir } from '@/ir/environment';
 import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/policy/allow-paths';

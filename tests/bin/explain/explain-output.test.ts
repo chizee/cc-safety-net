@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { analyzeCommand } from '@/analyzer';
 import { explainCommand, formatTraceHuman } from '@/bin/explain';
-import { analyzeCommand } from '@/core/analyze';
-import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
+import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import type { TraceStep } from '@/ir/command-trace';
 import type { ExplainResult } from '@/ir/explain';
 import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';

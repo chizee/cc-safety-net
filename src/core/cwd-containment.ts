@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { isUnsupportedWindowsNamespacePath } from '@/core/path';
+import { isUnsupportedWindowsNamespacePath } from '@/analyzer/path';
 
 export function resolveContainedCwd(
   requestedCwd: string,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { REASON_RECURSION_LIMIT } from '@/core/reasons';
+import { REASON_RECURSION_LIMIT } from '@/analyzer/reasons';
 
 describe('packaged structural command limits', () => {
   test('denies an exact one-MiB command through the built Coding CLI hook', () => {
