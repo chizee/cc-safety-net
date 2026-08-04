@@ -1,6 +1,6 @@
-import type { AnalyzeOptions } from '@/domain/analysis';
-import type { ShellKind } from '@/domain/command';
-import type { BlockIntent } from '@/domain/decision';
+import type { AnalyzeOptions } from '@/ir/analysis';
+import type { ShellKind } from '@/ir/command';
+import type { BlockIntent } from '@/ir/decision';
 import { policySnapshot, type TestPolicyInput } from '../../helpers/policy';
 
 export interface BehavioralContractCase {

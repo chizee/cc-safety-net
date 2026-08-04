@@ -2,13 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse } from 'node:path';
-import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   PATH_CANONICALIZATION_LIMITS,
   PathCanonicalizationLimitError,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
+import { processPathResolver } from '@/ir/environment';
 
 describe('path canonicalization', () => {
   test('preserves empty, existing, and terminal-root paths', () => {

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext } from '@/ir/analysis';
 import { testEnvironment } from '../helpers/environment';
 import {
   analyzeTestCommand as analyzeCommand,

@@ -3,8 +3,8 @@
  */
 
 import { colorizeToken } from '@/bin/utils/colors';
-import type { TraceStep } from '@/domain/command-trace';
 import { ENV_FLAGS } from '@/engine/facade';
+import type { TraceStep } from '@/ir/command-trace';
 
 /**
  * Box drawing characters for formatting

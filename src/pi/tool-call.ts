@@ -1,9 +1,4 @@
-import type { PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { resolveContainedCwd } from '@/core/cwd-containment';
-import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
-import { getNonCommandToolInputKind } from '@/core/tool-input';
-import type { CommandToolKind, ToolInvocation } from '@/domain/invocation';
-import { createToolInvocation } from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
@@ -17,6 +12,11 @@ import {
   type GuardDependencies,
   GuardEvaluationError,
 } from '@/integrations/runtime';
+import type { CommandToolKind, ToolInvocation } from '@/ir/invocation';
+import { createToolInvocation } from '@/ir/invocation';
+import { getNonCommandToolInputKind } from '@/parser/tool-input';
+import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/policy/env';
+import type { PolicySnapshotOptions } from '@/policy/snapshot';
 
 type PiApi = {
   on: (

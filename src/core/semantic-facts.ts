@@ -1,13 +1,7 @@
-import { createProcessEnvironment } from '@/core/environment';
 import { expandSupportedPathEnvironmentVariables } from '@/core/path-canonicalization';
-import { projectShellSyntax } from '@/core/shell/entry-projection';
-import {
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  getCommandFromToolInput,
-} from '@/core/tool-input';
-import type { CommandProgram, CommandView, ShellKind } from '@/domain/command';
-import type { ToolInvocation } from '@/domain/invocation';
+import type { CommandProgram, CommandView, ShellKind } from '@/ir/command';
+import { createProcessEnvironment } from '@/ir/environment';
+import type { ToolInvocation } from '@/ir/invocation';
 import type {
   CommandFactUsage,
   CommandSyntaxFacts,
@@ -16,8 +10,14 @@ import type {
   SemanticFacts,
   ShellSyntaxEntry,
   ShellSyntaxFacts,
-} from '@/domain/semantic-facts';
+} from '@/ir/semantic-facts';
 import { parseCommand } from '@/parser/command';
+import { projectShellSyntax } from '@/parser/shell/entry-projection';
+import {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
+} from '@/parser/tool-input';
 
 const PATH_LIKE_KEYS = new Set([
   'absolutepath',

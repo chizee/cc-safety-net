@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import { resolveExistingPath } from '@/core/path-canonicalization';
-import type { PathResolver } from '@/domain/analysis';
+import type { PathResolver } from '@/ir/analysis';
 
 /** @internal */
 export const MAX_TRACKED_HEREDOC_FILES = 64;

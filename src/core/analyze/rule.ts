@@ -12,9 +12,9 @@ import type {
   AnalyzeNestedOverrides,
   AnalyzeResult,
   DestructiveCommandRuleMatch,
-} from '@/domain/analysis';
-import type { CommandView, CommandWord } from '@/domain/command';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandView, CommandWord } from '@/ir/command';
+import type { EffectivePolicy } from '@/ir/policy';
 
 export type InternalOptions = AnalyzeInput & {
   policy: EffectivePolicy;

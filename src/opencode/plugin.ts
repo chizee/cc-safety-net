@@ -1,9 +1,6 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
-import { shouldRecordAllowedCommands } from '@/core/env';
-import * as toolRouting from '@/core/tool-input';
-import * as invocationDomain from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
@@ -12,7 +9,10 @@ import {
   projectGuardDenial,
 } from '@/integrations/denial';
 import * as guardEngine from '@/integrations/runtime';
+import * as invocationDomain from '@/ir/invocation';
 import { loadBuiltinCommands } from '@/opencode/builtin-commands/index';
+import * as toolRouting from '@/parser/tool-input';
+import { shouldRecordAllowedCommands } from '@/policy/env';
 
 type CCSafetyNetPluginInput = PluginInput & {
   homeDir?: string;

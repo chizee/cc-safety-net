@@ -11,7 +11,7 @@ import {
   PARALLEL_ANALYSIS_LIMITS,
   REASON_PARALLEL_ANALYSIS_LIMIT,
 } from '@/core/analyze/parallel-budget';
-import type { CommandTraceContext, CommandTraceEvent } from '@/domain/command-trace';
+import type { CommandTraceContext, CommandTraceEvent } from '@/ir/command-trace';
 import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment';
 import {
   analyzeTestCommand,

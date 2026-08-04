@@ -1,6 +1,6 @@
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import { extractShortOpts } from '@/core/shell';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
+import { extractShortOpts } from '@/parser/shell';
+import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
 import { extractGitSubcommandAndRest, splitAtDoubleDash } from './parse';
 
 const REASON_CHECKOUT_DOUBLE_DASH =

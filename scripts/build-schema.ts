@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import * as z from 'zod';
-import { getRulesConfigSchema } from '../src/config/schema';
+import { getRulesConfigSchema } from '../src/policy/schema';
 
 const SCHEMA_OUTPUT_PATH = 'assets/cc-safety-net.schema.json';
 

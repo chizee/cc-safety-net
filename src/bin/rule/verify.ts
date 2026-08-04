@@ -5,7 +5,7 @@ import {
   type ValidationResult,
   validateConfigFile,
   validateRulesConfigFile,
-} from '@/core/config';
+} from '@/rules/config';
 import {
   getLegacyUserRulesConfigPath,
   getProjectRulesConfigPath,
@@ -15,7 +15,7 @@ import {
   getUserRulesConfigPath,
   getUserRulesLockPath,
   RULES_DIR,
-} from '@/core/rules/policy';
+} from '@/rules/policy';
 import {
   bindDelegatedPolicyFilesystemTarget,
   getPolicyFilesystemTargetForPath,
@@ -24,10 +24,10 @@ import {
   readPolicyDirectoryEntries,
   readPolicyFile,
   writePolicyFileAtomic,
-} from '@/core/rules/policy/filesystem';
-import { getPolicyPaths } from '@/core/rules/policy/paths';
-import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
-import { assertValidRulebook } from '@/core/rules/rulebook';
+} from '@/rules/policy/filesystem';
+import { getPolicyPaths } from '@/rules/policy/paths';
+import { NAME_PATTERN } from '@/rules/policy/source-syntax';
+import { assertValidRulebook } from '@/rules/rulebook';
 
 const VERIFY_HEADER = 'CC Safety Net Config';
 const VERIFY_SEPARATOR = '═'.repeat(VERIFY_HEADER.length);

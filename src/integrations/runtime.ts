@@ -1,8 +1,5 @@
 import { PathCanonicalizationLimitError } from '@/core/path-canonicalization';
 import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
-import { ToolInputLimitError } from '@/core/tool-input';
-import type { AuditErrorCode, AuditFailureStage } from '@/domain/audit';
-import type { ToolInvocation } from '@/domain/invocation';
 import {
   evaluateGuard,
   type GuardEvaluation,
@@ -10,28 +7,31 @@ import {
   type GuardOptions,
 } from '@/engine/guard';
 import { projectGuardAudit, writeGuardAudit } from '@/integrations/audit';
+import type { AuditErrorCode, AuditFailureStage } from '@/ir/audit';
+import type { ToolInvocation } from '@/ir/invocation';
+import { ToolInputLimitError } from '@/parser/tool-input';
 
 export { firstTrustedRoot, isSameOrInsidePath, resolveContainedCwd } from '@/core/cwd-containment';
-export { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
-export { processPathResolver } from '@/core/environment';
 export {
   createPathCanonicalizationBudget,
   PathCanonicalizationLimitError,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
-export {
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  getCommandFromToolInput,
-  getNonCommandToolInputKind,
-  ToolInputLimitError,
-} from '@/core/tool-input';
 export type {
   GuardDependencies,
   GuardEvaluation,
   GuardStage,
 } from '@/engine/guard';
 export { GuardEvaluationError } from '@/engine/guard';
+export { processPathResolver } from '@/ir/environment';
+export {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
+  getNonCommandToolInputKind,
+  ToolInputLimitError,
+} from '@/parser/tool-input';
+export { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/policy/env';
 
 type RuntimeAuditOptions = {
   agent: string;

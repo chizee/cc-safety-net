@@ -23,9 +23,9 @@ import {
   userHasStarredRepo,
 } from '@/bin/gui';
 import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
-import { getUserPolicyPath } from '@/core/policy';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { doctorIntegrationOrder, getIntegrationDisplayName } from '@/integrations/catalog';
+import { getUserPolicyPath } from '@/policy/store';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
 import { syncInitialGitRulebook } from '../helpers/rulebook';
 

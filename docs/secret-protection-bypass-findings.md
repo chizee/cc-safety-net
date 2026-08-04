@@ -96,7 +96,7 @@ This check is independent of the command-parsing pathway and uses `findSensitive
 
 ## Sensitive Path Matching Logic
 
-**File**: `src/core/secret-protection-rules.ts`
+**File**: `src/rules/secret-protection-rules.ts`
 
 The `.env` file is blocked by the `secret.basename.env` rule:
 

@@ -5,7 +5,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { CLAUDE_CODE_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/domain/invocation';
+import type { CommandToolKind } from '@/ir/invocation';
 
 /** Claude Code hook input format */
 interface HookInput {

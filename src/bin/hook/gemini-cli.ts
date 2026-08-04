@@ -4,7 +4,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { GEMINI_CLI_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/domain/invocation';
+import type { CommandToolKind } from '@/ir/invocation';
 
 /** Gemini CLI hook input format */
 interface GeminiHookInput {

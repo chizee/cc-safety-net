@@ -8,9 +8,9 @@ import {
   type FactParserDependencies,
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
-import { projectShellSyntax } from '@/core/shell/entry-projection';
-import type { ShellKind } from '@/domain/command';
+import type { ShellKind } from '@/ir/command';
 import { parseCommand } from '@/parser/command';
+import { projectShellSyntax } from '@/parser/shell/entry-projection';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot, testModes } from '../helpers/policy';
 

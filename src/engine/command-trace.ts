@@ -9,7 +9,7 @@ import type {
   CommandTraceContext,
   CommandTraceEvent,
   CommandTraceTerminal,
-} from '@/domain/command-trace';
+} from '@/ir/command-trace';
 
 type RecorderOptions = {
   maxEvents?: number;

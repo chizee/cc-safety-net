@@ -1,5 +1,5 @@
 import { chargeScan } from '@/core/analyze/text-scanner';
-import type { CommandNode, CommandProgram, CommandView, CommandWord } from '@/domain/command';
+import type { CommandNode, CommandProgram, CommandView, CommandWord } from '@/ir/command';
 
 const ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 

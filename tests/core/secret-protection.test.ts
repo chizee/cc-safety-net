@@ -13,14 +13,14 @@ import {
   findSensitiveTargetInToolInput as findSensitiveTargetWithRoute,
   getCommandFromToolInput,
 } from '@/core/secret-protection';
+import type { ToolRoute } from '@/ir/invocation';
+import type { SecretProtectionConfig } from '@/ir/policy';
+import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
 import {
   SECRET_CODING_CLI_RULES,
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
-} from '@/core/secret-protection-rules';
-import { getNonCommandToolInputKind, normalizeToolName } from '@/core/tool-input';
-import type { ToolRoute } from '@/domain/invocation';
-import type { SecretProtectionConfig } from '@/domain/policy';
+} from '@/rules/secret-protection-rules';
 import { withEnv } from '../helpers.ts';
 
 const COMMAND_TOOL_NAMES = new Set([

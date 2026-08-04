@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { ENV_FLAGS } from '@/core/env';
 import { runIntegrationSelfTest } from '@/integrations/self-test';
+import { ENV_FLAGS } from '@/policy/env';
 
 describe('integration self-test', () => {
   test('uses the canonical fixed cases and ignores ambient safety modes', () => {

@@ -10,9 +10,9 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { clampAuditRetentionDays, DEFAULT_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
-import { getUserRulesDir, POLICY_FILE } from '@/core/rules/policy/paths';
-import type { RulesPolicyOptions } from '@/core/rules/policy/types';
-import type { AuditLogEntry } from '@/domain/audit';
+import type { AuditLogEntry } from '@/ir/audit';
+import { getUserRulesDir, POLICY_FILE } from '@/rules/policy/paths';
+import type { RulesPolicyOptions } from '@/rules/policy/types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /**

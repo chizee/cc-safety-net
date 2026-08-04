@@ -6,8 +6,6 @@ import {
   PATH_CANONICALIZATION_LIMITS,
   PathCanonicalizationLimitError,
 } from '@/core/path-canonicalization';
-import { getUserPolicyPath } from '@/core/policy';
-import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
 import type { GuardDependencies } from '@/engine/guard';
 import { CCSafetyNetPlugin } from '@/index';
 import {
@@ -15,6 +13,8 @@ import {
   normalizeOpenCodeWindowsWorkdir,
   resolveOpenCodeShellRoute,
 } from '@/opencode/plugin';
+import { getUserPolicyPath } from '@/policy/store';
+import { syncRulesConfig, writeDefaultRulesConfig } from '@/rules/policy';
 import {
   createLinkedWorktreeFixture,
   readAuditLogEntriesForSession,

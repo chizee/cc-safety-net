@@ -3,11 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listAuditLogFiles } from '@/core/audit-scan';
 import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
-import {
-  syncRulesConfig,
-  writeDefaultRulesConfig,
-  writeStarterRulebook,
-} from '@/core/rules/policy';
+import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry } from '../../helpers';
 import {
   claudeCodeBashInput,

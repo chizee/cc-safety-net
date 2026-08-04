@@ -9,8 +9,8 @@ import { runConfiguredHookAdapter } from '@/bin/hook/common';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
-import { getUserPolicyPath } from '@/core/policy';
-import { writeDefaultRulesConfig } from '@/core/rules/policy';
+import { getUserPolicyPath } from '@/policy/store';
+import { writeDefaultRulesConfig } from '@/rules/policy';
 import { readLatestAuditLogEntry, writeLockedGitHubRulebookPolicy } from '../../helpers';
 import {
   antigravityShellInput,

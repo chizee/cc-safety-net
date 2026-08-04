@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createToolInvocation } from '@/domain/invocation';
 import {
   projectGuardAudit,
   writeGuardAudit,
   writeIntegrationDenialAudit,
 } from '@/integrations/audit';
+import { createToolInvocation } from '@/ir/invocation';
 import { readLatestAuditLogEntry, withTempDir } from '../helpers';
 
 const AUDIT = {

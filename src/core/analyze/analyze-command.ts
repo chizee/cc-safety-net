@@ -1,5 +1,4 @@
 import { analysisWordText, analyzedViewWords } from '@/core/analyze/command-words';
-import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { isDataOnlyQuotedAssignment } from '@/core/analyze/deferred-assignment';
 import {
@@ -40,13 +39,7 @@ import {
 } from '@/core/analyze/shell-git-env';
 import { isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { stripWrapperWords } from '@/core/analyze/wrapper-prelude';
-import {
-  destructiveCommandMatch,
-  destructiveCommandRuleIsEnabled,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type {
   AnalyzeInput,
   AnalyzeNestedOverrides,
@@ -54,17 +47,19 @@ import type {
   DestructiveCommandRuleMatch,
   EnvironmentContext,
   PathResolver,
-} from '@/domain/analysis';
-import type {
-  CommandProgram,
-  CommandRedirection,
-  CommandView,
-  CommandWord,
-} from '@/domain/command';
-import type { CommandTraceContext } from '@/domain/command-trace';
-import type { CommandAnalysisPolicy } from '@/domain/policy';
-import type { SemanticFactStore } from '@/domain/semantic-facts';
+} from '@/ir/analysis';
+import type { CommandProgram, CommandRedirection, CommandView, CommandWord } from '@/ir/command';
+import type { CommandTraceContext } from '@/ir/command-trace';
+import type { CommandAnalysisPolicy } from '@/ir/policy';
+import type { SemanticFactStore } from '@/ir/semantic-facts';
 import { parseCommand } from '@/parser/command';
+import { getBasename, normalizeCommandToken } from '@/parser/shell';
+import { MAX_RECURSION_DEPTH, SHELL_WRAPPERS } from '@/rules/constants';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 export type InternalOptions = AnalyzeInput & {
   policy: CommandAnalysisPolicy;

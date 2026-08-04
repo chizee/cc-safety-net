@@ -1,5 +1,5 @@
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
+import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
 
 const REASON_DD_DEVICE_WRITE =
   'dd writing to a /dev device can destroy a disk or partition. Run device writes manually after confirming the target.';

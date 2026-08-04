@@ -6,10 +6,6 @@ import {
   type RecursiveDeleteTargetContext,
 } from '@/core/analyze/recursive-delete-targets';
 import {
-  destructiveCommandMatch,
-  destructiveCommandRuleIsEnabled,
-} from '@/core/destructive-command-rules';
-import {
   isProtectedGitDeleteTarget,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
@@ -18,9 +14,13 @@ import type {
   DestructiveCommandRuleMatch,
   EnvironmentContext,
   ProtectedGitMetadata,
-} from '@/domain/analysis';
-import type { CommandView } from '@/domain/command';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandView } from '@/ir/command';
+import type { EffectivePolicy } from '@/ir/policy';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+} from '@/rules/destructive-command-rules';
 
 type PowerShellToken = {
   kind: 'word';

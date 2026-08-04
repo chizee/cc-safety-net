@@ -1,4 +1,4 @@
-import { getBasename } from '@/core/shell/command';
+import { getBasename } from '@/parser/shell/command';
 
 const SHELL_SHORT_VALUE_OPTIONS: Readonly<Record<string, readonly string[]>> = {
   bash: ['O', 'o'],

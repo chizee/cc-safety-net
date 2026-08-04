@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, parse, relative } from 'node:path';
-import { getUserPolicyPath } from '@/core/policy';
 import { findPolicyConfigMutationTargetInToolInput as findPolicyMutationWithRoute } from '@/core/policy-protection';
+import type { ToolRoute } from '@/ir/invocation';
+import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
+import { getUserPolicyPath } from '@/policy/store';
 import {
   getProjectRulesConfigPath,
   getProjectRulesLockPath,
   getUserRulesConfigPath,
   getUserRulesLockPath,
-} from '@/core/rules/policy/paths';
-import { getNonCommandToolInputKind, normalizeToolName } from '@/core/tool-input';
-import type { ToolRoute } from '@/domain/invocation';
+} from '@/rules/policy/paths';
 import { withEnv } from '../helpers';
 
 const COMMAND_TOOL_NAMES = new Set([

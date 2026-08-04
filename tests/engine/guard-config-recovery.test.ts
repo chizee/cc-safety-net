@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { REASON_GIT_METADATA_PROTECTION } from '@/core/git-metadata-protection';
-import { getUserPolicyPath } from '@/core/policy';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
+import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
+import { evaluateGuard, type GuardEvaluation, type GuardStage } from '@/engine/guard';
+import { projectGuardAudit } from '@/integrations/audit';
+import { formatDenial, projectGuardDenial } from '@/integrations/denial';
+import type { ToolInvocation } from '@/ir/invocation';
+import { loadPolicySnapshot } from '@/policy/snapshot';
+import { getUserPolicyPath } from '@/policy/store';
 import {
   getProjectRulesConfigPath,
   getProjectRulesDir,
@@ -13,12 +18,7 @@ import {
   syncRulesConfig,
   writeDefaultRulesConfig,
   writeStarterRulebook,
-} from '@/core/rules/policy';
-import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
-import type { ToolInvocation } from '@/domain/invocation';
-import { evaluateGuard, type GuardEvaluation, type GuardStage } from '@/engine/guard';
-import { projectGuardAudit } from '@/integrations/audit';
-import { formatDenial, projectGuardDenial } from '@/integrations/denial';
+} from '@/rules/policy';
 import { withTempDir } from '../helpers';
 
 /**

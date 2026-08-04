@@ -5,8 +5,8 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { ActivitySummary } from '@/bin/doctor/types';
-import type { AuditLogEntry } from '@/domain/audit';
 import { getAuditLogsDir, listAuditLogFiles, pruneExpiredAuditLogs } from '@/engine/facade';
+import type { AuditLogEntry } from '@/ir/audit';
 
 function formatRelativeTime(date: Date): string {
   const diff = Date.now() - date.getTime();

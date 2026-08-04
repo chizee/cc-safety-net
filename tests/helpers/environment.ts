@@ -1,6 +1,6 @@
 import { homedir, tmpdir } from 'node:os';
-import { processPathResolver } from '@/core/environment';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext } from '@/ir/analysis';
+import { processPathResolver } from '@/ir/environment';
 
 /**
  * Process state for analysis tests: an empty env map, so developer-machine variables

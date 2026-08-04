@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { explainCommand } from '@/bin/explain';
-import type { TraceStep } from '@/domain/command-trace';
+import type { TraceStep } from '@/ir/command-trace';
 import { policySnapshot, type TestPolicyInput } from '../../helpers/policy';
 
 type GoldenCase = {

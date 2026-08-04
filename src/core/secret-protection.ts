@@ -3,12 +3,23 @@ import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
+import {
+  createSemanticFacts,
+  getCommandSyntaxFact,
+  projectSensitiveShellText,
+  StructuralShellSyntaxLimitError,
+} from '@/core/semantic-facts';
+import { processPathResolver } from '@/ir/environment';
+import { createToolInvocation, type ToolRoute } from '@/ir/invocation';
+import type { SecretProtectionConfig } from '@/ir/policy';
+import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
+import { getShellCommandString } from '@/parser/shell';
+import { advanceQuoteScanState } from '@/parser/shell/shared';
 import {
   SECRET_BASENAME_RULES,
   SECRET_BROAD_SSH_KEY_BASENAME_RULE,
@@ -19,20 +30,9 @@ import {
   SECRET_HOME_PATH_RULES,
   SECRET_VARIANT_DOT_SUFFIX_RULES,
   SECRET_VARIANT_SEPARATOR_RULES,
-} from '@/core/secret-protection-rules';
-import {
-  createSemanticFacts,
-  getCommandSyntaxFact,
-  projectSensitiveShellText,
-  StructuralShellSyntaxLimitError,
-} from '@/core/semantic-facts';
-import { getShellCommandString } from '@/core/shell';
-import { advanceQuoteScanState } from '@/core/shell/shared';
-import { createToolInvocation, type ToolRoute } from '@/domain/invocation';
-import type { SecretProtectionConfig } from '@/domain/policy';
-import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
+} from '@/rules/secret-protection-rules';
 
-export { getCommandFromToolInput } from '@/core/tool-input';
+export { getCommandFromToolInput } from '@/parser/tool-input';
 
 export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
 

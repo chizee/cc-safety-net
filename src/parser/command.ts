@@ -1,4 +1,4 @@
-import type { CommandParserLimits, CommandProgram, ShellKind } from '@/domain/command';
+import type { CommandParserLimits, CommandProgram, ShellKind } from '@/ir/command';
 import { parsePosixCommand } from './posix';
 import { parsePowerShellCommand, shouldUsePowerShellParser } from './powershell';
 

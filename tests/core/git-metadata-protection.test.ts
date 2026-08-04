@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { getUserPolicyPath } from '@/core/policy';
-import type { ToolInvocation } from '@/domain/invocation';
 import { evaluateGuard } from '@/engine/guard';
+import type { ToolInvocation } from '@/ir/invocation';
+import { getUserPolicyPath } from '@/policy/store';
 import { analyzeTestCommand, policySnapshot, type TestPolicyInput } from '../helpers/policy.ts';
 import { createLinkedWorktreeFixture, createSubmoduleLikeGitFileFixture } from '../helpers.ts';
 

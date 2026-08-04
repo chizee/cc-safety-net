@@ -1,10 +1,10 @@
 import { isAbsolute, parse as parsePath } from 'node:path';
 import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
-import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { parseGitContextAppendEnvAssignment } from '@/core/git/env';
 import { resolveChdirTarget } from '@/core/path';
-import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
+import type { EnvironmentContext, PathResolver } from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
+import { MAX_STRIP_ITERATIONS } from '@/rules/constants';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/;

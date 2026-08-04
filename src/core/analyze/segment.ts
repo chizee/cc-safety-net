@@ -10,7 +10,6 @@ import {
   analyzedViewWords,
   textCommandWords,
 } from '@/core/analyze/command-words';
-import { DISPLAY_COMMANDS, MAX_STRIP_ITERATIONS, SHELL_WRAPPERS } from '@/core/analyze/constants';
 import {
   DerivedCommandWorkLimitError,
   EnvSplitStringExpansionError,
@@ -61,26 +60,27 @@ import {
   stripWrappers,
   stripWrapperWords,
 } from '@/core/analyze/wrapper-prelude';
-import {
-  destructiveCommandMatch,
-  destructiveCommandRuleIsEnabled,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
 import { analyzeGitDetailed } from '@/core/git';
 import { resolveChdirTarget } from '@/core/path';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import { getBasename, normalizeCommandToken } from '@/core/shell';
-import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type {
   AnalyzeResult,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
   PathResolver,
-} from '@/domain/analysis';
-import type { CommandView, CommandWord } from '@/domain/command';
-import type { CommandTraceContext } from '@/domain/command-trace';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandView, CommandWord } from '@/ir/command';
+import type { CommandTraceContext } from '@/ir/command-trace';
+import type { EffectivePolicy } from '@/ir/policy';
+import { getBasename, normalizeCommandToken } from '@/parser/shell';
+import { hasUnclosedQuotes } from '@/parser/shell/shared';
+import { DISPLAY_COMMANDS, MAX_STRIP_ITERATIONS, SHELL_WRAPPERS } from '@/rules/constants';
+import { checkPolicyRuleMatch } from '@/rules/custom';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
 

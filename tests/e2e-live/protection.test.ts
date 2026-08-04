@@ -12,7 +12,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listAuditLogFiles } from '@/core/audit-scan';
-import type { AuditLogEntry } from '@/domain/audit';
+import type { AuditLogEntry } from '@/ir/audit';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
 
 // Live tests drive real agent binaries and spend real usage, so they are

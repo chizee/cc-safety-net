@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, toNamespacedPath } from 'node:path';
-import { getUserPolicyPath } from '@/core/policy';
-import { syncRulesConfig, writeDefaultRulesConfig } from '@/core/rules/policy';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeOptions } from '@/ir/analysis';
 import { createPiToolCallHandler, handlePiToolCall } from '@/pi/tool-call';
+import { getUserPolicyPath } from '@/policy/store';
+import { syncRulesConfig, writeDefaultRulesConfig } from '@/rules/policy';
 import {
   readAuditLogEntriesForSession,
   readLatestAuditLogEntry,

@@ -3,7 +3,7 @@ import { explainCommand } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
 import { containsDangerousCode } from '@/core/analyze/interpreters';
 import { hasLinearDangerousText } from '@/core/analyze/linear-danger-scanner';
-import type { AnalyzeInput } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/ir/analysis';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { analyzeTestCommand, policySnapshot, testModes } from '../../helpers/policy';
 

@@ -2,14 +2,14 @@
  * Type definitions for the doctor command.
  */
 
+import type { IntegrationId } from '@/integrations/catalog';
+import type { SelfTestSummary } from '@/integrations/self-test';
 import type {
   ConfigStateInfo,
   DestructiveCommandRuleOverride,
   EffectiveSafetyCapabilities,
   EffectiveSafetyLevel,
-} from '@/domain/policy';
-import type { IntegrationId } from '@/integrations/catalog';
-import type { SelfTestSummary } from '@/integrations/self-test';
+} from '@/ir/policy';
 
 /** Hook platform identifiers */
 export type HookPlatform = IntegrationId;

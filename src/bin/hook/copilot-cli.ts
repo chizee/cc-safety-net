@@ -4,7 +4,7 @@ import {
   resolveStandardHookContext,
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
-import type { CommandToolKind } from '@/domain/invocation';
+import type { CommandToolKind } from '@/ir/invocation';
 
 /** GitHub Copilot CLI preToolUse hook input format */
 interface CopilotCliHookInput {

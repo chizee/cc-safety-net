@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAmpToolCallHandler, handleAmpToolCall } from '@/amp/tool-call';
-import { getUserPolicyPath } from '@/core/policy';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeOptions } from '@/ir/analysis';
+import { getUserPolicyPath } from '@/policy/store';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry, withEnv } from '../helpers';
 
 type AnalyzeCall = { command: string; cwd?: string; shell?: string };

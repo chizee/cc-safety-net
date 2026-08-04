@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AuditLogEntry } from '@/domain/audit';
+import type { AuditLogEntry } from '@/ir/audit';
 
 /**
  * `skips` counts what the scan had to drop — an unreadable directory or file, a

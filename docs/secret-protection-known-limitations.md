@@ -8,7 +8,7 @@ arbitrary shell or interpreter semantics.
 ## Current Static Coverage
 
 The static parser is intended to catch direct and common-obfuscated references
-to all built-in sensitive path rules from `src/core/secret-protection-rules.ts`
+to all built-in sensitive path rules from `src/rules/secret-protection-rules.ts`
 and configured `denyPaths`, including:
 
 - direct path operands such as `cat .env`
@@ -80,10 +80,10 @@ sensitive files even if the command text evades static detection.
 Configuration validation rejects the deny entries that would block every
 command in every workspace under the home directory: home itself, any path
 above it, and `/`, in their `~`, `$HOME`, and `${HOME}` spellings too
-(`getSecretDenyPathError` in `src/core/analyze/allow-paths.ts`). The check
+(`getSecretDenyPathError` in `src/policy/allow-paths.ts`). The check
 runs at the same save-time sites as the allow-path home guard — the policy
-schema and diagnostics in `src/config/schema.ts`, the salvage repair in
-`src/core/policy.ts`, which drops rejected entries and reports them, and the
+schema and diagnostics in `src/policy/schema.ts`, the salvage repair in
+`src/policy/store.ts`, which drops rejected entries and reports them, and the
 GUI deny-path list, which posts the candidate policy to `/api/policy/preview`
 and surfaces the rejection inline before the entry is added.
 

@@ -1,7 +1,8 @@
 import { dirname, join } from 'node:path';
-import { validateConfig } from '@/core/config';
-import { readRulesConfig, type SyncRulesConfigOptions, syncRulesConfig } from '@/core/rules/policy';
-import { writeJsonAtomic } from '@/core/rules/policy/config-file';
+import type { CustomRule } from '@/ir/policy';
+import { validateConfig } from '@/rules/config';
+import { readRulesConfig, type SyncRulesConfigOptions, syncRulesConfig } from '@/rules/policy';
+import { writeJsonAtomic } from '@/rules/policy/config-file';
 import {
   getPolicyFilesystemTargetForPath,
   type PolicyFilesystemScope,
@@ -9,15 +10,14 @@ import {
   readPolicyFile,
   removePolicyFile,
   writePolicyFileAtomic,
-} from '@/core/rules/policy/filesystem';
+} from '@/rules/policy/filesystem';
 import {
   getLegacyProjectRulesConfigPath,
   getLegacyUserRulesConfigPath,
   getProjectRulesConfigPath,
   getScopePaths,
   getUserRulesConfigPath,
-} from '@/core/rules/policy/paths';
-import type { CustomRule } from '@/domain/policy';
+} from '@/rules/policy/paths';
 
 const PROJECT_MIGRATED_FROM = '.safety-net.json';
 const USER_MIGRATED_FROM = '~/.cc-safety-net/config.json';

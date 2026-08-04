@@ -8,7 +8,7 @@ import type {
   CommandWord,
   CommandWordPart,
   WordProvenance,
-} from '@/domain/command';
+} from '@/ir/command';
 import {
   appendAccumulatedCommand,
   createCommandAccumulator,
@@ -18,7 +18,7 @@ import {
   freezeCommandProgram,
   freezeCommandWord,
   freezeParsedCommandWord,
-} from './immutable';
+} from '@/ir/immutable';
 
 type PowerShellWordResult = {
   word: CommandWord;

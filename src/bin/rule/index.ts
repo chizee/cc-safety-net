@@ -7,6 +7,7 @@ import { printRuleChangeResult, printRulesListReport } from '@/bin/rule/format';
 import { runRulesMigrate } from '@/bin/rule/migrate';
 import { getUpdateNotice } from '@/bin/rule/update-notice';
 import { runRulesVerify } from '@/bin/rule/verify';
+import { COMMAND_PATTERN, isReservedTransparentWrapper } from '@/engine/facade';
 import {
   addRulebookSource,
   getRulesConfigSourceDisplayMap,
@@ -16,17 +17,16 @@ import {
   syncRulesConfig,
   writeDefaultRulesConfig,
   writeStarterRulebook,
-} from '@/core/rules/policy';
-import { writeJsonAtomic } from '@/core/rules/policy/config-file';
+} from '@/rules/policy';
+import { writeJsonAtomic } from '@/rules/policy/config-file';
 import {
   ensurePolicyDirectory,
   getPolicyFilesystemTargetForPath,
   PolicyFilesystemError,
   type PolicyFilesystemTarget,
   readPolicyFile,
-} from '@/core/rules/policy/filesystem';
-import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/core/rules/policy/paths';
-import { COMMAND_PATTERN, isReservedTransparentWrapper } from '@/engine/facade';
+} from '@/rules/policy/filesystem';
+import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/rules/policy/paths';
 
 interface RuleFlags {
   global: boolean;

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { printStatus } from '@/bin/status';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
+import { loadPolicySnapshot } from '@/policy/snapshot';
 import { hermeticSafetyNetHome, runCCSafetyNetCli, withEnv, withStdoutColor } from '../helpers.ts';
 
 /**

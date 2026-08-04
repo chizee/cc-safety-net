@@ -1,4 +1,4 @@
-import type { CommandHeredoc, CommandIssue, CommandSpan } from '@/domain/command';
+import type { CommandHeredoc, CommandIssue, CommandSpan } from '@/ir/command';
 
 export type HeredocDelimiter = {
   readonly delimiter: string;

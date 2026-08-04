@@ -7,7 +7,7 @@ import {
   formatTraceHuman,
   formatTraceJson,
 } from '@/bin/explain/index';
-import type { ExplainResult } from '@/domain/explain';
+import type { ExplainResult } from '@/ir/explain';
 import { policySnapshot } from '../../helpers/policy';
 import { getTraceSteps, withEnv } from '../../helpers.ts';
 import { explainTestCommand as explainCommand } from './test-helpers';

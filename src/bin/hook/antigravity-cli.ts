@@ -1,6 +1,5 @@
 import { isAbsolute, relative } from 'node:path';
 import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
-import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
 import {
   createPathCanonicalizationBudget,
@@ -13,6 +12,7 @@ import {
   resolveExistingPath,
   ToolInputLimitError,
 } from '@/integrations/runtime';
+import type { CommandToolKind, ToolCallContext } from '@/ir/invocation';
 
 /** Antigravity CLI PreToolUse hook input format */
 interface AntigravityCliHookInput {

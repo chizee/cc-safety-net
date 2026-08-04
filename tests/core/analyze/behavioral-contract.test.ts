@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
-import { getCCSafetyNetEnvModes } from '@/core/env';
+import { getCCSafetyNetEnvModes } from '@/policy/env';
 import { blockedSegment, withEnv } from '../../helpers';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { behavioralContractCases } from './behavioral-contract-cases';

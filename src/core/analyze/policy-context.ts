@@ -1,7 +1,7 @@
-import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
-import { deriveEffectiveSafetyLevel } from '@/core/env';
-import type { AnalyzeInput } from '@/domain/analysis';
-import type { EffectiveCapabilityState } from '@/domain/policy';
+import type { AnalyzeInput } from '@/ir/analysis';
+import type { EffectiveCapabilityState } from '@/ir/policy';
+import { deriveEffectiveSafetyLevel } from '@/policy/env';
+import { createCommandAnalysisPolicy } from '@/rules/destructive-command-rules';
 
 type PolicyContextOptions = Pick<
   AnalyzeInput,

@@ -1,6 +1,5 @@
 import { AWK_INTERPRETERS, analyzeAwkSystemCallMatch } from '@/core/analyze/awk';
 import { textCommandWords } from '@/core/analyze/command-words';
-import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import type { DerivedCommandWorkBudget } from '@/core/analyze/derived-command-budget';
 import { analyzeFindMatch } from '@/core/analyze/find';
 import {
@@ -20,23 +19,24 @@ import {
 } from '@/core/analyze/shell-execution';
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
-import {
-  destructiveCommandMatch,
-  destructiveCommandRuleIsEnabled,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
-import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import { normalizeCommandToken } from '@/core/shell';
-import { hasUnclosedQuotes } from '@/core/shell/shared';
 import type {
   AnalyzeNestedOverrides,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
   ProtectedGitMetadata,
-} from '@/domain/analysis';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { EffectivePolicy } from '@/ir/policy';
+import { normalizeCommandToken } from '@/parser/shell';
+import { hasUnclosedQuotes } from '@/parser/shell/shared';
+import { SHELL_WRAPPERS } from '@/rules/constants';
+import { checkPolicyRuleMatch } from '@/rules/custom';
+import {
+  destructiveCommandMatch,
+  destructiveCommandRuleIsEnabled,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 export interface ChildCommandAnalysisContext {
   /** Process state nested analysis reads instead of touching env, home or the filesystem. */

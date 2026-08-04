@@ -1,5 +1,4 @@
 import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
 import { hasGitSshEnvAssignment } from '@/core/git/env';
 import {
   extractGitSubcommandAndRest,
@@ -13,8 +12,9 @@ import {
   type GitWorktreeRelaxation,
   getGitWorktreeRelaxationForMatch,
 } from '@/core/git/worktree-relaxation';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
+import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
+import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
 
 const REASON_GIT_SSH_ENV =
   'Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.';

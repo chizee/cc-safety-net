@@ -6,8 +6,8 @@ import {
   resolveExistingPath,
 } from '@/core/path-canonicalization';
 import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
-import { getBasename } from '@/core/shell';
-import type { ShellSyntaxFacts } from '@/domain/semantic-facts';
+import type { ShellSyntaxFacts } from '@/ir/semantic-facts';
+import { getBasename } from '@/parser/shell';
 
 export type ProtectedPathShellState = Readonly<{
   cwd: string;

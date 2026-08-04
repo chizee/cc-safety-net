@@ -1,5 +1,5 @@
-import { extractShortOpts } from '@/core/shell';
-import type { EffectivePolicy } from '@/domain/policy';
+import type { EffectivePolicy } from '@/ir/policy';
+import { extractShortOpts } from '@/parser/shell';
 import { hasRecursiveSubmoduleConfig } from './config';
 import { extractGitSubcommandAndRest, splitAtDoubleDash } from './parse';
 import {

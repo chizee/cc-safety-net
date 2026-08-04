@@ -1,14 +1,7 @@
-import {
-  createPolicySnapshot,
-  loadPolicySnapshot,
-  type PolicySnapshotOptions,
-} from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
-import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
-import { getCCSafetyNetEnvModes } from '@/core/env';
 import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
-import type { AnalyzeOptions, EnvironmentContext, ProtectedGitMetadata } from '@/domain/analysis';
-import type { ExplainOptions } from '@/domain/explain';
+import type { AnalyzeOptions, EnvironmentContext, ProtectedGitMetadata } from '@/ir/analysis';
+import type { ExplainOptions } from '@/ir/explain';
 import type {
   CustomRule,
   CustomRuleMetadata,
@@ -17,7 +10,14 @@ import type {
   PolicySafetyLevel,
   PolicySnapshot,
   SecretProtectionConfig,
-} from '@/domain/policy';
+} from '@/ir/policy';
+import { getCCSafetyNetEnvModes } from '@/policy/env';
+import {
+  createPolicySnapshot,
+  loadPolicySnapshot,
+  type PolicySnapshotOptions,
+} from '@/policy/snapshot';
+import { createCommandAnalysisPolicy } from '@/rules/destructive-command-rules';
 import { TEST_ENVIRONMENT } from './environment';
 
 export type TestExplainOptions = Omit<ExplainOptions, 'policySnapshot'> & {

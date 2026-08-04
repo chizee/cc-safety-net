@@ -1,5 +1,3 @@
-import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
-import { createToolInvocation } from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
 import {
   createFailedClosedDenial,
@@ -21,6 +19,8 @@ import {
   shouldRecordAllowedCommands,
   ToolInputLimitError,
 } from '@/integrations/runtime';
+import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/ir/invocation';
+import { createToolInvocation } from '@/ir/invocation';
 
 type HookDenyOutput = (denial: IntegrationDenial) => void;
 

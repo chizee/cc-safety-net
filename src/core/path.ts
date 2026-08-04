@@ -1,5 +1,5 @@
 import { dirname, isAbsolute, parse as parsePath, sep } from 'node:path';
-import type { PathResolver } from '@/domain/analysis';
+import type { PathResolver } from '@/ir/analysis';
 
 /** @internal */
 export function isUnsupportedWindowsNamespacePath(

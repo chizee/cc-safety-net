@@ -16,7 +16,17 @@ import {
   type InstallAction,
   type InstallTarget,
 } from '@/bin/hook/install/targets';
-
+import {
+  createPolicySnapshot,
+  describeConfigState,
+  getUserPolicyDiagnostics,
+  loadPolicySnapshot,
+  loadRulesPolicy,
+  type RulesPolicyOptions,
+  resolveAuditRetentionDays,
+} from '@/engine/facade';
+import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
+import type { ExplainResult } from '@/ir/explain';
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
@@ -29,18 +39,7 @@ import {
   resolveSecretDisabledRules,
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
-} from '@/core/policy';
-import type { ExplainResult } from '@/domain/explain';
-import {
-  createPolicySnapshot,
-  describeConfigState,
-  getUserPolicyDiagnostics,
-  loadPolicySnapshot,
-  loadRulesPolicy,
-  type RulesPolicyOptions,
-  resolveAuditRetentionDays,
-} from '@/engine/facade';
-import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
+} from '@/policy/store';
 import { getActivityFeed } from './activity';
 import { chooseDirectory, isDirectoryPickerAvailable } from './choose-directory';
 import { renderPolicyGuiHtml } from './page';

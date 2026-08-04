@@ -1,15 +1,10 @@
 import { analysisWordText, isLiteralExecutionSourceWord } from '@/core/analyze/command-words';
-import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { parseShellArgv } from '@/core/analyze/shell-wrappers';
 import { parseEnvAssignment } from '@/core/analyze/wrapper-prelude';
-import { getBasename, normalizeCommandToken } from '@/core/shell';
-import type {
-  CommandProgram,
-  CommandRedirection,
-  CommandView,
-  CommandWord,
-} from '@/domain/command';
+import type { CommandProgram, CommandRedirection, CommandView, CommandWord } from '@/ir/command';
 import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/parser/command';
+import { getBasename, normalizeCommandToken } from '@/parser/shell';
+import { SHELL_WRAPPERS } from '@/rules/constants';
 
 type ShellExecutionSource =
   | { kind: 'none' }

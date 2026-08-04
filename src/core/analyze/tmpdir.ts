@@ -1,5 +1,5 @@
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
-import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/ir/analysis';
 
 const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp'];
 const DEFAULT_IFS = ' \t\n';

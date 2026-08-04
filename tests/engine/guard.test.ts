@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getUserPolicyPath } from '@/core/policy';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import {
   evaluateGuard,
@@ -11,6 +10,7 @@ import {
   type GuardStage,
 } from '@/engine/guard';
 import { parseCommand } from '@/parser/command';
+import { getUserPolicyPath } from '@/policy/store';
 import { withTempDir } from '../helpers';
 import { policySnapshot, testModes } from '../helpers/policy';
 

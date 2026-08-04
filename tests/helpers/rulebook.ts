@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { syncRulesConfig } from '@/core/rules/policy';
+import { syncRulesConfig } from '@/rules/policy';
 
 export function writeLocalRulebook(path: string, name: string): void {
   mkdirSync(join(path, '..'), { recursive: true });

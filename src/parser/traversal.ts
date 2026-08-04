@@ -1,4 +1,4 @@
-import type { CommandNode, CommandProgram, CommandView } from '@/domain/command';
+import type { CommandNode, CommandProgram, CommandView } from '@/ir/command';
 import { parseCommand } from './command';
 
 /** @internal */

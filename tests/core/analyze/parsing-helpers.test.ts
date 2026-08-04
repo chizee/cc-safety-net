@@ -9,7 +9,6 @@ import { describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { toNamespacedPath } from 'node:path';
-import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { dangerousInText } from '@/core/analyze/dangerous-text';
 import { containsDangerousCode, extractInterpreterCodeArg } from '@/core/analyze/interpreters';
 import { extractParallelChildStart } from '@/core/analyze/parallel';
@@ -21,10 +20,11 @@ import {
 import { isTrustedTempPath } from '@/core/analyze/tmpdir';
 import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { extractShortOpts, getShellCommandString } from '@/core/shell';
-import { hasUnclosedQuotes } from '@/core/shell/shared';
 import { parseCommand } from '@/parser/command';
+import { extractShortOpts, getShellCommandString } from '@/parser/shell';
+import { hasUnclosedQuotes } from '@/parser/shell/shared';
 import { projectCommandViews, projectSegmentWords } from '@/parser/traversal';
+import { MAX_STRIP_ITERATIONS } from '@/rules/constants';
 import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment';
 import { assertBlocked, createLinkedWorktreeFixture, withEnv } from '../../helpers.ts';
 

@@ -1,4 +1,3 @@
-import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import {
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
@@ -9,9 +8,10 @@ import {
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
 import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
-import { getBasename } from '@/core/shell';
-import type { EnvironmentContext, ProtectedGitMetadata } from '@/domain/analysis';
-import type { EffectivePolicy } from '@/domain/policy';
+import type { EnvironmentContext, ProtectedGitMetadata } from '@/ir/analysis';
+import type { EffectivePolicy } from '@/ir/policy';
+import { getBasename } from '@/parser/shell';
+import { MAX_STRIP_ITERATIONS } from '@/rules/constants';
 
 export interface ChildCommandContext {
   /** Process state nested analysis reads instead of touching env, home or the filesystem. */

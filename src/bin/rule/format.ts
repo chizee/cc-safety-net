@@ -3,7 +3,7 @@ import {
   type LoadedRulesPolicy,
   type RulebookLockEntryWithStats,
   type RuleOverride,
-} from '@/core/rules/policy';
+} from '@/rules/policy';
 
 export function printRuleChangeResult(
   result: {

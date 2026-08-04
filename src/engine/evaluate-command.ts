@@ -1,10 +1,10 @@
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { createSemanticFactStore } from '@/core/semantic-facts';
-import type { AnalyzeInput } from '@/domain/analysis';
-import type { CommandProgram } from '@/domain/command';
-import type { CommandTrace } from '@/domain/command-trace';
-import type { Decision } from '@/domain/decision';
-import type { SemanticFactStore } from '@/domain/semantic-facts';
+import type { AnalyzeInput } from '@/ir/analysis';
+import type { CommandProgram } from '@/ir/command';
+import type { CommandTrace } from '@/ir/command-trace';
+import type { Decision } from '@/ir/decision';
+import type { SemanticFactStore } from '@/ir/semantic-facts';
 import { projectSegmentWords } from '@/parser/traversal';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
 

@@ -1,4 +1,4 @@
-import type { CommandView, CommandWord } from '@/domain/command';
+import type { CommandView, CommandWord } from '@/ir/command';
 
 /**
  * Text a word contributes to command analysis. Command substitutions expand to unknown

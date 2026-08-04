@@ -8,7 +8,7 @@ import {
   analyzeRmMatch as analyzeRmMatchWithEnvironment,
   analyzeRm as analyzeRmWithEnvironment,
 } from '@/core/analyze/rm';
-import type { CommandWord } from '@/domain/command';
+import type { CommandWord } from '@/ir/command';
 import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
 import { analyzeTestCommand, type TestPolicyInput } from '../helpers/policy.ts';
 import {

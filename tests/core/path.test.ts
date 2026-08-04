@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { toNamespacedPath } from 'node:path';
-import { processPathResolver } from '@/core/environment';
 import { isUnsupportedWindowsNamespacePath, resolveChdirTarget } from '@/core/path';
+import { processPathResolver } from '@/ir/environment';
 
 describe('Windows namespace path detection', () => {
   test.each([

@@ -1,7 +1,7 @@
 import { redactSecrets } from '@/core/audit';
 import { formatBlockedMessage } from '@/core/format';
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/reasons';
-import type { BlockIntent, Decision } from '@/domain/decision';
+import type { BlockIntent, Decision } from '@/ir/decision';
 
 type GuardEvaluation = {
   decision: Decision;

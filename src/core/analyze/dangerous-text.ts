@@ -1,7 +1,7 @@
 import { hasLinearDangerousText } from '@/core/analyze/linear-danger-scanner';
 import { chargeNativeLinearPass, chargeScan } from '@/core/analyze/text-scanner';
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
+import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
 
 /** @internal */
 export function dangerousInText(text: string, scanWork?: { units: number }): string | null {

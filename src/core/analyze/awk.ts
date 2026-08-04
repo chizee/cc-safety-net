@@ -1,6 +1,6 @@
 import { chargeNativeLinearPass } from '@/core/analyze/text-scanner';
-import { destructiveCommandMatch } from '@/core/destructive-command-rules';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
+import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
 
 export const AWK_INTERPRETERS = new Set(['awk', 'gawk', 'nawk', 'mawk']);
 

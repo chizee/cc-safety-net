@@ -9,7 +9,6 @@ import {
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
 import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
-import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { dangerousInTextMatch } from '@/core/analyze/dangerous-text';
 import { getFindExecCommand, getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
@@ -23,19 +22,20 @@ import {
   shellSourceHasDynamicExecutionCarrier,
 } from '@/core/analyze/shell-execution';
 import { extractDashCArg, isShellSyntaxCheck, parseShellArgv } from '@/core/analyze/shell-wrappers';
-import {
-  destructiveCommandMatch,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
-import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import type {
   AnalyzeNestedOverrides,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
-} from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
-import type { PolicyRule } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
+import type { PolicyRule } from '@/ir/policy';
+import { SHELL_WRAPPERS } from '@/rules/constants';
+import { checkPolicyRuleMatch } from '@/rules/custom';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 /** @internal */
 export const REASON_XARGS_RM =

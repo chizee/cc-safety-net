@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { createToolInvocation } from '@/domain/invocation';
 import { GuardEvaluationError } from '@/engine/guard';
 import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import { createToolInvocation } from '@/ir/invocation';
 import { readAuditLogEntriesForSession, withTempDir } from '../helpers';
 import { policySnapshot, testModes } from '../helpers/policy';
 

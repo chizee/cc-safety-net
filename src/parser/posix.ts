@@ -11,8 +11,7 @@ import type {
   CommandWord,
   CommandWordPart,
   WordProvenance,
-} from '@/domain/command';
-import { consumeHeredocBodies, type PendingHeredoc, readHeredocDelimiter } from './heredoc';
+} from '@/ir/command';
 import {
   appendAccumulatedCommand,
   createCommandAccumulator,
@@ -21,7 +20,8 @@ import {
   createCommandWordParts,
   freezeCommandProgram,
   freezeParsedCommandWord,
-} from './immutable';
+} from '@/ir/immutable';
+import { consumeHeredocBodies, type PendingHeredoc, readHeredocDelimiter } from './heredoc';
 
 type ScanResult = {
   nodes: CommandNode[];

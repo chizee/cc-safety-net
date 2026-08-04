@@ -5,9 +5,9 @@ import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/analyze/derived-comman
 import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/core/analyze/parallel-budget';
 import * as gitAnalysis from '@/core/git';
 import { createSemanticFactStore } from '@/core/semantic-facts';
-import type { CommandTraceTerminal } from '@/domain/command-trace';
 import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
+import type { CommandTraceTerminal } from '@/ir/command-trace';
 import { parseCommand } from '@/parser/command';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot, testModes } from '../helpers/policy';

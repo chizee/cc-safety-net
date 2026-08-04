@@ -1,5 +1,4 @@
 import { homedir } from 'node:os';
-import type { AuditLogEntry } from '@/domain/audit';
 import {
   commandSignature,
   getAuditLogsDir,
@@ -7,6 +6,7 @@ import {
   pruneExpiredAuditLogs,
   readAuditLogEntries,
 } from '@/engine/facade';
+import type { AuditLogEntry } from '@/ir/audit';
 
 const ENTRY_CAP = 500;
 

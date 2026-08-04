@@ -8,7 +8,6 @@ import {
   normalizeChildCommands,
 } from '@/core/analyze/child-command';
 import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
-import { SHELL_WRAPPERS } from '@/core/analyze/constants';
 import { getFindPrimaryArity, isFindExecPrimary } from '@/core/analyze/find';
 import {
   extractInterpreterExecutableSources,
@@ -30,23 +29,24 @@ import {
 import { extractDashCArg, isShellSyntaxCheck } from '@/core/analyze/shell-wrappers';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import {
-  type DestructiveCommandRuleId,
-  destructiveCommandMatch,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { resolveChdirTarget } from '@/core/path';
-import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import { normalizeCommandToken } from '@/core/shell';
 import type {
   AnalyzeNestedOverrides,
   DestructiveCommandRuleMatch,
   PathResolver,
-} from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
-import type { PolicyRule } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
+import type { PolicyRule } from '@/ir/policy';
+import { normalizeCommandToken } from '@/parser/shell';
 import { parseSimpleWords } from '@/parser/traversal';
+import { SHELL_WRAPPERS } from '@/rules/constants';
+import { checkPolicyRuleMatch } from '@/rules/custom';
+import {
+  type DestructiveCommandRuleId,
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 /** @internal */
 export const REASON_PARALLEL_RM =

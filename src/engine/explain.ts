@@ -5,13 +5,8 @@
  */
 
 import { resolve } from 'node:path';
-import { createPolicySnapshot, loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
-import { validateRulesConfigFile } from '@/core/config';
-import { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-rules';
-import { getCCSafetyNetEnvModes } from '@/core/env';
-import { createProcessEnvironment } from '@/core/environment';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
   REASON_GIT_METADATA_PROTECTION,
@@ -21,21 +16,26 @@ import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/core/policy-protection';
-import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
-import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
-import { getPolicyPaths } from '@/core/rules/policy/paths';
 import { sanitizeDiagnosticText } from '@/core/sanitize';
 import {
   findSensitiveTargetInSemanticFacts,
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { createSemanticFacts } from '@/core/semantic-facts';
-import type { AnalyzeInput } from '@/domain/analysis';
-import type { CommandTrace } from '@/domain/command-trace';
-import type { ExplainOptions, ExplainResult, ExplainTrace } from '@/domain/explain';
-import { createToolInvocation } from '@/domain/invocation';
-import type { PolicySnapshot } from '@/domain/policy';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
+import type { AnalyzeInput } from '@/ir/analysis';
+import type { CommandTrace } from '@/ir/command-trace';
+import { createProcessEnvironment } from '@/ir/environment';
+import type { ExplainOptions, ExplainResult, ExplainTrace } from '@/ir/explain';
+import { createToolInvocation } from '@/ir/invocation';
+import type { PolicySnapshot } from '@/ir/policy';
+import { getCCSafetyNetEnvModes } from '@/policy/env';
+import { createPolicySnapshot, loadPolicySnapshot } from '@/policy/snapshot';
+import { validateRulesConfigFile } from '@/rules/config';
+import { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/rules/destructive-command-rules';
+import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/rules/policy';
+import { PolicyFilesystemError, readPolicyFile } from '@/rules/policy/filesystem';
+import { getPolicyPaths } from '@/rules/policy/paths';
 
 export function explainCommand(command: string, options?: ExplainOptions): ExplainResult {
   const analyzeOptions = buildAnalyzeOptions(options);

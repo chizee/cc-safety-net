@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { textCommandWords } from '@/core/analyze/command-words';
 import { analyzeGitMatch as analyzeGitWords } from '@/core/git';
 import { getGitEnvValue, resolveGitConfigCount } from '@/core/git/env';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext } from '@/ir/analysis';
 import { createLinkedWorktreeFixture } from '../../helpers';
 import { testEnvironment } from '../../helpers/environment';
 import { analyzeTestCommand } from '../../helpers/policy';

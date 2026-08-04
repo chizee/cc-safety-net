@@ -1,5 +1,4 @@
 import { isAbsolute, normalize, parse, posix, resolve, sep } from 'node:path';
-import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/core/analyze/allow-paths';
 import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
 import { isProtectedGitDeleteTarget } from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
@@ -9,9 +8,10 @@ import {
   type PathCanonicalizationContext,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
-import type { EnvironmentContext, PathResolver, ProtectedGitMetadata } from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
+import type { EnvironmentContext, PathResolver, ProtectedGitMetadata } from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
+import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/policy/allow-paths';
 
 const IS_WINDOWS = process.platform === 'win32';
 const BRACE_EXPANSION_LIMIT = 64;

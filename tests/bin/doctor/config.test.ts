@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getConfigInfo } from '@/bin/doctor/config';
-import { syncRulesConfig } from '@/core/rules/policy';
+import { syncRulesConfig } from '@/rules/policy';
 import { withTempDir } from '../../helpers.ts';
 
 function writeRulebook(dir: string, name = 'project-rules') {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment } from '@/core/analyze/tmpdir';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext } from '@/ir/analysis';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { policySnapshot, testModes } from '../../helpers/policy';
 
@@ -40,7 +40,7 @@ function evaluateInFreshProcess(
       '-e',
       `${options.platform ? `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(options.platform)} });` : ''}
 const { isTmpdirOverriddenToNonTemp } = await import(${JSON.stringify(join(process.cwd(), 'src/core/analyze/tmpdir.ts'))});
-const { createProcessEnvironment } = await import(${JSON.stringify(join(process.cwd(), 'src/core/environment.ts'))});
+const { createProcessEnvironment } = await import(${JSON.stringify(join(process.cwd(), 'src/ir/environment.ts'))});
 process.stdout.write(String(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', process.env.TMPDIR ?? '']]), createProcessEnvironment())));`,
     ],
     {

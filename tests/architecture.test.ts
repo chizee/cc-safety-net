@@ -27,14 +27,21 @@ function importedLayer(specifier: string): string | null {
 }
 
 describe('source architecture', () => {
-  test('keeps dependency direction between domain, parser, core, engine, integrations, and bin', () => {
+  test('keeps dependency direction between ir, parser, rules, policy, core, engine, integrations, and bin', () => {
     const violations = sourceFiles().flatMap((path) => {
       const owner = layer(path);
       return imports(path).flatMap((specifier) => {
         const target = importedLayer(specifier);
         const invalid =
-          (owner === 'domain' && target !== null && target !== 'domain') ||
-          (owner === 'parser' && target !== null && !['domain', 'parser'].includes(target)) ||
+          (owner === 'ir' && target !== null && target !== 'ir') ||
+          (owner === 'parser' && target !== null && !['ir', 'parser'].includes(target)) ||
+          (owner === 'rules' &&
+            target !== null &&
+            !['ir', 'parser', 'rules', 'policy'].includes(target)) ||
+          // policy still reaches core until the analyzer and engine renames land
+          (owner === 'policy' &&
+            target !== null &&
+            !['ir', 'parser', 'rules', 'policy', 'core'].includes(target)) ||
           (owner === 'core' &&
             target !== null &&
             ['engine', 'integrations', 'bin'].includes(target)) ||
@@ -58,9 +65,9 @@ describe('source architecture', () => {
   test('bin consumes core only through the engine facade', () => {
     const adminExceptions: readonly [string, RegExp][] = [
       // rules administration is read-write, outside the facade
-      ['bin/rule/', /^@\/core\/(?:rules\/|config$)/],
+      ['bin/rule/', /^@\/rules\//],
       // GUI policy editor is read-write, outside the facade
-      ['bin/gui/', /^@\/core\/policy$/],
+      ['bin/gui/', /^@\/policy\/store$/],
     ];
     const violations = sourceFiles()
       .filter((path) => layer(path) === 'bin')
@@ -70,7 +77,7 @@ describe('source architecture', () => {
           .filter((specifier) => specifier.startsWith('@/'))
           .filter(
             (specifier) =>
-              !/^@\/(?:bin|domain|integrations)\//.test(specifier) &&
+              !/^@\/(?:bin|ir|integrations)\//.test(specifier) &&
               specifier !== '@/engine/facade' &&
               !adminExceptions.some(
                 ([prefix, allowed]) => file.startsWith(prefix) && allowed.test(specifier),

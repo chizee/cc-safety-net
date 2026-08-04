@@ -4,11 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
 import { resolveAntigravityCwd } from '@/bin/hook/antigravity-cli';
 import { PATH_CANONICALIZATION_LIMITS } from '@/core/path-canonicalization';
-import {
-  syncRulesConfig,
-  writeDefaultRulesConfig,
-  writeStarterRulebook,
-} from '@/core/rules/policy';
+import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession } from '../../helpers';
 import {
   antigravityShellInput,

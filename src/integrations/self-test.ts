@@ -1,8 +1,8 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createToolInvocation } from '@/domain/invocation';
-import type { PolicySnapshot } from '@/domain/policy';
 import { evaluateRuntimeGuard } from '@/integrations/runtime';
+import { createToolInvocation } from '@/ir/invocation';
+import type { PolicySnapshot } from '@/ir/policy';
 
 interface SelfTestCase {
   command: string;

@@ -20,21 +20,21 @@ import {
 } from '@/core/analyze/tmpdir';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import {
-  destructiveCommandMatch,
-  filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
-import {
   isProtectedGitHookNameSelection,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
-import { getBasename } from '@/core/shell';
 import type {
   AnalyzeNestedOverrides,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
-} from '@/domain/analysis';
-import type { CommandWord } from '@/domain/command';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/ir/analysis';
+import type { CommandWord } from '@/ir/command';
+import type { EffectivePolicy } from '@/ir/policy';
+import { getBasename } from '@/parser/shell';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
 const REASON_FIND_EXEC_RM_RF = 'find -exec rm -rf is dangerous. Use explicit file list instead.';

@@ -1,7 +1,6 @@
 import { statSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
-import { createProcessEnvironment } from '@/core/environment';
 import { findDotGitInAncestors, resolveDotGitFileTargets } from '@/core/git/worktree';
 import {
   createPathCanonicalizationContext,
@@ -16,10 +15,11 @@ import {
   type ProtectedPathShellState,
 } from '@/core/protected-path-scanner';
 import { getCommandSyntaxFact } from '@/core/semantic-facts';
-import { getBasename } from '@/core/shell';
-import { isReadOnlyTool } from '@/core/tool-input';
-import type { ProtectedGitMetadata } from '@/domain/analysis';
-import type { SemanticFacts } from '@/domain/semantic-facts';
+import type { ProtectedGitMetadata } from '@/ir/analysis';
+import { createProcessEnvironment } from '@/ir/environment';
+import type { SemanticFacts } from '@/ir/semantic-facts';
+import { getBasename } from '@/parser/shell';
+import { isReadOnlyTool } from '@/parser/tool-input';
 
 export const REASON_GIT_METADATA_PROTECTION =
   'Git metadata and hooks are protected. Ask the user before modifying them.';

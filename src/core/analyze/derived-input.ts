@@ -16,17 +16,17 @@ import {
   REASON_XARGS_RM,
   REASON_XARGS_SHELL,
 } from '@/core/analyze/xargs';
+import { analyzeGitMatch } from '@/core/git';
+import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
+import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/ir/analysis';
+import { type CommandView, type CommandWord, isDynamicExecutable } from '@/ir/command';
+import type { EffectivePolicy } from '@/ir/policy';
+import { normalizeCommandToken } from '@/parser/shell';
 import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
-} from '@/core/destructive-command-rules';
-import { analyzeGitMatch } from '@/core/git';
-import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
-import { normalizeCommandToken } from '@/core/shell';
-import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/domain/analysis';
-import { type CommandView, type CommandWord, isDynamicExecutable } from '@/domain/command';
-import type { EffectivePolicy } from '@/domain/policy';
+} from '@/rules/destructive-command-rules';
 
 const REASON_DYNAMIC_EXECUTABLE =
   'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';

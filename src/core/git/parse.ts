@@ -1,4 +1,4 @@
-import { getBasename } from '@/core/shell';
+import { getBasename } from '@/parser/shell';
 import { parseSimpleWords } from '@/parser/traversal';
 import { getGitEnvValue, resolveGitConfigCount } from './env';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from './worktree';

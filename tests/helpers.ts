@@ -5,16 +5,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { VersionFetcher } from '@/bin/doctor/system-info';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
-import { envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
 import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
-import type { AnalyzeInput, EnvironmentContext } from '@/domain/analysis';
-import type { AuditLogEntry } from '@/domain/audit';
-import type { TraceStep } from '@/domain/command-trace';
-import type { Decision } from '@/domain/decision';
-import type { ExplainResult } from '@/domain/explain';
+import type { AnalyzeInput, EnvironmentContext } from '@/ir/analysis';
+import type { AuditLogEntry } from '@/ir/audit';
+import type { TraceStep } from '@/ir/command-trace';
+import type { Decision } from '@/ir/decision';
+import type { ExplainResult } from '@/ir/explain';
+import { envTruthy, getCCSafetyNetEnvModes } from '@/policy/env';
+import { loadPolicySnapshot } from '@/policy/snapshot';
 import { TEST_ENVIRONMENT } from './helpers/environment';
 import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 

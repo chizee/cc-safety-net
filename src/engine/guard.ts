@@ -1,7 +1,4 @@
-import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/config/policy-snapshot';
 import { analyzeCommandWithProgram } from '@/core/analyze';
-import { getCCSafetyNetEnvModes } from '@/core/env';
-import { createProcessEnvironment } from '@/core/environment';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
   REASON_GIT_METADATA_PROTECTION,
@@ -26,13 +23,16 @@ import {
   type FactParserDependencies,
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
-import { ToolInputLimitError } from '@/core/tool-input';
-import type { AnalyzeInput } from '@/domain/analysis';
-import type { AuditFailureStage } from '@/domain/audit';
-import type { Decision } from '@/domain/decision';
-import type { ToolInvocation } from '@/domain/invocation';
-import type { EffectiveSafetyLevel, PolicySnapshot } from '@/domain/policy';
-import type { SemanticFacts } from '@/domain/semantic-facts';
+import type { AnalyzeInput } from '@/ir/analysis';
+import type { AuditFailureStage } from '@/ir/audit';
+import type { Decision } from '@/ir/decision';
+import { createProcessEnvironment } from '@/ir/environment';
+import type { ToolInvocation } from '@/ir/invocation';
+import type { EffectiveSafetyLevel, PolicySnapshot } from '@/ir/policy';
+import type { SemanticFacts } from '@/ir/semantic-facts';
+import { ToolInputLimitError } from '@/parser/tool-input';
+import { getCCSafetyNetEnvModes } from '@/policy/env';
+import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/policy/snapshot';
 
 /** @internal */
 export type GuardStage = AuditFailureStage;

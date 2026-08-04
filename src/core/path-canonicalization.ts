@@ -1,5 +1,5 @@
 import { basename, dirname, join } from 'node:path';
-import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/ir/analysis';
 
 /** @internal */
 export const PATH_CANONICALIZATION_LIMITS = Object.freeze({

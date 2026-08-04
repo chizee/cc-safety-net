@@ -2,7 +2,6 @@ import { readdirSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
 import { renderTerminalText } from '@/bin/utils/terminal';
-import type { AuditLogEntry } from '@/domain/audit';
 import {
   findSuspectEntries,
   getAuditLogsDir,
@@ -11,6 +10,7 @@ import {
   readAuditLogEntries,
   resolveAuditRetentionDays,
 } from '@/engine/facade';
+import type { AuditLogEntry } from '@/ir/audit';
 
 type LogsFlags = {
   limit: number;

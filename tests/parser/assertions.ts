@@ -1,5 +1,5 @@
 import { expect } from 'bun:test';
-import type { CommandProgram } from '@/domain/command';
+import type { CommandProgram } from '@/ir/command';
 import { walkCommandViews } from '@/parser/traversal';
 
 export function expectProgramSpans(program: CommandProgram, source: string) {

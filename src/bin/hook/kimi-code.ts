@@ -5,7 +5,7 @@ import {
   runConfiguredHookAdapter,
 } from '@/bin/hook/common';
 import { KIMI_CODE_HOOK_EVENT } from '@/bin/hook/constants';
-import type { CommandToolKind } from '@/domain/invocation';
+import type { CommandToolKind } from '@/ir/invocation';
 
 /** Kimi Code hook input format */
 interface KimiCodeHookInput {

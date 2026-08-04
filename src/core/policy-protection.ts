@@ -6,12 +6,10 @@ import {
   getFindStartingPoints,
 } from '@/core/analyze/find';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
-import { createProcessEnvironment } from '@/core/environment';
 import {
   createPathCanonicalizationContext,
   type PathCanonicalizationContext,
 } from '@/core/path-canonicalization';
-import { getUserPolicyPath } from '@/core/policy';
 import {
   expandTrackedShellVariables,
   extractMvOperandPaths,
@@ -21,11 +19,13 @@ import {
   type ProtectedPathShellState,
 } from '@/core/protected-path-scanner';
 import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
-import { getBasename } from '@/core/shell';
-import { isReadOnlyTool } from '@/core/tool-input';
-import type { EnvironmentContext } from '@/domain/analysis';
-import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
-import type { SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
+import type { EnvironmentContext } from '@/ir/analysis';
+import { createProcessEnvironment } from '@/ir/environment';
+import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/ir/invocation';
+import type { SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
+import { getBasename } from '@/parser/shell';
+import { isReadOnlyTool } from '@/parser/tool-input';
+import { getUserPolicyPath } from '@/policy/store';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'This path contains the protected policy config and you must not modify or delete it.';

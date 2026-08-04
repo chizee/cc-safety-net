@@ -9,13 +9,6 @@
  * named exceptions in that test.
  */
 
-export {
-  createPolicySnapshot,
-  describeConfigState,
-  loadPolicySnapshot,
-} from '@/config/policy-snapshot';
-export { getUserPolicyDiagnostics } from '@/config/schema';
-export { COMMAND_PATTERN } from '@/core/analyze/constants';
 export { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 export { getAuditLogHomeDir, getAuditLogsDir } from '@/core/audit';
 export { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/core/audit-retention';
@@ -25,8 +18,7 @@ export {
   listAuditLogFiles,
   readAuditLogEntries,
 } from '@/core/audit-scan';
-export { type ValidationResult, validateRulesConfigFile } from '@/core/config';
-export { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
+export { explainCommand } from '@/engine/explain';
 export {
   ENV_FLAGS,
   type EnvFlag,
@@ -35,8 +27,17 @@ export {
   getCCSafetyNetEnvModes,
   getEnvFlagValue,
   resolveAuditScope,
-} from '@/core/env';
-export { getUserPolicyPath } from '@/core/policy';
+} from '@/policy/env';
+export { getUserPolicyDiagnostics } from '@/policy/schema';
+export {
+  createPolicySnapshot,
+  describeConfigState,
+  loadPolicySnapshot,
+} from '@/policy/snapshot';
+export { getUserPolicyPath } from '@/policy/store';
+export { type ValidationResult, validateRulesConfigFile } from '@/rules/config';
+export { COMMAND_PATTERN } from '@/rules/constants';
+export { resolveEffectiveDestructiveCommandRules } from '@/rules/destructive-command-rules';
 export {
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
@@ -44,13 +45,12 @@ export {
   getUserRulesConfigPath,
   getUserRulesLockPath,
   loadRulesPolicy,
-} from '@/core/rules/policy';
+} from '@/rules/policy';
 export {
   PolicyFilesystemError,
   type PolicyFilesystemScope,
   type PolicyFilesystemTarget,
   readPolicyFile,
-} from '@/core/rules/policy/filesystem';
-export { getPolicyPaths } from '@/core/rules/policy/paths';
-export type { RulesPolicyOptions } from '@/core/rules/policy/types';
-export { explainCommand } from '@/engine/explain';
+} from '@/rules/policy/filesystem';
+export { getPolicyPaths } from '@/rules/policy/paths';
+export type { RulesPolicyOptions } from '@/rules/policy/types';
