@@ -908,6 +908,9 @@ function extractCommandSubstitutionPathTargets(
 ): string[] {
   return extractCommandSubstitutionBodies(command).flatMap((body) => {
     const syntax = store.getShellSyntax(body);
+    // A body a shell cannot parse never executes as extracted here: the real shell either
+    // aborts or reads different bounds (which the structural projection already scanned).
+    if (syntax.status === 'invalid') return [];
     return [
       ...extractCommandPathTargets(syntax, store, options),
       ...(commandSubstitutionDecodesBase64(syntax)

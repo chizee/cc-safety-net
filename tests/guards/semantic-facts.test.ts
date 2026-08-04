@@ -651,6 +651,13 @@ describe('semantic facts', () => {
     test('masks a strip-tabs body using the body span, not the tab-stripped text', () => {
       expect(bodyWordTexts("cat <<-'EOF'\n\tcat .env\n\tEOF")).not.toContain('.env');
     });
+
+    test('contains an invalid heredoc-body projection instead of failing the command', () => {
+      const facts = createCommandFacts("python3 - <<'PY'\nvalue = ${incomplete\nprint(value)\nPY");
+
+      expect(facts.commands[0]?.shell.status).toBe('complete');
+      expect(bodyWordTexts("bash <<'EOF'\ncat .env\nx=${q\nEOF")).toContain('.env');
+    });
   });
 });
 

@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse } from 'node:path';
 import {
   createPathCanonicalizationBudget,
+  expandSupportedPathEnvironmentVariables,
   PATH_CANONICALIZATION_LIMITS,
   PathCanonicalizationLimitError,
   resolveExistingPath,
 } from '@/analyzer/path-canonicalization';
-import { processPathResolver } from '@/ir/environment';
+import { createProcessEnvironment, processPathResolver } from '@/ir/environment';
 
 describe('path canonicalization', () => {
   test('preserves empty, existing, and terminal-root paths', () => {
@@ -70,6 +71,18 @@ describe('path canonicalization', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test('keeps an assignment expansion of an unsupported variable literal', () => {
+    const environment = createProcessEnvironment();
+
+    expect(expandSupportedPathEnvironmentVariables('${X:=1}', environment)).toBe('${X:=1}');
+    expect(expandSupportedPathEnvironmentVariables('${X=$(true)}', environment)).toBe(
+      '${X=$(true)}',
+    );
+    expect(() => expandSupportedPathEnvironmentVariables('${HOME:=/tmp}', environment)).toThrow(
+      PathCanonicalizationLimitError,
+    );
   });
 
   test('caches repeated existing and missing path resolutions within one budget', () => {

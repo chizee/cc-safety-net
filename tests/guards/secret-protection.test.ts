@@ -1043,6 +1043,26 @@ describe('treats quoted heredoc bodies as literal data', () => {
     expect(findSensitiveTargetInCommand('node -e "console.log(`v${Date.now()}`)"', cwd)).toBeNull();
   });
 
+  test('scans a single-quoted assignment expansion instead of failing closed', () => {
+    expect(findSensitiveTargetInCommand("echo '${X:=1}'", cwd)).toBeNull();
+  });
+
+  test('does not fail closed on a heredoc body the shell parser cannot project', () => {
+    expect(
+      findSensitiveTargetInCommand("python3 - <<'PY'\nvalue = ${incomplete\nprint(value)\nPY", cwd),
+    ).toBeNull();
+    // Nested template literals pair backticks lexically into a substitution body holding an
+    // unclosed `${`.
+    expect(
+      findSensitiveTargetInCommand(
+        'python3 - <<\'PY\'\ncode = """`${a ? `x${b}` : \'\'}`"""\nprint(code)\nPY',
+        cwd,
+      ),
+    ).toBeNull();
+    // Body lines before the unclosed expansion still execute under bash, so they stay scanned.
+    expect(findSensitiveTargetInCommand("bash <<'EOF'\ncat .env\nx=${q\nEOF", cwd)).not.toBeNull();
+  });
+
   test('still blocks a sensitive path beside an expansion holding a parenthesis', () => {
     expect(findSensitiveTargetInCommand('cat ${x:-$(true)} .env', cwd)?.ruleId).toBe(
       'secret.basename.env',

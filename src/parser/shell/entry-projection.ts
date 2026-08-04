@@ -217,12 +217,18 @@ function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry
     context.flags.limited = true;
     return [];
   }
-  return projectProgram(program, {
+  // A body is often not shell at all (code, prose), so its invalid marks stay contained: an
+  // unclosed `${` aborts a real shell before anything in the text it swallows runs, which keeps
+  // the surviving entries faithful without failing the whole command's projection.
+  const flags: ProjectionFlags = { invalid: false, limited: false };
+  const entries = projectProgram(program, {
     source: text,
     suppressed: new Set<CommandSpan>(),
-    flags: context.flags,
+    flags,
     depth: context.depth + 1,
   });
+  context.flags.limited ||= flags.limited;
+  return entries;
 }
 
 function projectWord(

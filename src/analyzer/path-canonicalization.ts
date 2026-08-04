@@ -151,9 +151,9 @@ function expandBracedPathEnvironmentVariable(
     if (SUPPORTED_PATH_ENV_NAMES.has(name)) throw new PathCanonicalizationLimitError();
     return match;
   }
+  if (!SUPPORTED_PATH_ENV_NAMES.has(name)) return match;
   // Assignment operators require write semantics we do not model.
   if (operator.endsWith('=')) throw new PathCanonicalizationLimitError();
-  if (!SUPPORTED_PATH_ENV_NAMES.has(name)) return match;
 
   const environmentValue = getSupportedPathEnvironmentValue(name, environment);
   const usable = operator.startsWith(':')
