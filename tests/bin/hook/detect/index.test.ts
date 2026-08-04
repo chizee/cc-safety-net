@@ -8,11 +8,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildAmpArtifactHeader } from '@/amp/index';
 import { stripJsonComments } from '@/bin/config/jsonc';
-import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getPackageVersion } from '@/bin/doctor/system-info';
 import type { HookStatus } from '@/bin/doctor/types';
+import { detectAllHooks } from '@/bin/hook/detect';
 import { getAmpPluginPath } from '@/bin/hook/install/amp';
-import { withEnv } from '../../helpers.ts';
+import { withEnv } from '../../../helpers.ts';
 
 function expectHookState(
   hook: HookStatus | undefined,

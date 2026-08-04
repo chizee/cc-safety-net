@@ -7,9 +7,9 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectAllHooks } from '@/bin/doctor/hooks';
 import type { HookStatus } from '@/bin/doctor/types';
-import { withEnv, withTempDir } from '../../helpers';
+import { detectAllHooks } from '@/bin/hook/detect';
+import { withEnv, withTempDir } from '../../../helpers';
 
 const PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 

@@ -3,16 +3,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/bin/args';
 import { stripJsonComments } from '@/bin/config/jsonc';
-import {
-  _getCopilotConfigHome,
-  detectAllHooks,
-  detectClaudeCode,
-  detectGeminiCLI,
-  getPiSettingsPath,
-  hasClaudeInstalledPlugin,
-  isPiSafetyNetPackageSource,
-} from '@/bin/doctor/hooks';
 import { defaultVersionFetcher } from '@/bin/doctor/system-info';
+import { detectAllHooks } from '@/bin/hook/detect';
+import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/bin/hook/detect/claude-code';
+import { _getCopilotConfigHome } from '@/bin/hook/detect/copilot-cli';
+import { detectGeminiCLI } from '@/bin/hook/detect/gemini-cli';
+import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/bin/hook/detect/pi';
 import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { atomicWriteFile } from '@/bin/hook/install/atomic-write';

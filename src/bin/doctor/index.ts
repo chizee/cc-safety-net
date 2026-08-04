@@ -18,11 +18,11 @@ import {
   formatSystemInfoSection,
   formatUpdateSection,
 } from '@/bin/doctor/format';
-import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getDoctorPosture } from '@/bin/doctor/posture';
 import { getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
 import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
+import { detectAllHooks } from '@/bin/hook/detect';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import { describeConfigState, loadPolicySnapshot } from '@/config/policy-snapshot';

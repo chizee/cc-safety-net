@@ -4,11 +4,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { getActivitySummary } from '@/bin/doctor/activity';
-import { detectAllHooks } from '@/bin/doctor/hooks';
 import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
 import type { SystemInfo, UpdateInfo } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
 import { explainCommand } from '@/bin/explain';
+import { detectAllHooks } from '@/bin/hook/detect';
 import { type RunInstallCommandOptions, runInstallCommand } from '@/bin/hook/install';
 import {
   INSTALL_TARGETS,
