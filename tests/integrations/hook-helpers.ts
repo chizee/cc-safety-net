@@ -42,6 +42,10 @@ export function makeTempHome(name: string) {
  * feeds keys, and `chunks` collects every rendered frame.
  */
 export function createInstallPromptStreams() {
+  // @clack/core wraps frames to process.stdout.columns even with an injected output
+  // stream; lefthook's zero-size PTY reports 0, which breaks every character onto
+  // its own line.
+  if (!process.stdout.columns) process.stdout.columns = 80;
   const chunks: string[] = [];
   const input = new PassThrough() as unknown as NodeJS.ReadStream;
   const output = new Writable({
