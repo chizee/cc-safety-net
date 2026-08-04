@@ -1,4 +1,3 @@
-import { realpathSync } from 'node:fs';
 import { normalize } from 'node:path';
 import {
   AWK_INTERPRETERS,
@@ -77,6 +76,7 @@ import type {
   AnalyzeResult,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
+  PathResolver,
 } from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
@@ -596,7 +596,7 @@ function analyzeTrackedHeredocScript(
   failClosed = false,
 ): AnalyzeBlockResult | null {
   if (failClosed && /[$`*?[\]]/.test(source)) return dynamicShellSourceResult(trace);
-  const path = resolveTrackedHeredocPath(source, effectiveCwd);
+  const path = resolveTrackedHeredocPath(source, effectiveCwd, options.environment.paths);
   const body = path ? options.literalHeredocFiles?.get(path) : undefined;
   if (body === undefined) return failClosed ? dynamicShellSourceResult(trace) : null;
 
@@ -817,7 +817,11 @@ export function resolveCwdAfterCommandView(
     const effect = getPowerShellLocationEffect(commandView.words, literalPipelineInput);
     if (effect.kind === 'none') return undefined;
     if (!cwd || effect.kind === 'unknown') return null;
-    return resolveKnownCwdTarget(normalizePowerShellLocationTarget(effect.target), cwd);
+    return resolveKnownCwdTarget(
+      normalizePowerShellLocationTarget(effect.target),
+      cwd,
+      environment.paths,
+    );
   }
 
   const segment = commandView.words.map(analysisWordText);
@@ -830,16 +834,20 @@ export function resolveCwdAfterCommandView(
     return null;
   }
 
-  return resolveKnownCwdTarget(unwrapped[cdIndex + 1], cwd);
+  return resolveKnownCwdTarget(unwrapped[cdIndex + 1], cwd, environment.paths);
 }
 
-function resolveKnownCwdTarget(target: string | undefined, cwd: string): string | null {
+function resolveKnownCwdTarget(
+  target: string | undefined,
+  cwd: string,
+  paths: PathResolver,
+): string | null {
   if (!target || target === '-' || target.includes('$') || target.includes('`')) {
     return null;
   }
 
   try {
-    return samePath(resolveChdirTarget(cwd, target), cwd) ? cwd : null;
+    return samePath(resolveChdirTarget(cwd, target, paths), cwd, paths) ? cwd : null;
   } catch {
     return null;
   }
@@ -922,12 +930,11 @@ function getCwdChangeTokens(
   return stripWrappers([...stripped], environment, cwd);
 }
 
-function samePath(a: string, b: string): boolean {
-  try {
-    return normalize(realpathSync(a)) === normalize(realpathSync(b));
-  } catch {
-    return normalize(a) === normalize(b);
-  }
+function samePath(a: string, b: string, paths: PathResolver): boolean {
+  const resolvedA = paths.realpath(a);
+  const resolvedB = paths.realpath(b);
+  if (resolvedA === null || resolvedB === null) return normalize(a) === normalize(b);
+  return normalize(resolvedA) === normalize(resolvedB);
 }
 
 function stripLeadingGrouping(tokens: readonly string[]): readonly string[] {

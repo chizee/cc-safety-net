@@ -1,7 +1,7 @@
-import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { getOwnEnvValue } from '@/core/env';
+import type { PathResolver } from '@/domain/analysis';
 
 /** @internal */
 export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
@@ -155,6 +155,7 @@ function readPathEnvironmentName(value: string, start: number): string {
 
 export function resolveExistingPath(
   path: string,
+  paths: PathResolver,
   budget = createPathCanonicalizationBudget(),
 ): string {
   if (!path) return path;
@@ -173,24 +174,24 @@ export function resolveExistingPath(
       throw new PathCanonicalizationLimitError();
     }
 
-    try {
-      const existing = realpathSync(candidate);
+    const existing = paths.realpath(candidate);
+    if (existing !== null) {
       const resolved = suffixes.length === 0 ? existing : join(existing, ...suffixes.reverse());
       budget.resolvedPaths.set(path, resolved);
       return resolved;
-    } catch {
-      const parent = dirname(candidate);
-      if (parent === candidate) {
-        const resolved = suffixes.length === 0 ? candidate : join(candidate, ...suffixes.reverse());
-        budget.resolvedPaths.set(path, resolved);
-        return resolved;
-      }
-      if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents) {
-        throw new PathCanonicalizationLimitError();
-      }
-      suffixes.push(basename(candidate));
-      candidate = parent;
     }
+
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      const resolved = suffixes.length === 0 ? candidate : join(candidate, ...suffixes.reverse());
+      budget.resolvedPaths.set(path, resolved);
+      return resolved;
+    }
+    if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents) {
+      throw new PathCanonicalizationLimitError();
+    }
+    suffixes.push(basename(candidate));
+    candidate = parent;
   }
 }
 

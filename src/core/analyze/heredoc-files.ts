@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import { resolveExistingPath } from '@/core/path-canonicalization';
+import type { PathResolver } from '@/domain/analysis';
 
 /** @internal */
 export const MAX_TRACKED_HEREDOC_FILES = 64;
@@ -8,6 +9,7 @@ export const MAX_TRACKED_HEREDOC_FILES = 64;
 export function resolveTrackedHeredocPath(
   source: string,
   effectiveCwd: string | null | undefined,
+  paths: PathResolver,
 ): string | undefined {
   const path = isAbsolute(source)
     ? resolve(source)
@@ -16,7 +18,7 @@ export function resolveTrackedHeredocPath(
       : undefined;
   if (!path) return undefined;
   try {
-    return resolveExistingPath(path);
+    return resolveExistingPath(path, paths);
   } catch {
     return path;
   }

@@ -768,7 +768,7 @@ describe('shell parsing helpers', () => {
     test.skipIf(process.platform !== 'win32')(
       '[windows] trusts the Windows system temp root',
       () => {
-        expect(isTrustedTempPath(tmpdir())).toBeTrue();
+        expect(isTrustedTempPath(tmpdir(), TEST_ENVIRONMENT)).toBeTrue();
       },
     );
   });

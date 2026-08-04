@@ -1,10 +1,9 @@
-import { realpathSync } from 'node:fs';
 import { isAbsolute, parse as parsePath } from 'node:path';
 import { analysisWordText, textCommandWords } from '@/core/analyze/command-words';
 import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { parseGitContextAppendEnvAssignment } from '@/core/git/env';
 import { resolveChdirTarget } from '@/core/path';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -115,14 +114,14 @@ export function stripWrapperWords(
     }
 
     if (head === 'sudo') {
-      const sudoResult = stripSudoWords(result, currentCwd);
+      const sudoResult = stripSudoWords(result, environment.paths, currentCwd);
       result = sudoResult.words;
       if (sudoResult.cwd !== undefined) {
         currentCwd = sudoResult.cwd;
       }
     }
     if (head === 'env') {
-      const envResult = stripEnvWords(result, currentCwd, effectiveEnvAssignments, environment.env);
+      const envResult = stripEnvWords(result, currentCwd, effectiveEnvAssignments, environment);
       if (envResult.unverifiableEnvSplit) {
         return {
           words: result,
@@ -204,6 +203,7 @@ const SUDO_OPTS_WITH_VALUE = new Set(['-u', '-g', '-C', '-D', '-h', '-p', '-r', 
 
 function stripSudoWords(
   words: readonly CommandWord[],
+  paths: PathResolver,
   cwd?: string | null,
 ): { words: readonly CommandWord[]; cwd?: string | null } {
   let i = 1;
@@ -223,19 +223,19 @@ function stripSudoWords(
 
     if (token === '-D' || token === '--chdir') {
       const target = wordText(words, i + 1);
-      currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
+      currentCwd = target ? resolveWrapperCwd(currentCwd, target, paths) : null;
       i += 2;
       continue;
     }
 
     if (token.startsWith('--chdir=')) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice('--chdir='.length));
+      currentCwd = resolveWrapperCwd(currentCwd, token.slice('--chdir='.length), paths);
       i++;
       continue;
     }
 
     if (token.startsWith('-D') && token.length > 2) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice(2));
+      currentCwd = resolveWrapperCwd(currentCwd, token.slice(2), paths);
       i++;
       continue;
     }
@@ -271,7 +271,7 @@ function stripEnvWords(
   words: readonly CommandWord[],
   cwd: string | null | undefined,
   inheritedEnvAssignments: ReadonlyMap<string, string>,
-  env: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
 ): EnvWordStrippingResult {
   const envAssignments = new Map<string, string>();
   let currentCwd = cwd;
@@ -342,7 +342,7 @@ function stripEnvWords(
         inheritedEnvAssignments,
         unsetEnvNames,
         currentCwd,
-        env,
+        environment.env,
       );
       if (applied.done) return applied.result;
       expanded = applied.expanded;
@@ -354,7 +354,7 @@ function stripEnvWords(
     if (ENV_OPTS_WITH_VALUE.has(token)) {
       if (token === '-C' || token === '--chdir') {
         const target = wordText(expanded, i + 1);
-        currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
+        currentCwd = target ? resolveWrapperCwd(currentCwd, target, environment.paths) : null;
       }
       i += 2;
       continue;
@@ -371,7 +371,7 @@ function stripEnvWords(
         : token.startsWith('-C=')
           ? token.slice('-C='.length)
           : token.slice('-C'.length);
-      currentCwd = resolveWrapperCwd(currentCwd, target);
+      currentCwd = resolveWrapperCwd(currentCwd, target, environment.paths);
       i++;
       continue;
     }
@@ -588,16 +588,21 @@ function isEnvSplitWhitespace(char: string): boolean {
   );
 }
 
-function resolveWrapperCwd(cwd: string | null | undefined, target: string): string | null {
+function resolveWrapperCwd(
+  cwd: string | null | undefined,
+  target: string,
+  paths: PathResolver,
+): string | null {
   if (target === '') {
     return null;
   }
+  if (!cwd && !isAbsolute(target)) {
+    return null;
+  }
+  const baseCwd = isAbsolute(target) ? parsePath(target).root : paths.realpath(cwd ?? '/');
+  if (baseCwd === null) return null;
   try {
-    if (!cwd && !isAbsolute(target)) {
-      return null;
-    }
-    const baseCwd = isAbsolute(target) ? parsePath(target).root : realpathSync(cwd ?? '/');
-    return resolveChdirTarget(baseCwd, target);
+    return resolveChdirTarget(baseCwd, target, paths);
   } catch {
     return null;
   }

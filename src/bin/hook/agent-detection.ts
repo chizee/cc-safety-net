@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { isSameOrInsidePath } from '@/core/cwd-containment';
+import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   PathCanonicalizationLimitError,
@@ -19,7 +20,9 @@ export function detectClaudeShapeAgent(
 
   try {
     const budget = createPathCanonicalizationBudget();
-    const transcript = transcriptPath ? resolveExistingPath(transcriptPath, budget) : undefined;
+    const transcript = transcriptPath
+      ? resolveExistingPath(transcriptPath, processPathResolver, budget)
+      : undefined;
     const home = process.env.HOME || homedir();
     const roots = [
       ['codex', process.env.CODEX_HOME || join(home, '.codex')],
@@ -29,7 +32,12 @@ export function detectClaudeShapeAgent(
     const matches = transcript
       ? roots.flatMap(([agent, root]) => {
           if (!isAbsolute(root)) return [];
-          return isSameOrInsidePath(transcript, resolveExistingPath(root, budget)) ? [agent] : [];
+          return isSameOrInsidePath(
+            transcript,
+            resolveExistingPath(root, processPathResolver, budget),
+          )
+            ? [agent]
+            : [];
         })
       : [];
 

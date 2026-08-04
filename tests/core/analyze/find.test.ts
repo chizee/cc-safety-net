@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { isTrustedTempRootPath } from '@/core/analyze/tmpdir';
-import { testEnvironment } from '../../helpers/environment.ts';
+import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment.ts';
 import { analyzeTestCommand } from '../../helpers/policy.ts';
 import { assertAllowed, assertBlocked } from '../../helpers.ts';
 
@@ -62,7 +62,7 @@ describe('find -delete tests', () => {
     // A nested TMPDIR (e.g. an isolated test home under /tmp) is a trusted temp
     // descendant, not a root, so the system-tmpdir assertion only holds when the
     // real tmpdir is itself a recognized root.
-    if (isTrustedTempRootPath(tmpdir())) {
+    if (isTrustedTempRootPath(tmpdir(), TEST_ENVIRONMENT)) {
       assertBlocked(`find ${tmpdir()} -depth -delete`, 'find -delete');
     }
     const environment = testEnvironment({ TMPDIR: '/tmp/ccsn-find-root' });

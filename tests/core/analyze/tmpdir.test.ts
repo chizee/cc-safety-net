@@ -1,11 +1,31 @@
 import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import { analyzeCommandWithProgram } from '@/core/analyze';
 import { isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment } from '@/core/analyze/tmpdir';
+import type { EnvironmentContext } from '@/domain/analysis';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
+import { policySnapshot } from '../../helpers/policy';
 
 const isTmpdirOverriddenToNonTemp = (envAssignments: ReadonlyMap<string, string>) =>
   isTmpdirOverriddenWithEnvironment(envAssignments, TEST_ENVIRONMENT);
+
+/**
+ * A filesystem that exists only in this test: the listed symlinks over the temp roots
+ * and the working directory the analyzer case below runs in.
+ */
+function stubEnvironment(symlinks: Record<string, string>): EnvironmentContext {
+  const present = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp', '/work'];
+  return {
+    ...TEST_ENVIRONMENT,
+    tmpdir: '/tmp',
+    paths: {
+      entryKind: (path) =>
+        path in symlinks ? 'symlink' : present.includes(path) ? 'present' : 'missing',
+      realpath: (path) => symlinks[path] ?? (present.includes(path) ? path : null),
+    },
+  };
+}
 
 function evaluateInFreshProcess(
   assignedTmpdir: string,
@@ -65,6 +85,17 @@ describe('isTmpdirOverriddenToNonTemp', () => {
     expect(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', escapedTmpdir]]))).toBe(true);
   });
 
+  test('resolves symlinks through the injected path resolver, not the real filesystem', () => {
+    const environment = stubEnvironment({ '/tmp/escape': '/root/escape' });
+
+    expect(
+      isTmpdirOverriddenWithEnvironment(new Map([['TMPDIR', '/tmp/escape']]), environment),
+    ).toBe(true);
+    expect(
+      isTmpdirOverriddenWithEnvironment(new Map([['TMPDIR', '/tmp/plain']]), environment),
+    ).toBe(false);
+  });
+
   test('does not trust a hostile process-start TMPDIR', () => {
     expect(evaluateInFreshProcess('/Users')).toBe(true);
   });
@@ -104,4 +135,22 @@ describe('isTmpdirOverriddenToNonTemp', () => {
       expect(evaluateInFreshProcess('/Users', { environment })).toBe(true);
     },
   );
+});
+
+describe('analysis over an injected filesystem', () => {
+  test('classifies a temp target from the injected resolver, not the real filesystem', () => {
+    const analyze = (environment: EnvironmentContext) =>
+      analyzeCommandWithProgram('rm -rf /tmp/escape', {
+        cwd: '/work',
+        policySnapshot: policySnapshot(),
+        environment,
+      });
+
+    // The real filesystem has no /tmp/escape, so the target stays a trusted temp path.
+    expect(analyze(TEST_ENVIRONMENT)).toBeNull();
+    expect(analyze(stubEnvironment({ '/tmp/escape': '/root/escape' }))).toMatchObject({
+      kind: 'deny',
+      ruleId: 'rm.recursive-force-outside-cwd',
+    });
+  });
 });

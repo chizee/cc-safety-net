@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
-import { createProcessEnvironment } from '@/core/environment';
+import { createProcessEnvironment, processPathResolver } from '@/core/environment';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationBudget,
@@ -102,6 +102,7 @@ export function normalizeProtectedPathCandidate(
     unix === '~' ? homedir() : unix.startsWith('~/') ? resolve(homedir(), unix.slice(2)) : unix;
   return resolveExistingPath(
     normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
+    processPathResolver,
     budget,
   ).replace(/\\/g, '/');
 }

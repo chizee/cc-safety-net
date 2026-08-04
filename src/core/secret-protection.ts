@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
+import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   expandSupportedPathEnvironmentVariables,
@@ -1626,7 +1627,9 @@ function normalizeCandidatePath(
   budget: PathCanonicalizationBudget,
 ): string {
   const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : '';
+  const home = homeValue
+    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
+    : '';
   const normalized = normalizePathText(
     normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
   );
@@ -1639,7 +1642,9 @@ function normalizeCandidatePath(
 
   const expanded = expandHomePath(normalized, home);
   const absolute = isAbsolute(expanded) ? expanded : normalizePathText(resolve(cwd, expanded));
-  const canonicalAbsolute = normalizePathText(resolveExistingPath(absolute, budget));
+  const canonicalAbsolute = normalizePathText(
+    resolveExistingPath(absolute, processPathResolver, budget),
+  );
   if (!isSameOrChildPath(canonicalAbsolute, home)) {
     if (isAbsolute(expanded)) return canonicalAbsolute;
     return canonicalAbsolute === absolute ? normalized : canonicalAbsolute;
@@ -1655,14 +1660,20 @@ function normalizeAbsoluteCandidatePath(
   budget: PathCanonicalizationBudget,
 ): string {
   const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue ? normalizePathText(resolveExistingPath(homeValue, budget)) : '';
+  const home = homeValue
+    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
+    : '';
   const normalized = normalizePathText(
     normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
   );
   if (!normalized) return '';
   const expanded = home ? expandHomePath(normalized, home) : normalized;
   return normalizePathText(
-    resolveExistingPath(isAbsolute(expanded) ? expanded : resolve(cwd, expanded), budget),
+    resolveExistingPath(
+      isAbsolute(expanded) ? expanded : resolve(cwd, expanded),
+      processPathResolver,
+      budget,
+    ),
   );
 }
 

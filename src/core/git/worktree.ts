@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { processPathResolver } from '@/core/environment';
 import { resolveChdirTarget } from '@/core/path';
 import { GIT_CONTEXT_ENV_OVERRIDES } from './env';
 
@@ -326,7 +327,7 @@ function unescapeDoubleQuotedGitConfigValue(value: string): string {
 
 function resolveGitCwd(baseCwd: string, target: string): string | null {
   try {
-    const resolved = resolveChdirTarget(baseCwd, target);
+    const resolved = resolveChdirTarget(baseCwd, target, processPathResolver);
     return isDirectory(resolved) ? resolved : null;
   } catch {
     return null;

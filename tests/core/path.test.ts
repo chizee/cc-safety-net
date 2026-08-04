@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { toNamespacedPath } from 'node:path';
+import { processPathResolver } from '@/core/environment';
 import { isUnsupportedWindowsNamespacePath, resolveChdirTarget } from '@/core/path';
 
 describe('Windows namespace path detection', () => {
@@ -48,7 +49,7 @@ describe('Windows namespace path detection', () => {
         String.raw`/\server\share`,
         String.raw`\/server/share`,
       ]) {
-        expect(() => resolveChdirTarget(process.cwd(), target)).toThrow(
+        expect(() => resolveChdirTarget(process.cwd(), target, processPathResolver)).toThrow(
           'Unsupported Windows namespace path',
         );
       }
@@ -59,7 +60,7 @@ describe('Windows namespace path detection', () => {
     '[windows] keeps relative chdir targets beneath a trusted namespaced base supported',
     () => {
       const base = toNamespacedPath(process.cwd());
-      expect(resolveChdirTarget(base, '.')).toBe(base);
+      expect(resolveChdirTarget(base, '.', processPathResolver)).toBe(base);
     },
   );
 });

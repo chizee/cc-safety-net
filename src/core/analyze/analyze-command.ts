@@ -54,6 +54,7 @@ import type {
   AnalyzeResult,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
+  PathResolver,
 } from '@/domain/analysis';
 import type {
   CommandProgram,
@@ -640,7 +641,7 @@ function analyzeCommandView(
       intent: 'stop_and_explain',
     };
   }
-  invalidateLiteralHeredocFiles(commandView, state, 'before-consumer');
+  invalidateLiteralHeredocFiles(commandView, state, 'before-consumer', options.environment.paths);
   const segment = analyzedViewWords(commandView.dialect, commandView.words).map(analysisWordText);
   const segmentStr = commandView.displayText;
   const segmentEnvAssignments = getSegmentGitContextEnvAssignments(
@@ -699,9 +700,9 @@ function analyzeCommandView(
       options,
     );
     if (heredocResult) return heredocResult;
-    invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
+    invalidateLiteralHeredocFiles(commandView, state, 'after-consumer', options.environment.paths);
     state.literalHeredocFiles.clear();
-    trackLiteralHeredocFiles(commandView, heredocReason, state);
+    trackLiteralHeredocFiles(commandView, heredocReason, state, options.environment.paths);
     updateCwdAfterCommandView(
       commandView,
       state,
@@ -760,9 +761,9 @@ function analyzeCommandView(
   );
   if (heredocResult) return heredocResult;
 
-  invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
+  invalidateLiteralHeredocFiles(commandView, state, 'after-consumer', options.environment.paths);
   state.literalHeredocFiles.clear();
-  trackLiteralHeredocFiles(commandView, heredocReason, state);
+  trackLiteralHeredocFiles(commandView, heredocReason, state, options.environment.paths);
   updateCwdAfterCommandView(
     commandView,
     state,
@@ -780,6 +781,7 @@ function invalidateLiteralHeredocFiles(
   commandView: CommandView,
   state: AnalysisState,
   phase: 'before-consumer' | 'after-consumer',
+  paths: PathResolver,
 ): void {
   for (const redirection of commandView.redirections) {
     const writesFile =
@@ -787,13 +789,13 @@ function invalidateLiteralHeredocFiles(
         ? isTruncatingFileRedirection(redirection)
         : FILE_NONTRUNCATING_WRITE_REDIRECTIONS.has(redirection.operator);
     if (!writesFile) continue;
-    invalidateLiteralHeredocFile(redirection.target, state);
+    invalidateLiteralHeredocFile(redirection.target, state, paths);
   }
 
   if (phase !== 'before-consumer' || !isBareCommandWord(commandView.words[0], 'tee')) return;
   const teeArguments = getTeeArguments(commandView.words.slice(1));
   if (!teeArguments) return;
-  for (const operand of teeArguments.operands) invalidateLiteralHeredocFile(operand, state);
+  for (const operand of teeArguments.operands) invalidateLiteralHeredocFile(operand, state, paths);
 }
 
 function isTruncatingFileRedirection(redirection: CommandRedirection): boolean {
@@ -806,10 +808,14 @@ function isTruncatingFileRedirection(redirection: CommandRedirection): boolean {
   );
 }
 
-function invalidateLiteralHeredocFile(target: CommandWord | undefined, state: AnalysisState): void {
+function invalidateLiteralHeredocFile(
+  target: CommandWord | undefined,
+  state: AnalysisState,
+  paths: PathResolver,
+): void {
   const path =
     target?.provenance === 'literal'
-      ? resolveTrackedHeredocPath(target.text, state.effectiveCwd)
+      ? resolveTrackedHeredocPath(target.text, state.effectiveCwd, paths)
       : undefined;
   if (!path) return;
   state.literalHeredocFiles.delete(path);
@@ -819,6 +825,7 @@ function trackLiteralHeredocFiles(
   commandView: CommandView,
   heredocReason: string | undefined,
   state: AnalysisState,
+  paths: PathResolver,
 ): void {
   if (heredocReason) return;
   const heredoc = commandView.redirections.find(
@@ -827,7 +834,7 @@ function trackLiteralHeredocFiles(
   if (!heredoc?.quotedDelimiter) return;
 
   for (const target of getLiteralHeredocOutputTargets(commandView)) {
-    const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd);
+    const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd, paths);
     if (!path || !isPersistentHeredocFilePath(path)) continue;
     if (
       !state.literalHeredocFiles.has(path) &&

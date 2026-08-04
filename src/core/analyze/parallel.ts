@@ -39,7 +39,11 @@ import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { resolveChdirTarget } from '@/core/path';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type {
+  AnalyzeNestedOverrides,
+  DestructiveCommandRuleMatch,
+  PathResolver,
+} from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import type { PolicyRule } from '@/domain/policy';
 import { parseSimpleWords } from '@/parser/traversal';
@@ -186,7 +190,7 @@ export function analyzeParallel(
     const reason = parallelUnsupportedReason(context);
     if (reason) return reason;
   }
-  const workdirCwd = resolveParallelWorkdir(workdir, context.cwd);
+  const workdirCwd = resolveParallelWorkdir(workdir, context.cwd, context.environment.paths);
   if (workdirCwd === null) {
     const reason = parallelUnsupportedReason(context);
     if (reason) return reason;
@@ -1518,6 +1522,7 @@ function parseParallelCommand(tokens: readonly string[]): ParallelParseResult {
 function resolveParallelWorkdir(
   workdir: string | undefined,
   cwd: string | undefined,
+  paths: PathResolver,
 ): string | null | undefined {
   if (workdir === undefined) {
     return undefined;
@@ -1529,7 +1534,7 @@ function resolveParallelWorkdir(
     return null;
   }
   try {
-    return resolveChdirTarget(cwd ?? workdir, workdir);
+    return resolveChdirTarget(cwd ?? workdir, workdir, paths);
   } catch {
     return null;
   }

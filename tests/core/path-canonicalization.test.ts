@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse } from 'node:path';
+import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   PATH_CANONICALIZATION_LIMITS,
@@ -11,9 +12,11 @@ import {
 
 describe('path canonicalization', () => {
   test('preserves empty, existing, and terminal-root paths', () => {
-    expect(resolveExistingPath('')).toBe('');
-    expect(resolveExistingPath(process.cwd())).toBe(realpathSync(process.cwd()));
-    expect(resolveExistingPath(parse(process.cwd()).root)).toBe(
+    expect(resolveExistingPath('', processPathResolver)).toBe('');
+    expect(resolveExistingPath(process.cwd(), processPathResolver)).toBe(
+      realpathSync(process.cwd()),
+    );
+    expect(resolveExistingPath(parse(process.cwd()).root, processPathResolver)).toBe(
       realpathSync(parse(process.cwd()).root),
     );
   });
@@ -25,10 +28,10 @@ describe('path canonicalization', () => {
     try {
       symlinkSync(existing, alias);
 
-      expect(resolveExistingPath(join(alias, 'missing', 'leaf'))).toBe(
+      expect(resolveExistingPath(join(alias, 'missing', 'leaf'), processPathResolver)).toBe(
         join(realpathSync(existing), 'missing', 'leaf'),
       );
-      expect(resolveExistingPath(join(alias, '..', 'missing'))).toBe(
+      expect(resolveExistingPath(join(alias, '..', 'missing'), processPathResolver)).toBe(
         join(realpathSync(dirname(existing)), basename(root), 'missing'),
       );
     } finally {
@@ -43,7 +46,7 @@ describe('path canonicalization', () => {
     const expected = join(realpathSync(root), basename(target));
     try {
       chmodSync(root, 0);
-      expect(resolveExistingPath(target)).toBe(expected);
+      expect(resolveExistingPath(target, processPathResolver)).toBe(expected);
     } finally {
       chmodSync(root, 0o700);
       rmSync(root, { recursive: true, force: true });
@@ -58,10 +61,10 @@ describe('path canonicalization', () => {
         (_, index) => `d${index}`,
       );
 
-      expect(resolveExistingPath(join(root, ...components.slice(0, -1)))).toBe(
+      expect(resolveExistingPath(join(root, ...components.slice(0, -1)), processPathResolver)).toBe(
         join(realpathSync(root), ...components.slice(0, -1)),
       );
-      expect(() => resolveExistingPath(join(root, ...components))).toThrow(
+      expect(() => resolveExistingPath(join(root, ...components), processPathResolver)).toThrow(
         PathCanonicalizationLimitError,
       );
     } finally {
@@ -71,15 +74,15 @@ describe('path canonicalization', () => {
 
   test('caches repeated existing and missing path resolutions within one budget', () => {
     const budget = createPathCanonicalizationBudget();
-    const existing = resolveExistingPath(process.cwd(), budget);
+    const existing = resolveExistingPath(process.cwd(), processPathResolver, budget);
     const missing = join(process.cwd(), 'missing', 'leaf');
-    const resolvedMissing = resolveExistingPath(missing, budget);
+    const resolvedMissing = resolveExistingPath(missing, processPathResolver, budget);
     const attempts = budget.realpathAttempts;
     const processedBytes = budget.processedCandidateBytes;
 
     for (let index = 0; index < PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1; index++) {
-      expect(resolveExistingPath(process.cwd(), budget)).toBe(existing);
-      expect(resolveExistingPath(missing, budget)).toBe(resolvedMissing);
+      expect(resolveExistingPath(process.cwd(), processPathResolver, budget)).toBe(existing);
+      expect(resolveExistingPath(missing, processPathResolver, budget)).toBe(resolvedMissing);
     }
 
     expect(budget.realpathAttempts).toBe(attempts);
@@ -91,10 +94,14 @@ describe('path canonicalization', () => {
     const distinctMissingPathCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
 
     for (let index = 0; index < distinctMissingPathCount; index++) {
-      resolveExistingPath(join(process.cwd(), `missing-${index}`), budget);
+      resolveExistingPath(join(process.cwd(), `missing-${index}`), processPathResolver, budget);
     }
     expect(() =>
-      resolveExistingPath(join(process.cwd(), `missing-${distinctMissingPathCount}`), budget),
+      resolveExistingPath(
+        join(process.cwd(), `missing-${distinctMissingPathCount}`),
+        processPathResolver,
+        budget,
+      ),
     ).toThrow(PathCanonicalizationLimitError);
   });
 
@@ -105,11 +112,11 @@ describe('path canonicalization', () => {
       Math.floor(PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes / 4),
     )}`;
 
-    resolveExistingPath(join(process.cwd(), `${candidate}-0`), budget);
-    resolveExistingPath(join(process.cwd(), `${candidate}-1`), budget);
-    resolveExistingPath(join(process.cwd(), `${candidate}-2`), budget);
+    resolveExistingPath(join(process.cwd(), `${candidate}-0`), processPathResolver, budget);
+    resolveExistingPath(join(process.cwd(), `${candidate}-1`), processPathResolver, budget);
+    resolveExistingPath(join(process.cwd(), `${candidate}-2`), processPathResolver, budget);
     const error = capturePathLimit(() =>
-      resolveExistingPath(join(process.cwd(), `${candidate}-3`), budget),
+      resolveExistingPath(join(process.cwd(), `${candidate}-3`), processPathResolver, budget),
     );
 
     expect(error.message).toBe('Path canonicalization work limit exceeded.');

@@ -12,7 +12,7 @@ import {
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
 
@@ -47,7 +47,7 @@ export interface RecursiveDeleteTargetContext {
   readonly posixShell: boolean;
   readonly tmpdirWordSplittingUnsafe: boolean;
   readonly trustedTmpdirValue: boolean;
-  readonly homeDir: string;
+  readonly environment: EnvironmentContext;
   readonly allowRoots: readonly string[];
   readonly protectedGitMetadata: ProtectedGitMetadata | null;
   readonly pathCanonicalizationBudget: PathCanonicalizationBudget;
@@ -143,6 +143,7 @@ export function createRecursiveDeleteTargetContext(
   options: RecursiveDeleteTargetOptions,
 ): RecursiveDeleteTargetContext {
   const homeDir = options.environment.home;
+  const paths = options.environment.paths;
   const budget = createPathCanonicalizationBudget();
   return {
     anchoredCwd: options.originalCwd ?? options.cwd ?? null,
@@ -153,8 +154,8 @@ export function createRecursiveDeleteTargetContext(
     posixShell: options.posixShell ?? false,
     tmpdirWordSplittingUnsafe: options.tmpdirWordSplittingUnsafe ?? false,
     trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
-    homeDir,
-    allowRoots: resolveAllowRoots(options.allowPaths, homeDir, budget),
+    environment: options.environment,
+    allowRoots: resolveAllowRoots(options.allowPaths, homeDir, paths, budget),
     protectedGitMetadata:
       options.protectedGitMetadata !== undefined
         ? options.protectedGitMetadata
@@ -214,6 +215,7 @@ export function classifyRecursiveDeleteTarget(
       targetIsLiteral,
       options.tmpdirWordSplittingProtected ?? false,
       ctx.trustedTmpdirValue,
+      ctx.environment,
     )
   ) {
     return { kind: 'temp_target' };
@@ -232,14 +234,24 @@ export function classifyRecursiveDeleteTarget(
   if (anchoredCwd) {
     if (
       !options.skipHomeCwd &&
-      isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir, ctx.pathCanonicalizationBudget)
+      isCwdHomeForRmPolicy(
+        anchoredCwd,
+        ctx.environment.home,
+        ctx.environment.paths,
+        ctx.pathCanonicalizationBudget,
+      )
     ) {
       return { kind: 'home_cwd_target' };
     }
 
     if (
       !options.skipCwdSelf &&
-      isCwdSelfTarget(target, ctx.resolvedCwd ?? anchoredCwd, ctx.pathCanonicalizationBudget)
+      isCwdSelfTarget(
+        target,
+        ctx.resolvedCwd ?? anchoredCwd,
+        ctx.environment.paths,
+        ctx.pathCanonicalizationBudget,
+      )
     ) {
       return { kind: 'cwd_self_target' };
     }
@@ -251,6 +263,7 @@ export function classifyRecursiveDeleteTarget(
         ctx.resolvedCwd ?? anchoredCwd,
         dynamic,
         targetIsLiteral,
+        ctx.environment.paths,
         ctx.pathCanonicalizationBudget,
       )
     ) {
@@ -272,11 +285,12 @@ export function isTrustedTempDescendantTarget(
   }
   const normalized = target.trim();
   if (isTrustedTmpdirVariableRootTarget(normalized)) return false;
-  if (isTrustedTempRootPath(normalized)) return false;
+  if (isTrustedTempRootPath(normalized, ctx.environment)) return false;
   return ![ctx.anchoredCwd, ctx.resolvedCwd].some((workspace) =>
     isWorkspaceWithinTarget(
       containmentTarget ?? normalized,
       workspace,
+      ctx.environment.paths,
       ctx.pathCanonicalizationBudget,
     ),
   );
@@ -339,12 +353,18 @@ function isCanonicalHomeTarget(target: string, ctx: RecursiveDeleteTargetContext
         : null;
     if (!base) return false;
     const resolved = normalizePathForComparison(
-      resolveExistingPath(base, ctx.pathCanonicalizationBudget),
+      resolveExistingPath(base, ctx.environment.paths, ctx.pathCanonicalizationBudget),
     );
     if (resolved === parse(resolved).root) return true;
     return (
       resolved ===
-      normalizePathForComparison(resolveExistingPath(ctx.homeDir, ctx.pathCanonicalizationBudget))
+      normalizePathForComparison(
+        resolveExistingPath(
+          ctx.environment.home,
+          ctx.environment.paths,
+          ctx.pathCanonicalizationBudget,
+        ),
+      )
     );
   } catch {
     return false;
@@ -375,6 +395,7 @@ function isTempTarget(
   targetIsLiteral: boolean,
   tmpdirWordSplittingProtected: boolean,
   trustedTmpdirValue: boolean,
+  environment: EnvironmentContext,
 ): boolean {
   const normalized = path.trim();
 
@@ -382,7 +403,7 @@ function isTempTarget(
     return false;
   }
 
-  if (!dynamic && isTrustedTempPath(normalized)) {
+  if (!dynamic && isTrustedTempPath(normalized, environment)) {
     return true;
   }
 
@@ -413,19 +434,20 @@ function hasParentDirectoryComponent(path: string): boolean {
 }
 
 function resolveAllowRoots(
-  paths: readonly string[] | undefined,
+  allowPaths: readonly string[] | undefined,
   homeDir: string,
+  paths: PathResolver,
   budget: PathCanonicalizationBudget,
 ): readonly string[] {
-  if (!paths?.length) return [];
-  return paths.flatMap((path) => {
+  if (!allowPaths?.length) return [];
+  return allowPaths.flatMap((path) => {
     const expanded = expandAllowPathHome(path.trim(), homeDir);
     if (!isAbsolute(expanded)) return [];
     try {
-      const canonical = resolveExistingPath(expanded, budget);
+      const canonical = resolveExistingPath(expanded, paths, budget);
       // Re-check against home after symlink resolution so a link into or above
       // home cannot widen the allowed root.
-      if (getAllowPathHomeConflictError(canonical, resolveExistingPath(homeDir, budget))) {
+      if (getAllowPathHomeConflictError(canonical, resolveExistingPath(homeDir, paths, budget))) {
         return [];
       }
       return [normalizePathForComparison(canonical)];
@@ -443,13 +465,13 @@ function isAllowedPathTarget(
   if (ctx.allowRoots.length === 0) return false;
   const trimmed = target.trim();
   if (hasParentDirectoryComponent(trimmed)) return false;
-  const expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.homeDir);
+  const expanded = targetIsLiteral ? trimmed : expandAllowPathHome(trimmed, ctx.environment.home);
   const base = ctx.resolvedCwd ?? ctx.anchoredCwd;
   const resolved = isAbsolute(expanded) ? expanded : base ? resolve(base, expanded) : null;
   if (!resolved) return false;
   try {
     const canonical = normalizePathForComparison(
-      resolveExistingPath(resolved, ctx.pathCanonicalizationBudget),
+      resolveExistingPath(resolved, ctx.environment.paths, ctx.pathCanonicalizationBudget),
     );
     return ctx.allowRoots.some(
       (root) =>
@@ -523,12 +545,13 @@ function hasBraceExpansion(target: string, openIndex: number): boolean {
 function isCwdHomeForRmPolicy(
   cwd: string,
   homeDir: string,
+  paths: PathResolver,
   budget: PathCanonicalizationBudget,
 ): boolean {
   try {
     return (
-      normalizePathForComparison(resolveExistingPath(cwd, budget)) ===
-      normalizePathForComparison(resolveExistingPath(homeDir, budget))
+      normalizePathForComparison(resolveExistingPath(cwd, paths, budget)) ===
+      normalizePathForComparison(resolveExistingPath(homeDir, paths, budget))
     );
   } catch {
     try {
@@ -539,15 +562,20 @@ function isCwdHomeForRmPolicy(
   }
 }
 
-function isCwdSelfTarget(target: string, cwd: string, budget: PathCanonicalizationBudget): boolean {
+function isCwdSelfTarget(
+  target: string,
+  cwd: string,
+  paths: PathResolver,
+  budget: PathCanonicalizationBudget,
+): boolean {
   if (target === '.' || target === './' || target === '.\\') {
     return true;
   }
 
   try {
     return (
-      normalizePathForComparison(resolveExistingPath(resolve(cwd, target), budget)) ===
-      normalizePathForComparison(resolveExistingPath(cwd, budget))
+      normalizePathForComparison(resolveExistingPath(resolve(cwd, target), paths, budget)) ===
+      normalizePathForComparison(resolveExistingPath(cwd, paths, budget))
     );
   } catch {
     try {
@@ -564,6 +592,7 @@ function isTargetWithinCwd(
   effectiveCwd: string | undefined,
   dynamic: boolean,
   targetIsLiteral: boolean,
+  paths: PathResolver,
   budget: PathCanonicalizationBudget,
 ): boolean {
   const resolveCwd = effectiveCwd ?? originalCwd;
@@ -580,7 +609,7 @@ function isTargetWithinCwd(
 
   if (target.startsWith('/') || /^[A-Za-z]:[\\/]/.test(target)) {
     try {
-      return isResolvedPathWithinCwd(target, originalCwd, budget);
+      return isResolvedPathWithinCwd(target, originalCwd, paths, budget);
     } catch {
       return false;
     }
@@ -592,7 +621,7 @@ function isTargetWithinCwd(
     (!target.includes('/') && !target.includes('\\'))
   ) {
     try {
-      return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, budget);
+      return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, paths, budget);
     } catch {
       return false;
     }
@@ -603,7 +632,7 @@ function isTargetWithinCwd(
   }
 
   try {
-    return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, budget);
+    return isResolvedPathWithinCwd(resolve(resolveCwd, target), originalCwd, paths, budget);
   } catch {
     return false;
   }
@@ -612,12 +641,13 @@ function isTargetWithinCwd(
 function isResolvedPathWithinCwd(
   resolvedTarget: string,
   cwd: string,
+  paths: PathResolver,
   budget: PathCanonicalizationBudget,
 ): boolean {
   try {
     return isNormalizedPathWithin(
-      resolveExistingPath(resolvedTarget, budget),
-      resolveExistingPath(cwd, budget),
+      resolveExistingPath(resolvedTarget, paths, budget),
+      resolveExistingPath(cwd, paths, budget),
     );
   } catch {
     return false;
@@ -627,13 +657,14 @@ function isResolvedPathWithinCwd(
 function isWorkspaceWithinTarget(
   target: string,
   workspace: string | null,
+  paths: PathResolver,
   budget: PathCanonicalizationBudget,
 ): boolean {
   if (!workspace) return false;
   try {
     return isNormalizedPathWithin(
-      resolveExistingPath(workspace, budget),
-      resolveExistingPath(target, budget),
+      resolveExistingPath(workspace, paths, budget),
+      resolveExistingPath(target, paths, budget),
     );
   } catch {
     return true;

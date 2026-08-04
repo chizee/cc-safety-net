@@ -1,6 +1,7 @@
 import { isAbsolute, relative } from 'node:path';
 import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
 import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
+import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   PathCanonicalizationLimitError,
@@ -168,7 +169,10 @@ function resolveAntigravityTargetRoot(
   const budget = createPathCanonicalizationBudget();
   const targetRoots = new Set(
     targets.flatMap((target) => {
-      const root = mostSpecificContainingRoot(resolveExistingPath(target, budget), configRoots);
+      const root = mostSpecificContainingRoot(
+        resolveExistingPath(target, processPathResolver, budget),
+        configRoots,
+      );
       return root ? [root] : [];
     }),
   );

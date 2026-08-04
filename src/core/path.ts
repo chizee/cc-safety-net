@@ -1,5 +1,5 @@
-import { lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, parse as parsePath, sep } from 'node:path';
+import type { PathResolver } from '@/domain/analysis';
 
 /** @internal */
 export function isUnsupportedWindowsNamespacePath(
@@ -10,7 +10,7 @@ export function isUnsupportedWindowsNamespacePath(
   return (target[0] === '/' || target[0] === '\\') && (target[1] === '/' || target[1] === '\\');
 }
 
-export function resolveChdirTarget(baseCwd: string, target: string): string {
+export function resolveChdirTarget(baseCwd: string, target: string, paths: PathResolver): string {
   if (isUnsupportedWindowsNamespacePath(target)) {
     throw new Error('Unsupported Windows namespace path');
   }
@@ -26,7 +26,12 @@ export function resolveChdirTarget(baseCwd: string, target: string): string {
     }
 
     const candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
+    const kind = paths.entryKind(candidate);
+    const resolved = kind === 'symlink' ? paths.realpath(candidate) : candidate;
+    if (kind === 'missing' || resolved === null) {
+      throw new Error(`Cannot resolve path component: ${candidate}`);
+    }
+    current = resolved;
   }
   return current;
 }

@@ -1,11 +1,7 @@
-import { lstatSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
 
-const INITIAL_SYSTEM_TMPDIR = tmpdir();
 const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp'];
-const TRUSTED_TEMP_ROOTS = buildTrustedTempRoots();
 const DEFAULT_IFS = ' \t\n';
 
 export function isTmpdirOverriddenToNonTemp(
@@ -15,7 +11,7 @@ export function isTmpdirOverriddenToNonTemp(
   if (hasUnsafeTmpdirWordSplitting(envAssignments, environment)) return true;
   // Only explicit shell assignments override TMPDIR trust. Inherited process env is not an override.
   if (!envAssignments.has('TMPDIR')) return false;
-  return !isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
+  return !isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '', environment);
 }
 
 export function isTmpdirValueTrusted(
@@ -23,11 +19,11 @@ export function isTmpdirValueTrusted(
   environment: EnvironmentContext,
 ): boolean {
   if (envAssignments.has('TMPDIR')) {
-    return isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
+    return isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '', environment);
   }
   const tmpdirValue = getEffectiveTmpdirValue(envAssignments, environment);
   if (tmpdirValue === undefined) return true;
-  return isAssignedTmpdirValueTrusted(tmpdirValue);
+  return isAssignedTmpdirValueTrusted(tmpdirValue, environment);
 }
 
 export function getEffectiveTmpdirValue(
@@ -37,11 +33,14 @@ export function getEffectiveTmpdirValue(
   return getEffectiveShellEnvValue(envAssignments, environment, 'TMPDIR');
 }
 
-function isAssignedTmpdirValueTrusted(tmpdirValue: string): boolean {
+function isAssignedTmpdirValueTrusted(
+  tmpdirValue: string,
+  environment: EnvironmentContext,
+): boolean {
   // Empty TMPDIR is dangerous: $TMPDIR/foo expands to /foo
   if (!tmpdirValue) return false;
   if (hasUnsafeTmpdirShellExpansion(tmpdirValue)) return false;
-  return isTrustedTempPath(tmpdirValue);
+  return isTrustedTempPath(tmpdirValue, environment);
 }
 
 export function hasUnsafeTmpdirWordSplitting(
@@ -52,26 +51,28 @@ export function hasUnsafeTmpdirWordSplitting(
   return ifs !== undefined && ifs !== '' && ifs !== DEFAULT_IFS;
 }
 
-export function isTrustedTempPath(path: string): boolean {
-  const normalizedPath = tryResolveExistingPathComponents(path);
+export function isTrustedTempPath(path: string, environment: EnvironmentContext): boolean {
+  const normalizedPath = tryResolveExistingPathComponents(path, environment.paths);
   return (
     normalizedPath !== null &&
-    TRUSTED_TEMP_ROOTS.some((root) => isPathOrSubpath(normalizedPath, root))
+    trustedTempRoots(environment).some((root) => isPathOrSubpath(normalizedPath, root))
   );
 }
 
-export function isTrustedTempRootPath(path: string): boolean {
-  const normalizedPath = tryResolveExistingPathComponents(path);
-  return normalizedPath !== null && TRUSTED_TEMP_ROOTS.includes(normalizedPath);
+export function isTrustedTempRootPath(path: string, environment: EnvironmentContext): boolean {
+  const normalizedPath = tryResolveExistingPathComponents(path, environment.paths);
+  return normalizedPath !== null && trustedTempRoots(environment).includes(normalizedPath);
 }
 
-function buildTrustedTempRoots(): string[] {
-  const roots = TEMP_ROOTS.map((root) => tryResolveExistingPathComponents(root) ?? normalize(root));
-  const initialTmpdir = tryResolveExistingPathComponents(INITIAL_SYSTEM_TMPDIR);
-  if (!initialTmpdir) return roots;
-  if (process.platform === 'win32') return [...roots, initialTmpdir];
-  if (process.platform === 'darwin' && isMacOSPerUserTempRoot(initialTmpdir)) {
-    return [...roots, initialTmpdir];
+function trustedTempRoots(environment: EnvironmentContext): string[] {
+  const roots = TEMP_ROOTS.map(
+    (root) => tryResolveExistingPathComponents(root, environment.paths) ?? normalize(root),
+  );
+  const systemTmpdir = tryResolveExistingPathComponents(environment.tmpdir, environment.paths);
+  if (!systemTmpdir) return roots;
+  if (process.platform === 'win32') return [...roots, systemTmpdir];
+  if (process.platform === 'darwin' && isMacOSPerUserTempRoot(systemTmpdir)) {
+    return [...roots, systemTmpdir];
   }
   return roots;
 }
@@ -94,38 +95,38 @@ function isMacOSPerUserTempRoot(path: string): boolean {
   return /^\/(?:private\/)?var\/folders\/[^/]{2}\/[^/]+\/T$/.test(path);
 }
 
-function tryResolveExistingPathComponents(path: string): string | null {
+// The resolver still throws on paths the platform rejects outright, such as embedded NUL
+// bytes; those values stay untrusted rather than crashing the analysis.
+function tryResolveExistingPathComponents(path: string, paths: PathResolver): string | null {
   try {
-    return resolveExistingPathComponents(path);
+    const normalized = normalize(path);
+    if (!isAbsolute(normalized)) {
+      return normalized;
+    }
+
+    const root = parsePath(normalized).root;
+    const components = normalized
+      .slice(root.length)
+      .split(/[\\/]+/)
+      .filter(Boolean);
+    let current = root;
+
+    for (let i = 0; i < components.length; i++) {
+      const candidate = join(current, components[i] ?? '');
+      if (paths.entryKind(candidate) === 'missing') {
+        return join(candidate, ...components.slice(i + 1));
+      }
+      // This is a best-effort safety check before command execution; path targets can race.
+      // A component that exists but cannot be resolved (a broken symlink) stays untrusted.
+      const resolved = paths.realpath(candidate);
+      if (resolved === null) return null;
+      current = resolved;
+    }
+
+    return current;
   } catch {
     return null;
   }
-}
-
-function resolveExistingPathComponents(path: string): string {
-  const normalized = normalize(path);
-  if (!isAbsolute(normalized)) {
-    return normalized;
-  }
-
-  const root = parsePath(normalized).root;
-  const components = normalized
-    .slice(root.length)
-    .split(/[\\/]+/)
-    .filter(Boolean);
-  let current = root;
-
-  for (let i = 0; i < components.length; i++) {
-    const candidate = join(current, components[i] ?? '');
-    const stats = lstatSync(candidate, { throwIfNoEntry: false });
-    if (!stats) {
-      return join(candidate, ...components.slice(i + 1));
-    }
-    // This is a best-effort safety check before command execution; path targets can race.
-    current = realpathSync(candidate);
-  }
-
-  return current;
 }
 
 /**
