@@ -26,7 +26,6 @@ import {
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
 import { analyzeGitMatch } from '@/core/git';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
@@ -35,6 +34,7 @@ import type {
   AnalyzeNestedOverrides,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
+  ProtectedGitMetadata,
 } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
 
@@ -51,7 +51,7 @@ export interface ChildCommandAnalysisContext {
   envAssignments: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
   scanWork?: { units: number };
-  protectedGitMetadata?: ProtectedGitMetadata | null;
+  protectedGitMetadata: ProtectedGitMetadata | null;
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
@@ -263,6 +263,7 @@ export function analyzeChildCommandMatch(
     return (
       filterDestructiveCommandMatch(
         analyzeGitMatch(textCommandWords(tokens), {
+          env: context.environment.env,
           cwd: context.cwd,
           envAssignments: context.envAssignments,
           policy: context.policy,

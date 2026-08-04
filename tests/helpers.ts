@@ -8,7 +8,8 @@ import type { VersionFetcher } from '@/bin/doctor/system-info';
 import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
-import { envTruthy } from '@/core/env';
+import { envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
+import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
 import type { AnalyzeInput, EnvironmentContext } from '@/domain/analysis';
 import type { AuditLogEntry } from '@/domain/audit';
 import type { TraceStep } from '@/domain/command-trace';
@@ -37,6 +38,8 @@ function getOptionsFromEnv(
     cwd,
     policySnapshot: snapshot,
     environment,
+    protectedGitMetadata: resolveProtectedGitMetadata(cwd),
+    effectiveCapabilities: getCCSafetyNetEnvModes(snapshot.policy).capabilities,
     strict: envTruthy('SAFETY_NET_STRICT'),
     paranoidRm: envTruthy('SAFETY_NET_PARANOID') || envTruthy('SAFETY_NET_PARANOID_RM'),
     paranoidInterpreters:

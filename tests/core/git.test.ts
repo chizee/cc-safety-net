@@ -20,7 +20,7 @@ const gitResetHardReason = ['git reset', '--hard'].join(' ');
 
 describe('analyzeGit direct', () => {
   test('empty tokens returns null', () => {
-    expect(analyzeGit([])).toBeNull();
+    expect(analyzeGit([], { env: new Map() })).toBeNull();
   });
 
   test('blocks destructive command-line aliases before global config parsing', () => {
@@ -62,6 +62,7 @@ describe('analyzeGit direct', () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       expect(
         getGitWorktreeRelaxation(['git', 'reset', '--hard', '--'], {
+          env: new Map(),
           cwd: fixture.linkedWorktree,
           worktreeMode: true,
         }),
@@ -1324,40 +1325,35 @@ describe('git linked worktree mode', () => {
   test('SAFETY_NET_WORKTREE honors recursive submodule config-env values', () => {
     const fixture = createLinkedWorktreeFixture();
     try {
-      withEnv({ SAFETY_NET_WORKTREE: '1', RECURSE_SUBMODULES: 'true' }, () => {
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked(
           'git --config-env submodule.recurse=RECURSE_SUBMODULES reset --hard',
           'git reset --hard',
           fixture.linkedWorktree,
+          testEnvironment({ RECURSE_SUBMODULES: 'true' }),
         );
-      });
 
-      withEnv({ SAFETY_NET_WORKTREE: '1', RECURSE_SUBMODULES: '1' }, () => {
         assertBlocked(
           'git --config-env=submodule.recurse=RECURSE_SUBMODULES reset --hard',
           'git reset --hard',
           fixture.linkedWorktree,
+          testEnvironment({ RECURSE_SUBMODULES: '1' }),
         );
-      });
 
-      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked(
           'git --config-env submodule.recurse=MISSING_RECURSE_SUBMODULES reset --hard',
           'git reset --hard',
           fixture.linkedWorktree,
         );
-      });
 
-      for (const value of ['false', 'no', 'off', '0']) {
-        withEnv({ SAFETY_NET_WORKTREE: '1', RECURSE_SUBMODULES: value }, () => {
-          expect(
-            runGuard(
-              'git --config-env submodule.recurse=RECURSE_SUBMODULES reset --hard',
-              fixture.linkedWorktree,
-            ),
-          ).toBeNull();
-        });
-      }
+        for (const value of ['false', 'no', 'off', '0']) {
+          assertAllowed(
+            'git --config-env submodule.recurse=RECURSE_SUBMODULES reset --hard',
+            fixture.linkedWorktree,
+            testEnvironment({ RECURSE_SUBMODULES: value }),
+          );
+        }
+      });
     } finally {
       fixture.cleanup();
     }

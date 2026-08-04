@@ -9,13 +9,16 @@ import {
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
 } from '@/core/destructive-command-rules';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import {
   isProtectedGitDeleteTarget,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
-import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/domain/analysis';
+import type {
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+  ProtectedGitMetadata,
+} from '@/domain/analysis';
 import type { CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
@@ -47,7 +50,7 @@ interface AnalyzePowerShellRemoveItemOptions {
   strict?: boolean;
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
-  protectedGitMetadata?: ProtectedGitMetadata | null;
+  protectedGitMetadata: ProtectedGitMetadata | null;
   policy?: Pick<
     EffectivePolicy,
     'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
@@ -145,7 +148,7 @@ function analyzePowerShellSegment(
         ctx.resolvedCwd,
         ctx.protectedGitMetadata,
         parsed.recursive,
-        ctx.pathCanonicalizationBudget,
+        ctx.pathCanonicalizationContext,
         true,
       )
     ) {

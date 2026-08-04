@@ -84,7 +84,7 @@ export function analyzeRmMatch(
           ctx.resolvedCwd,
           ctx.protectedGitMetadata,
           recursive,
-          ctx.pathCanonicalizationBudget,
+          ctx.pathCanonicalizationContext,
         )
       ) {
         return destructiveCommandMatch('rm.git-metadata', REASON_GIT_METADATA_PROTECTION);

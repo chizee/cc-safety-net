@@ -6,7 +6,7 @@ import type { TraceStep } from '@/domain/command-trace';
 import type { ExplainResult } from '@/domain/explain';
 import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
-import { policySnapshot } from '../../helpers/policy';
+import { policySnapshot, testModes } from '../../helpers/policy';
 
 const OPTIONS = {
   cwd: '/tmp/cc-safety-net-explain-output-no-config',
@@ -172,6 +172,8 @@ describe('explain output', () => {
           analyzeCommand(fixture.command, {
             policySnapshot: snapshot,
             environment: TEST_ENVIRONMENT,
+            effectiveCapabilities: testModes().capabilities,
+            protectedGitMetadata: null,
           }),
         ).toBeNull();
         expect(
@@ -337,6 +339,8 @@ describe('explain output', () => {
         analyzeCommand(fixture.command, {
           policySnapshot: disabled,
           environment: TEST_ENVIRONMENT,
+          effectiveCapabilities: testModes().capabilities,
+          protectedGitMetadata: null,
         }),
       ).toBeNull();
     }
@@ -381,6 +385,8 @@ describe('explain output', () => {
           safety: { overrides: { paranoidInterpreters: true } },
         }),
         environment: TEST_ENVIRONMENT,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
       }),
     ).toBeNull();
   });
@@ -480,6 +486,8 @@ describe('explain output', () => {
           analyzeCommand(command, {
             policySnapshot: policySnapshot(),
             environment: TEST_ENVIRONMENT,
+            effectiveCapabilities: testModes().capabilities,
+            protectedGitMetadata: null,
           })?.reason,
         ).toBe(RM_REASON);
         const explained = explainCommand(command, {

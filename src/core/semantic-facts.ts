@@ -1,3 +1,4 @@
+import { createProcessEnvironment } from '@/core/environment';
 import { expandSupportedPathEnvironmentVariables } from '@/core/path-canonicalization';
 import { projectShellSyntax } from '@/core/shell/entry-projection';
 import {
@@ -126,7 +127,7 @@ export function getCommandSyntaxFact(
 
 /** @internal */
 export function projectSensitiveShellText(source: string): string {
-  return expandSupportedPathEnvironmentVariables(source);
+  return expandSupportedPathEnvironmentVariables(source, createProcessEnvironment());
 }
 
 /** @internal Shared cache that parses each unique command/dialect pair at most once. */

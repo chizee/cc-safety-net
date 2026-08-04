@@ -3,7 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { processPathResolver } from '@/core/environment';
+import { createProcessEnvironment, processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   expandSupportedPathEnvironmentVariables,
@@ -1631,7 +1631,9 @@ function normalizeCandidatePath(
     ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
   const normalized = normalizePathText(
-    normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
+    normalizeFileUriPath(
+      expandSupportedPathEnvironmentVariables(target, createProcessEnvironment()),
+    ),
   );
   if (!normalized) {
     return '';
@@ -1664,7 +1666,9 @@ function normalizeAbsoluteCandidatePath(
     ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
   const normalized = normalizePathText(
-    normalizeFileUriPath(expandSupportedPathEnvironmentVariables(target)),
+    normalizeFileUriPath(
+      expandSupportedPathEnvironmentVariables(target, createProcessEnvironment()),
+    ),
   );
   if (!normalized) return '';
   const expanded = home ? expandHomePath(normalized, home) : normalized;

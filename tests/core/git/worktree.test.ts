@@ -17,11 +17,7 @@ import {
   isLinkedWorktree,
   normalizePathForComparison,
 } from '@/core/git/worktree';
-import {
-  createLinkedWorktreeFixture,
-  createSubmoduleLikeGitFileFixture,
-  withEnv,
-} from '../../helpers.ts';
+import { createLinkedWorktreeFixture, createSubmoduleLikeGitFileFixture } from '../../helpers.ts';
 
 function getLinkedGitDir(worktree: string): string {
   const dotGitPath = join(worktree, '.git');
@@ -201,12 +197,9 @@ describe('worktree git execution context', () => {
 
 describe('worktree env context overrides', () => {
   test('detects command scoped and process scoped git env overrides', () => {
-    expect(hasGitContextEnvOverride(new Map([['GIT_DIR', '.git']]))).toBe(true);
-    expect(hasGitContextEnvOverride(new Map([['OTHER', '1']]))).toBe(false);
-
-    withEnv({ GIT_WORK_TREE: '.' }, () => {
-      expect(hasGitContextEnvOverride()).toBe(true);
-    });
+    expect(hasGitContextEnvOverride(new Map(), new Map([['GIT_DIR', '.git']]))).toBe(true);
+    expect(hasGitContextEnvOverride(new Map(), new Map([['OTHER', '1']]))).toBe(false);
+    expect(hasGitContextEnvOverride(new Map([['GIT_WORK_TREE', '.']]))).toBe(true);
   });
 });
 

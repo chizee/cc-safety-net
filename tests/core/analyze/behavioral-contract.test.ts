@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
+import { getCCSafetyNetEnvModes } from '@/core/env';
 import { blockedSegment, withEnv } from '../../helpers';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { behavioralContractCases } from './behavioral-contract-cases';
@@ -36,6 +37,10 @@ describe('analyzeCommand behavioral contract', () => {
           analyzeCommand(contractCase.command, {
             ...contractCase.options,
             environment: TEST_ENVIRONMENT,
+            effectiveCapabilities: getCCSafetyNetEnvModes(
+              contractCase.options.policySnapshot.policy,
+            ).capabilities,
+            protectedGitMetadata: null,
           }),
       );
 

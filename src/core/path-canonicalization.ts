@@ -1,7 +1,5 @@
-import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { getOwnEnvValue } from '@/core/env';
-import type { PathResolver } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
 
 /** @internal */
 export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
@@ -32,6 +30,22 @@ export function createPathCanonicalizationBudget(): PathCanonicalizationBudget {
   return { realpathAttempts: 0, processedCandidateBytes: 0, resolvedPaths: new Map() };
 }
 
+/**
+ * A budget plus the process state path candidates are resolved against, so the scanners
+ * that expand `$HOME`, `~` and environment path variables never read them ambiently.
+ * @internal
+ */
+export type PathCanonicalizationContext = PathCanonicalizationBudget & {
+  environment: EnvironmentContext;
+};
+
+/** @internal */
+export function createPathCanonicalizationContext(
+  environment: EnvironmentContext,
+): PathCanonicalizationContext {
+  return { ...createPathCanonicalizationBudget(), environment };
+}
+
 const SUPPORTED_PATH_ENV_NAMES = new Set([
   'CC_SAFETY_NET_HOME',
   'CLAUDE_CONFIG_DIR',
@@ -50,11 +64,18 @@ const SUPPORTED_PATH_ENV_NAMES = new Set([
   'XDG_DATA_HOME',
 ]);
 
-export function expandSupportedPathEnvironmentVariables(value: string): string {
-  return expandSupportedPathEnvironmentVariablesAtDepth(value, 0);
+export function expandSupportedPathEnvironmentVariables(
+  value: string,
+  environment: EnvironmentContext,
+): string {
+  return expandSupportedPathEnvironmentVariablesAtDepth(value, 0, environment);
 }
 
-function expandSupportedPathEnvironmentVariablesAtDepth(value: string, depth: number): string {
+function expandSupportedPathEnvironmentVariablesAtDepth(
+  value: string,
+  depth: number,
+  environment: EnvironmentContext,
+): string {
   let expanded = '';
   let index = 0;
   while (index < value.length) {
@@ -73,7 +94,7 @@ function expandSupportedPathEnvironmentVariablesAtDepth(value: string, depth: nu
         break;
       }
       const match = value.slice(index, end + 1);
-      expanded += expandBracedPathEnvironmentVariable(match, depth);
+      expanded += expandBracedPathEnvironmentVariable(match, depth, environment);
       index = end + 1;
       continue;
     }
@@ -84,7 +105,7 @@ function expandSupportedPathEnvironmentVariablesAtDepth(value: string, depth: nu
       index++;
       continue;
     }
-    expanded += getSupportedPathEnvironmentValue(name) ?? `$${name}`;
+    expanded += getSupportedPathEnvironmentValue(name, environment) ?? `$${name}`;
     index += name.length + 1;
   }
   return expanded;
@@ -112,12 +133,16 @@ function findParameterExpansionEnd(value: string, start: number, depth: number):
   return null;
 }
 
-function expandBracedPathEnvironmentVariable(match: string, depth: number): string {
+function expandBracedPathEnvironmentVariable(
+  match: string,
+  depth: number,
+  environment: EnvironmentContext,
+): string {
   const content = match.slice(2, -1);
   const name = readPathEnvironmentName(content, 0);
   if (!name) return match;
   const suffix = content.slice(name.length);
-  if (!suffix) return getSupportedPathEnvironmentValue(name) ?? match;
+  if (!suffix) return getSupportedPathEnvironmentValue(name, environment) ?? match;
 
   const operator = [':-', ':+', ':=', ':?', '-', '+', '=', '?'].find((candidate) =>
     suffix.startsWith(candidate),
@@ -130,7 +155,7 @@ function expandBracedPathEnvironmentVariable(match: string, depth: number): stri
   if (operator.endsWith('=')) throw new PathCanonicalizationLimitError();
   if (!SUPPORTED_PATH_ENV_NAMES.has(name)) return match;
 
-  const environmentValue = getSupportedPathEnvironmentValue(name);
+  const environmentValue = getSupportedPathEnvironmentValue(name, environment);
   const usable = operator.startsWith(':')
     ? environmentValue !== null && environmentValue !== ''
     : environmentValue !== null;
@@ -139,10 +164,18 @@ function expandBracedPathEnvironmentVariable(match: string, depth: number): stri
   if (operator.endsWith('-') || operator.endsWith('?')) {
     return usable
       ? (environmentValue ?? '')
-      : expandSupportedPathEnvironmentVariablesAtDepth(suffix.slice(operator.length), depth + 1);
+      : expandSupportedPathEnvironmentVariablesAtDepth(
+          suffix.slice(operator.length),
+          depth + 1,
+          environment,
+        );
   }
   return usable
-    ? expandSupportedPathEnvironmentVariablesAtDepth(suffix.slice(operator.length), depth + 1)
+    ? expandSupportedPathEnvironmentVariablesAtDepth(
+        suffix.slice(operator.length),
+        depth + 1,
+        environment,
+      )
     : '';
 }
 
@@ -195,8 +228,11 @@ export function resolveExistingPath(
   }
 }
 
-function getSupportedPathEnvironmentValue(name: string): string | null {
+function getSupportedPathEnvironmentValue(
+  name: string,
+  environment: EnvironmentContext,
+): string | null {
   if (!SUPPORTED_PATH_ENV_NAMES.has(name)) return null;
-  if (name === 'HOME') return getOwnEnvValue('HOME') ?? homedir();
-  return getOwnEnvValue(name) ?? null;
+  if (name === 'HOME') return environment.env.get('HOME') ?? environment.home;
+  return environment.env.get(name) ?? null;
 }

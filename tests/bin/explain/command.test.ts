@@ -348,6 +348,7 @@ describe('explainCommand edge cases', () => {
         cwd: '/tmp',
         policySnapshot: snapshot,
         environment,
+        protectedGitMetadata: null,
         policy: commandAnalysisPolicy(snapshot),
         trace,
       });
@@ -1256,6 +1257,7 @@ describe('explainSegment direct depth limit', () => {
       cwd: '/tmp',
       policySnapshot: snapshot,
       environment: TEST_ENVIRONMENT,
+      protectedGitMetadata: null,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });
@@ -1275,6 +1277,7 @@ describe('explainSegment direct depth limit', () => {
       cwd: '/tmp',
       policySnapshot: snapshot,
       environment: TEST_ENVIRONMENT,
+      protectedGitMetadata: null,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });

@@ -51,19 +51,21 @@ describe('git env helpers', () => {
   });
 
   test('parses append assignments for tracked Git env names', () => {
-    expect(parseGitContextAppendEnvAssignment('GIT_CONFIG_COUNT+=1')).toEqual({
+    expect(parseGitContextAppendEnvAssignment('GIT_CONFIG_COUNT+=1', new Map())).toEqual({
       name: 'GIT_CONFIG_COUNT',
       value: '1',
     });
-    expect(parseGitContextAppendEnvAssignment('GIT_DIR+=/tmp/repo/.git')).toEqual({
+    expect(parseGitContextAppendEnvAssignment('GIT_DIR+=/tmp/repo/.git', new Map())).toEqual({
       name: 'GIT_DIR',
       value: '/tmp/repo/.git',
     });
   });
 
   test('rejects append assignments for untracked names', () => {
-    expect(parseGitContextAppendEnvAssignment('PATH+=:/tmp/bin')).toBeNull();
-    expect(parseGitContextAppendEnvAssignment('GIT_CONFIG_KEY_X+=submodule.recurse')).toBeNull();
+    expect(parseGitContextAppendEnvAssignment('PATH+=:/tmp/bin', new Map())).toBeNull();
+    expect(
+      parseGitContextAppendEnvAssignment('GIT_CONFIG_KEY_X+=submodule.recurse', new Map()),
+    ).toBeNull();
   });
 
   test('detects config-affecting env assignments', () => {

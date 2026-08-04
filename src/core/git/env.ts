@@ -56,19 +56,17 @@ export function isTrackedGitEnvName(name: string): boolean {
 
 export function getGitEnvValue(
   name: string,
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): string | undefined {
-  return envAssignments?.has(name)
-    ? envAssignments.get(name)
-    : Object.hasOwn(process.env, name)
-      ? process.env[name]
-      : undefined;
+  return envAssignments?.has(name) ? envAssignments.get(name) : env.get(name);
 }
 
 export function resolveGitConfigCount(
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigCountResolution {
-  const value = getGitEnvValue('GIT_CONFIG_COUNT', envAssignments);
+  const value = getGitEnvValue('GIT_CONFIG_COUNT', env, envAssignments);
   if (value === undefined) {
     return { state: 'absent' };
   }
@@ -86,6 +84,7 @@ export function resolveGitConfigCount(
 
 export function parseGitContextAppendEnvAssignment(
   token: string,
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): { name: string; value: string } | null {
   const match = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE);
@@ -96,7 +95,7 @@ export function parseGitContextAppendEnvAssignment(
   const eqIdx = token.indexOf('=');
   return {
     name,
-    value: `${getGitEnvValue(name, envAssignments) ?? ''}${token.slice(eqIdx + 1)}`,
+    value: `${getGitEnvValue(name, env, envAssignments) ?? ''}${token.slice(eqIdx + 1)}`,
   };
 }
 

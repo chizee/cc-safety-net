@@ -66,7 +66,6 @@ export type GuardDependencies = {
     options: AnalyzeInput,
     program?: ReturnType<typeof getDeclaredCommandProgram>,
     factStore?: SemanticFacts['store'],
-    protectedGitMetadata?: ReturnType<typeof resolveProtectedGitMetadata>,
   ) => Extract<Decision, { kind: 'deny' }> | null;
   resolveGitMetadata: typeof resolveProtectedGitMetadata;
   getModes: typeof getCCSafetyNetEnvModes;
@@ -239,6 +238,7 @@ export function evaluateGuard(
         shell: invocation.route.shell,
         policySnapshot: snapshot,
         environment: createProcessEnvironment(),
+        protectedGitMetadata,
         effectiveCapabilities: modes.capabilities,
         strict: modes.strict,
         paranoidRm: modes.paranoidRm,
@@ -247,7 +247,6 @@ export function evaluateGuard(
       },
       getDeclaredCommandProgram(facts),
       facts.store,
-      protectedGitMetadata,
     );
   });
   if (decision) return { stage: 'command-analysis', ...reported, decision };

@@ -28,16 +28,13 @@ const GIT_NETWORK_SUBCOMMANDS = new Set([
 ]);
 
 /** @internal */
-export function analyzeGit(
-  tokens: readonly string[],
-  options: GitAnalyzeOptions = {},
-): string | null {
+export function analyzeGit(tokens: readonly string[], options: GitAnalyzeOptions): string | null {
   return analyzeGitMatch(textCommandWords(tokens), options)?.reason ?? null;
 }
 
 export function analyzeGitMatch(
   words: readonly CommandWord[],
-  options: GitAnalyzeOptions = {},
+  options: GitAnalyzeOptions,
 ): DestructiveCommandRuleMatch | null {
   return evaluateGit(words.map(analysisWordText), options);
 }
@@ -47,7 +44,7 @@ function evaluateGit(
   options: GitAnalyzeOptions,
   onRelaxation?: (relaxation: GitWorktreeRelaxation) => void,
 ): DestructiveCommandRuleMatch | null {
-  const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options.env, options.envAssignments);
   const aliasConfigDisabled =
     options.policy?.destructiveCommandRuleOverrides['git.alias-config'] === 'off';
   if (aliasResolution.blockedReason && !aliasConfigDisabled) {
@@ -57,7 +54,7 @@ function evaluateGit(
   const resolvedTokens = aliasResolution.tokens;
   if (
     (hasGitSshEnvAssignment(options.envAssignments) ||
-      hasGitCommandLineSshCommandConfig(tokens, options.envAssignments)) &&
+      hasGitCommandLineSshCommandConfig(tokens, options.env, options.envAssignments)) &&
     isGitNetworkOperation(resolvedTokens)
   ) {
     return destructiveCommandMatch('git.ssh-env', REASON_GIT_SSH_ENV);
@@ -82,7 +79,7 @@ function evaluateGit(
 /** @internal One-pass Git decision detail used by intrinsic command traces. */
 export function analyzeGitDetailed(
   words: readonly CommandWord[],
-  options: GitAnalyzeOptions = {},
+  options: GitAnalyzeOptions,
 ): Readonly<{
   match: DestructiveCommandRuleMatch | null;
   relaxation: GitWorktreeRelaxation | null;
@@ -124,9 +121,9 @@ function isGitRemotePrefixOption(token: string): boolean {
 /** @internal */
 export function getGitWorktreeRelaxation(
   tokens: readonly string[],
-  options: GitAnalyzeOptions = {},
+  options: GitAnalyzeOptions,
 ): GitWorktreeRelaxation | null {
-  const aliasResolution = resolveGitCommandLineAliases(tokens, options.envAssignments);
+  const aliasResolution = resolveGitCommandLineAliases(tokens, options.env, options.envAssignments);
   if (aliasResolution.blockedReason || aliasResolution.expanded) {
     return null;
   }

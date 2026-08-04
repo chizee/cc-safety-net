@@ -21,13 +21,22 @@ import {
   withSymlinkedHomeCwd,
 } from '../helpers.ts';
 
-type RmTestOptions = Omit<AnalyzeRmOptions, 'environment'> & Partial<AnalyzeRmOptions>;
+type RmTestOptions = Omit<AnalyzeRmOptions, 'environment' | 'protectedGitMetadata'> &
+  Partial<AnalyzeRmOptions>;
 
 const analyzeRm = (tokens: string[], options: RmTestOptions = {}) =>
-  analyzeRmWithEnvironment(tokens, { environment: TEST_ENVIRONMENT, ...options });
+  analyzeRmWithEnvironment(tokens, {
+    environment: TEST_ENVIRONMENT,
+    protectedGitMetadata: null,
+    ...options,
+  });
 
 const analyzeRmMatch = (words: readonly CommandWord[], options: RmTestOptions = {}) =>
-  analyzeRmMatchWithEnvironment(words, { environment: TEST_ENVIRONMENT, ...options });
+  analyzeRmMatchWithEnvironment(words, {
+    environment: TEST_ENVIRONMENT,
+    protectedGitMetadata: null,
+    ...options,
+  });
 
 describe('rm -rf blocked', () => {
   test('rm -rf blocked', () => {

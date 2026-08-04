@@ -19,14 +19,15 @@ const TRUSTED_GIT_BINARIES = [
 
 export function hasRecursiveSubmoduleConfig(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments: ReadonlyMap<string, string> | undefined,
   gitCwd: string,
 ): boolean {
-  const commandLineConfig = commandLineRecursiveSubmoduleConfig(tokens, envAssignments);
+  const commandLineConfig = commandLineRecursiveSubmoduleConfig(tokens, env, envAssignments);
   if (commandLineConfig !== null) {
     return commandLineConfig;
   }
-  const envConfig = envRecursiveSubmoduleConfig(envAssignments);
+  const envConfig = envRecursiveSubmoduleConfig(env, envAssignments);
   if (envConfig !== null) {
     return envConfig;
   }
@@ -38,6 +39,7 @@ export function hasRecursiveSubmoduleConfig(
 
 function commandLineRecursiveSubmoduleConfig(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): boolean | null {
   let recursiveSubmoduleConfig: boolean | null = null;
@@ -70,7 +72,7 @@ function commandLineRecursiveSubmoduleConfig(
     }
 
     if (token === '--config-env') {
-      const configValue = recursiveSubmoduleConfigEnvValue(tokens[i + 1], envAssignments);
+      const configValue = recursiveSubmoduleConfigEnvValue(tokens[i + 1], env, envAssignments);
       if (configValue !== null) {
         recursiveSubmoduleConfig = configValue;
       }
@@ -81,6 +83,7 @@ function commandLineRecursiveSubmoduleConfig(
     if (token.startsWith('--config-env=')) {
       const configValue = recursiveSubmoduleConfigEnvValue(
         token.slice('--config-env='.length),
+        env,
         envAssignments,
       );
       if (configValue !== null) {
@@ -99,12 +102,15 @@ function commandLineRecursiveSubmoduleConfig(
   return recursiveSubmoduleConfig;
 }
 
-function envRecursiveSubmoduleConfig(envAssignments?: ReadonlyMap<string, string>): boolean | null {
-  if (getGitEnvValue('GIT_CONFIG_PARAMETERS', envAssignments) !== undefined) {
+function envRecursiveSubmoduleConfig(
+  env: ReadonlyMap<string, string>,
+  envAssignments?: ReadonlyMap<string, string>,
+): boolean | null {
+  if (getGitEnvValue('GIT_CONFIG_PARAMETERS', env, envAssignments) !== undefined) {
     return true;
   }
 
-  const resolution = resolveGitConfigCount(envAssignments);
+  const resolution = resolveGitConfigCount(env, envAssignments);
   if (resolution.state === 'absent') {
     return null;
   }
@@ -114,8 +120,8 @@ function envRecursiveSubmoduleConfig(envAssignments?: ReadonlyMap<string, string
 
   let recursiveSubmoduleConfig: boolean | null = null;
   for (let i = 0; i < resolution.count; i++) {
-    const rawKey = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, envAssignments);
-    const value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    const rawKey = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, env, envAssignments);
+    const value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, env, envAssignments);
     if (!rawKey?.trim() || value === undefined) {
       return true;
     }
@@ -328,6 +334,7 @@ function gitConfigValueEnablesRecursiveSubmodules(value: string): boolean {
 
 function recursiveSubmoduleConfigEnvValue(
   configEnv: string | undefined,
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): boolean | null {
   const eqIdx = configEnv?.indexOf('=') ?? -1;
@@ -341,7 +348,7 @@ function recursiveSubmoduleConfigEnvValue(
   if (key !== 'submodule.recurse') {
     return null;
   }
-  const value = getGitEnvValue(configEnv.slice(eqIdx + 1), envAssignments);
+  const value = getGitEnvValue(configEnv.slice(eqIdx + 1), env, envAssignments);
   return value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
 }
 

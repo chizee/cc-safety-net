@@ -1,9 +1,5 @@
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { resolveCommandAnalysisContext } from '@/core/analyze/policy-context';
-import {
-  type ProtectedGitMetadata,
-  resolveProtectedGitMetadata,
-} from '@/core/git-metadata-protection';
 import type { AnalyzeInput } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { Decision } from '@/domain/decision';
@@ -20,7 +16,6 @@ export function analyzeCommandWithProgram(
   options: AnalyzeInput,
   program?: CommandProgram,
   factStore?: SemanticFactStore,
-  protectedGitMetadata: ProtectedGitMetadata | null = resolveProtectedGitMetadata(options.cwd),
 ): Extract<Decision, { kind: 'deny' }> | null {
   const result = analyzeCommandInternal(
     command,
@@ -28,7 +23,6 @@ export function analyzeCommandWithProgram(
     {
       ...options,
       ...resolveCommandAnalysisContext(options),
-      protectedGitMetadata,
       factStore,
     },
     program,

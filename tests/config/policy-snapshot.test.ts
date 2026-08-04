@@ -25,6 +25,7 @@ import { getRulebookCachePath } from '@/core/rules/policy/paths';
 import { sha256Digest } from '@/core/rules/policy/resolver';
 import { withTempDir, writeLockedGitHubRulebookPolicy } from '../helpers';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
+import { testModes } from '../helpers/policy';
 
 const originalFetch = globalThis.fetch;
 
@@ -306,6 +307,8 @@ describe('policy snapshots', () => {
         cwd,
         policySnapshot: snapshot,
         environment: TEST_ENVIRONMENT,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
       });
 
       expect(result?.reason).toBe('[policy/block-prune] Use targeted cleanup.');

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
-import { policySnapshot } from '../../helpers/policy';
+import { policySnapshot, testModes } from '../../helpers/policy';
 
 test('returns a deny decision carrying the analyzed command and its segment as evidence', () => {
   expect(
@@ -9,6 +9,8 @@ test('returns a deny decision carrying the analyzed command and its segment as e
       cwd: '/tmp',
       policySnapshot: policySnapshot(),
       environment: TEST_ENVIRONMENT,
+      effectiveCapabilities: testModes().capabilities,
+      protectedGitMetadata: null,
     }),
   ).toEqual({
     kind: 'deny',
@@ -26,6 +28,8 @@ test('defaults the decision intent to manual_only when a rule states none', () =
     analyzeCommandWithProgram('docker system prune', {
       cwd: '/tmp',
       environment: TEST_ENVIRONMENT,
+      effectiveCapabilities: testModes().capabilities,
+      protectedGitMetadata: null,
       policySnapshot: policySnapshot({
         rules: [
           {

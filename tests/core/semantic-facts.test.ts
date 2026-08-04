@@ -12,7 +12,7 @@ import { projectShellSyntax } from '@/core/shell/entry-projection';
 import type { ShellKind } from '@/domain/command';
 import { parseCommand } from '@/parser/command';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
-import { policySnapshot } from '../helpers/policy';
+import { policySnapshot, testModes } from '../helpers/policy';
 
 function commandFacts(
   source: string,
@@ -480,6 +480,8 @@ describe('semantic facts', () => {
           shell: 'posix',
           policySnapshot: policySnapshot(),
           environment: TEST_ENVIRONMENT,
+          effectiveCapabilities: testModes().capabilities,
+          protectedGitMetadata: null,
         },
         command?.program,
         facts.store,

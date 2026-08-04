@@ -318,7 +318,7 @@ function parseAppendEnvAssignment(
   currentValues: ReadonlyMap<string, string>,
   env: ReadonlyMap<string, string>,
 ): GitContextAssignment | null {
-  const gitAssignment = parseGitContextAppendEnvAssignment(token, currentValues);
+  const gitAssignment = parseGitContextAppendEnvAssignment(token, env, currentValues);
   if (gitAssignment) return gitAssignment;
 
   const name = token.match(ENV_APPEND_ASSIGNMENT_RE)?.[1];

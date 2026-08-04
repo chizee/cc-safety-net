@@ -95,7 +95,12 @@ export function stripWrapperWords(
           headText(result),
           effectiveEnvAssignments,
           environment.env,
-        ) ?? parseGitContextAppendEnvAssignment(headText(result), effectiveEnvAssignments);
+        ) ??
+        parseGitContextAppendEnvAssignment(
+          headText(result),
+          environment.env,
+          effectiveEnvAssignments,
+        );
       if (appendAssignment) {
         allEnvAssignments.set(appendAssignment.name, appendAssignment.value);
         effectiveEnvAssignments.set(appendAssignment.name, appendAssignment.value);

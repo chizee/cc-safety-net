@@ -42,9 +42,10 @@ export function splitAtDoubleDash(tokens: readonly string[]): {
 
 export function resolveGitCommandLineAliases(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitAliasResolution {
-  const configEntries = getGitConfigEntries(tokens, envAssignments);
+  const configEntries = getGitConfigEntries(tokens, env, envAssignments);
   const aliases = getGitConfigAliases(configEntries.entries);
   if (aliases.size === 0) {
     return { blockedReason: configEntries.blockedReason, expanded: false, tokens };
@@ -74,9 +75,10 @@ export function resolveGitCommandLineAliases(
 
 export function hasGitCommandLineSshCommandConfig(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): boolean {
-  return getGitConfigEntries(tokens, envAssignments).entries.some(
+  return getGitConfigEntries(tokens, env, envAssignments).entries.some(
     (entry) => entry.key.toLowerCase() === 'core.sshcommand',
   );
 }
@@ -144,6 +146,7 @@ function getGitConfigAliases(entries: readonly GitConfigEntry[]): Map<string, st
 
 function getGitConfigEntries(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntriesResolution {
   if (tokens.length === 0) {
@@ -156,15 +159,19 @@ function getGitConfigEntries(
     return { blockedReason: null, entries: [] };
   }
 
-  const envEntries = getGitEnvConfigEntries(envAssignments);
+  const envEntries = getGitEnvConfigEntries(env, envAssignments);
   return {
     blockedReason: envEntries.blockedReason,
-    entries: [...envEntries.entries, ...getGitCommandLineConfigEntries(tokens, envAssignments)],
+    entries: [
+      ...envEntries.entries,
+      ...getGitCommandLineConfigEntries(tokens, env, envAssignments),
+    ],
   };
 }
 
 function getGitCommandLineConfigEntries(
   tokens: readonly string[],
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntry[] {
   const entries: GitConfigEntry[] = [];
@@ -194,7 +201,7 @@ function getGitCommandLineConfigEntries(
     }
 
     if (token === '--config-env') {
-      const entry = parseGitConfigEnvEntry(tokens[i + 1], envAssignments);
+      const entry = parseGitConfigEnvEntry(tokens[i + 1], env, envAssignments);
       if (entry) {
         entries.push(entry);
       }
@@ -203,7 +210,11 @@ function getGitCommandLineConfigEntries(
     }
 
     if (token.startsWith('--config-env=')) {
-      const entry = parseGitConfigEnvEntry(token.slice('--config-env='.length), envAssignments);
+      const entry = parseGitConfigEnvEntry(
+        token.slice('--config-env='.length),
+        env,
+        envAssignments,
+      );
       if (entry) {
         entries.push(entry);
       }
@@ -223,10 +234,11 @@ function getGitCommandLineConfigEntries(
 }
 
 function getGitEnvConfigEntries(
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntriesResolution {
-  const parameterEntries = getGitConfigParameterEntries(envAssignments);
-  const countEntries = getGitConfigCountEntries(envAssignments);
+  const parameterEntries = getGitConfigParameterEntries(env, envAssignments);
+  const countEntries = getGitConfigCountEntries(env, envAssignments);
   return {
     blockedReason:
       parameterEntries === null || countEntries === null ? REASON_GIT_ALIAS_CONFIG : null,
@@ -235,9 +247,10 @@ function getGitEnvConfigEntries(
 }
 
 function getGitConfigParameterEntries(
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntry[] | null {
-  const parameters = getGitEnvValue('GIT_CONFIG_PARAMETERS', envAssignments);
+  const parameters = getGitEnvValue('GIT_CONFIG_PARAMETERS', env, envAssignments);
   if (parameters === undefined) {
     return [];
   }
@@ -255,9 +268,10 @@ function getGitConfigParameterEntries(
 }
 
 function getGitConfigCountEntries(
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntry[] | null {
-  const resolution = resolveGitConfigCount(envAssignments);
+  const resolution = resolveGitConfigCount(env, envAssignments);
   if (resolution.state === 'absent') {
     return [];
   }
@@ -267,8 +281,8 @@ function getGitConfigCountEntries(
 
   const entries: GitConfigEntry[] = [];
   for (let i = 0; i < resolution.count; i++) {
-    const key = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, envAssignments)?.trim();
-    const value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
+    const key = getGitEnvValue(`GIT_CONFIG_KEY_${i}`, env, envAssignments)?.trim();
+    const value = getGitEnvValue(`GIT_CONFIG_VALUE_${i}`, env, envAssignments);
     if (!key || value === undefined) {
       return null;
     }
@@ -290,6 +304,7 @@ function parseGitConfigEntry(config: string | undefined): GitConfigEntry | null 
 
 function parseGitConfigEnvEntry(
   configEnv: string | undefined,
+  env: ReadonlyMap<string, string>,
   envAssignments?: ReadonlyMap<string, string>,
 ): GitConfigEntry | null {
   const eqIdx = configEnv?.indexOf('=') ?? -1;
@@ -298,7 +313,7 @@ function parseGitConfigEnvEntry(
   }
   return {
     key: configEnv.slice(0, eqIdx).trim(),
-    value: getGitEnvValue(configEnv.slice(eqIdx + 1), envAssignments),
+    value: getGitEnvValue(configEnv.slice(eqIdx + 1), env, envAssignments),
   };
 }
 

@@ -1,18 +1,15 @@
 import { isAbsolute, normalize, parse, posix, resolve, sep } from 'node:path';
 import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/core/analyze/allow-paths';
 import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
-import {
-  isProtectedGitDeleteTarget,
-  type ProtectedGitMetadata,
-  resolveProtectedGitMetadata,
-} from '@/core/git-metadata-protection';
+import { isProtectedGitDeleteTarget } from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
 import {
-  createPathCanonicalizationBudget,
+  createPathCanonicalizationContext,
   type PathCanonicalizationBudget,
+  type PathCanonicalizationContext,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
-import type { EnvironmentContext, PathResolver } from '@/domain/analysis';
+import type { EnvironmentContext, PathResolver, ProtectedGitMetadata } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
 
@@ -30,7 +27,7 @@ export interface RecursiveDeleteTargetTrustOptions {
   allowPaths?: readonly string[];
   tmpdirWordSplittingUnsafe?: boolean;
   trustedTmpdirValue?: boolean;
-  protectedGitMetadata?: ProtectedGitMetadata | null;
+  protectedGitMetadata: ProtectedGitMetadata | null;
 }
 
 export interface RecursiveDeleteTargetOptions extends RecursiveDeleteTargetTrustOptions {
@@ -50,7 +47,7 @@ export interface RecursiveDeleteTargetContext {
   readonly environment: EnvironmentContext;
   readonly allowRoots: readonly string[];
   readonly protectedGitMetadata: ProtectedGitMetadata | null;
-  readonly pathCanonicalizationBudget: PathCanonicalizationBudget;
+  readonly pathCanonicalizationContext: PathCanonicalizationContext;
 }
 
 export interface RecursiveDeleteTargetClassificationOptions {
@@ -144,7 +141,7 @@ export function createRecursiveDeleteTargetContext(
 ): RecursiveDeleteTargetContext {
   const homeDir = options.environment.home;
   const paths = options.environment.paths;
-  const budget = createPathCanonicalizationBudget();
+  const context = createPathCanonicalizationContext(options.environment);
   return {
     anchoredCwd: options.originalCwd ?? options.cwd ?? null,
     resolvedCwd: options.cwd ?? null,
@@ -155,12 +152,9 @@ export function createRecursiveDeleteTargetContext(
     tmpdirWordSplittingUnsafe: options.tmpdirWordSplittingUnsafe ?? false,
     trustedTmpdirValue: options.trustedTmpdirValue ?? options.allowTmpdirVar ?? true,
     environment: options.environment,
-    allowRoots: resolveAllowRoots(options.allowPaths, homeDir, paths, budget),
-    protectedGitMetadata:
-      options.protectedGitMetadata !== undefined
-        ? options.protectedGitMetadata
-        : resolveProtectedGitMetadata(options.originalCwd ?? options.cwd, budget),
-    pathCanonicalizationBudget: budget,
+    allowRoots: resolveAllowRoots(options.allowPaths, homeDir, paths, context),
+    protectedGitMetadata: options.protectedGitMetadata,
+    pathCanonicalizationContext: context,
   };
 }
 
@@ -199,7 +193,7 @@ export function classifyRecursiveDeleteTarget(
       ctx.resolvedCwd,
       ctx.protectedGitMetadata,
       true,
-      ctx.pathCanonicalizationBudget,
+      ctx.pathCanonicalizationContext,
       !ctx.posixShell,
     )
   ) {
@@ -238,7 +232,7 @@ export function classifyRecursiveDeleteTarget(
         anchoredCwd,
         ctx.environment.home,
         ctx.environment.paths,
-        ctx.pathCanonicalizationBudget,
+        ctx.pathCanonicalizationContext,
       )
     ) {
       return { kind: 'home_cwd_target' };
@@ -250,7 +244,7 @@ export function classifyRecursiveDeleteTarget(
         target,
         ctx.resolvedCwd ?? anchoredCwd,
         ctx.environment.paths,
-        ctx.pathCanonicalizationBudget,
+        ctx.pathCanonicalizationContext,
       )
     ) {
       return { kind: 'cwd_self_target' };
@@ -264,7 +258,7 @@ export function classifyRecursiveDeleteTarget(
         dynamic,
         targetIsLiteral,
         ctx.environment.paths,
-        ctx.pathCanonicalizationBudget,
+        ctx.pathCanonicalizationContext,
       )
     ) {
       return { kind: 'within_anchored_cwd' };
@@ -291,7 +285,7 @@ export function isTrustedTempDescendantTarget(
       containmentTarget ?? normalized,
       workspace,
       ctx.environment.paths,
-      ctx.pathCanonicalizationBudget,
+      ctx.pathCanonicalizationContext,
     ),
   );
 }
@@ -353,7 +347,7 @@ function isCanonicalHomeTarget(target: string, ctx: RecursiveDeleteTargetContext
         : null;
     if (!base) return false;
     const resolved = normalizePathForComparison(
-      resolveExistingPath(base, ctx.environment.paths, ctx.pathCanonicalizationBudget),
+      resolveExistingPath(base, ctx.environment.paths, ctx.pathCanonicalizationContext),
     );
     if (resolved === parse(resolved).root) return true;
     return (
@@ -362,7 +356,7 @@ function isCanonicalHomeTarget(target: string, ctx: RecursiveDeleteTargetContext
         resolveExistingPath(
           ctx.environment.home,
           ctx.environment.paths,
-          ctx.pathCanonicalizationBudget,
+          ctx.pathCanonicalizationContext,
         ),
       )
     );
@@ -471,7 +465,7 @@ function isAllowedPathTarget(
   if (!resolved) return false;
   try {
     const canonical = normalizePathForComparison(
-      resolveExistingPath(resolved, ctx.environment.paths, ctx.pathCanonicalizationBudget),
+      resolveExistingPath(resolved, ctx.environment.paths, ctx.pathCanonicalizationContext),
     );
     return ctx.allowRoots.some(
       (root) =>

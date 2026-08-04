@@ -24,13 +24,11 @@ export interface DotGitFileTargets {
   commonDir: string | null;
 }
 
-export function hasGitContextEnvOverride(envAssignments?: ReadonlyMap<string, string>): boolean {
-  for (const name of GIT_CONTEXT_ENV_OVERRIDES) {
-    if (envAssignments?.has(name) || Object.hasOwn(process.env, name)) {
-      return true;
-    }
-  }
-  return false;
+export function hasGitContextEnvOverride(
+  env: ReadonlyMap<string, string>,
+  envAssignments?: ReadonlyMap<string, string>,
+): boolean {
+  return GIT_CONTEXT_ENV_OVERRIDES.some((name) => envAssignments?.has(name) || env.has(name));
 }
 
 export function getGitExecutionContext(

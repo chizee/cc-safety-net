@@ -8,6 +8,7 @@ describe('command-line Git config precedence', () => {
     await withLinkedWorktreeFixture((fixture) => {
       const analyze = (tokens: readonly string[]) =>
         analyzeGitMatch(textCommandWords(tokens), {
+          env: new Map(),
           cwd: fixture.linkedWorktree,
           worktreeMode: true,
         });

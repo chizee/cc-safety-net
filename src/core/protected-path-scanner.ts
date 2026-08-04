@@ -1,10 +1,8 @@
-import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
-import { createProcessEnvironment, processPathResolver } from '@/core/environment';
 import {
   expandSupportedPathEnvironmentVariables,
-  type PathCanonicalizationBudget,
+  type PathCanonicalizationContext,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
 import { StructuralShellSyntaxLimitError } from '@/core/semantic-facts';
@@ -22,13 +20,13 @@ type ProtectedPathCommandScanner = Readonly<{
   findSegmentTarget: (segment: readonly string[], state: ProtectedPathShellState) => string | null;
   isRedirectionTarget: (target: string, state: ProtectedPathShellState) => boolean;
   findMalformedTarget: (source: string) => string | null;
-  normalizeCwd: (target: string, cwd: string, budget: PathCanonicalizationBudget) => string;
+  normalizeCwd: (target: string, cwd: string, context: PathCanonicalizationContext) => string;
 }>;
 
 export function findProtectedPathMutationInCommand(
   syntax: ShellSyntaxFacts,
   cwd: string,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
   scanner: ProtectedPathCommandScanner,
 ): string | null {
   if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
@@ -41,7 +39,7 @@ export function findProtectedPathMutationInCommand(
       if (!entry.boundary) continue;
       const target = scanner.findSegmentTarget(segment, state);
       if (target) return target;
-      state = applyShellState(segment, state, budget, scanner.normalizeCwd);
+      state = applyShellState(segment, state, context, scanner.normalizeCwd);
       segment = [];
       continue;
     }
@@ -94,16 +92,20 @@ export function isAssignmentOnlySegment(tokens: readonly string[]): boolean {
 export function normalizeProtectedPathCandidate(
   target: string,
   cwd: string,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): string {
-  const unix = expandSupportedPathEnvironmentVariables(target.trim()).replace(/\\/g, '/');
+  const home = context.environment.home;
+  const unix = expandSupportedPathEnvironmentVariables(target.trim(), context.environment).replace(
+    /\\/g,
+    '/',
+  );
   if (!unix) return '';
   const expanded =
-    unix === '~' ? homedir() : unix.startsWith('~/') ? resolve(homedir(), unix.slice(2)) : unix;
+    unix === '~' ? home : unix.startsWith('~/') ? resolve(home, unix.slice(2)) : unix;
   return resolveExistingPath(
     normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
-    processPathResolver,
-    budget,
+    context.environment.paths,
+    context,
   ).replace(/\\/g, '/');
 }
 
@@ -149,19 +151,19 @@ export function extractMvOperandPaths(args: readonly string[]): {
 function applyShellState(
   segment: readonly string[],
   state: ProtectedPathShellState,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
   normalizeCwd: ProtectedPathCommandScanner['normalizeCwd'],
 ): ProtectedPathShellState {
   const variables = isAssignmentOnlySegment(segment)
     ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)])
     : state.variables;
-  const stripped = stripWrappers([...segment], createProcessEnvironment());
+  const stripped = stripWrappers([...segment], context.environment);
   const target = getBasename(stripped[0] ?? '').toLowerCase() === 'cd' ? stripped[1] : undefined;
   return {
     cwd:
       !target || target === '-'
         ? state.cwd
-        : normalizeCwd(expandTrackedShellVariables(target, variables), state.cwd, budget),
+        : normalizeCwd(expandTrackedShellVariables(target, variables), state.cwd, context),
     variables,
   };
 }

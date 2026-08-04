@@ -375,6 +375,7 @@ describe('parallel analysis budgets', () => {
       analyzeCommandInternal(command, 0, {
         policySnapshot: snapshot,
         environment: TEST_ENVIRONMENT,
+        protectedGitMetadata: null,
         policy: commandAnalysisPolicy(snapshot),
         strict: false,
         paranoidRm: false,

@@ -9,9 +9,8 @@ import {
   unwrapTransparentWrapper,
 } from '@/core/analyze/transparent-wrappers';
 import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { getBasename } from '@/core/shell';
-import type { EnvironmentContext } from '@/domain/analysis';
+import type { EnvironmentContext, ProtectedGitMetadata } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
 
 export interface ChildCommandContext {
@@ -37,7 +36,7 @@ export interface NestedCommandAnalyzeContext extends ChildCommandContext {
   allowTmpdirVar: boolean;
   worktreeMode?: boolean;
   scanWork?: { units: number };
-  protectedGitMetadata?: ProtectedGitMetadata | null;
+  protectedGitMetadata: ProtectedGitMetadata | null;
 }
 
 export interface NormalizedChildCommand {

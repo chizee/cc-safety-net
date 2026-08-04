@@ -6,7 +6,8 @@ import {
 import { analyzeCommand } from '@/core/analyze';
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
-import type { AnalyzeOptions, EnvironmentContext } from '@/domain/analysis';
+import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
+import type { AnalyzeOptions, EnvironmentContext, ProtectedGitMetadata } from '@/domain/analysis';
 import type { ExplainOptions } from '@/domain/explain';
 import type {
   CustomRule,
@@ -96,13 +97,17 @@ export function analyzeTestCommand(
   options: Omit<AnalyzeOptions, 'policySnapshot'> & {
     config?: TestPolicyInput;
     environment?: EnvironmentContext;
+    protectedGitMetadata?: ProtectedGitMetadata | null;
   } = {},
 ) {
   const { config, ...analyzeOptions } = options;
+  const snapshot = policySnapshot(config);
   return analyzeCommand(command, {
     environment: TEST_ENVIRONMENT,
+    effectiveCapabilities: getCCSafetyNetEnvModes(snapshot.policy).capabilities,
+    protectedGitMetadata: resolveProtectedGitMetadata(options.cwd),
     ...analyzeOptions,
-    policySnapshot: policySnapshot(config),
+    policySnapshot: snapshot,
   });
 }
 

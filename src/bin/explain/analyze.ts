@@ -6,7 +6,6 @@ import { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/destructive-command-ru
 import {
   findGitMetadataMutationTargetInSemanticFacts,
   REASON_GIT_METADATA_PROTECTION,
-  resolveProtectedGitMetadata,
 } from '@/core/git-metadata-protection';
 import {
   findPolicyConfigMutationTargetInSemanticFacts,
@@ -18,7 +17,7 @@ import {
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { createSemanticFacts } from '@/core/semantic-facts';
-import type { AnalyzeInput, AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { ExplainOptions, ExplainResult, ExplainTrace } from '@/domain/explain';
 import { createToolInvocation } from '@/domain/invocation';
@@ -116,7 +115,7 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
   };
 }
 
-function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
+function findPreAnalysisBlock(command: string, options: AnalyzeInput) {
   const cwd = options.cwd ?? process.cwd();
   const facts = createSemanticFacts(
     createToolInvocation(
@@ -138,7 +137,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
     };
   const gitMetadataTarget = findGitMetadataMutationTargetInSemanticFacts(
     facts,
-    resolveProtectedGitMetadata(cwd),
+    options.protectedGitMetadata,
   );
   if (gitMetadataTarget)
     return {
@@ -191,7 +190,6 @@ function identifyModeGatedCandidate(command: string, options: AnalyzeInput) {
   return analyzeCommand(command, {
     ...options,
     policySnapshot: candidateSnapshot,
-    effectiveCapabilities: undefined,
     strict: true,
     paranoidRm: true,
     paranoidInterpreters: true,

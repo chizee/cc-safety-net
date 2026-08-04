@@ -8,8 +8,8 @@ import {
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import { createProcessEnvironment } from '@/core/environment';
 import {
-  createPathCanonicalizationBudget,
-  type PathCanonicalizationBudget,
+  createPathCanonicalizationContext,
+  type PathCanonicalizationContext,
 } from '@/core/path-canonicalization';
 import { getUserPolicyPath } from '@/core/policy';
 import {
@@ -72,15 +72,15 @@ export function findPolicyConfigMutationTargetInToolInput(
 export function findPolicyConfigMutationTargetInSemanticFacts(
   facts: SemanticFacts,
 ): PolicyConfigTarget | null {
-  const budget = createPathCanonicalizationBudget();
-  const identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, budget);
+  const context = createPathCanonicalizationContext(createProcessEnvironment());
+  const identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, context);
   if (facts.invocation.route.kind === 'patch') {
     return findPolicyConfigMutationTargetInPaths(
       facts.paths.map((path) => path.raw),
       false,
       facts.invocation.context.executionCwd,
       identity,
-      budget,
+      context,
     );
   }
 
@@ -91,7 +91,7 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
           command.shell,
           facts.invocation.context.executionCwd,
           identity,
-          budget,
+          context,
         )
       : null;
   }
@@ -100,7 +100,7 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
       command.shell,
       facts.invocation.context.executionCwd,
       identity,
-      budget,
+      context,
     );
     if (target) return target;
   }
@@ -112,7 +112,7 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
       isReadOnlyTool(facts.invocation.toolName),
     facts.invocation.context.executionCwd,
     identity,
-    budget,
+    context,
   );
 }
 
@@ -121,10 +121,10 @@ function findPolicyConfigMutationTargetInPaths(
   readOnly: boolean,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): PolicyConfigTarget | null {
   if (readOnly) return null;
-  const target = paths.find((path) => isPolicyFile(path, cwd, identity, budget));
+  const target = paths.find((path) => isPolicyFile(path, cwd, identity, context));
   return target ? { target } : null;
 }
 
@@ -132,14 +132,14 @@ function findPolicyConfigMutationTargetInCommand(
   syntax: ShellSyntaxFacts,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): PolicyConfigTarget | null {
-  const target = findProtectedPathMutationInCommand(syntax, cwd, budget, {
+  const target = findProtectedPathMutationInCommand(syntax, cwd, context, {
     findSegmentTarget: (segment, state) =>
-      findPolicyConfigMutationTargetInSegment(segment, state, identity, budget)?.target ?? null,
-    isRedirectionTarget: (target, state) => isPolicyFile(target, state.cwd, identity, budget),
+      findPolicyConfigMutationTargetInSegment(segment, state, identity, context)?.target ?? null,
+    isRedirectionTarget: (target, state) => isPolicyFile(target, state.cwd, identity, context),
     findMalformedTarget: (source) =>
-      findPolicyConfigTargetInMalformedText(source, cwd, identity, budget)?.target ?? null,
+      findPolicyConfigTargetInMalformedText(source, cwd, identity, context)?.target ?? null,
     normalizeCwd: normalizeProtectedPathCandidate,
   });
   return target ? { target } : null;
@@ -149,10 +149,10 @@ function findPolicyConfigMutationTargetInSegment(
   segment: readonly string[],
   state: ProtectedPathShellState,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): PolicyConfigTarget | null {
   if (isAssignmentOnlySegment(segment)) return null;
-  const environment = createProcessEnvironment();
+  const environment = context.environment;
   const stripped = stripWrappers([...segment], environment);
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   const args = stripped.slice(1);
@@ -163,7 +163,7 @@ function findPolicyConfigMutationTargetInSegment(
         expandTrackedShellVariables(operand, state.variables),
         state.cwd,
         identity,
-        budget,
+        context,
       ),
     );
     if (target) return { target };
@@ -177,8 +177,8 @@ function findPolicyConfigMutationTargetInSegment(
       ).find((startingPoint) => {
         const expanded = expandTrackedShellVariables(startingPoint.text, state.variables);
         return (
-          isPolicyFile(expanded, state.cwd, identity, budget) ||
-          isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, budget)
+          isPolicyFile(expanded, state.cwd, identity, context) ||
+          isPolicyDirectoryOrAncestor(expanded, state.cwd, identity, context)
         );
       })?.text;
       if (target) return { target };
@@ -191,7 +191,7 @@ function findPolicyConfigMutationTargetInSegment(
         expandTrackedShellVariables(source, state.variables),
         state.cwd,
         identity,
-        budget,
+        context,
       ),
     );
     if (target) return { target };
@@ -205,7 +205,7 @@ function findPolicyConfigMutationTargetInSegment(
           expandTrackedShellVariables(candidate, state.variables),
           state.cwd,
           identity,
-          budget,
+          context,
         )
       ) {
         return { target: candidate };
@@ -252,11 +252,11 @@ function findPolicyConfigTargetInMalformedText(
   text: string,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): PolicyConfigTarget | null {
   for (const token of text.split(/\s+/)) {
     for (const candidate of extractDirectPathCandidates(token)) {
-      if (isPolicyFile(candidate, cwd, identity, budget)) return { target: candidate };
+      if (isPolicyFile(candidate, cwd, identity, context)) return { target: candidate };
     }
   }
   return null;
@@ -272,9 +272,9 @@ function extractDirectPathCandidates(value: string): readonly string[] {
 
 function createPolicyPathIdentity(
   cwd: string,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): PolicyPathIdentity {
-  const file = normalizeProtectedPathCandidate(getUserPolicyPath(), cwd, budget);
+  const file = normalizeProtectedPathCandidate(getUserPolicyPath(), cwd, context);
   const directory = dirname(file);
   const directoryAndAncestors = new Set<string>();
   for (let current = directory; ; current = dirname(current)) {
@@ -288,19 +288,19 @@ function isPolicyFile(
   target: string,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
-  return comparePath(normalizeProtectedPathCandidate(target, cwd, budget)) === identity.file;
+  return comparePath(normalizeProtectedPathCandidate(target, cwd, context)) === identity.file;
 }
 
 function isPolicyDirectoryOrAncestor(
   target: string,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
   return identity.directoryAndAncestors.has(
-    comparePath(normalizeProtectedPathCandidate(target, cwd, budget)),
+    comparePath(normalizeProtectedPathCandidate(target, cwd, context)),
   );
 }
 
@@ -308,9 +308,9 @@ function isPolicyFileOrDirectorySource(
   target: string,
   cwd: string,
   identity: PolicyPathIdentity,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
-  const normalized = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
+  const normalized = comparePath(normalizeProtectedPathCandidate(target, cwd, context));
   return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
 }
 

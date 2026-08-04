@@ -4,8 +4,8 @@ import { stripWrappers } from '@/core/analyze/wrapper-prelude';
 import { createProcessEnvironment } from '@/core/environment';
 import { findDotGitInAncestors, resolveDotGitFileTargets } from '@/core/git/worktree';
 import {
-  createPathCanonicalizationBudget,
-  type PathCanonicalizationBudget,
+  createPathCanonicalizationContext,
+  type PathCanonicalizationContext,
 } from '@/core/path-canonicalization';
 import {
   expandTrackedShellVariables,
@@ -18,17 +18,11 @@ import {
 import { getCommandSyntaxFact } from '@/core/semantic-facts';
 import { getBasename } from '@/core/shell';
 import { isReadOnlyTool } from '@/core/tool-input';
+import type { ProtectedGitMetadata } from '@/domain/analysis';
 import type { SemanticFacts } from '@/domain/semantic-facts';
 
 export const REASON_GIT_METADATA_PROTECTION =
   'Git metadata and hooks are protected. Ask the user before modifying them.';
-
-export type ProtectedGitMetadata = Readonly<{
-  entry: string;
-  markerFile: string | null;
-  directories: readonly string[];
-  hooksDirectories: readonly string[];
-}>;
 
 type GitMetadataTarget = Readonly<{ target: string }>;
 
@@ -36,7 +30,7 @@ export function findGitMetadataMutationTargetInSemanticFacts(
   facts: SemanticFacts,
   metadata = resolveProtectedGitMetadata(facts.invocation.context.executionCwd),
 ): GitMetadataTarget | null {
-  const budget = createPathCanonicalizationBudget();
+  const context = createPathCanonicalizationContext(createProcessEnvironment());
   const cwd = facts.invocation.context.executionCwd;
   if (!metadata) return null;
 
@@ -47,7 +41,7 @@ export function findGitMetadataMutationTargetInSemanticFacts(
   ) {
     if (isReadOnlyTool(facts.invocation.toolName)) return null;
     const target = facts.paths.find((path) =>
-      isProtectedGitWriteTarget(path.raw, cwd, metadata, budget),
+      isProtectedGitWriteTarget(path.raw, cwd, metadata, context),
     )?.raw;
     return target ? { target } : null;
   }
@@ -55,11 +49,11 @@ export function findGitMetadataMutationTargetInSemanticFacts(
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   if (!command) return null;
-  const target = findProtectedPathMutationInCommand(command.shell, cwd, budget, {
+  const target = findProtectedPathMutationInCommand(command.shell, cwd, context, {
     findSegmentTarget: (segment, state) =>
-      findGitMetadataMoveTarget(segment, state, metadata, budget),
+      findGitMetadataMoveTarget(segment, state, metadata, context),
     isRedirectionTarget: (target, state) =>
-      isProtectedGitRedirectionTarget(target, state.cwd, metadata, budget),
+      isProtectedGitRedirectionTarget(target, state.cwd, metadata, context),
     findMalformedTarget: () => null,
     normalizeCwd: normalizeProtectedPathCandidate,
   });
@@ -68,21 +62,21 @@ export function findGitMetadataMutationTargetInSemanticFacts(
 
 export function resolveProtectedGitMetadata(
   cwd: string | undefined,
-  budget = createPathCanonicalizationBudget(),
+  context = createPathCanonicalizationContext(createProcessEnvironment()),
 ): ProtectedGitMetadata | null {
   if (typeof cwd !== 'string' || !cwd) return null;
-  const dotGitPath = findDotGitInAncestors(normalizeProtectedPathCandidate(cwd, cwd, budget));
+  const dotGitPath = findDotGitInAncestors(normalizeProtectedPathCandidate(cwd, cwd, context));
   if (!dotGitPath) return null;
 
   try {
-    const entry = normalizeProtectedPathCandidate(dotGitPath, cwd, budget);
+    const entry = normalizeProtectedPathCandidate(dotGitPath, cwd, context);
     const stat = statSync(dotGitPath);
     const markerFile = stat.isFile() ? entry : null;
     const fileTargets = stat.isFile() ? resolveDotGitFileTargets(dotGitPath) : null;
     const canonicalDirectories = (
       stat.isDirectory() ? [entry] : [fileTargets?.gitDir, fileTargets?.commonDir]
     ).flatMap((path) =>
-      path ? [comparePath(normalizeProtectedPathCandidate(path, cwd, budget))] : [],
+      path ? [comparePath(normalizeProtectedPathCandidate(path, cwd, context))] : [],
     );
     // A symlinked .git directory canonicalizes to its external target, so keep
     // the lexical entry too — deleting the repository unlinks the control plane.
@@ -103,7 +97,7 @@ export function resolveProtectedGitMetadata(
         ...new Set(
           directories.flatMap((directory) => {
             const lexical = comparePath(join(directory, 'hooks'));
-            return [lexical, comparePath(normalizeProtectedPathCandidate(lexical, cwd, budget))];
+            return [lexical, comparePath(normalizeProtectedPathCandidate(lexical, cwd, context))];
           }),
         ),
       ]),
@@ -118,11 +112,11 @@ export function isProtectedGitDeleteTarget(
   cwd: string,
   metadata: ProtectedGitMetadata | null,
   recursive: boolean,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
   dotEntryGlobs = false,
 ): boolean {
   if (!metadata) return false;
-  const candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
+  const candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, context));
   const globBase = candidate.replace(/(\/\.?\*+)+$/, '');
   if (globBase !== candidate && globBase !== '') {
     if (isProtectedExactOrHookTarget(globBase, metadata)) return true;
@@ -151,20 +145,20 @@ function isProtectedGitMoveSource(
   target: string,
   cwd: string,
   metadata: ProtectedGitMetadata | null,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
-  return isProtectedGitDeleteTarget(target, cwd, metadata, true, budget);
+  return isProtectedGitDeleteTarget(target, cwd, metadata, true, context);
 }
 
 function isProtectedGitMoveDestination(
   target: string,
   cwd: string,
   metadata: ProtectedGitMetadata | null,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
   if (!metadata) return false;
   return isProtectedExactOrHookTarget(
-    comparePath(normalizeProtectedPathCandidate(target, cwd, budget)),
+    comparePath(normalizeProtectedPathCandidate(target, cwd, context)),
     metadata,
   );
 }
@@ -173,30 +167,30 @@ function isProtectedGitWriteTarget(
   target: string,
   cwd: string,
   metadata: ProtectedGitMetadata | null,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
   if (!metadata) return false;
-  return isProtectedGitWriteLikeTarget(target, cwd, metadata, budget, metadata.entry);
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata, context, metadata.entry);
 }
 
 function isProtectedGitRedirectionTarget(
   target: string,
   cwd: string,
   metadata: ProtectedGitMetadata | null,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
   if (!metadata) return false;
-  return isProtectedGitWriteLikeTarget(target, cwd, metadata, budget, metadata.markerFile);
+  return isProtectedGitWriteLikeTarget(target, cwd, metadata, context, metadata.markerFile);
 }
 
 function isProtectedGitWriteLikeTarget(
   target: string,
   cwd: string,
   metadata: ProtectedGitMetadata,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
   exactTarget: string | null,
 ): boolean {
-  const candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, budget));
+  const candidate = comparePath(normalizeProtectedPathCandidate(target, cwd, context));
   return candidate === exactTarget || isProtectedHookTarget(candidate, metadata);
 }
 
@@ -204,12 +198,12 @@ export function isProtectedGitHookNameSelection(
   startingPoints: readonly string[],
   cwd: string,
   metadata: ProtectedGitMetadata | null,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): boolean {
   if (!metadata) return false;
   return metadata.hooksDirectories.some((hooks) =>
     startingPoints.some((target) =>
-      isEqualOrWithin(hooks, comparePath(normalizeProtectedPathCandidate(target, cwd, budget))),
+      isEqualOrWithin(hooks, comparePath(normalizeProtectedPathCandidate(target, cwd, context))),
     ),
   );
 }
@@ -245,10 +239,10 @@ function findGitMetadataMoveTarget(
   segment: readonly string[],
   state: ProtectedPathShellState,
   metadata: ProtectedGitMetadata,
-  budget: PathCanonicalizationBudget,
+  context: PathCanonicalizationContext,
 ): string | null {
   if (isAssignmentOnlySegment(segment)) return null;
-  const stripped = stripWrappers([...segment], createProcessEnvironment());
+  const stripped = stripWrappers([...segment], context.environment);
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'mv') return null;
   const operands = extractMvOperandPaths(stripped.slice(1));
   const source = operands.sources.find((target) =>
@@ -256,7 +250,7 @@ function findGitMetadataMoveTarget(
       expandTrackedShellVariables(target, state.variables),
       state.cwd,
       metadata,
-      budget,
+      context,
     ),
   );
   if (source) return source;
@@ -265,7 +259,7 @@ function findGitMetadataMoveTarget(
       expandTrackedShellVariables(operands.destination, state.variables),
       state.cwd,
       metadata,
-      budget,
+      context,
     )
     ? operands.destination
     : null;

@@ -639,6 +639,7 @@ describe('analyzeCommand (coverage)', () => {
   describe('child command analyzer branches', () => {
     const childContext = {
       environment: TEST_ENVIRONMENT,
+      protectedGitMetadata: null,
       cwd: '/tmp',
       originalCwd: '/tmp',
       paranoidRm: false,
@@ -684,6 +685,7 @@ describe('analyzeCommand (coverage)', () => {
     test('find exec supports analyzeNested fallback when token analyzer is absent', () => {
       const result = analyzeFind(['find', '.', '-exec', 'git', 'reset', '--hard', ';'], {
         environment: TEST_ENVIRONMENT,
+        protectedGitMetadata: null,
         cwd: '/tmp',
         envAssignments: new Map<string, string>(),
         analyzeNested: analyzeNestedMatch,
@@ -704,6 +706,7 @@ describe('analyzeCommand (coverage)', () => {
       expect(
         analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], {
           environment: TEST_ENVIRONMENT,
+          protectedGitMetadata: null,
           cwd: '/tmp',
           envAssignments: new Map<string, string>(),
           analyzeNested: analyzeNestedMatch,
@@ -715,13 +718,17 @@ describe('analyzeCommand (coverage)', () => {
       expect(
         analyzeFind(['find', '.', '-exec', 'busybox', 'rm', '-rf', '{}', ';'], {
           environment: TEST_ENVIRONMENT,
+          protectedGitMetadata: null,
         }),
       ).toContain('find -exec rm -rf');
     });
 
     test('find exec direct fallback allows safe command', () => {
       expect(
-        analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], { environment: TEST_ENVIRONMENT }),
+        analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], {
+          environment: TEST_ENVIRONMENT,
+          protectedGitMetadata: null,
+        }),
       ).toBeNull();
     });
   });

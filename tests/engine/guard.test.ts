@@ -344,8 +344,8 @@ describe('guard evaluation', () => {
               expect(resolved).toBe(metadata);
               return null;
             },
-            analyzeCommand: (_command, _options, _program, _facts, resolved) => {
-              expect(resolved).toBe(metadata);
+            analyzeCommand: (_command, options) => {
+              expect(options.protectedGitMetadata).toBe(metadata);
               return null;
             },
           }),

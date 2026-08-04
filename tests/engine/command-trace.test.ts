@@ -10,7 +10,14 @@ import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
 import { parseCommand } from '@/parser/command';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
-import { policySnapshot } from '../helpers/policy';
+import { policySnapshot, testModes } from '../helpers/policy';
+
+const protectionDisabledInput = () => ({
+  policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
+  environment: TEST_ENVIRONMENT,
+  effectiveCapabilities: testModes().capabilities,
+  protectedGitMetadata: null,
+});
 
 describe('command trace recorder', () => {
   test('sanitizes before retaining events and deeply freezes the result', () => {
@@ -258,7 +265,12 @@ describe('command trace recorder', () => {
 
     const evaluation = evaluateCommandWithTrace(
       'bash -c "echo ok" && bash -c "echo ok"',
-      { policySnapshot: policySnapshot(), environment: TEST_ENVIRONMENT },
+      {
+        policySnapshot: policySnapshot(),
+        environment: TEST_ENVIRONMENT,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
+      },
       undefined,
       store,
     );
@@ -278,7 +290,12 @@ describe('command trace recorder', () => {
 
     const evaluation = evaluateCommandWithTrace(
       String.raw`Remove-Item C:\Windows -Recurse -Force`,
-      { policySnapshot: policySnapshot(), environment: TEST_ENVIRONMENT },
+      {
+        policySnapshot: policySnapshot(),
+        environment: TEST_ENVIRONMENT,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
+      },
       undefined,
       store,
     );
@@ -292,8 +309,7 @@ describe('command trace recorder', () => {
       ' ',
     )} ::: ${Array.from({ length: 129 }, () => 'y').join(' ')}`;
     const evaluation = evaluateCommandWithTrace(command, {
-      policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
-      environment: TEST_ENVIRONMENT,
+      ...protectionDisabledInput(),
     });
 
     expect(evaluation.decision).toEqual({
@@ -330,6 +346,8 @@ describe('command trace recorder', () => {
       analyzeCommand('git status', {
         policySnapshot: policySnapshot(),
         environment: TEST_ENVIRONMENT,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
       });
       expect(detailed).not.toHaveBeenCalled();
 
@@ -350,8 +368,7 @@ describe('command trace recorder', () => {
     tokens[3_615] = 'status';
     const command = tokens.join(' ');
     const evaluation = evaluateCommandWithTrace(command, {
-      policySnapshot: policySnapshot({ destructiveCommandProtectionEnabled: false }),
-      environment: TEST_ENVIRONMENT,
+      ...protectionDisabledInput(),
     });
 
     expect(evaluation.decision).toEqual({

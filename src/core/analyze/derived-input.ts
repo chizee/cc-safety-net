@@ -106,7 +106,8 @@ function analyzeDynamicStructure(
         policy,
       );
     }
-    if (filterDestructiveCommandMatch(analyzeGitMatch(gitWords), policy)) return null;
+    if (filterDestructiveCommandMatch(analyzeGitMatch(gitWords, { env: environment.env }), policy))
+      return null;
     const subcommand = words[subcommandIndex]?.text.toLowerCase();
     const dataBoundary = gitWords.findIndex(
       (word, index) => index > subcommandIndex && analysisWordText(word) === '--',

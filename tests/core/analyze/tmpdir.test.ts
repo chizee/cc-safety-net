@@ -5,7 +5,7 @@ import { analyzeCommandWithProgram } from '@/core/analyze';
 import { isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment } from '@/core/analyze/tmpdir';
 import type { EnvironmentContext } from '@/domain/analysis';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
-import { policySnapshot } from '../../helpers/policy';
+import { policySnapshot, testModes } from '../../helpers/policy';
 
 const isTmpdirOverriddenToNonTemp = (envAssignments: ReadonlyMap<string, string>) =>
   isTmpdirOverriddenWithEnvironment(envAssignments, TEST_ENVIRONMENT);
@@ -144,6 +144,8 @@ describe('analysis over an injected filesystem', () => {
         cwd: '/work',
         policySnapshot: policySnapshot(),
         environment,
+        effectiveCapabilities: testModes().capabilities,
+        protectedGitMetadata: null,
       });
 
     // The real filesystem has no /tmp/escape, so the target stays a trusted temp path.

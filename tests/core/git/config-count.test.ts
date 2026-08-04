@@ -2,13 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { textCommandWords } from '@/core/analyze/command-words';
 import { analyzeGitMatch as analyzeGitWords } from '@/core/git';
 import { getGitEnvValue, resolveGitConfigCount } from '@/core/git/env';
-import { createLinkedWorktreeFixture, withEnv } from '../../helpers';
+import type { EnvironmentContext } from '@/domain/analysis';
+import { createLinkedWorktreeFixture } from '../../helpers';
+import { testEnvironment } from '../../helpers/environment';
 import { analyzeTestCommand } from '../../helpers/policy';
 
 const analyzeGitMatch = (
   tokens: readonly string[],
-  options?: Parameters<typeof analyzeGitWords>[1],
-) => analyzeGitWords(textCommandWords(tokens), options);
+  options: Partial<Parameters<typeof analyzeGitWords>[1]> = {},
+) => analyzeGitWords(textCommandWords(tokens), { env: new Map(), ...options });
 
 const aliasConfigReason =
   'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
@@ -30,8 +32,8 @@ function configEnv(
   ]);
 }
 
-function expectAliasConfigBlock(command: string) {
-  expect(analyzeTestCommand(command)).toMatchObject({
+function expectAliasConfigBlock(command: string, environment?: EnvironmentContext) {
+  expect(analyzeTestCommand(command, { ...(environment ? { environment } : {}) })).toMatchObject({
     ruleId: 'git.alias-config',
     reason: aliasConfigReason,
   });
@@ -39,41 +41,40 @@ function expectAliasConfigBlock(command: string) {
 
 describe('Git config count resolution', () => {
   test('accepts only bounded whole ASCII decimal counts', () => {
-    expect(resolveGitConfigCount(new Map())).toEqual({ state: 'absent' });
-    expect(resolveGitConfigCount(new Map([['GIT_CONFIG_COUNT', '']]))).toEqual({
+    expect(resolveGitConfigCount(new Map(), new Map())).toEqual({ state: 'absent' });
+    expect(resolveGitConfigCount(new Map(), new Map([['GIT_CONFIG_COUNT', '']]))).toEqual({
       state: 'valid',
       count: 0,
     });
-    expect(resolveGitConfigCount(new Map([['GIT_CONFIG_COUNT', '0001024']]))).toEqual({
+    expect(resolveGitConfigCount(new Map(), new Map([['GIT_CONFIG_COUNT', '0001024']]))).toEqual({
       state: 'valid',
       count: 1024,
     });
 
     for (const value of ['+1', '-1', ' 1', '1 ', '1x', '1.0', '١', '9007199254740992', '1025']) {
-      expect(resolveGitConfigCount(new Map([['GIT_CONFIG_COUNT', value]]))).toEqual({
+      expect(resolveGitConfigCount(new Map(), new Map([['GIT_CONFIG_COUNT', value]]))).toEqual({
         state: 'invalid',
       });
     }
   });
 
   test('inline values mask inherited values even when empty', () => {
-    withEnv(
-      {
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'alias.nuke',
-        GIT_CONFIG_VALUE_0: 'reset',
-      },
-      () => {
-        expect(resolveGitConfigCount(new Map([['GIT_CONFIG_COUNT', '']]))).toEqual({
-          state: 'valid',
-          count: 0,
-        });
-        expect(getGitEnvValue('GIT_CONFIG_KEY_0', new Map([['GIT_CONFIG_KEY_0', '']]))).toBe('');
-        expect(getGitEnvValue('GIT_CONFIG_VALUE_0', new Map([['GIT_CONFIG_VALUE_0', '']]))).toBe(
-          '',
-        );
-      },
+    const inherited = new Map([
+      ['GIT_CONFIG_COUNT', '1'],
+      ['GIT_CONFIG_KEY_0', 'alias.nuke'],
+      ['GIT_CONFIG_VALUE_0', 'reset'],
+    ]);
+
+    expect(resolveGitConfigCount(inherited, new Map([['GIT_CONFIG_COUNT', '']]))).toEqual({
+      state: 'valid',
+      count: 0,
+    });
+    expect(getGitEnvValue('GIT_CONFIG_KEY_0', inherited, new Map([['GIT_CONFIG_KEY_0', '']]))).toBe(
+      '',
     );
+    expect(
+      getGitEnvValue('GIT_CONFIG_VALUE_0', inherited, new Map([['GIT_CONFIG_VALUE_0', '']])),
+    ).toBe('');
   });
 });
 
@@ -110,56 +111,56 @@ describe('Git config count fail-closed behavior', () => {
       ),
     ).toBeNull();
 
-    withEnv(
-      {
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'alias.nuke',
-        GIT_CONFIG_VALUE_0: 'reset',
-      },
-      () => expect(analyzeTestCommand("GIT_CONFIG_COUNT='' git status")).toBeNull(),
-    );
+    expect(
+      analyzeTestCommand("GIT_CONFIG_COUNT='' git status", {
+        environment: testEnvironment({
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'alias.nuke',
+          GIT_CONFIG_VALUE_0: 'reset',
+        }),
+      }),
+    ).toBeNull();
   });
 
   test('inline empty key masks an inherited key and fails closed', () => {
-    withEnv(
-      {
+    expectAliasConfigBlock(
+      "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='' GIT_CONFIG_VALUE_0=inline git status",
+      testEnvironment({
         GIT_CONFIG_COUNT: '1',
         GIT_CONFIG_KEY_0: 'user.name',
         GIT_CONFIG_VALUE_0: 'inherited',
-      },
-      () =>
-        expectAliasConfigBlock(
-          "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='' GIT_CONFIG_VALUE_0=inline git status",
-        ),
+      }),
     );
   });
 
   test('inline empty values mask inherited config sources', () => {
-    withEnv(
-      {
-        GIT_CONFIG_VALUE_0: 'inherited',
-        GIT_CONFIG_PARAMETERS: "'alias.nuke=reset --hard'",
-        ALIAS_VALUE: 'reset --hard',
-      },
-      () => {
-        expect(
-          analyzeTestCommand(
-            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0='' git status",
-          ),
-        ).toBeNull();
-        expect(analyzeTestCommand('git status')).toBeNull();
-        expect(analyzeTestCommand("GIT_CONFIG_PARAMETERS='' git status")).toMatchObject({
-          ruleId: 'git.alias-config',
-          reason: aliasConfigReason,
-        });
-        expect(analyzeTestCommand('git --config-env alias.nuke=ALIAS_VALUE nuke')?.ruleId).toBe(
-          'git.reset-hard',
-        );
-        expect(
-          analyzeTestCommand("ALIAS_VALUE='' git --config-env alias.nuke=ALIAS_VALUE nuke"),
-        ).toMatchObject({ ruleId: 'git.alias-config', reason: aliasConfigReason });
-      },
-    );
+    const environment = testEnvironment({
+      GIT_CONFIG_VALUE_0: 'inherited',
+      GIT_CONFIG_PARAMETERS: "'alias.nuke=reset --hard'",
+      ALIAS_VALUE: 'reset --hard',
+    });
+
+    expect(
+      analyzeTestCommand(
+        "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0='' git status",
+        { environment },
+      ),
+    ).toBeNull();
+    expect(analyzeTestCommand('git status', { environment })).toBeNull();
+    expect(
+      analyzeTestCommand("GIT_CONFIG_PARAMETERS='' git status", { environment }),
+    ).toMatchObject({
+      ruleId: 'git.alias-config',
+      reason: aliasConfigReason,
+    });
+    expect(
+      analyzeTestCommand('git --config-env alias.nuke=ALIAS_VALUE nuke', { environment })?.ruleId,
+    ).toBe('git.reset-hard');
+    expect(
+      analyzeTestCommand("ALIAS_VALUE='' git --config-env alias.nuke=ALIAS_VALUE nuke", {
+        environment,
+      }),
+    ).toMatchObject({ ruleId: 'git.alias-config', reason: aliasConfigReason });
   });
 
   test('keeps last-wins alias ordering and blocks unsafe include entries', () => {

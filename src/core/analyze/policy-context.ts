@@ -1,5 +1,5 @@
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
-import { deriveEffectiveSafetyLevel, getCCSafetyNetEnvModes } from '@/core/env';
+import { deriveEffectiveSafetyLevel } from '@/core/env';
 import type { AnalyzeOptions } from '@/domain/analysis';
 import type { EffectiveCapabilityState } from '@/domain/policy';
 
@@ -15,10 +15,7 @@ type PolicyContextOptions = Pick<
 
 /** @internal */
 export function resolveCommandAnalysisContext(options: PolicyContextOptions) {
-  const modes = options.effectiveCapabilities
-    ? undefined
-    : getCCSafetyNetEnvModes(options.policySnapshot.policy);
-  const capabilities = options.effectiveCapabilities ?? modes?.capabilities;
+  const capabilities = options.effectiveCapabilities;
   if (!capabilities) throw new Error('Effective safety capabilities could not be resolved.');
   const strict = options.strict ?? capabilities.fail_closed.enabled;
   const paranoidRm = options.paranoidRm ?? capabilities.paranoid_rm.enabled;
@@ -44,7 +41,7 @@ export function resolveCommandAnalysisContext(options: PolicyContextOptions) {
     strict,
     paranoidRm,
     paranoidInterpreters,
-    worktreeMode: options.worktreeMode ?? modes?.worktreeMode ?? false,
+    worktreeMode: options.worktreeMode ?? false,
   };
 }
 

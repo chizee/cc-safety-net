@@ -29,6 +29,14 @@ export type PathResolver = Readonly<{
   entryKind: (path: string) => 'symlink' | 'present' | 'missing';
 }>;
 
+/** Git control-plane paths that must not be mutated, resolved once at the entry point. */
+export type ProtectedGitMetadata = Readonly<{
+  entry: string;
+  markerFile: string | null;
+  directories: readonly string[];
+  hooksDirectories: readonly string[];
+}>;
+
 /** Ambient process state the analyzer reads, captured once at the entry point. */
 export type EnvironmentContext = Readonly<{
   env: ReadonlyMap<string, string>;
@@ -71,7 +79,10 @@ export interface AnalyzeOptions {
  * What the analyzer entry point needs: the caller's options plus the process state it must
  * read instead of touching env, home, tmpdir or the filesystem.
  */
-export type AnalyzeInput = AnalyzeOptions & { environment: EnvironmentContext };
+export type AnalyzeInput = AnalyzeOptions & {
+  environment: EnvironmentContext;
+  protectedGitMetadata: ProtectedGitMetadata | null;
+};
 
 export interface AnalyzeNestedOverrides {
   effectiveCwd?: string | null;

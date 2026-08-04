@@ -11,6 +11,8 @@ import {
 import { getGitExecutionContext, hasGitContextEnvOverride, isLinkedWorktree } from './worktree';
 
 export interface GitAnalyzeOptions {
+  /** Inherited environment the Git context resolution reads, captured by the caller. */
+  env: ReadonlyMap<string, string>;
   cwd?: string;
   envAssignments?: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
@@ -34,7 +36,7 @@ export function getGitWorktreeRelaxationForMatch(
   if (
     !match.localDiscard ||
     !options.worktreeMode ||
-    hasGitContextEnvOverride(options.envAssignments)
+    hasGitContextEnvOverride(options.env, options.envAssignments)
   ) {
     return null;
   }
@@ -69,7 +71,7 @@ function isNonRelaxableLocalDiscard(
   if (
     options.dynamicArguments ||
     hasDynamicGitArgument(rest) ||
-    hasRecursiveSubmoduleConfig(tokens, options.envAssignments, gitCwd) ||
+    hasRecursiveSubmoduleConfig(tokens, options.env, options.envAssignments, gitCwd) ||
     hasRecurseSubmodulesOption(rest) ||
     isForcedBranchReset(normalizedSubcommand, rest)
   ) {

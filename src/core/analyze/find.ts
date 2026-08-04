@@ -217,7 +217,7 @@ function findCatastrophicDeleteMatch(
       targets.map(analysisWordText),
       targetContext.resolvedCwd,
       targetContext.protectedGitMetadata,
-      targetContext.pathCanonicalizationBudget,
+      targetContext.pathCanonicalizationContext,
     )
   ) {
     return destructiveCommandMatch('find.delete-git-metadata', REASON_GIT_METADATA_PROTECTION);
@@ -269,6 +269,7 @@ function hasOnlyTrustedTempDeleteTargets(
     context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments, context.environment);
   const targetContext = createRecursiveDeleteTargetContext({
     environment: context.environment,
+    protectedGitMetadata: context.protectedGitMetadata,
     cwd: context.cwd,
     originalCwd: context.originalCwd,
     strict: context.strict,

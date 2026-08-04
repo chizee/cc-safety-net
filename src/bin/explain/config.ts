@@ -8,6 +8,7 @@ import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { validateRulesConfigFile } from '@/core/config';
 import { getCCSafetyNetEnvModes } from '@/core/env';
 import { createProcessEnvironment } from '@/core/environment';
+import { resolveProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
 import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
@@ -84,6 +85,8 @@ export function buildAnalyzeOptions(explainOptions?: ExplainOptions): AnalyzeInp
     effectiveCwd: cwd,
     policySnapshot,
     environment: createProcessEnvironment(),
+    protectedGitMetadata: resolveProtectedGitMetadata(cwd),
+    effectiveCapabilities: modes.capabilities,
     strict: explainOptions?.strict ?? modes.strict,
     paranoidRm: modes.paranoidRm,
     paranoidInterpreters: modes.paranoidInterpreters,

@@ -7,7 +7,6 @@ import { analyzeRmMatch } from '@/core/analyze/rm';
 import { hasUnsafeTmpdirWordSplitting, isTmpdirValueTrusted } from '@/core/analyze/tmpdir';
 import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGitMatch } from '@/core/git';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import type {
   AnalyzeInput,
   AnalyzeNestedOverrides,
@@ -32,7 +31,6 @@ export type InternalOptions = AnalyzeInput & {
   literalShellInput?: string;
   literalHeredocFiles?: ReadonlyMap<string, string>;
   wrapperNormalizationBudget?: { iterations: number };
-  protectedGitMetadata?: ProtectedGitMetadata | null;
 };
 
 export type AnalyzerRuleContext = {
@@ -172,6 +170,7 @@ export function matchFromBlockResult(
 /** Shared with the trace path, which calls analyzeGitDetailed for the worktree relaxation. */
 export function gitAnalyzeOptions(context: AnalyzerRuleContext) {
   return {
+    env: context.options.environment.env,
     cwd: context.cwd,
     dynamicArguments: context.dynamicArguments,
     envAssignments: context.envAssignments,

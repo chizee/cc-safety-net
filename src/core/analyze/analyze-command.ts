@@ -45,7 +45,6 @@ import {
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
 } from '@/core/destructive-command-rules';
-import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type {
@@ -74,7 +73,6 @@ export type InternalOptions = AnalyzeInput & {
   parallelBudget?: ParallelAnalysisBudget;
   scanWork?: { units: number };
   literalHeredocFiles?: ReadonlyMap<string, string>;
-  protectedGitMetadata?: ProtectedGitMetadata | null;
   rootProgram?: CommandProgram;
 };
 
