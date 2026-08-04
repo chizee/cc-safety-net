@@ -36,6 +36,26 @@ describe('rulebook validation', () => {
     expect(assertValidRulebook(rulebook()).name).toBe('project-rules');
   });
 
+  test('accepts a rulebook with no fixtures', () => {
+    expect(
+      validateRulebook({
+        rulebook_version: 1,
+        name: 'project-rules',
+        version: '1.0.0',
+        allowed_commands: ['docker'],
+        rules: [
+          {
+            name: 'block-docker-prune',
+            command: 'docker',
+            subcommand: 'system',
+            block_args: ['prune'],
+            reason: 'Use targeted cleanup.',
+          },
+        ],
+      }).errors,
+    ).toEqual([]);
+  });
+
   test('reports schema errors with enough detail to repair the rulebook', () => {
     const result = validateRulebook({
       rulebook_version: 2,

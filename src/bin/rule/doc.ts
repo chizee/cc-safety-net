@@ -94,7 +94,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 | \`author\` | No | Free text; not type-checked at runtime |
 | \`allowed_commands\` | Yes | Unique command names matching \`^[a-zA-Z][a-zA-Z0-9_-]*$\` |
 | \`rules\` | Yes | Array of rule objects |
-| \`tests\` | Yes | Array of fixtures |
+| \`tests\` | No | Array of fixtures |
 
 ### Rule Fields
 
@@ -115,7 +115,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 | \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
 | \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
 
-Every rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands. Fixtures are shape-validated only; CC Safety Net does not execute them.
+Fixtures are optional documentation of intended behavior. Fixtures are shape-validated only; CC Safety Net does not execute them.
 
 ## Matching Behavior
 

@@ -55,9 +55,9 @@ export function validateRulebook(rulebook: unknown): ValidationResult {
       }
     }
   }
-  if (!diagnostics.stopped) {
+  if (!diagnostics.stopped && rb.tests !== undefined) {
     if (!Array.isArray(rb.tests)) {
-      diagnostics.add('tests: required array');
+      diagnostics.add('tests: must be an array if provided');
     } else {
       validateFixtures(rb.tests, rb.rules, diagnostics);
     }
@@ -156,13 +156,6 @@ function validateFixtures(
     }
     if (f.expect === 'blocked' && typeof f.rule === 'string') {
       blockedFixtures.add(f.rule);
-    }
-  }
-
-  for (let i = 0; !diagnostics.stopped && i < (Array.isArray(rules) ? rules.length : 0); i++) {
-    const rule = (rules as unknown[])[i] as Record<string, unknown>;
-    if (typeof rule.name === 'string' && !blockedFixtures.has(rule.name)) {
-      diagnostics.add(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
     }
   }
 

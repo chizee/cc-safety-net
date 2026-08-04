@@ -14,5 +14,5 @@ export interface Rulebook {
   author?: string;
   allowed_commands: string[];
   rules: CustomRule[];
-  tests: RulebookFixture[];
+  tests?: RulebookFixture[];
 }
